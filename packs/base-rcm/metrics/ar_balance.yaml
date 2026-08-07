@@ -1,0 +1,28 @@
+# A/R balance — SNAPSHOT of open receivable value, cuttable by the derived
+# ar_age_bucket dimension for the aging profile.
+id: ar_balance
+version: 1
+kind: snapshot
+entity_grain: claim
+numerator:
+  filtered:
+    inner: {sum: billed_amount_cents}
+    where: {dimension: status, op: in, values: [OPEN, DENIED]}
+primary_date_basis: service
+allowed_date_bases: [service, submission]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, provider,
+   provider_specialty, facility, region, service_line, claim_type,
+   payer_sequence, ar_age_bucket]
+sign: neutral
+unit: money_cents
+description: >-
+  Open accounts receivable as of the snapshot: billed value of unresolved
+  claims (status OPEN or DENIED — denied-standing inventory remains
+  receivable until worked or written off). Valuation caveat: this warehouse
+  keeps no per-claim net open balance, so A/R is valued at gross billed
+  charges, not net of partial payments — a gross-A/R view, stated in every
+  answer. Cut by ar_age_bucket (derived at probe time from the newest data
+  date on the service or submission aging basis) for the aging profile;
+  unsubmitted claims are included, so an is-null submission filter yields
+  the unbilled A/R view.

@@ -1,0 +1,31 @@
+# Timely-filing at-risk dollars — SNAPSHOT of unsubmitted inventory read
+# against the pack's governed filing rules. Pre-denial early warning: the
+# differentiating counterpart to counting CARC 29 losses after the fact.
+id: timely_filing_at_risk_dollars
+version: 1
+kind: snapshot
+entity_grain: claim
+numerator:
+  filtered:
+    inner: {sum: billed_amount_cents}
+    where:
+      and:
+        - {dimension: submission_date, op: is_null}
+        - {dimension: status, op: eq, value: OPEN}
+primary_date_basis: service
+allowed_date_bases: [service]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, provider,
+   provider_specialty, facility, region, service_line, claim_type]
+sign: higher_is_bad
+unit: money_cents
+description: >-
+  Billed value of open, never-submitted claims as of the snapshot — the
+  inventory whose filing clocks are running. The contract defines the
+  population and valuation (gross billed charges); deadline proximity is
+  computed at probe time by joining each claim's payer/plan to the pack's
+  filing_rules (limit days, basis, authority, confirmation requirement) and
+  aging from the snapshot's newest data date on the service basis.
+  Rules marked requires_confirmation are planning defaults, and answers say
+  so. The planted scenario ages a July service cluster on a 90-day
+  service-basis Medicaid HMO plan toward its deadline.

@@ -1,0 +1,1577 @@
+# Governed RCM concept dictionary (design section 5.1; research section 3).
+# Definitions are written in our own plain language — no licensed text is
+# reproduced. Aliases carry analyst and EHR-native vocabulary (Epic-Clarity,
+# athenahealth, Cerner/Oracle Health, MEDITECH, IDX styles). Alias uniqueness
+# across concepts is enforced by the pack snapshot.
+concepts:
+  # ------------------------------------------------------------------
+  # Patient access (front end)
+  # ------------------------------------------------------------------
+  - id: patient_access
+    name: Patient Access
+    description: Front-end revenue-cycle functions before and at the point of care.
+    definition: >-
+      Patient access covers the front end of the revenue cycle: scheduling,
+      pre-registration, insurance eligibility verification, prior
+      authorization, financial counseling, and point-of-service collections.
+      Failures here surface later as eligibility, authorization, and
+      coordination-of-benefits denials.
+    aliases:
+      - front end
+      - front-end revenue cycle
+      - access services
+      - patient access services
+    related: [eligibility_verification, prior_authorization, pos_collections]
+  - id: eligibility_verification
+    name: Eligibility Verification
+    description: Confirming active coverage and benefits before or at service.
+    definition: >-
+      Eligibility verification confirms that a patient holds active coverage
+      with the billed payer for the date of service, and identifies plan,
+      benefit, and coordination-of-benefits details. It is typically run as an
+      EDI 270 inquiry answered by a 271 response. Missed or stale verification
+      is a leading driver of eligibility-category denials.
+    aliases:
+      - eligibility
+      - eligibility check
+      - insurance verification
+      - coverage verification
+      - "270"
+      - "271"
+      - 270/271
+      - eligibility inquiry
+    related: [patient_access, denial_category, cob]
+  - id: prior_authorization
+    name: Prior Authorization
+    description: Payer approval required before certain services are rendered.
+    definition: >-
+      Prior authorization is a payer's advance approval requirement for
+      specific services. Rendering care without a required authorization
+      commonly produces an authorization-category denial (CARC 197 in this
+      warehouse's data). The EDI 278 transaction carries authorization
+      requests and responses; federal rule CMS-0057-F tightens decision
+      timelines and transparency for government programs.
+    aliases:
+      - prior auth
+      - precert
+      - precertification
+      - pre-authorization
+      - auth
+      - authorization
+      - "278"
+      - gold carding
+    sources:
+      - id: src-cms-0057
+        title: CMS Interoperability and Prior Authorization Final Rule (CMS-0057-F)
+        publisher: Centers for Medicare & Medicaid Services
+        url: https://www.cms.gov/newsroom/fact-sheets/cms-interoperability-prior-authorization-final-rule-cms-0057-f
+        authority: federal_program_guidance
+    related: [denial_category, denial]
+  - id: pos_collections
+    name: Point-of-Service Collections
+    description: Patient payments collected at or near the time of service.
+    definition: >-
+      Point-of-service collections are patient payments (copays, deductibles,
+      prior balances) collected at or shortly after the time of service,
+      before normal statement cycles. HFMA MAP Key PA-7 tracks POS cash as a
+      share of self-pay cash. This warehouse's patient payments post only
+      after adjudication, so a POS-collection metric is not honestly
+      computable here (see pack NOTES).
+    aliases:
+      - point of service collections
+      - point-of-service cash
+      - pos cash
+      - upfront collections
+      - time of service collections
+      - tos collections
+    sources:
+      - id: src-hfma-map-keys
+        title: HFMA MAP Keys
+        publisher: Healthcare Financial Management Association
+        url: https://www.hfma.org/data-and-insights/map-initiative/map-keys/
+        authority: industry_association_guidance
+    related: [patient_cash, patient_responsibility, patient_access]
+  - id: self_pay
+    name: Self-Pay
+    description: Balances owed directly by the patient or guarantor.
+    definition: >-
+      Self-pay is the financial class for balances owed directly by the
+      patient, either because there is no coverage or because insurance has
+      adjudicated and left a patient-responsibility balance (self-pay after
+      insurance). Statement cycles, early-out programs, and agency placement
+      manage this inventory.
+    aliases:
+      - self pay
+      - self-pay after insurance
+      - spai
+      - private pay
+      - uninsured
+      - early out
+    related: [patient_responsibility, patient_cash, financial_class]
+
+  # ------------------------------------------------------------------
+  # Mid-cycle: charge capture, coding, unbilled
+  # ------------------------------------------------------------------
+  - id: charge_capture
+    name: Charge Capture
+    description: Recording billable services as charges on an account.
+    definition: >-
+      Charge capture is the process of recording every billable service as a
+      charge on the correct account, with the right code, units, and date.
+      Epic tooling includes the Charge Router and charge review workqueues;
+      athenahealth surfaces missing charges and slips. Weak charge capture
+      shows up as charge lag, late charges, and missing revenue.
+    aliases:
+      - charge entry
+      - charge posting
+      - missing charges
+      - charge reconciliation
+      - charge router
+      - charge session
+      - revenue capture
+    related: [charge_lag, late_charges, cdm]
+  - id: charge_lag
+    name: Charge Lag
+    description: Delay between service and charge entry.
+    definition: >-
+      Charge lag is the number of days between the date of service and the
+      date the charge is entered on the account (HFMA MAP Key PB-4 measures
+      total charge lag days). Long lag delays billing, distorts revenue
+      timing, and pushes charges toward filing deadlines. Best-practice
+      programs hold charge entry to one or two days.
+    aliases:
+      - charge entry lag
+      - charge delay
+      - days to charge
+      - total charge lag days
+    sources:
+      - id: src-hfma-map-keys
+        title: HFMA MAP Keys
+        publisher: Healthcare Financial Management Association
+        url: https://www.hfma.org/data-and-insights/map-initiative/map-keys/
+        authority: industry_association_guidance
+    related: [charge_capture, late_charges, bill_lag]
+  - id: late_charges
+    name: Late Charges
+    description: Charges entered well after the service date.
+    definition: >-
+      Late charges are charges entered materially after the service date
+      (this pack's late_charge_pct contract uses more than three days after
+      the line's service date, following the MAP CL-2 shape). Late charges
+      arriving after claim submission force rebills or are written off.
+    aliases:
+      - late charge
+      - charges after billing
+      - post-bill charges
+    related: [charge_capture, charge_lag, rebill]
+  - id: dnfb
+    name: Discharged Not Final Billed (DNFB)
+    description: Discharged accounts whose claims have not yet gone out.
+    definition: >-
+      DNFB is the inventory of accounts where care is complete (the patient
+      is discharged) but no final bill has been submitted, usually because of
+      coding, documentation, or billing-edit holds. It is unbilled revenue
+      sitting still: HFMA MAP Key PB-1 expresses it as days of gross revenue.
+      In this warehouse a DNFB claim has a discharge date and no submission
+      date. Epic calls the state DNB (Discharged Not Billed); Cerner uses
+      Discharged Not Ready To Bill; MEDITECH reports unbilled accounts.
+    aliases:
+      - DNFB
+      - DNB
+      - discharged not billed
+      - discharged not final billed
+      - discharged not ready to bill
+      - unbilled accounts
+      - unprinted bills
+    sources:
+      - id: src-mdclarity-dnfb
+        title: What is DNFB in Healthcare?
+        publisher: MD Clarity
+        url: https://www.mdclarity.com/blog/dnfb-in-healthcare
+        authority: industry_reference
+      - id: src-hfma-map-keys
+        title: HFMA MAP Keys
+        publisher: Healthcare Financial Management Association
+        url: https://www.hfma.org/data-and-insights/map-initiative/map-keys/
+        authority: industry_association_guidance
+    related: [candidate_for_bill, fbns, unbilled_ar, coding_backlog]
+  - id: candidate_for_bill
+    name: Candidate for Bill (CFB)
+    description: Epic pre-bill state for accounts ready to drop.
+    definition: >-
+      Candidate for Bill is Epic's pre-bill state: the account has met billing
+      criteria and is queued to generate a claim, pending any remaining edits
+      or holds. Accounts stuck in CFB alongside DNB accounts make up the
+      unbilled backlog analysts watch daily.
+    aliases:
+      - CFB
+      - candidate for billing
+      - cfb wq
+    related: [dnfb, claim_hold, workqueue]
+  - id: fbns
+    name: Final Billed Not Submitted (FBNS)
+    description: Claims generated but not yet released to the payer.
+    definition: >-
+      FBNS is the state between final billing and actual submission: the
+      claim exists but has not gone out the door (HFMA MAP Key PB-2; PB-3's
+      DNSP combines DNFB and FBNS). This warehouse has no intermediate
+      final-bill state, so FBNS is vocabulary here, structurally folded into
+      DNFB.
+    aliases:
+      - final billed not submitted
+      - dnsp
+      - discharged not submitted to payer
+    related: [dnfb, claim_submission]
+  - id: coding_backlog
+    name: Coding Backlog (DNC)
+    description: Discharged accounts awaiting coding.
+    definition: >-
+      The coding backlog is the set of discharged accounts that cannot bill
+      because coding is incomplete — often reported as DNC (Discharged Not
+      Coded). It is the upstream cause of much of the DNFB inventory. This
+      warehouse carries no coding-status field, so DNC is vocabulary only.
+    aliases:
+      - DNC
+      - discharged not coded
+      - coding queue
+      - uncoded accounts
+    related: [dnfb, cdm]
+  - id: unbilled_ar
+    name: Unbilled A/R
+    description: Receivable value not yet billed to any payer.
+    definition: >-
+      Unbilled A/R is receivable value that exists as rendered service but has
+      not yet been billed — the sum of DNFB, coding backlog, and held claims.
+      MAP Key AR-3 includes it in total accounts receivable; aging it against
+      filing limits is what the timely-filing-at-risk view does.
+    aliases:
+      - unbilled accounts receivable
+      - unbilled inventory
+      - pre-bill ar
+      - unbilled claims
+    related: [dnfb, timely_filing, accounts_receivable]
+  - id: cdm
+    name: Chargemaster (CDM)
+    description: The master price and code list for billable items.
+    definition: >-
+      The chargemaster (charge description master) is the master file of
+      billable items, codes, and prices that drives gross charges. Every
+      billed amount in this warehouse is a chargemaster-style gross charge,
+      distinct from contract-expected or allowed amounts.
+    aliases:
+      - chargemaster
+      - charge description master
+      - CDM
+      - price list
+    related: [gross_charges, charge_capture]
+
+  # ------------------------------------------------------------------
+  # Billing and submission
+  # ------------------------------------------------------------------
+  - id: claim_submission
+    name: Claim Submission
+    description: Releasing a claim to the payer or clearinghouse.
+    definition: >-
+      Claim submission is the release of a completed claim to the payer,
+      usually through a clearinghouse, as an EDI 837. The submission date
+      starts adjudication and most timely-filing clocks. athenahealth's DROP
+      status marks claims ready to submit. In this warehouse an unsubmitted
+      claim has a null submission date.
+    aliases:
+      - submission
+      - claim filing
+      - filed claims
+      - drop
+      - claims out the door
+      - claim run
+    related: [claim_transaction, bill_lag, timely_filing]
+  - id: bill_lag
+    name: Bill Lag
+    description: Days from service (or discharge) to claim submission.
+    definition: >-
+      Bill lag is the number of days between the service (or discharge, for
+      institutional stays) and claim submission. It combines charge lag,
+      coding time, and billing-edit time; long bill lag delays cash and eats
+      into filing limits.
+    aliases:
+      - days to bill
+      - submission lag
+      - service to bill
+      - days to submit
+    related: [charge_lag, dnfb, claim_submission]
+  - id: clean_claim
+    name: Clean Claim
+    description: A claim that needs no manual intervention to be accepted and paid.
+    definition: >-
+      A clean claim passes payer and clearinghouse edits and adjudicates
+      without manual rework or denial. HFMA MAP Key CL-1 measures the clean
+      claim rate at the scrubber; this warehouse has no scrubber events, so
+      its clean-claim flag is outcome-derived — a claim that resolved with no
+      denial recorded (see the clean_claim_rate contract description).
+    aliases:
+      - clean claims
+      - no-touch claim
+      - first pass clean
+    sources:
+      - id: src-techtarget-clean
+        title: Difference Between Clean Claims, Initial Claim Denials
+        publisher: TechTarget / RevCycle Management
+        url: https://www.techtarget.com/revcyclemanagement/news/366601124/Difference-Between-Clean-Claims-Initial-Claim-Denials-Key-Hospital-KPI
+        authority: industry_reference
+    related: [claim_scrubbing, denial, first_pass_yield_concept]
+  - id: first_pass_yield_concept
+    name: First-Pass Yield
+    description: Claims paid on first submission without rework.
+    definition: >-
+      First-pass yield (first-pass resolution rate) is the share of submitted
+      claims paid on their first adjudication with no denial, rework, or
+      resubmission. It differs from the clean claim rate, which is measured
+      at pre-submission edits; first-pass yield is measured at the payer
+      outcome. The first_pass_yield metric contract implements it on the
+      warehouse's first_pass_paid flag.
+    aliases:
+      - first pass resolution
+      - first-pass resolution rate
+      - fpy
+      - paid first pass
+    related: [clean_claim, denial, rebill]
+  - id: claim_scrubbing
+    name: Claim Scrubbing
+    description: Pre-submission edit checks on claims.
+    definition: >-
+      Claim scrubbing runs claims through edit rules (payer rules, code
+      pairings, required fields) before submission so errors are fixed
+      upstream of the payer. athenahealth distinguishes global and local
+      rules; Epic uses claim edit workqueues. Claims failing edits become
+      held or rejected claims, not payer denials.
+    aliases:
+      - scrubber
+      - claim edits
+      - edit checks
+      - front end scrubs
+      - billing edits
+    related: [clean_claim, clearinghouse_rejection, workqueue]
+  - id: clearinghouse_rejection
+    name: Rejection (Clearinghouse / Front-End)
+    description: Pre-adjudication refusal of a claim; not a denial.
+    definition: >-
+      A rejection is a refusal of the claim before adjudication — by the
+      clearinghouse or the payer's front end — usually for format or
+      completeness problems, reported on acknowledgments such as the 277CA.
+      A rejected claim never entered adjudication, so it is corrected and
+      resubmitted rather than appealed. This is the canonical contrast with a
+      denial, which is an adjudicated determination on the remittance. This
+      warehouse carries no clearinghouse-rejection events; the distinction is
+      governed vocabulary.
+    aliases:
+      - rejection
+      - rejected claim
+      - front-end rejection
+      - clearinghouse denial
+      - payer rejection
+      - 277ca rejection
+    related: [denial, claim_scrubbing, claim_status_inquiry]
+  - id: claim_hold
+    name: Claim Hold
+    description: A claim deliberately stopped from billing.
+    definition: >-
+      A claim hold stops a claim from dropping until a condition clears. Epic
+      calls these stop bills or bill holds (with DNB checks); athenahealth
+      uses HOLD statuses (MGRHOLD, CBOHOLD, ATHENAHOLD) and kick codes that
+      route claims into hold buckets; MEDITECH has proration holds. Held
+      claims accumulate as unbilled inventory and age against filing limits.
+    aliases:
+      - hold
+      - bill hold
+      - stop bill
+      - billing hold
+      - mgrhold
+      - cbohold
+      - athenahold
+      - kick code
+      - kick reason
+      - hold bucket
+    related: [workqueue, dnfb, timely_filing]
+  - id: workqueue
+    name: Workqueue
+    description: A worklist of accounts or claims needing action.
+    definition: >-
+      A workqueue is the EHR's routed worklist of accounts, claims, or remits
+      needing human action — Epic WQs (charge review, claim edit, follow-up,
+      credit, denial), athenahealth worklists and the Workflow Dashboard,
+      Cerner work-queue states (Edit Failure, Pending Manual Review),
+      IDX/TES workfiles and ETM tasks. Denial and follow-up workqueues are
+      where denial analytics turn into worked inventory.
+    aliases:
+      - WQ
+      - work queue
+      - worklist
+      - workfile
+      - follow-up wq
+      - claim edit wq
+      - denial wq
+      - etm task
+    related: [claim_hold, denial, unworked_denials]
+  - id: rebill
+    name: Rebill (Corrected Claim)
+    description: Resubmission of a corrected claim after a rejection or denial.
+    definition: >-
+      A rebill is the resubmission of a claim after correction — identified
+      on institutional claims by frequency/bill type ending in 7 and on
+      professional claims by a resubmission indicator. Industry-standard
+      initial-denial denominators exclude rebills so resubmissions are not
+      double counted. In this warehouse, second remits are rebill or appeal
+      outcomes and never carry new denials.
+    aliases:
+      - corrected claim
+      - resubmission
+      - resubmit
+      - frequency code 7
+      - bill type xx7
+    related: [denial, appeal, initial_denial]
+  - id: claim_transaction
+    name: Claim Transaction (837)
+    description: The EDI claim formats and paper equivalents.
+    definition: >-
+      The 837 is the EDI claim transaction: 837I for institutional claims
+      (paper equivalent UB-04) and 837P for professional claims (paper
+      equivalent CMS-1500). The claim_type dimension in this warehouse
+      carries the institutional/professional split.
+    aliases:
+      - "837"
+      - 837i
+      - 837p
+      - ub-04
+      - ub04
+      - cms-1500
+      - hcfa
+      - institutional claim
+      - professional claim
+    related: [claim_submission, remittance]
+  - id: claim_status_inquiry
+    name: Claim Status Inquiry (276/277)
+    description: EDI status checks on submitted claims.
+    definition: >-
+      The 276 transaction asks a payer where a claim stands; the 277 carries
+      the response (and the 277CA acknowledges front-end acceptance or
+      rejection). Status checks drive follow-up work between submission and
+      remittance.
+    aliases:
+      - "276"
+      - "277"
+      - claim status
+      - claim status transaction
+      - enriched claim status
+    related: [claim_submission, clearinghouse_rejection]
+  - id: hospital_account
+    name: Hospital Account
+    description: The billing account that accumulates charges for an episode.
+    definition: >-
+      The hospital account is the billing container that accumulates charges,
+      payments, and adjustments for an episode of care. Epic calls it the HAR
+      (hospital account record, or HSP account) with a guarantor account
+      above it; IDX bills from BAR invoices. One account may produce multiple
+      claims across payers in sequence.
+    aliases:
+      - HAR
+      - hospital account record
+      - hsp account
+      - guarantor account
+      - bar invoice
+      - account
+    related: [encounter, payer_sequence]
+  - id: encounter
+    name: Encounter
+    description: A single patient visit or episode generating charges.
+    definition: >-
+      An encounter (visit) is one patient interaction — an office visit, an
+      emergency visit, an admission — that generates charges under an
+      account. Claims are produced from encounters; institutional encounters
+      carry admission and discharge dates.
+    aliases:
+      - visit
+      - patient encounter
+      - episode
+    related: [hospital_account, service_date]
+
+  # ------------------------------------------------------------------
+  # Adjudication and remittance (835)
+  # ------------------------------------------------------------------
+  - id: remittance
+    name: Remittance Advice (835)
+    description: The payer's adjudication result document.
+    definition: >-
+      The remittance advice is the payer's statement of how a claim
+      adjudicated: what was allowed, paid, adjusted, and why. Electronically
+      it is the EDI 835 (ERA). Denials, adjustments, and patient
+      responsibility arrive on the remit as group code + reason code pairs;
+      remit date is the adjudication date basis in this warehouse.
+    aliases:
+      - remit
+      - rmt
+      - "835"
+      - ERA
+      - electronic remittance advice
+      - remittance advice
+      - remittance
+    sources:
+      - id: src-edi-835
+        title: 835 Remittance Accuracy — why CARC, RARC and CAGC combinations matter
+        publisher: EDI Academy
+        url: https://ediacademy.com/blog/835-remittance-accuracy-why-carc-rarc-and-cagc-code-combinations-matter/
+        authority: industry_reference
+    related: [adjudication, group_code, carc, rarc]
+  - id: adjudication
+    name: Adjudication
+    description: The payer's processing of a claim to a payment decision.
+    definition: >-
+      Adjudication is the payer's processing of a submitted claim against
+      eligibility, benefits, contracts, and policy to produce a decision:
+      pay, deny, or adjust. Its output is the remittance advice. Everything
+      before adjudication is a rejection problem; everything after is a
+      denial or payment problem.
+    aliases:
+      - claim adjudication
+      - payer processing
+      - adjudicated
+    related: [remittance, denial, allowed_amount]
+  - id: group_code
+    name: Claim Adjustment Group Code (CAGC)
+    description: The 835 code classifying who bears an adjustment.
+    definition: >-
+      Group codes classify every remittance adjustment by responsibility:
+      CO (contractual obligation), PR (patient responsibility), OA (other
+      adjustment), PI (payer initiated), and CR (correction/reversal). A
+      reason code only has full meaning in combination with its group code —
+      denial analytics in this pack key on the group code + CARC pair, so
+      PR-3 (copay to the patient) and CO-45 (contractual reduction) are never
+      conflated.
+    aliases:
+      - CAGC
+      - claim adjustment group code
+      - adjustment group
+      - group codes
+      - co pr oa pi
+    sources:
+      - id: src-x12-codes
+        title: Claim Adjustment Group Codes (code list maintainer)
+        publisher: X12
+        url: https://x12.org/codes
+        authority: standards_body_reference
+    related: [carc, rarc, remittance]
+  - id: carc
+    name: Claim Adjustment Reason Code (CARC)
+    description: The 835 code explaining why an amount was adjusted.
+    definition: >-
+      CARCs are the standardized reason codes payers use on remittances to
+      explain why a billed amount was not paid as billed. They always ride
+      with a group code; the pair is the unit of denial analysis. The CARC
+      list is maintained and licensed by X12 — this pack paraphrases the
+      roughly twenty codes present in the warehouse in its own words and
+      never reproduces the licensed text.
+    aliases:
+      - CARC
+      - claim adjustment reason code
+      - reason code
+      - adjustment reason code
+      - denial code
+      - reason codes
+    sources:
+      - id: src-x12-codes
+        title: Claim Adjustment Reason Codes (code list maintainer)
+        publisher: X12
+        url: https://x12.org/codes
+        authority: standards_body_reference
+      - id: src-rivet-carcs
+        title: CARCs and RARCs — claim adjustment and remittance advice codes
+        publisher: Rivet Health
+        url: https://www.rivethealth.com/blog/carcs-rarcs-claim-adjustment-remittance-advice-codes
+        authority: industry_reference
+    related: [group_code, rarc, denial]
+  - id: rarc
+    name: Remittance Advice Remark Code (RARC)
+    description: Supplemental explanation codes on the remittance.
+    definition: >-
+      RARCs add supplemental detail to a CARC — clarifying documentation
+      needed, appeal rights, or processing notes. They never change
+      responsibility (that is the group code's job). This warehouse carries
+      synthetic remark codes (RZ01–RZ20) on a minority of denials; they are
+      uncertified placeholders, and analysis cut by them carries discovery
+      grade.
+    aliases:
+      - RARC
+      - remittance advice remark code
+      - remark code
+      - remark codes
+      - remittance remark
+    related: [carc, group_code]
+  - id: cas_segment
+    name: CAS Segment
+    description: The 835 segment carrying adjustment detail.
+    definition: >-
+      The CAS segment is where an 835 carries adjustment detail — group code,
+      reason code, and amount — at claim or service-line level. When analysts
+      say a denial "came through on the CAS," they mean this adjustment
+      detail, which is exactly what the warehouse's denial records represent.
+    aliases:
+      - CAS
+      - claim adjustment segment
+      - adjustment detail
+    related: [remittance, group_code, carc]
+  - id: eob
+    name: Explanation of Benefits (EOB)
+    description: The member-facing adjudication statement.
+    definition: >-
+      The EOB is the member-facing counterpart of the remittance advice: what
+      the payer processed, what it paid, and what the patient owes. Providers
+      work the 835; patients read the EOB. Paper EOBs are also what manual
+      posting teams key from when electronic remits are missing.
+    aliases:
+      - explanation of benefits
+      - eobs
+    related: [remittance, patient_responsibility]
+  - id: zero_pay_remit
+    name: Zero-Pay Remit
+    description: A remittance that pays nothing on the claim.
+    definition: >-
+      A zero-pay remit is an adjudication that results in no payment — the
+      entire billed amount moved to adjustments or patient responsibility.
+      Zero-pay versus partial-pay is the classic denial split: a fully denied
+      claim and a line-denied claim tell different stories, which is why
+      denial records carry a claim/line denial level.
+    aliases:
+      - zero pay
+      - zero-paid claim
+      - zero payment remit
+      - no-pay remit
+    related: [remittance, denial]
+  - id: patient_responsibility
+    name: Patient Responsibility
+    description: The adjudicated amount owed by the patient.
+    definition: >-
+      Patient responsibility is the portion of the allowed amount the payer
+      assigns to the patient — deductible, copay, and coinsurance — reported
+      under the PR group code on the remittance. In this warehouse it is
+      accumulated onto the claim as patient_responsibility_cents once
+      adjudication is visible.
+    aliases:
+      - PR
+      - patient resp
+      - pr amount
+      - member responsibility
+      - out of pocket
+      - oop
+      - patient portion
+    related: [copay, coinsurance, deductible, group_code]
+  - id: copay
+    name: Copay
+    description: Fixed per-service patient payment.
+    definition: >-
+      A copay is the fixed dollar amount a member owes for a covered service,
+      set by the benefit plan. On remittances it appears as a PR-group
+      adjustment (CARC 3 in this warehouse's data).
+    aliases:
+      - co-pay
+      - copayment
+      - co-payment
+    related: [patient_responsibility, deductible, coinsurance]
+  - id: coinsurance
+    name: Coinsurance
+    description: Percentage share of allowed owed by the patient.
+    definition: >-
+      Coinsurance is the percentage of the allowed amount the member owes
+      after deductible, defined by the benefit plan. It appears as a PR-group
+      adjustment on the remittance (CARC 2 in this warehouse's data).
+    aliases:
+      - co-insurance
+      - coins
+    related: [patient_responsibility, copay, deductible]
+  - id: deductible
+    name: Deductible
+    description: Annual amount the patient pays before benefits apply.
+    definition: >-
+      The deductible is the annual amount a member must pay out of pocket
+      before plan benefits begin. Amounts applied to deductible arrive as
+      PR-group adjustments on the remittance (CARC 1 in this warehouse's
+      data).
+    aliases:
+      - ded
+      - annual deductible
+      - applied to deductible
+    related: [patient_responsibility, copay, coinsurance]
+
+  # ------------------------------------------------------------------
+  # Denials and appeals
+  # ------------------------------------------------------------------
+  - id: denial
+    name: Denial
+    description: An adjudicated refusal to pay a claim or line as billed.
+    definition: >-
+      A denial is a payer's adjudicated determination refusing payment for a
+      claim or service line, communicated on the remittance through a group
+      code + CARC pair. It is distinct from a rejection, which happens before
+      adjudication. Denials may be claim-level (nothing pays) or line-level
+      (specific services), and each denial record in this warehouse carries
+      its pair, denied dollars, category, and appeal state.
+    aliases:
+      - denials
+      - denied claim
+      - claim denial
+      - payer denial
+      - adjudicated denial
+    sources:
+      - id: src-hfma-denial-metrics
+        title: Standardizing Denial Metrics for Revenue Cycle Benchmarking
+        publisher: HFMA Claim Integrity Task Force
+        url: https://www.hfma.org/guidance/standardizing-denial-metrics-revenue-cycle-benchmarking-process-improvement/
+        authority: industry_association_guidance
+    related: [clearinghouse_rejection, initial_denial, denial_category, appeal]
+  - id: initial_denial
+    name: Initial Denial
+    description: The first-chronological denial on a claim.
+    definition: >-
+      An initial denial is the first denial a claim receives — the industry's
+      headline denial measure (Kodiak reports averages above eleven percent
+      of claims). Standardized definitions dedupe to the first-chronological
+      denial and exclude rebills from the denominator. Initial and final
+      denial rates must never be conflated: most initial denials are worked
+      and recovered; final denials are the residue written off. In this
+      warehouse every denial is recorded on a claim's first remit, so the
+      initial_denial_rate contract's numerator is exactly first-pass denials.
+    aliases:
+      - initial denials
+      - first-pass denial
+      - first denial
+      - initial denial rate concept
+    sources:
+      - id: src-kodiak-2025
+        title: Healthcare Providers Facing Stiff Headwinds on Revenue Cycle Performance
+        publisher: Kodiak Solutions (Business Wire)
+        url: https://www.businesswire.com/news/home/20250227049715/en/Healthcare-Providers-Facing-Stiff-Headwinds-on-Revenue-Cycle-Performance-Kodiak-Solutions-Data-Show
+        authority: industry_benchmark_report
+    related: [denial, final_denial, rebill]
+  - id: final_denial
+    name: Final Denial
+    description: A denial that stands after all rework; written off.
+    definition: >-
+      A final denial is a denial that survives correction and appeal and is
+      ultimately written off — lost revenue rather than delayed revenue.
+      Final denial rates run far below initial rates (industry medians around
+      two to three percent of revenue versus eleven-plus percent initial),
+      which is exactly why the pair must be reported together and never
+      conflated.
+    aliases:
+      - final denials
+      - unrecovered denial
+      - denial loss
+    related: [initial_denial, denial_write_off]
+  - id: denial_category
+    name: Denial Category
+    description: Root-cause grouping of denial codes.
+    definition: >-
+      Denial categories roll individual group code + CARC pairs up to
+      actionable root causes: eligibility (including COB), authorization,
+      coding, medical necessity, timely filing, duplicates, contractual, and
+      patient responsibility. Industry taxonomies attribute the largest share
+      of denials to front-end causes. The warehouse's denial_category
+      dimension carries this certified rollup.
+    aliases:
+      - denial categories
+      - denial reason category
+      - denial bucket
+      - denial type
+      - root cause category
+      - denial taxonomy
+    sources:
+      - id: src-optum-denials
+        title: 2024 Denials Index
+        publisher: Optum (Change Healthcare)
+        url: https://marketplace.optum.com/content/dam/change-healthcare/marketplace-assets/outcomes-and-insights/2024-denials-index.pdf
+        authority: industry_benchmark_report
+    related: [denial, carc, group_code]
+  - id: soft_denial
+    name: Soft Denial
+    description: A denial that can be corrected and paid without appeal.
+    definition: >-
+      A soft denial is recoverable through correction or additional
+      information — missing data, coding fixes, documentation — without a
+      formal appeal. Soft denials are temporary if worked promptly; unworked,
+      they harden into write-offs.
+    aliases:
+      - soft denials
+      - correctable denial
+    related: [hard_denial, denial, unworked_denials]
+  - id: hard_denial
+    name: Hard Denial
+    description: A denial representing lost revenue unless overturned on appeal.
+    definition: >-
+      A hard denial cannot be fixed by simple correction — the service is
+      deemed not covered, not authorized, or past filing — so the only
+      recovery path is appeal. Hard denials become write-offs when appeals
+      fail or are never filed.
+    aliases:
+      - hard denials
+      - unrecoverable denial
+    related: [soft_denial, appeal, denial_write_off]
+  - id: clinical_denial
+    name: Clinical Denial
+    description: Denial on clinical grounds such as medical necessity.
+    definition: >-
+      A clinical denial disputes the care itself — medical necessity, level
+      of care, length of stay, or clinical validation of coded diagnoses —
+      and generally requires clinical documentation and clinician
+      involvement to appeal (CARCs 50 and 151 in this warehouse's data).
+    aliases:
+      - clinical denials
+      - medical necessity denial
+      - clinical validation denial
+      - level of care denial
+    related: [technical_denial, denial_category, appeal]
+  - id: technical_denial
+    name: Technical Denial
+    description: Denial on administrative or process grounds.
+    definition: >-
+      A technical (administrative) denial arises from process failures —
+      missing information, late filing, duplicate submission, authorization
+      not on file — rather than clinical judgment. Most technical denials
+      are avoidable upstream and correctable downstream.
+    aliases:
+      - technical denials
+      - administrative denial
+    related: [clinical_denial, denial_category]
+  - id: avoidable_denial
+    name: Avoidable Denial
+    description: A denial preventable by upstream process change.
+    definition: >-
+      An avoidable denial is one that better front-end or mid-cycle process
+      would have prevented — industry studies attribute the large majority of
+      denials to avoidable causes, and roughly two-thirds of denials are
+      never reworked at all. The avoidable/recoverable quadrant guides where
+      prevention beats rework.
+    aliases:
+      - avoidable denials
+      - preventable denial
+    related: [denial_category, unworked_denials]
+  - id: appeal
+    name: Appeal
+    description: Formal challenge to an adjudicated denial.
+    definition: >-
+      An appeal is the formal request that a payer reconsider a denial,
+      subject to payer-specific filing windows and levels (redetermination,
+      reconsideration, independent review, and further levels for Medicare).
+      In this warehouse each denial carries an appeal status of NONE,
+      APPEALED, OVERTURNED, or UPHELD as visible at the snapshot watermark.
+    aliases:
+      - appeals
+      - redetermination
+      - reconsideration
+      - appeal letter
+      - peer to peer
+      - appeal window
+    sources:
+      - id: src-cms-appeals
+        title: Managed Care Appeals Flow
+        publisher: Centers for Medicare & Medicaid Services
+        url: https://www.cms.gov/medicare/appeals-and-grievances/mmcag/downloads/managed-care-appeals-flow-chart-.pdf
+        authority: federal_program_guidance
+    related: [denial, appeal_overturn, timely_filing]
+  - id: appeal_overturn
+    name: Appeal Overturn
+    description: An appealed denial decided in the provider's favor.
+    definition: >-
+      An overturn is an appeal decided for the provider — the denial is
+      reversed and the claim pays. The governed overturn rate divides
+      overturned appeals by decided appeals (overturned plus upheld), never
+      by all denials or all appeals; pending appeals sit outside the
+      denominator. Published overturn rates are high (Medicare Advantage
+      prior-auth appeals succeed at rates above eighty percent) while only a
+      small fraction of denials are ever appealed — the core of the
+      never-worked opportunity story.
+    aliases:
+      - overturn
+      - overturned
+      - appeal win
+      - overturn rate concept
+      - upheld
+    sources:
+      - id: src-kff-ma
+        title: Medicare Advantage prior authorization determinations and appeals
+        publisher: KFF
+        url: https://www.kff.org/medicare/medicare-advantage-insurers-made-nearly-53-million-prior-authorization-determinations-in-2024/
+        authority: industry_benchmark_report
+    related: [appeal, denial, unworked_denials]
+  - id: denial_write_off
+    name: Denial Write-Off
+    description: Denied revenue removed from A/R as uncollectible.
+    definition: >-
+      A denial write-off removes denied dollars from receivables once
+      recovery efforts end — the realization of a final denial. HFMA MAP Key
+      AR-6 tracks denial write-offs as a share of net revenue, net of any
+      later recoveries. In this warehouse, write-offs post as non-contractual
+      (OTHER_ADJ) adjustment transactions.
+    aliases:
+      - denial write-offs
+      - denial adjustment
+      - write off to denial
+      - denial writeoff
+    related: [final_denial, administrative_write_off]
+  - id: unworked_denials
+    name: Unworked Denials
+    description: Denials with no follow-up activity.
+    definition: >-
+      Unworked (never-worked) denials are denials that receive no correction,
+      appeal, or follow-up before they age into write-offs. Industry sweeps
+      put the never-worked share around two-thirds of all denials — the
+      largest recoverable-dollars story in denial management. The
+      denials_unworked_pct contract measures the share of denial records with
+      appeal status NONE, excluding patient-responsibility records.
+    aliases:
+      - never worked denials
+      - unworked denial
+      - abandoned denials
+      - untouched denials
+    related: [denial, appeal, denial_write_off]
+  - id: takeback
+    name: Takeback
+    description: Payer recoupment of previously paid amounts.
+    definition: >-
+      A takeback (recoupment, clawback, offset) is a payer reclaiming money
+      it previously paid — often netted out of later remittances and
+      reported at provider level on the 835's PLB segment. This warehouse
+      models refunds of credit balances but not payer-initiated recoupment
+      events; takeback is governed vocabulary here.
+    aliases:
+      - recoupment
+      - clawback
+      - offset
+      - retraction
+      - PLB
+      - provider level adjustment
+    related: [refund, credit_balance, remittance]
+  - id: downcoding
+    name: Downcoding
+    description: Payer reduction of a billed code to a lower-paying level.
+    definition: >-
+      Downcoding is a payer unilaterally paying a lower-level code than
+      billed — most visibly on evaluation-and-management levels, and at DRG
+      level as a DRG downgrade. It reduces payment without a full denial, so
+      it surfaces in payment-variance analysis rather than denial counts.
+      This warehouse has no downcoding events; the term is governed
+      vocabulary for payer-behavior analytics.
+    aliases:
+      - down code
+      - down-coding
+      - em downcode
+      - drg downgrade
+    related: [underpayment, denial]
+  - id: rfi_denial
+    name: Request for Information (RFI)
+    description: Payer requests for records that pause payment.
+    definition: >-
+      An RFI denial or development request pauses adjudication pending
+      medical records or documentation (Medicare's ADR is the classic form).
+      Industry reporting flags growing use of records requests as a payment
+      delay tactic. No RFI events exist in this warehouse; the concept is
+      definitional vocabulary.
+    aliases:
+      - request for information
+      - medical records request
+      - adr
+      - additional documentation request
+      - development request
+    related: [denial, appeal]
+
+  # ------------------------------------------------------------------
+  # Coordination of benefits
+  # ------------------------------------------------------------------
+  - id: cob
+    name: Coordination of Benefits (COB)
+    description: Determining payment order across multiple coverages.
+    definition: >-
+      Coordination of benefits determines which payer is primary when a
+      patient holds more than one coverage, and how remaining balances flow
+      to secondary and tertiary payers (Medicare Secondary Payer rules are
+      the federal version; crossover claims move automatically from Medicare
+      to supplemental payers). A COB problem exists when claims are billed in
+      the wrong order; on remittances it surfaces through COB-typed reason
+      codes (CARCs 22, 23, and 109 in this warehouse). The warehouse also
+      carries an explicit cob_mismatch_flag, which is direct evidence, while
+      code concentration alone is proxy evidence.
+    aliases:
+      - coordination of benefits
+      - COB
+      - other insurance
+      - primacy
+      - msp
+      - medicare secondary payer
+      - crossover claim
+      - cob mismatch
+    related: [payer_sequence, denial_category, eligibility_verification]
+  - id: payer_sequence
+    name: Payer Sequence
+    description: Primary/secondary/tertiary billing order.
+    definition: >-
+      Payer sequence is the order in which a claim is billed across a
+      patient's coverages — primary, then secondary, then tertiary. Epic
+      models it as visit filing order; Cerner as benefit order. Billing out
+      of sequence is the mechanical form of a COB error.
+    aliases:
+      - primary secondary tertiary
+      - filing order
+      - benefit order
+      - coverage order
+      - payer order
+      - cob order
+    related: [cob, hospital_account]
+
+  # ------------------------------------------------------------------
+  # Payments, posting, and adjustments
+  # ------------------------------------------------------------------
+  - id: cash_posting
+    name: Cash Posting
+    description: Applying received money to accounts.
+    definition: >-
+      Cash posting applies received money — payer payments and patient
+      payments — to the right accounts and lines, driven by the remittance.
+      The post date is when money movement hits the ledger, and it is the
+      primary date basis for cash metrics; remit-to-post lag is a payer
+      behavior worth watching (a planted scenario in this warehouse stretches
+      it).
+    aliases:
+      - payment posting
+      - posting
+      - posted cash
+      - cash application
+      - remit posting
+    related: [payer_cash, patient_cash, remittance]
+  - id: payer_cash
+    name: Payer Cash
+    description: Payments received from insurance payers.
+    definition: >-
+      Payer cash is money received from insurance payers, as distinct from
+      patient payments. The cash_posted contract measures payer cash on the
+      post-date basis; combined views of payer plus patient cash are
+      transforms over both contracts, not a separate governed number.
+    aliases:
+      - insurance payments
+      - payer payments
+      - insurance cash
+      - third party payments
+    related: [cash_posting, patient_cash]
+  - id: patient_cash
+    name: Patient Cash
+    description: Payments received from patients or guarantors.
+    definition: >-
+      Patient cash is money collected from patients and guarantors — point of
+      service, statements, or payment plans. In this warehouse patient
+      payments post only after adjudication establishes patient
+      responsibility, which is why a point-of-service collection rate is not
+      honestly computable (see pack NOTES).
+    aliases:
+      - patient payments
+      - patient collections
+      - self pay cash
+      - guarantor payments
+    related: [pos_collections, patient_responsibility, cash_posting]
+  - id: credit_balance
+    name: Credit Balance
+    description: An account balance below zero — money owed back.
+    definition: >-
+      A credit balance exists when posted payments and adjustments exceed
+      what the account should have collected — from duplicate payments,
+      overpayment, or posting errors. Credit balances are liabilities:
+      resolution is refund or payer offset, and regulated programs set
+      deadlines for returning overpayments. In this warehouse credit
+      balances arise from duplicate payer payments that are later refunded.
+    aliases:
+      - credit balances
+      - overpayment
+      - credit ar
+      - negative balance
+      - credits
+    related: [refund, takeback]
+  - id: refund
+    name: Refund
+    description: Returning excess payment to a payer or patient.
+    definition: >-
+      A refund returns money — to a payer or a patient — to resolve a credit
+      balance. Refund transactions in this warehouse are the REFUND
+      transaction type, always positive amounts with direction carried by the
+      type.
+    aliases:
+      - refunds
+      - patient refund
+      - payer refund
+      - refund check
+    related: [credit_balance, takeback]
+  - id: contractual_adjustment
+    name: Contractual Adjustment
+    description: The billed-to-allowed reduction under a payer contract.
+    definition: >-
+      A contractual adjustment is the difference between gross charges and
+      the contractually allowed amount — expected, non-collectible, and
+      posted at adjudication under the CO group (classically CARC 45). It is
+      categorically different from an administrative write-off, which
+      forfeits collectible revenue.
+    aliases:
+      - contractual
+      - contractuals
+      - contractual allowance
+      - contractual write-off
+      - allowance
+      - co-45 adjustment
+    related: [allowed_amount, administrative_write_off, group_code]
+  - id: administrative_write_off
+    name: Administrative Write-Off
+    description: Forfeiting collectible balances for non-contractual reasons.
+    definition: >-
+      An administrative (other) write-off removes a balance that was in
+      principle collectible — denial write-offs, small-balance cleanups,
+      courtesy adjustments, timely-filing losses. In this warehouse these
+      post as OTHER_ADJ transactions, distinct from contractual adjustments.
+      Their rate against revenue is a leakage signal, not a cost of doing
+      business.
+    aliases:
+      - write-off
+      - write off
+      - write-offs
+      - admin write-off
+      - avoidable write-off
+      - small balance write-off
+      - courtesy adjustment
+      - other adjustment
+    related: [denial_write_off, contractual_adjustment, revenue_leakage]
+  - id: unapplied_cash
+    name: Unapplied Cash
+    description: Money received but not yet applied to accounts.
+    definition: >-
+      Unapplied (suspense, undistributed) cash is money received that has not
+      been matched to an account or claim — a posting-quality problem that
+      distorts both cash and A/R views until resolved. This warehouse posts
+      all cash to claims, so unapplied cash is governed vocabulary only.
+    aliases:
+      - suspense
+      - undistributed cash
+      - unapplied payments
+      - suspense account
+    related: [cash_posting, unpostables]
+  - id: unpostables
+    name: Unpostables
+    description: Remittance items that cannot be auto-posted.
+    definition: >-
+      Unpostables are remittance or correspondence items that automation
+      cannot match and post — athenahealth's unpostables queue for unmatched
+      remittances and mail is the canonical example. They are the workqueue
+      face of unapplied cash.
+    aliases:
+      - unpostable
+      - unmatched remittance
+      - unpostable work
+    related: [unapplied_cash, cash_posting, workqueue]
+
+  # ------------------------------------------------------------------
+  # Contract performance
+  # ------------------------------------------------------------------
+  - id: expected_reimbursement
+    name: Expected Reimbursement
+    description: Contract-modeled amount the payer should pay.
+    definition: >-
+      Expected reimbursement is the amount contract modeling says a claim
+      should yield — the fee schedule or contract terms applied to the billed
+      services (adjudication simulation). It is the baseline for payment
+      variance: this warehouse stores it per claim as expected_amount_cents.
+    aliases:
+      - expected pay
+      - contract expected
+      - expected amount
+      - contract modeling
+      - adjudication simulation
+      - net expected
+      - expected reimbursement amount
+    related: [allowed_amount, underpayment, fee_schedule]
+  - id: allowed_amount
+    name: Allowed Amount
+    description: The payer-approved amount for a service.
+    definition: >-
+      The allowed amount is what the payer approves for a service under the
+      contract — the base from which payment and patient responsibility are
+      split. In this warehouse line-level allowed amounts are null until the
+      claim's first remit is visible; allowed below expected is the
+      underpayment signal.
+    aliases:
+      - allowed
+      - allowable
+      - approved amount
+      - contract allowed
+    related: [expected_reimbursement, contractual_adjustment, underpayment]
+  - id: underpayment
+    name: Underpayment
+    description: Payer paying below the contract-expected amount.
+    definition: >-
+      An underpayment is a payer paying (or allowing) less than the
+      contract-expected amount for a claim. Governed variance analysis floors
+      each claim's variance at zero — underpayments are never netted against
+      overpayments, because netting hides recoverable dollars. Industry
+      reviews consistently find material underpayment rates across payers.
+    aliases:
+      - underpayments
+      - payment variance
+      - contract variance
+      - variance
+      - underpaid claims
+    sources:
+      - id: src-revecore-variance
+        title: Payment Variance vs. Underpayment
+        publisher: Revecore
+        url: https://www.revecore.com/insights/resources/payment-variance-vs-underpayment
+        authority: industry_reference
+    related: [expected_reimbursement, allowed_amount, downcoding]
+  - id: fee_schedule
+    name: Fee Schedule
+    description: The contracted price list per service code.
+    definition: >-
+      A fee schedule is the contracted rate list — per code, per payer or
+      plan — that determines allowed amounts. Contract modeling applies fee
+      schedules and terms to produce expected reimbursement.
+    aliases:
+      - fee schedules
+      - contracted rate
+      - contract rate
+      - rate schedule
+    related: [expected_reimbursement, allowed_amount]
+
+  # ------------------------------------------------------------------
+  # A/R health
+  # ------------------------------------------------------------------
+  - id: accounts_receivable
+    name: Accounts Receivable (A/R)
+    description: Outstanding billed and unbilled receivable value.
+    definition: >-
+      Accounts receivable is the outstanding value of care delivered but not
+      yet resolved to cash or adjustment. Billed A/R covers submitted claims
+      awaiting resolution; total A/R adds unbilled inventory. In this
+      warehouse the ar_balance contract values open (unresolved) claims at
+      billed charges.
+    aliases:
+      - AR
+      - A/R
+      - receivables
+      - ar inventory
+      - open ar
+      - accounts receivables
+    related: [ar_aging, days_in_ar, unbilled_ar]
+  - id: ar_aging
+    name: A/R Aging
+    description: Distribution of receivables by age bucket.
+    definition: >-
+      A/R aging distributes open receivables into age buckets (0-30, 31-60,
+      61-90, 91-120, over 120 days) from an aging basis date — service or
+      submission. The aged trial balance (ATB) is the system-of-record aging
+      report analytics must reconcile to. The share past ninety days is the
+      quoted health number; common guidance keeps it under fifteen to twenty
+      percent of billed A/R. Age buckets here derive at probe time from the
+      snapshot's newest data date.
+    aliases:
+      - aging
+      - aged ar
+      - aged trial balance
+      - ATB
+      - aging buckets
+      - ar over 90
+      - aging report
+    related: [accounts_receivable, days_in_ar, ar_age_bucket_concept]
+  - id: ar_age_bucket_concept
+    name: A/R Age Bucket
+    description: The derived aging bucket dimension.
+    definition: >-
+      The A/R age bucket is a derived dimension — not a stored column —
+      computed at probe time as the snapshot's newest data date minus the
+      aging-basis date (service by default, submission as the legal
+      alternate), bucketed 0-30 through 120-plus. Cutting snapshot metrics by
+      it produces the aging profile.
+    aliases:
+      - aging bucket
+      - ar bucket
+      - age bucket
+      - days out bucket
+      - aging category
+    related: [ar_aging, days_in_ar]
+  - id: days_in_ar
+    name: Days in A/R
+    description: How many days of revenue sit in receivables.
+    definition: >-
+      Days in A/R expresses receivable size in days. The MAP Key form (FM-1)
+      divides net A/R by average daily net revenue; practice guides also
+      quote a gross-charge form — the two bases must never be conflated. This
+      warehouse has no net-revenue series, so the days_in_ar contract
+      implements the billed-weighted average age of open receivables, aged to
+      the snapshot's newest data date — an honest, clearly-labeled variant
+      (see the contract description).
+    aliases:
+      - DAR
+      - net days in ar
+      - days in accounts receivable
+      - dso
+      - days sales outstanding
+      - true ar days
+    sources:
+      - id: src-hfma-map-keys
+        title: HFMA MAP Keys
+        publisher: Healthcare Financial Management Association
+        url: https://www.hfma.org/data-and-insights/map-initiative/map-keys/
+        authority: industry_association_guidance
+    related: [accounts_receivable, ar_aging, npsr]
+  - id: timely_filing
+    name: Timely Filing
+    description: Payer deadlines for submitting claims.
+    definition: >-
+      Timely filing limits are payer- and plan-specific deadlines for
+      submitting (or appealing) claims, measured from a contract-defined
+      basis such as service or discharge date. Claims filed late deny under
+      timely-filing reason codes (CARC 29 here) and are rarely recoverable.
+      The governed filing rules in this pack carry per-payer limits with
+      authority levels and confirmation requirements; at-risk analysis
+      values unsubmitted inventory against those limits before the denial
+      ever happens.
+    aliases:
+      - TFL
+      - filing limit
+      - timely filing limit
+      - filing deadline
+      - claim filing limit
+      - tfl days
+    related: [claim_submission, denial_category, unbilled_ar]
+  - id: zero_balance
+    name: Zero Balance
+    description: An account fully resolved to zero.
+    definition: >-
+      A zero-balance account has been fully resolved — paid, adjusted, and
+      closed. Zero-balance review audits resolved accounts for missed
+      underpayments and wrong write-offs; resolved_date in this warehouse
+      marks when a claim reached resolution as visible at the watermark.
+    aliases:
+      - zero balance review
+      - resolved account
+      - closed account
+      - zbr
+    related: [underpayment, administrative_write_off]
+
+  # ------------------------------------------------------------------
+  # Revenue, mix, and reference frames
+  # ------------------------------------------------------------------
+  - id: gross_charges
+    name: Gross Charges
+    description: Full chargemaster value of services billed.
+    definition: >-
+      Gross charges are the undiscounted chargemaster value of services —
+      the billed amounts in this warehouse. They are a volume ruler, not
+      expected revenue: metrics on a gross-charge basis must never be read
+      against net-revenue benchmarks.
+    aliases:
+      - gross charge
+      - billed charges
+      - chargemaster charges
+      - gross revenue
+    related: [npsr, cdm, contractual_adjustment]
+  - id: npsr
+    name: Net Patient Service Revenue (NPSR)
+    description: Revenue expected after contractual and other deductions.
+    definition: >-
+      NPSR is patient service revenue net of contractual allowances and
+      other deductions — the denominator of most MAP financial ratios. This
+      warehouse carries no accounting net-revenue series; contracts that
+      would use NPSR either use contract-expected amounts as a labeled proxy
+      or are deferred (see pack NOTES).
+    aliases:
+      - net patient service revenue
+      - net revenue
+      - net patient revenue
+    related: [gross_charges, expected_reimbursement]
+  - id: revenue_leakage
+    name: Revenue Leakage
+    description: Earned revenue lost through process failures.
+    definition: >-
+      Revenue leakage is earned revenue never collected because of process
+      failures — missed charges, avoidable denials written off, underpayments
+      not pursued, filing deadlines missed. Leakage metrics are the
+      write-off and variance families read together.
+    aliases:
+      - leakage
+      - revenue loss
+      - collection leakage
+    related: [administrative_write_off, underpayment, avoidable_denial]
+  - id: cost_to_collect
+    name: Cost to Collect
+    description: Revenue-cycle cost per dollar collected.
+    definition: >-
+      Cost to collect is total revenue-cycle operating cost divided by cash
+      collected (MAP Keys FM-6/FM-7 split it by functional area). Typical
+      performance runs a few percent of collections. No cost or labor data
+      exists in this warehouse; the concept is definitional only.
+    aliases:
+      - CTC
+      - collection cost
+      - cost per dollar collected
+    related: [map_keys, npsr]
+  - id: payer_mix
+    name: Payer Mix
+    description: Composition of volume or revenue by payer group.
+    definition: >-
+      Payer mix is the share of volume, charges, or cash contributed by each
+      payer or payer category. Mix shifts move blended yield even when
+      nothing else changes, so mix views are share-of-total transforms over
+      governed volume and cash metrics — scope, not separate contracts.
+    aliases:
+      - payor mix
+      - mix by payer
+      - payer share
+      - payer mix shift
+    related: [financial_class, service_mix, payer_cash]
+  - id: financial_class
+    name: Financial Class
+    description: Grouping of payers for reporting and workflow.
+    definition: >-
+      Financial class groups payers into reporting buckets — commercial,
+      Medicare, Medicare Advantage, Medicaid, Blue Cross, workers' comp,
+      self-pay. IDX calls it FSC; most systems call it fin class. It is a
+      certified dimension in this warehouse, coarser than payer and finer
+      than nothing.
+    aliases:
+      - fin class
+      - fc
+      - fsc
+      - payer group
+      - payer category
+      - financial classes
+    related: [payer_mix, self_pay]
+  - id: service_mix
+    name: Service Mix
+    description: Composition of volume or revenue by service line.
+    definition: >-
+      Service mix is the distribution of volume, charges, or cash across
+      clinical service lines (and procedure groups below them). Like payer
+      mix, it is computed as share-of-total transforms over governed metrics
+      cut by the service_line dimension.
+    aliases:
+      - service line mix
+      - case mix
+      - product line mix
+      - clinical mix
+    related: [payer_mix, case_mix_index]
+  - id: case_mix_index
+    name: Case Mix Index (CMI)
+    description: Average DRG weight of inpatient discharges.
+    definition: >-
+      Case mix index is the average DRG relative weight across inpatient
+      discharges — a measure of clinical acuity that scales expected
+      inpatient revenue (MAP Key FM-5). This warehouse carries no DRG
+      weights, so CMI is definitional vocabulary only.
+    aliases:
+      - CMI
+      - drg relative weight
+      - drg weight
+    related: [service_mix, map_keys]
+  - id: map_keys
+    name: HFMA MAP Keys
+    description: The industry-standard revenue-cycle KPI definitions.
+    definition: >-
+      MAP Keys are HFMA's standardized revenue-cycle KPIs — twenty-nine
+      measures across patient access (PA), pre-billing (PB), claims (CL),
+      account resolution (AR), and financial management (FM) — each published
+      as an explicit numerator/denominator with points of clarification.
+      This pack's metric contracts follow the same discipline: governed
+      formula, grain, date basis, and exclusions, with paraphrased
+      definitions rather than reproduced text.
+    aliases:
+      - MAP keys
+      - hfma map keys
+      - map key
+      - map initiative
+    sources:
+      - id: src-hfma-map-keys
+        title: HFMA MAP Keys
+        publisher: Healthcare Financial Management Association
+        url: https://www.hfma.org/data-and-insights/map-initiative/map-keys/
+        authority: industry_association_guidance
+    related: [denial_metrics_standard, benchmark]
+  - id: denial_metrics_standard
+    name: Standardized Denial Metrics
+    description: The HFMA Claim Integrity Task Force denial definitions.
+    definition: >-
+      The HFMA Claim Integrity Task Force published standardized denial
+      metrics — initial denial rates by volume and dollars, overturn
+      measures, cycle times — with precise numerators, denominators, and
+      exclusions (first-chronological dedup, rebill exclusion). This pack's
+      denial contracts implement those shapes honestly against what the
+      warehouse supports and document any divergence.
+    aliases:
+      - claim integrity task force
+      - standardized denial metrics
+      - task force denial metrics
+    sources:
+      - id: src-hfma-denial-metrics
+        title: Standardizing Denial Metrics for Revenue Cycle Benchmarking
+        publisher: HFMA Claim Integrity Task Force
+        url: https://www.hfma.org/guidance/standardizing-denial-metrics-revenue-cycle-benchmarking-process-improvement/
+        authority: industry_association_guidance
+    related: [map_keys, initial_denial, appeal_overturn]
+  - id: benchmark
+    name: Benchmark
+    description: Published reference ranges for KPIs.
+    definition: >-
+      A benchmark is a published reference range for a KPI — such as clean
+      claim rates around ninety-five percent, initial denial rates above
+      eleven percent, or A/R over ninety days under fifteen to twenty
+      percent. Governed benchmark context in this pack is always cited with
+      source and year and presented as a range, never a single target,
+      because published figures differ by method and population.
+    aliases:
+      - benchmarks
+      - industry benchmark
+      - target range
+      - peer comparison
+    related: [map_keys, denial_metrics_standard]
+  - id: date_basis
+    name: Date Basis
+    description: Which date a metric is windowed on.
+    definition: >-
+      The date basis is the date field a metric's window ranges over —
+      service, post, submission, remit, or discharge in this warehouse. Cash
+      by post date and cash by service date are different, both-meaningful
+      numbers; every governed contract declares a primary basis and its
+      allowed alternates, and every answer states the basis it used.
+    aliases:
+      - date bases
+      - reporting basis
+      - basis
+      - date basis discipline
+    related: [service_date, map_keys]
+  - id: service_date
+    name: Date of Service (DOS)
+    description: The date care was delivered.
+    definition: >-
+      The date of service is when care was delivered — the from-date on
+      claims, with line dates inside institutional stays. It is the default
+      aging basis for receivables and the cohort basis for collection-rate
+      metrics in this pack.
+    aliases:
+      - DOS
+      - date of service
+      - svc date
+      - service dt
+      - from date
+    related: [date_basis, encounter]
+  - id: facility
+    name: Facility
+    description: The location where care was delivered.
+    definition: >-
+      A facility is a care-delivery location — hospital campus, surgical
+      center, outpatient site. It is a certified dimension in this
+      warehouse; facility-level scorecards run through the generic
+      dimension-scorecard playbook rather than bespoke reports.
+    aliases:
+      - site
+      - location
+      - campus
+      - service location
+    related: [service_mix, payer_mix]

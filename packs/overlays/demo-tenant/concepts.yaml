@@ -1,0 +1,15 @@
+# Tenant alias patches — the only concept mutation an overlay may perform.
+concepts:
+  - id: facility
+    add_aliases:
+      - the university hospital
+      - university hospital
+      - main campus
+  - id: dnfb
+    add_aliases:
+      - the unbilled report
+      - morning unbilled list
+  - id: cob
+    add_aliases:
+      - msp review
+      - other coverage workup

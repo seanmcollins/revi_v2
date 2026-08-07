@@ -1,0 +1,22 @@
+# Late charges as a share of total charges (MAP CL-2 shape), dollar-weighted.
+id: late_charge_pct
+version: 1
+kind: flow
+entity_grain: line
+numerator: {sum: late_charge_cents}
+denominator: {sum: line_billed_amount_cents}
+primary_date_basis: service
+allowed_date_bases: [service]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, facility, region,
+   service_line, claim_type, proc_group]
+sign: higher_is_bad
+unit: ratio
+description: >-
+  Billed dollars on lines whose charge was entered more than three days
+  after the line's service date, as a share of all billed line dollars for
+  services in the window (the MAP CL-2 late-charge shape, dollar-weighted).
+  late_charge_cents is a documented probe-time derived measure (line billed
+  cents where charge_entry_date > service_date + 3 days, else zero; see pack
+  NOTES). Completes the charge-capture pair with charge_lag_days: lag is
+  the average, late-charge share is the tail.

@@ -1,0 +1,19 @@
+# Claim volume — distinct claims, fan-out safe at claim grain.
+id: claim_volume
+version: 1
+kind: flow
+entity_grain: claim
+numerator: {count_distinct: claim_id}
+primary_date_basis: service
+allowed_date_bases: [service, submission, discharge]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, provider,
+   provider_specialty, facility, region, service_line, claim_type,
+   payer_sequence]
+sign: neutral
+unit: count
+description: >-
+  Distinct claims in the window on the chosen basis (service by default;
+  submission gives filed volume — the basis the cash-decline playbook probes
+  for submission-volume shifts; discharge gives discharged volume for
+  institutional cohorts).

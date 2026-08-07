@@ -1,0 +1,64 @@
+id: daily_portfolio
+description: >-
+  Pre-materialized daily portfolio ("what are my top issues today?"):
+  branches across the denial, cash, underpayment, filing-risk, A/R, and
+  unbilled families, each producing candidate findings that the governed
+  ranking policy orders by dollar impact with recency and evidence-grade
+  weights — dollar-impact-first worklisting without black-box scoring.
+  Drill-downs continue as ordinary session turns at the portfolio
+  watermark.
+triggers:
+  - top issues
+  - what are my top 5 issues
+  - daily portfolio
+  - what should i look at today
+probes:
+  - id: portfolio_denial_trend
+    metric_ids: [denial_rate]
+    window: {quantity: 4, unit: week, mode: full_periods}
+    scope_note: Weekly denial rate; detector denial_rate_spike screens for spikes.
+  - id: portfolio_denied_dollars
+    metric_ids: [denied_dollars]
+    dimensions: [payer]
+    window: {quantity: 4, unit: week, mode: full_periods}
+    top_n: 5
+    scope_note: Largest denied-dollar payers this month.
+  - id: portfolio_cash_trend
+    metric_ids: [cash_posted]
+    window: {quantity: 4, unit: week, mode: full_periods}
+    scope_note: Weekly posted cash; detector cash_decline_detector screens for drops.
+  - id: portfolio_underpayment
+    metric_ids: [underpayment_variance]
+    dimensions: [payer]
+    window: {quantity: 3, unit: month, mode: full_periods}
+    top_n: 5
+    scope_note: Largest never-netted variance payers; detector underpayment_detector.
+  - id: portfolio_filing_risk
+    metric_ids: [timely_filing_at_risk_dollars]
+    dimensions: [plan]
+    top_n: 5
+    scope_note: Largest at-risk unsubmitted inventories by plan.
+  - id: portfolio_ar_health
+    metric_ids: [ar_over_90_pct]
+    dimensions: [payer]
+    scope_note: Aged-A/R pressure by payer against the 15-20 percent guidance band.
+  - id: portfolio_unbilled
+    metric_ids: [dnfb_dollars]
+    dimensions: [facility]
+    scope_note: DNFB standing by facility.
+  - id: portfolio_credits
+    metric_ids: [credit_balance_dollars]
+    dimensions: [payer]
+    scope_note: Credit-balance liability standing by payer.
+  - id: portfolio_lag_watch
+    metric_ids: [avg_days_to_pay]
+    dimensions: [payer]
+    window: {quantity: 6, unit: week, mode: full_periods}
+    scope_note: Payment-lag stretch screen; detector posting_lag_stretch.
+transforms:
+  - operator: compare
+    args: {kind: prior_period}
+  - operator: rank
+    args: {by: impact_cents, descending: true}
+conclusion_policies: [portfolio_item_claim]
+ranking_policy: portfolio_impact_rank

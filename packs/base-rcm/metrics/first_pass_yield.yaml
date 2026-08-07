@@ -1,0 +1,29 @@
+# First-pass yield: paid on first adjudication with no denial, over claims
+# submitted. Measured at the payer outcome (vs clean_claim_rate's edit-stage
+# industry framing).
+id: first_pass_yield
+version: 1
+kind: flow
+entity_grain: claim
+numerator:
+  filtered:
+    inner: {count_distinct: claim_id}
+    where: {dimension: first_pass_paid, op: eq, value: true}
+denominator: {count_distinct: claim_id}
+exclusions: {not: {dimension: submission_date, op: is_null}}
+primary_date_basis: submission
+allowed_date_bases: [submission, service]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, provider,
+   provider_specialty, facility, region, service_line, claim_type,
+   payer_sequence]
+sign: higher_is_good
+unit: ratio
+description: >-
+  Claims paid on their first remittance with no denial, as a share of claims
+  submitted in the window (submission basis). Recently submitted claims sit
+  in the denominator until adjudication is visible, so trailing windows read
+  conservatively at fresh watermarks. Distinct from clean_claim_rate: yield
+  is measured at payer outcome over submissions; the clean rate is measured
+  over adjudicated claims. Benchmark context: 90-95 percent or better is the
+  commonly cited range for first-pass resolution.

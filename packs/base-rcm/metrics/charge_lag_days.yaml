@@ -1,0 +1,21 @@
+# Charge lag days (MAP PB-4 shape) — service to charge entry, per line.
+id: charge_lag_days
+version: 1
+kind: flow
+entity_grain: line
+numerator: {sum: charge_entry_lag_days}
+denominator: {count_distinct: claim_line_id}
+primary_date_basis: service
+allowed_date_bases: [service]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, facility, region,
+   service_line, claim_type, proc_group]
+sign: higher_is_bad
+unit: days
+description: >-
+  Mean days from the line's service date to its charge entry date, over
+  claim lines with service in the window (line-weighted, per the MAP PB-4
+  total-charge-lag shape). charge_entry_lag_days is a documented probe-time
+  derived measure (charge_entry_date minus service_date per line; see pack
+  NOTES). Benchmark context: best practice is one to two days. Pair with
+  late_charge_pct for the charge-capture picture.

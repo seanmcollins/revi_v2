@@ -1,0 +1,54 @@
+# Governed timely-filing rules. Patterns are globs over the warehouse's
+# fictional payer/plan names; more specific rules precede general ones and
+# the first match wins. Authority tiers: federal_statute (no confirmation
+# needed), federal_regulation and contract_default (confirm against the
+# payer contract before asserting), plan_configuration (mirrors dim_plan —
+# the system of record), planning_default (conservative fallback, always
+# confirm). date_basis is the day the filing clock starts from.
+filing_rules:
+  # -- Plan-specific rules (aligned with dim_plan) --------------------------
+  - id: state_medicaid_hmo_90
+    payer_pattern: "State Medicaid"
+    plan_pattern: "State Medicaid HMO"
+    filing_limit_days: 90
+    date_basis: service
+    authority: plan_configuration
+    requires_confirmation: false
+  - id: medicaid_mco_plans_95
+    payer_pattern: "*Medicaid MCO"
+    filing_limit_days: 95
+    date_basis: service
+    authority: plan_configuration
+    requires_confirmation: false
+  # -- Program-level rules --------------------------------------------------
+  - id: medicare_ffs_365
+    payer_pattern: "Federal Medicare"
+    filing_limit_days: 365
+    date_basis: service
+    authority: federal_statute
+    requires_confirmation: false
+  - id: medicare_advantage_365
+    payer_pattern: "*Medicare Advantage*"
+    filing_limit_days: 365
+    date_basis: service
+    authority: contract_default
+    requires_confirmation: true
+  - id: medicaid_default_365
+    payer_pattern: "*Medicaid*"
+    filing_limit_days: 365
+    date_basis: service
+    authority: federal_regulation
+    requires_confirmation: true
+  # -- Commercial and fallback ---------------------------------------------
+  - id: commercial_default_90
+    payer_pattern: "*Commercial*"
+    filing_limit_days: 90
+    date_basis: service
+    authority: planning_default
+    requires_confirmation: true
+  - id: unmatched_default_90
+    payer_pattern: "*"
+    filing_limit_days: 90
+    date_basis: service
+    authority: planning_default
+    requires_confirmation: true

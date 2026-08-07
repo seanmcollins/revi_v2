@@ -1,0 +1,116 @@
+# Candidate bindings (design section 5.5): concept -> catalog dimension or
+# measure, with declared evidence strength. The grade law propagates these
+# strengths — proxy bindings can never launder into certified conclusions.
+bindings:
+  - concept_id: cob
+    dimension_or_measure_id: cob_mismatch_flag
+    state: certified
+    strength: direct
+    rationale: >-
+      The warehouse stamps an explicit coordination-of-benefits mismatch flag
+      on claims billed primary while other insurance exists — the field
+      directly represents the concept.
+  - concept_id: cob
+    dimension_or_measure_id: payer_sequence
+    state: validated
+    strength: derived
+    rationale: >-
+      Billing order (P/S/T) combined with the other-insurance flag
+      deterministically identifies out-of-sequence billing.
+  - concept_id: cob
+    dimension_or_measure_id: carc
+    state: certified
+    strength: proxy
+    rationale: >-
+      Concentration of COB-typed reason codes (22, 23, 109) suggests a COB
+      problem but does not prove one — codes are payer assertions, not
+      coverage facts.
+  - concept_id: denial
+    dimension_or_measure_id: carc
+    state: certified
+    strength: direct
+    rationale: >-
+      A denial record keyed by group code + CARC on the remit is the direct
+      representation of an adjudicated denial.
+  - concept_id: denial
+    dimension_or_measure_id: denied_amount_cents
+    state: certified
+    strength: direct
+    rationale: Denied dollars are carried on the denial record itself.
+  - concept_id: denial_category
+    dimension_or_measure_id: denial_category
+    state: certified
+    strength: direct
+    rationale: Certified root-cause rollup dimension over group code + CARC pairs.
+  - concept_id: appeal_overturn
+    dimension_or_measure_id: appeal_status
+    state: certified
+    strength: direct
+    rationale: Appeal disposition is stored per denial as visible at the watermark.
+  - concept_id: patient_responsibility
+    dimension_or_measure_id: patient_responsibility_cents
+    state: certified
+    strength: direct
+    rationale: PR-group amounts are accumulated onto the claim at adjudication.
+  - concept_id: clean_claim
+    dimension_or_measure_id: clean_claim
+    state: certified
+    strength: derived
+    rationale: >-
+      The warehouse flag is outcome-derived (resolved with zero denials), a
+      deterministic calculation rather than a scrubber event — derived, not
+      direct, evidence of the industry clean-claim concept.
+  - concept_id: underpayment
+    dimension_or_measure_id: expected_amount_cents
+    state: certified
+    strength: derived
+    rationale: >-
+      Variance is deterministically computed from contract-expected versus
+      allowed amounts; each claim floored at zero (never netted).
+  - concept_id: underpayment
+    dimension_or_measure_id: allowed_amount_cents
+    state: certified
+    strength: derived
+    rationale: Line allowed amounts are the actual side of the variance computation.
+  - concept_id: dnfb
+    dimension_or_measure_id: billed_amount_cents
+    state: validated
+    strength: derived
+    rationale: >-
+      DNFB inventory is deterministically identified (discharge date present,
+      submission date null) and valued at billed charges.
+  - concept_id: timely_filing
+    dimension_or_measure_id: carc
+    state: certified
+    strength: proxy
+    rationale: >-
+      CARC 29 denials evidence limits already breached; they do not measure
+      the at-risk inventory, which comes from filing rules applied to
+      unsubmitted claims.
+  - concept_id: ar_aging
+    dimension_or_measure_id: ar_age_bucket
+    state: certified
+    strength: derived
+    rationale: >-
+      Age buckets derive at probe time from the snapshot's newest data date
+      minus the aging-basis date; not a stored column.
+  - concept_id: payer_mix
+    dimension_or_measure_id: payer
+    state: certified
+    strength: direct
+    rationale: Mix views are share-of-total transforms over metrics cut by payer.
+  - concept_id: pos_collections
+    dimension_or_measure_id: patient_payment_cents
+    state: observed
+    strength: unavailable
+    rationale: >-
+      Patient cash exists, but this warehouse's patient payments post only
+      after adjudication — point-of-service timing cannot be distinguished,
+      so no adequate measurement of POS collections exists here (see NOTES).
+  - concept_id: rarc
+    dimension_or_measure_id: rarc_synthetic
+    state: observed
+    strength: discovery
+    rationale: >-
+      Synthetic remark codes are uncertified placeholders populated on a
+      minority of denials; any cut by them downgrades to discovery grade.

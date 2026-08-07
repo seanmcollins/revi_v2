@@ -1,0 +1,41 @@
+id: dimension_scorecard
+description: >-
+  Generic multi-metric assessment across ANY certified dimension — one
+  playbook powers "assess each facility financially", payer scorecards, and
+  service-line reviews alike. The dimension is a parameter (referenced as
+  $dimension in probe dimensions and bound at plan time to a certified
+  catalog dimension); no per-dimension playbooks exist. Small cells are
+  suppressed per catalog policy, and each metric's grade and basis ride
+  along per column.
+triggers:
+  - assess the performance of each facility
+  - payer scorecard
+  - score each payer
+  - how is each service line doing
+  - scorecard
+params:
+  - dimension
+probes:
+  - id: scorecard_flow
+    metric_ids: [charges, cash_posted, denial_rate, first_pass_yield, avg_days_to_pay]
+    dimensions: ["$dimension"]
+    window: {quantity: 3, unit: month, mode: full_periods}
+    scope_note: >-
+      Flow metrics over the last three full months, one row per dimension
+      value; each metric keeps its own primary basis and the header says so.
+  - id: scorecard_ar
+    metric_ids: [ar_balance, ar_over_90_pct, days_in_ar]
+    dimensions: ["$dimension"]
+    scope_note: Snapshot A/R health per dimension value, aged to the newest data date.
+  - id: scorecard_leakage
+    metric_ids: [underpayment_variance, denial_write_off_dollars]
+    dimensions: ["$dimension"]
+    window: {quantity: 3, unit: month, mode: full_periods}
+    scope_note: Leakage pair — never-netted variance and non-contractual write-offs.
+transforms:
+  - operator: pivot
+    args: {rows: dimension_value, columns: metric}
+  - operator: rank
+    args: {by: impact_cents, descending: true}
+conclusion_policies: [scorecard_claim]
+ranking_policy: impact_first

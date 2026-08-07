@@ -1,0 +1,32 @@
+# Days in A/R — SNAPSHOT. Ages open receivables to the snapshot's newest
+# data date (the old-repo-confirmed semantic). Implemented as billed-weighted
+# mean age because this warehouse has no net-revenue (NPSR) series for the
+# MAP FM-1 denominator; the divergence is stated, never hidden.
+id: days_in_ar
+version: 1
+kind: snapshot
+entity_grain: claim
+numerator: {sum: ar_age_days_billed_cents}
+denominator:
+  filtered:
+    inner: {sum: billed_amount_cents}
+    where: {dimension: status, op: in, values: [OPEN, DENIED]}
+primary_date_basis: service
+allowed_date_bases: [service, submission]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, provider,
+   provider_specialty, facility, region, service_line, claim_type,
+   payer_sequence]
+sign: higher_is_bad
+unit: days
+description: >-
+  Billed-dollar-weighted average age, in days, of open receivables
+  (unresolved claims: status OPEN or DENIED) as of the snapshot — each
+  claim's age is the newest data date minus its aging-basis date (service by
+  default, submission as the legal alternate). Point of clarification: HFMA
+  MAP FM-1 defines net days in A/R as net A/R over average daily NPSR; that
+  form is not computable here (no net-revenue series), so this contract is
+  the aging form and answers must not quote FM-1 benchmarks (under 40 days)
+  without noting the basis difference. ar_age_days_billed_cents is a
+  documented probe-time derived measure (billed cents times age days for
+  open claims; see pack NOTES).

@@ -1,0 +1,43 @@
+id: timely_filing_watch
+description: >-
+  Pre-denial timely-filing early warning: value the unsubmitted inventory
+  against governed filing rules, profile its aging, and confirm whether
+  limits are already being breached (CARC 29 denials). The at-risk snapshot
+  is the differentiator — it surfaces deadlines before the denial exists.
+triggers:
+  - timely filing risk
+  - claims about to miss filing
+  - filing deadline exposure
+  - tfl watch
+params:
+  - plan
+  - facility
+probes:
+  - id: at_risk_by_plan
+    metric_ids: [timely_filing_at_risk_dollars]
+    dimensions: [plan, facility]
+    top_n: 10
+    scope_note: >-
+      Snapshot of unsubmitted open dollars by plan and facility, aged
+      against each plan's filing rule (limit days, basis, authority,
+      confirmation state). The planted scenario clusters July services on a
+      90-day service-basis Medicaid HMO plan at one facility.
+  - id: unbilled_aging_profile
+    metric_ids: [ar_balance]
+    dimensions: [ar_age_bucket]
+    scope_note: >-
+      Aging profile of the at-risk population (scope: submission date null)
+      — how much runway remains per bucket.
+  - id: breach_confirmation
+    metric_ids: [denied_dollars]
+    dimensions: [carc, plan]
+    window: {quantity: 3, unit: month, mode: full_periods}
+    basis_override: remit
+    scope_note: >-
+      CARC 29 denied dollars confirm limits already breached — the lagging
+      indicator the at-risk view exists to prevent.
+transforms:
+  - operator: rank
+    args: {by: timely_filing_at_risk_dollars, descending: true}
+conclusion_policies: [timely_filing_risk_claim]
+ranking_policy: impact_first

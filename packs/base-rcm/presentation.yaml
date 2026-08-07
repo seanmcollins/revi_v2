@@ -1,0 +1,67 @@
+# Chart recipes per metric/finding family. Governed preferences the
+# presentation layer applies before any LLM chart suggestion.
+recipes:
+  - id: cash_trend
+    applies_to: cash_posted
+    chart_type: line
+    notes: >-
+      Weekly line on the POST basis with prior-period overlay; annotate the
+      watermark edge — partial weeks at the data edge mislead.
+  - id: denial_rate_trend
+    applies_to: denial_rate
+    chart_type: line
+    notes: >-
+      Weekly line on the REMIT basis with prior-period overlay and the
+      detector threshold band; pair with the initial-rate view rather than
+      conflating them.
+  - id: denial_code_mix
+    applies_to: denied_dollars
+    chart_type: stacked_bar
+    notes: >-
+      Stacked bars by group code + CARC pair (mix over time) or a bar rank
+      for a single window; always label the pair, never the CARC alone.
+  - id: aging_profile
+    applies_to: ar_balance
+    chart_type: stacked_bar
+    notes: >-
+      Aging buckets stacked per dimension value, 0-30 through 120+; the
+      over-90 share reads directly off the top two segments.
+  - id: cash_decline_decomposition
+    applies_to: cash_decline
+    chart_type: waterfall
+    notes: >-
+      Waterfall from prior-week cash to decline-week cash, one bar per
+      payer-level driver, split volume versus timing; residual bar labeled
+      honestly.
+  - id: scorecard_table
+    applies_to: dimension_scorecard
+    chart_type: table_bars
+    notes: >-
+      One row per dimension value, one column per metric with in-cell bars;
+      grade badge and basis chip per column; suppressed cells shown as
+      suppressed, never as zero.
+  - id: outlook_range
+    applies_to: cash_outlook
+    chart_type: range_band
+    notes: >-
+      Projected range band over the recent weekly actuals, drivers listed
+      beside the band; the estimate label is mandatory (conclusion policy),
+      never a single-line "forecast".
+  - id: underpayment_pareto
+    applies_to: underpayment_variance
+    chart_type: bar
+    notes: >-
+      Descending bar (Pareto) by payer or service line; never present a
+      netted total — the metric already floors per claim at zero.
+  - id: lag_distribution
+    applies_to: avg_days_to_pay
+    chart_type: line
+    notes: >-
+      Weekly average-lag lines per payer; a step change with flat volume
+      reads as timing, not lost cash.
+  - id: filing_runway
+    applies_to: timely_filing_at_risk_dollars
+    chart_type: bar
+    notes: >-
+      Bars by plan/facility with days-of-runway annotation from the filing
+      rules; confirmation-required rules get a planning-default chip.

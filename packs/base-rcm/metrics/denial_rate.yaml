@@ -1,0 +1,34 @@
+# Remittance denial rate (HFMA MAP AR-5 shape). CLAIM grain with REMIT as the
+# primary basis; carc is deliberately NOT a scope dimension — cutting a
+# claim-grain rate by a line-level code is the designed GRAIN_INCOMPATIBLE
+# demonstration (denied_dollars at line grain carries the carc scope).
+id: denial_rate
+version: 1
+kind: flow
+entity_grain: claim
+numerator:
+  filtered:
+    inner: {count_distinct: claim_id}
+    where: {dimension: clean_claim, op: eq, value: false}
+denominator: {count_distinct: claim_id}
+exclusions: {dimension: status, op: neq, value: OPEN}
+primary_date_basis: remit
+allowed_date_bases: [remit, service, submission]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, provider,
+   provider_specialty, facility, region, service_line, claim_type,
+   payer_sequence]
+sign: higher_is_bad
+unit: ratio
+description: >-
+  Share of adjudicated claims that received at least one denial: claims whose
+  outcome-derived clean flag is false, divided by all claims with a visible
+  adjudication outcome (status OPEN excluded from both sides — the
+  denominator law applies any scope filter to numerator and denominator
+  alike). Primary basis is remittance (adjudication) date per the MAP AR-5
+  convention; service and submission are labeled alternates. Claims denied
+  and later paid (for example COB rebills) still count as denied — this is
+  the remittance denial rate, not standing-denied inventory. Benchmark
+  context: sub-5 percent is the commonly cited target; initial denial rates
+  industry-wide run over 11 percent (Kodiak). Pair with initial_denial_rate
+  and denial_write_off_dollars; never conflate initial and final rates.

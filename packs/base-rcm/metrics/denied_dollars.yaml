@@ -1,0 +1,25 @@
+# Denied dollars at line grain (the denial entity's grain is LINE). This is
+# where code-level scope lives: group_code + CARC pair, category, and
+# procedure group are legal cuts here, unlike on claim-grain denial_rate.
+id: denied_dollars
+version: 1
+kind: flow
+entity_grain: line
+numerator: {sum: denied_amount_cents}
+primary_date_basis: remit
+allowed_date_bases: [remit, service, submission]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, facility, region,
+   service_line, claim_type, carc, group_code, denial_category, proc_group,
+   appeal_status]
+sign: higher_is_bad
+unit: money_cents
+description: >-
+  Billed dollars attached to denial records in the window, on the remittance
+  (denial) date basis. Claim-level denials carry the claim's billed total;
+  line-level denials carry the denied line's billed amount — the denial_level
+  column distinguishes them (zero-pay vs partial-pay split). Dollars pair
+  with denial_rate volume views: each alone misleads, so present both.
+  Denials are keyed on the group code + CARC pair throughout. proc_group
+  cuts resolve through the denial record's line linkage and are null for
+  claim-level denials — the planner surfaces that coverage gap.

@@ -1,0 +1,29 @@
+# Clean claim rate (HFMA MAP CL-1 shape) with an honest caveat: this
+# warehouse has no scrubber events, so the clean flag is outcome-derived.
+id: clean_claim_rate
+version: 1
+kind: flow
+entity_grain: claim
+numerator:
+  filtered:
+    inner: {count_distinct: claim_id}
+    where: {dimension: clean_claim, op: eq, value: true}
+denominator: {count_distinct: claim_id}
+exclusions: {dimension: status, op: neq, value: OPEN}
+primary_date_basis: submission
+allowed_date_bases: [submission, service, remit]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, provider,
+   provider_specialty, facility, region, service_line, claim_type,
+   payer_sequence]
+sign: higher_is_good
+unit: ratio
+description: >-
+  Share of adjudicated claims flagged clean, over claims with a visible
+  adjudication outcome. Point of clarification: MAP CL-1 measures clean
+  claims at the pre-submission scrubber; this warehouse's clean_claim flag is
+  outcome-derived (claim resolved with zero denials), so this contract is an
+  outcome-based clean rate — closely related to first_pass_yield and
+  complementary to denial_rate (the two sum to one over the same
+  population). Benchmark context: 95 percent is the commonly cited target,
+  top performers near 98 (scrubber-based definitions).

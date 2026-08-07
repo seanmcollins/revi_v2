@@ -1,0 +1,23 @@
+# Credit balances — SNAPSHOT of overpayment standing not yet refunded.
+id: credit_balance_dollars
+version: 1
+kind: snapshot
+entity_grain: claim
+numerator: {sum: credit_balance_cents}
+primary_date_basis: service
+allowed_date_bases: [service, submission]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, facility, region,
+   service_line, claim_type]
+sign: higher_is_bad
+unit: money_cents
+description: >-
+  Credit-balance dollars standing as of the snapshot: per claim, posted
+  payments in excess of the amount the account should have collected, where
+  the refund has not yet posted. credit_balance_cents is a documented
+  probe-time derived measure (visible payments minus expected collections,
+  floored at zero, minus refunds already issued; in this warehouse credits
+  arise from duplicate payer payments later refunded — see pack NOTES).
+  Credit balances are liabilities with regulatory return deadlines, so
+  higher is bad; MAP AR-9's days form is a transform over this contract and
+  a daily-revenue proxy, labeled when used.

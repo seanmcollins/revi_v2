@@ -1,0 +1,9 @@
+pack_id: base-rcm
+version: "1.0.0"
+kind: base
+description: >-
+  Governed base RCM pack: enterprise revenue-cycle concepts and EHR-native
+  aliases, paraphrased remittance-code definitions, governed metric contracts,
+  investigation playbooks, and policies. Authored against the mock-warehouse
+  semantic catalog (warehouse/catalog) and the industry research synthesis
+  (docs/research/industry-research.md).

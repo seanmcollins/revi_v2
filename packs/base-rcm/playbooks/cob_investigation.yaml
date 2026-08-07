@@ -1,0 +1,51 @@
+id: cob_investigation
+description: >-
+  Answer "do I have a COB problem?" with graded evidence. The direct branch
+  scopes claim volume over the certified cob_mismatch_flag binding (claims
+  billed primary while other insurance exists) — DIRECT-grade evidence. The
+  proxy branch reads COB-typed code concentration (OA/CARC 22, 23, 109) on
+  denied dollars — PROXY-grade evidence that suggests but does not prove a
+  COB problem. The grade law keeps the branches distinct: proxy evidence
+  alone can only support qualified language (cob_suspected_claim), while the
+  certified conclusion (cob_confirmed_claim) requires the direct branch.
+triggers:
+  - do i have a cob problem
+  - cob issue
+  - coordination of benefits problem
+  - other insurance denials
+params:
+  - payer
+probes:
+  - id: cob_flag_split
+    metric_ids: [claim_volume]
+    dimensions: [payer, payer_sequence]
+    window: {quantity: 4, unit: month, mode: full_periods}
+    scope_note: >-
+      DIRECT branch: population scoped by the certified cob_mismatch_flag
+      binding, split by payer and billing sequence — measures out-of-order
+      billing itself.
+  - id: cob_code_proxy
+    metric_ids: [denied_dollars]
+    dimensions: [carc, group_code]
+    window: {quantity: 4, unit: month, mode: full_periods}
+    top_n: 10
+    basis_override: remit
+    scope_note: >-
+      PROXY branch: concentration of COB-typed pairs (OA-22, OA-23, OA-109)
+      in denied dollars. Codes are payer assertions — suggestive, not
+      probative; conclusions from this probe alone stay qualified.
+  - id: cob_rebill_timing
+    metric_ids: [avg_days_to_pay]
+    dimensions: [payer]
+    window: {quantity: 4, unit: month, mode: full_periods}
+    scope_note: >-
+      Corroboration: COB denials that later pay via rebill stretch effective
+      days-to-pay for the affected payer (the planted scenario rebills
+      30-45 days after the first remit).
+transforms:
+  - operator: share_of_total
+    args: {measure: denied_dollars}
+  - operator: rank
+    args: {by: denied_dollars, descending: true}
+conclusion_policies: [cob_confirmed_claim, cob_suspected_claim]
+ranking_policy: impact_first

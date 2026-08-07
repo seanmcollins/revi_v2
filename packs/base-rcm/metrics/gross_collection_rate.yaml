@@ -1,0 +1,21 @@
+# Gross collection rate — context-only ratio of payer cash to gross charges.
+id: gross_collection_rate
+version: 1
+kind: flow
+entity_grain: claim
+numerator: {sum: payment_cents}
+denominator: {sum: billed_amount_cents}
+primary_date_basis: service
+allowed_date_bases: [service, submission]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, facility, region,
+   service_line, claim_type]
+sign: neutral
+unit: ratio
+description: >-
+  Payer cash posted to date for services in the window divided by gross
+  billed charges for the same cohort (cross-entity ratio-of-sums per cell).
+  Gross collection rate is context only: it moves with chargemaster pricing
+  and payer mix, so it has no meaningful universal target — use
+  net_collection_rate for realization judgments. Patient cash excluded, as
+  in the net rate.

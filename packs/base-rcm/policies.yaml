@@ -1,0 +1,120 @@
+# Governed policies: what evidence supports which claims (conclusion
+# policies), how findings are ordered (ranking policies), and detector
+# thresholds with the [min, max] ranges overlays may tune within.
+conclusion_policies:
+  - id: denial_spike_claim
+    claim: >-
+      A denial spike is attributable to a specific payer, code pair, or
+      service-line cell.
+    required_grade: derived
+    required_evidence: [denial_trend, denial_code_mix, denial_concentration]
+    estimate_label_required: false
+  - id: cash_driver_claim
+    claim: >-
+      A posted-cash decline is attributable to named payer-level volume
+      and/or timing drivers.
+    required_grade: derived
+    required_evidence: [weekly_cash_trend, cash_by_payer]
+    estimate_label_required: false
+  - id: cob_confirmed_claim
+    claim: >-
+      A coordination-of-benefits problem exists for the scoped payer
+      population (claims billed primary while other coverage exists).
+    required_grade: direct
+    required_evidence: [cob_flag_split]
+    estimate_label_required: false
+  - id: cob_suspected_claim
+    claim: >-
+      Elevated COB-typed denial codes suggest a possible coordination-of-
+      benefits problem; code concentration alone does not prove one, so this
+      claim is always voiced in qualified language.
+    required_grade: proxy
+    required_evidence: [cob_code_proxy]
+    estimate_label_required: false
+  - id: underpayment_claim
+    claim: >-
+      A payer is paying below contract-expected amounts for an identified
+      cohort; variance is reported without netting overpayments.
+    required_grade: derived
+    required_evidence: [underpayment_by_payer, realization_check]
+    estimate_label_required: false
+  - id: timely_filing_risk_claim
+    claim: >-
+      Identified unsubmitted inventory is at material risk against governed
+      filing limits; rules requiring confirmation are labeled planning
+      defaults.
+    required_grade: derived
+    required_evidence: [at_risk_by_plan]
+    estimate_label_required: false
+  - id: scorecard_claim
+    claim: >-
+      A dimension value materially under- or over-performs peers across the
+      scorecard's governed metrics.
+    required_grade: derived
+    required_evidence: [scorecard_flow, scorecard_ar]
+    estimate_label_required: false
+  - id: cash_outlook_estimate
+    claim: >-
+      Projected posted cash for the horizon, as a qualified range with named
+      drivers. This is an estimate derived from inventory, realization, and
+      lag history — never a certified forecast, and it must always be
+      labeled as an estimate.
+    required_grade: derived
+    required_evidence: [open_inventory, realization_rates, payment_lags]
+    estimate_label_required: true
+  - id: portfolio_item_claim
+    claim: >-
+      An issue belongs in today's ranked portfolio with a stated dollar
+      impact and evidence grade.
+    required_grade: derived
+    required_evidence: [portfolio_cash_trend, portfolio_denial_trend]
+    estimate_label_required: false
+
+ranking_policies:
+  - id: impact_first
+    description: >-
+      Order findings by financial impact in cents, then recency, then
+      evidence grade — certified dollar impact outranks noise.
+    weights: {impact_cents: 0.6, recency: 0.25, evidence_grade: 0.15}
+  - id: portfolio_impact_rank
+    description: >-
+      Portfolio ordering: impact-cents-weighted with recency, evidence
+      grade, and deadline proximity (timely-filing items surface before
+      their limits pass, not after).
+    weights:
+      impact_cents: 0.55
+      recency: 0.2
+      evidence_grade: 0.15
+      deadline_proximity: 0.1
+
+detector_policies:
+  - id: denial_rate_spike
+    description: >-
+      Flag when the weekly denial rate rises by more than this relative
+      share over the trailing four-full-week baseline (0.25 = a 25 percent
+      relative increase, e.g. 8% -> 10%).
+    threshold: 0.25
+    threshold_min: 0.10
+    threshold_max: 0.60
+  - id: cash_decline_detector
+    description: >-
+      Flag when weekly posted cash falls by more than this share versus the
+      prior full week (0.10 = a 10 percent decline).
+    threshold: 0.10
+    threshold_min: 0.05
+    threshold_max: 0.30
+  - id: posting_lag_stretch
+    description: >-
+      Flag when a payer's average days-to-pay stretches by more than this
+      many days over its trailing six-week baseline.
+    threshold: 3
+    threshold_min: 1
+    threshold_max: 7
+  - id: underpayment_detector
+    description: >-
+      Flag when a payer cohort's never-netted underpayment variance exceeds
+      this share of contract-expected reimbursement (0.03 = 3 percent of
+      expected).
+    threshold: 0.03
+    threshold_min: 0.01
+    threshold_max: 0.10

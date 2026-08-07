@@ -1,0 +1,19 @@
+# Posted patient cash (self-pay and patient-responsibility payments).
+id: patient_cash_posted
+version: 1
+kind: flow
+entity_grain: transaction
+numerator: {sum: patient_payment_cents}
+primary_date_basis: post
+allowed_date_bases: [post, service, submission]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, facility, region,
+   service_line, claim_type]
+sign: higher_is_good
+unit: money_cents
+description: >-
+  Patient payment dollars posted in the window, on the post-date basis.
+  Patient payments in this warehouse post only after adjudication
+  establishes patient responsibility, so they carry no remit basis and a
+  point-of-service split is not supportable (see pack NOTES). Combined
+  payer-plus-patient cash is a transform over cash_posted and this contract.

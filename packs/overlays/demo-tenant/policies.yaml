@@ -1,0 +1,5 @@
+# Tenant detector tune: threshold only, and only within the base-declared
+# [0.10, 0.60] range for denial_rate_spike.
+detector_policies:
+  - id: denial_rate_spike
+    threshold: 0.20

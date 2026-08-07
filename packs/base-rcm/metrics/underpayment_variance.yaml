@@ -1,0 +1,29 @@
+# Underpayment variance — expected minus allowed, floored at zero per claim.
+# NEVER nets underpayments against overpayments.
+id: underpayment_variance
+version: 1
+kind: flow
+entity_grain: claim
+numerator: {sum: underpayment_cents}
+primary_date_basis: service
+allowed_date_bases: [service, submission]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, provider,
+   provider_specialty, facility, region, service_line, claim_type,
+   payer_sequence]
+sign: higher_is_bad
+unit: money_cents
+description: >-
+  Dollars by which payers allowed less than contract-expected: per
+  adjudicated claim, max(0, expected_amount_cents minus the sum of visible
+  line allowed amounts), summed over the window. This metric never nets
+  overpayments against underpayments — each claim's variance is floored at
+  zero before summing, because netting hides recoverable dollars
+  (overpayments are a credit-balance problem, tracked separately).
+  underpayment_cents is a documented probe-time derived measure over
+  adjudicated claims only (line allowed is null before first remit; see pack
+  NOTES). Attribution by adjudication month is an investigation cut, since
+  the claim entity carries service/submission bases. Benchmark context:
+  industry reviews repeatedly find payers underpaying a material share of
+  claims; the planted scenario pays 92 percent of expected on one
+  payer-times-procedure-group cell.

@@ -1,0 +1,28 @@
+# Never-worked denials share — the headline "money left on the table" metric.
+id: denials_unworked_pct
+version: 1
+kind: flow
+entity_grain: denial
+numerator:
+  filtered:
+    inner: {count_distinct: denial_id}
+    where: {dimension: appeal_status, op: eq, value: NONE}
+denominator: {count_distinct: denial_id}
+exclusions: {dimension: denial_category, op: neq, value: PATIENT_RESP}
+primary_date_basis: remit
+allowed_date_bases: [remit, service]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, facility, region,
+   service_line, claim_type, carc, group_code, denial_category]
+sign: higher_is_bad
+unit: ratio
+description: >-
+  Share of denial records with no appeal activity (appeal status NONE) among
+  denials in the window, remittance-date basis. Exclusion: patient-
+  responsibility category records (PR-group deductible/copay/coinsurance
+  notices) are excluded from both sides — they are billing instructions, not
+  workable denials, and would inflate the unworked share. Watermark note:
+  recent denials legitimately show NONE before an appeal is filed, so
+  trailing windows overstate abandonment near the data edge. Benchmark
+  context: industry sweeps put never-worked denials near two-thirds of all
+  denials.

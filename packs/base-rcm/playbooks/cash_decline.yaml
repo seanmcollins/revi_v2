@@ -1,0 +1,55 @@
+id: cash_decline
+description: >-
+  Investigate a posted-cash decline: establish the weekly cash trend against
+  the prior period, decompose the change by payer, separate volume effects
+  (submission trend) from timing effects (payment-lag distribution shift),
+  and rank payer-level drivers by dollar impact. The planted warehouse
+  scenario pairs a payer submission-volume drop with another payer's
+  remit-to-post lag stretch.
+triggers:
+  - why did cash decline
+  - cash is down
+  - payments dropped
+  - posted cash decline
+  - why did cash decline last week
+params:
+  - payer
+probes:
+  - id: weekly_cash_trend
+    metric_ids: [cash_posted]
+    window: {quantity: 8, unit: week, mode: full_periods}
+    scope_note: >-
+      Weekly buckets on the POST basis with a prior-period comparison; the
+      decline week is identified here.
+  - id: cash_by_payer
+    metric_ids: [cash_posted]
+    dimensions: [payer]
+    window: {quantity: 2, unit: week, mode: full_periods}
+    top_n: 12
+    scope_note: >-
+      Decline week versus prior week by payer; the decomposition input.
+      Complete payer set — top_n covers the full cardinality.
+  - id: submission_volume_by_payer
+    metric_ids: [claim_volume]
+    dimensions: [payer]
+    window: {quantity: 6, unit: week, mode: full_periods}
+    basis_override: submission
+    scope_note: >-
+      Weekly submitted volume by payer — volume-driven declines show up here
+      one to three weeks before the cash effect.
+  - id: lag_distribution_compare
+    metric_ids: [avg_days_to_pay]
+    dimensions: [payer]
+    window: {quantity: 6, unit: week, mode: full_periods}
+    scope_note: >-
+      Payment-lag trend by payer; a lag stretch with flat volume is a timing
+      driver (cash catches up), honestly distinct from lost volume.
+transforms:
+  - operator: compare
+    args: {kind: prior_period}
+  - operator: decompose
+    args: {method: two_factor, factors: volume_rate}
+  - operator: rank
+    args: {by: impact_cents, descending: true}
+conclusion_policies: [cash_driver_claim]
+ranking_policy: impact_first

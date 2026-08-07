@@ -1,0 +1,31 @@
+# Appeal overturn rate — overturned ÷ DECIDED (overturned + upheld).
+# Pending appeals are excluded from the denominator; this is the governed,
+# industry-correct semantic.
+id: appeal_overturn_rate
+version: 1
+kind: flow
+entity_grain: denial
+numerator:
+  filtered:
+    inner: {count_distinct: denial_id}
+    where: {dimension: appeal_status, op: eq, value: OVERTURNED}
+denominator:
+  filtered:
+    inner: {count_distinct: denial_id}
+    where: {dimension: appeal_status, op: in, values: [OVERTURNED, UPHELD]}
+primary_date_basis: remit
+allowed_date_bases: [remit, service]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, facility, region,
+   service_line, claim_type, carc, group_code, denial_category]
+sign: higher_is_good
+unit: ratio
+description: >-
+  Overturned appeals divided by decided appeals (overturned plus upheld) for
+  denials in the window, remittance-date basis. The denominator is decided
+  appeals only — never all denials and never all appeals — so
+  pending-but-undecided appeals do not dilute the rate; appeal state
+  reflects the snapshot watermark. Read alongside denials_unworked_pct:
+  overturn rates are typically high (MA prior-auth appeals succeed at 80+
+  percent) while appeal rates are low, which is the never-worked-denials
+  opportunity story.

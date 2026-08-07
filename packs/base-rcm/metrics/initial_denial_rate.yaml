@@ -1,0 +1,37 @@
+# Initial denial rate (HFMA Claim Integrity Task Force shape), implemented
+# honestly against this warehouse: every recorded denial lands on a claim's
+# FIRST remit (rebill/appeal remits never carry new denials), so the numerator
+# is exactly first-pass denials with no dedup step needed, and no rebill
+# exclusion flag is required because resubmissions are not separate claims
+# here (documented in packs/base-rcm/NOTES.md).
+id: initial_denial_rate
+version: 1
+kind: flow
+entity_grain: claim
+numerator:
+  filtered:
+    inner: {count_distinct: claim_id}
+    where:
+      and:
+        - {dimension: clean_claim, op: eq, value: false}
+        - {dimension: status, op: neq, value: OPEN}
+denominator: {count_distinct: claim_id}
+exclusions: {not: {dimension: submission_date, op: is_null}}
+primary_date_basis: submission
+allowed_date_bases: [submission, service]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, provider,
+   provider_specialty, facility, region, service_line, claim_type,
+   payer_sequence]
+sign: higher_is_bad
+unit: ratio
+description: >-
+  Claims denied on first adjudication as a share of claims submitted in the
+  window (submission-date basis, per the Task Force denominator convention;
+  the published 3-month-average smoothing is a comparison-window choice made
+  at probe time, not baked into the contract). Differs from denial_rate in
+  denominator and basis: submitted-but-not-yet-adjudicated claims sit in the
+  denominator only, so recent windows read low until adjudication catches up
+  — the watermark context header discloses this. Benchmark context: Kodiak
+  reports 11.4-11.6 percent averages (2024-2025); pair with the final-denial
+  view (denial_write_off_dollars) and never conflate the two.

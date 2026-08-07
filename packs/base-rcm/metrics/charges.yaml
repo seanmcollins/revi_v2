@@ -1,0 +1,21 @@
+# Gross charges (chargemaster/billed value) — a volume ruler, not revenue.
+id: charges
+version: 1
+kind: flow
+entity_grain: claim
+numerator: {sum: billed_amount_cents}
+primary_date_basis: service
+allowed_date_bases: [service, submission, discharge]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, provider,
+   provider_specialty, facility, region, service_line, claim_type,
+   payer_sequence]
+sign: neutral
+unit: money_cents
+description: >-
+  Gross billed charges for claims in the window, service-date basis by
+  default (submission and discharge are labeled alternates). Charges are
+  undiscounted chargemaster value: never compare them against net-revenue
+  benchmarks, and read collection ratios on a gross basis as context only.
+  At a given watermark a claim's billed total reflects charge lines entered
+  so far.

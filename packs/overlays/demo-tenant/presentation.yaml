@@ -1,0 +1,9 @@
+# Tenant presentation preference: overrides the base cash_trend recipe id
+# (presentation preferences are a permitted overlay class).
+recipes:
+  - id: cash_trend
+    applies_to: cash_posted
+    chart_type: area
+    notes: >-
+      Tenant preference: area chart for weekly posted cash, prior-period
+      overlay retained; watermark-edge annotation unchanged.

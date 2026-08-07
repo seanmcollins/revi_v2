@@ -1,0 +1,298 @@
+# Governed remittance-code definitions. Every definition_paraphrase is written
+# in our own words — the official X12 code text is licensed and is never
+# reproduced here. X12 is cited as the code-list maintainer. Denial analytics
+# key on the group code + CARC pair ("what is PR3" -> group PR + CARC 3).
+# Categories on CARCs match the warehouse's certified denial_category domain.
+codes:
+  # --- Claim adjustment group codes (CAGC) --------------------------------
+  - code_system: group_code
+    code: CO
+    title: Contractual Obligation
+    definition_paraphrase: >-
+      The adjustment is the provider's contractual responsibility under its
+      agreement with the payer — the amount can never be billed to the
+      patient. Contractual allowances and most true denials arrive under this
+      group. A reason code is only fully meaningful with its group code:
+      denial analytics key on the group code + CARC pair.
+    category: group
+    sources:
+      - id: src-x12-codes
+        title: Claim Adjustment Group Codes (code list maintainer)
+        publisher: X12
+        url: https://x12.org/codes
+        authority: standards_body_reference
+  - code_system: group_code
+    code: PR
+    title: Patient Responsibility
+    definition_paraphrase: >-
+      The adjustment amount is owed by the patient — deductible, copay,
+      coinsurance, or services the plan places on the member. PR-group
+      amounts are billing instructions, not denials: PR-3 means the copay
+      belongs to the patient, which is why the group code + CARC pair is the
+      unit of analysis.
+    category: group
+    sources:
+      - id: src-x12-codes
+        title: Claim Adjustment Group Codes (code list maintainer)
+        publisher: X12
+        url: https://x12.org/codes
+        authority: standards_body_reference
+  - code_system: group_code
+    code: OA
+    title: Other Adjustment
+    definition_paraphrase: >-
+      The adjustment belongs to neither contractual obligation nor patient
+      responsibility — used when no other group fits. Coordination-of-benefits
+      adjustments (for example OA-22/OA-23 in this warehouse) commonly ride
+      under this group.
+    category: group
+    sources:
+      - id: src-x12-codes
+        title: Claim Adjustment Group Codes (code list maintainer)
+        publisher: X12
+        url: https://x12.org/codes
+        authority: standards_body_reference
+  - code_system: group_code
+    code: PI
+    title: Payer Initiated Reduction
+    definition_paraphrase: >-
+      A payer-initiated reduction: the payer asserts the adjustment is not
+      the patient's responsibility but no supporting contract clause applies
+      — often seen in payer-discretion reductions that providers dispute.
+    category: group
+    sources:
+      - id: src-x12-codes
+        title: Claim Adjustment Group Codes (code list maintainer)
+        publisher: X12
+        url: https://x12.org/codes
+        authority: standards_body_reference
+  - code_system: group_code
+    code: CR
+    title: Correction / Reversal
+    definition_paraphrase: >-
+      Marks a correction or reversal of a prior adjudication — real 835
+      semantics used when a payer reprocesses a claim. This mock warehouse
+      never emits CR (its generator reprocesses via new remits instead), but
+      the code is governed here because analysts will encounter it on real
+      remittances.
+    category: group
+    sources:
+      - id: src-x12-codes
+        title: Claim Adjustment Group Codes (code list maintainer)
+        publisher: X12
+        url: https://x12.org/codes
+        authority: standards_body_reference
+
+  # --- CARCs present in warehouse/catalog dim_denial_code -----------------
+  - code_system: carc
+    code: "1"
+    title: Deductible
+    definition_paraphrase: >-
+      The amount was applied to the member's deductible — the patient owes it
+      until the annual deductible is met. Rides with group PR.
+    category: PATIENT_RESP
+  - code_system: carc
+    code: "2"
+    title: Coinsurance
+    definition_paraphrase: >-
+      The amount is the member's coinsurance share of the allowed amount.
+      Rides with group PR.
+    category: PATIENT_RESP
+  - code_system: carc
+    code: "3"
+    title: Copay
+    definition_paraphrase: >-
+      The amount is the member's copay for the service. Rides with group PR —
+      "PR3" is a billing instruction to the patient, not a payer denial.
+    category: PATIENT_RESP
+  - code_system: carc
+    code: "4"
+    title: Procedure/modifier mismatch
+    definition_paraphrase: >-
+      The procedure code is inconsistent with the modifier used, or a
+      required modifier is missing — a coding correction, usually
+      resubmittable.
+    category: CODING
+  - code_system: carc
+    code: "11"
+    title: Diagnosis does not support procedure
+    definition_paraphrase: >-
+      The diagnosis reported does not support the procedure billed; the
+      clinical coding linkage failed payer edits.
+    category: CODING
+  - code_system: carc
+    code: "16"
+    title: Missing or invalid information
+    definition_paraphrase: >-
+      The claim or service lacks information, or contains a submission or
+      billing error, and cannot be adjudicated as sent. Usually paired with
+      remark codes specifying what is missing; a classic correct-and-rebill
+      denial.
+    category: OTHER
+  - code_system: carc
+    code: "18"
+    title: Duplicate
+    definition_paraphrase: >-
+      The claim or service appears to be an exact duplicate of one already
+      on file with the payer.
+    category: DUPLICATE
+  - code_system: carc
+    code: "22"
+    title: Coordination of benefits — other coverage
+    definition_paraphrase: >-
+      [superseded: independently worded in packs/base-rcm/codes.yaml] —
+      the claim went to this payer in the wrong order. The signature COB
+      code; concentration of 22s is proxy evidence of a COB problem.
+    category: COB
+  - code_system: carc
+    code: "23"
+    title: Prior payer adjudication impact
+    definition_paraphrase: >-
+      The amount reflects the impact of a prior payer's adjudication —
+      what this (secondary) payer allows is reduced by what the primary
+      already decided.
+    category: COB
+  - code_system: carc
+    code: "27"
+    title: Coverage terminated before service
+    definition_paraphrase: >-
+      Expenses were incurred after the member's coverage ended — an
+      eligibility failure discoverable at verification.
+    category: ELIGIBILITY
+  - code_system: carc
+    code: "29"
+    title: Timely filing exceeded
+    definition_paraphrase: >-
+      The claim arrived after the payer's filing deadline had passed.
+      Usually a hard denial; the at-risk view exists to prevent it.
+    category: TIMELY_FILING
+  - code_system: carc
+    code: "45"
+    title: Exceeds fee schedule / contracted amount
+    definition_paraphrase: >-
+      The billed charge exceeds the fee schedule, maximum allowable, or
+      contracted amount — the routine contractual reduction, normally under
+      group CO and not a workable denial.
+    category: CONTRACTUAL
+  - code_system: carc
+    code: "50"
+    title: Not medically necessary
+    definition_paraphrase: >-
+      The payer judged the service not medically necessary under its
+      coverage rules — a clinical denial requiring documentation-based
+      appeal.
+    category: MEDICAL_NECESSITY
+  - code_system: carc
+    code: "96"
+    title: Non-covered charges
+    definition_paraphrase: >-
+      The charges are for services the plan does not cover. Remark codes
+      typically specify the non-coverage reason.
+    category: OTHER
+  - code_system: carc
+    code: "97"
+    title: Included in another service's allowance
+    definition_paraphrase: >-
+      Payment for this service is already included in the allowance for
+      another adjudicated service — the bundling/inclusive-payment denial.
+    category: CODING
+  - code_system: carc
+    code: "109"
+    title: Wrong payer or contractor
+    definition_paraphrase: >-
+      This payer is not responsible for the claim; it must be sent to the
+      correct payer or contractor — a routing/COB-family denial.
+    category: COB
+  - code_system: carc
+    code: "151"
+    title: Frequency/quantity not supported
+    definition_paraphrase: >-
+      Payment was adjusted because the documentation does not support this
+      many or this frequent services — a utilization-review reduction.
+    category: MEDICAL_NECESSITY
+  - code_system: carc
+    code: "197"
+    title: Authorization absent
+    definition_paraphrase: >-
+      Required precertification, prior authorization, or notification was
+      not obtained before the service — the signature authorization denial
+      (the warehouse's planted denial-spike scenario uses CO-197).
+    category: AUTH
+  - code_system: carc
+    code: "204"
+    title: Not a covered benefit
+    definition_paraphrase: >-
+      The service, equipment, or drug is not a covered benefit under the
+      member's current plan — an eligibility/benefit-design denial.
+    category: ELIGIBILITY
+  - code_system: carc
+    code: "253"
+    title: Sequestration reduction
+    definition_paraphrase: >-
+      A federal sequestration reduction was applied to the payment — a
+      mandated percentage cut, informational rather than workable.
+    category: CONTRACTUAL
+
+  # --- Synthetic RARCs (warehouse rarc_synthetic, uncertified) ------------
+  # The generator stamps opaque remark codes RZ01..RZ20 on ~40% of denials.
+  # They are deliberately synthetic placeholders with no governed mapping to
+  # real RARC semantics; analysis cut by them carries discovery grade. Eight
+  # representative codes are defined here so definitional lookups answer
+  # honestly.
+  - code_system: rarc
+    code: RZ01
+    title: Synthetic remark 01
+    definition_paraphrase: >-
+      Synthetic placeholder remark code emitted by the mock-data generator.
+      It carries no governed real-world RARC meaning; treat any analysis
+      keyed on it as discovery-grade.
+    category: synthetic
+  - code_system: rarc
+    code: RZ02
+    title: Synthetic remark 02
+    definition_paraphrase: >-
+      Synthetic placeholder remark code emitted by the mock-data generator.
+      No governed real-world RARC meaning; discovery-grade only.
+    category: synthetic
+  - code_system: rarc
+    code: RZ03
+    title: Synthetic remark 03
+    definition_paraphrase: >-
+      Synthetic placeholder remark code emitted by the mock-data generator.
+      No governed real-world RARC meaning; discovery-grade only.
+    category: synthetic
+  - code_system: rarc
+    code: RZ04
+    title: Synthetic remark 04
+    definition_paraphrase: >-
+      Synthetic placeholder remark code emitted by the mock-data generator.
+      No governed real-world RARC meaning; discovery-grade only.
+    category: synthetic
+  - code_system: rarc
+    code: RZ05
+    title: Synthetic remark 05
+    definition_paraphrase: >-
+      Synthetic placeholder remark code emitted by the mock-data generator.
+      No governed real-world RARC meaning; discovery-grade only.
+    category: synthetic
+  - code_system: rarc
+    code: RZ06
+    title: Synthetic remark 06
+    definition_paraphrase: >-
+      Synthetic placeholder remark code emitted by the mock-data generator.
+      No governed real-world RARC meaning; discovery-grade only.
+    category: synthetic
+  - code_system: rarc
+    code: RZ07
+    title: Synthetic remark 07
+    definition_paraphrase: >-
+      Synthetic placeholder remark code emitted by the mock-data generator.
+      No governed real-world RARC meaning; discovery-grade only.
+    category: synthetic
+  - code_system: rarc
+    code: RZ08
+    title: Synthetic remark 08
+    definition_paraphrase: >-
+      Synthetic placeholder remark code emitted by the mock-data generator.
+      No governed real-world RARC meaning; discovery-grade only.
+    category: synthetic

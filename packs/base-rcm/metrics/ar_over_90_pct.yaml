@@ -1,0 +1,34 @@
+# Aged A/R over 90 days as a percent of open A/R (MAP AR-1 family ratio
+# form) — the number analysts quote against the <15-20% guidance.
+id: ar_over_90_pct
+version: 1
+kind: snapshot
+entity_grain: claim
+numerator:
+  filtered:
+    inner: {sum: billed_amount_cents}
+    where:
+      and:
+        - {dimension: status, op: in, values: [OPEN, DENIED]}
+        - {dimension: ar_age_bucket, op: in, values: ["91-120", "120+"]}
+denominator:
+  filtered:
+    inner: {sum: billed_amount_cents}
+    where: {dimension: status, op: in, values: [OPEN, DENIED]}
+primary_date_basis: service
+allowed_date_bases: [service, submission]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, facility, region,
+   service_line, claim_type]
+sign: higher_is_bad
+unit: ratio
+description: >-
+  Share of open A/R older than 90 days as of the snapshot, using the derived
+  ar_age_bucket (buckets 91-120 and 120+) over the same open population —
+  numerator and denominator share the population per the denominator law.
+  Denominator note (a classic semantic trap in the MAP AR-1/AR-2/AR-3
+  family): this contract's denominator is total open A/R including unbilled
+  claims, valued at gross billed charges; a billed-only variant is a scope
+  filter (submission date not null), not a new contract. Benchmark context:
+  common guidance keeps over-90 under 15-20 percent of billed A/R (sources
+  conflict; treat as a range).

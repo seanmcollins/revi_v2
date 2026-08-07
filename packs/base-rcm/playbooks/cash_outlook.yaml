@@ -1,0 +1,47 @@
+id: cash_outlook
+description: >-
+  Deterministic near-term cash outlook ("will my cash increase next
+  month?"): value the in-flight inventory, read submission inflow, and feed
+  per-payer realization rates and payment-lag distributions into the
+  versioned project_lagged_realization kernel operator. The output is a
+  qualified range with explicit drivers, DERIVED grade at best — the
+  conclusion policy forces estimate labeling, and it is never presented as a
+  certified forecast. Where inputs are missing the honest non-answer path
+  states what is missing instead of guessing.
+triggers:
+  - will my cash increase next month
+  - cash outlook
+  - cash forecast
+  - expected cash next month
+probes:
+  - id: open_inventory
+    metric_ids: [ar_balance]
+    dimensions: [payer]
+    scope_note: In-flight receivable inventory by payer as of the snapshot.
+  - id: inflight_submissions
+    metric_ids: [claim_volume]
+    dimensions: [payer]
+    window: {quantity: 8, unit: week, mode: full_periods}
+    basis_override: submission
+    scope_note: Submission inflow trend — the leading volume indicator.
+  - id: realization_rates
+    metric_ids: [net_collection_rate]
+    dimensions: [payer]
+    window: {quantity: 6, unit: month, mode: full_periods}
+    scope_note: Historical per-payer realization against expected — the rate input.
+  - id: payment_lags
+    metric_ids: [avg_days_to_pay]
+    dimensions: [payer]
+    window: {quantity: 6, unit: month, mode: full_periods}
+    scope_note: Per-payer payment-lag distributions — the timing input.
+  - id: recent_cash_baseline
+    metric_ids: [cash_posted]
+    window: {quantity: 8, unit: week, mode: full_periods}
+    scope_note: Recent weekly posted cash — the baseline the projection is read against.
+transforms:
+  - operator: project_lagged_realization
+    args: {horizon_days: 30}
+  - operator: compare
+    args: {kind: prior_period}
+conclusion_policies: [cash_outlook_estimate]
+ranking_policy: impact_first

@@ -1,0 +1,30 @@
+# Net collection rate — payer cash realized against contract-expected
+# reimbursement for the same service-date cohort. Cross-entity ratio: the
+# numerator component resolves on the transaction entity, the denominator on
+# the claim entity; the kernel computes ratio-of-sums per cell (slicing law).
+id: net_collection_rate
+version: 1
+kind: flow
+entity_grain: claim
+numerator: {sum: payment_cents}
+denominator: {sum: expected_amount_cents}
+primary_date_basis: service
+allowed_date_bases: [service, submission]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, facility, region,
+   service_line, claim_type]
+sign: higher_is_good
+unit: ratio
+description: >-
+  Payer cash posted to date for services in the window, divided by
+  contract-expected reimbursement for the same service-date cohort. Points
+  of clarification: (1) the textbook denominator is charges minus
+  contractual adjustments; this warehouse's contract-modeled
+  expected_amount_cents is that same net-collectible quantity stated
+  directly, and the contract says so rather than pretending to an NPSR it
+  does not have; (2) patient cash is excluded (payer realization only —
+  patient_cash_posted covers the rest), so this reads slightly below
+  all-cash formulations; (3) recent cohorts read low until adjudication and
+  posting catch up — trailing windows and the watermark header carry that
+  context. Benchmark context: 95-99 percent on all-cash definitions; below
+  ~92 suggests leakage.

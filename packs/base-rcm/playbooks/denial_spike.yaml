@@ -1,0 +1,50 @@
+id: denial_spike
+description: >-
+  Investigate a denial-rate spike: trend the claim-grain denial rate,
+  decompose denied dollars by group code + CARC pair (the denial keying
+  rule), and locate concentration in payer-by-service-line cells. Code-level
+  cuts run on line-grain denied_dollars because carc is not a legal scope
+  dimension for the claim-grain rate.
+triggers:
+  - denials are up
+  - why are denials increasing
+  - denial spike
+  - denial rate jumped
+params:
+  - payer
+  - service_line
+probes:
+  - id: denial_trend
+    metric_ids: [denial_rate]
+    window: {quantity: 12, unit: week, mode: full_periods}
+    scope_note: Weekly denial rate on the REMIT basis with prior-period compare.
+  - id: denial_code_mix
+    metric_ids: [denied_dollars]
+    dimensions: [group_code, carc]
+    window: {quantity: 8, unit: week, mode: full_periods}
+    top_n: 10
+    scope_note: >-
+      Denied dollars by group code + CARC pair; a mix shift toward one pair
+      (for example CO-197) identifies the mechanism.
+  - id: denial_concentration
+    metric_ids: [denied_dollars]
+    dimensions: [payer, service_line]
+    window: {quantity: 8, unit: week, mode: full_periods}
+    top_n: 10
+    scope_note: >-
+      Payer-by-service-line concentration; the planted scenario concentrates
+      CO-197 denials in one payer-by-imaging cell.
+  - id: denial_category_rollup
+    metric_ids: [denied_dollars]
+    dimensions: [denial_category]
+    window: {quantity: 8, unit: week, mode: full_periods}
+    scope_note: Root-cause category rollup for upstream-stage attribution.
+transforms:
+  - operator: compare
+    args: {kind: prior_period}
+  - operator: share_of_total
+    args: {measure: denied_dollars}
+  - operator: rank
+    args: {by: denied_dollars, descending: true}
+conclusion_policies: [denial_spike_claim]
+ranking_policy: impact_first
