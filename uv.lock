@@ -1539,6 +1539,7 @@ version = "0.1.0"
 source = { editable = "packages/connector-duckdb" }
 dependencies = [
     { name = "duckdb" },
+    { name = "revi-calculation-contracts" },
     { name = "revi-catalog-contracts" },
     { name = "revi-kernel" },
 ]
@@ -1546,6 +1547,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "duckdb", specifier = ">=1.1" },
+    { name = "revi-calculation-contracts", editable = "packages/calculation-contracts" },
     { name = "revi-catalog-contracts", editable = "packages/catalog-contracts" },
     { name = "revi-kernel", editable = "packages/kernel" },
 ]
@@ -1691,6 +1693,7 @@ version = "0.1.0"
 source = { editable = "packages/testing" }
 dependencies = [
     { name = "httpx" },
+    { name = "pytest" },
     { name = "revi-calculation" },
     { name = "revi-catalog" },
     { name = "revi-connector-duckdb" },
@@ -1704,6 +1707,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
+    { name = "pytest", specifier = ">=8.3" },
     { name = "revi-calculation", editable = "packages/calculation" },
     { name = "revi-catalog", editable = "packages/catalog" },
     { name = "revi-connector-duckdb", editable = "packages/connector-duckdb" },
