@@ -1,0 +1,4 @@
+pack_id: acme-health-tenant-bad
+version: "0.1.0"
+kind: tenant
+description: Illegal overlay - attempts to redefine a governed metric contract.

@@ -1,0 +1,23 @@
+id: denial_overview
+description: Investigate denial pressure by payer, then CARC mix.
+triggers:
+  - denials up
+  - why are denials increasing
+params:
+  - payer
+probes:
+  - id: denial_rate_by_payer
+    metric_ids: [denial_rate, denied_amount]
+    dimensions: [payer]
+    window: {quantity: 3, unit: month, mode: full_periods}
+    top_n: 10
+    scope_note: All payers, last three full months.
+  - id: carc_mix
+    metric_ids: [denied_amount]
+    dimensions: [carc]
+    basis_override: remit
+transforms:
+  - operator: rank
+    args: {by: denied_amount, descending: true}
+conclusion_policies: [denial_pressure_claim]
+ranking_policy: impact_first

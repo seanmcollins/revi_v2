@@ -1,0 +1,14 @@
+# Illegally redefines the base metric id with a different formula
+# (numerator scoped by dollars instead of claim counts).
+id: denial_rate
+version: 1
+kind: flow
+entity_grain: claim
+numerator: {sum: denied_amount_cents}
+denominator: {sum: billed_amount_cents}
+primary_date_basis: submission
+allowed_date_bases: [submission]
+scope_dimensions: [payer]
+sign: higher_is_bad
+unit: ratio
+description: A tenant's attempt to silently change what denial rate means.

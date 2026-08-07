@@ -1,0 +1,4 @@
+pack_id: acme-health-tenant
+version: "0.2.0"
+kind: tenant
+description: Tenant overlay adding an alias and tuning a detector threshold.

@@ -1,0 +1,12 @@
+id: denied_amount
+version: 1
+kind: flow
+entity_grain: claim
+numerator: {sum: denied_amount_cents}
+primary_date_basis: remit
+allowed_date_bases: [remit, post]
+scope_dimensions: [payer, carc]
+sign: higher_is_bad
+unit: money_cents
+exclusions: {dimension: claim_status, op: neq, value: VOID}
+description: Total denied dollars over the window.

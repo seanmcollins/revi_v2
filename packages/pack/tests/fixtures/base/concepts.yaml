@@ -1,0 +1,28 @@
+concepts:
+  - id: cob
+    name: Coordination of Benefits
+    description: Process performance around primary/secondary payer sequencing.
+    definition: >-
+      Coordination of benefits determines which payer is primary when a patient
+      holds more than one coverage, and how the remaining balance moves to
+      secondary coverage.
+    aliases:
+      - COB
+      - other insurance
+    related:
+      - denial
+    sources:
+      - id: src-cob-manual
+        title: Coordination of Benefits Handbook
+        publisher: Example Clearinghouse Press
+        url: https://example.test/cob-handbook
+        authority: licensed_reference
+  - id: denial
+    name: Denial
+    description: Claims adjudicated with a denial outcome.
+    definition: >-
+      A denial is a payer adjudication outcome refusing payment for a claim or
+      line, communicated through group codes and CARC/RARC reason codes.
+    aliases:
+      - denied claim
+      - claim denial

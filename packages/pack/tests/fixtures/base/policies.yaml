@@ -1,0 +1,16 @@
+conclusion_policies:
+  - id: denial_pressure_claim
+    claim: Denial pressure increased materially for a payer.
+    required_grade: derived
+    required_evidence: [denial_rate_by_payer]
+    estimate_label_required: false
+ranking_policies:
+  - id: impact_first
+    description: Rank findings by financial impact, then recency.
+    weights: {impact: 0.7, recency: 0.3}
+detector_policies:
+  - id: denial_spike
+    description: Flag week-over-week denial-rate spikes.
+    threshold: 0.10
+    threshold_min: 0.05
+    threshold_max: 0.25

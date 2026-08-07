@@ -1,0 +1,6 @@
+bindings:
+  - concept_id: denial
+    dimension_or_measure_id: carc
+    state: certified
+    strength: direct
+    rationale: CARC presence on the remit denotes an adjudicated denial.

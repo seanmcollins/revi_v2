@@ -1,0 +1,26 @@
+codes:
+  - code_system: group_code
+    code: PR
+    title: Patient Responsibility
+    definition_paraphrase: >-
+      The adjustment amount is the patient's responsibility (deductible,
+      co-payment, co-insurance, or non-covered service billed to the patient).
+    category: group
+    sources:
+      - id: src-x12-groups
+        title: Claim Adjustment Group Codes
+        publisher: X12
+        url: https://example.test/group-codes
+        authority: authoritative
+  - code_system: carc
+    code: "3"
+    title: Co-payment amount
+    definition_paraphrase: >-
+      The adjustment reflects the patient's co-payment amount for the service.
+    category: patient_responsibility
+    sources:
+      - id: src-carc-list
+        title: Claim Adjustment Reason Codes
+        publisher: X12
+        url: https://example.test/carc
+        authority: authoritative

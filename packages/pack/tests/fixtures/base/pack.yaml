@@ -1,0 +1,4 @@
+pack_id: test-rcm
+version: "1.0.0"
+kind: base
+description: Miniature base layer for pack-registry tests.

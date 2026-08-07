@@ -1597,6 +1597,7 @@ version = "0.1.0"
 source = { editable = "packages/pack" }
 dependencies = [
     { name = "pyyaml" },
+    { name = "revi-calculation-contracts" },
     { name = "revi-kernel" },
     { name = "revi-pack-contracts" },
 ]
@@ -1604,6 +1605,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "pyyaml", specifier = ">=6.0" },
+    { name = "revi-calculation-contracts", editable = "packages/calculation-contracts" },
     { name = "revi-kernel", editable = "packages/kernel" },
     { name = "revi-pack-contracts", editable = "packages/pack-contracts" },
 ]

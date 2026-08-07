@@ -1,0 +1,15 @@
+id: denial_rate
+version: 1
+kind: flow
+entity_grain: claim
+numerator:
+  filtered:
+    inner: {count: {}}
+    where: {dimension: status, op: eq, value: DENIED}
+denominator: {count: {}}
+primary_date_basis: submission
+allowed_date_bases: [submission, service]
+scope_dimensions: [payer, carc]
+sign: higher_is_bad
+unit: ratio
+description: Share of adjudicated claims that were denied.

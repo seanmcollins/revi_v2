@@ -1,0 +1,7 @@
+filing_rules:
+  - id: acme_commercial_default
+    payer_pattern: "ACME*"
+    filing_limit_days: 90
+    date_basis: service
+    authority: payer manual 2025 edition
+    requires_confirmation: true

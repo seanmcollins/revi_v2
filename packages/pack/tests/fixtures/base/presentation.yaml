@@ -1,0 +1,5 @@
+recipes:
+  - id: denial_rate_trend
+    applies_to: denial_rate
+    chart_type: line
+    notes: Weekly trend with prior-period overlay.
