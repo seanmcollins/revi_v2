@@ -1,0 +1,26 @@
+[project]
+name = "revi-investigation"
+version = "0.1.0"
+description = "Investigation engine: sessions, turns, refinements, referents, cohorts, planning, plan diffing."
+requires-python = ">=3.12"
+dependencies = [
+    "revi-kernel",
+    "revi-investigation-contracts",
+    "revi-catalog-contracts",
+    "revi-calculation-contracts",
+    "revi-pack-contracts",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/revi_investigation"]
+
+[tool.uv.sources]
+revi-kernel = { workspace = true }
+revi-investigation-contracts = { workspace = true }
+revi-catalog-contracts = { workspace = true }
+revi-calculation-contracts = { workspace = true }
+revi-pack-contracts = { workspace = true }

@@ -1,0 +1,20 @@
+[project]
+name = "revi-calculation"
+version = "0.1.0"
+description = "Deterministic analytical kernel: metric contracts, transform operators, kernel laws, reconciliation."
+requires-python = ">=3.12"
+dependencies = [
+    "revi-kernel",
+    "revi-calculation-contracts",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/revi_calculation"]
+
+[tool.uv.sources]
+revi-kernel = { workspace = true }
+revi-calculation-contracts = { workspace = true }

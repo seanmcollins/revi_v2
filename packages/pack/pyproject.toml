@@ -1,0 +1,21 @@
+[project]
+name = "revi-pack"
+version = "0.1.0"
+description = "Pack registry: YAML loading, overlay merge rules, snapshot content hashing, fingerprints."
+requires-python = ">=3.12"
+dependencies = [
+    "revi-kernel",
+    "revi-pack-contracts",
+    "pyyaml>=6.0",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/revi_pack"]
+
+[tool.uv.sources]
+revi-kernel = { workspace = true }
+revi-pack-contracts = { workspace = true }

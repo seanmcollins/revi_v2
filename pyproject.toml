@@ -1,0 +1,172 @@
+[project]
+name = "revi-workspace"
+version = "0.1.0"
+description = "Revi — conversational investigation platform for RCM analytics (workspace root)"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.uv.workspace]
+members = [
+    "packages/*",
+    "warehouse/generator",
+    "apps/api",
+    "apps/scheduler",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3",
+    "pytest-asyncio>=0.24",
+    "hypothesis>=6.112",
+    "httpx>=0.27",
+    "ruff>=0.9",
+    "mypy>=1.13",
+    "import-linter>=2.1",
+    "types-pyyaml>=6.0",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["packages", "warehouse", "apps"]
+markers = [
+    "golden: golden-conversation and answer-key regression tests (need generated warehouse)",
+    "live_llm: tests that call the real Claude Agent SDK (budget-capped; need ANTHROPIC_API_KEY)",
+    "postgres: tests that need the docker-compose Postgres instance",
+]
+addopts = "-m 'not live_llm and not postgres'"
+
+[tool.ruff]
+line-length = 110
+target-version = "py312"
+src = ["packages/*/src", "warehouse/generator/src", "apps/*/src"]
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B", "C4", "SIM", "RUF", "TID"]
+ignore = ["SIM108"]
+
+[tool.ruff.lint.flake8-tidy-imports]
+ban-relative-imports = "parents"
+
+[tool.mypy]
+python_version = "3.12"
+strict = true
+warn_unreachable = true
+mypy_path = [
+    "packages/kernel/src",
+    "packages/investigation-contracts/src",
+    "packages/investigation/src",
+    "packages/catalog-contracts/src",
+    "packages/catalog/src",
+    "packages/calculation-contracts/src",
+    "packages/calculation/src",
+    "packages/pack-contracts/src",
+    "packages/pack/src",
+    "packages/pack-learning/src",
+    "packages/presentation/src",
+    "packages/connector-duckdb/src",
+    "packages/store-postgres/src",
+    "packages/adapter-claude/src",
+    "packages/testing/src",
+    "warehouse/generator/src",
+    "apps/api/src",
+    "apps/scheduler/src",
+]
+
+[[tool.mypy.overrides]]
+module = ["duckdb.*", "claude_agent_sdk.*"]
+ignore_missing_imports = true
+
+[tool.importlinter]
+root_packages = [
+    "revi_kernel",
+    "revi_investigation_contracts",
+    "revi_investigation",
+    "revi_catalog_contracts",
+    "revi_catalog",
+    "revi_calculation_contracts",
+    "revi_calculation",
+    "revi_pack_contracts",
+    "revi_pack",
+    "revi_pack_learning",
+    "revi_presentation",
+    "revi_connector_duckdb",
+    "revi_store_postgres",
+    "revi_adapter_claude",
+    "revi_testing",
+    "revi_warehouse",
+    "revi_api",
+    "revi_scheduler",
+]
+include_external_packages = true
+
+[[tool.importlinter.contracts]]
+name = "Kernel is standalone (imports no other Revi package and no vendor SDKs)"
+type = "forbidden"
+source_modules = ["revi_kernel"]
+forbidden_modules = [
+    "revi_investigation", "revi_investigation_contracts",
+    "revi_catalog", "revi_catalog_contracts",
+    "revi_calculation", "revi_calculation_contracts",
+    "revi_pack", "revi_pack_contracts", "revi_pack_learning",
+    "revi_presentation", "revi_connector_duckdb", "revi_store_postgres",
+    "revi_adapter_claude", "revi_testing", "revi_warehouse", "revi_api", "revi_scheduler",
+    "pydantic", "duckdb", "sqlalchemy", "fastapi", "claude_agent_sdk", "yaml", "numpy",
+]
+
+[[tool.importlinter.contracts]]
+name = "Capability implementations are independent (interact only via contracts + kernel)"
+type = "independence"
+modules = [
+    "revi_investigation",
+    "revi_catalog",
+    "revi_calculation",
+    "revi_pack",
+    "revi_pack_learning",
+    "revi_presentation",
+]
+
+[[tool.importlinter.contracts]]
+name = "duckdb only in the DuckDB connector and warehouse generator"
+type = "forbidden"
+source_modules = [
+    "revi_kernel", "revi_investigation", "revi_investigation_contracts",
+    "revi_catalog", "revi_catalog_contracts", "revi_calculation", "revi_calculation_contracts",
+    "revi_pack", "revi_pack_contracts", "revi_pack_learning", "revi_presentation",
+    "revi_store_postgres", "revi_adapter_claude", "revi_api", "revi_scheduler",
+]
+forbidden_modules = ["duckdb"]
+
+[[tool.importlinter.contracts]]
+name = "claude_agent_sdk only in the Claude adapter"
+type = "forbidden"
+source_modules = [
+    "revi_kernel", "revi_investigation", "revi_investigation_contracts",
+    "revi_catalog", "revi_catalog_contracts", "revi_calculation", "revi_calculation_contracts",
+    "revi_pack", "revi_pack_contracts", "revi_pack_learning", "revi_presentation",
+    "revi_connector_duckdb", "revi_store_postgres", "revi_testing", "revi_warehouse",
+    "revi_api", "revi_scheduler",
+]
+forbidden_modules = ["claude_agent_sdk"]
+
+[[tool.importlinter.contracts]]
+name = "SQL/storage drivers only in the Postgres store"
+type = "forbidden"
+source_modules = [
+    "revi_kernel", "revi_investigation", "revi_investigation_contracts",
+    "revi_catalog", "revi_catalog_contracts", "revi_calculation", "revi_calculation_contracts",
+    "revi_pack", "revi_pack_contracts", "revi_pack_learning", "revi_presentation",
+    "revi_connector_duckdb", "revi_adapter_claude", "revi_warehouse",
+]
+forbidden_modules = ["sqlalchemy", "psycopg", "alembic"]
+
+[[tool.importlinter.contracts]]
+name = "FastAPI only in the API app"
+type = "forbidden"
+source_modules = [
+    "revi_kernel", "revi_investigation", "revi_investigation_contracts",
+    "revi_catalog", "revi_catalog_contracts", "revi_calculation", "revi_calculation_contracts",
+    "revi_pack", "revi_pack_contracts", "revi_pack_learning", "revi_presentation",
+    "revi_connector_duckdb", "revi_store_postgres", "revi_adapter_claude", "revi_warehouse",
+    "revi_scheduler",
+]
+forbidden_modules = ["fastapi", "starlette", "uvicorn"]

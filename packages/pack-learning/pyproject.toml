@@ -1,0 +1,15 @@
+[project]
+name = "revi-pack-learning"
+version = "0.1.0"
+description = "RESERVED SEAT (design-doc Phase 4). Intentionally empty; named in import-linter contracts now."
+requires-python = ">=3.12"
+dependencies = [
+
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/revi_pack_learning"]

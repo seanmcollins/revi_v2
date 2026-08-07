@@ -1,0 +1,20 @@
+services:
+  postgres:
+    image: postgres:16
+    container_name: revi-postgres
+    environment:
+      POSTGRES_USER: revi
+      POSTGRES_PASSWORD: revi_dev_only
+      POSTGRES_DB: revi
+    ports:
+      - "5433:5432"
+    volumes:
+      - revi_pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U revi -d revi"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+volumes:
+  revi_pgdata:
