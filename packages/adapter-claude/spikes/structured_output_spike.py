@@ -395,6 +395,14 @@ async def main() -> int:
             ),
             parse=False,
         )
+        if impossible.subtype == "success" and impossible.structured_output is None:
+            impossible.notes.append(
+                "NOTE: unsatisfiable schema came back subtype=success with structured_output=None "
+                "(model argues the schema is impossible; text lands in .result). The retry-limit "
+                "subtype error_max_structured_output_retries fires only when the harness burns all "
+                "5 attempts (e.g. the StructuredOutput tool is denied). Adapter rule: treat "
+                "structured_output=None as failure regardless of subtype."
+            )
         _print_trial(impossible)
         trials.append(impossible)
         total_cost += spent(impossible)
