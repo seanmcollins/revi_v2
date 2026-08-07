@@ -33,7 +33,7 @@ markers = [
     "live_llm: tests that call the real Claude Agent SDK (budget-capped; need ANTHROPIC_API_KEY)",
     "postgres: tests that need the docker-compose Postgres instance",
 ]
-addopts = "-m 'not live_llm and not postgres'"
+addopts = "-m 'not live_llm and not postgres' --import-mode=importlib"
 
 [tool.ruff]
 line-length = 110

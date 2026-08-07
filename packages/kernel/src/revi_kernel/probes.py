@@ -144,6 +144,14 @@ def _canonical(value: object) -> object:
     raise TypeError(f"cannot canonicalize {type(value).__name__}")
 
 
+def canonicalize(value: object) -> object:
+    """Public canonical serializer (shared by probe hashing and contract
+    fingerprints): dataclasses → typed sorted mappings, enums → values,
+    Decimal/date/datetime → tagged strings. Volatile bookkeeping fields
+    (``created_at``, ``ttl_seconds``) are excluded."""
+    return _canonical(value)
+
+
 def canonical_json(probe: EvidenceProbe) -> str:
     """Stable canonical JSON for a probe (sorted keys, typed scalars)."""
     return json.dumps(_canonical(probe), sort_keys=True, separators=(",", ":"))
