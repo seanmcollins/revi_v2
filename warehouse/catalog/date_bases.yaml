@@ -1,0 +1,40 @@
+# Semantic catalog: date bases (design doc section 6.1 — a window is a range ON
+# a basis). Maps each basis to the column that carries it on each entity's base
+# view. A basis absent for an entity is not answerable at that grain.
+version: 1
+date_bases:
+  SERVICE:
+    description: Date the care was delivered (line-level dates may fall within an institutional stay).
+    synonyms: [DOS, date of service, svc date, service dt, from date]
+    columns:
+      claim: service_date
+      claim_line: service_date
+      transaction: service_date # parent claim's service date, pre-joined
+      remit: service_date # parent claim's service date, pre-joined
+      denial: service_date # parent claim's service date, pre-joined
+  POST:
+    description: Date money movement hit the ledger. The primary basis for cash metrics.
+    synonyms: [post date, posting date, posted, deposit date, ledger date]
+    columns:
+      transaction: post_date
+  SUBMISSION:
+    description: Date the claim went out the door. NULL for unbilled claims (DNFB representable).
+    synonyms: [bill date, billed date, filed date, claim submission, submit date, drop date]
+    columns:
+      claim: submission_date
+      claim_line: submission_date # parent claim's submission date, pre-joined
+      transaction: submission_date # parent claim's submission date, pre-joined
+      remit: submission_date # parent claim's submission date, pre-joined
+      denial: submission_date # parent claim's submission date, pre-joined
+  REMIT:
+    description: Date of the remittance advice (adjudication). Denials are dated by their remit.
+    synonyms: [rmt date, remit date, remittance date, adjudication date, 835 date, era date]
+    columns:
+      remit: remit_date
+      transaction: remit_date # NULL for transactions not tied to a remit
+      denial: denial_date
+  DISCHARGE:
+    description: Institutional discharge date. NULL for professional claims and stays still open.
+    synonyms: [discharge date, disch date, dc date]
+    columns:
+      claim: discharge_date

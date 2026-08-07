@@ -1,0 +1,56 @@
+"""Full-scale answer-key regression against the checked-out data/ warehouse.
+
+Marked golden: needs `make warehouse` to have produced data/revi_warehouse.duckdb
+and data/answer_key.json at full scale; skips otherwise.
+"""
+
+from __future__ import annotations
+
+import json
+from pathlib import Path
+
+import pytest
+
+from revi_warehouse.config import GeneratorConfig
+from revi_warehouse.verify import run_verification
+
+REPO_ROOT = Path(__file__).resolve().parents[3]
+DB_PATH = REPO_ROOT / "data" / "revi_warehouse.duckdb"
+KEY_PATH = REPO_ROOT / "data" / "answer_key.json"
+
+pytestmark = pytest.mark.golden
+
+
+@pytest.fixture(scope="module")
+def full_key() -> dict:
+    if not DB_PATH.exists() or not KEY_PATH.exists():
+        pytest.skip("full-scale warehouse not generated; run `make warehouse` first")
+    key = json.loads(KEY_PATH.read_text())
+    if key["config"]["scale"] != "full":
+        pytest.skip("data/ warehouse was generated at small scale")
+    return key
+
+
+def test_full_scale_verification_passes(full_key: dict) -> None:
+    checks = run_verification(DB_PATH, full_key, GeneratorConfig())
+    failures = [c for c in checks if not c.ok]
+    assert not failures, [f"{c.name}: {c.detail}" for c in failures]
+
+
+def test_golden_conversation_numbers(full_key: dict) -> None:
+    """The section-10.3 anchor numbers: cash decline week at the newest watermark."""
+    s3 = full_key["scenarios"]["3_cash_decline"]["snap_003"]
+    assert -0.14 <= s3["delta_pct"] <= -0.10
+    by_payer = {row["payer_name"]: row for row in s3["by_payer"]}
+    assert by_payer["Atlas Commercial"]["delta_cents"] < 0
+    assert by_payer["State Medicaid"]["delta_cents"] < 0
+    top2 = {row["payer_name"] for row in s3["by_payer"][:2]}
+    assert top2 == {"Atlas Commercial", "State Medicaid"}
+
+
+def test_full_scale_planted_counts(full_key: dict) -> None:
+    s5 = full_key["scenarios"]["5_timely_filing_state_medicaid_hmo"]["snap_003"]
+    assert 400 <= s5["unsubmitted_july_claims"] <= 420
+    assert s5["carc29_denials"] >= 13
+    s1 = full_key["scenarios"]["1_denial_spike_meridian_imaging"]["snap_003"]
+    assert s1["post_over_pre_rate_ratio"] > 4.0

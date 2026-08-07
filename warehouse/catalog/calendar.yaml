@@ -1,0 +1,41 @@
+# Semantic catalog: business-day calendar binding (design doc section 6.1 —
+# period comparisons in a posting-driven business must choose between
+# calendar-day and business-day alignment).
+version: 1
+calendar:
+  table: dim_calendar
+  date_column: cal_date
+  range:
+    start: 2025-01-01
+    end: 2026-12-31
+  columns:
+    is_business_day: is_business_day
+    iso_week: iso_week
+    iso_year: iso_year
+    month: month
+    quarter: quarter
+  week_convention: ISO-8601 # weeks run Monday..Sunday; iso_year disambiguates year boundaries
+  business_day_rule: >
+    Monday through Friday excluding the synthetic holiday list below (the
+    generator's SYNTHETIC_HOLIDAYS — fictional observed dates, not an official
+    holiday calendar).
+  holidays:
+    - 2025-01-01
+    - 2025-05-26
+    - 2025-07-04
+    - 2025-09-01
+    - 2025-11-27
+    - 2025-12-25
+    - 2026-01-01
+    - 2026-05-25
+    - 2026-07-03
+    - 2026-09-07
+    - 2026-11-26
+    - 2026-12-25
+  policies:
+    CALENDAR_DAY:
+      description: Compare periods by raw date alignment.
+    BUSINESS_DAY:
+      description: >
+        Align comparison windows on business days (Nth business day to Nth
+        business day) using is_business_day.

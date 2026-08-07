@@ -1,0 +1,77 @@
+# Semantic catalog: entities and their curated base views.
+# Each entity grain maps to one pre-joined view per snapshot schema; probe
+# compilers select from these views only and never invent joins.
+version: 1
+entities:
+  claim:
+    grain: CLAIM
+    base_view: v_claim
+    primary_key: claim_id
+    description: >
+      One row per claim. Pre-joins payer, plan, provider, facility and service
+      line. Derived status fields (status, first_pass_paid, clean_claim,
+      resolved_date) reflect only activity visible at the snapshot watermark.
+  claim_line:
+    grain: LINE
+    base_view: v_claim_line
+    primary_key: claim_line_id
+    description: >
+      One row per claim line (procedure). Pre-joins the parent claim and its
+      payer/plan/facility/service-line context. allowed_amount_cents is NULL
+      until the claim has been adjudicated (first remit visible).
+  transaction:
+    grain: TRANSACTION
+    base_view: v_transaction
+    primary_key: txn_id
+    description: >
+      One row per posted money movement. amount_cents is always positive;
+      txn_type carries direction (PAYMENT, CONTRACTUAL_ADJ, OTHER_ADJ,
+      PATIENT_PAYMENT, REFUND). Pre-joins claim context.
+  remit:
+    grain: REMIT
+    base_view: v_remit
+    primary_key: remit_id
+    description: >
+      One row per remittance advice (adjudication event). remit_seq
+      distinguishes first-pass remits (1) from rebills/appeal outcomes (2).
+  denial:
+    grain: LINE
+    base_view: v_denial
+    primary_key: denial_id
+    description: >
+      One row per denial record from a remit. Keyed by the group code + CARC
+      pair; denial_level distinguishes claim-level from line-level denials.
+      Pre-joins the denial code dimension and claim context.
+join_paths:
+  # Certified inter-entity paths (all pre-joined inside the base views; listed
+  # here so the planner can validate cohort flows between grains).
+  - from: claim_line
+    to: claim
+    on: claim_id
+    kind: many_to_one
+  - from: transaction
+    to: claim
+    on: claim_id
+    kind: many_to_one
+  - from: transaction
+    to: remit
+    on: remit_id
+    kind: many_to_one
+    nullable: true
+  - from: remit
+    to: claim
+    on: claim_id
+    kind: many_to_one
+  - from: denial
+    to: claim
+    on: claim_id
+    kind: many_to_one
+  - from: denial
+    to: remit
+    on: remit_id
+    kind: many_to_one
+  - from: denial
+    to: claim_line
+    on: claim_line_id
+    kind: many_to_one
+    nullable: true

@@ -1,0 +1,228 @@
+# Semantic catalog: certified dimensions (+ two deliberately uncertified ones
+# that exercise the discovery-grade downgrade path, design doc section 2.3).
+# Synonyms are seeded with Epic-Clarity / Athena / eCW-style analyst vocabulary.
+# phi: none | indirect | direct.
+version: 1
+dimensions:
+  payer:
+    label: Payer
+    certified: true
+    entities:
+      claim: payer_name
+      claim_line: payer_name
+      transaction: payer_name
+      remit: payer_name
+      denial: payer_name
+    synonyms: [payor, insurance, carrier, ins, plan payer, rmt payer, remit payer, insurance company]
+    cardinality_estimate: 12
+    phi: none
+  payer_type:
+    label: Payer type
+    certified: true
+    entities:
+      claim: payer_type
+      claim_line: payer_type
+      transaction: payer_type
+      remit: payer_type
+      denial: payer_type
+    synonyms: [payer category, payor type, payer class, coverage type, insurance type, payer group]
+    cardinality_estimate: 7
+    value_domain: [COMMERCIAL, MEDICARE, MEDICARE_ADVANTAGE, MEDICAID, MEDICAID_MCO, BCBS, OTHER]
+    phi: none
+  financial_class:
+    label: Financial class
+    certified: true
+    entities:
+      claim: financial_class
+      claim_line: financial_class
+      transaction: financial_class
+      remit: financial_class
+      denial: financial_class
+    synonyms: [fin class, fc, financial category, fin cls]
+    cardinality_estimate: 6
+    phi: none
+  plan:
+    label: Plan
+    certified: true
+    entities:
+      claim: plan_name
+      claim_line: plan_name
+      transaction: plan_name
+      denial: plan_name
+    synonyms: [benefit plan, insurance plan, coverage, product, epm plan]
+    cardinality_estimate: 30
+    phi: none
+  product_type:
+    label: Product type
+    certified: true
+    entities:
+      claim: product_type
+      claim_line: product_type
+      transaction: product_type
+      denial: product_type
+    synonyms: [product, line of business, lob, plan type]
+    cardinality_estimate: 6
+    value_domain: [PPO, HMO, POS, MA, FFS, MCO]
+    phi: none
+  provider:
+    label: Provider
+    certified: true
+    entities:
+      claim: provider_name
+    synonyms: [rendering provider, physician, doctor, doc, billing provider, rendering]
+    cardinality_estimate: 150
+    phi: indirect # a real provider roster narrows re-identification; synthetic here
+  provider_specialty:
+    label: Provider specialty
+    certified: true
+    entities:
+      claim: provider_specialty
+    synonyms: [specialty, spec, provider type, dept specialty]
+    cardinality_estimate: 10
+    phi: none
+  facility:
+    label: Facility
+    certified: true
+    entities:
+      claim: facility_name
+      claim_line: facility_name
+      transaction: facility_name
+      remit: facility_name
+      denial: facility_name
+    synonyms: [location, site, hospital, campus, service area, loc, place of service]
+    cardinality_estimate: 6
+    phi: none
+  region:
+    label: Region
+    certified: true
+    entities:
+      claim: region
+      claim_line: region
+      transaction: region
+      remit: region
+      denial: region
+    synonyms: [market, geography, area, division]
+    cardinality_estimate: 5
+    phi: none
+  service_line:
+    label: Service line
+    certified: true
+    entities:
+      claim: service_line_name
+      claim_line: service_line_name
+      transaction: service_line_name
+      remit: service_line_name
+      denial: service_line_name
+    synonyms: [svc line, department, dept, clinical service, product line, service area]
+    cardinality_estimate: 10
+    phi: none
+  claim_type:
+    label: Claim type
+    certified: true
+    entities:
+      claim: claim_type
+      claim_line: claim_type
+      transaction: claim_type
+      denial: claim_type
+    synonyms: [claim form, form type, prof vs facility, ub vs hcfa, 1500 vs ub04, institutional flag]
+    cardinality_estimate: 2
+    value_domain: [PROFESSIONAL, INSTITUTIONAL]
+    phi: none
+  payer_sequence:
+    label: Payer sequence
+    certified: true
+    entities:
+      claim: payer_sequence
+      claim_line: payer_sequence
+    synonyms: [cob order, primary secondary tertiary, coverage order, filing order, payer order]
+    cardinality_estimate: 3
+    value_domain: [P, S, T]
+    phi: none
+  carc:
+    label: CARC (adjustment reason code)
+    certified: true
+    entities:
+      denial: carc_code
+    synonyms: [reason code, denial code, adjustment reason, carc code, remark reason, rc]
+    cardinality_estimate: 20
+    phi: none
+  group_code:
+    label: Adjustment group code
+    certified: true
+    entities:
+      denial: group_code
+    synonyms: [group, adjustment group, co pr oa, denial group]
+    cardinality_estimate: 4
+    value_domain: [CO, PR, OA, PI]
+    phi: none
+  denial_category:
+    label: Denial category
+    certified: true
+    entities:
+      denial: denial_category
+    synonyms: [denial reason category, denial bucket, denial type, root cause category]
+    cardinality_estimate: 10
+    value_domain:
+      [AUTH, ELIGIBILITY, COB, TIMELY_FILING, CODING, CONTRACTUAL, DUPLICATE, MEDICAL_NECESSITY, PATIENT_RESP, OTHER]
+    phi: none
+  proc_group:
+    label: Procedure group
+    certified: true
+    entities:
+      claim_line: proc_group
+    synonyms: [procedure category, proc category, cpt group, service group, procedure family]
+    cardinality_estimate: 13
+    phi: none
+  ar_age_bucket:
+    label: AR age bucket
+    certified: true
+    kind: derived_bucket
+    description: >
+      Derived at probe time from the snapshot's newest_data_date minus the
+      aging-basis date (SERVICE or SUBMISSION). Not a stored column.
+    buckets: ["0-30", "31-60", "61-90", "91-120", "120+"]
+    entities:
+      claim: service_date # default aging basis; SUBMISSION also legal
+    synonyms: [aging bucket, ar bucket, age bucket, aging category, days out bucket]
+    cardinality_estimate: 5
+    phi: none
+  appeal_status:
+    label: Appeal status
+    certified: true
+    entities:
+      denial: appeal_status
+    synonyms: [appeal state, appeal outcome, appeal disposition]
+    cardinality_estimate: 4
+    value_domain: [NONE, APPEALED, OVERTURNED, UPHELD]
+    phi: none
+  clean_claim:
+    label: Clean claim flag
+    certified: true
+    entities:
+      claim: clean_claim
+    synonyms: [clean, first pass clean, no-touch claim]
+    cardinality_estimate: 2
+    phi: none
+  # --- Deliberately uncertified (exercise discovery-grade downgrade) ---------
+  rarc_synthetic:
+    label: RARC (synthetic remark code)
+    certified: false
+    uncertified_reason: >
+      Synthetic remark codes with no governed mapping; populated on ~40% of
+      denials only. Answers cut by this dimension carry discovery grade.
+    entities:
+      denial: rarc_synthetic
+    synonyms: [remark code, rarc, remittance remark]
+    cardinality_estimate: 20
+    phi: none
+  revenue_code:
+    label: Revenue code
+    certified: false
+    uncertified_reason: >
+      Populated from a fixed proc-group mapping rather than billed UB revenue
+      codes; not certified for institutional revenue analysis.
+    entities:
+      claim_line: revenue_code
+    synonyms: [rev code, ub revenue code, revenue center]
+    cardinality_estimate: 13
+    phi: none

@@ -1,0 +1,155 @@
+# Semantic catalog: additive measures. Every measure names its entity (base
+# view), source column, optional row filter, and aggregation. Ratio metrics are
+# NOT defined here — metric contracts (pack content) fetch additive components
+# and the kernel computes ratio-of-sums.
+version: 1
+measures:
+  billed_amount_cents:
+    entity: claim
+    column: billed_amount_cents
+    aggregation: sum
+    additive: true
+    unit: cents
+    synonyms: [charges, gross charges, billed, billed dollars, charge amount]
+  line_billed_amount_cents:
+    entity: claim_line
+    column: billed_amount_cents
+    aggregation: sum
+    additive: true
+    unit: cents
+    synonyms: [line charges, detail charges]
+  expected_amount_cents:
+    entity: claim
+    column: expected_amount_cents
+    aggregation: sum
+    additive: true
+    unit: cents
+    synonyms: [expected reimbursement, contract expected, expected pay, net expected]
+  allowed_amount_cents:
+    entity: claim_line
+    column: allowed_amount_cents
+    aggregation: sum
+    additive: true
+    unit: cents
+    synonyms: [allowed, allowable, contract allowed, approved amount]
+  payment_cents:
+    entity: transaction
+    column: amount_cents
+    filter: "txn_type = 'PAYMENT'"
+    aggregation: sum
+    additive: true
+    unit: cents
+    synonyms: [payer payments, cash, cash posted, insurance payments, payments posted, receipts]
+  patient_payment_cents:
+    entity: transaction
+    column: amount_cents
+    filter: "txn_type = 'PATIENT_PAYMENT'"
+    aggregation: sum
+    additive: true
+    unit: cents
+    synonyms: [patient cash, self-pay payments, pos collections, patient collections]
+  contractual_adj_cents:
+    entity: transaction
+    column: amount_cents
+    filter: "txn_type = 'CONTRACTUAL_ADJ'"
+    aggregation: sum
+    additive: true
+    unit: cents
+    synonyms: [contractuals, contractual adjustments, co-45 adjustments, contractual write-offs]
+  other_adj_cents:
+    entity: transaction
+    column: amount_cents
+    filter: "txn_type = 'OTHER_ADJ'"
+    aggregation: sum
+    additive: true
+    unit: cents
+    synonyms: [write-offs, other adjustments, administrative adjustments, wo dollars]
+  refund_cents:
+    entity: transaction
+    column: amount_cents
+    filter: "txn_type = 'REFUND'"
+    aggregation: sum
+    additive: true
+    unit: cents
+    synonyms: [refunds, takebacks, credit balance refunds]
+  denied_amount_cents:
+    entity: denial
+    column: denied_amount_cents
+    aggregation: sum
+    additive: true
+    unit: cents
+    synonyms: [denied dollars, denial dollars, denied charges]
+  patient_responsibility_cents:
+    entity: claim
+    column: patient_responsibility_cents
+    aggregation: sum
+    additive: true
+    unit: cents
+    synonyms: [patient resp, pr amount, member responsibility, oop, copay coinsurance deductible]
+  claim_count:
+    entity: claim
+    column: claim_id
+    aggregation: count_distinct
+    additive: true
+    unit: count
+    synonyms: [claims, claim volume, volume, number of claims]
+  line_count:
+    entity: claim_line
+    column: claim_line_id
+    aggregation: count_distinct
+    additive: true
+    unit: count
+    synonyms: [lines, line volume, detail count, procedures]
+  remit_count:
+    entity: remit
+    column: remit_id
+    aggregation: count_distinct
+    additive: true
+    unit: count
+    synonyms: [remits, remittances, 835 count, eras]
+  denial_count:
+    entity: denial
+    column: denial_id
+    aggregation: count_distinct
+    additive: true
+    unit: count
+    synonyms: [denials, denial volume, number of denials]
+  denied_claim_count:
+    entity: denial
+    column: claim_id
+    aggregation: count_distinct
+    additive: false # distinct claims do not sum across denial-level slices
+    unit: count
+    synonyms: [denied claims, claims denied]
+  appeal_count:
+    entity: denial
+    column: denial_id
+    filter: "appeal_status <> 'NONE'"
+    aggregation: count_distinct
+    additive: true
+    unit: count
+    synonyms: [appeals, appealed denials, appeal volume]
+  appeal_decided_count:
+    entity: denial
+    column: denial_id
+    filter: "appeal_status IN ('OVERTURNED', 'UPHELD')"
+    aggregation: count_distinct
+    additive: true
+    unit: count
+    synonyms: [decided appeals, adjudicated appeals]
+  appeal_overturned_count:
+    entity: denial
+    column: denial_id
+    filter: "appeal_status = 'OVERTURNED'"
+    aggregation: count_distinct
+    additive: true
+    unit: count
+    synonyms: [overturned appeals, won appeals, appeal wins]
+  appeal_upheld_count:
+    entity: denial
+    column: denial_id
+    filter: "appeal_status = 'UPHELD'"
+    aggregation: count_distinct
+    additive: true
+    unit: count
+    synonyms: [upheld appeals, lost appeals, appeal losses]
