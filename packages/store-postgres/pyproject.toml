@@ -5,6 +5,7 @@ description = "Postgres adapters for application-state ports (sessions, traces, 
 requires-python = ">=3.12"
 dependencies = [
     "revi-kernel",
+    "revi-investigation",
     "revi-investigation-contracts",
     "sqlalchemy>=2.0",
     "psycopg[binary]>=3.2",
@@ -20,4 +21,5 @@ packages = ["src/revi_store_postgres"]
 
 [tool.uv.sources]
 revi-kernel = { workspace = true }
+revi-investigation = { workspace = true }
 revi-investigation-contracts = { workspace = true }

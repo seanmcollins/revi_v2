@@ -1557,6 +1557,7 @@ name = "revi-investigation"
 version = "0.1.0"
 source = { editable = "packages/investigation" }
 dependencies = [
+    { name = "pydantic" },
     { name = "revi-calculation-contracts" },
     { name = "revi-catalog-contracts" },
     { name = "revi-investigation-contracts" },
@@ -1566,6 +1567,7 @@ dependencies = [
 
 [package.metadata]
 requires-dist = [
+    { name = "pydantic", specifier = ">=2.7" },
     { name = "revi-calculation-contracts", editable = "packages/calculation-contracts" },
     { name = "revi-catalog-contracts", editable = "packages/catalog-contracts" },
     { name = "revi-investigation-contracts", editable = "packages/investigation-contracts" },
@@ -1673,6 +1675,7 @@ source = { editable = "packages/store-postgres" }
 dependencies = [
     { name = "alembic" },
     { name = "psycopg", extra = ["binary"] },
+    { name = "revi-investigation" },
     { name = "revi-investigation-contracts" },
     { name = "revi-kernel" },
     { name = "sqlalchemy" },
@@ -1682,6 +1685,7 @@ dependencies = [
 requires-dist = [
     { name = "alembic", specifier = ">=1.13" },
     { name = "psycopg", extras = ["binary"], specifier = ">=3.2" },
+    { name = "revi-investigation", editable = "packages/investigation" },
     { name = "revi-investigation-contracts", editable = "packages/investigation-contracts" },
     { name = "revi-kernel", editable = "packages/kernel" },
     { name = "sqlalchemy", specifier = ">=2.0" },
