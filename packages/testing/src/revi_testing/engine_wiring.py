@@ -42,6 +42,7 @@ from revi_investigation.application.capability_ports import (
     TermDefinition,
     TransformStepSpec,
 )
+from revi_investigation.application.cohorts import PinCohortService
 from revi_investigation.application.execution import ExecuteInvestigationService
 from revi_investigation.application.findings import EvaluateFindingsService
 from revi_investigation.application.interpretation import (
@@ -51,6 +52,10 @@ from revi_investigation.application.interpretation import (
 from revi_investigation.application.planning import (
     BuildInvestigationPlanService,
     DiffPlanService,
+)
+from revi_investigation.application.refinement_llm import (
+    EmitRefinementsService,
+    ResolveReferentsService,
 )
 from revi_investigation.application.submit_turn import OpenSessionService, SubmitTurnService
 from revi_investigation.application.validation import PlanValidationService, ValidationLimits
@@ -350,7 +355,8 @@ def build_engine(
         catalog, pack_port, spy, limits if limits is not None else ValidationLimits()
     )
     executor = ExecuteInvestigationService(spy, evidence_cache, event_bus, catalog)
-    calculator = CalculateMetricsService(CalculationTransforms(), pack_port)
+    transforms = CalculationTransforms()
+    calculator = CalculateMetricsService(transforms, pack_port)
     evaluator = EvaluateFindingsService(referent_registry)
     submit = SubmitTurnService(
         open_session=open_session,
@@ -361,7 +367,13 @@ def build_engine(
         executor=executor,
         calculator=calculator,
         evaluator=evaluator,
+        referent_resolver=ResolveReferentsService(llm),
+        refinement_emitter=EmitRefinementsService(llm),
+        cohort_pinner=PinCohortService(spy, cohort_store, referent_registry, catalog),
+        differ=DiffPlanService(),
+        transforms=transforms,
         pack=pack_port,
+        referents=referent_registry,
         investigations=investigation_store,
         traces=trace_store,
         frames=frame_store,

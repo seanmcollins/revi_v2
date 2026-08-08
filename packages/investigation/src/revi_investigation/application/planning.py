@@ -36,6 +36,17 @@ column on compare outputs, ranked ascending so the most negative movement
 
 ``plan_hash`` is a SHA-256 over the sorted probe hashes — stable across
 runs, sensitive to any probe change (the evidence-cache and plan-diff key).
+
+**Content-stable probe hashing.** ``ProbeNode.hash`` (the cache/diff/replay
+identity) hashes a *normalized* projection of the probe: predicate
+``origin_turn`` tags are stripped and ``InCohort`` cohort refs are reduced
+to their *definition* (volatile identity — cohort id, size, pinned
+materialization handle — removed, nested predicates normalized). What a
+probe retrieves at a given (watermark, pack) depends only on its logical
+content, never on which turn asked or which uuid a re-materialization drew;
+identical drill-downs therefore share cache entries and replays reproduce
+identical plan hashes (§7.9, §18.1-15). Repository execution still receives
+the full probe with its pinned cohort handle.
 """
 
 from __future__ import annotations
@@ -51,7 +62,17 @@ from revi_investigation.application.capability_ports import (
     TransformStepSpec,
 )
 from revi_investigation.domain.context import AnalysisSpec
+from revi_kernel.cohort import CohortDefinition, CohortRef
 from revi_kernel.errors import UnsupportedConceptError
+from revi_kernel.filters import (
+    And,
+    FilterExpr,
+    InCohort,
+    Not,
+    Or,
+    Predicate,
+    and_merge,
+)
 from revi_kernel.probes import (
     AggregationProbe,
     EvidenceProbe,
@@ -59,7 +80,15 @@ from revi_kernel.probes import (
     SnapshotProbe,
     probe_hash,
 )
-from revi_kernel.refs import DateBasisRef, DimensionRef, EntityGrain, Grain, MetricRef
+from revi_kernel.refs import (
+    DateBasisRef,
+    DimensionRef,
+    EntityGrain,
+    Grain,
+    MetricRef,
+    ReferentId,
+    ReferentKind,
+)
 from revi_kernel.scope import (
     AbsoluteRange,
     Comparison,
@@ -73,6 +102,42 @@ _DIMENSION_PARAM = "$dimension"
 _IMPACT_ARG = "impact_cents"
 _PRIOR_SUFFIX = "__prior"
 
+_NORMALIZED_ORIGIN = ReferentId(value="__cohort__", kind=ReferentKind.COHORT)
+
+
+def _normalize_scope(expr: FilterExpr) -> FilterExpr:
+    """Strip turn provenance and volatile cohort identity for hashing."""
+    if isinstance(expr, Predicate):
+        return replace(expr, origin_turn=None)
+    if isinstance(expr, InCohort):
+        definition = expr.cohort.definition
+        normalized = CohortDefinition(
+            entity=definition.entity,
+            scope=_normalize_scope(definition.scope),
+            window=definition.window,
+        )
+        return InCohort(
+            cohort=CohortRef(
+                id="__cohort__",
+                definition=normalized,
+                origin=_NORMALIZED_ORIGIN,
+                size=0,
+                pinned=None,
+            ),
+            origin_turn=None,
+        )
+    if isinstance(expr, And):
+        return And(tuple(_normalize_scope(clause) for clause in expr.clauses))
+    if isinstance(expr, Or):
+        return Or(tuple(_normalize_scope(clause) for clause in expr.clauses))
+    return Not(_normalize_scope(expr.clause))
+
+
+def content_probe_hash(probe: EvidenceProbe) -> str:
+    """The content-stable probe identity (see module docstring)."""
+    normalized: EvidenceProbe = replace(probe, scope=_normalize_scope(probe.scope))
+    return probe_hash(normalized)
+
 
 @dataclass(frozen=True, slots=True)
 class ProbeNode:
@@ -83,7 +148,7 @@ class ProbeNode:
 
     @property
     def hash(self) -> str:
-        return probe_hash(self.probe)
+        return content_probe_hash(self.probe)
 
 
 @dataclass(frozen=True, slots=True)
@@ -160,13 +225,21 @@ class BuildInvestigationPlanService:
         playbook_id: str | None = None,
         window_explicit: bool = True,
     ) -> InvestigationPlan:
-        if playbook_id is not None:
+        # Explicit measures win: a spec that names metrics (first-turn
+        # interpretation or a Pivot refinement) plans a direct query even
+        # when a playbook context is inherited from the parent turn.
+        if not spec.measures and playbook_id is not None:
             playbook = self._pack.playbook(playbook_id)
             if playbook is None:
                 raise UnsupportedConceptError(
                     f"unknown playbook {playbook_id!r}", details={"playbook": playbook_id}
                 )
             return self._build_playbook(spec, playbook, window_explicit=window_explicit)
+        if not spec.measures and playbook_id is None:
+            raise UnsupportedConceptError(
+                "the question resolved to no governed measures or playbook",
+                details={"reason": "empty measures"},
+            )
         return self._build_direct(spec)
 
     # --------------------------------------------------------------- direct
@@ -337,6 +410,9 @@ class BuildInvestigationPlanService:
     ) -> ProbeNode:
         measures = tuple(MetricRef(contract.id) for contract in group.contracts)
         scope = spec.context.effective_scope()
+        if spec.context.cohort is not None:
+            # the active cohort is part of every probe's population (§7.5)
+            scope = and_merge(scope, InCohort(cohort=spec.context.cohort))
         grain_entity = EntityGrain(group.grain_entity)
         window = replace(window, basis=group.basis) if window.basis != group.basis else window
 

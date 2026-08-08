@@ -168,9 +168,13 @@ def test_denial_rate_contract_shape(snapshot: PackSnapshot) -> None:
     assert contract.allows_date_basis(DateBasisRef("submission"))
     # The GRAIN_INCOMPATIBLE demo: carc is not a legal cut on the claim-grain rate.
     assert "carc" not in {d.id for d in contract.scope_dimensions}
-    # ...but it is a legal cut on line-grain denied dollars.
+    # ...but it is a legal cut on denial-entity denied dollars (v2 rebound the
+    # contract from `line` to `denial` so its measure and code dimensions all
+    # bind on v_denial and claim cohorts semi-join through denial → claim).
     denied = snapshot.metric("denied_dollars")
     assert denied is not None
+    assert denied.entity_grain is EntityGrain.DENIAL
+    assert denied.version == 2
     assert "carc" in {d.id for d in denied.scope_dimensions}
 
 

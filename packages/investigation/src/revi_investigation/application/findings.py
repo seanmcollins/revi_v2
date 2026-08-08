@@ -55,11 +55,35 @@ class FindingsResult:
 
 
 @dataclass(frozen=True, slots=True)
-class _CompareShape:
+class CompareShape:
+    """A compare frame suitable for findings/reconciliation: at least one
+    dimension column plus a money measure with its delta."""
+
     frame_id: str
     frame: EvidenceFrame
     dimension_columns: tuple[str, ...]
     money_measure: str
+
+
+def find_primary_compare(
+    plan: InvestigationPlan, calculation: CalculationResult
+) -> CompareShape | None:
+    """The first compare output carrying dimensions and a money measure —
+    the findings frame, and the child side of the reconciliation invariant."""
+    for step in plan.transforms.steps:
+        if step.operator != "compare":
+            continue
+        try:
+            frame = calculation.frame(step.id)
+        except KeyError:  # pragma: no cover - pruned steps never execute
+            continue
+        dims = _dimension_columns(frame)
+        money = _money_measure(frame)
+        if dims and money is not None:
+            return CompareShape(
+                frame_id=step.id, frame=frame, dimension_columns=dims, money_measure=money
+            )
+    return None
 
 
 def _dimension_columns(frame: EvidenceFrame) -> tuple[str, ...]:
@@ -105,7 +129,7 @@ class EvaluateFindingsService:
         session_id: str,
         investigation_id: str,
     ) -> FindingsResult:
-        shape = self._primary_compare(plan, calculation)
+        shape = find_primary_compare(plan, calculation)
         if shape is None:
             return FindingsResult(findings=(), referents=())
 
@@ -122,12 +146,23 @@ class EvaluateFindingsService:
         qualified = self._requires_qualification(shape.frame.evidence_grade, pack, playbook)
         period_phrase = self._period_phrase(spec)
 
+        # Referent handles are session-monotonic (design §7.6): F2 keeps
+        # meaning the finding it named when it was shown — later turns mint
+        # new handles instead of overwriting old ones.
+        existing = await self._registry.list_for_session(session_id)
+        finding_offset = sum(
+            1 for entry in existing if entry.referent.kind is ReferentKind.FINDING
+        )
+        row_offset = sum(
+            1 for entry in existing if entry.referent.kind is ReferentKind.DIMENSION_VALUE
+        )
+
         findings: list[Finding] = []
         referents: list[RegisteredReferent] = []
         for row in rows[: self._top_n]:
             if _as_int(row[idx_delta]) is None:
                 continue
-            n = len(findings) + 1
+            n = finding_offset + len(findings) + 1
             finding, referent = self._build_finding(
                 f"F{n}", row, shape, spec, period_phrase, qualified, session_id, investigation_id
             )
@@ -137,32 +172,12 @@ class EvaluateFindingsService:
         for i, row in enumerate(shape.frame.rows):
             referents.append(
                 self._dimension_value_referent(
-                    f"D{i + 1}", row, shape, spec, session_id, investigation_id
+                    f"D{row_offset + i + 1}", row, shape, spec, session_id, investigation_id
                 )
             )
 
         await self._registry.register(tuple(referents))
         return FindingsResult(findings=tuple(findings), referents=tuple(referents))
-
-    # ------------------------------------------------------------ selection
-
-    def _primary_compare(
-        self, plan: InvestigationPlan, calculation: CalculationResult
-    ) -> _CompareShape | None:
-        for step in plan.transforms.steps:
-            if step.operator != "compare":
-                continue
-            try:
-                frame = calculation.frame(step.id)
-            except KeyError:  # pragma: no cover - pruned steps never execute
-                continue
-            dims = _dimension_columns(frame)
-            money = _money_measure(frame)
-            if dims and money is not None:
-                return _CompareShape(
-                    frame_id=step.id, frame=frame, dimension_columns=dims, money_measure=money
-                )
-        return None
 
     # ------------------------------------------------------------- building
 
@@ -191,7 +206,7 @@ class EvaluateFindingsService:
         return "vs prior period"
 
     def _cohort_definition(
-        self, row: tuple[Scalar, ...], shape: _CompareShape, spec: AnalysisSpec
+        self, row: tuple[Scalar, ...], shape: CompareShape, spec: AnalysisSpec
     ) -> CohortDefinition:
         """Drillable cohort: CLAIM entity, current scope narrowed to this
         row's dimension values, over the analysis window."""
@@ -205,7 +220,7 @@ class EvaluateFindingsService:
             window=spec.context.window,
         )
 
-    def _row_label(self, row: tuple[Scalar, ...], shape: _CompareShape) -> str:
+    def _row_label(self, row: tuple[Scalar, ...], shape: CompareShape) -> str:
         return " / ".join(
             str(row[shape.frame.schema.index_of(dim)]) for dim in shape.dimension_columns
         )
@@ -214,7 +229,7 @@ class EvaluateFindingsService:
         self,
         referent_value: str,
         row: tuple[Scalar, ...],
-        shape: _CompareShape,
+        shape: CompareShape,
         spec: AnalysisSpec,
         period_phrase: str,
         qualified: bool,
@@ -280,7 +295,7 @@ class EvaluateFindingsService:
         self,
         referent_value: str,
         row: tuple[Scalar, ...],
-        shape: _CompareShape,
+        shape: CompareShape,
         spec: AnalysisSpec,
         session_id: str,
         investigation_id: str,

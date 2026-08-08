@@ -1,26 +1,43 @@
-"""First-turn orchestration (design §8.1) plus the DEFINITIONAL path.
+"""Turn orchestration: the §8.1 compile path, the §8.2 refinement path, and
+the §8.3 zero-probe paths, over one explicit typed context.
 
-``SubmitTurnService`` runs the compile path end to end: open/join session
-(pinning the newest watermark and the pack version, epoch 0) → classify →
-either the zero-probe DEFINITIONAL answer, a clarification, or the full
-pipeline interpret → plan → §6.6 validation → cache-first execution →
-deterministic calculation → findings + referents → typed
-:class:`TurnOutcome` with the effective-context header — then persists the
-Investigation, evidence frames, and the full §14 trace record, and
-publishes ``turn_complete``.
+Turn dispatch (after the session watermark check):
+
+- **Typed gesture** — a request carrying refinement DTOs skips NL entirely
+  and enters the refinement pipeline at the operator converter.
+- **NEW_INVESTIGATION** — classify → interpret → plan → §6.6 validation →
+  cache-first execution → deterministic calculation → findings/referents.
+- **DEFINITIONAL** — governed pack content with provenance; zero probes.
+- **REFINEMENT** — resolve referents against the live registry → emit
+  operators from the closed set → convert → ``apply_refinements`` (context
+  conflicts surface *before* execution as clarification outcomes, never
+  500s) → DrillInto targets pin ONE cohort at the session watermark →
+  replan → plan diff vs the deterministically rebuilt parent plan →
+  cache-first execution (unchanged probes never touch the warehouse) →
+  auto-reconciliation against the parent totals on splits/drills
+  (RECONCILIATION_FAILED is a surfaced warning + event, never silent,
+  never fatal) → child Investigation + RefinementEdge.
+- **PRESENTATION_ONLY / META / CONTEXT_CONTROL / kernel-only refinements**
+  — answered from persisted frames, traces, and the context object with
+  ZERO repository calls (spy-asserted per §18.1-14).
+
+Watermark epochs (§7.1): every turn compares the session pin against the
+newest completed load; staleness is surfaced (``watermark_stale``, a
+warning event) and the analyst chooses — ``re_anchor=True`` starts a new
+epoch, re-resolves relative windows against the new anchor, and records
+the transition in the trace. Pinned continuation stays byte-stable.
 
 Clarifications are successful outcomes: they cross this boundary as data
-on the :class:`TurnOutcome`, never as exceptions. The refinement path
-(follow-up turns) lands with the conversational-core milestone; a turn
-classified as anything other than NEW_INVESTIGATION or DEFINITIONAL is
-answered with an honest clarification here.
+on the :class:`TurnOutcome`, never as exceptions.
 """
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
-from dataclasses import dataclass, field
+from collections.abc import Mapping
+from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
@@ -29,21 +46,34 @@ from revi_investigation.application.calculation_glue import (
     CalculateMetricsService,
     CalculationResult,
 )
-from revi_investigation.application.capability_ports import PackPort
+from revi_investigation.application.capability_ports import PackPort, TransformPort
+from revi_investigation.application.cohorts import PinCohortService
 from revi_investigation.application.execution import ExecutedProbe, ExecuteInvestigationService
-from revi_investigation.application.findings import EvaluateFindingsService, FindingsResult
+from revi_investigation.application.findings import (
+    EvaluateFindingsService,
+    FindingsResult,
+    find_primary_compare,
+)
 from revi_investigation.application.interpretation import (
     ClassificationOutcome,
     ClassifyTurnService,
     DefinitionalAnswer,
     InterpretationOutcome,
+    InterpretedInvestigation,
     InterpretQuestionService,
 )
-from revi_investigation.application.planning import BuildInvestigationPlanService
+from revi_investigation.application.llm.schemas import AnyRefinementOperator
+from revi_investigation.application.planning import (
+    BuildInvestigationPlanService,
+    DiffPlanService,
+    InvestigationPlan,
+    PlanDiff,
+)
 from revi_investigation.application.ports import (
     FrameStore,
     InvestigationStore,
     LlmUsage,
+    ReferentRegistryStore,
     RegisteredReferent,
     SessionStore,
     TraceRecord,
@@ -51,9 +81,16 @@ from revi_investigation.application.ports import (
     TurnEvent,
     TurnEventBus,
 )
+from revi_investigation.application.refinement_llm import (
+    EmitRefinementsService,
+    ReferentResolution,
+    ResolveReferentsService,
+    to_domain_operators,
+)
 from revi_investigation.application.validation import PlanValidationService, ValidatedPlan
 from revi_investigation.domain.context import (
     AnalysisSpec,
+    ContextPin,
     InvestigationContext,
     PackVersionRef,
 )
@@ -61,18 +98,39 @@ from revi_investigation.domain.records import (
     Finding,
     Investigation,
     InvestigationStatus,
+    RefinementEdge,
     Session,
+)
+from revi_investigation.domain.refinements import (
+    AddFilter,
+    DrillInto,
+    Expand,
+    RankBy,
+    Refinement,
+    SetDimensions,
+    apply_refinements,
+    detect_conflict,
 )
 from revi_investigation.domain.turns import ClarificationRequest, TurnClass
 from revi_kernel.capabilities import AnalyticalRepository
-from revi_kernel.errors import DataLoadingError
+from revi_kernel.cohort import CohortRef
+from revi_kernel.errors import ContextConflictError, DataLoadingError, ReferentNotFoundError
 from revi_kernel.filters import EMPTY_SCOPE, Predicate, iter_predicates
 from revi_kernel.frame import EvidenceFrame
-from revi_kernel.refs import SERVICE, EntityGrain, Grain
-from revi_kernel.scope import RangeMode, RelativeRange, TimeUnit, resolve_window
-from revi_kernel.watermark import WatermarkEpoch
+from revi_kernel.refs import SERVICE, DimensionRef, EntityGrain, Grain, ReferentId
+from revi_kernel.scope import (
+    ComparisonKind,
+    RangeMode,
+    RelativeRange,
+    TimeUnit,
+    derive_comparison,
+    resolve_window,
+)
+from revi_kernel.watermark import DataWatermark, WatermarkEpoch
 
 _FALLBACK_WINDOW = RelativeRange(Decimal(1), TimeUnit.MONTH, RangeMode.FULL_PERIODS)
+_KERNEL_ONLY = (RankBy, Expand)
+_REFERENT_TOKEN = re.compile(r"\b([FD]\d+)\b", re.IGNORECASE)
 
 
 def _new_id(prefix: str) -> str:
@@ -84,6 +142,10 @@ class SubmitTurnRequest:
     tenant: str
     question: str
     session_id: str | None = None
+    # Typed-gesture path (§12): validated refinement DTOs skip NL entirely.
+    refinements: tuple[AnyRefinementOperator, ...] | None = None
+    # Watermark epochs (§7.1): opt into re-anchoring on a newer load.
+    re_anchor: bool = False
 
 
 @dataclass(frozen=True, slots=True)
@@ -103,6 +165,21 @@ class ContextHeader:
 
 
 @dataclass(frozen=True, slots=True)
+class MetaAnswer:
+    """A META turn's answer: recorded provenance behind a referent (§8.3)."""
+
+    referent: str
+    label: str
+    investigation_id: str
+    probes: tuple[Mapping[str, Any], ...]
+    operators: tuple[Mapping[str, Any], ...]
+    grades: Mapping[str, str]
+    reconciliation: str | None
+    finding_values: tuple[tuple[str, Any], ...]
+    warnings: tuple[str, ...]
+
+
+@dataclass(frozen=True, slots=True)
 class TurnOutcome:
     """The typed result of one submitted turn."""
 
@@ -116,14 +193,16 @@ class TurnOutcome:
     definitional: DefinitionalAnswer | None
     trace_id: str
     referents: tuple[RegisteredReferent, ...] = ()
+    watermark_stale: bool = False
+    meta: MetaAnswer | None = None
+    reconciliation: str | None = None
+    diff: PlanDiff | None = None
 
 
 def build_context_header(spec: AnalysisSpec, session: Session) -> ContextHeader:
     context = spec.context
     window = context.window
-    filters = tuple(
-        _predicate_label(p) for p in iter_predicates(context.effective_scope())
-    )
+    filters = tuple(_predicate_label(p) for p in iter_predicates(context.effective_scope()))
     comparison = context.comparison
     parts = [f"{window.range.start.isoformat()}..{window.range.end.isoformat()} ({window.basis.id})"]
     if comparison is not None:
@@ -134,7 +213,7 @@ def build_context_header(spec: AnalysisSpec, session: Session) -> ContextHeader:
     if filters:
         parts.append("filters: " + "; ".join(filters))
     if context.cohort is not None:
-        parts.append(f"cohort: {context.cohort.id}")
+        parts.append(f"cohort: {context.cohort.id} ({context.cohort.size} claims)")
     parts.append(f"watermark {session.watermark.id}")
     return ContextHeader(
         window_start=window.range.start,
@@ -171,18 +250,30 @@ class OpenSessionService:
             existing = await self._sessions.get(session_id)
             if existing is not None:
                 return existing
-        watermarks = await self._repository.list_watermarks()
-        if not watermarks:
-            raise DataLoadingError("no completed warehouse load is available yet")
+        newest = await self.newest_watermark()
         session = Session(
             id=session_id if session_id is not None else _new_id("sess"),
             tenant=tenant,
             pack_version=PackVersionRef(self._pack.pack_id, self._pack.pack_version),
-            epochs=(WatermarkEpoch(index=0, watermark=watermarks[-1]),),
+            epochs=(WatermarkEpoch(index=0, watermark=newest),),
             created_at=datetime.now(UTC),
         )
         await self._sessions.save(session)
         return session
+
+    async def newest_watermark(self) -> DataWatermark:
+        watermarks = await self._repository.list_watermarks()
+        if not watermarks:
+            raise DataLoadingError("no completed warehouse load is available yet")
+        return watermarks[-1]
+
+    async def re_anchor(self, session: Session, newest: DataWatermark, turn_id: str) -> Session:
+        """Start a new watermark epoch (§7.1) — an explicit, recorded event."""
+        updated = session.with_new_epoch(
+            WatermarkEpoch(index=len(session.epochs), watermark=newest, started_at_turn=turn_id)
+        )
+        await self._sessions.save(updated)
+        return updated
 
 
 @dataclass
@@ -197,6 +288,8 @@ class _TurnState:
     timings_ms: dict[str, int] = field(default_factory=dict)
     llm_usages: list[tuple[str, LlmUsage]] = field(default_factory=list)
     template_hashes: dict[str, str] = field(default_factory=dict)
+    watermark_stale: bool = False
+    epoch_transition: bool = False
 
     def time_stage(self, stage: str) -> None:
         now = time.monotonic()
@@ -205,7 +298,7 @@ class _TurnState:
 
 
 class SubmitTurnService:
-    """§8.1 first-turn engine (plus DEFINITIONAL), on injected services."""
+    """§8 turn engine on injected services."""
 
     def __init__(
         self,
@@ -218,7 +311,13 @@ class SubmitTurnService:
         executor: ExecuteInvestigationService,
         calculator: CalculateMetricsService,
         evaluator: EvaluateFindingsService,
+        referent_resolver: ResolveReferentsService,
+        refinement_emitter: EmitRefinementsService,
+        cohort_pinner: PinCohortService,
+        differ: DiffPlanService,
+        transforms: TransformPort,
         pack: PackPort,
+        referents: ReferentRegistryStore,
         investigations: InvestigationStore,
         traces: TraceStore,
         frames: FrameStore,
@@ -232,7 +331,13 @@ class SubmitTurnService:
         self._executor = executor
         self._calculator = calculator
         self._evaluator = evaluator
+        self._referent_resolver = referent_resolver
+        self._refinement_emitter = refinement_emitter
+        self._cohort_pinner = cohort_pinner
+        self._differ = differ
+        self._transforms = transforms
         self._pack = pack
+        self._referents = referents
         self._investigations = investigations
         self._traces = traces
         self._frames = frames
@@ -250,6 +355,13 @@ class SubmitTurnService:
             trace_id=_new_id("trace"),
             question=request.question,
         )
+        session = await self._check_watermark(session, state, request)
+
+        if request.refinements is not None:
+            # typed-gesture path: no NL, no classification, no LLM
+            return await self._refinement_turn(
+                session, state, None, dto_ops=tuple(request.refinements)
+            )
 
         await self._stage(state, "classify")
         classified = await self._classifier.classify(request.question)
@@ -266,19 +378,59 @@ class SubmitTurnService:
         turn_class = classified.classification.turn_class
         if turn_class is TurnClass.DEFINITIONAL:
             return await self._definitional_outcome(session, state, classified)
-        if turn_class is not TurnClass.NEW_INVESTIGATION:
-            clarification = ClarificationRequest(
-                question=(
-                    "That reads like a follow-up, but this session has no prior answer to "
-                    "refine yet — what would you like to investigate?"
-                ),
-                reason=f"turn class {turn_class.value} is not supported on a first turn",
-            )
-            return await self._clarification_outcome(session, state, classified, clarification)
+        if turn_class is TurnClass.NEW_INVESTIGATION:
+            return await self._new_investigation_turn(session, state, classified)
+        if turn_class is TurnClass.REFINEMENT:
+            return await self._refinement_turn(session, state, classified, dto_ops=None)
+        if turn_class is TurnClass.PRESENTATION_ONLY:
+            return await self._presentation_turn(session, state, classified)
+        if turn_class is TurnClass.META:
+            return await self._meta_turn(session, state, classified)
+        if turn_class is TurnClass.CONTEXT_CONTROL:
+            return await self._context_control_turn(session, state, classified)
+        clarification = ClarificationRequest(
+            question=(
+                "That reads like an answer to a question I haven't asked — what would "
+                "you like to investigate?"
+            ),
+            reason=f"turn class {turn_class.value} is not actionable here",
+        )
+        return await self._clarification_outcome(session, state, classified, clarification)
 
+    # ------------------------------------------------------ watermark epochs
+
+    async def _check_watermark(
+        self, session: Session, state: _TurnState, request: SubmitTurnRequest
+    ) -> Session:
+        newest = await self._open_session.newest_watermark()
+        if newest.id == session.watermark.id:
+            return session
+        if request.re_anchor:
+            session = await self._open_session.re_anchor(session, newest, state.turn_id)
+            state.epoch_transition = True
+            return session
+        state.watermark_stale = True
+        await self._events.publish(
+            TurnEvent(
+                kind="warning",
+                turn_id=state.turn_id,
+                payload={
+                    "code": "WATERMARK_STALE",
+                    "pinned": session.watermark.id,
+                    "newest": newest.id,
+                },
+            )
+        )
+        return session
+
+    # ----------------------------------------------------- new investigation
+
+    async def _new_investigation_turn(
+        self, session: Session, state: _TurnState, classified: ClassificationOutcome
+    ) -> TurnOutcome:
         await self._stage(state, "interpret")
         interpretation = await self._interpreter.interpret(
-            request.question, session=session, turn_id=state.turn_id
+            state.question, session=session, turn_id=state.turn_id
         )
         state.llm_usages.append(("interpret_question", interpretation.usage))
         state.template_hashes["interpret_question@v1"] = interpretation.template_hash
@@ -295,16 +447,204 @@ class SubmitTurnService:
         assert interpretation.investigation is not None
         interpreted = interpretation.investigation
 
-        await self._stage(state, "plan")
-        plan = self._planner.build(
-            interpreted.spec,
+        # carryover law 5: session pins persist until explicitly cleared
+        pins = await self._inherited_pins(session)
+        spec = interpreted.spec
+        if pins:
+            spec = spec.with_context(replace(spec.context, pins=pins))
+
+        return await self._run_analysis(
+            session,
+            state,
+            classified,
+            spec=spec,
             playbook_id=interpreted.playbook_id,
             window_explicit=interpreted.window_explicit,
+            turn_class=TurnClass.NEW_INVESTIGATION,
+            parent=None,
+            operators=(),
+            interpreted=interpreted,
         )
+
+    # ------------------------------------------------------------ refinement
+
+    async def _refinement_turn(
+        self,
+        session: Session,
+        state: _TurnState,
+        classified: ClassificationOutcome | None,
+        *,
+        dto_ops: tuple[AnyRefinementOperator, ...] | None,
+    ) -> TurnOutcome:
+        parent = await self._latest_investigation(session, analytical=True)
+        if parent is None:
+            return await self._clarification_outcome(
+                session,
+                state,
+                classified,
+                ClarificationRequest(
+                    question=(
+                        "There's no prior answer in this session to refine yet — what "
+                        "would you like to investigate?"
+                    ),
+                    reason="refinement without a parent investigation",
+                ),
+            )
+        playbook_id, window_explicit = await self._plan_context_of(parent.id)
+        entries = await self._referents.list_for_session(session.id)
+        resolutions: tuple[ReferentResolution, ...] = ()
+        rationale = ""
+
+        if dto_ops is None:
+            await self._stage(state, "resolve_referents")
+            resolved = await self._referent_resolver.resolve(state.question, entries)
+            state.llm_usages.append(("resolve_referents", resolved.usage))
+            state.template_hashes["resolve_referents@v1"] = resolved.template_hash
+            state.time_stage("resolve_referents")
+            if resolved.clarification is not None:
+                return await self._clarification_outcome(
+                    session, state, classified, resolved.clarification
+                )
+            resolutions = resolved.resolutions
+
+            await self._stage(state, "emit_refinements")
+            emission = await self._refinement_emitter.emit(
+                state.question,
+                context_summary=self._context_lines(parent.spec),
+                entries=entries,
+                resolutions=resolutions,
+                dimension_lines=self._dimension_lines(),
+                metric_lines=self._metric_lines(),
+            )
+            state.llm_usages.append(("emit_refinements", emission.usage))
+            state.template_hashes["emit_refinements@v1"] = emission.template_hash
+            state.time_stage("emit_refinements")
+            if emission.clarification is not None or emission.operators is None:
+                clarification = emission.clarification or ClarificationRequest(
+                    question="What would you like to change?", reason="AMBIGUOUS_REFINEMENT"
+                )
+                return await self._clarification_outcome(session, state, classified, clarification)
+            dto_ops = emission.operators
+            rationale = emission.rationale
+
+        registry_index = {entry.referent.value: entry.referent for entry in entries}
+        domain_ops = to_domain_operators(dto_ops, registry_index)
+        ops_json = tuple(op.model_dump(mode="json") for op in dto_ops)
+
+        prelude_warnings: list[str] = []
+        cohort = await self._pin_drill_cohort(session, parent.spec, domain_ops, prelude_warnings)
+
+        def resolve_cohort(_: ReferentId) -> CohortRef | None:
+            return cohort
+
+        try:
+            new_spec = apply_refinements(
+                parent.spec,
+                domain_ops,
+                turn_id=state.turn_id,
+                resolve_cohort=resolve_cohort if cohort is not None else None,
+            )
+        except ContextConflictError as conflict:
+            # detected BEFORE execution (§7.7 law 4); a conversational
+            # outcome, never a server error
+            return await self._clarification_outcome(
+                session,
+                state,
+                classified,
+                ClarificationRequest(
+                    question=(
+                        f"That contradicts the current context: {conflict.message}. "
+                        "Widen the context first (remove the filter or reset), or "
+                        "rephrase what you want."
+                    ),
+                    reason=f"CONTEXT_CONFLICT: {conflict.message}",
+                ),
+                extra={"refinement": {"operators": list(ops_json), "rationale": rationale}},
+            )
+        new_spec = self._rebase_context(new_spec, session)
+
+        if domain_ops and all(isinstance(op, _KERNEL_ONLY) for op in domain_ops):
+            kernel_outcome = await self._kernel_only_turn(
+                session, state, classified, parent, new_spec, domain_ops, ops_json
+            )
+            if kernel_outcome is not None:
+                return kernel_outcome
+
+        refinement_extra: dict[str, Any] = {
+            "operators": list(ops_json),
+            "rationale": rationale,
+            "resolutions": [
+                {"mention": r.mention, "referent": r.referent.value, "confidence": r.confidence}
+                for r in resolutions
+            ],
+        }
+        if cohort is not None:
+            refinement_extra["cohort"] = {"id": cohort.id, "size": cohort.size}
+        return await self._run_analysis(
+            session,
+            state,
+            classified,
+            spec=new_spec,
+            playbook_id=playbook_id,
+            window_explicit=window_explicit,
+            turn_class=TurnClass.REFINEMENT,
+            parent=parent,
+            operators=domain_ops,
+            refinement_extra=refinement_extra,
+            prelude_warnings=tuple(prelude_warnings),
+        )
+
+    async def _pin_drill_cohort(
+        self,
+        session: Session,
+        parent_spec: AnalysisSpec,
+        domain_ops: tuple[Refinement, ...],
+        warnings: list[str],
+    ) -> CohortRef | None:
+        targets = tuple(
+            dict.fromkeys(op.target for op in domain_ops if isinstance(op, DrillInto))
+        )
+        if not targets:
+            return None
+        return await self._cohort_pinner.pin(
+            session=session, parent_spec=parent_spec, targets=targets, warnings=warnings
+        )
+
+    # ------------------------------------------------ shared analysis runner
+
+    async def _run_analysis(
+        self,
+        session: Session,
+        state: _TurnState,
+        classified: ClassificationOutcome | None,
+        *,
+        spec: AnalysisSpec,
+        playbook_id: str | None,
+        window_explicit: bool,
+        turn_class: TurnClass,
+        parent: Investigation | None,
+        operators: tuple[Refinement, ...],
+        interpreted: InterpretedInvestigation | None = None,
+        refinement_extra: Mapping[str, Any] | None = None,
+        prelude_warnings: tuple[str, ...] = (),
+    ) -> TurnOutcome:
+        effective_playbook = playbook_id if not spec.measures else None
+
+        await self._stage(state, "plan")
+        plan = self._planner.build(
+            spec, playbook_id=effective_playbook, window_explicit=window_explicit
+        )
+        diff: PlanDiff | None = None
+        if parent is not None:
+            parent_playbook = playbook_id if not parent.spec.measures else None
+            parent_plan = self._planner.build(
+                parent.spec, playbook_id=parent_playbook, window_explicit=window_explicit
+            )
+            diff = self._differ.diff(parent_plan, plan)
         state.time_stage("plan")
 
         await self._stage(state, "validate")
-        validated = self._validator.validate(plan, interpreted.spec)
+        validated = self._validator.validate(plan, spec)
         state.time_stage("validate")
 
         executed = await self._executor.execute(
@@ -321,14 +661,12 @@ class SubmitTurnService:
 
         await self._stage(state, "findings")
         playbook = (
-            self._pack.playbook(interpreted.playbook_id)
-            if interpreted.playbook_id is not None
-            else None
+            self._pack.playbook(effective_playbook) if effective_playbook is not None else None
         )
         findings_result = await self._evaluator.evaluate(
             plan=validated.plan,
             calculation=calculation,
-            spec=interpreted.spec,
+            spec=spec,
             pack=self._pack,
             playbook=playbook,
             session_id=session.id,
@@ -336,17 +674,24 @@ class SubmitTurnService:
         )
         state.time_stage("findings")
 
-        warnings = (*validated.warnings, *validated.plan.notes)
-        header = build_context_header(interpreted.spec, session)
+        extra_warnings: list[str] = list(prelude_warnings)
+        reconciliation: str | None = None
+        if parent is not None:
+            reconciliation = await self._reconcile_with_parent(
+                parent, validated.plan, calculation, operators, extra_warnings, state
+            )
+
+        warnings = (*validated.warnings, *validated.plan.notes, *extra_warnings)
+        header = build_context_header(spec, session)
         frame_refs = await self._persist_frames(state, calculation)
         investigation = Investigation(
             id=state.investigation_id,
             session_id=session.id,
-            parent_id=None,
+            parent_id=parent.id if parent is not None else None,
             turn_id=state.turn_id,
             turn_class=turn_class,
-            question=request.question,
-            spec=interpreted.spec,
+            question=state.question,
+            spec=spec,
             plan_hash=validated.plan.plan_hash,
             status=InvestigationStatus.COMPLETE,
             findings=findings_result.findings,
@@ -354,18 +699,43 @@ class SubmitTurnService:
             frame_refs=frame_refs,
             warnings=warnings,
         )
-        await self._investigations.save(investigation, None)
+        edge = (
+            RefinementEdge(
+                parent_id=parent.id,
+                child_id=investigation.id,
+                turn_id=state.turn_id,
+                operators=operators,
+            )
+            if parent is not None
+            else None
+        )
+        await self._investigations.save(investigation, edge)
+
+        extra: dict[str, Any] = {
+            "plan_context": {"playbook_id": playbook_id, "window_explicit": window_explicit}
+        }
+        if refinement_extra is not None:
+            refinement_payload = dict(refinement_extra)
+            if diff is not None:
+                refinement_payload["diff"] = {
+                    "added": [node.hash for node in diff.added],
+                    "removed": [node.hash for node in diff.removed],
+                    "unchanged": [node.hash for node in diff.unchanged],
+                }
+            refinement_payload["reconciliation"] = reconciliation
+            extra["refinement"] = refinement_payload
         await self._traces.save(
             self._trace_record(
                 session,
                 state,
                 classified,
-                interpretation=interpretation,
+                interpreted=interpreted,
                 validated=validated,
                 executed=executed,
                 calculation=calculation,
                 findings=findings_result,
                 warnings=warnings,
+                extra=extra,
             )
         )
         await self._turn_complete(state, investigation)
@@ -380,29 +750,392 @@ class SubmitTurnService:
             definitional=None,
             trace_id=state.trace_id,
             referents=findings_result.referents,
+            watermark_stale=state.watermark_stale,
+            reconciliation=reconciliation,
+            diff=diff,
         )
 
-    # ------------------------------------------------------ outcome shapes
+    # ------------------------------------------------- reconciliation (§7.8)
+
+    async def _reconcile_with_parent(
+        self,
+        parent: Investigation,
+        plan: InvestigationPlan,
+        calculation: CalculationResult,
+        operators: tuple[Refinement, ...],
+        warnings: list[str],
+        state: _TurnState,
+    ) -> str | None:
+        """On splits (SetDimensions) and drills (DrillInto), check that the
+        child's cells sum to the parent totals the analyst was shown."""
+        if not any(isinstance(op, (SetDimensions, DrillInto)) for op in operators):
+            return None
+        shape = find_primary_compare(plan, calculation)
+        if shape is None:
+            return None
+        measure = shape.money_measure
+        parent_totals: EvidenceFrame | None = None
+        for key in parent.frame_refs:
+            frame = await self._frames.get(key)
+            if frame is None or measure not in frame.schema.names:
+                continue
+            if any(isinstance(col.ref, DimensionRef) for col in frame.schema.columns):
+                continue
+            parent_totals = frame
+            if f"{measure}__prior" in frame.schema.names:
+                break  # prefer the compare totals (they carry the prior side)
+        if parent_totals is None or parent_totals.watermark != shape.frame.watermark:
+            return None
+        measures: tuple[str, ...] = (measure,)
+        if (
+            f"{measure}__prior" in parent_totals.schema.names
+            and f"{measure}__prior" in shape.frame.schema.names
+        ):
+            measures = (measure, f"{measure}__prior")
+        verdict = self._transforms.reconcile(parent_totals, shape.frame, measures=measures)
+        if not verdict.passed:
+            warnings.append(f"RECONCILIATION_FAILED: {verdict.summary}")
+            await self._events.publish(
+                TurnEvent(
+                    kind="warning",
+                    turn_id=state.turn_id,
+                    payload={"code": "RECONCILIATION_FAILED", "detail": verdict.summary},
+                )
+            )
+        return verdict.summary
+
+    # ------------------------------------------------- zero-probe turn paths
+
+    async def _presentation_turn(
+        self, session: Session, state: _TurnState, classified: ClassificationOutcome
+    ) -> TurnOutcome:
+        parent = await self._latest_investigation(session, analytical=True)
+        if parent is None:
+            return await self._clarification_outcome(
+                session,
+                state,
+                classified,
+                ClarificationRequest(
+                    question="There's nothing to re-present yet — what should I investigate?",
+                    reason="presentation turn without a prior answer",
+                ),
+            )
+        frames = await self._load_frames(parent)
+        investigation = replace(
+            self._minimal_investigation(session, state, InvestigationStatus.COMPLETE, classified),
+            spec=parent.spec,
+            parent_id=parent.id,
+            findings=parent.findings,
+            frame_refs=parent.frame_refs,
+        )
+        edge = RefinementEdge(
+            parent_id=parent.id, child_id=investigation.id, turn_id=state.turn_id, operators=()
+        )
+        await self._investigations.save(investigation, edge)
+        await self._traces.save(
+            self._trace_record(session, state, classified, extra={"presentation_of": parent.id})
+        )
+        await self._turn_complete(state, investigation)
+        return TurnOutcome(
+            session=session,
+            investigation=investigation,
+            findings=parent.findings,
+            header=build_context_header(parent.spec, session),
+            frames=frames,
+            warnings=(),
+            clarification=None,
+            definitional=None,
+            trace_id=state.trace_id,
+            watermark_stale=state.watermark_stale,
+        )
+
+    async def _meta_turn(
+        self, session: Session, state: _TurnState, classified: ClassificationOutcome
+    ) -> TurnOutcome:
+        token_match = _REFERENT_TOKEN.search(state.question)
+        if token_match is None:
+            return await self._clarification_outcome(
+                session,
+                state,
+                classified,
+                ClarificationRequest(
+                    question="Which finding do you mean? Name it by its handle (F1, F2, ...).",
+                    reason="meta turn names no referent",
+                ),
+            )
+        token = token_match.group(1).upper()
+        entries = await self._referents.list_for_session(session.id)
+        entry = next((e for e in entries if e.referent.value == token), None)
+        if entry is None:
+            raise ReferentNotFoundError(
+                f"referent {token!r} is not in the live registry",
+                details={"referent": token},
+            )
+        cited = await self._investigations.get(entry.investigation_id)
+        cited_traces = await self._traces.for_investigation(entry.investigation_id)
+        payload: Mapping[str, Any] = cited_traces[0].payload if cited_traces else {}
+        refinement_payload = payload.get("refinement") or {}
+        meta = MetaAnswer(
+            referent=token,
+            label=entry.label,
+            investigation_id=entry.investigation_id,
+            probes=tuple(payload.get("probes", ())),
+            operators=tuple(payload.get("operators", ())),
+            grades=dict(payload.get("grades", {})),
+            reconciliation=refinement_payload.get("reconciliation"),
+            finding_values=tuple(entry.finding.values) if entry.finding is not None else (),
+            warnings=tuple(payload.get("warnings", ())),
+        )
+        parent = await self._latest_investigation(session, analytical=False)
+        investigation = self._minimal_investigation(
+            session, state, InvestigationStatus.COMPLETE, classified
+        )
+        if cited is not None:
+            investigation = replace(investigation, spec=cited.spec)
+        edge = None
+        if parent is not None:
+            investigation = replace(investigation, parent_id=parent.id)
+            edge = RefinementEdge(
+                parent_id=parent.id,
+                child_id=investigation.id,
+                turn_id=state.turn_id,
+                operators=(),
+            )
+        await self._investigations.save(investigation, edge)
+        await self._traces.save(
+            self._trace_record(
+                session,
+                state,
+                classified,
+                extra={"meta": {"referent": token, "cites": entry.investigation_id}},
+            )
+        )
+        await self._turn_complete(state, investigation)
+        header = build_context_header(cited.spec, session) if cited is not None else None
+        return TurnOutcome(
+            session=session,
+            investigation=investigation,
+            findings=(),
+            header=header,
+            frames=(),
+            warnings=(),
+            clarification=None,
+            definitional=None,
+            trace_id=state.trace_id,
+            watermark_stale=state.watermark_stale,
+            meta=meta,
+        )
+
+    async def _context_control_turn(
+        self, session: Session, state: _TurnState, classified: ClassificationOutcome
+    ) -> TurnOutcome:
+        parent = await self._latest_investigation(session, analytical=False)
+        base_spec = parent.spec if parent is not None else self._fallback_spec(session)
+        entries = await self._referents.list_for_session(session.id)
+
+        await self._stage(state, "emit_refinements")
+        emission = await self._refinement_emitter.emit(
+            state.question,
+            context_summary=self._context_lines(base_spec),
+            entries=entries,
+            resolutions=(),
+            dimension_lines=self._dimension_lines(),
+            metric_lines=self._metric_lines(),
+        )
+        state.llm_usages.append(("emit_refinements", emission.usage))
+        state.template_hashes["emit_refinements@v1"] = emission.template_hash
+        state.time_stage("emit_refinements")
+        if emission.clarification is not None or emission.operators is None:
+            clarification = emission.clarification or ClarificationRequest(
+                question="What should I change about the session context?",
+                reason="AMBIGUOUS_REFINEMENT",
+            )
+            return await self._clarification_outcome(session, state, classified, clarification)
+
+        registry_index = {entry.referent.value: entry.referent for entry in entries}
+        domain_ops = to_domain_operators(emission.operators, registry_index)
+        ops_json = [op.model_dump(mode="json") for op in emission.operators]
+
+        # On a context-control turn, AddFilter means a sticky session pin
+        # (carryover law 5); everything else applies as a normal edit.
+        pin_ops = tuple(op for op in domain_ops if isinstance(op, AddFilter))
+        other_ops = tuple(op for op in domain_ops if not isinstance(op, AddFilter))
+        try:
+            spec = apply_refinements(base_spec, other_ops, turn_id=state.turn_id)
+            new_pins: list[ContextPin] = []
+            for op in pin_ops:
+                conflict = detect_conflict(spec, op.predicate)
+                if conflict is not None:
+                    raise ContextConflictError(
+                        f"pin contradicts active context: {conflict}",
+                        details={"conflict": conflict},
+                    )
+                new_pins.append(
+                    ContextPin(
+                        predicate=replace(op.predicate, origin_turn=state.turn_id),
+                        declared_at_turn=state.turn_id,
+                    )
+                )
+        except ContextConflictError as conflict:
+            return await self._clarification_outcome(
+                session,
+                state,
+                classified,
+                ClarificationRequest(
+                    question=f"That contradicts the current context: {conflict.message}.",
+                    reason=f"CONTEXT_CONFLICT: {conflict.message}",
+                ),
+            )
+        if new_pins:
+            spec = spec.with_context(replace(spec.context, pins=(*spec.context.pins, *new_pins)))
+
+        investigation = replace(
+            self._minimal_investigation(session, state, InvestigationStatus.COMPLETE, classified),
+            spec=spec,
+        )
+        edge = None
+        if parent is not None:
+            investigation = replace(investigation, parent_id=parent.id)
+            edge = RefinementEdge(
+                parent_id=parent.id,
+                child_id=investigation.id,
+                turn_id=state.turn_id,
+                operators=domain_ops,
+            )
+        await self._investigations.save(investigation, edge)
+        await self._traces.save(
+            self._trace_record(
+                session,
+                state,
+                classified,
+                extra={
+                    "context_control": {
+                        "operators": ops_json,
+                        "pins": [_predicate_label(pin.predicate) for pin in new_pins],
+                    }
+                },
+            )
+        )
+        await self._turn_complete(state, investigation)
+        return TurnOutcome(
+            session=session,
+            investigation=investigation,
+            findings=(),
+            header=build_context_header(spec, session),
+            frames=(),
+            warnings=(),
+            clarification=None,
+            definitional=None,
+            trace_id=state.trace_id,
+            watermark_stale=state.watermark_stale,
+        )
+
+    async def _kernel_only_turn(
+        self,
+        session: Session,
+        state: _TurnState,
+        classified: ClassificationOutcome | None,
+        parent: Investigation,
+        new_spec: AnalysisSpec,
+        domain_ops: tuple[Refinement, ...],
+        ops_json: tuple[Mapping[str, Any], ...],
+    ) -> TurnOutcome | None:
+        """RankBy/Expand within cached, untruncated frames: zero probes
+        (§7.9). Returns None to fall back to the full path when the cached
+        frames cannot honestly answer (missing column, truncated frame)."""
+        frames = await self._load_frames(parent)
+        if not frames:
+            return None
+        working: dict[str, EvidenceFrame] = dict(frames)
+        order: list[str] = [fid for fid, _ in frames]
+        for op in domain_ops:
+            if isinstance(op, RankBy):
+                rank_column = f"{op.by.id}__rank"
+                target_id = next(
+                    (
+                        fid
+                        for fid in reversed(order)
+                        if op.by.id in working[fid].schema.names
+                        and rank_column not in working[fid].schema.names
+                    ),
+                    None,
+                )
+                if target_id is None:
+                    return None
+                ranked_id = f"{target_id}__{op.by.id}__rank"
+                working[ranked_id] = self._transforms.rank(
+                    working[target_id], by=op.by.id, descending=op.descending
+                )
+                order.append(ranked_id)
+            else:
+                assert isinstance(op, Expand)
+                if any(frame.truncated for frame in working.values()):
+                    return None  # expanding a truncated frame needs the source
+        investigation = replace(
+            self._minimal_investigation(session, state, InvestigationStatus.COMPLETE, classified),
+            spec=new_spec,
+            parent_id=parent.id,
+            findings=parent.findings,
+            plan_hash=parent.plan_hash,
+        )
+        frame_pairs = tuple((fid, working[fid]) for fid in order)
+        refs: list[str] = []
+        for fid, frame in frame_pairs:
+            key = f"{state.investigation_id}:{fid}"
+            await self._frames.save(key, frame)
+            refs.append(key)
+        investigation = replace(investigation, frame_refs=tuple(refs))
+        edge = RefinementEdge(
+            parent_id=parent.id,
+            child_id=investigation.id,
+            turn_id=state.turn_id,
+            operators=domain_ops,
+        )
+        await self._investigations.save(investigation, edge)
+        await self._traces.save(
+            self._trace_record(
+                session,
+                state,
+                classified,
+                extra={
+                    "refinement": {"operators": list(ops_json), "kernel_only": True},
+                    "plan_context": {"playbook_id": None, "window_explicit": True},
+                },
+            )
+        )
+        await self._turn_complete(state, investigation)
+        return TurnOutcome(
+            session=session,
+            investigation=investigation,
+            findings=parent.findings,
+            header=build_context_header(new_spec, session),
+            frames=frame_pairs,
+            warnings=(),
+            clarification=None,
+            definitional=None,
+            trace_id=state.trace_id,
+            watermark_stale=state.watermark_stale,
+        )
+
+    # ------------------------------------------------------- outcome shapes
 
     async def _clarification_outcome(
         self,
         session: Session,
         state: _TurnState,
-        classified: ClassificationOutcome,
+        classified: ClassificationOutcome | None,
         clarification: ClarificationRequest,
         interpretation: InterpretationOutcome | None = None,
+        extra: Mapping[str, Any] | None = None,
     ) -> TurnOutcome:
+        del interpretation  # usage already tracked on state
         investigation = self._minimal_investigation(
             session, state, InvestigationStatus.CLARIFICATION_REQUIRED, classified
         )
         await self._investigations.save(investigation, None)
         await self._traces.save(
             self._trace_record(
-                session,
-                state,
-                classified,
-                interpretation=interpretation,
-                clarification=clarification,
+                session, state, classified, clarification=clarification, extra=extra
             )
         )
         await self._events.publish(
@@ -423,6 +1156,7 @@ class SubmitTurnService:
             clarification=clarification,
             definitional=None,
             trace_id=state.trace_id,
+            watermark_stale=state.watermark_stale,
         )
 
     async def _definitional_outcome(
@@ -464,20 +1198,125 @@ class SubmitTurnService:
             clarification=None,
             definitional=answer,
             trace_id=state.trace_id,
+            watermark_stale=state.watermark_stale,
         )
 
-    def _minimal_investigation(
-        self,
-        session: Session,
-        state: _TurnState,
-        status: InvestigationStatus,
-        classified: ClassificationOutcome,
-    ) -> Investigation:
-        """A persisted node for turns that never built a full spec: the
-        context is the empty default over the session pins."""
+    # -------------------------------------------------------------- helpers
+
+    async def _latest_investigation(
+        self, session: Session, *, analytical: bool
+    ) -> Investigation | None:
+        lineage = await self._investigations.lineage(session.id)
+        if lineage is None:
+            return None
+        candidates = [
+            inv
+            for inv in lineage.investigations
+            if inv.status is InvestigationStatus.COMPLETE
+            and (not analytical or inv.plan_hash is not None)
+        ]
+        if not candidates:
+            return None
+        return max(candidates, key=lambda inv: inv.created_at)
+
+    async def _plan_context_of(self, investigation_id: str) -> tuple[str | None, bool]:
+        traces = await self._traces.for_investigation(investigation_id)
+        for record in traces:
+            plan_context = record.payload.get("plan_context")
+            if isinstance(plan_context, Mapping):
+                playbook_id = plan_context.get("playbook_id")
+                return (
+                    playbook_id if isinstance(playbook_id, str) else None,
+                    bool(plan_context.get("window_explicit", True)),
+                )
+        return None, True
+
+    async def _inherited_pins(self, session: Session) -> tuple[ContextPin, ...]:
+        latest = await self._latest_investigation(session, analytical=False)
+        return latest.spec.context.pins if latest is not None else ()
+
+    async def _load_frames(
+        self, investigation: Investigation
+    ) -> tuple[tuple[str, EvidenceFrame], ...]:
+        out: list[tuple[str, EvidenceFrame]] = []
+        for key in investigation.frame_refs:
+            frame = await self._frames.get(key)
+            if frame is not None:
+                _, _, frame_id = key.partition(":")
+                out.append((frame_id or key, frame))
+        return tuple(out)
+
+    def _rebase_context(self, spec: AnalysisSpec, session: Session) -> AnalysisSpec:
+        """Align the context to the session watermark after an epoch change:
+        relative windows re-resolve against the new anchor; stored concrete
+        dates otherwise stand (§6.1)."""
+        context = spec.context
+        if context.watermark.id == session.watermark.id:
+            return spec
+        window = context.window
+        if window.requested is not None:
+            window = resolve_window(
+                window.requested,
+                session.watermark.loaded_at.date(),
+                basis=window.basis,
+                calendar=window.calendar,
+            )
+        new_context = replace(context, watermark=session.watermark, window=window)
+        if (
+            context.comparison is not None
+            and context.comparison.kind is not ComparisonKind.CUSTOM
+            and window != context.window
+        ):
+            new_context = replace(
+                new_context, comparison=derive_comparison(window, context.comparison.kind)
+            )
+        return spec.with_context(new_context)
+
+    def _context_lines(self, spec: AnalysisSpec) -> str:
+        context = spec.context
+        window = context.window
+        lines = [
+            f"- window: {window.range.start.isoformat()}..{window.range.end.isoformat()} "
+            f"on the {window.basis.id} basis"
+        ]
+        if context.comparison is not None:
+            comparison = context.comparison
+            lines.append(
+                f"- comparison: {comparison.kind.value} "
+                f"({comparison.window.range.start.isoformat()}.."
+                f"{comparison.window.range.end.isoformat()})"
+            )
+        filters = [_predicate_label(p) for p in iter_predicates(context.effective_scope())]
+        lines.append("- filters: " + ("; ".join(filters) if filters else "(none)"))
+        if context.cohort is not None:
+            lines.append(f"- cohort: {context.cohort.id} ({context.cohort.size} claims)")
+        lines.append(
+            "- dimensions: "
+            + (", ".join(d.id for d in spec.dimensions) if spec.dimensions else "(none)")
+        )
+        lines.append(
+            "- measures: "
+            + (", ".join(m.id for m in spec.measures) if spec.measures else "(playbook-driven)")
+        )
+        return "\n".join(lines)
+
+    def _dimension_lines(self) -> str:
+        seen: dict[str, None] = {}
+        for metric_id, _ in self._pack.metric_summaries():
+            contract = self._pack.metric(metric_id)
+            if contract is None:
+                continue
+            for dim in contract.scope_dimensions:
+                seen.setdefault(dim.id)
+        return "\n".join(f"- {dim_id}" for dim_id in seen) or "- (none)"
+
+    def _metric_lines(self) -> str:
+        return "\n".join(f"- {mid}" for mid, _ in self._pack.metric_summaries()) or "- (none)"
+
+    def _fallback_spec(self, session: Session) -> AnalysisSpec:
         anchor = session.watermark.loaded_at.date()
         window = resolve_window(_FALLBACK_WINDOW, anchor, basis=SERVICE)
-        spec = AnalysisSpec(
+        return AnalysisSpec(
             context=InvestigationContext(
                 window=window,
                 comparison=None,
@@ -489,10 +1328,19 @@ class SubmitTurnService:
             ),
             measures=(),
         )
+
+    def _minimal_investigation(
+        self,
+        session: Session,
+        state: _TurnState,
+        status: InvestigationStatus,
+        classified: ClassificationOutcome | None,
+    ) -> Investigation:
+        """A persisted node for turns that never built a full spec."""
         turn_class = (
             classified.classification.turn_class
-            if classified.classification is not None
-            else TurnClass.NEW_INVESTIGATION
+            if classified is not None and classified.classification is not None
+            else TurnClass.REFINEMENT
         )
         return Investigation(
             id=state.investigation_id,
@@ -501,7 +1349,7 @@ class SubmitTurnService:
             turn_id=state.turn_id,
             turn_class=turn_class,
             question=state.question,
-            spec=spec,
+            spec=self._fallback_spec(session),
             plan_hash=None,
             status=status,
             findings=(),
@@ -524,9 +1372,9 @@ class SubmitTurnService:
         self,
         session: Session,
         state: _TurnState,
-        classified: ClassificationOutcome,
+        classified: ClassificationOutcome | None,
         *,
-        interpretation: InterpretationOutcome | None = None,
+        interpreted: InterpretedInvestigation | None = None,
         validated: ValidatedPlan | None = None,
         executed: tuple[ExecutedProbe, ...] = (),
         calculation: CalculationResult | None = None,
@@ -534,17 +1382,17 @@ class SubmitTurnService:
         warnings: tuple[str, ...] = (),
         clarification: ClarificationRequest | None = None,
         definitional: DefinitionalAnswer | None = None,
+        extra: Mapping[str, Any] | None = None,
     ) -> TraceRecord:
         """Assemble the §14 observability payload (JSON-serializable)."""
         classification_payload: dict[str, Any] | None = None
-        if classified.classification is not None:
+        if classified is not None and classified.classification is not None:
             classification_payload = {
                 "turn_class": classified.classification.turn_class.value,
                 "confidence": classified.classification.confidence,
             }
         interpreted_payload: dict[str, Any] | None = None
-        if interpretation is not None and interpretation.investigation is not None:
-            interpreted = interpretation.investigation
+        if interpreted is not None:
             interpreted_payload = {
                 "intent_summary": interpreted.intent_summary,
                 "metric_ids": list(interpreted.metric_ids),
@@ -581,6 +1429,12 @@ class SubmitTurnService:
                 "id": session.watermark.id,
                 "loaded_at": session.watermark.loaded_at.isoformat(),
                 "newest_data_date": session.watermark.newest_data_date.isoformat(),
+            },
+            "watermark_stale": state.watermark_stale,
+            "epoch": {
+                "index": session.epochs[-1].index,
+                "watermark": session.watermark.id,
+                "re_anchored": state.epoch_transition,
             },
             "classification": classification_payload,
             "interpretation": interpreted_payload,
@@ -628,6 +1482,8 @@ class SubmitTurnService:
             "template_hashes": dict(state.template_hashes),
             "timings_ms": dict(state.timings_ms),
         }
+        if extra is not None:
+            payload.update(dict(extra))
         return TraceRecord(
             trace_id=state.trace_id,
             session_id=session.id,

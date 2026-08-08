@@ -187,23 +187,24 @@ class ResetContextModel(_Closed):
     keep_pins: bool = True
 
 
-RefinementOperatorModel = Annotated[
-    Union[  # noqa: UP007 - discriminated union spelled out for clarity
-        SetDimensionsModel,
-        AddFilterModel,
-        RemoveFilterModel,
-        SetWindowModel,
-        SetComparisonModel,
-        SetGrainModel,
-        DrillIntoModel,
-        PivotModel,
-        ExplainModel,
-        RankByModel,
-        ExpandModel,
-        ResetContextModel,
-    ],
-    Field(discriminator="op"),
+# The plain twelve-variant union (typed-gesture requests carry these
+# directly); the Annotated form below adds the discriminator for parsing.
+AnyRefinementOperator = Union[  # noqa: UP007 - closed union spelled out for clarity
+    SetDimensionsModel,
+    AddFilterModel,
+    RemoveFilterModel,
+    SetWindowModel,
+    SetComparisonModel,
+    SetGrainModel,
+    DrillIntoModel,
+    PivotModel,
+    ExplainModel,
+    RankByModel,
+    ExpandModel,
+    ResetContextModel,
 ]
+
+RefinementOperatorModel = Annotated[AnyRefinementOperator, Field(discriminator="op")]
 
 
 class RefinementEmissionResponse(_Closed):

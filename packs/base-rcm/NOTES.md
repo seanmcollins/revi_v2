@@ -101,3 +101,18 @@ catalog's derived `ar_age_bucket` dimension):
 parameter as `"$dimension"` inside probe `dimensions`; the planner binds it
 to a certified catalog dimension at plan time. `$`-prefixed tokens in probe
 dimensions always refer to declared playbook params.
+
+## Contract revisions
+
+- **`denied_dollars` v2 (grain rebind, M7).** v1 declared `entity_grain:
+  line`, but its measure (`denied_amount_cents`) and code-level scope
+  dimensions (`carc`, `group_code`, `denial_category`) all bind on the
+  DENIAL entity's base view (`v_denial`) — a line-grain probe could never
+  compile. v2 rebinds the contract to `entity_grain: denial` (the denial
+  entity's physical grain is line-level; probes address it through the
+  DENIAL grain), drops `proc_group` from `scope_dimensions` (it binds at
+  `claim_line` only; the denial record's line linkage is null for
+  claim-level denials, so procedure-level denial cuts wait for a certified
+  path), and bumps the version because the fingerprint changed. Claim
+  cohorts filter denied_dollars probes through the certified
+  denial → claim join path.
