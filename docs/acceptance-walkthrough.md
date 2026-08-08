@@ -182,7 +182,12 @@ Both are also exercised over real sockets — see the live wire check below.
   `packages/investigation/tests/test_first_turn_reference.py::TestReferenceFirstTurn::test_trace_record_persisted_per_design_14`
   asserts 6 probes with 64-char hashes, per-probe cache-hit flags, per-probe
   grades, the operator list, findings, warnings, LLM template ids with schema
-  retry counts, and per-stage timings.
+  retry counts **and transport attempt counts**, and per-stage timings. The
+  two retry numbers are deliberately separate: `schema_retries` is turns the
+  *model* burned failing its output schema, `attempts` is calls the *adapter*
+  made against a transient provider failure. Different causes, different
+  fixes, and averaging them would hide a degrading provider behind a
+  well-behaved model.
 - Reproduction is asserted, not assumed:
   `test_second_identical_run_hits_the_evidence_cache` re-runs the same
   question and gets **zero new repository calls** and identical impacts;
@@ -599,7 +604,10 @@ are not.
 - **Cohort TTL sweep.** `python -m revi_scheduler.sweep` (+ `make sweep`),
   with tests. The obsolete `make portfolio` target — which invoked a module
   that never existed — was removed; anomaly population is baked by
-  `make warehouse`.
+  `make warehouse`. Since round 1 the sweep is backed by a durable
+  `cohort_store.registry` and also runs inside the API process — see item 4
+  under "What the walkthrough found" and "What Revi writes to your warehouse"
+  in `docs/architecture.md`.
 - **`NotFoundError` now carries `REFERENT_NOT_FOUND`** instead of
   `UNSUPPORTED_CONCEPT`: a missing id is a missing handle, not an
   inexpressible concept.
@@ -649,13 +657,31 @@ matters as much as that there was one.
    `packs/base-rcm/NOTES.md`: `first_pass_yield` and six other contracts stay
    unanswerable on `filtered:` predicates over uncertified columns, and
    `denial_rate`'s `remit` primary basis is unbound at claim grain.
-4. **`drop_expired_cohorts` is process-local.** (Still open.) The DuckDB
-   connector tracks materialised cohorts in an in-process dict, so a freshly
-   started `make sweep` reports "dropped 0" meaning "this process materialised
-   nothing", not "no stale tables exist". The CLI says so in its own output
-   rather than implying the warehouse was cleaned. A real cron sweep needs the
-   connector to persist that registry or expose a list-cohort-tables
-   primitive.
+4. **`drop_expired_cohorts` was process-local — FIXED.** The DuckDB connector
+   tracked materialised cohorts in an in-process dict, so a freshly started
+   `make sweep` reported "dropped 0" meaning "this process materialised
+   nothing", not "no stale tables exist" — and the long-lived API process,
+   the only thing that ever creates cohort tables, never called the sweep at
+   all. Three changes closed it. Cohort ids are now **content-addressed** (a
+   digest of the compiled selection plus the watermark), so re-drilling the
+   same population reuses one table instead of minting another. A
+   **`cohort_store.registry` table in the warehouse itself** records every
+   materialization with an `expires_at`, so reclamation works from any
+   process and survives the loss of Revi's application database. And the
+   sweep is **authoritative**: it drops expired cohorts *and* enumerates
+   `cohort_*` tables with no registry row, which is the only thing that could
+   ever have reached the pre-existing leak. Reclamation now runs in the API
+   process (startup + every `REVI_COHORT_SWEEP_INTERVAL_SECONDS`) as well as
+   from the CLI, whose `--dry-run` is now truthful rather than a no-op.
+   Measured on this repo's development warehouse: **371 orphan cohort tables
+   holding 20,394,252 rows, dropped in one sweep**, freeing 598 of 821 blocks
+   (~150 MB) inside the file. Running the full `-m reference` suite
+   afterwards left **one** registered cohort table with a real expiry, where
+   each previous run added several unreclaimable ones. Two honest residues:
+   DuckDB does not return freed blocks to the filesystem (the file stays at
+   its high-water mark and reuses the space), and DuckDB's single-writer lock
+   means `make sweep` cannot run while an API process holds the warehouse —
+   which is why the in-process sweep, not the CLI, is now the primary path.
 5. **All portfolio cards reported `age_days: 0` — FIXED.** Onset now comes
    from the source: `detected_anomalies.window_start` *is* this feed's onset,
    and `DuckDbAnomalySource` publishes it as the evidence fact the formula

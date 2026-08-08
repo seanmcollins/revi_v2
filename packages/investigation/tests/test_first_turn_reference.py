@@ -190,6 +190,9 @@ class TestReferenceFirstTurn:
             "interpret_question",
         }
         assert all(entry["schema_retries"] == 0 for entry in llm_entries)
+        # Transport attempts ride the trace beside cost, so a degrading
+        # provider is visible where the spend is (review finding D10).
+        assert all(entry["attempts"] == 1 for entry in llm_entries)
         assert payload["timings_ms"]  # per-stage latencies recorded
 
     async def test_second_identical_run_hits_the_evidence_cache(

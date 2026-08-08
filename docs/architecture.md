@@ -33,6 +33,72 @@ Enforced by import-linter (root `pyproject.toml`, run via `make lint`), includin
 - Every app-state port has an in-memory fake in `revi_testing`; both implementations pass the same contract
   suite.
 
+## What Revi writes to your warehouse, and what a read-only deployment loses
+
+This section exists because the rest of this document describes the read path
+and a security review will ask about the write path on day one. The honest
+answer, stated plainly:
+
+**Revi needs `CREATE TABLE`, `INSERT`, `SELECT`, and `DROP TABLE` in exactly
+one schema — `cohort_store` — and nothing else.** It never writes to your
+source tables, your snapshot schemas, or any schema it did not create. The
+grant a customer should issue is scoped to that schema, not to the database:
+
+| Object | Privileges | Why |
+|---|---|---|
+| `cohort_store` schema | `CREATE`, `USAGE` | Revi creates the schema on first use if it is absent |
+| tables Revi creates in it | `SELECT`, `INSERT`, `DELETE`, `DROP` | materialize, register, reclaim |
+| every other schema | `SELECT` only | the entire read path |
+
+**What the write buys: cohort semi-join materialization.** Drilling into a
+finding ("show me just those payers") must produce numbers that *reconcile
+with what the analyst was already shown*. The only way to guarantee that is to
+pin the population — the extensional set of entity ids at the session's
+watermark — rather than re-evaluate the selecting predicate against data that
+may have moved underneath it. Revi therefore materializes the id set as a
+table in `cohort_store` and semi-joins subsequent probes against it. Two
+properties follow that a predicate cannot give you: a child number always
+sums back to its parent, and a re-opened session addresses the identical
+population rather than a same-shaped one.
+
+Three controls bound what that write costs you:
+
+- **Content-addressed ids.** A cohort table is named for a digest of its
+  definition and watermark, so re-drilling the same population reuses the
+  existing table rather than minting another. Replaying a session costs one
+  table, not one table per replay.
+- **A registry and a TTL.** `cohort_store.registry` records every
+  materialization with an `expires_at`. The registry lives in the warehouse,
+  not in Revi's application database, so reclamation still works when Revi's
+  own state store is unavailable or has been rebuilt.
+- **Two reclamation paths.** The API process sweeps at startup and every
+  `REVI_COHORT_SWEEP_INTERVAL_SECONDS`; `make sweep` does the same on demand
+  and supports `--dry-run`. Both drop expired cohorts *and* any `cohort_*`
+  table with no registry row, so a crashed process cannot leak storage
+  permanently.
+
+**What a read-only deployment loses.** Point Revi at a warehouse where it
+cannot create tables and the read path is unaffected — every metric, every
+comparison, every ranking, every anomaly card still answers. What stops
+working is *drill-down*: `DrillInto` raises `SourceUnavailableError` because
+the cohort cannot be pinned. That is a large loss (drilling is how an
+investigation continues past its first answer), and the honest alternatives
+each cost something real:
+
+- **Inline the predicate instead of the pinned set.** No write at all, and
+  drill-downs answer — but they are evaluated against the *current* data, so a
+  child number can disagree with the parent it was drilled from, and a
+  reopened session can show a different population under the same label. This
+  trades the reconciliation guarantee for the grant, and the reconciliation
+  guarantee is most of why the drill is trustworthy.
+- **Materialize in a Revi-owned database instead.** Preserves reconciliation
+  but requires shipping entity ids out of the customer's warehouse — a
+  strictly worse posture for PHI-adjacent identifiers than leaving them where
+  they already live.
+
+We prefer the scoped grant, and we would rather a buyer refuse it knowingly
+than discover the `CREATE TABLE` in an audit.
+
 ## Evidence grades have two axes (design §2.3, §5.5)
 
 A frame's grade is the weakest of two independent judgements, and they are
@@ -215,6 +281,34 @@ through `LanguageModelPort`, validated against closed sets / live registries aft
 
 Deterministic: everything downstream of validated typed operators — planning, probe compilation, metric
 evaluation, transform operators, reconciliation, ranking, chart data. No LLM arithmetic, ever.
+
+### The operational envelope around the probabilistic half
+
+Every `LanguageModelPort` call runs inside three bounds, configured in
+`.env` and enforced in `revi_adapter_claude.envelope`:
+
+- **A wall clock** (`REVI_LLM_TIMEOUT_SECONDS`, default 120s) set once per
+  port call and *shared by every retry*, so a retrying call can never outlast
+  a non-retrying one. Exceeding it closes the SDK's async generator, which is
+  what tears the CLI subprocess down.
+- **A bounded retry** (`REVI_LLM_MAX_RETRIES`, default 2) with full-jitter
+  exponential backoff, for **transient transport failures only** — a
+  connection that never opened, a subprocess that died, a 5xx/408/429. Three
+  classes are deliberately never retried: a **schema failure** is the model's
+  problem and asking again buys the same answer at twice the price; a
+  **budget refusal** is a policy decision and retrying it turns a cap into a
+  suggestion; a **4xx** (including a missing CLI, which subclasses the SDK's
+  connection error) will fail identically every time.
+- **A concurrency cap** (`REVI_LLM_MAX_CONCURRENCY`, default 4) on live SDK
+  subprocesses, so a burst of turns cannot spawn one OS process per turn.
+
+Transport attempts are recorded on `LlmUsage.attempts` and published in the
+turn trace beside cost and token counts — separately from `schema_retries`,
+because a retried connection and a retried schema are different diagnoses
+with different fixes. `attempts == 1` is the healthy case. Narrative
+streaming (`stream_text`) gets the timeout and the cap but **no retry**:
+deltas already handed to the caller cannot be un-yielded, so a mid-stream
+failure is reported rather than restarted with a duplicated prefix.
 
 ## Watermarks locally
 

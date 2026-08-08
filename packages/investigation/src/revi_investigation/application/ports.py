@@ -56,8 +56,16 @@ class LlmUsage:
     cost_usd: Decimal
     input_tokens: int
     output_tokens: int
+    #: Turns the *model* burned failing to satisfy the output schema. A model
+    #: problem: never retried by the adapter, only counted.
     schema_retries: int
     duration_ms: int
+    #: Transport attempts the *adapter* made, including the first. 1 is the
+    #: healthy case; >1 means a transient provider failure was retried and
+    #: recovered. Kept apart from ``schema_retries`` because the two have
+    #: different causes and different fixes, and averaging them would hide
+    #: a degrading provider behind a well-behaved model (or the reverse).
+    attempts: int = 1
 
 
 @dataclass(frozen=True, slots=True)

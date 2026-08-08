@@ -19,7 +19,7 @@ Four layers:
 from __future__ import annotations
 
 import json
-from datetime import date, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
 
@@ -35,7 +35,11 @@ from revi_calculation_contracts.contract import (
 )
 from revi_catalog import load_catalog
 from revi_catalog_contracts import CatalogSnapshot
-from revi_connector_duckdb import DuckDbAnalyticalRepository
+from revi_connector_duckdb import (
+    CohortInventory,
+    CohortSweepResult,
+    DuckDbAnalyticalRepository,
+)
 from revi_kernel.cohort import CohortDefinition, CohortRef
 from revi_kernel.errors import (
     DateBasisInvalidError,
@@ -323,9 +327,12 @@ class TestDuckDbAdapterBehavior:
         )
         materialization = await repository.materialize_cohort(definition, watermark=wm)
         before_expiry = materialization.created_at + timedelta(seconds=1)
-        assert await repository.drop_expired_cohorts(before_expiry) == ()
+        assert materialization.cohort_id not in await repository.drop_expired_cohorts(before_expiry)
         after_expiry = materialization.created_at + timedelta(seconds=materialization.ttl_seconds + 1)
-        assert await repository.drop_expired_cohorts(after_expiry) == (materialization.cohort_id,)
+        # The sweep is warehouse-wide, not call-scoped: it reclaims every
+        # expired cohort in the file, so assert membership rather than a
+        # tuple identity that other tests in this session would perturb.
+        assert materialization.cohort_id in await repository.drop_expired_cohorts(after_expiry)
         assert await repository.drop_expired_cohorts(after_expiry) == ()  # idempotent
         # probing against the dropped table maps to a sanitized source error
         ref = CohortRef(
@@ -348,6 +355,228 @@ class TestDuckDbAdapterBehavior:
             await repository.materialize_cohort(
                 CohortDefinition(entity=EntityGrain.CLAIM, scope=EMPTY_SCOPE), watermark=bogus
             )
+
+
+# ---------------------------------------------------------------------------
+# 2b. the cohort write path (review finding D6)
+#
+# The failure this pins was measured, not theorized: 214 cohort tables /
+# 11.9M rows / 145MB accumulated in the development warehouse because ids
+# were random (so every replay minted a new table) and the sweep's registry
+# was a process-local dict (so a fresh sweep process could see none of it).
+# Each test below closes one of those two holes. Every test gets its own
+# warehouse file: the sweep is warehouse-wide by design, so a shared file
+# would let these tests reclaim each other's fixtures.
+
+
+def _cohort_definition(payer: str = "Meridian Health") -> CohortDefinition:
+    return CohortDefinition(
+        entity=EntityGrain.CLAIM,
+        scope=Predicate(DimensionRef("payer"), PredicateOp.EQ, (payer,)),
+        window=TimeWindow(basis=SERVICE, range=_H1_2026),
+    )
+
+
+def _cohort_table_names(path: Path) -> set[str]:
+    import duckdb
+
+    con = duckdb.connect(str(path), read_only=True)
+    try:
+        rows = con.execute(
+            "SELECT table_name FROM information_schema.tables WHERE table_schema = 'cohort_store'"
+        ).fetchall()
+    finally:
+        con.close()
+    return {str(row[0]) for row in rows}
+
+
+class TestCohortWritePath:
+    @pytest.fixture
+    def warehouse(self, tmp_path: Path) -> Path:
+        from revi_warehouse.config import GeneratorConfig
+        from revi_warehouse.generate import run_generation
+
+        return run_generation(GeneratorConfig.small(), tmp_path / "cohorts.duckdb").db_path
+
+    @pytest.fixture
+    def repo(self, warehouse: Path, catalog: CatalogSnapshot) -> DuckDbAnalyticalRepository:
+        return DuckDbAnalyticalRepository(warehouse, catalog, fixture_metrics)
+
+    async def test_identical_drills_reuse_one_table(
+        self, repo: DuckDbAnalyticalRepository, warehouse: Path
+    ) -> None:
+        wm = await _newest(repo)
+        first = await repo.materialize_cohort(_cohort_definition(), watermark=wm)
+        second = await repo.materialize_cohort(_cohort_definition(), watermark=wm)
+
+        assert first.cohort_id == second.cohort_id  # content-addressed
+        assert first.created_at == second.created_at  # the reuse is the stored one
+        assert first.size == second.size
+        assert _cohort_table_names(warehouse) == {"registry", first.cohort_id}
+
+    async def test_a_different_population_gets_a_different_table(
+        self, repo: DuckDbAnalyticalRepository, warehouse: Path
+    ) -> None:
+        wm = await _newest(repo)
+        a = await repo.materialize_cohort(_cohort_definition("Meridian Health"), watermark=wm)
+        b = await repo.materialize_cohort(_cohort_definition("Atlas Commercial"), watermark=wm)
+
+        assert a.cohort_id != b.cohort_id
+        assert _cohort_table_names(warehouse) == {"registry", a.cohort_id, b.cohort_id}
+
+    async def test_the_watermark_is_part_of_the_address(
+        self, repo: DuckDbAnalyticalRepository
+    ) -> None:
+        """A cohort pinned at an older load is a different set of entity ids;
+        reusing one across watermarks would silently re-date the population."""
+        watermarks = await repo.list_watermarks()
+        oldest, newest = watermarks[0], watermarks[-1]
+
+        at_old = await repo.materialize_cohort(_cohort_definition(), watermark=oldest)
+        at_new = await repo.materialize_cohort(_cohort_definition(), watermark=newest)
+
+        assert at_old.cohort_id != at_new.cohort_id
+
+    async def test_reuse_still_honours_the_max_cohort_size_guard(
+        self, warehouse: Path, catalog: CatalogSnapshot
+    ) -> None:
+        """A budget lowered after a cohort was pinned must still bind — the
+        reuse path is not a way around the guard."""
+        generous = DuckDbAnalyticalRepository(warehouse, catalog, fixture_metrics)
+        wm = await _newest(generous)
+        pinned = await generous.materialize_cohort(_cohort_definition(), watermark=wm)
+        assert pinned.size > 1
+
+        tight = DuckDbAnalyticalRepository(warehouse, catalog, fixture_metrics, max_cohort_size=1)
+        with pytest.raises(QueryBudgetExceededError):
+            await tight.materialize_cohort(_cohort_definition(), watermark=wm)
+
+    async def test_the_registry_survives_a_new_process(
+        self, warehouse: Path, catalog: CatalogSnapshot
+    ) -> None:
+        """The whole of D6: a *fresh* repository object — the sweep CLI's
+        situation, and the API's after a restart — must be able to reclaim
+        cohorts it never materialized itself."""
+        writer = DuckDbAnalyticalRepository(warehouse, catalog, fixture_metrics)
+        wm = await _newest(writer)
+        pinned = await writer.materialize_cohort(_cohort_definition(), watermark=wm)
+
+        sweeper = DuckDbAnalyticalRepository(warehouse, catalog, fixture_metrics)
+        after_expiry = pinned.created_at + timedelta(seconds=pinned.ttl_seconds + 1)
+        result = await sweeper.sweep_cohorts(after_expiry)
+
+        assert result.expired == (pinned.cohort_id,)
+        assert result.orphaned == ()
+        assert _cohort_table_names(warehouse) == {"registry"}
+
+    async def test_unregistered_tables_are_reclaimed_as_orphans(
+        self, repo: DuckDbAnalyticalRepository, warehouse: Path
+    ) -> None:
+        """The 214 tables the review found: written before the registry
+        existed, so nothing could name them. Enumeration by naming convention
+        is what makes the sweep authoritative rather than best-effort."""
+        import duckdb
+
+        con = duckdb.connect(str(warehouse))
+        try:
+            con.execute("CREATE SCHEMA IF NOT EXISTS cohort_store")
+            for legacy in ("cohort_0123456789ab", "cohort_fedcba987654"):
+                con.execute(f"CREATE TABLE cohort_store.{legacy} AS SELECT 1 AS entity_id")
+            con.execute("CREATE TABLE cohort_store.not_a_cohort AS SELECT 1 AS x")
+        finally:
+            con.close()
+
+        result = await repo.sweep_cohorts(datetime(2026, 8, 7, tzinfo=UTC))
+
+        assert result.expired == ()
+        assert result.orphaned == ("cohort_0123456789ab", "cohort_fedcba987654")
+        # A table that is not a cohort is never touched, whatever else is in
+        # the schema — the sweep drops by naming convention, not by schema.
+        assert "not_a_cohort" in _cohort_table_names(warehouse)
+
+    async def test_a_registry_row_whose_table_vanished_is_re_materialized(
+        self, repo: DuckDbAnalyticalRepository, warehouse: Path
+    ) -> None:
+        import duckdb
+
+        wm = await _newest(repo)
+        pinned = await repo.materialize_cohort(_cohort_definition(), watermark=wm)
+        con = duckdb.connect(str(warehouse))
+        try:
+            con.execute(f"DROP TABLE cohort_store.{pinned.cohort_id}")
+        finally:
+            con.close()
+
+        again = await repo.materialize_cohort(_cohort_definition(), watermark=wm)
+
+        assert again.cohort_id == pinned.cohort_id
+        assert again.size == pinned.size
+        assert again.created_at > pinned.created_at  # genuinely re-made, not handed back
+        assert pinned.cohort_id in _cohort_table_names(warehouse)
+
+    async def test_inventory_reports_the_census_a_sweep_is_read_by(
+        self, repo: DuckDbAnalyticalRepository
+    ) -> None:
+        wm = await _newest(repo)
+        assert await repo.cohort_inventory() == CohortInventory(tables=0, registered=0, rows=0)
+
+        pinned = await repo.materialize_cohort(_cohort_definition(), watermark=wm)
+        before = await repo.cohort_inventory()
+        assert before == CohortInventory(tables=1, registered=1, rows=pinned.size)
+
+        await repo.sweep_cohorts(pinned.created_at + timedelta(seconds=pinned.ttl_seconds + 1))
+        assert await repo.cohort_inventory() == CohortInventory(tables=0, registered=0, rows=0)
+
+    async def test_sweeping_a_warehouse_with_no_cohorts_writes_nothing(
+        self, repo: DuckDbAnalyticalRepository, warehouse: Path
+    ) -> None:
+        result = await repo.sweep_cohorts(datetime(2026, 8, 7, tzinfo=UTC))
+
+        assert result == CohortSweepResult()
+        assert "cohort_store" not in {
+            *_cohort_table_names(warehouse)
+        }  # the schema was not conjured into existence
+
+    async def test_dry_run_reports_without_writing(
+        self, repo: DuckDbAnalyticalRepository, warehouse: Path
+    ) -> None:
+        """The registry is what makes a truthful dry run possible: the same
+        answer as a real sweep, on a read-only connection."""
+        wm = await _newest(repo)
+        pinned = await repo.materialize_cohort(_cohort_definition(), watermark=wm)
+        after_expiry = pinned.created_at + timedelta(seconds=pinned.ttl_seconds + 1)
+
+        preview = await repo.sweep_cohorts(after_expiry, dry_run=True)
+
+        assert preview.expired == (pinned.cohort_id,)
+        assert _cohort_table_names(warehouse) == {"registry", pinned.cohort_id}  # untouched
+        assert await repo.sweep_cohorts(after_expiry) == preview  # …and it was right
+
+    async def test_dry_run_on_a_registry_less_warehouse_does_not_try_to_create_one(
+        self, repo: DuckDbAnalyticalRepository, warehouse: Path
+    ) -> None:
+        """A read-only connection cannot run DDL, so a pre-registry warehouse
+        must be reported, not repaired."""
+        import duckdb
+
+        con = duckdb.connect(str(warehouse))
+        try:
+            con.execute("CREATE SCHEMA IF NOT EXISTS cohort_store")
+            con.execute("CREATE TABLE cohort_store.cohort_0123456789ab AS SELECT 1 AS entity_id")
+        finally:
+            con.close()
+
+        preview = await repo.sweep_cohorts(datetime(2026, 8, 7, tzinfo=UTC), dry_run=True)
+
+        assert preview.orphaned == ("cohort_0123456789ab",)
+        assert "registry" not in _cohort_table_names(warehouse)
+
+    async def test_a_naive_now_is_read_as_utc(self, repo: DuckDbAnalyticalRepository) -> None:
+        wm = await _newest(repo)
+        pinned = await repo.materialize_cohort(_cohort_definition(), watermark=wm)
+        naive = (pinned.created_at + timedelta(seconds=pinned.ttl_seconds + 1)).replace(tzinfo=None)
+
+        assert (await repo.sweep_cohorts(naive)).expired == (pinned.cohort_id,)
 
 
 # ---------------------------------------------------------------------------

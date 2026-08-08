@@ -39,6 +39,7 @@ import json
 import logging
 import os
 from collections.abc import AsyncIterator, Mapping
+from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
 from fastapi import Depends, FastAPI, Request
@@ -55,6 +56,7 @@ from revi_api.auth import (
     auth_policy_from_env,
     cors_origins_from_env,
 )
+from revi_api.cohort_sweep import CohortSweepScheduler, sweep_interval_seconds
 from revi_api.service import ApiService, NotFoundError, TurnResult
 from revi_api.wiring import build_components
 from revi_investigation.application.ports import TurnEvent
@@ -215,7 +217,32 @@ def create_app(
     on first use (kept lazy so OpenAPI export needs no warehouse)."""
     settings = env if env is not None else dict(os.environ)
     policy: AuthPolicy = auth_policy_from_env(settings)
-    app = FastAPI(title="Revi Investigation API", version="1.0.0")
+
+    @asynccontextmanager
+    async def lifespan(_: FastAPI) -> AsyncIterator[None]:
+        """Cohort reclamation runs in the process that creates cohorts.
+
+        Components are wired here rather than left to the first request,
+        because a sweep that only happens on a request is a sweep that never
+        happens on an idle deployment — and the idle deployment is exactly the
+        one whose cohort tables nobody is watching. A wiring failure is logged
+        and the app still starts: reclaiming storage must not be able to keep
+        the surface that answers questions from coming up.
+        """
+        interval = sweep_interval_seconds(settings)
+        # Wiring is skipped outright when reclamation is off, so switching
+        # the sweep off cannot make an OpenAPI export or a smoke start
+        # demand a warehouse it never needed.
+        scheduler = CohortSweepScheduler(
+            _repository_or_none() if interval > 0 else None, interval_seconds=interval
+        )
+        await scheduler.start()
+        try:
+            yield
+        finally:
+            await scheduler.stop()
+
+    app = FastAPI(title="Revi Investigation API", version="1.0.0", lifespan=lifespan)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=cors_origins_from_env(settings),
@@ -235,6 +262,18 @@ def create_app(
             app.state.service = existing
         assert isinstance(existing, ApiService)
         return existing
+
+    def _repository_or_none() -> object:
+        """The wired analytical repository, or ``None`` if wiring failed.
+
+        Startup must not die because the warehouse is momentarily missing —
+        that would turn a reclamation feature into an availability regression.
+        """
+        try:
+            return _service().components.repository
+        except Exception:
+            logger.exception("could not wire components at startup — cohort reclamation is off")
+            return None
 
     @app.exception_handler(ReviError)
     async def _revi_error(request: Request, exc: ReviError) -> JSONResponse:

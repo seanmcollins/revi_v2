@@ -1587,6 +1587,10 @@ class SubmitTurnService:
                     "input_tokens": usage.input_tokens,
                     "output_tokens": usage.output_tokens,
                     "schema_retries": usage.schema_retries,
+                    # Transport attempts (1 = clean). Distinct from
+                    # schema_retries: a retried connection and a retried
+                    # schema are different diagnoses.
+                    "attempts": usage.attempts,
                     "duration_ms": usage.duration_ms,
                 }
                 for template, usage in state.llm_usages

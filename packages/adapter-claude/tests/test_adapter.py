@@ -13,6 +13,7 @@ import pytest
 from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage, SystemMessage, TextBlock
 
 from revi_adapter_claude.adapter import ClaudeAgentSdkLanguageModel
+from revi_adapter_claude.envelope import LlmEnvelope, is_transient
 from revi_investigation.application.llm.schemas import RefinementEmissionResponse
 from revi_investigation.application.ports import StructuredLlmRequest, TextLlmRequest
 from revi_kernel.errors import QueryBudgetExceededError, SourceUnavailableError
@@ -411,3 +412,445 @@ def test_constructor_rejects_bad_budget_and_turns() -> None:
         ClaudeAgentSdkLanguageModel(PIN, max_budget_usd=Decimal("0"))
     with pytest.raises(ValueError, match="max_structured_turns"):
         ClaudeAgentSdkLanguageModel(PIN, max_structured_turns=1)
+
+
+# ---------------------------------------------------------------------------
+# the operational envelope (review finding D10)
+#
+# The adapter shipped with no wall-clock bound, no retry, and no bound on
+# concurrent CLI subprocesses. These tests pin the policy that replaced that,
+# and — as importantly — pin what is NOT retried: a schema failure is the
+# model's problem, a budget error is a policy decision, and a 4xx is a request
+# problem. Retrying any of them spends money to get the same answer.
+#
+# Every test fakes the SDK. Nothing here contacts a model.
+
+
+class _Transient(Exception):
+    """Stands in for a connection/spawn failure (matched by MRO name)."""
+
+
+ConnectError = _Transient  # the classifier matches on the class NAME
+_Transient.__name__ = "ConnectError"
+
+
+class _Status(Exception):
+    def __init__(self, status_code: int) -> None:
+        super().__init__(f"http {status_code}")
+        self.status_code = status_code
+
+
+def _fast(**overrides: Any) -> LlmEnvelope:
+    """A test envelope: tiny timeout, no real sleeping (the adapter's sleep
+    and jitter are injected, so backoff is exercised without waiting)."""
+    base: dict[str, Any] = {"timeout_seconds": 5.0, "max_retries": 2, "max_concurrency": 4}
+    base.update(overrides)
+    return LlmEnvelope(**base)
+
+
+def _adapter(**kwargs: Any) -> ClaudeAgentSdkLanguageModel:
+    slept: list[float] = []
+
+    async def fake_sleep(delay: float) -> None:
+        slept.append(delay)
+
+    adapter = ClaudeAgentSdkLanguageModel(
+        PIN, sleep=fake_sleep, jitter=lambda: 1.0, **kwargs  # jitter=1.0 pins full backoff
+    )
+    adapter.slept = slept  # type: ignore[attr-defined]
+    return adapter
+
+
+def _install_scripted_query(
+    monkeypatch: pytest.MonkeyPatch, script: list[Any]
+) -> list[int]:
+    """Each entry is either an exception to raise or a ResultMessage to yield;
+    entry N serves attempt N. Returns a one-element call counter."""
+    calls = [0]
+
+    async def fake_query(
+        *, prompt: str, options: ClaudeAgentOptions | None = None, transport: Any = None
+    ) -> Any:
+        index = calls[0]
+        calls[0] += 1
+        step = script[min(index, len(script) - 1)]
+        if isinstance(step, BaseException):
+            raise step
+        yield step
+
+    monkeypatch.setattr(claude_agent_sdk, "query", fake_query)
+    return calls
+
+
+class TestEnvelopePolicy:
+    """The classification, read on its own."""
+
+    def test_connection_failures_are_transient(self) -> None:
+        assert is_transient(ConnectError("refused"))
+        assert is_transient(ConnectionResetError())
+        assert is_transient(claude_agent_sdk.CLIConnectionError("no handshake"))
+
+    def test_a_missing_cli_is_terminal_despite_its_base_class(self) -> None:
+        """CLINotFoundError subclasses CLIConnectionError. A naive MRO walk
+        would retry a configuration failure three times."""
+        assert not is_transient(claude_agent_sdk.CLINotFoundError("no cli"))
+
+    def test_server_side_statuses_are_transient_and_client_side_are_not(self) -> None:
+        assert is_transient(_Status(503))
+        assert is_transient(_Status(429))
+        assert is_transient(_Status(408))
+        assert not is_transient(_Status(400))
+        assert not is_transient(_Status(401))
+        assert not is_transient(_Status(404))
+        assert not is_transient(_Status(422))
+
+    def test_an_unrecognized_failure_is_not_retried(self) -> None:
+        assert not is_transient(ValueError("nonsense"))
+
+    def test_backoff_is_exponential_and_capped(self) -> None:
+        envelope = LlmEnvelope(initial_backoff_seconds=1.0, max_backoff_seconds=4.0)
+        assert envelope.backoff_for(1, jitter=1.0) == 1.0
+        assert envelope.backoff_for(2, jitter=1.0) == 2.0
+        assert envelope.backoff_for(3, jitter=1.0) == 4.0
+        assert envelope.backoff_for(9, jitter=1.0) == 4.0  # capped
+
+    def test_full_jitter_spans_zero_to_the_backoff(self) -> None:
+        envelope = LlmEnvelope(initial_backoff_seconds=1.0)
+        assert envelope.backoff_for(1, jitter=0.0) == 0.0
+        assert envelope.backoff_for(1, jitter=0.5) == 0.5
+
+    def test_max_attempts_counts_the_first_try(self) -> None:
+        assert LlmEnvelope(max_retries=2).max_attempts == 3
+        assert LlmEnvelope(max_retries=0).max_attempts == 1
+
+    def test_invalid_envelopes_are_rejected(self) -> None:
+        with pytest.raises(ValueError, match="timeout_seconds"):
+            LlmEnvelope(timeout_seconds=0)
+        with pytest.raises(ValueError, match="max_retries"):
+            LlmEnvelope(max_retries=-1)
+        with pytest.raises(ValueError, match="max_concurrency"):
+            LlmEnvelope(max_concurrency=0)
+        with pytest.raises(ValueError, match="max_backoff_seconds"):
+            LlmEnvelope(initial_backoff_seconds=5.0, max_backoff_seconds=1.0)
+
+
+class TestTimeout:
+    async def test_a_hanging_call_is_cut_off_and_reported(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        async def fake_query(
+            *, prompt: str, options: ClaudeAgentOptions | None = None, transport: Any = None
+        ) -> Any:
+            await asyncio.sleep(30)  # never returns inside the envelope
+            yield _result()
+
+        monkeypatch.setattr(claude_agent_sdk, "query", fake_query)
+        adapter = _adapter(envelope=_fast(timeout_seconds=0.05))
+
+        with pytest.raises(SourceUnavailableError) as excinfo:
+            await adapter.structured(_structured_request())
+
+        assert "wall clock" in str(excinfo.value)
+        assert excinfo.value.details["timeout_seconds"] == 0.05
+        assert PROMPT_MARKER not in str(excinfo.value)
+
+    async def test_the_timeout_closes_the_sdk_stream(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """aclose() is what tears the CLI subprocess down; a generator left to
+        the garbage collector leaves the process alive."""
+        closed: list[bool] = []
+
+        async def fake_query(
+            *, prompt: str, options: ClaudeAgentOptions | None = None, transport: Any = None
+        ) -> Any:
+            try:
+                await asyncio.sleep(30)
+                yield _result()
+            finally:
+                closed.append(True)
+
+        monkeypatch.setattr(claude_agent_sdk, "query", fake_query)
+        adapter = _adapter(envelope=_fast(timeout_seconds=0.05))
+
+        with pytest.raises(SourceUnavailableError):
+            await adapter.structured(_structured_request())
+
+        assert closed == [True]
+
+    async def test_a_timeout_is_never_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Spending the caller's one wall-clock bound twice more would defeat
+        the bound."""
+        calls = [0]
+
+        async def fake_query(
+            *, prompt: str, options: ClaudeAgentOptions | None = None, transport: Any = None
+        ) -> Any:
+            calls[0] += 1
+            await asyncio.sleep(30)
+            yield _result()
+
+        monkeypatch.setattr(claude_agent_sdk, "query", fake_query)
+        adapter = _adapter(envelope=_fast(timeout_seconds=0.05))
+
+        with pytest.raises(SourceUnavailableError):
+            await adapter.structured(_structured_request())
+
+        assert calls[0] == 1
+
+    async def test_stream_text_is_bounded_too(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        async def fake_query(
+            *, prompt: str, options: ClaudeAgentOptions | None = None, transport: Any = None
+        ) -> Any:
+            yield AssistantMessage(content=[TextBlock(text="partial")], model=PIN)
+            await asyncio.sleep(30)
+            yield _result()
+
+        monkeypatch.setattr(claude_agent_sdk, "query", fake_query)
+        adapter = _adapter(envelope=_fast(timeout_seconds=0.05))
+
+        deltas: list[str] = []
+        with pytest.raises(SourceUnavailableError) as excinfo:
+            async for delta in adapter.stream_text(_text_request()):
+                deltas.append(delta)
+
+        assert deltas == ["partial"]
+        assert "wall clock" in str(excinfo.value)
+
+
+class TestRetry:
+    async def test_transient_then_success(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls = _install_scripted_query(monkeypatch, [ConnectError("refused"), _result()])
+        adapter = _adapter(envelope=_fast())
+
+        result = await adapter.structured(_structured_request())
+
+        assert result.output == {"operators": [], "rationale": "canned"}
+        assert calls[0] == 2
+        assert result.usage.attempts == 2  # the recovery is recorded, not hidden
+        assert adapter.slept == [0.5]  # one full-jitter backoff
+
+    async def test_a_clean_call_records_one_attempt(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        _install_scripted_query(monkeypatch, [_result()])
+        adapter = _adapter(envelope=_fast())
+
+        result = await adapter.structured(_structured_request())
+
+        assert result.usage.attempts == 1
+        assert adapter.slept == []
+
+    async def test_retries_are_bounded_at_two(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls = _install_scripted_query(monkeypatch, [ConnectError("refused")])
+        adapter = _adapter(envelope=_fast())
+
+        with pytest.raises(SourceUnavailableError) as excinfo:
+            await adapter.structured(_structured_request())
+
+        assert calls[0] == 3  # first attempt + 2 retries, never more
+        assert adapter.slept == [0.5, 1.0]  # exponential
+        assert excinfo.value.details["exception_type"] == "ConnectError"
+
+    async def test_backoff_is_skipped_when_it_would_not_fit_the_deadline(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The call fails now with the real error rather than later with a
+        timeout that hides it."""
+        calls = _install_scripted_query(monkeypatch, [ConnectError("refused")])
+        envelope = _fast(
+            timeout_seconds=0.2, initial_backoff_seconds=10.0, max_backoff_seconds=10.0
+        )
+        adapter = _adapter(envelope=envelope)
+
+        with pytest.raises(SourceUnavailableError):
+            await adapter.structured(_structured_request())
+
+        assert calls[0] == 1
+        assert adapter.slept == []
+
+    async def test_a_non_transient_failure_is_not_retried(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        calls = _install_scripted_query(monkeypatch, [ValueError("bad request shape")])
+        adapter = _adapter(envelope=_fast())
+
+        with pytest.raises(SourceUnavailableError):
+            await adapter.structured(_structured_request())
+
+        assert calls[0] == 1
+        assert adapter.slept == []
+
+    async def test_a_4xx_is_not_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls = _install_scripted_query(monkeypatch, [_Status(400)])
+        adapter = _adapter(envelope=_fast())
+
+        with pytest.raises(SourceUnavailableError):
+            await adapter.structured(_structured_request())
+
+        assert calls[0] == 1
+
+    async def test_a_5xx_is_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls = _install_scripted_query(monkeypatch, [_Status(503), _result()])
+        adapter = _adapter(envelope=_fast())
+
+        assert (await adapter.structured(_structured_request())).usage.attempts == 2
+        assert calls[0] == 2
+
+    async def test_a_budget_error_is_never_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Retrying a budget refusal is how a cap becomes a suggestion."""
+        calls = [0]
+
+        async def fake_query(
+            *, prompt: str, options: ClaudeAgentOptions | None = None, transport: Any = None
+        ) -> Any:
+            calls[0] += 1
+            yield _result(subtype="error_max_budget_usd", is_error=True, structured_output=None)
+            raise Exception("Claude Code returned an error result: budget")
+
+        monkeypatch.setattr(claude_agent_sdk, "query", fake_query)
+        adapter = _adapter(envelope=_fast())
+
+        with pytest.raises(QueryBudgetExceededError):
+            await adapter.structured(_structured_request())
+
+        assert calls[0] == 1
+        assert adapter.slept == []
+
+    async def test_a_schema_failure_is_not_retried_by_the_adapter(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """The model saw the prompt and produced the wrong shape. Asking again
+        is a transport answer to a model problem — it is counted, not retried."""
+        calls = _install_scripted_query(
+            monkeypatch, [_result(structured_output=None, num_turns=4)]
+        )
+        adapter = _adapter(envelope=_fast())
+
+        result = await adapter.structured(_structured_request())
+
+        assert calls[0] == 1
+        assert result.output is None
+        assert result.usage.schema_retries == 2  # counted…
+        assert result.usage.attempts == 1  # …and distinct from transport attempts
+
+    async def test_a_missing_cli_is_not_retried(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        calls = _install_scripted_query(
+            monkeypatch, [claude_agent_sdk.CLINotFoundError("cli not on PATH")]
+        )
+        adapter = _adapter(envelope=_fast())
+
+        with pytest.raises(SourceUnavailableError):
+            await adapter.structured(_structured_request())
+
+        assert calls[0] == 1
+
+    async def test_stream_text_does_not_retry(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        """Deltas already handed to the caller cannot be un-yielded."""
+        calls = _install_scripted_query(monkeypatch, [ConnectError("refused"), _result()])
+        adapter = _adapter(envelope=_fast())
+
+        with pytest.raises(SourceUnavailableError):
+            async for _ in adapter.stream_text(_text_request()):
+                pass
+
+        assert calls[0] == 1
+
+    async def test_retry_logging_never_echoes_the_prompt(
+        self, monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    ) -> None:
+        _install_scripted_query(monkeypatch, [ConnectError(PROMPT_MARKER), _result()])
+        adapter = _adapter(envelope=_fast())
+
+        with caplog.at_level("WARNING"):
+            await adapter.structured(_structured_request())
+
+        assert "claude adapter retry" in caplog.text
+        assert PROMPT_MARKER not in caplog.text
+
+
+class TestConcurrencyCap:
+    async def test_only_max_concurrency_subprocesses_are_live_at_once(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        live = 0
+        peak = 0
+
+        async def fake_query(
+            *, prompt: str, options: ClaudeAgentOptions | None = None, transport: Any = None
+        ) -> Any:
+            nonlocal live, peak
+            live += 1
+            peak = max(peak, live)
+            try:
+                await asyncio.sleep(0.02)
+                yield _result()
+            finally:
+                live -= 1
+
+        monkeypatch.setattr(claude_agent_sdk, "query", fake_query)
+        adapter = _adapter(envelope=_fast(max_concurrency=2))
+
+        await asyncio.gather(*(adapter.structured(_structured_request()) for _ in range(8)))
+
+        assert peak == 2  # eight turns, never more than two subprocesses
+
+    async def test_the_cap_does_not_serialize_below_itself(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """A cap that never lets two calls overlap would be a lock, not a cap."""
+        live = 0
+        peak = 0
+
+        async def fake_query(
+            *, prompt: str, options: ClaudeAgentOptions | None = None, transport: Any = None
+        ) -> Any:
+            nonlocal live, peak
+            live += 1
+            peak = max(peak, live)
+            try:
+                await asyncio.sleep(0.02)
+                yield _result()
+            finally:
+                live -= 1
+
+        monkeypatch.setattr(claude_agent_sdk, "query", fake_query)
+        adapter = _adapter(envelope=_fast(max_concurrency=4))
+
+        await asyncio.gather(*(adapter.structured(_structured_request()) for _ in range(4)))
+
+        assert peak == 4
+
+    async def test_streaming_calls_take_a_slot_too(self, monkeypatch: pytest.MonkeyPatch) -> None:
+        live = 0
+        peak = 0
+
+        async def fake_query(
+            *, prompt: str, options: ClaudeAgentOptions | None = None, transport: Any = None
+        ) -> Any:
+            nonlocal live, peak
+            live += 1
+            peak = max(peak, live)
+            try:
+                await asyncio.sleep(0.02)
+                yield AssistantMessage(content=[TextBlock(text="hi")], model=PIN)
+                yield _result(structured_output=None)
+            finally:
+                live -= 1
+
+        monkeypatch.setattr(claude_agent_sdk, "query", fake_query)
+        adapter = _adapter(envelope=_fast(max_concurrency=1))
+
+        async def drain() -> None:
+            async for _ in adapter.stream_text(_text_request()):
+                pass
+
+        await asyncio.gather(*(drain() for _ in range(3)))
+
+        assert peak == 1
+
+
+class TestEnvelopeDefaults:
+    def test_the_shipped_defaults_are_the_documented_ones(self) -> None:
+        adapter = ClaudeAgentSdkLanguageModel(PIN)
+        assert adapter.envelope.timeout_seconds == 120.0
+        assert adapter.envelope.max_retries == 2
+        assert adapter.envelope.max_concurrency == 4

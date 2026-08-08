@@ -2,35 +2,38 @@
 
 Why this exists: pinning a cohort materializes a TABLE in the DuckDB warehouse
 (``cohort_store.cohort_<hex>``) that outlives the turn — and the session, and
-the process — that pinned it, while its metadata (definition, origin, pinned
-materialization, TTL) lives in the application-state store. The TTL is the only
-thing bounding the warehouse's cohort schema, and a TTL nobody enforces is a
-comment. This sweep enforces it, and it is now the *whole* of the scheduler
-app: the portfolio pre-materialization runner this app was originally going to
-house was cancelled, because the anomaly/portfolio population is baked into the
+the process — that pinned it. The TTL is the only thing bounding the
+warehouse's cohort schema, and a TTL nobody enforces is a comment. This sweep
+enforces it, and it is now the *whole* of the scheduler app: the portfolio
+pre-materialization runner this app was originally going to house was
+cancelled, because the anomaly/portfolio population is baked into the
 warehouse generator (``write_detected_anomalies``, run by ``make warehouse``).
+
+This is the **operator-invoked** path. The API process now runs the same
+reclamation on its own schedule (``revi_api.cohort_sweep``), so a deployment
+is not relying on anyone remembering to run this; the CLI is for one-off
+reclamation, for dry-run inspection, and for warehouses no API process owns.
 
 The sweep has two halves and reports them separately, because they can
 legitimately disagree — a table can already be gone, and metadata is simply
 absent when running without a database:
 
-* **warehouse** — ``DuckDbAnalyticalRepository.drop_expired_cohorts(now)`` drops
-  expired cohort tables and returns the ids it dropped. One caveat, stated
-  plainly because it changes how you read the number: the connector tracks
-  materializations in a *process-local* dict, so a freshly started sweep opens
-  with an empty registry. "dropped 0" therefore means "this process materialized
-  nothing", not "the warehouse holds no stale cohort tables". Until the connector
-  persists that registry (or grows a list-cohort-tables primitive), the warehouse
-  half is a safety net for long-lived processes, not a warehouse-wide garbage
-  collector — the metadata half below is the signal that actually travels.
-* **metadata** — ``CohortStore.expired(now)`` reports which cohort records have
-  expired. It needs ``REVI_DATABASE_URL``; when that is unset or unreachable the
-  sweep logs loudly and SKIPS this half rather than reporting a zero it never
-  measured.
+* **warehouse** — ``DuckDbAnalyticalRepository.sweep_cohorts(now)`` is
+  authoritative. It reads ``cohort_store.registry`` — a table *in the
+  warehouse* — so a freshly started sweep process sees every cohort any
+  process ever materialized, and it additionally reclaims ``cohort_*`` tables
+  with no registry row at all (orphans from a crashed process, or from a
+  build that predates the registry). The two causes are reported separately
+  because they mean different things: expired is the TTL working, orphaned is
+  storage nothing was tracking.
+* **metadata** — ``CohortStore.expired(now)`` reports which cohort records in
+  the *application-state* store have expired. It needs ``REVI_DATABASE_URL``;
+  when that is unset or unreachable the sweep logs loudly and SKIPS this half
+  rather than reporting a zero it never measured. Note the asymmetry that
+  motivated D6: the warehouse half no longer depends on this one.
 
-``--dry-run`` queries the metadata half only: the connector exposes no dry-run
-drop primitive, so rather than fake one the sweep does not call
-``drop_expired_cohorts`` at all, and says so in its output.
+``--dry-run`` reports exactly what a real run would drop, from the registry
+and the table listing, and writes nothing — it opens the warehouse read-only.
 
 Configuration mirrors ``revi_api.wiring`` — same variables, same defaults, same
 loud logging of every choice: ``REVI_WAREHOUSE_PATH`` (default
@@ -52,7 +55,7 @@ from pathlib import Path
 from typing import Protocol
 
 from revi_catalog_contracts.model import CalendarDef, CatalogSnapshot
-from revi_connector_duckdb import DuckDbAnalyticalRepository
+from revi_connector_duckdb import CohortInventory, CohortSweepResult, DuckDbAnalyticalRepository
 from revi_investigation.application.ports import CohortStore
 from revi_kernel.errors import SourceUnavailableError
 
@@ -84,10 +87,12 @@ def _no_metrics(metric_id: str) -> None:
     return None
 
 
-class CohortTableDropper(Protocol):
-    """The one slice of ``AnalyticalRepository`` the sweep uses."""
+class CohortSweeper(Protocol):
+    """The slice of the DuckDB repository the sweep uses."""
 
-    async def drop_expired_cohorts(self, now: datetime) -> tuple[str, ...]: ...
+    async def sweep_cohorts(self, now: datetime, *, dry_run: bool = False) -> CohortSweepResult: ...
+
+    async def cohort_inventory(self) -> CohortInventory: ...
 
 
 @dataclass(frozen=True)
@@ -106,23 +111,29 @@ class SweepReport:
     now: datetime
     dry_run: bool
     store_detail: str
-    dropped: tuple[str, ...]  # cohort TABLES dropped in the warehouse
+    result: CohortSweepResult  # cohort TABLES reclaimed in the warehouse
+    before: CohortInventory  # warehouse census before the sweep
+    after: CohortInventory  # …and after (identical on a dry run)
     expired: tuple[str, ...] | None  # expired cohort METADATA; None ⇒ half skipped
 
+    @property
+    def dropped(self) -> tuple[str, ...]:
+        return self.result.dropped
+
     def summary(self) -> tuple[str, ...]:
+        verb = "would drop" if self.dry_run else "dropped"
         lines = [f"cohort TTL sweep @ {self.now.isoformat()}" + (" [DRY RUN]" if self.dry_run else "")]
-        if self.dry_run:
+        lines.append(f"  before:    {_census(self.before)}")
+        lines.append(
+            f"  warehouse: {verb} {len(self.result.expired)} expired + "
+            f"{len(self.result.orphaned)} orphaned cohort table(s)"
+        )
+        if self.result.orphaned:
             lines.append(
-                "  warehouse: not touched — the connector has no dry-run drop primitive, "
-                "so drop_expired_cohorts was NOT called"
+                f"             orphaned = a cohort table with no registry row: nothing but this "
+                f"enumeration could ever have reclaimed it{_ids(self.result.orphaned, limit=5)}"
             )
-        else:
-            lines.append(f"  warehouse: dropped {len(self.dropped)} cohort table(s){_ids(self.dropped)}")
-            if not self.dropped:
-                lines.append(
-                    "             (the connector's cohort registry is process-local: a fresh "
-                    "sweep only ever drops what it materialized itself)"
-                )
+        lines.append(f"  after:     {_census(self.after)}")
         if self.expired is None:
             lines.append(f"  metadata:  skipped — {self.store_detail}")
         else:
@@ -143,18 +154,31 @@ class SweepReport:
         if metadata_only := sorted(expired - dropped):
             lines.append(
                 f"  note:      {len(metadata_only)} expired record(s) had no table dropped here "
-                f"(already gone, or materialized by another process): {', '.join(metadata_only)}"
+                f"(already gone, or dropped by an earlier sweep): {', '.join(metadata_only)}"
             )
         if warehouse_only := sorted(dropped - expired):
             lines.append(
                 f"  note:      {len(warehouse_only)} dropped table(s) had no expired record "
-                f"(metadata missing or not yet expired): {', '.join(warehouse_only)}"
+                f"(metadata missing or not yet expired){_ids(tuple(warehouse_only), limit=5)}"
             )
         return tuple(lines)
 
 
-def _ids(ids: tuple[str, ...]) -> str:
-    return f": {', '.join(ids)}" if ids else ""
+def _census(inventory: CohortInventory) -> str:
+    return (
+        f"{inventory.tables:,} cohort table(s), {inventory.rows:,} row(s), "
+        f"{inventory.registered:,} registry row(s)"
+    )
+
+
+def _ids(ids: tuple[str, ...], *, limit: int | None = None) -> str:
+    """Ids for the report. A sweep that reclaims hundreds of orphans must not
+    print hundreds of lines, so long lists are elided rather than dumped."""
+    if not ids:
+        return ""
+    if limit is not None and len(ids) > limit:
+        return f": {', '.join(ids[:limit])}, … (+{len(ids) - limit} more)"
+    return f": {', '.join(ids)}"
 
 
 # ----------------------------------------------------------------- environment
@@ -198,7 +222,7 @@ def build_cohort_store(env: Mapping[str, str]) -> CohortStoreChoice:
 
 
 async def run_sweep(
-    repository: CohortTableDropper,
+    repository: CohortSweeper,
     choice: CohortStoreChoice,
     *,
     now: datetime,
@@ -211,17 +235,25 @@ async def run_sweep(
         expired = tuple(record.id for record in records)
         logger.info("cohort metadata expired as of %s: %d record(s)", now.isoformat(), len(expired))
 
-    dropped: tuple[str, ...] = ()
-    if dry_run:
-        logger.warning(
-            "--dry-run: NOT calling drop_expired_cohorts (the connector offers no dry-run drop, "
-            "so the only honest dry run is to leave the warehouse alone)"
-        )
-    else:
-        dropped = await repository.drop_expired_cohorts(now)
-        logger.info("dropped %d expired cohort table(s) in the warehouse", len(dropped))
+    before = await repository.cohort_inventory()
+    result = await repository.sweep_cohorts(now, dry_run=dry_run)
+    after = before if dry_run else await repository.cohort_inventory()
+    logger.info(
+        "warehouse half: %s %d expired + %d orphaned cohort table(s)",
+        "would drop" if dry_run else "dropped",
+        len(result.expired),
+        len(result.orphaned),
+    )
 
-    return SweepReport(now=now, dry_run=dry_run, store_detail=choice.detail, dropped=dropped, expired=expired)
+    return SweepReport(
+        now=now,
+        dry_run=dry_run,
+        store_detail=choice.detail,
+        result=result,
+        before=before,
+        after=after,
+        expired=expired,
+    )
 
 
 # ------------------------------------------------------------------------- cli
@@ -254,9 +286,8 @@ def build_parser() -> argparse.ArgumentParser:
         "--dry-run",
         action="store_true",
         help=(
-            "report what has expired without dropping anything. The connector has no dry-run "
-            "drop primitive, so this queries cohort metadata only and never calls "
-            "drop_expired_cohorts"
+            "report exactly what would be dropped, from the warehouse's own cohort registry, "
+            "and write nothing (the warehouse is opened read-only)"
         ),
     )
     return parser

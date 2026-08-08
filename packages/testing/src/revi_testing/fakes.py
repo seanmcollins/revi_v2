@@ -299,7 +299,7 @@ __all__ = [
 ]
 
 
-def make_usage(model: str = "mock", schema_retries: int = 0) -> LlmUsage:
+def make_usage(model: str = "mock", schema_retries: int = 0, attempts: int = 1) -> LlmUsage:
     return LlmUsage(
         model=model,
         cost_usd=Decimal("0"),
@@ -307,6 +307,7 @@ def make_usage(model: str = "mock", schema_retries: int = 0) -> LlmUsage:
         output_tokens=1,
         schema_retries=schema_retries,
         duration_ms=1,
+        attempts=attempts,
     )
 
 
