@@ -9,6 +9,9 @@ dependencies = [
     "revi-catalog-contracts",
     "revi-calculation-contracts",
     "revi-pack-contracts",
+    # Pydantic is permitted ONLY for the schema-constrained LLM boundary
+    # (application/llm/schemas.py); the domain stays frozen dataclasses.
+    "pydantic>=2.7",
 ]
 
 [build-system]
