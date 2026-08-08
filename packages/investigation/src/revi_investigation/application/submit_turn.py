@@ -57,8 +57,9 @@ from revi_investigation.application.calculation_glue import (
     CalculateMetricsService,
     CalculationResult,
 )
-from revi_investigation.application.capability_ports import PackPort, TransformPort
+from revi_investigation.application.capability_ports import BenchmarkSpec, PackPort, TransformPort
 from revi_investigation.application.cohorts import PinCohortService
+from revi_investigation.application.comparison import window_mismatch_warning
 from revi_investigation.application.execution import ExecutedProbe, ExecuteInvestigationService
 from revi_investigation.application.findings import (
     EvaluateFindingsService,
@@ -142,6 +143,18 @@ from revi_kernel.scope import (
 from revi_kernel.watermark import DataWatermark, WatermarkEpoch
 
 _FALLBACK_WINDOW = RelativeRange(Decimal(1), TimeUnit.MONTH, RangeMode.FULL_PERIODS)
+
+
+def _not_applicable(reason: str) -> str:
+    """The third reconciliation state: checked nothing, and says why.
+
+    ``null`` used to mean both "not checked" and, indistinguishably from
+    the outside, "nothing to say" — the one place in a product built on
+    "never claim more than the evidence supports" where silence was
+    ambiguous."""
+    return f"status=not_applicable; reason={reason}"
+
+
 _KERNEL_ONLY = (RankBy, Expand)
 _REFERENT_TOKEN = re.compile(r"\b([FD]\d+)\b", re.IGNORECASE)
 
@@ -201,6 +214,11 @@ class TurnOutcome:
     meta: MetaAnswer | None = None
     reconciliation: str | None = None
     diff: PlanDiff | None = None
+    #: Governed benchmark ranges for the metrics this turn's findings cite
+    #: (design §9.1). Authored, sourced and cohort-labelled since KB wave 1
+    #: and unreachable until now: the engine had no field to carry them and
+    #: the API passed a literal empty tuple to the narrative composer.
+    benchmarks: tuple[BenchmarkSpec, ...] = ()
 
 
 def build_context_header(spec: AnalysisSpec, session: Session) -> ContextHeaderPayload:
@@ -715,13 +733,29 @@ class SubmitTurnService:
         state.time_stage("findings")
 
         extra_warnings: list[str] = list(prelude_warnings)
-        reconciliation: str | None = None
-        if parent is not None:
-            reconciliation = await self._reconcile_with_parent(
+        # A comparison against a different-length window is answerable but
+        # not a delta anyone should act on; the warning rides with the
+        # answer and the findings withhold impact (see comparison.py).
+        mismatch = window_mismatch_warning(spec)
+        if mismatch is not None:
+            extra_warnings.append(mismatch)
+            await self._events.publish(
+                TurnEvent(
+                    kind="warning",
+                    turn_id=state.turn_id,
+                    payload={"code": "COMPARISON_WINDOW_MISMATCH", "detail": mismatch},
+                )
+            )
+        reconciliation = (
+            await self._reconcile_with_parent(
                 parent, validated.plan, calculation, operators, extra_warnings, state
             )
+            if parent is not None
+            else _not_applicable("this is a first turn; there is no parent answer to reconcile to")
+        )
 
         warnings = (*validated.warnings, *validated.plan.notes, *extra_warnings)
+        benchmarks = self._benchmarks_for(findings_result)
         header = build_context_header(spec, session)
         frame_refs = await self._persist_frames(state, calculation)
         investigation = Investigation(
@@ -795,7 +829,18 @@ class SubmitTurnService:
             watermark_stale=state.watermark_stale,
             reconciliation=reconciliation,
             diff=diff,
+            benchmarks=benchmarks,
         )
+
+    def _benchmarks_for(self, findings: FindingsResult) -> tuple[BenchmarkSpec, ...]:
+        """Benchmark ranges for every metric the turn's findings cite, in
+        finding order, deduplicated by benchmark id."""
+        seen: dict[str, BenchmarkSpec] = {}
+        for finding in findings.findings:
+            for ref in finding.metric_refs:
+                for benchmark in self._pack.benchmarks_for_metric(ref.id):
+                    seen.setdefault(benchmark.id, benchmark)
+        return tuple(seen.values())
 
     # ------------------------------------------------- reconciliation (§7.8)
 
@@ -807,14 +852,31 @@ class SubmitTurnService:
         operators: tuple[Refinement, ...],
         warnings: list[str],
         state: _TurnState,
-    ) -> str | None:
+    ) -> str:
         """On splits (SetDimensions) and drills (DrillInto), check that the
-        child's cells sum to the parent totals the analyst was shown."""
+        child's cells sum to the parent totals the analyst was shown.
+
+        Every exit from this method now says *something*. It used to return
+        ``None`` from four different paths, and the caller returned ``None``
+        for a fifth — with the wire type ``string | null`` and no third
+        state, "we checked and it agreed" and "we never checked" were the
+        same value. Running the reference conversation produced ``None`` on
+        the turn that actually drilled three payers and pivoted the measure,
+        and ``"status=passed"`` on the turn that was a no-op; a reader had
+        no way to tell those apart, and the one that looked reassuring was
+        the one that had done nothing.
+
+        The grammar is the existing one: ``status=<verdict>`` with
+        semicolon-separated detail, so ``not_applicable`` carries a
+        machine-readable ``reason=`` naming which path was taken.
+        """
         if not any(isinstance(op, (SetDimensions, DrillInto)) for op in operators):
-            return None
+            return _not_applicable("this turn neither split nor drilled the parent's population")
         shape = find_primary_compare(plan, calculation)
         if shape is None:
-            return None
+            return _not_applicable(
+                "this turn produced no compared money frame to reconcile against the parent"
+            )
         measure = shape.money_measure
         parent_totals: EvidenceFrame | None = None
         for key in parent.frame_refs:
@@ -826,8 +888,16 @@ class SubmitTurnService:
             parent_totals = frame
             if f"{measure}__prior" in frame.schema.names:
                 break  # prefer the compare totals (they carry the prior side)
-        if parent_totals is None or parent_totals.watermark != shape.frame.watermark:
-            return None
+        if parent_totals is None:
+            return _not_applicable(
+                f"the parent investigation holds no undimensioned {measure!r} total to "
+                "reconcile against"
+            )
+        if parent_totals.watermark != shape.frame.watermark:
+            return _not_applicable(
+                "the parent's totals were read at a different watermark "
+                f"({parent_totals.watermark.id}) than this turn ({shape.frame.watermark.id})"
+            )
         measures: tuple[str, ...] = (measure,)
         if (
             f"{measure}__prior" in parent_totals.schema.names

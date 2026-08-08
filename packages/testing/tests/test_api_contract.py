@@ -18,6 +18,7 @@ import httpx
 import pytest
 
 from revi_api.app import create_app
+from revi_api.auth import Principal, TokenSigner
 from revi_api.clients import HttpInvestigationClient, InProcessInvestigationClient
 from revi_api.service import ApiService
 from revi_api.wiring import build_components
@@ -31,6 +32,19 @@ from revi_investigation_contracts.api import (
 )
 from revi_investigation_contracts.refinements import SetDimensionsModel, WindowSpecModel
 from revi_testing.mock_llm import MockLanguageModel
+
+#: The HTTP transport runs with real bearer auth on, so the suite exercises
+#: the credential path rather than a bypass — the tenant a turn executes
+#: under has to come from a signed token, and these tests are where that is
+#: proved for every route.
+AUTH_SECRET = "test-signing-secret"
+AUTH_ENV = {"REVI_AUTH_SECRET": AUTH_SECRET}
+TENANT = "demo"
+
+
+def token_for(tenant: str = TENANT) -> str:
+    return TokenSigner(AUTH_SECRET).issue(tenant=tenant, subject="contract-suite")
+
 
 T1 = "Why did cash decline last week?"
 UNKNOWN_METRIC_Q = "how are the flurbs"
@@ -115,11 +129,11 @@ async def client(
     request: pytest.FixtureRequest, service: ApiService
 ) -> AsyncIterator[InProcessInvestigationClient | HttpInvestigationClient]:
     if request.param == "in_process":
-        yield InProcessInvestigationClient(service)
+        yield InProcessInvestigationClient(service, Principal(tenant=TENANT, subject="tests"))
         return
-    transport = httpx.ASGITransport(app=create_app(service))
+    transport = httpx.ASGITransport(app=create_app(service, env=AUTH_ENV))
     async with httpx.AsyncClient(transport=transport, base_url="http://test") as raw:
-        yield HttpInvestigationClient(raw)
+        yield HttpInvestigationClient(raw, token_for())
 
 
 Client = InProcessInvestigationClient | HttpInvestigationClient
@@ -257,8 +271,18 @@ class TestApiContract:
         assert portfolio.status == "ok"
         assert portfolio.formula_version == "anomaly_priority@1"
         assert len(portfolio.items) >= 20
-        scores = [item.priority_score for item in portfolio.items]
-        assert scores == sorted(scores, reverse=True)
+        # Governed priority orders within each half of the list; drillable
+        # cards come first, because a worklist that opens with work nobody
+        # can start is not a worklist (round-1 review D5).
+        drillable = [i.priority_score for i in portfolio.items if i.drillable]
+        blocked = [i.priority_score for i in portfolio.items if not i.drillable]
+        assert drillable == sorted(drillable, reverse=True)
+        assert blocked == sorted(blocked, reverse=True)
+        assert [i.drillable for i in portfolio.items] == sorted(
+            (i.drillable for i in portfolio.items), reverse=True
+        )
+        for item in portfolio.items:
+            assert item.drillable is (item.drill_unavailable_reason is None)
         top = portfolio.items[0]
         assert top.impact_cents != 0
         assert top.actionability_rationale
@@ -276,10 +300,11 @@ class TestApiContract:
 class TestHttpOnly:
     @pytest.fixture
     async def http(self, service: ApiService) -> AsyncIterator[HttpInvestigationClient]:
-        transport = httpx.ASGITransport(app=create_app(service))
+        transport = httpx.ASGITransport(app=create_app(service, env=AUTH_ENV))
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as raw:
+            raw.headers["authorization"] = f"Bearer {token_for()}"
             self.raw = raw
-            yield HttpInvestigationClient(raw)
+            yield HttpInvestigationClient(raw, token_for())
 
     async def test_sse_event_ordering(self, http: HttpInvestigationClient) -> None:
         session = await http.open_session(OpenSessionRequest(tenant="demo"))
@@ -336,7 +361,7 @@ class TestPublishedSpec:
     the parts a client cannot discover any other way."""
 
     def spec(self) -> dict[str, Any]:
-        document: dict[str, Any] = create_app(None).openapi()
+        document: dict[str, Any] = create_app(None, env=AUTH_ENV).openapi()
         return document
 
     def test_error_envelope_is_declared_on_every_v1_route(self) -> None:

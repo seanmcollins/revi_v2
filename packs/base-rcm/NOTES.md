@@ -35,18 +35,18 @@ declared here.
 
   | contract | unresolved filter dimension(s) |
   | --- | --- |
-  | `ar_balance` | `status` |
-  | `ar_over_90_pct` | `status` |
-  | `days_in_ar` | `status` |
+  | `ar_balance` | ~~`status`~~ — certified 2026-08-08 |
+  | `ar_over_90_pct` | ~~`status`~~ — certified 2026-08-08 |
+  | `days_in_ar` | ~~`status`~~ — certified 2026-08-08 (numerator still needs the derived `ar_age_days_billed_cents`) |
   | `dnfb_dollars` | `discharge_date`, `submission_date` |
   | `first_pass_yield` | `first_pass_paid` |
-  | `initial_denial_rate` | `status` |
-  | `timely_filing_at_risk_dollars` | `status`, `submission_date` |
+  | `initial_denial_rate` | ~~`status`~~ — certified 2026-08-08 |
+  | `timely_filing_at_risk_dollars` | `submission_date` (`status` certified) |
 
   `validate_pack_catalog_conformance` deliberately does **not** cover these
   yet — it guards `exclusions:` only. Widening it to `filtered:` predicates
-  is the obvious next step and would fail composition on all seven rows above
-  until the catalog grows `status`, `submission_date`, `discharge_date` and
+  is the obvious next step and would fail composition on the rows that
+  remain until the catalog grows `submission_date`, `discharge_date` and
   `first_pass_paid`.
 - **Cross-entity ratios** (`net_collection_rate`, `gross_collection_rate`)
   pair components from different entities (transaction cash over claim
@@ -331,8 +331,63 @@ polarity pin
 (`packages/connector-duckdb/tests/test_duckdb_contract.py::TestExclusionPolarity`)
 and reading each description against its predicate at review time.
 
+## Adjudicated population restored (2026-08-08, round-1 review D2)
+
+The polarity correction above removed `denial_rate`'s and `clean_claim_rate`'s
+`status` exclusions rather than repairing them, because `status` was not a
+catalog dimension. Removal left both contracts computing over *every* claim
+in the window. That is not a cosmetic widening:
+
+- the numerator reads the outcome-derived `clean_claim` flag, which is
+  `paid AND NOT denied`, so a claim awaiting its first remittance reads
+  false — **for want of evidence, not because a payer decided anything**;
+- all **11,319** OPEN claims in this warehouse carry **zero** denial
+  records, so every one of them entered `denial_rate`'s numerator as a
+  denial that does not exist;
+- live, State Medicaid published **49.94%** where the adjudicated-only rate
+  is **9.39% (175/1,864** over 2026-05-01..2026-08-02 on the service basis,
+  matching direct SQL over `snap_003.v_claim`);
+- worse than the magnitude, the *ranking inverted at the top*: the payer
+  Revi flagged as the single worst was, on the corrected population, better
+  than the median, because the error tracks each payer's share of OPEN
+  claims rather than anything about denials.
+
+`status` is now a certified catalog dimension (`warehouse/catalog/
+dimensions.yaml`: claim → `status`, domain `PAID | OPEN | CLOSED | DENIED`,
+`phi: none`), so both exclusions resolve and both were restored **with
+`exclusions:` polarity** — `status eq OPEN` names the population to remove.
+Both contracts take a version (v1 → v2): each had a reading in service, and
+a recorded number must be traceable to the meaning that produced it.
+
+They move together on purpose. Both read the same flag with opposite
+polarity, and both descriptions claim that over an identical population the
+two sum to one; restoring one population and not the other would have
+broken that invariant silently. `TestReferencePackContracts` pins the pair
+executed against the real warehouse.
+
+Certifying `status` also resolves the `filtered:` predicates in
+`ar_balance`, `ar_over_90_pct`, `days_in_ar` and `initial_denial_rate`
+(table above). That is a side effect, not the goal — several of those
+contracts remain unanswerable on their *measure fields*, which is a
+separate failure mode and the other half of the coverage work.
+
+### Population caveats are now published, structurally
+
+`denial_rate` v1's description already said the population was not
+restricted to adjudicated claims. It was correct, it was governed, and it
+never reached a reader: the live response's `warnings` array carried basis
+and suppression notes only. So the rule is mechanical now rather than
+per-metric — a description may carry one `Population caveat:` sentence
+group, and `PlanValidationService` publishes it as a warning on **every**
+answer that reads the metric (`revi_investigation.application.validation`,
+step 5). Prose stays out of the semantic fingerprint, so authoring or
+editing a caveat never forces a version bump; publishing it is not
+optional.
+
 ## Contract revisions
 
+- **`denial_rate` v2 / `clean_claim_rate` v2 (adjudicated population
+  restored, 2026-08-08).** See "Adjudicated population restored" above.
 - **`denials_unworked_pct` v2 (exclusion polarity repair, 2026-08-08).** v1's
   `exclusions: {denial_category neq PATIENT_RESP}` compiles to
   `NOT(denial_category <> 'PATIENT_RESP')`, i.e. it kept only the

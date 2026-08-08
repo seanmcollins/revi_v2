@@ -30,12 +30,15 @@ probes:
       — how much runway remains per bucket.
   - id: breach_confirmation
     metric_ids: [denied_dollars]
-    dimensions: [carc, plan]
+    dimensions: [group_code, carc, plan]
     window: {quantity: 3, unit: month, mode: full_periods}
     basis_override: remit
     scope_note: >-
-      CARC 29 denied dollars confirm limits already breached — the lagging
-      indicator the at-risk view exists to prevent.
+      CO-29 denied dollars confirm limits already breached — the lagging
+      indicator the at-risk view exists to prevent. Cut by the group code +
+      CARC pair, never the CARC alone: 14 of the 20 CARCs in this warehouse
+      appear under more than one group, and a merged row is a different
+      number from either of the rows it merged.
 transforms:
   - operator: rank
     args: {by: timely_filing_at_risk_dollars, descending: true}

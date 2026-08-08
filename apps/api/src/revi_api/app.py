@@ -19,9 +19,17 @@ type has no response schema of its own — a generated client would
 otherwise have no contract for the stream at all.
 
 Error statuses: domain failures carry the stable §12 :class:`ErrorEnvelope`
-at 400/404/409/503 (declared on every route). 422 stays FastAPI's own
-``HTTPValidationError`` for malformed request bodies — one status, one
+at 400/401/403/404/409/503 (declared on every route). 422 stays FastAPI's
+own ``HTTPValidationError`` for malformed request bodies — one status, one
 model, so a generated client never has to guess which shape it got.
+
+Every ``/v1`` route except ``/v1/health`` requires an
+``Authorization: Bearer`` token carrying the tenant
+(:mod:`revi_api.auth`), and the scheme is published in the OpenAPI spec so
+a generated client codes against it rather than discovering 401s at
+runtime. ``/v1/health`` stays open on purpose: it is a liveness probe for
+an orchestrator, it names no tenant, and requiring a credential to answer
+"am I up" makes the credential a single point of failure for restarts.
 """
 
 from __future__ import annotations
@@ -29,14 +37,24 @@ from __future__ import annotations
 import asyncio
 import json
 import logging
-from collections.abc import AsyncIterator
-from typing import Any
+import os
+from collections.abc import AsyncIterator, Mapping
+from typing import Annotated, Any
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from pydantic import BaseModel
 
+from revi_api.auth import (
+    AuthenticationError,
+    AuthorizationError,
+    AuthPolicy,
+    Principal,
+    auth_policy_from_env,
+    cors_origins_from_env,
+)
 from revi_api.service import ApiService, NotFoundError, TurnResult
 from revi_api.wiring import build_components
 from revi_investigation.application.ports import TurnEvent
@@ -72,6 +90,18 @@ _STATUS_BY_CODE: dict[ErrorCode, int] = {
 #: Declared on every /v1 route so the published spec — not tribal
 #: knowledge — is what a generated client codes its error path against.
 ERROR_RESPONSES: dict[int | str, dict[str, Any]] = {
+    401: {
+        "model": ErrorEnvelope,
+        "description": "Missing, malformed, or expired bearer token "
+        "(POLICY_DENIED). The token carries the tenant; it is never taken "
+        "from the request body.",
+    },
+    403: {
+        "model": ErrorEnvelope,
+        "description": "A valid credential for a different tenant "
+        "(POLICY_DENIED). Session and investigation ids are not secrets, so "
+        "a cross-tenant read is refused rather than disguised as a 404.",
+    },
     400: {
         "model": ErrorEnvelope,
         "description": "Stable §12 error code: the request was understood but "
@@ -150,17 +180,50 @@ def _publish_stream_schema(app: FastAPI) -> None:
     app.openapi = openapi  # type: ignore[method-assign]
 
 
-def create_app(service: ApiService | None = None) -> FastAPI:
+_BEARER = HTTPBearer(auto_error=False, description="Tenant-bearing signed token")
+
+
+async def _principal(
+    request: Request,
+    credentials: Annotated[HTTPAuthorizationCredentials | None, Depends(_BEARER)],
+) -> Principal:
+    """Resolve the request's credential against the app's auth policy.
+
+    Module-level on purpose: with ``from __future__ import annotations``
+    every annotation is a string that FastAPI resolves against the
+    *module* globals, so a dependency closed over ``create_app``'s locals
+    would be an unresolvable forward reference (and FastAPI would silently
+    fall back to treating the parameter as a query field).
+    """
+    policy: AuthPolicy = request.app.state.auth_policy
+    header = (
+        f"{credentials.scheme} {credentials.credentials}" if credentials is not None else None
+    )
+    return policy.authenticate(header)
+
+
+#: The caller, on every /v1 route that touches tenant-scoped data.
+CallerPrincipal = Annotated[Principal, Depends(_principal)]
+
+
+def create_app(
+    service: ApiService | None = None,
+    *,
+    env: Mapping[str, str] | None = None,
+) -> FastAPI:
     """Build the FastAPI app; ``service=None`` wires from the environment
     on first use (kept lazy so OpenAPI export needs no warehouse)."""
+    settings = env if env is not None else dict(os.environ)
+    policy: AuthPolicy = auth_policy_from_env(settings)
     app = FastAPI(title="Revi Investigation API", version="1.0.0")
     app.add_middleware(
         CORSMiddleware,
-        allow_origins=["http://localhost:3000"],
+        allow_origins=cors_origins_from_env(settings),
         allow_credentials=True,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.state.auth_policy = policy
     if service is not None:
         app.state.service = service
 
@@ -175,11 +238,14 @@ def create_app(service: ApiService | None = None) -> FastAPI:
 
     @app.exception_handler(ReviError)
     async def _revi_error(request: Request, exc: ReviError) -> JSONResponse:
-        status = (
-            404
-            if isinstance(exc, NotFoundError)
-            else _STATUS_BY_CODE.get(exc.code, _DEFAULT_ERROR_STATUS)
-        )
+        if isinstance(exc, AuthenticationError):
+            status = 401
+        elif isinstance(exc, AuthorizationError):
+            status = 403
+        elif isinstance(exc, NotFoundError):
+            status = 404
+        else:
+            status = _STATUS_BY_CODE.get(exc.code, _DEFAULT_ERROR_STATUS)
         envelope = ErrorEnvelope(
             code=exc.code.value,
             message=exc.message,
@@ -188,9 +254,15 @@ def create_app(service: ApiService | None = None) -> FastAPI:
         return JSONResponse(status_code=status, content=envelope.model_dump(mode="json"))
 
     @app.post("/v1/sessions", response_model=SessionResponse, responses=ERROR_RESPONSES)
-    async def open_session(request: OpenSessionRequest) -> SessionResponse:
-        """Open a session pinned to the newest watermark and active pack."""
-        return await _service().open_session(request)
+    async def open_session(
+        request: OpenSessionRequest, caller: CallerPrincipal
+    ) -> SessionResponse:
+        """Open a session pinned to the newest watermark and active pack.
+
+        The tenant comes from the token. A body naming a different one is
+        refused rather than honored — that field used to be the only thing
+        deciding which tenant a session belonged to."""
+        return await _service().open_session(caller, request)
 
     @app.post(
         "/v1/sessions/{session_id}/turns",
@@ -207,11 +279,16 @@ def create_app(service: ApiService | None = None) -> FastAPI:
             },
         },
     )
-    async def submit_turn(session_id: str, turn: TurnRequest, request: Request) -> Any:
+    async def submit_turn(
+        session_id: str,
+        turn: TurnRequest,
+        request: Request,
+        caller: CallerPrincipal,
+    ) -> Any:
         service = _service()
         accept = request.headers.get("accept", "")
         if "text/event-stream" not in accept:
-            response = await service.submit_turn(session_id, turn)
+            response = await service.submit_turn(caller, session_id, turn)
             return JSONResponse(content=_dump(response))
 
         async def stream() -> AsyncIterator[str]:
@@ -222,7 +299,9 @@ def create_app(service: ApiService | None = None) -> FastAPI:
                 # presentation frames ride the same channel as engine events
                 queue.put_nowait(TurnEvent(kind=kind, turn_id="", payload=payload))
 
-            task = asyncio.create_task(service.submit_turn(session_id, turn, on_event=on_event))
+            task = asyncio.create_task(
+                service.submit_turn(caller, session_id, turn, on_event=on_event)
+            )
             try:
                 while True:
                     drain = asyncio.create_task(queue.get())
@@ -252,29 +331,35 @@ def create_app(service: ApiService | None = None) -> FastAPI:
         response_model=InvestigationResponse,
         responses=ERROR_RESPONSES,
     )
-    async def get_investigation(investigation_id: str) -> InvestigationResponse:
+    async def get_investigation(
+        investigation_id: str, caller: CallerPrincipal
+    ) -> InvestigationResponse:
         """Re-fetch a completed turn (reconnect / refresh recovery)."""
-        return await _service().get_investigation(investigation_id)
+        return await _service().get_investigation(caller, investigation_id)
 
     @app.get(
         "/v1/sessions/{session_id}/lineage",
         response_model=SessionLineageResponse,
         responses=ERROR_RESPONSES,
     )
-    async def get_lineage(session_id: str) -> SessionLineageResponse:
+    async def get_lineage(
+        session_id: str, caller: CallerPrincipal
+    ) -> SessionLineageResponse:
         """The session's investigation DAG: nodes plus refinement edges."""
-        return await _service().get_session_lineage(session_id)
+        return await _service().get_session_lineage(caller, session_id)
 
     @app.get("/v1/portfolio/latest", response_model=PortfolioResponse, responses=ERROR_RESPONSES)
-    async def get_portfolio() -> PortfolioResponse:
+    async def get_portfolio(caller: CallerPrincipal) -> PortfolioResponse:
         """Detected anomalies at the pinned watermark, governed-priority
         ranked. Cards carry `provenance` rather than an evidence grade."""
-        return await _service().get_portfolio()
+        return await _service().get_portfolio(caller)
 
     @app.get("/v1/capabilities", response_model=CapabilitiesResponse, responses=ERROR_RESPONSES)
-    async def get_capabilities() -> CapabilitiesResponse:
+    async def get_capabilities(
+        caller: CallerPrincipal,
+    ) -> CapabilitiesResponse:
         """Repository capabilities, pinned pack, newest watermark, LLM mode."""
-        return await _service().get_capabilities()
+        return await _service().get_capabilities(caller)
 
     @app.get("/v1/health", responses=ERROR_RESPONSES)
     async def health() -> dict[str, Any]:
@@ -286,6 +371,9 @@ def create_app(service: ApiService | None = None) -> FastAPI:
             "watermark": newest.id,
             "store_mode": service.components.store_mode,
             "llm_mode": service.components.llm_mode,
+            # An operator must be able to see, without a credential, that a
+            # deployment is running the development auth bypass.
+            "auth_mode": policy.mode,
         }
 
     _publish_stream_schema(app)

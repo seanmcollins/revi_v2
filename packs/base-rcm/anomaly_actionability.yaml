@@ -20,6 +20,41 @@
 # file (read and content-hashed by the API composition root) until the
 # loader gains an anomaly_actionability artifact type.
 version: 1
+
+# --- Drill repoints: when a detector record's metric id cannot express the
+# number the record published -------------------------------------------
+#
+# A card asserts a LEVEL over one cell and publishes `impact_cents`. The
+# drill re-derives that assertion from the platform's own contracts, so the
+# drilled metric has to be able to produce the figure on the card. The
+# `denial_rate` detector records fail that test twice over: the metric is a
+# ratio (it cannot produce dollars at all) and it is claim-grain with a
+# REMIT primary basis that the catalog does not bind at the claim entity,
+# so the drill refuses outright with DATE_BASIS_INVALID. Nine of the
+# portfolio's cards — four of the top eleven — were un-investigable for
+# that reason alone.
+#
+# What those records actually measured is denied dollars: over the whole
+# population the repointed drill reproduces each card's own impact figure
+# to within a few percent (ANM-005/007/008/029 to the cent). So the drill
+# handle points at `denied_dollars`, which is DENIAL-grain with REMIT
+# bound, carries the same payer / plan / service_line scope, and is a money
+# contract.
+#
+# This is a repoint, not a repair. The right long-term fix is upstream, in
+# the detection feed that filed a dollar measurement under a rate metric
+# id; every repointed card says so on the wire
+# (`drill_repointed_from`), so a reader is never told the drill confirms a
+# number it did not compute.
+drill_repoints:
+  denial_rate:
+    metric_id: denied_dollars
+    rationale: >-
+      The detector published a dollar impact under a ratio metric that is
+      also unprobeable at its own grain (REMIT is not bound for the claim
+      entity). denied_dollars measures the same population in the unit the
+      card actually reports.
+
 default:
   mode: fraction
   fraction: 0.50

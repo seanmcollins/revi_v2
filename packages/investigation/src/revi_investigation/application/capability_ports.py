@@ -79,6 +79,49 @@ class TermDefinition:
 
 
 @dataclass(frozen=True, slots=True)
+class BenchmarkSpec:
+    """A governed external benchmark **range** for a metric.
+
+    Ranges, never point targets, and never separable from their context:
+    ``cohort_label``, ``cautions`` and ``review_status`` travel with the
+    numbers because a benchmark quoted without its cohort is a different
+    claim from the one the source made. ``review_status`` is
+    ``machine_researched`` for everything in KB wave 1 — nothing here is
+    certified, and a consumer that hides that is asserting more than the
+    pack does.
+    """
+
+    id: str
+    metric_id: str
+    cohort_label: str
+    value_low: str
+    value_high: str
+    unit: str
+    period: str
+    authority: str
+    review_status: str
+    cautions: tuple[str, ...] = ()
+    source_titles: tuple[str, ...] = ()
+
+    @property
+    def range_text(self) -> str:
+        span = (
+            self.value_low
+            if self.value_low == self.value_high
+            else f"{self.value_low}-{self.value_high}"
+        )
+        return f"{span} {self.unit}"
+
+    @property
+    def prompt_line(self) -> str:
+        """One line for the narrative prompt — range, cohort, provenance."""
+        return (
+            f"{self.metric_id}: {self.range_text} ({self.cohort_label}; {self.period}; "
+            f"{self.authority}; {self.review_status})"
+        )
+
+
+@dataclass(frozen=True, slots=True)
 class ConclusionPolicySpec:
     id: str
     required_grade: EvidenceGrade
@@ -119,6 +162,28 @@ class PackPort(Protocol):
 
     def resolve_term(self, text: str) -> tuple[TermDefinition, ...]:
         """Generic definitional lookup (the DEFINITIONAL turn path)."""
+        ...
+
+    def code_title(self, system: str, code: str) -> str | None:
+        """Governed title for a remittance code (``"carc"``/``"group_code"``/
+        ``"rarc"``), or ``None`` when the pack does not define it.
+
+        Published rows have to name codes the way the domain does — a bare
+        ``16`` is not a denial, ``CO / 16`` with its title is. The
+        definitional path already returns these titles; this is the same
+        content reached from the rendering path without dragging the whole
+        ``TermDefinition`` shape through it.
+        """
+        ...
+
+    def benchmarks_for_metric(self, metric_id: str) -> tuple[BenchmarkSpec, ...]:
+        """Governed external benchmark ranges for a metric, or ``()``.
+
+        19 sourced, cohort-labelled, caution-annotated figures were
+        authored and reached no user: ``assembly.py`` passed
+        ``benchmarks=()`` as a literal, and this port had no way to ask for
+        them even if it had wanted to.
+        """
         ...
 
     def conclusion_policy(self, policy_id: str) -> ConclusionPolicySpec | None: ...

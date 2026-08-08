@@ -5,6 +5,18 @@ contract, two transports. Turn errors normalize to the ``TurnError``
 variant with a stable kernel-code :class:`ErrorEnvelope` on BOTH
 transports; an idempotency key returns the stored response without
 re-executing anything.
+
+**Tenant scoping lives here, not in middleware.** Every method takes the
+caller's :class:`~revi_api.auth.Principal`, and every ``{session_id}`` /
+``{investigation_id}`` lookup resolves the owning session and compares its
+tenant before returning a byte. That placement is the point: an
+authorization check in an HTTP middleware protects the HTTP transport and
+leaves ``InProcessInvestigationClient`` — the same API, a different
+door — wide open. The rule belongs to the service, so both doors get it.
+
+The tenant a turn executes under now comes from the principal. It used to
+be the literal string ``"api"``, hardcoded, which meant every session
+opened over HTTP belonged to the same tenant no matter who asked.
 """
 
 from __future__ import annotations
@@ -14,6 +26,7 @@ import uuid
 from typing import Any
 
 from revi_api.assembly import OnEvent, assemble_turn_response, investigation_response
+from revi_api.auth import AuthorizationError, Principal
 from revi_api.portfolio import build_portfolio
 from revi_api.wiring import ApiComponents
 from revi_investigation.application.dto_mapping import refinement_to_dto
@@ -69,30 +82,78 @@ class ApiService:
 
     def __init__(self, components: ApiComponents) -> None:
         self._components = components
-        self._idempotent: dict[tuple[str, str], TurnResult] = {}
+        self._idempotent: dict[tuple[str, str, str], TurnResult] = {}
 
     @property
     def components(self) -> ApiComponents:
         return self._components
 
+    # ------------------------------------------------------------ authorization
+
+    async def _authorized_session(self, principal: Principal, session_id: str) -> Session:
+        """The session, or a typed refusal. Never a foreign tenant's session."""
+        session = await self._components.sessions.get(session_id)
+        if session is None:
+            raise NotFoundError(
+                f"session {session_id!r} does not exist", details={"session_id": session_id}
+            )
+        self._assert_tenant(principal, session, resource=f"session {session_id!r}")
+        return session
+
+    @staticmethod
+    def _assert_tenant(principal: Principal, session: Session, *, resource: str) -> None:
+        if session.tenant != principal.tenant:
+            logger.warning(
+                "cross-tenant access refused: principal tenant=%r asked for %s owned by %r",
+                principal.tenant,
+                resource,
+                session.tenant,
+            )
+            raise AuthorizationError(
+                f"{resource} belongs to another tenant",
+                details={"resource": resource, "tenant": principal.tenant},
+            )
+
     # ------------------------------------------------------- InvestigationApi
 
-    async def open_session(self, request: OpenSessionRequest) -> SessionResponse:
+    async def open_session(
+        self, principal: Principal, request: OpenSessionRequest
+    ) -> SessionResponse:
+        # The token is the authority on tenant; a body that names a
+        # different one is a mistake worth reporting, not worth honoring.
+        if request.tenant and request.tenant != principal.tenant:
+            raise AuthorizationError(
+                f"cannot open a session for tenant {request.tenant!r}: this credential is "
+                f"for tenant {principal.tenant!r}",
+                details={"requested": request.tenant, "principal": principal.tenant},
+            )
+        if request.session_id is not None:
+            existing = await self._components.sessions.get(request.session_id)
+            if existing is not None:
+                self._assert_tenant(
+                    principal, existing, resource=f"session {request.session_id!r}"
+                )
         session = await self._components.open_session.open(
-            tenant=request.tenant, session_id=request.session_id
+            tenant=principal.tenant, session_id=request.session_id
         )
         return _session_response(session)
 
     async def submit_turn(
         self,
+        principal: Principal,
         session_id: str,
         request: TurnRequest,
         *,
         on_event: OnEvent | None = None,
     ) -> TurnResult:
         correlation_id = request.correlation_id or f"corr_{uuid.uuid4().hex[:12]}"
+        existing = await self._components.sessions.get(session_id)
+        if existing is not None:
+            self._assert_tenant(principal, existing, resource=f"session {session_id!r}")
         if request.idempotency_key is not None:
-            stored = self._idempotent.get((session_id, request.idempotency_key))
+            stored = self._idempotent.get(
+                (principal.tenant, session_id, request.idempotency_key)
+            )
             if stored is not None:
                 return stored
         default_question = (
@@ -100,7 +161,7 @@ class ApiService:
         )
         utterance = request.utterance or request.clarification_response or default_question
         engine_request = SubmitTurnRequest(
-            tenant="api",  # sessions carry the tenant; new implicit sessions use this
+            tenant=principal.tenant,  # from the signed token, never from the body
             question=utterance,
             session_id=session_id,
             spec=request.spec,
@@ -124,19 +185,25 @@ class ApiService:
             if on_event is not None:
                 await on_event("error", response.error.model_dump(mode="json"))
         if request.idempotency_key is not None:
-            self._idempotent[(session_id, request.idempotency_key)] = response
+            self._idempotent[(principal.tenant, session_id, request.idempotency_key)] = response
         return response
 
-    async def get_investigation(self, investigation_id: str) -> InvestigationResponse:
+    async def get_investigation(
+        self, principal: Principal, investigation_id: str
+    ) -> InvestigationResponse:
         investigation = await self._components.investigations.get(investigation_id)
         if investigation is None:
             raise NotFoundError(
                 f"investigation {investigation_id!r} does not exist",
                 details={"investigation_id": investigation_id},
             )
+        await self._authorized_session(principal, investigation.session_id)
         return investigation_response(investigation)
 
-    async def get_session_lineage(self, session_id: str) -> SessionLineageResponse:
+    async def get_session_lineage(
+        self, principal: Principal, session_id: str
+    ) -> SessionLineageResponse:
+        await self._authorized_session(principal, session_id)
         lineage = await self._components.investigations.lineage(session_id)
         if lineage is None:
             raise NotFoundError(
@@ -158,7 +225,8 @@ class ApiService:
             ],
         )
 
-    async def get_capabilities(self) -> CapabilitiesResponse:
+    async def get_capabilities(self, principal: Principal) -> CapabilitiesResponse:
+        del principal  # capabilities are deployment-wide, but still authenticated
         components = self._components
         caps = components.repository.capabilities()
         newest = await components.open_session.newest_watermark()
@@ -178,7 +246,15 @@ class ApiService:
             llm=components.llm_mode,
         )
 
-    async def get_portfolio(self) -> PortfolioResponse:
+    async def get_portfolio(self, principal: Principal) -> PortfolioResponse:
+        """The worklist for one tenant.
+
+        The route used to take no tenant at all. It still reads a single
+        shared detection feed — the mock warehouse has one — so the tenant
+        is carried on the response rather than pretended into the query:
+        a caller can see which tenant a worklist was built for, and the
+        day the feed becomes per-tenant this signature does not change.
+        """
         components = self._components
         newest = await components.open_session.newest_watermark()
         records = await components.anomaly_source.list_anomalies(newest)
@@ -187,4 +263,6 @@ class ApiService:
             watermark=newest,
             policy=components.priority_policy,
             rules=components.actionability,
+            tenant=principal.tenant,
+            drillability=components.drillability,
         )

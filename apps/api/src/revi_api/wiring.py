@@ -24,6 +24,7 @@ import logging
 import os
 from collections.abc import Mapping
 from dataclasses import dataclass
+from datetime import UTC, datetime
 from pathlib import Path
 
 from revi_api.actionability import ActionabilityRules, load_actionability_rules
@@ -38,7 +39,7 @@ from revi_api.memory_stores import (
     MemorySessionStore,
     MemoryTraceStore,
 )
-from revi_api.portfolio import PriorityPolicy, priority_policy_from_pack
+from revi_api.portfolio import DrillabilityProbe, PriorityPolicy, priority_policy_from_pack
 from revi_api.scripted_llm import demo_language_model
 from revi_catalog import load_catalog
 from revi_catalog_contracts.model import CatalogSnapshot
@@ -72,7 +73,12 @@ from revi_investigation.application.refinement_llm import (
 )
 from revi_investigation.application.submit_turn import OpenSessionService, SubmitTurnService
 from revi_investigation.application.validation import PlanValidationService
+from revi_investigation.domain.context import PackVersionRef
+from revi_investigation.domain.records import Session
+from revi_investigation_contracts.api import TypedInvestigationSpec
 from revi_kernel.capabilities import AnalyticalRepository
+from revi_kernel.errors import ReviError
+from revi_kernel.watermark import DataWatermark, WatermarkEpoch
 from revi_pack.conformance import validate_pack_catalog_conformance
 from revi_pack.domain import PackSnapshot
 from revi_pack.loader import load_layer
@@ -108,6 +114,10 @@ class ApiComponents:
     recipes: tuple[RecipeSpec, ...]
     priority_policy: PriorityPolicy
     actionability: ActionabilityRules
+    #: Can this typed spec be answered at all? Runs the real planning +
+    #: §6.6 validation pass and returns the platform's own refusal text,
+    #: never a guess and never a warehouse query.
+    drillability: DrillabilityProbe
     store_mode: str
     llm_mode: str
 
@@ -232,12 +242,15 @@ def build_components(
     transforms = CalculationTransforms()
 
     open_session = OpenSessionService(stores.sessions, repository, pack_port)
+    interpreter = InterpretQuestionService(llm, pack_port, catalog)
+    planner = BuildInvestigationPlanService(pack_port)
+    validator = PlanValidationService(catalog, pack_port, repository)
     submit = SubmitTurnService(
         open_session=open_session,
         classifier=ClassifyTurnService(llm),
-        interpreter=InterpretQuestionService(llm, pack_port, catalog),
-        planner=BuildInvestigationPlanService(pack_port),
-        validator=PlanValidationService(catalog, pack_port, repository),
+        interpreter=interpreter,
+        planner=planner,
+        validator=validator,
         executor=ExecuteInvestigationService(repository, stores.cache, event_bus, catalog),
         calculator=CalculateMetricsService(transforms, pack_port),
         evaluator=EvaluateFindingsService(stores.referents),
@@ -253,6 +266,34 @@ def build_components(
         frames=stores.frames,
         events=event_bus,
     )
+
+    def drillability(spec: TypedInvestigationSpec, watermark: DataWatermark) -> str | None:
+        """Plan and validate a drill handle without executing it.
+
+        The honest test for "can the platform investigate this?" is the
+        platform's own pipeline up to the point where it would touch data:
+        interpretation disposes the typed spec against the pack and
+        catalog, the planner builds the probe DAG, and §6.6 validation
+        resolves every dimension, grain, basis and budget. Anything that
+        would have surfaced as an error dialog on a click surfaces here
+        instead, with the same message.
+        """
+        probe_session = Session(
+            id="portfolio-drillability-probe",
+            tenant="portfolio",
+            pack_version=PackVersionRef(pack_port.pack_id, pack_port.pack_version),
+            epochs=(WatermarkEpoch(index=0, watermark=watermark),),
+            created_at=datetime.now(UTC),
+        )
+        try:
+            interpreted = interpreter.from_typed_spec(
+                spec, session=probe_session, turn_id="drillability-probe"
+            )
+            plan = planner.build(interpreted.spec, playbook_id=None, window_explicit=True)
+            validator.validate(plan, interpreted.spec)
+        except ReviError as exc:
+            return f"{exc.code.value}: {exc.message}"
+        return None
 
     actionability_path = pack_dir / "anomaly_actionability.yaml"
     actionability: ActionabilityRules = load_actionability_rules(actionability_path)
@@ -281,6 +322,7 @@ def build_components(
         recipes=recipes,
         priority_policy=priority_policy_from_pack(pack_snapshot),
         actionability=actionability,
+        drillability=drillability,
         store_mode=stores.mode,
         llm_mode=llm_mode,
     )

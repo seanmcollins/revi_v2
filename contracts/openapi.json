@@ -131,8 +131,46 @@
             "title": "Dimensions",
             "type": "array"
           },
+          "drill_repoint_rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drill Repoint Rationale"
+          },
+          "drill_repointed_from": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drill Repointed From"
+          },
           "drill_spec": {
             "$ref": "#/components/schemas/TypedInvestigationSpec"
+          },
+          "drill_unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Drill Unavailable Reason"
+          },
+          "drillable": {
+            "default": true,
+            "title": "Drillable",
+            "type": "boolean"
           },
           "impact_cents": {
             "default": 0,
@@ -226,6 +264,75 @@
           "value"
         ],
         "title": "AnomalyDimension",
+        "type": "object"
+      },
+      "BenchmarkPayload": {
+        "additionalProperties": false,
+        "description": "One governed external benchmark range for a metric.\n\nA range, never a point target, and never separable from its context:\n``cohort_label``, ``period``, ``authority``, ``cautions`` and\n``review_status`` are all required on the wire because a figure quoted\nwithout them is a different claim from the one its source made.\n``review_status`` is ``machine_researched`` for every figure shipped so\nfar \u2014 a consumer that renders these as certified truth is asserting\nmore than the pack does.",
+        "properties": {
+          "authority": {
+            "title": "Authority",
+            "type": "string"
+          },
+          "cautions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Cautions",
+            "type": "array"
+          },
+          "cohort_label": {
+            "title": "Cohort Label",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "metric_id": {
+            "title": "Metric Id",
+            "type": "string"
+          },
+          "period": {
+            "title": "Period",
+            "type": "string"
+          },
+          "review_status": {
+            "title": "Review Status",
+            "type": "string"
+          },
+          "sources": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Sources",
+            "type": "array"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "value_high": {
+            "title": "Value High",
+            "type": "string"
+          },
+          "value_low": {
+            "title": "Value Low",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "metric_id",
+          "cohort_label",
+          "value_low",
+          "value_high",
+          "unit",
+          "period",
+          "authority",
+          "review_status"
+        ],
+        "title": "BenchmarkPayload",
         "type": "object"
       },
       "CapabilitiesResponse": {
@@ -694,6 +801,13 @@
       "FindingPayload": {
         "additionalProperties": false,
         "properties": {
+          "benchmarks": {
+            "items": {
+              "$ref": "#/components/schemas/BenchmarkPayload"
+            },
+            "title": "Benchmarks",
+            "type": "array"
+          },
           "confidence": {
             "default": "high",
             "title": "Confidence",
@@ -997,6 +1111,7 @@
       },
       "OpenSessionRequest": {
         "additionalProperties": false,
+        "description": "Open (or re-join) a session.\n\n``tenant`` is **advisory**. It used to be the only thing deciding which\ntenant a session belonged to, and nothing verified it; the tenant now\ncomes from the caller's signed credential and this field is only\ncross-checked against it, so naming a different tenant is refused\nrather than honored. Leave it empty and the credential decides.",
         "properties": {
           "session_id": {
             "anyOf": [
@@ -1010,13 +1125,11 @@
             "title": "Session Id"
           },
           "tenant": {
+            "default": "",
             "title": "Tenant",
             "type": "string"
           }
         },
-        "required": [
-          "tenant"
-        ],
         "title": "OpenSessionRequest",
         "type": "object"
       },
@@ -1066,6 +1179,11 @@
               "empty"
             ],
             "title": "Status",
+            "type": "string"
+          },
+          "tenant": {
+            "default": "",
+            "title": "Tenant",
             "type": "string"
           },
           "warnings": {
@@ -1446,6 +1564,13 @@
       "TurnAnswer": {
         "additionalProperties": false,
         "properties": {
+          "benchmarks": {
+            "items": {
+              "$ref": "#/components/schemas/BenchmarkPayload"
+            },
+            "title": "Benchmarks",
+            "type": "array"
+          },
           "chart_specs": {
             "items": {
               "$ref": "#/components/schemas/ChartSpec"
@@ -2005,6 +2130,13 @@
         "title": "WindowSpecModel",
         "type": "object"
       }
+    },
+    "securitySchemes": {
+      "HTTPBearer": {
+        "description": "Tenant-bearing signed token",
+        "scheme": "bearer",
+        "type": "http"
+      }
     }
   },
   "info": {
@@ -2038,6 +2170,26 @@
             },
             "description": "Stable \u00a712 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, \u2026)."
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2069,6 +2221,11 @@
             "description": "SOURCE_UNAVAILABLE or DATA_LOADING \u2014 the analytical source cannot serve this watermark right now."
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Get Capabilities"
       }
     },
@@ -2098,6 +2255,26 @@
               }
             },
             "description": "Stable \u00a712 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, \u2026)."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404."
           },
           "404": {
             "content": {
@@ -2169,6 +2346,26 @@
             },
             "description": "Stable \u00a712 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, \u2026)."
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2210,6 +2407,11 @@
             "description": "SOURCE_UNAVAILABLE or DATA_LOADING \u2014 the analytical source cannot serve this watermark right now."
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Get Investigation"
       }
     },
@@ -2237,6 +2439,26 @@
               }
             },
             "description": "Stable \u00a712 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, \u2026)."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404."
           },
           "404": {
             "content": {
@@ -2269,12 +2491,17 @@
             "description": "SOURCE_UNAVAILABLE or DATA_LOADING \u2014 the analytical source cannot serve this watermark right now."
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Get Portfolio"
       }
     },
     "/v1/sessions": {
       "post": {
-        "description": "Open a session pinned to the newest watermark and active pack.",
+        "description": "Open a session pinned to the newest watermark and active pack.\n\nThe tenant comes from the token. A body naming a different one is\nrefused rather than honored \u2014 that field used to be the only thing\ndeciding which tenant a session belonged to.",
         "operationId": "open_session_v1_sessions_post",
         "requestBody": {
           "content": {
@@ -2307,6 +2534,26 @@
             },
             "description": "Stable \u00a712 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, \u2026)."
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2348,6 +2595,11 @@
             "description": "SOURCE_UNAVAILABLE or DATA_LOADING \u2014 the analytical source cannot serve this watermark right now."
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Open Session"
       }
     },
@@ -2387,6 +2639,26 @@
             },
             "description": "Stable \u00a712 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, \u2026)."
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2428,6 +2700,11 @@
             "description": "SOURCE_UNAVAILABLE or DATA_LOADING \u2014 the analytical source cannot serve this watermark right now."
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Get Lineage"
       }
     },
@@ -2501,6 +2778,26 @@
             },
             "description": "Stable \u00a712 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, \u2026)."
           },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404."
+          },
           "404": {
             "content": {
               "application/json": {
@@ -2542,6 +2839,11 @@
             "description": "SOURCE_UNAVAILABLE or DATA_LOADING \u2014 the analytical source cannot serve this watermark right now."
           }
         },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
         "summary": "Submit one turn (utterance OR typed refinement operators)"
       }
     }

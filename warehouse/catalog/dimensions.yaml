@@ -203,6 +203,26 @@ dimensions:
     synonyms: [clean, first pass clean, no-touch claim]
     cardinality_estimate: 2
     phi: none
+  status:
+    label: Claim status
+    certified: true
+    description: >
+      Adjudication standing of the claim at the snapshot watermark. OPEN
+      means no remittance has been received yet — the claim has no
+      adjudication outcome of any kind, so every outcome-derived flag on it
+      (clean_claim, first_pass_paid) reads false for want of evidence
+      rather than because the payer decided anything. Rate contracts whose
+      numerator reads one of those flags must exclude OPEN or they report
+      "not yet adjudicated" as "denied": in this warehouse all 11,319 OPEN
+      claims carry zero denial records, and counting them as denials moved
+      the published denial rate from 5.2% to 49.9%. PAID and CLOSED are
+      resolved; DENIED is standing-denied inventory.
+    entities:
+      claim: status
+    synonyms: [claim status, adjudication status, claim state, acct status, status code]
+    cardinality_estimate: 4
+    value_domain: [PAID, OPEN, CLOSED, DENIED]
+    phi: none
   cob_mismatch_flag:
     label: COB mismatch flag
     certified: true

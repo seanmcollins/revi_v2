@@ -11,7 +11,7 @@ from __future__ import annotations
 
 import hashlib
 from collections.abc import Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import Any
@@ -35,13 +35,32 @@ class ActionabilityRule:
 
 
 @dataclass(frozen=True, slots=True)
+class DrillRepoint:
+    """A governed substitution for a detector record's metric id.
+
+    A card publishes ``impact_cents``; its drill must be able to produce
+    that figure. When the record's own metric cannot — a ratio contract
+    reporting dollars, or one whose primary basis is unbound at its
+    grain — this names the contract that can, and the rationale travels
+    with it so the substitution is visible rather than silent."""
+
+    from_metric_id: str
+    to_metric_id: str
+    rationale: str
+
+
+@dataclass(frozen=True, slots=True)
 class ActionabilityRules:
     default: ActionabilityRule
     by_category: Mapping[str, ActionabilityRule]
     content_hash: str
+    drill_repoints: Mapping[str, DrillRepoint] = field(default_factory=dict)
 
     def rule_for(self, category: str) -> ActionabilityRule:
         return self.by_category.get(category.upper(), self.default)
+
+    def repoint_for(self, metric_id: str) -> DrillRepoint | None:
+        return self.drill_repoints.get(metric_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -83,8 +102,25 @@ def load_actionability_rules(path: str | Path) -> ActionabilityRules:
         str(category).upper(): _parse_rule(str(category).upper(), node)
         for category, node in categories.items()
     }
+    repoints_node = document.get("drill_repoints", {})
+    if not isinstance(repoints_node, dict):
+        raise ValueError(f"{path}: 'drill_repoints' must be a mapping")
+    repoints: dict[str, DrillRepoint] = {}
+    for source, node in repoints_node.items():
+        if not isinstance(node, dict) or not node.get("metric_id"):
+            raise ValueError(f"{path}: drill_repoints[{source!r}] needs a metric_id")
+        repoints[str(source)] = DrillRepoint(
+            from_metric_id=str(source),
+            to_metric_id=str(node["metric_id"]),
+            rationale=" ".join(str(node.get("rationale", "")).split()),
+        )
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
-    return ActionabilityRules(default=default, by_category=by_category, content_hash=digest)
+    return ActionabilityRules(
+        default=default,
+        by_category=by_category,
+        content_hash=digest,
+        drill_repoints=repoints,
+    )
 
 
 def _fact(evidence: Mapping[str, Any], name: str | None) -> Decimal | None:

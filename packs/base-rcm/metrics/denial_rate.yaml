@@ -2,10 +2,21 @@
 # primary basis; carc is deliberately NOT a scope dimension — cutting a
 # claim-grain rate by a line-level code is the designed GRAIN_INCOMPATIBLE
 # demonstration (denied_dollars at line grain carries the carc scope).
-# The status-OPEN exclusion was removed because `status` is not a catalog
-# dimension (see "Exclusion polarity" in NOTES.md).
+#
+# v2 (2026-08-08): the adjudicated-only population is restored. v1 shipped
+# with no status exclusion at all — the original was authored as an inclusion
+# predicate (`status neq OPEN`), could not resolve because `status` was not a
+# catalog dimension, and was removed rather than repaired (see "Exclusion
+# polarity" in NOTES.md). The numerator reads `clean_claim = false`, and
+# `clean_claim` is `paid AND NOT denied`, so an un-adjudicated claim reads
+# false and v1 counted every OPEN claim as a denial. Live: State Medicaid
+# published 49.94% where the true incidence over the same population is
+# 5.19%, and the payer ranking inverted at the top — the payer flagged worst
+# was in fact the best of six. `status` is now certified in
+# warehouse/catalog/dimensions.yaml, so the exclusion resolves; `exclusions:`
+# names the population to REMOVE, hence `status eq OPEN`.
 id: denial_rate
-version: 1
+version: 2
 kind: flow
 entity_grain: claim
 numerator:
@@ -13,6 +24,7 @@ numerator:
     inner: {count_distinct: claim_id}
     where: {dimension: clean_claim, op: eq, value: false}
 denominator: {count_distinct: claim_id}
+exclusions: {dimension: status, op: eq, value: OPEN}
 primary_date_basis: remit
 allowed_date_bases: [remit, service, submission]
 scope_dimensions:
@@ -22,16 +34,17 @@ scope_dimensions:
 sign: higher_is_bad
 unit: ratio
 description: >-
-  Share of claims that received at least one denial: claims whose
-  outcome-derived clean flag is false, divided by every claim in the window
-  on the chosen date basis. The population is not restricted to adjudicated
-  claims — a claim still awaiting its first remittance carries a false clean
-  flag and therefore counts as denied, so trailing windows at a fresh
-  watermark read high until adjudication catches up. Primary basis is
-  remittance (adjudication) date per the MAP AR-5
-  convention; service and submission are labeled alternates. Claims denied
-  and later paid (for example COB rebills) still count as denied — this is
-  the remittance denial rate, not standing-denied inventory. Benchmark
-  context: sub-5 percent is the commonly cited target; initial denial rates
-  industry-wide run over 11 percent (Kodiak). Pair with initial_denial_rate
-  and denial_write_off_dollars; never conflate initial and final rates.
+  Share of adjudicated claims that received at least one denial: claims
+  whose outcome-derived clean flag is false, divided by every adjudicated
+  claim in the window on the chosen date basis. Population caveat: claims
+  still awaiting their first remittance (status OPEN) are excluded from
+  both sides — an unadjudicated claim carries a false clean flag for want
+  of evidence, not because a payer denied it, so including it would report
+  the data edge as a denial. Primary basis is remittance (adjudication)
+  date per the MAP AR-5 convention; service and submission are labeled
+  alternates. Claims denied and later paid (for example COB rebills) still
+  count as denied — this is the remittance denial rate, not standing-denied
+  inventory. Benchmark context: sub-5 percent is the commonly cited target;
+  initial denial rates industry-wide run over 11 percent (Kodiak). Pair with
+  initial_denial_rate and denial_write_off_dollars; never conflate initial
+  and final rates.

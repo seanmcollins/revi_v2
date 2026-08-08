@@ -31,7 +31,15 @@ refinement can pin the exact population shown.
 Conclusion policies gate confidence: when a playbook's policies demand a
 stronger grade than the frame provides (proxy or discovery evidence, or a
 policy requiring DIRECT), the finding's confidence drops to "qualified" —
-weak evidence can surface, but never in certified language.
+weak evidence can surface, but never in certified language. A comparison
+whose two windows are different lengths qualifies a finding for the same
+reason and additionally withholds ``impact_cents``
+(:mod:`revi_investigation.application.comparison` documents why).
+
+Every value that reaches a title or a statement is rendered through
+:mod:`revi_investigation.application.rendering`, in the unit the metric
+contract declares — never ``repr``, never floor-divided dollars beside raw
+cents, and never a bare CARC integer without its group code and title.
 
 Every compare row is also registered as a dimension-value referent
 (D1, D2, ...) so table rows are addressable in follow-up turns.
@@ -44,8 +52,19 @@ from decimal import Decimal
 
 from revi_investigation.application.calculation_glue import CalculationResult
 from revi_investigation.application.capability_ports import PackPort, PlaybookSpec
+from revi_investigation.application.comparison import ComparisonRendering, render_comparison
 from revi_investigation.application.planning import InvestigationPlan
 from revi_investigation.application.ports import ReferentRegistryStore, RegisteredReferent
+from revi_investigation.application.rendering import (
+    MONEY_UNIT as _MONEY_UNIT,
+)
+from revi_investigation.application.rendering import (
+    format_value,
+    magnitude_money,
+    metric_label,
+    ratio_pct,
+    render_row_label,
+)
 from revi_investigation.domain.context import AnalysisSpec
 from revi_investigation.domain.records import Finding
 from revi_kernel.cohort import CohortDefinition
@@ -59,10 +78,8 @@ from revi_kernel.refs import (
     ReferentId,
     ReferentKind,
 )
-from revi_kernel.scope import ComparisonKind
 
 _TIME_BUCKET_PREFIX = "time_bucket:"
-_MONEY_UNIT = "money_cents"
 _QUALIFIED_GRADES = (EvidenceGrade.PROXY, EvidenceGrade.DISCOVERY, EvidenceGrade.UNAVAILABLE)
 
 
@@ -116,6 +133,8 @@ class ConcentrationShape:
     rank_column: str
     share_column: str | None
     is_money: bool
+    #: the metric contract's declared unit, as stamped on the frame column
+    unit: str | None
 
 
 def find_primary_concentration(
@@ -143,6 +162,7 @@ def find_primary_concentration(
         if rank_column not in frame.schema.names:
             continue
         share_column = f"{measure}__share"
+        unit = _unit_of(frame, measure)
         return ConcentrationShape(
             frame_id=step.id,
             frame=frame,
@@ -150,7 +170,8 @@ def find_primary_concentration(
             measure=measure,
             rank_column=rank_column,
             share_column=share_column if share_column in frame.schema.names else None,
-            is_money=_unit_of(frame, measure) == _MONEY_UNIT,
+            is_money=unit == _MONEY_UNIT,
+            unit=unit,
         )
     return None
 
@@ -242,7 +263,7 @@ class EvaluateFindingsService:
         )
 
         qualified = self._requires_qualification(shape.frame.evidence_grade, pack, playbook)
-        period_phrase = self._period_phrase(spec)
+        comparison = render_comparison(spec)
 
         # Referent handles are session-monotonic (design §7.6): F2 keeps
         # meaning the finding it named when it was shown — later turns mint
@@ -262,7 +283,15 @@ class EvaluateFindingsService:
                 continue
             n = finding_offset + len(findings) + 1
             finding, referent = self._build_finding(
-                f"F{n}", row, shape, spec, period_phrase, qualified, session_id, investigation_id
+                f"F{n}",
+                row,
+                shape,
+                spec,
+                comparison,
+                qualified,
+                pack,
+                session_id,
+                investigation_id,
             )
             findings.append(finding)
             referents.append(referent)
@@ -275,6 +304,7 @@ class EvaluateFindingsService:
                     shape.frame,
                     shape.dimension_columns,
                     spec,
+                    pack,
                     session_id,
                     investigation_id,
                 )
@@ -297,18 +327,6 @@ class EvaluateFindingsService:
                     return True
         return False
 
-    @staticmethod
-    def _period_phrase(spec: AnalysisSpec) -> str:
-        comparison = spec.context.comparison
-        if comparison is None:
-            return "vs prior period"
-        if comparison.kind is ComparisonKind.PRIOR_YEAR:
-            return "vs prior year"
-        requested = spec.context.window.requested
-        if requested is not None and requested.quantity == 1:
-            return f"vs prior {requested.unit.value}"
-        return "vs prior period"
-
     def _cohort_definition(
         self,
         row: tuple[Scalar, ...],
@@ -330,9 +348,15 @@ class EvaluateFindingsService:
 
     @staticmethod
     def _row_label(
-        row: tuple[Scalar, ...], frame: EvidenceFrame, dimension_columns: tuple[str, ...]
+        row: tuple[Scalar, ...],
+        frame: EvidenceFrame,
+        dimension_columns: tuple[str, ...],
+        pack: PackPort,
     ) -> str:
-        return " / ".join(str(row[frame.schema.index_of(dim)]) for dim in dimension_columns)
+        """Dimension values as a label, with remittance codes rendered as
+        ``GROUP / CARC — Title`` rather than as bare integers."""
+        values = {dim: row[frame.schema.index_of(dim)] for dim in dimension_columns}
+        return render_row_label(pack, dimension_columns, values)
 
     @staticmethod
     def _single_dim(
@@ -349,8 +373,9 @@ class EvaluateFindingsService:
         row: tuple[Scalar, ...],
         shape: CompareShape,
         spec: AnalysisSpec,
-        period_phrase: str,
+        comparison: ComparisonRendering | None,
         qualified: bool,
+        pack: PackPort,
         session_id: str,
         investigation_id: str,
     ) -> tuple[Finding, RegisteredReferent]:
@@ -362,15 +387,21 @@ class EvaluateFindingsService:
         pct = row[schema.index_of(f"{measure}__pct_change")]
         assert delta is not None  # caller filtered NULL deltas
 
-        label = self._row_label(row, shape.frame, shape.dimension_columns)
-        metric_label = measure.replace("_", " ")
+        label = self._row_label(row, shape.frame, shape.dimension_columns, pack)
+        measure_label = metric_label(measure)
         direction = "down" if delta < 0 else "up"
-        dollars = f"${abs(delta) // 100:,}"
-        title = f"{label} {metric_label} {direction} {dollars} {period_phrase}"
-        pct_text = f"{float(pct):.1%}" if isinstance(pct, Decimal) else "n/a"
+        amount = magnitude_money(delta)
+        period_phrase = comparison.phrase if comparison is not None else "vs prior period"
+        # A comparison over a different-length window is not a delta the
+        # platform will stand behind: the phrase says so, the impact is
+        # withheld, and the confidence is qualified (see comparison.py).
+        mismatched = comparison is not None and comparison.length_mismatch
+        title = f"{label} {measure_label} {direction} {amount} {period_phrase}"
+        pct_text = ratio_pct(pct) if isinstance(pct, Decimal) else "n/a"
         statement = (
-            f"{label}: {metric_label} moved from {prior!r} to {current!r} cents "
-            f"({direction} {dollars}, {pct_text} {period_phrase})."
+            f"{label}: {measure_label} moved from {format_value(prior, _MONEY_UNIT)} to "
+            f"{format_value(current, _MONEY_UNIT)} "
+            f"({direction} {amount}, {pct_text} {period_phrase})."
         )
 
         referent = ReferentId(value=referent_value, kind=ReferentKind.FINDING)
@@ -386,8 +417,8 @@ class EvaluateFindingsService:
                 ("pct_change", pct),
             ),
             grade=shape.frame.evidence_grade,
-            impact_cents=delta,
-            confidence="qualified" if qualified else "high",
+            impact_cents=None if mismatched else delta,
+            confidence="qualified" if (qualified or mismatched) else "high",
             suggested_refinements=(f"drill into {referent_value}",),
         )
         registered = RegisteredReferent(
@@ -410,6 +441,7 @@ class EvaluateFindingsService:
         frame: EvidenceFrame,
         dimension_columns: tuple[str, ...],
         spec: AnalysisSpec,
+        pack: PackPort,
         session_id: str,
         investigation_id: str,
     ) -> RegisteredReferent:
@@ -417,7 +449,7 @@ class EvaluateFindingsService:
             referent=ReferentId(value=referent_value, kind=ReferentKind.DIMENSION_VALUE),
             session_id=session_id,
             investigation_id=investigation_id,
-            label=self._row_label(row, frame, dimension_columns),
+            label=self._row_label(row, frame, dimension_columns, pack),
             cohort_definition=self._cohort_definition(row, frame, dimension_columns, spec),
             dimension_value=self._single_dim(row, frame, dimension_columns),
         )
@@ -461,7 +493,7 @@ class EvaluateFindingsService:
                 continue
             n = finding_offset + len(findings) + 1
             finding, referent = self._build_concentration_finding(
-                f"F{n}", row, shape, spec, qualified, session_id, investigation_id
+                f"F{n}", row, shape, spec, qualified, pack, session_id, investigation_id
             )
             findings.append(finding)
             referents.append(referent)
@@ -474,6 +506,7 @@ class EvaluateFindingsService:
                     shape.frame,
                     shape.dimension_columns,
                     spec,
+                    pack,
                     session_id,
                     investigation_id,
                 )
@@ -489,6 +522,7 @@ class EvaluateFindingsService:
         shape: ConcentrationShape,
         spec: AnalysisSpec,
         qualified: bool,
+        pack: PackPort,
         session_id: str,
         investigation_id: str,
     ) -> tuple[Finding, RegisteredReferent]:
@@ -496,24 +530,29 @@ class EvaluateFindingsService:
         value = row[schema.index_of(shape.measure)]
         rank = _as_int(row[schema.index_of(shape.rank_column)])
         share = row[schema.index_of(shape.share_column)] if shape.share_column else None
-        label = self._row_label(row, shape.frame, shape.dimension_columns)
-        metric_label = shape.measure.replace("_", " ")
+        label = self._row_label(row, shape.frame, shape.dimension_columns, pack)
+        measure_label = metric_label(shape.measure)
         window = spec.context.window.range
 
         amount = _as_int(value)
+        # The unit is the metric contract's, carried on the frame column —
+        # a ratio renders as a percentage and a count as a count, instead of
+        # falling through to a Python repr.
         magnitude = (
-            f"${abs(amount) // 100:,}" if shape.is_money and amount is not None else f"{value!r}"
+            magnitude_money(amount)
+            if shape.is_money and amount is not None
+            else format_value(value, shape.unit)
         )
         # share_of_total divides by the VISIBLE total, so with suppressed
         # cells "% of total" would overstate the concentration. Say which
         # total it is rather than quietly meaning a different one.
         share_basis = "visible total" if shape.frame.suppressed_cells else "total"
         share_text = (
-            f" ({float(share):.1%} of {share_basis})" if isinstance(share, Decimal) else ""
+            f" ({ratio_pct(share)} of {share_basis})" if isinstance(share, Decimal) else ""
         )
-        title = f"{label}: {magnitude} {metric_label}{share_text}"
+        title = f"{label}: {magnitude} {measure_label}{share_text}"
         statement = (
-            f"{label} ranks #{rank} by {metric_label} over "
+            f"{label} ranks #{rank} by {measure_label} over "
             f"{window.start.isoformat()}..{window.end.isoformat()}: {magnitude}{share_text}."
         )
 

@@ -16,17 +16,19 @@ record persisted).
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
 from revi_api.wiring import ApiComponents
+from revi_investigation.application.capability_ports import BenchmarkSpec
 from revi_investigation.application.llm.guard import assert_safe_payload
 from revi_investigation.application.ports import TextLlmRequest, TraceRecord
 from revi_investigation.application.submit_turn import TurnOutcome
 from revi_investigation.domain.records import Finding, Investigation
 from revi_investigation_contracts.api import (
+    BenchmarkPayload,
     ChartSpec,
     DefinitionalPayload,
     FindingPayload,
@@ -60,17 +62,39 @@ def _finding_value(name: str, value: object) -> FindingValue:
     return FindingValue(name=name, value=str(value))
 
 
-def finding_payload(finding: Finding) -> FindingPayload:
+def benchmark_payload(benchmark: BenchmarkSpec) -> BenchmarkPayload:
+    return BenchmarkPayload(
+        id=benchmark.id,
+        metric_id=benchmark.metric_id,
+        cohort_label=benchmark.cohort_label,
+        value_low=benchmark.value_low,
+        value_high=benchmark.value_high,
+        unit=benchmark.unit,
+        period=benchmark.period,
+        authority=benchmark.authority,
+        review_status=benchmark.review_status,
+        cautions=list(benchmark.cautions),
+        sources=list(benchmark.source_titles),
+    )
+
+
+def finding_payload(
+    finding: Finding, benchmarks: Sequence[BenchmarkSpec] = ()
+) -> FindingPayload:
+    metric_ids = [ref.id for ref in finding.metric_refs]
     return FindingPayload(
         referent=finding.referent.value,
         title=finding.title,
         statement=finding.statement,
-        metric_ids=[ref.id for ref in finding.metric_refs],
+        metric_ids=metric_ids,
         values=[_finding_value(name, value) for name, value in finding.values],
         grade=finding.grade.value,
         impact_cents=finding.impact_cents,
         confidence=finding.confidence,
         suggested_refinements=list(finding.suggested_refinements),
+        benchmarks=[
+            benchmark_payload(b) for b in benchmarks if b.metric_id in metric_ids
+        ],
     )
 
 
@@ -124,7 +148,10 @@ async def _compose_narrative(
         findings=findings,
         header=header,
         reconciliation=outcome.reconciliation,
-        benchmarks=(),
+        # The governed ranges, at last: authored with cohort labels,
+        # cautions and sources since KB wave 1, and passed here as a
+        # literal empty tuple until the round-1 review counted them.
+        benchmarks=[b.prompt_line for b in outcome.benchmarks],
     )
     assert_safe_payload(prompt)
     chunks: list[str] = []
@@ -189,7 +216,7 @@ async def assemble_turn_response(
             usage=usage,
         )
 
-    findings = [finding_payload(f) for f in outcome.findings]
+    findings = [finding_payload(f, outcome.benchmarks) for f in outcome.findings]
     if outcome.header is not None and on_event is not None:
         await on_event("context_header", outcome.header.model_dump(mode="json"))
     if on_event is not None:
@@ -269,6 +296,7 @@ async def assemble_turn_response(
             ReferentPayload(id=e.referent.value, kind=e.referent.kind.value, label=e.label)
             for e in outcome.referents
         ],
+        benchmarks=[benchmark_payload(b) for b in outcome.benchmarks],
         reconciliation=outcome.reconciliation,
         plan_hash=outcome.investigation.plan_hash,
         watermark_stale=outcome.watermark_stale,

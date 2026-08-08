@@ -18,6 +18,7 @@ from revi_investigation.application.planning import (
 from revi_investigation.application.validation import (
     PlanValidationService,
     ValidationLimits,
+    population_caveat,
 )
 from revi_kernel.capabilities import RepositoryCapabilities
 from revi_kernel.cohort import CohortDefinition, CohortRef
@@ -321,6 +322,42 @@ class TestBudgetsAndWarnings:
         spec = make_spec(measures=("denial_rate",), scope=scope)
         validated = validator.validate(planner.build(spec), spec)
         assert any("clean_claim" in w and "denial_rate" in w for w in validated.warnings)
+
+    def test_population_caveats_are_published_on_every_answer(
+        self,
+        planner: BuildInvestigationPlanService,
+        validator: PlanValidationService,
+        make_spec: SpecFactory,
+    ) -> None:
+        """The structural rule: a contract that declares a population caveat
+        in its description emits it as a warning whenever it is read. The
+        live API published denial_rate at 49.94% with its own caveat
+        nowhere in the response."""
+        spec = make_spec(measures=("denial_rate",), basis=SERVICE)
+        validated = validator.validate(planner.build(spec), spec)
+        caveats = [w for w in validated.warnings if w.startswith("population_caveat:")]
+        assert len(caveats) == 1, validated.warnings
+        assert "denial_rate" in caveats[0] and "status OPEN" in caveats[0]
+
+    def test_a_contract_without_a_caveat_emits_nothing(
+        self,
+        planner: BuildInvestigationPlanService,
+        validator: PlanValidationService,
+        make_spec: SpecFactory,
+    ) -> None:
+        spec = make_spec(measures=("cash_posted",))
+        validated = validator.validate(planner.build(spec), spec)
+        assert not [w for w in validated.warnings if w.startswith("population_caveat:")]
+
+    def test_caveat_extraction_stops_at_the_next_governed_heading(self) -> None:
+        text = (
+            "Share of adjudicated claims. Population caveat: OPEN claims are "
+            "excluded from both sides. Primary basis is remittance date. "
+            "Benchmark context: sub-5 percent."
+        )
+        caveat = population_caveat(text)
+        assert caveat == "OPEN claims are excluded from both sides."
+        assert population_caveat("no caveat here") is None
 
     def test_suppression_threshold_noted(
         self,

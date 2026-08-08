@@ -117,9 +117,11 @@ def _conversation_llm() -> MockLanguageModel:
                 {"op": "drill_into", "target": "F2"},
                 {"op": "drill_into", "target": "F3"},
                 {"op": "pivot", "measures": ["denied_dollars"]},
-                {"op": "set_dimensions", "dimensions": ["carc"]},
+                # denials key on the group code + CARC pair, never the CARC
+                # alone (codes.yaml / presentation.yaml / denied_dollars.yaml)
+                {"op": "set_dimensions", "dimensions": ["group_code", "carc"]},
             ],
-            "rationale": "pin the top-three payer cohort; denied dollars by CARC",
+            "rationale": "pin the top-three payer cohort; denied dollars by group code + CARC",
         },
         matcher=lambda p: "top three payers" in p,
     )
@@ -305,6 +307,25 @@ class TestTurnByTurn:
         trace = await _trace_payload(conversation, 3)
         primary = [p for p in trace["probes"] if not p["id"].endswith("__prior")]
         assert primary and all(p["cache_hit"] is True for p in primary)
+
+    async def test_every_turn_says_whether_it_reconciled(
+        self, conversation: Conversation
+    ) -> None:
+        """Round-1 review D8: `null` meant both "checked and agreed" and
+        "never checked", and the five-turn run produced `null` on T1, T3 and
+        T4 while T2 — the no-op turn with the same plan hash as T1 — was the
+        one that said `passed`.
+
+        Every analytical turn now states a verdict, and the ones that did
+        not reconcile name the reason."""
+        verdicts = [outcome.reconciliation for outcome in conversation.outcomes[:4]]
+        assert all(v is not None and v.startswith("status=") for v in verdicts), verdicts
+        assert verdicts[0] is not None and "first turn" in verdicts[0]
+        assert verdicts[1] is not None and "passed" in verdicts[1]
+        for verdict in verdicts[2:]:
+            assert verdict is not None
+            if verdict.startswith("status=not_applicable"):
+                assert "reason=" in verdict and len(verdict.split("reason=")[1]) > 10
 
     async def test_t5_meta_cites_t1_provenance_with_zero_probes(
         self, conversation: Conversation

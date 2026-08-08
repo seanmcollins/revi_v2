@@ -19,16 +19,85 @@ stated. Where something does not hold, it says so.
 
 | Gate | Command | Result |
 |---|---|---|
-| Python suite | `uv run pytest -q` | **633 passed**, 16 deselected (`live_llm`, `postgres`) |
-| Reference regressions | `uv run pytest -m reference -q` | **57 passed**, 592 deselected |
+| Python suite | `uv run pytest -q` | **681 passed**, 16 deselected (`live_llm`, `postgres`) |
+| Reference regressions | `uv run pytest -m reference -q` | **67 passed**, 630 deselected |
 | Lint + boundaries | `make lint` | ruff clean · import-linter **6 kept, 0 broken** · name guard clean |
-| Types | `uv run mypy packages/*/src warehouse/generator/src apps/api/src apps/scheduler/src` | **no issues in 115 source files** (strict) |
+| Types | `uv run mypy packages/*/src warehouse/generator/src apps/api/src apps/scheduler/src` | **no issues in 119 source files** (strict) |
 | Frontend | `cd apps/web && pnpm lint && pnpm test && pnpm build` | eslint clean · **208 passed, 3 skipped** (the live-API suite) · build ✓ |
 | Live API driver | server up + `REVI_LIVE_API=… npx vitest run src/lib/liveApi.test.ts` | **3 passed** — T1, a cold-start portfolio drill, a clarification, all with zero contract drift |
 
 Baseline at the start of M13 was 545 tests; the milestone added 41. The
 post-M13 fix pass took 586 → 633 (the three inverted §18.1-10 tests were
-un-inverted in place, not counted as new).
+un-inverted in place, not counted as new). The **round-1 review fix pass**
+took 633 → 681 and reference 57 → 67: comparison rendering and window-length
+guards, unit-aware published values, the adjudicated `denial_rate`
+population, authentication and tenant isolation, portfolio drillability, the
+third reconciliation state, and governed benchmarks on the wire.
+
+---
+
+## Security posture
+
+This section exists because its absence was itself a finding. The round-1
+review's sharpest criticism of this document was not that authentication
+was missing — it was that a gaps list itemizing `ruff format` counts said
+nothing at all about there being no authentication. What follows is what
+is built, and then what is not.
+
+### Built (round-1 fix pass)
+
+- **Authentication.** Every `/v1` route except `/v1/health` requires
+  `Authorization: Bearer <token>`. The token is an HMAC-SHA256-signed
+  envelope carrying `tenant`, `sub` and `exp`
+  (`apps/api/src/revi_api/auth.py`); the scheme is published in
+  `contracts/openapi.json` (`securitySchemes.HTTPBearer`, `security` on
+  all six tenant-scoped routes).
+- **Tenant isolation.** `tenant` is no longer a client-asserted body
+  field. It comes from the signature, and every `{session_id}` /
+  `{investigation_id}` lookup resolves the owning session and compares
+  tenants before returning anything. The check lives in `ApiService`, not
+  in middleware, so the in-process client is bound by it too. A
+  cross-tenant read or write is `403`, and the exploit the reviewers ran
+  end to end is pinned as a test
+  (`packages/testing/tests/test_api_auth.py::TestTenantIsolation::test_the_review_exploit_end_to_end`).
+- **Turn attribution.** A turn executes under the principal's tenant. It
+  previously executed under the hardcoded literal `"api"`, so every
+  session opened over HTTP belonged to the same tenant regardless of who
+  asked.
+- **Unconfigured means closed.** With neither `REVI_AUTH_SECRET` nor
+  `REVI_AUTH_DEV_TENANT` set, every `/v1` request is refused with `401`.
+  The development bypass is explicit, logged at startup, and reported by
+  `GET /v1/health` as `auth_mode`, so no environment can be running open
+  without saying so.
+- **CORS** origins are `REVI_CORS_ORIGINS` (comma-separated), defaulting
+  to `http://localhost:3000`.
+
+### Not built — name it before a security review does
+
+- **No identity provider.** There is no user store, no login, no
+  federation. Whoever holds `REVI_AUTH_SECRET` can sign for any tenant.
+  Tokens are bearer credentials: not revocable before expiry, replayable
+  until they lapse, and symmetric (verification implies issuance).
+- **No authorization beyond tenant.** No roles, no per-metric or per-PHI
+  scopes, no service-vs-human distinction.
+- **No audit log.** Traces record what a turn did, not who asked for it.
+  Cross-tenant refusals log a warning line and nothing more; there is no
+  tamper-evident access record and no retention policy.
+- **No rate limiting and no input caps.** A 2 MB utterance is accepted, as
+  is a 50,000-value `in` predicate; the cardinality budget guards group-by
+  cells, not predicate width.
+- **PHI / BAA scope is undefined.** The catalog's `phi` labels and
+  small-cell suppression are real controls on what *analysis* can reach,
+  but there is no encryption-at-rest story, no BAA, no de-identification
+  attestation, and the evidence cache is keyed without a tenant and has
+  no TTL or purge path — PHI-derived frames accumulate with no deletion
+  route.
+- **The warehouse connection is read-write.** Cohort materialization
+  issues `CREATE TABLE` against the analytical warehouse. That is a
+  procurement fact, not an implementation detail, and it is not yet
+  written into `architecture.md`.
+- **Secrets handling is environment variables only.** No KMS, no
+  rotation, no per-tenant keys.
 
 ---
 

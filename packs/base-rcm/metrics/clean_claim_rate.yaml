@@ -1,9 +1,14 @@
-# Clean claim rate (HFMA MAP CL-1 shape) with two honest caveats: this
-# warehouse has no scrubber events, so the clean flag is outcome-derived, and
-# there is no adjudication-status exclusion because `status` is not a catalog
-# dimension (exclusion removed — see "Exclusion polarity" in NOTES.md).
+# Clean claim rate (HFMA MAP CL-1 shape). One honest caveat remains: this
+# warehouse has no scrubber events, so the clean flag is outcome-derived.
+#
+# v2 (2026-08-08): the adjudicated-only population is restored alongside
+# denial_rate v2. Both read the same outcome-derived clean_claim flag with
+# opposite polarity, and their descriptions state that over an identical
+# population the two sum to one — an invariant that only holds if both
+# exclude the un-adjudicated tail. `status` is now certified, so the
+# exclusion resolves; `exclusions:` names the population to REMOVE.
 id: clean_claim_rate
-version: 1
+version: 2
 kind: flow
 entity_grain: claim
 numerator:
@@ -11,6 +16,7 @@ numerator:
     inner: {count_distinct: claim_id}
     where: {dimension: clean_claim, op: eq, value: true}
 denominator: {count_distinct: claim_id}
+exclusions: {dimension: status, op: eq, value: OPEN}
 primary_date_basis: submission
 allowed_date_bases: [submission, service, remit]
 scope_dimensions:
@@ -20,14 +26,13 @@ scope_dimensions:
 sign: higher_is_good
 unit: ratio
 description: >-
-  Share of claims flagged clean over every claim in the window, on the chosen
-  date basis. The denominator is not restricted to adjudicated claims: the
-  outcome-derived clean_claim flag is false until a claim resolves paid with
-  zero denials, so claims still awaiting adjudication count as not-clean and
-  trailing windows read conservatively at fresh watermarks — the watermark
-  context header discloses the data edge. Scope the window back from the
-  watermark, or cut by a status-bearing population, before reading the level
-  as a scrubber-comparable rate. Point of clarification: MAP CL-1 measures
+  Share of adjudicated claims flagged clean, on the chosen date basis.
+  Population caveat: claims still awaiting their first remittance (status
+  OPEN) are excluded from both sides — the outcome-derived clean_claim flag
+  is false until a claim resolves paid with zero denials, so an
+  un-adjudicated claim would otherwise count as not-clean for want of
+  evidence rather than because anything went wrong. Point of clarification:
+  MAP CL-1 measures
   clean claims at the pre-submission scrubber; this warehouse's clean_claim
   flag is outcome-derived (claim resolved with zero denials), so this
   contract is an outcome-based clean rate — closely related to

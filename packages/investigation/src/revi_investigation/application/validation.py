@@ -35,7 +35,9 @@
 5. **Exclusion intersection.** A user scope predicate touching a
    contract's internal exclusions or filtered-numerator dimensions (the
    "denial rate for denied claims" confusion) yields a warning surfaced
-   with the answer.
+   with the answer. In the same step, any contract whose description
+   declares a **population caveat** publishes that caveat as a warning on
+   every answer that reads the metric — see below.
 6. **Suppression plan.** The catalog's small-cell threshold is noted so the
    execution service applies it and the answer can say so.
 7. **Capability negotiation.** Cohort semi-joins, server-side top-N,
@@ -43,10 +45,28 @@
    ``repository.capabilities()`` (``SOURCE_CAPABILITY_UNSUPPORTED``).
 8. **Policy limits.** Simple plan-level budgets (probe count) enforce the
    read-only/row/time posture hooks (``QUERY_BUDGET_EXCEEDED``).
+
+Population caveats are structural, not per-metric
+=================================================
+Several contracts volunteer, in prose, that their population is not the one
+a reader would assume — ``denial_rate`` excludes un-adjudicated claims,
+``ar_balance`` values A/R at gross billed charges, ``days_in_ar`` is the
+aging form rather than MAP FM-1. That honesty was authored and then never
+left the pack: the live API published ``denial_rate`` at 49.94% with a
+``warnings`` array carrying only basis and suppression notes, while the
+contract's own caveat sat in a description nothing rendered.
+
+So the convention is mechanical: a contract description may carry exactly
+one sentence group introduced by ``Population caveat:``, and every answer
+that reads that metric emits it as a warning. Prose stays prose (the
+semantic fingerprint still excludes ``description``, so writing a caveat
+never forces a version bump), but a caveat that exists is a caveat the
+reader sees. Authoring one is a pack edit; publishing it is not optional.
 """
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass, replace
 
 from revi_calculation_contracts.contract import (
@@ -87,6 +107,33 @@ from revi_kernel.refs import SERVICE, DateBasisRef, DimensionRef
 _TIME_BUCKET_PREFIX = "time_bucket:"
 _PRIOR_SUFFIX = "__prior"
 _SNAPSHOT_DERIVED_FIELDS = frozenset({"open_balance_cents"})  # adapter-computed
+
+#: The governed marker a metric contract uses to declare that its population
+#: is narrower or wider than a reader would assume. Case-insensitive, one per
+#: contract, terminated by the next sentence that starts a new topic — in
+#: practice by the end of the paragraph the author wrote for it.
+_POPULATION_CAVEAT_MARKER = re.compile(r"population caveat:\s*", re.IGNORECASE)
+_CAVEAT_TERMINATORS = re.compile(
+    r"(?:^|(?<=\s))(?:Primary basis is|Point of clarification:|Benchmark context:|"
+    r"Denominator note|Valuation caveat:)",
+)
+
+
+def population_caveat(description: str) -> str | None:
+    """The contract's declared population caveat, or ``None``.
+
+    Pure text, deliberately: the caveat is prose the pack author wrote, and
+    lifting it verbatim is the point — a paraphrase generated here would be
+    a second, ungoverned statement of the population.
+    """
+    match = _POPULATION_CAVEAT_MARKER.search(description)
+    if match is None:
+        return None
+    tail = description[match.end() :]
+    stop = _CAVEAT_TERMINATORS.search(tail)
+    if stop is not None:
+        tail = tail[: stop.start()]
+    return " ".join(tail.split()).rstrip() or None
 
 
 @dataclass(frozen=True, slots=True)
@@ -162,6 +209,7 @@ class PlanValidationService:
             self._check_basis(node, warnings)  # step 3
             self._check_cardinality(node, warnings)  # step 4
             self._check_exclusion_intersection(node, warnings)  # step 5
+            self._publish_population_caveats(node, warnings)  # step 5 (cont.)
             grades.append((node.id, grade))
 
         self._note_suppression(plan, warnings)  # step 6
@@ -213,6 +261,17 @@ class PlanValidationService:
                     if self._field_resolves(field_id, entity, snapshot=isinstance(node.probe, SnapshotProbe)):
                         continue
                     unresolved.append(f"{contract.id}.{field_id}")
+                # A contract-internal filter dimension the catalog does not
+                # define is exactly as fatal as an unresolvable measure
+                # field — the adapter raises UNSUPPORTED_CONCEPT when it
+                # compiles the predicate — but until now nothing checked it
+                # here, so the failure surfaced as an error dialog after a
+                # click rather than as an unanswerable probe before one.
+                # (Round-1 review D4/D5: this is the ``filtered:`` half of
+                # the conformance gap ``packs/base-rcm/NOTES.md`` names.)
+                for dimension_id in sorted(_internal_filter_dimensions(contract)):
+                    if self._catalog.dimension(dimension_id) is None:
+                        unresolved.append(f"{contract.id}[{dimension_id}]")
             if unresolved:
                 dropped.add(node.id)
         # a pruned base prunes its comparison twin, and vice versa
@@ -230,7 +289,8 @@ class PlanValidationService:
             if node.id in dropped and not node.id.endswith(_PRIOR_SUFFIX):
                 warnings.append(
                     f"probe '{node.id}' omitted: its measures are not answerable at the "
-                    "source for this catalog (probe-time derived fields not yet available)"
+                    "source for this catalog (probe-time derived fields, or a "
+                    "contract-internal filter dimension the catalog does not define)"
                 )
         kept_nodes = tuple(node for node in plan.nodes if node.id not in dropped)
         if not any(not node.id.endswith(_PRIOR_SUFFIX) for node in kept_nodes):
@@ -478,6 +538,17 @@ class PlanValidationService:
                     "already constrains that dimension internally (exclusions or numerator "
                     "filter); the result reflects both conditions"
                 )
+
+    def _publish_population_caveats(self, node: ProbeNode, warnings: list[str]) -> None:
+        """Every governed population caveat, on every answer that reads the
+        metric (see the module docstring)."""
+        for contract in self._contracts_for(node):
+            caveat = population_caveat(contract.description)
+            if caveat is None:
+                continue
+            warning = f"population_caveat: {contract.id} — {caveat}"
+            if warning not in warnings:  # one probe per comparison side
+                warnings.append(warning)
 
     # ------------------------------------------------- step 6: suppression
 

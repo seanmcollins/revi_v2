@@ -186,9 +186,13 @@ def demo_script_entries() -> list[ScriptEntry]:
                     {"op": "drill_into", "target": "F2"},
                     {"op": "drill_into", "target": "F3"},
                     {"op": "pivot", "measures": ["denied_dollars"]},
-                    {"op": "set_dimensions", "dimensions": ["carc"]},
+                    # denials are keyed on the group code + CARC PAIR
+                    # (denied_dollars.yaml, presentation.yaml, codes.yaml):
+                    # CO-16 and PI-16 are different denials, and 14 of the
+                    # 20 CARCs in this warehouse span more than one group.
+                    {"op": "set_dimensions", "dimensions": ["group_code", "carc"]},
                 ],
-                "rationale": "pin the top-three payer cohort; denied dollars by CARC",
+                "rationale": "pin the top-three payer cohort; denied dollars by group code + CARC",
             },
         ),
         classify(REFERENCE_QUESTIONS[3], "refinement", 0.90),

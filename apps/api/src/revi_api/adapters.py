@@ -26,6 +26,7 @@ from revi_calculation.operators import (
 from revi_calculation.operators.reconcile import ReconciliationStatus
 from revi_calculation_contracts.contract import MetricContract
 from revi_investigation.application.capability_ports import (
+    BenchmarkSpec,
     ConclusionPolicySpec,
     PlaybookSpec,
     ProbeTemplateSpec,
@@ -39,6 +40,7 @@ from revi_kernel.refs import MetricRef
 from revi_pack.domain import (
     BindingState,
     CodeDefinition,
+    CodeSystem,
     Concept,
     KnowledgeCard,
     PackSnapshot,
@@ -159,6 +161,32 @@ class PackSnapshotPort:
             # future pack artifact types pass through silently — the engine
             # only consumes what the TermDefinition shape can carry
         return tuple(out)
+
+    def benchmarks_for_metric(self, metric_id: str) -> tuple[BenchmarkSpec, ...]:
+        return tuple(
+            BenchmarkSpec(
+                id=figure.id,
+                metric_id=figure.metric_id,
+                cohort_label=figure.cohort_label,
+                value_low=figure.value_low,
+                value_high=figure.value_high,
+                unit=figure.unit,
+                period=figure.period,
+                authority=figure.authority,
+                review_status=figure.review_status.value,
+                cautions=figure.cautions,
+                source_titles=tuple(source.title for source in figure.sources),
+            )
+            for figure in self._snapshot.benchmarks_for_metric(metric_id)
+        )
+
+    def code_title(self, system: str, code: str) -> str | None:
+        try:
+            code_system = CodeSystem(system)
+        except ValueError:
+            return None
+        definition = self._snapshot.code(code_system, code)
+        return definition.title if definition is not None else None
 
     def conclusion_policy(self, policy_id: str) -> ConclusionPolicySpec | None:
         for policy in self._snapshot.conclusion_policies:

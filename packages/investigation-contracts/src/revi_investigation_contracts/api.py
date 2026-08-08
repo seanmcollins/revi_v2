@@ -29,7 +29,16 @@ from revi_investigation_contracts.refinements import (
 
 
 class OpenSessionRequest(ClosedModel):
-    tenant: str
+    """Open (or re-join) a session.
+
+    ``tenant`` is **advisory**. It used to be the only thing deciding which
+    tenant a session belonged to, and nothing verified it; the tenant now
+    comes from the caller's signed credential and this field is only
+    cross-checked against it, so naming a different tenant is refused
+    rather than honored. Leave it empty and the credential decides.
+    """
+
+    tenant: str = ""
     session_id: str | None = None
 
 
@@ -122,6 +131,30 @@ class FindingValue(ClosedModel):
     value: str | int | float | bool | None = None
 
 
+class BenchmarkPayload(ClosedModel):
+    """One governed external benchmark range for a metric.
+
+    A range, never a point target, and never separable from its context:
+    ``cohort_label``, ``period``, ``authority``, ``cautions`` and
+    ``review_status`` are all required on the wire because a figure quoted
+    without them is a different claim from the one its source made.
+    ``review_status`` is ``machine_researched`` for every figure shipped so
+    far — a consumer that renders these as certified truth is asserting
+    more than the pack does."""
+
+    id: str
+    metric_id: str
+    cohort_label: str
+    value_low: str
+    value_high: str
+    unit: str
+    period: str
+    authority: str
+    review_status: str
+    cautions: list[str] = Field(default_factory=list)
+    sources: list[str] = Field(default_factory=list)
+
+
 class FindingPayload(ClosedModel):
     referent: str
     title: str
@@ -132,6 +165,11 @@ class FindingPayload(ClosedModel):
     impact_cents: int | None = None
     confidence: str = "high"
     suggested_refinements: list[str] = Field(default_factory=list)
+    #: Governed external context for this finding's metrics. Ranges with
+    #: their cohorts and cautions, or empty when the pack has none — the
+    #: field is never omitted, so a client can tell "no benchmark exists"
+    #: from "benchmarks were not plumbed".
+    benchmarks: list[BenchmarkPayload] = Field(default_factory=list)
 
 
 ChartType = Literal["bar", "grouped_bar", "stacked_bar", "line", "waterfall", "table", "range_band"]
@@ -227,6 +265,9 @@ class TurnAnswer(ClosedModel):
     meta_answer: MetaAnswerPayload | None = None
     definitional: DefinitionalPayload | None = None
     referents: list[ReferentPayload] = Field(default_factory=list)
+    #: Every benchmark cited by any finding on this turn, deduplicated —
+    #: the turn-level view of the same governed content the findings carry.
+    benchmarks: list[BenchmarkPayload] = Field(default_factory=list)
     reconciliation: str | None = None
     plan_hash: str | None = None
     watermark_stale: bool = False
@@ -347,12 +388,38 @@ class AnomalyCard(ClosedModel):
     #: Required, never defaulted: a card whose drill handle could be
     #: absent is a card the UI would have to invent a question for.
     drill_spec: TypedInvestigationSpec
+    #: Whether ``drill_spec`` can actually be answered at this catalog and
+    #: pack version — decided by running the real planning + §6.6
+    #: validation pass over it, without touching the warehouse.
+    #:
+    #: The worklist used to rank 33 cards of which 6 could be opened, and
+    #: the first one that opened was rank 17: ranks 1-16 all returned an
+    #: error dialog, and ~90% of the ranked dollars were un-investigable.
+    #: A worklist that leads with work nobody can start is worse than a
+    #: shorter one, so an undrillable card now says so on the wire and
+    #: sorts below every card that can be opened. Its detected evidence
+    #: still shows — the detection is real; only the investigation is
+    #: unavailable.
+    drillable: bool = True
+    #: Why not, in the platform's own error vocabulary
+    #: (``UNSUPPORTED_CONCEPT: ...``), or ``None`` when drillable.
+    drill_unavailable_reason: str | None = None
+    #: Set when the drill investigates a different metric than the detector
+    #: named, with the governed rationale for the substitution. Never
+    #: silent: a repointed drill does not confirm the card's own figure, it
+    #: measures the same cell with a contract that can express it.
+    drill_repointed_from: str | None = None
+    drill_repoint_rationale: str | None = None
 
 
 class PortfolioResponse(ClosedModel):
     """Detected anomalies at the pinned watermark, governed-priority ranked."""
 
     status: Literal["ok", "empty"] = "empty"
+    #: The tenant this worklist was built for. The route used to take no
+    #: tenant at all, which made "whose worklist is this?" unanswerable from
+    #: the payload.
+    tenant: str = ""
     watermark_id: str = ""
     formula_version: str = ""
     weights: dict[str, float] = Field(default_factory=dict)

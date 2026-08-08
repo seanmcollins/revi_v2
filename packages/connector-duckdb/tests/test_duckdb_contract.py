@@ -672,24 +672,26 @@ class TestReferencePackContracts:
     async def test_clean_claim_rate_executes_and_reads_the_whole_window(
         self, pack_reference_repository: DuckDbAnalyticalRepository
     ) -> None:
-        """Before the polarity correction this raised UNSUPPORTED_CONCEPT:
-        its exclusion named `status`, which is not a catalog dimension, so
-        every probe touching the metric was pruned as unanswerable."""
+        """v2's exclusion, executed. `status` is certified, so
+        `exclusions: {status eq OPEN}` compiles to
+        `FILTER (WHERE NOT (status = 'OPEN'))` on BOTH sides and the
+        population is adjudicated claims only."""
         wm = (await pack_reference_repository.list_watermarks())[-1]
         frame = await pack_reference_repository.execute(_pack_probe("clean_claim_rate"), watermark=wm)
         assert frame.schema.names == ("clean_claim_rate__num", "clean_claim_rate__den")
         numerator, denominator = frame.rows[0]
         assert isinstance(numerator, int) and isinstance(denominator, int)
-        assert (numerator, denominator) == (13_725, 18_410)
-        assert 0.7 < numerator / denominator < 0.8
+        assert (numerator, denominator) == (13_725, 15_068)
+        assert 0.9 < numerator / denominator < 0.92
         # every dimension it touches is certified, so nothing downgrades it
         assert frame.evidence_grade is EvidenceGrade.DIRECT
 
     async def test_clean_claim_rate_denominator_is_every_claim_in_the_window(
         self, pack_reference_repository: DuckDbAnalyticalRepository
     ) -> None:
-        """The population is unrestricted, exactly as the contract now says:
-        the denominator equals claim_volume over the same window."""
+        """The exclusion is symmetric and it bites: the denominator is
+        claim_volume MINUS the un-adjudicated claims in the window, which is
+        exactly the population the contract's caveat describes."""
         wm = (await pack_reference_repository.list_watermarks())[-1]
         frame = await pack_reference_repository.execute(
             _pack_probe("clean_claim_rate", "claim_volume"), watermark=wm
@@ -700,23 +702,29 @@ class TestReferencePackContracts:
             "claim_volume",
         )
         _, denominator, claim_volume = frame.rows[0]
-        assert denominator == claim_volume == 18_410
+        assert claim_volume == 18_410  # every claim in the window
+        assert denominator == 15_068  # ...minus the 3,342 still awaiting a remit
 
     async def test_clean_and_denied_partition_the_same_population(
         self, pack_reference_repository: DuckDbAnalyticalRepository
     ) -> None:
-        """`clean_claim` is a non-null boolean, so with both contracts now
-        reading the same unrestricted population the two numerators sum to
-        the shared denominator — the "complementary to denial_rate" claim in
-        both descriptions, asserted rather than asserted-in-prose."""
+        """`clean_claim` is a non-null boolean and both contracts now carry
+        the SAME adjudicated-only exclusion, so their numerators sum to the
+        shared denominator — the "over an identical population the two sum
+        to one" claim in both descriptions, asserted rather than
+        asserted-in-prose. It is also the invariant that forced
+        clean_claim_rate to v2 alongside denial_rate: restoring one
+        population and not the other would have broken it silently."""
         wm = (await pack_reference_repository.list_watermarks())[-1]
         frame = await pack_reference_repository.execute(
             _pack_probe("clean_claim_rate", "denial_rate"), watermark=wm
         )
         clean_num, clean_den, denied_num, denied_den = frame.rows[0]
-        assert clean_den == denied_den == 18_410
+        assert clean_den == denied_den == 15_068
         assert clean_num + denied_num == clean_den
-        assert (clean_num, denied_num) == (13_725, 4_685)
+        # v1 read (13_725, 4_685) over 18_410: 3,342 of those 4,685 "denials"
+        # were claims with no adjudication outcome at all.
+        assert (clean_num, denied_num) == (13_725, 1_343)
 
     async def test_clean_claim_rate_cut_by_payer_reconciles_to_the_total(
         self, pack_reference_repository: DuckDbAnalyticalRepository
@@ -728,7 +736,7 @@ class TestReferencePackContracts:
         assert cut.schema.names == ("payer", "clean_claim_rate__num", "clean_claim_rate__den")
         assert len(cut.rows) == 12
         assert sum(row[1] for row in cut.rows) == 13_725  # type: ignore[misc]
-        assert sum(row[2] for row in cut.rows) == 18_410  # type: ignore[misc]
+        assert sum(row[2] for row in cut.rows) == 15_068  # type: ignore[misc]
 
     async def test_denials_unworked_pct_v2_removes_patient_responsibility(
         self, pack_reference_repository: DuckDbAnalyticalRepository
@@ -793,4 +801,6 @@ class TestReferencePackContracts:
             _pack_probe("denial_rate", window=TimeWindow(basis=SERVICE, range=_PACK_WINDOW)),
             watermark=wm,
         )
-        assert service.rows[0] == (7_484, 19_672)
+        # v1 read (7_484, 19_672) = 38.0%: every un-adjudicated claim in
+        # the window counted as denied. v2 excludes them on both sides.
+        assert service.rows[0] == (1_212, 13_400)

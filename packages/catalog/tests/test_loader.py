@@ -22,7 +22,7 @@ def catalog() -> CatalogSnapshot:
 
 def test_loads_all_artifacts(catalog: CatalogSnapshot) -> None:
     assert len(catalog.entities) == 5
-    assert len(catalog.dimensions) == 22
+    assert len(catalog.dimensions) == 23
     assert len(catalog.measures) == 20
     assert len(catalog.date_bases) == 5
     assert len(catalog.join_paths) == 7

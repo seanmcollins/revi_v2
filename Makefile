@@ -6,7 +6,7 @@ SHELL := /bin/bash
 WAREHOUSE_PATH ?= data/revi_warehouse.duckdb
 
 .PHONY: help bootstrap warehouse db-up db-down migrate sweep api web dev \
-        test reference lint fmt typecheck openapi clean
+        test reference lint fmt typecheck openapi token clean
 
 help: ## List targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  %-12s %s\n", $$1, $$2}'
@@ -30,8 +30,12 @@ migrate: ## Apply Postgres migrations
 sweep: ## Run one cohort TTL sweep (drop expired cohort tables; --dry-run supported)
 	uv run python -m revi_scheduler.sweep
 
-api: ## Run the FastAPI app (dev)
-	uv run uvicorn revi_api.main:app --reload --port 8000
+api: ## Run the FastAPI app (dev; open auth — see REVI_AUTH_DEV_TENANT)
+	REVI_AUTH_DEV_TENANT=$${REVI_AUTH_DEV_TENANT:-demo} \
+	  uv run uvicorn revi_api.main:app --reload --port 8000
+
+token: ## Mint an API bearer token (needs REVI_AUTH_SECRET; --new-secret to create one)
+	uv run python -m revi_api.mint_token $(ARGS)
 
 web: ## Run the Next.js app (dev)
 	cd apps/web && pnpm dev

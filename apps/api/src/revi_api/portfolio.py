@@ -29,10 +29,33 @@ anomaly is an external detection system's assertion, not a number this
 platform computed from certified semantics, so each card is stamped
 ``provenance="external_detection"`` with the priority formula version and
 the source watermark. See :class:`AnomalyCard` for the full rationale.
+
+Ranking honesty (round-1 review D5)
+===================================
+The governed priority formula answers "what matters most". It does not
+answer "what can I open", and the two were anti-correlated almost
+perfectly: 33 cards, 6 drillable, first drillable card at **rank 17**,
+~90% of the ranked dollars behind an error dialog. Ranks 1 and 2 were
+``UNSUPPORTED_CONCEPT``; rank 3 was ``DATE_BASIS_INVALID``.
+
+Two things changed, neither of which touches the formula:
+
+- **Drillability is decided before the card is published.** Each drill
+  spec is run through the *real* planning and §6.6 validation pass — no
+  warehouse query, no execution — and the card carries ``drillable`` plus
+  the platform's own refusal text. Undrillable cards keep their score and
+  their detected evidence, and sort below every card that can be opened,
+  so the top of the worklist is work somebody can start today.
+- **Drill handles may be repointed by governed content.** A record whose
+  metric id cannot express the impact it published (a ratio contract
+  reporting dollars) drills the contract that can, and says on the card
+  which metric it substituted and why. See ``drill_repoints`` in
+  ``packs/base-rcm/anomaly_actionability.yaml``.
 """
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -106,7 +129,13 @@ def _age_days(record: AnomalyRecord, watermark: DataWatermark) -> int:
     return max(0, (watermark.loaded_at.date() - onset).days)
 
 
-def _drill_spec(record: AnomalyRecord) -> TypedInvestigationSpec:
+#: Decides whether a drill handle can be answered at a watermark. Returns
+#: the platform's own refusal text, or ``None`` when the spec plans and
+#: validates.
+DrillabilityProbe = Callable[[TypedInvestigationSpec, DataWatermark], str | None]
+
+
+def _drill_spec(record: AnomalyRecord, metric_id: str | None = None) -> TypedInvestigationSpec:
     """The card's drill handle: a complete, executable typed investigation.
 
     The detector asserts a *level* about one cell — this metric, these
@@ -128,7 +157,7 @@ def _drill_spec(record: AnomalyRecord) -> TypedInvestigationSpec:
     the point of the typed first turn — it now has a parent to land on.
     """
     return TypedInvestigationSpec(
-        metric_ids=[record.metric_id],
+        metric_ids=[metric_id or record.metric_id],
         dimensions=[dimension for dimension, _ in record.dimensions],
         filters=[
             AddFilterModel(op="add_filter", dimension=dimension, predicate_op="eq", values=[value])
@@ -144,9 +173,12 @@ def build_portfolio(
     watermark: DataWatermark,
     policy: PriorityPolicy,
     rules: ActionabilityRules,
+    tenant: str = "",
     warnings: tuple[str, ...] = (),
+    drillability: DrillabilityProbe | None = None,
 ) -> PortfolioResponse:
-    """Rank the anomaly population by the governed priority formula."""
+    """Rank the anomaly population by the governed priority formula, then
+    float the cards the platform can actually investigate to the top."""
     active = [r for r in records if r.status.lower() not in _RESOLVED_STATUSES]
     all_warnings = list(warnings)
     if not active:
@@ -157,6 +189,7 @@ def build_portfolio(
             )
         return PortfolioResponse(
             status="empty",
+            tenant=tenant,
             watermark_id=watermark.id,
             formula_version=PRIORITY_FORMULA_VERSION,
             weights=policy.as_weights(),
@@ -169,6 +202,9 @@ def build_portfolio(
 
     cards: list[AnomalyCard] = []
     for record in active:
+        repoint = rules.repoint_for(record.metric_id)
+        drill_spec = _drill_spec(record, repoint.to_metric_id if repoint else None)
+        reason = drillability(drill_spec, watermark) if drillability is not None else None
         assessment = assess(rules.rule_for(record.category), record)
         age = _age_days(record, watermark)
         recency = Decimal(str(0.5 ** (age / float(policy.half_life_days))))
@@ -206,7 +242,11 @@ def build_portfolio(
                 actionability_rationale=assessment.rationale,
                 priority_score=round(float(score), 6),
                 compliance_floor_applied=floored,
-                drill_spec=_drill_spec(record),
+                drill_spec=drill_spec,
+                drillable=reason is None,
+                drill_unavailable_reason=reason,
+                drill_repointed_from=repoint.from_metric_id if repoint else None,
+                drill_repoint_rationale=repoint.rationale if repoint else None,
                 # honest provenance in place of an evidence grade: this row
                 # is an external detector's assertion read at a watermark,
                 # ordered by a versioned platform formula (see AnomalyCard)
@@ -215,9 +255,25 @@ def build_portfolio(
                 source_watermark_id=watermark.id,
             )
         )
-    cards.sort(key=lambda c: (-c.priority_score, -abs(c.impact_cents), c.anomaly_id))
+    # Governed priority still decides the order; drillability decides which
+    # half of the list you are in. A worklist whose first sixteen rows all
+    # open an error dialog is not a worklist.
+    cards.sort(
+        key=lambda c: (not c.drillable, -c.priority_score, -abs(c.impact_cents), c.anomaly_id)
+    )
+    blocked = [c for c in cards if not c.drillable]
+    if blocked:
+        blocked_cents = sum(abs(c.impact_cents) for c in blocked)
+        total_cents = sum(abs(c.impact_cents) for c in cards) or 1
+        all_warnings.append(
+            f"{len(blocked)} of {len(cards)} detected anomalies "
+            f"({blocked_cents / total_cents:.0%} of ranked impact) are not investigable at "
+            "this catalog and pack version; they are detected, ranked, and listed after the "
+            "cards that can be opened, with the platform's refusal on each"
+        )
     return PortfolioResponse(
         status="ok",
+        tenant=tenant,
         watermark_id=watermark.id,
         formula_version=PRIORITY_FORMULA_VERSION,
         weights=policy.as_weights(),

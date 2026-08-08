@@ -97,6 +97,10 @@ export interface paths {
         /**
          * Open Session
          * @description Open a session pinned to the newest watermark and active pack.
+         *
+         *     The tenant comes from the token. A body naming a different one is
+         *     refused rather than honored — that field used to be the only thing
+         *     deciding which tenant a session belonged to.
          */
         post: operations["open_session_v1_sessions_post"];
         delete?: never;
@@ -263,7 +267,18 @@ export interface components {
             detected_at: string;
             /** Dimensions */
             dimensions?: components["schemas"]["AnomalyDimension"][];
+            /** Drill Repoint Rationale */
+            drill_repoint_rationale?: string | null;
+            /** Drill Repointed From */
+            drill_repointed_from?: string | null;
             drill_spec: components["schemas"]["TypedInvestigationSpec"];
+            /** Drill Unavailable Reason */
+            drill_unavailable_reason?: string | null;
+            /**
+             * Drillable
+             * @default true
+             */
+            drillable: boolean;
             /**
              * Impact Cents
              * @default 0
@@ -313,6 +328,42 @@ export interface components {
             dimension: string;
             /** Value */
             value: string;
+        };
+        /**
+         * BenchmarkPayload
+         * @description One governed external benchmark range for a metric.
+         *
+         *     A range, never a point target, and never separable from its context:
+         *     ``cohort_label``, ``period``, ``authority``, ``cautions`` and
+         *     ``review_status`` are all required on the wire because a figure quoted
+         *     without them is a different claim from the one its source made.
+         *     ``review_status`` is ``machine_researched`` for every figure shipped so
+         *     far — a consumer that renders these as certified truth is asserting
+         *     more than the pack does.
+         */
+        BenchmarkPayload: {
+            /** Authority */
+            authority: string;
+            /** Cautions */
+            cautions?: string[];
+            /** Cohort Label */
+            cohort_label: string;
+            /** Id */
+            id: string;
+            /** Metric Id */
+            metric_id: string;
+            /** Period */
+            period: string;
+            /** Review Status */
+            review_status: string;
+            /** Sources */
+            sources?: string[];
+            /** Unit */
+            unit: string;
+            /** Value High */
+            value_high: string;
+            /** Value Low */
+            value_low: string;
         };
         /** CapabilitiesResponse */
         CapabilitiesResponse: {
@@ -506,6 +557,8 @@ export interface components {
         };
         /** FindingPayload */
         FindingPayload: {
+            /** Benchmarks */
+            benchmarks?: components["schemas"]["BenchmarkPayload"][];
             /**
              * Confidence
              * @default high
@@ -611,11 +664,23 @@ export interface components {
             /** Warnings */
             warnings?: string[];
         };
-        /** OpenSessionRequest */
+        /**
+         * OpenSessionRequest
+         * @description Open (or re-join) a session.
+         *
+         *     ``tenant`` is **advisory**. It used to be the only thing deciding which
+         *     tenant a session belonged to, and nothing verified it; the tenant now
+         *     comes from the caller's signed credential and this field is only
+         *     cross-checked against it, so naming a different tenant is refused
+         *     rather than honored. Leave it empty and the credential decides.
+         */
         OpenSessionRequest: {
             /** Session Id */
             session_id?: string | null;
-            /** Tenant */
+            /**
+             * Tenant
+             * @default
+             */
             tenant: string;
         };
         /** PivotModel */
@@ -646,6 +711,11 @@ export interface components {
              * @enum {string}
              */
             status: "ok" | "empty";
+            /**
+             * Tenant
+             * @default
+             */
+            tenant: string;
             /** Warnings */
             warnings?: string[];
             /**
@@ -801,6 +871,8 @@ export interface components {
         };
         /** TurnAnswer */
         TurnAnswer: {
+            /** Benchmarks */
+            benchmarks?: components["schemas"]["BenchmarkPayload"][];
             /** Chart Specs */
             chart_specs?: components["schemas"]["ChartSpec"][];
             context_header?: components["schemas"]["ContextHeaderPayload"] | null;
@@ -1046,6 +1118,24 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
+            /** @description Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             /** @description Unknown session, investigation, or referent (REFERENT_NOT_FOUND). */
             404: {
                 headers: {
@@ -1104,6 +1194,24 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
+            /** @description Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             /** @description Unknown session, investigation, or referent (REFERENT_NOT_FOUND). */
             404: {
                 headers: {
@@ -1155,6 +1263,24 @@ export interface operations {
             };
             /** @description Stable §12 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, …). */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404. */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1227,6 +1353,24 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
+            /** @description Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             /** @description Unknown session, investigation, or referent (REFERENT_NOT_FOUND). */
             404: {
                 headers: {
@@ -1280,6 +1424,24 @@ export interface operations {
             };
             /** @description Stable §12 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, …). */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404. */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -1354,6 +1516,24 @@ export interface operations {
                     "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
+            /** @description Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             /** @description Unknown session, investigation, or referent (REFERENT_NOT_FOUND). */
             404: {
                 headers: {
@@ -1419,6 +1599,24 @@ export interface operations {
             };
             /** @description Stable §12 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, …). */
             400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404. */
+            403: {
                 headers: {
                     [name: string]: unknown;
                 };
