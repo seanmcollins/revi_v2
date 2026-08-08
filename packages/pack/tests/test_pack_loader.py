@@ -1,5 +1,6 @@
 """Loader tests: strict YAML -> typed layer, precise rejection messages."""
 
+from datetime import date
 from decimal import Decimal
 from pathlib import Path
 
@@ -10,7 +11,14 @@ from revi_kernel.filters import Predicate, PredicateOp
 from revi_kernel.grades import EvidenceGrade
 from revi_kernel.refs import DateBasisRef, EntityGrain, FieldRef
 from revi_kernel.scope import RangeMode, RelativeRange, TimeUnit
-from revi_pack.domain import AliasOverride, BindingState, CodeSystem, DetectorOverride, PackLayerKind
+from revi_pack.domain import (
+    AliasOverride,
+    BindingState,
+    CodeSystem,
+    DetectorOverride,
+    PackLayerKind,
+    ReviewStatus,
+)
 from revi_pack.errors import PackLoadError
 from revi_pack.loader import load_layer
 
@@ -106,6 +114,39 @@ def test_load_base_layer() -> None:
         ("impact", Decimal("0.7")),
         ("recency", Decimal("0.3")),
     )
+
+
+def test_load_knowledge_cards() -> None:
+    layer = load_layer(FIXTURES / "base")
+    assert [c.id for c in layer.knowledge_cards] == ["cob_denial_workup"]
+    card = layer.knowledge_cards[0]
+    assert card.title == "Working COB denials"
+    assert card.domains == ("denials", "eligibility")
+    assert card.aliases == ("COB", "cob workup")
+    assert len(card.key_points) == 3
+    assert card.cautions == ("Payer-specific COB rules must be confirmed against the contract.",)
+    assert card.authored_by == "machine-researched (KB wave 1, 2026-08-07)"
+    assert card.review_status is ReviewStatus.MACHINE_RESEARCHED
+    source = card.sources[0]
+    assert source.effective_from == date(2024, 1, 1)
+    assert source.effective_to is None
+    assert source.last_verified_at == date(2026, 8, 7)
+
+
+def test_load_benchmarks() -> None:
+    layer = load_layer(FIXTURES / "base")
+    assert [b.id for b in layer.benchmarks] == ["denial_rate_industry"]
+    benchmark = layer.benchmarks[0]
+    assert benchmark.metric_id == "denial_rate"
+    assert benchmark.cohort_label == "US hospitals, all payers"
+    assert (benchmark.value_low, benchmark.value_high) == ("0.06", "0.13")
+    assert benchmark.unit == "ratio"
+    assert benchmark.period == "CY2025"
+    assert benchmark.review_status is ReviewStatus.MACHINE_RESEARCHED
+    assert benchmark.cautions == (
+        "Survey-based range; denominator definitions vary by respondent.",
+    )
+    assert benchmark.sources[0].last_verified_at == date(2026, 8, 7)
 
 
 def test_load_tenant_overlay() -> None:
@@ -206,4 +247,73 @@ def test_predicate_value_and_values_conflict(tmp_path: Path) -> None:
     metric += "exclusions: {dimension: a, op: eq, value: x, values: [y]}\n"
     write_layer(tmp_path, {"metrics/m4.yaml": metric})
     with pytest.raises(PackLoadError, match="either 'value' or 'values'"):
+        load_layer(tmp_path)
+
+
+_CARD_STUB = """\
+knowledge_cards:
+  - id: k1
+    title: T1
+    summary: S1
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+"""
+
+_BENCHMARK_ENTRY = """\
+  - id: {benchmark_id}
+    metric_id: m1
+    cohort_label: US hospitals, all payers
+    value_low: "1"
+    value_high: "2"
+    unit: ratio
+    period: CY2025
+    authority: survey
+    review_status: human_approved
+"""
+
+
+def test_knowledge_unknown_key_rejected(tmp_path: Path) -> None:
+    write_layer(tmp_path, {"knowledge.yaml": _CARD_STUB + "    key_pointz: [oops]\n"})
+    with pytest.raises(
+        PackLoadError, match=r"knowledge\.yaml\.knowledge_cards\[0\].*unknown key.*key_pointz"
+    ):
+        load_layer(tmp_path)
+
+
+def test_knowledge_invalid_review_status_named_precisely(tmp_path: Path) -> None:
+    stub = _CARD_STUB.replace("review_status: machine_researched", "review_status: reviewed")
+    write_layer(tmp_path, {"knowledge.yaml": stub})
+    with pytest.raises(PackLoadError, match="'reviewed' is not a valid review status"):
+        load_layer(tmp_path)
+
+
+def test_source_timestamp_rejected_where_date_expected(tmp_path: Path) -> None:
+    stub = _CARD_STUB + (
+        "    sources:\n"
+        "      - id: s1\n"
+        "        title: T\n"
+        "        publisher: P\n"
+        "        authority: authoritative\n"
+        "        last_verified_at: 2026-08-07 10:00:00\n"
+    )
+    write_layer(tmp_path, {"knowledge.yaml": stub})
+    with pytest.raises(PackLoadError, match=r"last_verified_at: expected a date, got a timestamp"):
+        load_layer(tmp_path)
+
+
+def test_benchmark_unknown_key_rejected(tmp_path: Path) -> None:
+    stub = "benchmarks:\n" + _BENCHMARK_ENTRY.format(benchmark_id="b1") + "    target: 0.05\n"
+    write_layer(tmp_path, {"benchmarks.yaml": stub})
+    with pytest.raises(PackLoadError, match=r"benchmarks\.yaml\.benchmarks\[0\].*unknown key.*target"):
+        load_layer(tmp_path)
+
+
+def test_duplicate_benchmark_id_within_layer_rejected(tmp_path: Path) -> None:
+    stub = (
+        "benchmarks:\n"
+        + _BENCHMARK_ENTRY.format(benchmark_id="b1")
+        + _BENCHMARK_ENTRY.format(benchmark_id="b1")
+    )
+    write_layer(tmp_path, {"benchmarks.yaml": stub})
+    with pytest.raises(PackLoadError, match="duplicate benchmark id 'b1'"):
         load_layer(tmp_path)

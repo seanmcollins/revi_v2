@@ -10,16 +10,19 @@ from revi_kernel.errors import PolicyDeniedError
 from revi_kernel.grades import EvidenceGrade
 from revi_pack.domain import (
     AliasOverride,
+    BenchmarkFigure,
     BindingCandidate,
     BindingState,
     Concept,
     DetectorOverride,
     DetectorPolicy,
+    KnowledgeCard,
     PackLayer,
     PackLayerKind,
     Playbook,
     PresentationRecipe,
     RankingPolicy,
+    ReviewStatus,
 )
 from revi_pack.errors import PackCompositionError
 from revi_pack.loader import load_layer
@@ -185,6 +188,46 @@ def test_detector_override_for_unknown_policy_rejected(base: PackLayer) -> None:
     layer = overlay(detector_overrides=(DetectorOverride(id="ghost", threshold=Decimal("0.1")),))
     with pytest.raises(PackCompositionError, match="unknown policy 'ghost'"):
         compose([base, layer])
+
+
+def test_new_cards_and_benchmarks_in_overlay_are_additive(base: PackLayer) -> None:
+    new_card = KnowledgeCard(
+        id="appeal_letter_workup",
+        title="Working appeal letters",
+        domains=("denials",),
+        aliases=("appeal letters",),
+        summary="How to assemble and track payer appeal letters.",
+        key_points=("Attach the primary EOB.",),
+        cautions=(),
+        authored_by="machine-researched (KB wave 1, 2026-08-07)",
+        review_status=ReviewStatus.MACHINE_RESEARCHED,
+    )
+    new_benchmark = BenchmarkFigure(
+        id="denied_amount_industry",
+        metric_id="denied_amount",
+        cohort_label="US hospitals, all payers",
+        value_low="100000",
+        value_high="250000",
+        unit="money_cents",
+        period="CY2025",
+        authority="survey",
+        review_status=ReviewStatus.HUMAN_APPROVED,
+    )
+    composed = compose([base, overlay(knowledge_cards=(new_card,), benchmarks=(new_benchmark,))])
+    assert {c.id for c in composed.knowledge_cards} == {"cob_denial_workup", "appeal_letter_workup"}
+    assert {b.id for b in composed.benchmarks} == {"denial_rate_industry", "denied_amount_industry"}
+
+
+def test_knowledge_card_redefinition_denied(base: PackLayer) -> None:
+    clone = replace(base.knowledge_cards[0], summary="hijacked")
+    with pytest.raises(PolicyDeniedError, match="may not redefine knowledge card 'cob_denial_workup'"):
+        compose([base, overlay(knowledge_cards=(clone,))])
+
+
+def test_benchmark_redefinition_denied(base: PackLayer) -> None:
+    clone = replace(base.benchmarks[0], value_high="0.99")
+    with pytest.raises(PolicyDeniedError, match="may not redefine benchmark 'denial_rate_industry'"):
+        compose([base, overlay(benchmarks=(clone,))])
 
 
 def test_new_detector_policy_in_overlay_is_additive(base: PackLayer) -> None:

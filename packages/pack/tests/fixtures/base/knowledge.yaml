@@ -1,0 +1,29 @@
+knowledge_cards:
+  - id: cob_denial_workup
+    title: Working COB denials
+    domains: [denials, eligibility]
+    # Shares the "COB" alias with the cob concept on purpose: a card
+    # elaborates a concept, so cross-type alias sharing is legal.
+    aliases:
+      - COB
+      - cob workup
+    summary: >-
+      How to work a coordination-of-benefits denial: confirm the primary
+      payer on file, check the eligibility response for other coverage, and
+      rebill with the primary EOB attached.
+    key_points:
+      - Verify other-coverage flags in the most recent eligibility response.
+      - Request the primary EOB before rebilling the secondary payer.
+      - Track the payer-specific COB reprocessing window.
+    cautions:
+      - Payer-specific COB rules must be confirmed against the contract.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: src-cob-manual
+        title: Coordination of Benefits Handbook
+        publisher: Example Clearinghouse Press
+        url: https://example.test/cob-handbook
+        authority: licensed_reference
+        effective_from: 2024-01-01
+        last_verified_at: 2026-08-07

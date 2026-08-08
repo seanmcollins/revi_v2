@@ -1,0 +1,19 @@
+benchmarks:
+  - id: denial_rate_industry
+    metric_id: denial_rate
+    cohort_label: US hospitals, all payers
+    value_low: "0.06"
+    value_high: "0.13"
+    unit: ratio
+    period: CY2025
+    authority: industry survey aggregate
+    review_status: machine_researched
+    cautions:
+      - Survey-based range; denominator definitions vary by respondent.
+    sources:
+      - id: src-benchmark-survey
+        title: Revenue Cycle Benchmarking Survey
+        publisher: Example Analytics Guild
+        url: https://example.test/rcm-benchmarks
+        authority: industry_survey
+        last_verified_at: 2026-08-07

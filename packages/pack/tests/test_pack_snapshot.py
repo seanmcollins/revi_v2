@@ -10,12 +10,14 @@ from revi_calculation_contracts.contract import SignConvention
 from revi_pack.domain import (
     CodeSystem,
     Concept,
+    KnowledgeCard,
     PackLayer,
     PackLayerKind,
     PackSnapshot,
     PackVersion,
     Playbook,
     ProbeTemplate,
+    ReviewStatus,
     normalize_term,
 )
 from revi_pack.errors import PackIntegrityError
@@ -142,6 +144,29 @@ def test_lookup_helpers(snapshot: PackSnapshot) -> None:
     assert snapshot.code(CodeSystem.RARC, "3") is None
 
 
+def test_card_and_benchmark_lookups(snapshot: PackSnapshot) -> None:
+    card = snapshot.card("cob_denial_workup")
+    assert card is not None
+    assert card.review_status is ReviewStatus.MACHINE_RESEARCHED
+    assert snapshot.card("nope") is None
+
+    figures = snapshot.benchmarks_for_metric("denial_rate")
+    assert [b.id for b in figures] == ["denial_rate_industry"]
+    assert (figures[0].value_low, figures[0].value_high) == ("0.06", "0.13")
+    assert snapshot.benchmarks_for_metric("denied_amount") == ()
+    assert snapshot.benchmarks_for_metric("nope") == ()
+
+
+def test_resolve_term_returns_knowledge_card(snapshot: PackSnapshot) -> None:
+    card = snapshot.card("cob_denial_workup")
+    cob = snapshot.concept("cob")
+    assert card is not None and cob is not None
+    assert snapshot.resolve_term("cob workup") == (card,)
+    assert snapshot.resolve_term("Working COB denials") == (card,)  # title is implicit alias
+    # A shared alias returns the concept first, then the card that elaborates it.
+    assert snapshot.resolve_term("COB") == (cob, card)
+
+
 # ---------------------------------------------------------------------------
 # integrity invariants
 
@@ -152,9 +177,41 @@ def _concept(concept_id: str, *aliases: str) -> Concept:
     )
 
 
+def _card(card_id: str, *aliases: str) -> KnowledgeCard:
+    return KnowledgeCard(
+        id=card_id,
+        title=card_id.title(),
+        domains=(),
+        aliases=aliases,
+        summary="s",
+        key_points=(),
+        cautions=(),
+        authored_by="machine-researched (KB wave 1, 2026-08-07)",
+        review_status=ReviewStatus.MACHINE_RESEARCHED,
+    )
+
+
 def test_duplicate_alias_across_concepts_rejected() -> None:
     with pytest.raises(PackIntegrityError, match="alias 'shared' is owned by two concepts"):
         make_snapshot(concepts=(_concept("a", "shared"), _concept("b", "Shared!")))
+
+
+def test_duplicate_alias_across_cards_rejected() -> None:
+    with pytest.raises(PackIntegrityError, match="alias 'shared' is owned by two knowledge cards"):
+        make_snapshot(knowledge_cards=(_card("k1", "shared"), _card("k2", "Shared!")))
+
+
+def test_card_may_share_alias_with_concept() -> None:
+    concept = _concept("a", "shared")
+    card = _card("a_card", "shared")  # a card elaborates a concept: legal
+    snapshot = make_snapshot(concepts=(concept,), knowledge_cards=(card,))
+    assert snapshot.resolve_term("shared") == (concept, card)
+
+
+def test_duplicate_card_id_rejected() -> None:
+    card = _card("k1")
+    with pytest.raises(PackIntegrityError, match="duplicate knowledge card id 'k1'"):
+        make_snapshot(knowledge_cards=(card, replace(card, title="Other")))
 
 
 def test_duplicate_metric_id_rejected(base: PackLayer) -> None:
@@ -212,3 +269,31 @@ def test_fingerprint_rules(base: PackLayer) -> None:
 def test_threshold_tune_survives_into_snapshot(snapshot: PackSnapshot) -> None:
     detector = next(p for p in snapshot.detector_policies if p.id == "denial_spike")
     assert detector.threshold == Decimal("0.12")
+
+
+def test_benchmark_metric_must_resolve(base: PackLayer) -> None:
+    ghost = replace(base.benchmarks[0], metric_id="ghost_metric")
+    with pytest.raises(PackIntegrityError, match="unknown metric 'ghost_metric'"):
+        make_snapshot(benchmarks=(ghost,))
+
+
+def test_duplicate_benchmark_id_rejected(base: PackLayer) -> None:
+    benchmark = base.benchmarks[0]
+    with pytest.raises(PackIntegrityError, match="duplicate benchmark id"):
+        make_snapshot(metric_contracts=base.metric_contracts, benchmarks=(benchmark, benchmark))
+
+
+def test_snapshot_id_covers_cards_and_benchmarks(base: PackLayer) -> None:
+    base_id = build_snapshot([base]).id
+
+    card = base.knowledge_cards[0]
+    edited_card = replace(base, knowledge_cards=(replace(card, summary=card.summary + " (edited)"),))
+    assert build_snapshot([edited_card]).id != base_id
+
+    benchmark = base.benchmarks[0]
+    edited_benchmark = replace(base, benchmarks=(replace(benchmark, value_high="0.99"),))
+    assert build_snapshot([edited_benchmark]).id != base_id
+
+    # card alias order is not semantic
+    realiased = replace(base, knowledge_cards=(replace(card, aliases=tuple(reversed(card.aliases))),))
+    assert build_snapshot([realiased]).id == base_id

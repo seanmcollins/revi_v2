@@ -4,9 +4,10 @@ The snapshot ``id`` is a SHA-256 content hash over the *composed* content
 (design §5.4), built on :func:`revi_kernel.probes.canonicalize` — the same
 canonical serializer used for probe hashes and contract fingerprints. The
 hash is stable and order-independent where order is not semantic: artifact
-collections are sorted by identity, concept aliases/related/sources are
-sorted, while semantic order (playbook probe sequence, ranking-weight order)
-is preserved.
+collections are sorted by identity, concept aliases/related/sources and
+knowledge-card aliases/domains/sources are sorted, while semantic order
+(playbook probe sequence, ranking-weight order, card key points) is
+preserved.
 
 Integrity invariants (unique ids, no alias owned by two concepts, resolvable
 playbook references) live in ``PackSnapshot.__post_init__`` itself, so they
@@ -23,7 +24,14 @@ from dataclasses import replace
 
 from revi_calculation_contracts.contract import MetricContract
 from revi_kernel.probes import canonicalize
-from revi_pack.domain import Concept, PackLayer, PackLayerRef, PackSnapshot, PackVersion
+from revi_pack.domain import (
+    Concept,
+    KnowledgeCard,
+    PackLayer,
+    PackLayerRef,
+    PackSnapshot,
+    PackVersion,
+)
 from revi_pack.errors import PackIntegrityError
 from revi_pack.merge import ComposedPack, compose
 
@@ -73,6 +81,17 @@ def _canonical_concept(concept: Concept) -> Concept:
     )
 
 
+def _canonical_card(card: KnowledgeCard) -> KnowledgeCard:
+    """Alias/domain/source order is not semantic; key-point and caution
+    order is (presentation order), so it stays in the hash."""
+    return replace(
+        card,
+        aliases=tuple(sorted(card.aliases)),
+        domains=tuple(sorted(card.domains)),
+        sources=tuple(sorted(card.sources, key=lambda s: s.id)),
+    )
+
+
 def layer_content_hash(layer: PackLayer) -> str:
     """SHA-256 over one layer's canonical content (its identity in
     ``PackSnapshot.layers``)."""
@@ -92,6 +111,11 @@ def snapshot_content_hash(composed: ComposedPack) -> str:
             canonicalize(c)
             for c in sorted(composed.code_definitions, key=lambda c: (c.code_system.value, c.code))
         ],
+        "knowledge_cards": [
+            canonicalize(_canonical_card(k))
+            for k in sorted(composed.knowledge_cards, key=lambda k: k.id)
+        ],
+        "benchmarks": [canonicalize(b) for b in sorted(composed.benchmarks, key=lambda b: b.id)],
         "metric_contracts": [
             canonicalize(m) for m in sorted(composed.metric_contracts, key=lambda m: m.id)
         ],
@@ -135,6 +159,8 @@ def build_snapshot(layers: Sequence[PackLayer]) -> PackSnapshot:
         ),
         concepts=composed.concepts,
         code_definitions=composed.code_definitions,
+        knowledge_cards=composed.knowledge_cards,
+        benchmarks=composed.benchmarks,
         metric_contracts=composed.metric_contracts,
         bindings=composed.bindings,
         playbooks=composed.playbooks,

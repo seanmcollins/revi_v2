@@ -11,8 +11,9 @@ Permitted overlay overrides:
 Forbidden: metric formulas, denominators, grain, or date-basis changes —
 redefining an existing metric id in an overlay raises ``PolicyDeniedError``;
 new contract versions arrive only through the promotion path (§9.5). The
-same applies to concepts, codes, playbooks, conclusion policies, and filing
-rules: overlays may *add* new ids, never redefine existing ones.
+same applies to concepts, codes, knowledge cards, benchmarks, playbooks,
+conclusion policies, and filing rules: overlays may *add* new ids, never
+redefine existing ones.
 
 The base layer must be present and first; layer order is base →
 organization → tenant.
@@ -28,6 +29,7 @@ from decimal import Decimal
 from revi_calculation_contracts.contract import MetricContract
 from revi_kernel.errors import PolicyDeniedError
 from revi_pack.domain import (
+    BenchmarkFigure,
     BindingCandidate,
     CodeDefinition,
     CodeSystem,
@@ -35,6 +37,7 @@ from revi_pack.domain import (
     ConclusionPolicy,
     DetectorPolicy,
     FilingRule,
+    KnowledgeCard,
     PackLayer,
     PackLayerKind,
     Playbook,
@@ -60,6 +63,8 @@ class ComposedPack:
     layers: tuple[PackLayer, ...]
     concepts: tuple[Concept, ...]
     code_definitions: tuple[CodeDefinition, ...]
+    knowledge_cards: tuple[KnowledgeCard, ...]
+    benchmarks: tuple[BenchmarkFigure, ...]
     metric_contracts: tuple[MetricContract, ...]
     bindings: tuple[BindingCandidate, ...]
     playbooks: tuple[Playbook, ...]
@@ -176,6 +181,8 @@ def compose(layers: Sequence[PackLayer]) -> ComposedPack:
     detectors = _merge_detectors(layers)
 
     codes: dict[tuple[CodeSystem, str], CodeDefinition] = {}
+    cards: dict[str, KnowledgeCard] = {}
+    benchmarks: dict[str, BenchmarkFigure] = {}
     metrics: dict[str, MetricContract] = {}
     bindings: dict[tuple[str, str], BindingCandidate] = {}
     playbooks: dict[str, Playbook] = {}
@@ -196,6 +203,22 @@ def compose(layers: Sequence[PackLayer]) -> ComposedPack:
                     code=code_def.code,
                 )
             codes[key] = code_def
+        for card in layer.knowledge_cards:
+            if card.id in cards and overlay:
+                raise _deny(
+                    f"overlay {layer.name!r} may not redefine knowledge card {card.id!r}",
+                    layer=layer.name,
+                    knowledge_card=card.id,
+                )
+            cards[card.id] = card
+        for benchmark in layer.benchmarks:
+            if benchmark.id in benchmarks and overlay:
+                raise _deny(
+                    f"overlay {layer.name!r} may not redefine benchmark {benchmark.id!r}",
+                    layer=layer.name,
+                    benchmark=benchmark.id,
+                )
+            benchmarks[benchmark.id] = benchmark
         for contract in layer.metric_contracts:
             if contract.id in metrics and overlay:
                 raise _deny(
@@ -246,6 +269,8 @@ def compose(layers: Sequence[PackLayer]) -> ComposedPack:
         layers=tuple(layers),
         concepts=tuple(concepts.values()),
         code_definitions=tuple(codes.values()),
+        knowledge_cards=tuple(cards.values()),
+        benchmarks=tuple(benchmarks.values()),
         metric_contracts=tuple(metrics.values()),
         bindings=tuple(bindings.values()),
         playbooks=tuple(playbooks.values()),

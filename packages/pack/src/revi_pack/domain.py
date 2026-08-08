@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass, field
+from datetime import date
 from decimal import Decimal
 from enum import StrEnum
 from typing import ClassVar, Union
@@ -48,17 +49,31 @@ def normalize_term(text: str) -> str:
 @dataclass(frozen=True, slots=True)
 class SourceRef:
     """Provenance for governed knowledge (design §9.1: authoritative or
-    licensed reference materials, approved policies and SOPs)."""
+    licensed reference materials, approved policies and SOPs).
+
+    The optional dates carry the source's validity window
+    (``effective_from``/``effective_to``) and when it was last checked
+    against the publisher (``last_verified_at``).
+    """
 
     id: str
     title: str
     publisher: str
     url: str | None
     authority: str
+    effective_from: date | None = None
+    effective_to: date | None = None
+    last_verified_at: date | None = None
 
     def __post_init__(self) -> None:
         if not self.id:
             raise ValueError("SourceRef.id must be non-empty")
+        if (
+            self.effective_from is not None
+            and self.effective_to is not None
+            and self.effective_from > self.effective_to
+        ):
+            raise ValueError(f"SourceRef {self.id!r}: effective_from is after effective_to")
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,6 +129,88 @@ class CodeDefinition:
     def __post_init__(self) -> None:
         if not self.code:
             raise ValueError("CodeDefinition.code must be non-empty")
+
+
+class ReviewStatus(StrEnum):
+    """Provenance tier for machine-researched knowledge: content enters as
+    MACHINE_RESEARCHED and is promoted to HUMAN_APPROVED on review (§9.1)."""
+
+    MACHINE_RESEARCHED = "machine_researched"
+    HUMAN_APPROVED = "human_approved"
+
+
+@dataclass(frozen=True, slots=True)
+class KnowledgeCard:
+    """A governed narrative knowledge card.
+
+    Where a :class:`Concept` carries the one-paragraph governed definition,
+    a card *elaborates*: key points, cautions, and dated provenance
+    (``authored_by`` in ``'machine-researched (KB wave 1, 2026-08-07)'``
+    style). A card may share aliases with a concept — a card elaborates a
+    concept — but never with another card (snapshot integrity).
+    """
+
+    id: str
+    title: str
+    domains: tuple[str, ...]
+    aliases: tuple[str, ...]
+    summary: str
+    key_points: tuple[str, ...]
+    cautions: tuple[str, ...]
+    authored_by: str
+    review_status: ReviewStatus
+    sources: tuple[SourceRef, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("KnowledgeCard.id must be non-empty")
+        if not self.title:
+            raise ValueError(f"KnowledgeCard {self.id!r}: title must be non-empty")
+        if not self.summary:
+            raise ValueError(f"KnowledgeCard {self.id!r}: summary must be non-empty")
+        if not self.authored_by:
+            raise ValueError(f"KnowledgeCard {self.id!r}: authored_by must be non-empty")
+
+    @property
+    def lookup_terms(self) -> frozenset[str]:
+        """All normalized terms that resolve to this card (id, title, aliases)."""
+        terms = {normalize_term(self.id), normalize_term(self.title)}
+        terms.update(normalize_term(a) for a in self.aliases)
+        terms.discard("")
+        return frozenset(terms)
+
+
+@dataclass(frozen=True, slots=True)
+class BenchmarkFigure:
+    """A governed external benchmark *range* for a pack metric — ranges, not
+    point targets. ``metric_id`` must resolve to a pack metric (snapshot
+    integrity); consumers must surface ``cohort_label`` and ``cautions``
+    alongside the figures."""
+
+    id: str
+    metric_id: str
+    cohort_label: str
+    value_low: str
+    value_high: str
+    unit: str
+    period: str
+    authority: str
+    review_status: ReviewStatus
+    sources: tuple[SourceRef, ...] = ()
+    cautions: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if not self.id:
+            raise ValueError("BenchmarkFigure.id must be non-empty")
+        if not self.metric_id:
+            raise ValueError(f"BenchmarkFigure {self.id!r}: metric_id must be non-empty")
+        if not self.cohort_label:
+            raise ValueError(f"BenchmarkFigure {self.id!r}: cohort_label must be non-empty")
+        if not self.value_low or not self.value_high:
+            raise ValueError(
+                f"BenchmarkFigure {self.id!r}: value_low and value_high must both be non-empty "
+                "(benchmarks are ranges, not point targets)"
+            )
 
 
 # ---------------------------------------------------------------------------
@@ -374,6 +471,8 @@ class PackLayer:
     concepts: tuple[Concept, ...] = ()
     alias_overrides: tuple[AliasOverride, ...] = ()
     code_definitions: tuple[CodeDefinition, ...] = ()
+    knowledge_cards: tuple[KnowledgeCard, ...] = ()
+    benchmarks: tuple[BenchmarkFigure, ...] = ()
     metric_contracts: tuple[MetricContract, ...] = ()
     bindings: tuple[BindingCandidate, ...] = ()
     playbooks: tuple[Playbook, ...] = ()
@@ -395,7 +494,7 @@ class PackLayer:
 # snapshot
 
 
-TermMatch = Union[Concept, CodeDefinition, MetricContract]  # noqa: UP007 - union spelled out for clarity
+TermMatch = Union[Concept, KnowledgeCard, CodeDefinition, MetricContract]  # noqa: UP007 - union spelled out for clarity
 
 
 @dataclass(frozen=True)
@@ -424,6 +523,8 @@ class PackSnapshot:
     detector_policies: tuple[DetectorPolicy, ...] = ()
     presentation_recipes: tuple[PresentationRecipe, ...] = ()
     filing_rules: tuple[FilingRule, ...] = ()
+    knowledge_cards: tuple[KnowledgeCard, ...] = ()
+    benchmarks: tuple[BenchmarkFigure, ...] = ()
 
     _concepts_by_id: dict[str, Concept] = field(init=False, repr=False, compare=False)
     _metrics_by_id: dict[str, MetricContract] = field(init=False, repr=False, compare=False)
@@ -435,6 +536,11 @@ class PackSnapshot:
         init=False, repr=False, compare=False
     )
     _metric_term_index: dict[str, MetricContract] = field(init=False, repr=False, compare=False)
+    _cards_by_id: dict[str, KnowledgeCard] = field(init=False, repr=False, compare=False)
+    _card_alias_index: dict[str, KnowledgeCard] = field(init=False, repr=False, compare=False)
+    _benchmarks_by_metric: dict[str, tuple[BenchmarkFigure, ...]] = field(
+        init=False, repr=False, compare=False
+    )
 
     def __post_init__(self) -> None:
         if not self.id:
@@ -447,8 +553,12 @@ class PackSnapshot:
         object.__setattr__(
             self, "_metric_term_index", {normalize_term(m.id): m for m in self.metric_contracts}
         )
+        object.__setattr__(self, "_cards_by_id", self._build_card_index())
+        object.__setattr__(self, "_card_alias_index", self._build_card_alias_index())
+        object.__setattr__(self, "_benchmarks_by_metric", self._build_benchmark_index())
         self._check_unique_ids()
         self._check_playbook_references()
+        self._check_benchmark_references()
 
     # -- index construction ------------------------------------------------
 
@@ -491,6 +601,35 @@ class PackSnapshot:
                 index[term] = concept
         return index
 
+    def _build_card_index(self) -> dict[str, KnowledgeCard]:
+        index: dict[str, KnowledgeCard] = {}
+        for card in self.knowledge_cards:
+            if card.id in index:
+                raise PackIntegrityError(f"duplicate knowledge card id {card.id!r} in snapshot")
+            index[card.id] = card
+        return index
+
+    def _build_card_alias_index(self) -> dict[str, KnowledgeCard]:
+        # Alias uniqueness holds among cards only: a card may share an alias
+        # with a concept (a card elaborates a concept), never with another card.
+        index: dict[str, KnowledgeCard] = {}
+        for card in self.knowledge_cards:
+            for term in sorted(card.lookup_terms):
+                owner = index.get(term)
+                if owner is not None and owner.id != card.id:
+                    raise PackIntegrityError(
+                        f"alias {term!r} is owned by two knowledge cards: "
+                        f"{owner.id!r} and {card.id!r}"
+                    )
+                index[term] = card
+        return index
+
+    def _build_benchmark_index(self) -> dict[str, tuple[BenchmarkFigure, ...]]:
+        index: dict[str, tuple[BenchmarkFigure, ...]] = {}
+        for benchmark in self.benchmarks:
+            index[benchmark.metric_id] = (*index.get(benchmark.metric_id, ()), benchmark)
+        return index
+
     def _build_code_term_index(self) -> dict[str, tuple[CodeDefinition, ...]]:
         index: dict[str, tuple[CodeDefinition, ...]] = {}
         for code_def in self.code_definitions:
@@ -515,6 +654,7 @@ class PackSnapshot:
             ("detector policy", [p.id for p in self.detector_policies]),
             ("presentation recipe", [p.id for p in self.presentation_recipes]),
             ("filing rule", [p.id for p in self.filing_rules]),
+            ("benchmark", [b.id for b in self.benchmarks]),
         ):
             seen: set[str] = set()
             for artifact_id in ids:
@@ -544,6 +684,14 @@ class PackSnapshot:
                     f"{playbook.ranking_policy!r}"
                 )
 
+    def _check_benchmark_references(self) -> None:
+        for benchmark in self.benchmarks:
+            if benchmark.metric_id not in self._metrics_by_id:
+                raise PackIntegrityError(
+                    f"benchmark {benchmark.id!r} references unknown metric "
+                    f"{benchmark.metric_id!r}"
+                )
+
     # -- lookups -----------------------------------------------------------
 
     def metric(self, metric_id: str) -> MetricContract | None:
@@ -551,6 +699,12 @@ class PackSnapshot:
 
     def concept(self, concept_id: str) -> Concept | None:
         return self._concepts_by_id.get(concept_id)
+
+    def card(self, card_id: str) -> KnowledgeCard | None:
+        return self._cards_by_id.get(card_id)
+
+    def benchmarks_for_metric(self, metric_id: str) -> tuple[BenchmarkFigure, ...]:
+        return self._benchmarks_by_metric.get(metric_id, ())
 
     def concept_for_alias(self, text: str) -> Concept | None:
         """Resolve analyst language to a concept via normalized alias lookup."""
@@ -562,10 +716,11 @@ class PackSnapshot:
     def resolve_term(self, text: str) -> tuple[TermMatch, ...]:
         """Generic definitional lookup for the DEFINITIONAL turn path.
 
-        Tries, in order: concept aliases, code systems (exact codes, then a
-        GROUP_CODE + CARC combination — "pr3"/"PR-3"/"pr 3" returns both the
-        PR group code and CARC 3), and metric ids. Returns every match,
-        deduplicated, in that order.
+        Tries, in order: concept aliases, knowledge-card aliases (a card
+        elaborating the same term follows its concept), code systems (exact
+        codes, then a GROUP_CODE + CARC combination — "pr3"/"PR-3"/"pr 3"
+        returns both the PR group code and CARC 3), and metric ids. Returns
+        every match, deduplicated, in that order.
         """
         norm = normalize_term(text)
         if not norm:
@@ -574,6 +729,9 @@ class PackSnapshot:
         concept = self._alias_index.get(norm)
         if concept is not None:
             matches.append(concept)
+        card = self._card_alias_index.get(norm)
+        if card is not None:
+            matches.append(card)
         matches.extend(self._code_term_index.get(norm, ()))
         combo = _CODE_COMBO.fullmatch(norm)
         if combo is not None:
@@ -599,6 +757,8 @@ class ArtifactType(StrEnum):
     CONCEPT = "concept"
     ALIAS = "alias"
     CODE_DEFINITION = "code_definition"
+    KNOWLEDGE_CARD = "knowledge_card"
+    BENCHMARK_FIGURE = "benchmark_figure"
     BINDING = "binding"
     METRIC_CONTRACT = "metric_contract"
     PLAYBOOK = "playbook"
@@ -639,6 +799,18 @@ class AliasArtifact:
 class CodeArtifact:
     artifact_type: ClassVar[ArtifactType] = ArtifactType.CODE_DEFINITION
     code: CodeDefinition
+
+
+@dataclass(frozen=True, slots=True)
+class KnowledgeCardArtifact:
+    artifact_type: ClassVar[ArtifactType] = ArtifactType.KNOWLEDGE_CARD
+    card: KnowledgeCard
+
+
+@dataclass(frozen=True, slots=True)
+class BenchmarkFigureArtifact:
+    artifact_type: ClassVar[ArtifactType] = ArtifactType.BENCHMARK_FIGURE
+    benchmark: BenchmarkFigure
 
 
 @dataclass(frozen=True, slots=True)
@@ -693,6 +865,8 @@ ArtifactDefinition = Union[  # noqa: UP007 - discriminated union spelled out for
     ConceptArtifact,
     AliasArtifact,
     CodeArtifact,
+    KnowledgeCardArtifact,
+    BenchmarkFigureArtifact,
     BindingArtifact,
     MetricContractArtifact,
     PlaybookArtifact,

@@ -7,6 +7,8 @@ Layout (everything except ``pack.yaml`` is optional per layer):
     pack.yaml            # manifest: pack_id, version, kind, description
     concepts.yaml        # concepts: [...]        (overlays: alias patches too)
     codes.yaml           # codes: [...]
+    knowledge.yaml       # knowledge_cards: [...]
+    benchmarks.yaml      # benchmarks: [...]
     bindings.yaml        # bindings: [...]
     metrics/*.yaml       # one MetricContract per file
     playbooks/*.yaml     # one Playbook per file
@@ -49,6 +51,7 @@ from revi_kernel.refs import DateBasisRef, DimensionRef, EntityGrain, FieldRef
 from revi_kernel.scope import RangeMode, RelativeRange, TimeUnit
 from revi_pack.domain import (
     AliasOverride,
+    BenchmarkFigure,
     BindingCandidate,
     BindingState,
     CodeDefinition,
@@ -58,12 +61,14 @@ from revi_pack.domain import (
     DetectorOverride,
     DetectorPolicy,
     FilingRule,
+    KnowledgeCard,
     PackLayer,
     PackLayerKind,
     Playbook,
     PresentationRecipe,
     ProbeTemplate,
     RankingPolicy,
+    ReviewStatus,
     SourceRef,
     TransformStep,
 )
@@ -156,6 +161,17 @@ def _get_opt_int(mapping: dict[str, object], key: str, ctx: str) -> int | None:
     if key not in mapping or mapping[key] is None:
         return None
     return _get_int(mapping, key, ctx)
+
+
+def _get_opt_date(mapping: dict[str, object], key: str, ctx: str) -> date | None:
+    if key not in mapping or mapping[key] is None:
+        return None
+    value = mapping[key]
+    if isinstance(value, datetime):
+        raise PackLoadError(f"{ctx}.{key}: expected a date, got a timestamp")
+    if not isinstance(value, date):
+        raise PackLoadError(f"{ctx}.{key}: expected a date, got {type(value).__name__}")
+    return value
 
 
 def _decimal_value(value: object, ctx: str) -> Decimal:
@@ -354,7 +370,7 @@ def _parse_metric(mapping: dict[str, object], ctx: str) -> MetricContract:
 
 
 # ---------------------------------------------------------------------------
-# concepts, codes, bindings
+# concepts, codes, knowledge cards, benchmarks, bindings
 
 
 def _parse_sources(mapping: dict[str, object], ctx: str) -> tuple[SourceRef, ...]:
@@ -368,7 +384,7 @@ def _parse_sources(mapping: dict[str, object], ctx: str) -> tuple[SourceRef, ...
         _check_keys(
             entry,
             required=frozenset({"id", "title", "publisher", "authority"}),
-            optional=frozenset({"url"}),
+            optional=frozenset({"url", "effective_from", "effective_to", "last_verified_at"}),
             ctx=entry_ctx,
         )
         with _located(entry_ctx):
@@ -379,6 +395,9 @@ def _parse_sources(mapping: dict[str, object], ctx: str) -> tuple[SourceRef, ...
                     publisher=_get_str(entry, "publisher", entry_ctx),
                     url=_get_opt_str(entry, "url", entry_ctx),
                     authority=_get_str(entry, "authority", entry_ctx),
+                    effective_from=_get_opt_date(entry, "effective_from", entry_ctx),
+                    effective_to=_get_opt_date(entry, "effective_to", entry_ctx),
+                    last_verified_at=_get_opt_date(entry, "last_verified_at", entry_ctx),
                 )
             )
     return tuple(sources)
@@ -475,6 +494,102 @@ def _parse_codes(path: Path) -> tuple[CodeDefinition, ...]:
             )
     _reject_duplicates(((c.code_system.value, c.code) for c in codes), label="code", ctx=path.name)
     return tuple(codes)
+
+
+def _parse_knowledge(path: Path) -> tuple[KnowledgeCard, ...]:
+    document = _load_yaml_mapping(path)
+    _check_keys(
+        document, required=frozenset({"knowledge_cards"}), optional=frozenset(), ctx=path.name
+    )
+    cards: list[KnowledgeCard] = []
+    for i, item in enumerate(_sequence(document["knowledge_cards"], f"{path.name}.knowledge_cards")):
+        ctx = f"{path.name}.knowledge_cards[{i}]"
+        entry = _mapping(item, ctx)
+        _check_keys(
+            entry,
+            required=frozenset({"id", "title", "summary", "authored_by", "review_status"}),
+            optional=frozenset({"domains", "aliases", "key_points", "cautions", "sources"}),
+            ctx=ctx,
+        )
+        with _located(ctx):
+            cards.append(
+                KnowledgeCard(
+                    id=_get_str(entry, "id", ctx),
+                    title=_get_str(entry, "title", ctx),
+                    domains=_str_tuple(entry, "domains", ctx),
+                    aliases=_str_tuple(entry, "aliases", ctx),
+                    summary=_get_str(entry, "summary", ctx),
+                    key_points=_str_tuple(entry, "key_points", ctx),
+                    cautions=_str_tuple(entry, "cautions", ctx),
+                    authored_by=_get_str(entry, "authored_by", ctx),
+                    review_status=_parse_enum(
+                        ReviewStatus,
+                        entry["review_status"],
+                        f"{ctx}.review_status",
+                        name="review status",
+                    ),
+                    sources=_parse_sources(entry, ctx),
+                )
+            )
+    _reject_duplicates((c.id for c in cards), label="knowledge card id", ctx=path.name)
+    return tuple(cards)
+
+
+def _benchmark_value(mapping: dict[str, object], key: str, ctx: str) -> str:
+    value = mapping[key]
+    if isinstance(value, bool) or not isinstance(value, (str, int, float)):
+        raise PackLoadError(f"{ctx}.{key}: expected a string or number, got {type(value).__name__}")
+    return str(value)
+
+
+def _parse_benchmarks(path: Path) -> tuple[BenchmarkFigure, ...]:
+    document = _load_yaml_mapping(path)
+    _check_keys(document, required=frozenset({"benchmarks"}), optional=frozenset(), ctx=path.name)
+    benchmarks: list[BenchmarkFigure] = []
+    for i, item in enumerate(_sequence(document["benchmarks"], f"{path.name}.benchmarks")):
+        ctx = f"{path.name}.benchmarks[{i}]"
+        entry = _mapping(item, ctx)
+        _check_keys(
+            entry,
+            required=frozenset(
+                {
+                    "id",
+                    "metric_id",
+                    "cohort_label",
+                    "value_low",
+                    "value_high",
+                    "unit",
+                    "period",
+                    "authority",
+                    "review_status",
+                }
+            ),
+            optional=frozenset({"sources", "cautions"}),
+            ctx=ctx,
+        )
+        with _located(ctx):
+            benchmarks.append(
+                BenchmarkFigure(
+                    id=_get_str(entry, "id", ctx),
+                    metric_id=_get_str(entry, "metric_id", ctx),
+                    cohort_label=_get_str(entry, "cohort_label", ctx),
+                    value_low=_benchmark_value(entry, "value_low", ctx),
+                    value_high=_benchmark_value(entry, "value_high", ctx),
+                    unit=_get_str(entry, "unit", ctx),
+                    period=_get_str(entry, "period", ctx),
+                    authority=_get_str(entry, "authority", ctx),
+                    review_status=_parse_enum(
+                        ReviewStatus,
+                        entry["review_status"],
+                        f"{ctx}.review_status",
+                        name="review status",
+                    ),
+                    sources=_parse_sources(entry, ctx),
+                    cautions=_str_tuple(entry, "cautions", ctx),
+                )
+            )
+    _reject_duplicates((b.id for b in benchmarks), label="benchmark id", ctx=path.name)
+    return tuple(benchmarks)
 
 
 def _parse_bindings(path: Path) -> tuple[BindingCandidate, ...]:
@@ -818,6 +933,12 @@ def load_layer(directory: Path | str) -> PackLayer:
         concepts, alias_overrides = _parse_concepts(root / "concepts.yaml", kind)
 
     codes = _parse_codes(root / "codes.yaml") if (root / "codes.yaml").is_file() else ()
+    knowledge_cards = (
+        _parse_knowledge(root / "knowledge.yaml") if (root / "knowledge.yaml").is_file() else ()
+    )
+    benchmarks = (
+        _parse_benchmarks(root / "benchmarks.yaml") if (root / "benchmarks.yaml").is_file() else ()
+    )
     bindings = _parse_bindings(root / "bindings.yaml") if (root / "bindings.yaml").is_file() else ()
 
     metrics: list[MetricContract] = []
@@ -862,6 +983,8 @@ def load_layer(directory: Path | str) -> PackLayer:
         concepts=concepts,
         alias_overrides=alias_overrides,
         code_definitions=codes,
+        knowledge_cards=knowledge_cards,
+        benchmarks=benchmarks,
         metric_contracts=tuple(metrics),
         bindings=bindings,
         playbooks=tuple(playbooks),
