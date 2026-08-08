@@ -23,6 +23,12 @@ governed actionability rules. Items are sorted by priority desc, ties by
 so the ranking is never a black box. Resolved / self-resolved records are
 excluded (and absent-at-watermark anomalies never appear, because the
 source reads per snapshot).
+
+Cards carry **provenance instead of an evidence grade**: the underlying
+anomaly is an external detection system's assertion, not a number this
+platform computed from certified semantics, so each card is stamped
+``provenance="external_detection"`` with the priority formula version and
+the source watermark. See :class:`AnomalyCard` for the full rationale.
 """
 
 from __future__ import annotations
@@ -172,6 +178,12 @@ def build_portfolio(
                 drill_window=AbsoluteWindowModel(
                     start=record.window_start, end=record.window_end
                 ),
+                # honest provenance in place of an evidence grade: this row
+                # is an external detector's assertion read at a watermark,
+                # ordered by a versioned platform formula (see AnomalyCard)
+                provenance="external_detection",
+                priority_formula_version=PRIORITY_FORMULA_VERSION,
+                source_watermark_id=watermark.id,
             )
         )
     cards.sort(key=lambda c: (-c.priority_score, -abs(c.impact_cents), c.anomaly_id))

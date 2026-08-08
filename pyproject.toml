@@ -30,7 +30,6 @@ asyncio_mode = "auto"
 testpaths = ["packages", "warehouse", "apps"]
 markers = [
     "reference: reference-dataset regression tests (assert answer-key numbers against the generated warehouse)",
-    "golden: deprecated alias for reference (transition only; removed at M13)",
     "live_llm: tests that call the real Claude Agent SDK (budget-capped; need ANTHROPIC_API_KEY)",
     "postgres: tests that need the docker-compose Postgres instance",
 ]
@@ -136,9 +135,12 @@ source_modules = [
     "revi_store_postgres", "revi_adapter_claude", "revi_api", "revi_scheduler",
 ]
 forbidden_modules = ["duckdb"]
-# The API composition root wires the DuckDB CONNECTOR (never duckdb
-# directly); these edges are the sanctioned wiring points.
-ignore_imports = ["revi_api.wiring -> revi_connector_duckdb"]
+# Composition roots wire the DuckDB CONNECTOR (never duckdb directly);
+# these edges are the sanctioned wiring points.
+ignore_imports = [
+    "revi_api.wiring -> revi_connector_duckdb",
+    "revi_scheduler.sweep -> revi_connector_duckdb",
+]
 
 [[tool.importlinter.contracts]]
 name = "claude_agent_sdk only in the Claude adapter"

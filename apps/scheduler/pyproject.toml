@@ -1,7 +1,7 @@
 [project]
 name = "revi-scheduler"
 version = "0.1.0"
-description = "Portfolio pre-materialization runner and cohort TTL sweep (CLI, cron-able)."
+description = "Cohort TTL sweep (CLI, cron-able) — drops expired pinned-cohort tables and reports expired cohort metadata."
 requires-python = ">=3.12"
 dependencies = [
     "revi-investigation",

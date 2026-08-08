@@ -203,6 +203,20 @@ dimensions:
     synonyms: [clean, first pass clean, no-touch claim]
     cardinality_estimate: 2
     phi: none
+  cob_mismatch_flag:
+    label: COB mismatch flag
+    certified: true
+    description: >
+      True when the claim was billed as primary while other insurance exists
+      on the account — coordination-of-benefits billing out of order. This is
+      the DIRECT binding for the `cob` concept (see the base pack's
+      bindings.yaml); CARC concentration is only a proxy for it.
+    entities:
+      claim: cob_mismatch_flag
+    synonyms: [cob mismatch, coordination of benefits mismatch, out of order billing,
+               cob flag, other insurance mismatch, billed primary in error]
+    cardinality_estimate: 2
+    phi: none
   # --- Deliberately uncertified (exercise discovery-grade downgrade) ---------
   rarc_synthetic:
     label: RARC (synthetic remark code)

@@ -546,6 +546,14 @@ class BuildInvestigationPlanService:
                 continue
             if operator == "share_of_total":
                 measure = requested.arg("measure")
+                # `within` scopes the denominator to a group (share of THAT
+                # payer's claims, not of the whole population). It is passed
+                # through rather than dropped: a silently global share would
+                # be a different, wrong number under the same column name.
+                within = requested.arg("within")
+                share_args: tuple[tuple[str, str], ...] = (("measure", measure or ""),)
+                if within:
+                    share_args = (*share_args, ("within", within))
                 emitted = False
                 for node_id, contracts in node_contracts.items():
                     if measure is not None and any(c.id == measure for c in contracts):
@@ -555,7 +563,7 @@ class BuildInvestigationPlanService:
                                 id=step_id,
                                 operator="share_of_total",
                                 inputs=(latest[node_id],),
-                                args=(("measure", measure),),
+                                args=share_args,
                             )
                         )
                         latest[node_id] = step_id

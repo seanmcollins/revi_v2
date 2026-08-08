@@ -1,0 +1,26 @@
+# Share of a payer's claims billed out of coverage order. Ratio-of-sums: the
+# kernel fetches both additive components and divides, so the slicing law
+# falls out structurally (a payer-level rate is never an average of rates).
+id: cob_mismatch_rate
+version: 1
+kind: flow
+entity_grain: claim
+numerator:
+  filtered:
+    inner: {count_distinct: claim_id}
+    where: {dimension: cob_mismatch_flag, op: eq, value: true}
+denominator: {count_distinct: claim_id}
+primary_date_basis: service
+allowed_date_bases: [service, submission, discharge]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, provider,
+   provider_specialty, facility, region, service_line, claim_type,
+   payer_sequence]
+sign: higher_is_bad
+unit: ratio
+description: >-
+  Coordination-of-benefits mismatch rate: claims billed primary while other
+  insurance exists, over all claims in the same population. Rate answers
+  "is this payer's eligibility intake broken?" where raw volume only answers
+  "where is the most rework?" — a small payer with a high rate is a process
+  defect; a large payer with a low rate is background noise.

@@ -362,6 +362,8 @@ class InterpretQuestionService:
             context=context,
             measures=tuple(MetricRef(mid) for mid in parsed.metric_ids),
             dimensions=tuple(DimensionRef(did) for did in parsed.dimension_ids),
+            # already validated against the pack above — closed set only
+            concepts=tuple(parsed.concept_ids),
         )
         return InterpretationOutcome(
             investigation=InterpretedInvestigation(

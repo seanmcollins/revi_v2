@@ -16,14 +16,16 @@ triggers:
 params:
   - payer
 probes:
-  - id: cob_flag_split
-    metric_ids: [claim_volume]
-    dimensions: [payer, payer_sequence]
+  - id: cob_mismatch_by_payer
+    metric_ids: [cob_mismatch_claims, cob_mismatch_rate, claim_volume]
+    dimensions: [payer]
     window: {quantity: 4, unit: month, mode: full_periods}
     scope_note: >-
-      DIRECT branch: population scoped by the certified cob_mismatch_flag
-      binding, split by payer and billing sequence — measures out-of-order
-      billing itself.
+      DIRECT branch: the certified cob_mismatch_flag binding, carried inside
+      the cob_mismatch_claims / cob_mismatch_rate contracts so the population
+      is governed meaning rather than an ad-hoc filter. Volume, rate and the
+      claim_volume denominator travel together — measures out-of-order
+      billing itself, not a payer's opinion about it.
   - id: cob_code_proxy
     metric_ids: [denied_dollars]
     dimensions: [carc, group_code]
@@ -43,6 +45,14 @@ probes:
       days-to-pay for the affected payer (the planted scenario rebills
       30-45 days after the first remit).
 transforms:
+  # The DIRECT branch is transformed FIRST so it, not the proxy branch,
+  # supplies the primary findings. Share-of-total turns raw mismatch counts
+  # into the concentration an analyst can act on; rank puts the worst payer
+  # first. The proxy branch is transformed too, but only ever corroborates.
+  - operator: share_of_total
+    args: {measure: cob_mismatch_claims}
+  - operator: rank
+    args: {by: cob_mismatch_claims, descending: true}
   - operator: share_of_total
     args: {measure: denied_dollars}
   - operator: rank

@@ -28,12 +28,12 @@ evidence provenance.
 ```bash
 cp .env.example .env          # fill in ANTHROPIC_API_KEY
 make bootstrap                # uv sync + pnpm install
-make warehouse                # generate the deterministic mock warehouse + answer key
+make warehouse                # generate the deterministic mock warehouse + answer key + anomalies
 make db-up migrate            # Postgres + schema
 make dev                      # API :8000 + web :3000
 ```
 
-`make help` lists everything else (`test`, `reference`, `lint`, `portfolio`, …).
+`make help` lists everything else (`test`, `reference`, `lint`, `typecheck`, `sweep`, …).
 
 ## Repository map
 
@@ -42,6 +42,6 @@ packages/     platform capabilities (kernel, investigation, catalog, calculation
               presentation) + their public contracts, connectors/adapters, test harness
 packs/        governed domain-pack content (base RCM pack + tenant overlays), YAML
 warehouse/    mock-data generator + semantic catalog YAML + scenario answer key
-apps/         FastAPI app, portfolio scheduler, Next.js frontend
+apps/         FastAPI app, cohort-TTL sweep CLI, Next.js frontend
 docs/         architecture notes, operator algebra, industry research
 ```

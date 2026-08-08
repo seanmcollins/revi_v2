@@ -253,10 +253,78 @@ class TestHttpOnly:
         response = await self.raw.get("/v1/investigations/inv_missing")
         assert response.status_code == 404
         body = response.json()
-        assert body["code"] == "UNSUPPORTED_CONCEPT" and "correlation_id" in body
+        # a missing investigation id is a missing *handle*, not an
+        # inexpressible concept — the spec declares ErrorEnvelope on 404
+        assert body["code"] == "REFERENT_NOT_FOUND" and "correlation_id" in body
+
+    async def test_malformed_body_is_422_and_not_the_envelope(
+        self, http: HttpInvestigationClient
+    ) -> None:
+        """One status, one model. Request-shape failures stay FastAPI's
+        HTTPValidationError at 422; §12 domain failures are ErrorEnvelope at
+        400/404/409/503. A generated client never has to guess which."""
+        session = await http.open_session(OpenSessionRequest(tenant="demo"))
+        response = await self.raw.post(
+            f"/v1/sessions/{session.session_id}/turns",
+            json={"refinements": [{"op": "not_an_operator"}]},
+        )
+        assert response.status_code == 422
+        assert "detail" in response.json()  # HTTPValidationError, not the envelope
 
     async def test_health(self, http: HttpInvestigationClient) -> None:
         response = await self.raw.get("/v1/health")
         assert response.status_code == 200
         body = response.json()
         assert body["status"] == "ok" and body["watermark"] == "wm_003"
+
+
+class TestPublishedSpec:
+    """The OpenAPI document is the frontend's pinned contract; these guard
+    the parts a client cannot discover any other way."""
+
+    def spec(self) -> dict[str, Any]:
+        document: dict[str, Any] = create_app(None).openapi()
+        return document
+
+    def test_error_envelope_is_declared_on_every_v1_route(self) -> None:
+        spec = self.spec()
+        assert "ErrorEnvelope" in spec["components"]["schemas"]
+        ref = "#/components/schemas/ErrorEnvelope"
+        for path, operations in spec["paths"].items():
+            assert path.startswith("/v1/"), path
+            for method, operation in operations.items():
+                responses = operation["responses"]
+                for status in ("400", "404", "409", "503"):
+                    schema = responses[status]["content"]["application/json"]["schema"]
+                    assert schema["$ref"] == ref, (path, method, status)
+
+    def test_sse_frames_are_published_for_the_turn_route(self) -> None:
+        spec = self.spec()
+        frame = spec["components"]["schemas"]["TurnStreamEvent"]
+        # exactly the kinds the API actually emits — no aspirational ones
+        assert set(frame["properties"]["event"]["enum"]) == {
+            "stage",
+            "warning",
+            "clarification",
+            "context_header",
+            "finding",
+            "chart_spec",
+            "narrative_delta",
+            "error",
+            "turn_complete",
+        }
+        content = spec["paths"]["/v1/sessions/{session_id}/turns"]["post"]["responses"]["200"][
+            "content"
+        ]
+        assert content["text/event-stream"]["schema"] == {
+            "$ref": "#/components/schemas/TurnStreamEvent"
+        }
+        # the blocking transport keeps its own (discriminated) shape
+        assert "oneOf" in content["application/json"]["schema"]
+
+    def test_anomaly_cards_publish_provenance_instead_of_a_grade(self) -> None:
+        card = self.spec()["components"]["schemas"]["AnomalyCard"]
+        assert "grade" not in card["properties"]
+        for field in ("provenance", "priority_formula_version", "source_watermark_id"):
+            assert field in card["required"], field
+        assert card["properties"]["provenance"]["const"] == "external_detection"

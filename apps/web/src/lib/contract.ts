@@ -10,9 +10,10 @@
  *
  * The REQUIRED_* path tables below are the single source of truth for
  * what this UI needs from the wire. `lib/contract-expectations.test.ts`
- * pins them against fixtures; when `contracts/openapi.json` lands at the
- * repo root, regenerate wire types (openapi-typescript) and reconcile —
- * any mismatch must fail those tests loudly.
+ * pins them against fixtures; `lib/contract-openapi.test.ts` binds them to
+ * `contracts/openapi.json` (via the generated `lib/types.gen.ts`, refreshed
+ * with `pnpm gen:types`) at both compile time and run time — any mismatch
+ * fails those tests loudly.
  */
 
 import type {
@@ -742,18 +743,35 @@ export function parseSessionLineage(raw: unknown): LineageParse {
  * `AnomalyCard`, whose spelling is snake_case (`anomaly_id`, `impact_cents`)
  * — both are accepted, drift is reported against the canonical name.
  *
- * `grade` is deliberately still required: the GradeBadge is a trust
- * affordance, and rendering a dollar figure without the evidence grade that
- * earned it would invent provenance. AnomalyCard does not yet carry one, so
- * a real portfolio response trips the drift banner — which is the correct,
- * visible outcome, not a bug to paper over. See the reconciliation notes in
- * contract-expectations.test.ts.
+ * `provenance` is required in place of an evidence `grade`, and that is the
+ * resolved answer to an old objection rather than a concession. The earlier
+ * position was that a dollar figure without the grade that earned it invents
+ * provenance, so the UI demanded a `grade` AnomalyCard did not carry and a
+ * live portfolio tripped the drift banner on purpose. The server answered
+ * honestly instead of inventing a grade: a grade certifies how *this
+ * platform* computed a number from certified semantics (§5.3), whereas an
+ * anomaly card is a record read out of an external detection system as-of a
+ * watermark — stamping DIRECT/DERIVED/PROXY on it would fabricate exactly
+ * the provenance the rule exists to protect. So the card now declares the
+ * three facts a grade would otherwise have implied: its `provenance`
+ * (`external_detection`), the `priority_formula_version` that ranked it, and
+ * the `source_watermark_id` it was read at. The UI renders a DETECTION
+ * provenance badge, deliberately distinct from the GradeBadge, so an analyst
+ * never reads "externally detected" as "certified evidence". Drilling a card
+ * starts an ordinary investigation turn, and *that* answer carries a real
+ * grade. AnomalyCard has no `grade` property and, by design, never will.
+ *
+ * `priorityFormulaVersion` / `sourceWatermarkId` are `required` on the wire
+ * too but are read tolerantly (defaulted to "") rather than demanded: they
+ * annotate the badge, so a server that omits them should degrade the tooltip,
+ * not blank the card. The spec-level guarantee is pinned in
+ * contract-openapi.test.ts.
  */
 export const REQUIRED_PORTFOLIO_ITEM_FIELDS = [
   "referent",
   "title",
   "impactCents",
-  "grade",
+  "provenance",
 ] as const;
 
 /** Wire aliases: canonical camelCase path → the spec's AnomalyCard key. */
@@ -763,6 +781,11 @@ export const PORTFOLIO_ITEM_ALIASES: Record<string, string> = {
   issueClass: "category",
   detail: "description",
   impactLabel: "impact_label",
+  // Same name on both sides, but listed so the backing table in
+  // contract-openapi.test.ts can assert every required path uniformly.
+  provenance: "provenance",
+  priorityFormulaVersion: "priority_formula_version",
+  sourceWatermarkId: "source_watermark_id",
 };
 
 export interface PortfolioSnapshotData {
@@ -796,6 +819,8 @@ export function parsePortfolioSnapshot(raw: unknown): PortfolioParse {
     const issueClass = optional("issueClass");
     const impactLabel = optional("impactLabel");
     const detail = optional("detail");
+    const formulaVersion = optional("priorityFormulaVersion");
+    const sourceWatermarkId = optional("sourceWatermarkId");
     items.push({
       rank: typeof record.rank === "number" ? record.rank : index + 1,
       referent,
@@ -804,7 +829,9 @@ export function parsePortfolioSnapshot(raw: unknown): PortfolioParse {
       impactCents: (record.impactCents ?? record.impact_cents) as number,
       impactLabel: typeof impactLabel === "string" ? impactLabel : "",
       detail: typeof detail === "string" ? detail : "",
-      grade: record.grade as PortfolioItem["grade"],
+      provenance: record.provenance as PortfolioItem["provenance"],
+      priorityFormulaVersion: typeof formulaVersion === "string" ? formulaVersion : "",
+      sourceWatermarkId: typeof sourceWatermarkId === "string" ? sourceWatermarkId : "",
       drill: isRecord(record.drill)
         ? (record.drill as unknown as PortfolioItem["drill"])
         : { label: "Drill in", refinement: { op: "DrillInto", target: referent } },

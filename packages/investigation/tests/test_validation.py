@@ -154,6 +154,60 @@ class TestResolution:
         validated = validator.validate(planner.build(spec), spec)
         assert validated.grade_of("main") is EvidenceGrade.DISCOVERY
 
+    def test_binding_strength_downgrades_per_concept(
+        self,
+        planner: BuildInvestigationPlanService,
+        validator: PlanValidationService,
+        make_spec: SpecFactory,
+    ) -> None:
+        """The same certified field is direct evidence for one concept and
+        only proxy evidence for another (design §5.5). The pack binds
+        cob→carc at PROXY strength and denial→carc at DIRECT, so an
+        identical probe must grade differently depending on what is being
+        asked — otherwise a payer's reason code could certify a conclusion
+        about coverage."""
+        denial = make_spec(
+            measures=("denied_dollars",), dimensions=("carc",), concepts=("denial",)
+        )
+        assert (
+            validator.validate(planner.build(denial), denial).grade_of("main")
+            is EvidenceGrade.DIRECT
+        )
+
+        cob = make_spec(measures=("denied_dollars",), dimensions=("carc",), concepts=("cob",))
+        assert (
+            validator.validate(planner.build(cob), cob).grade_of("main") is EvidenceGrade.PROXY
+        )
+
+    def test_unbound_fields_do_not_downgrade(
+        self,
+        planner: BuildInvestigationPlanService,
+        validator: PlanValidationService,
+        make_spec: SpecFactory,
+    ) -> None:
+        # the pack declares no cob binding for `facility`: silence is not a
+        # downgrade, only a declared weaker strength is
+        spec = make_spec(measures=("claim_volume",), dimensions=("facility",), concepts=("cob",))
+        validated = validator.validate(planner.build(spec), spec)
+        assert validated.grade_of("main") is EvidenceGrade.DIRECT
+
+    def test_binding_strength_reaches_the_contracts_own_fields(
+        self,
+        planner: BuildInvestigationPlanService,
+        validator: PlanValidationService,
+        make_spec: SpecFactory,
+    ) -> None:
+        """Bindings name catalog *fields*, which a probe often touches only
+        through a metric contract's internals — the cob_mismatch_claims
+        contract filters on cob_mismatch_flag without ever exposing it as a
+        dimension. Grading has to look inside the contract or the direct
+        binding would never be found."""
+        spec = make_spec(
+            measures=("cob_mismatch_claims",), dimensions=("payer",), concepts=("cob",)
+        )
+        validated = validator.validate(planner.build(spec), spec)
+        assert validated.grade_of("main") is EvidenceGrade.DIRECT
+
 
 class TestGrainAndBasis:
     def test_denial_rate_by_carc_is_grain_incompatible(

@@ -1,0 +1,295 @@
+"""CLI: ``python -m revi_scheduler.sweep [--now ISO-8601] [--dry-run]`` — the cohort TTL sweep.
+
+Why this exists: pinning a cohort materializes a TABLE in the DuckDB warehouse
+(``cohort_store.cohort_<hex>``) that outlives the turn — and the session, and
+the process — that pinned it, while its metadata (definition, origin, pinned
+materialization, TTL) lives in the application-state store. The TTL is the only
+thing bounding the warehouse's cohort schema, and a TTL nobody enforces is a
+comment. This sweep enforces it, and it is now the *whole* of the scheduler
+app: the portfolio pre-materialization runner this app was originally going to
+house was cancelled, because the anomaly/portfolio population is baked into the
+warehouse generator (``write_detected_anomalies``, run by ``make warehouse``).
+
+The sweep has two halves and reports them separately, because they can
+legitimately disagree — a table can already be gone, and metadata is simply
+absent when running without a database:
+
+* **warehouse** — ``DuckDbAnalyticalRepository.drop_expired_cohorts(now)`` drops
+  expired cohort tables and returns the ids it dropped. One caveat, stated
+  plainly because it changes how you read the number: the connector tracks
+  materializations in a *process-local* dict, so a freshly started sweep opens
+  with an empty registry. "dropped 0" therefore means "this process materialized
+  nothing", not "the warehouse holds no stale cohort tables". Until the connector
+  persists that registry (or grows a list-cohort-tables primitive), the warehouse
+  half is a safety net for long-lived processes, not a warehouse-wide garbage
+  collector — the metadata half below is the signal that actually travels.
+* **metadata** — ``CohortStore.expired(now)`` reports which cohort records have
+  expired. It needs ``REVI_DATABASE_URL``; when that is unset or unreachable the
+  sweep logs loudly and SKIPS this half rather than reporting a zero it never
+  measured.
+
+``--dry-run`` queries the metadata half only: the connector exposes no dry-run
+drop primitive, so rather than fake one the sweep does not call
+``drop_expired_cohorts`` at all, and says so in its output.
+
+Configuration mirrors ``revi_api.wiring`` — same variables, same defaults, same
+loud logging of every choice: ``REVI_WAREHOUSE_PATH`` (default
+``<repo root>/data/revi_warehouse.duckdb``) and ``REVI_DATABASE_URL``. Nothing
+else is read; the sweep loads no catalog, no pack and no model.
+"""
+
+from __future__ import annotations
+
+import argparse
+import asyncio
+import logging
+import os
+import sys
+from collections.abc import Mapping
+from dataclasses import dataclass
+from datetime import UTC, date, datetime
+from pathlib import Path
+from typing import Protocol
+
+from revi_catalog_contracts.model import CalendarDef, CatalogSnapshot
+from revi_connector_duckdb import DuckDbAnalyticalRepository
+from revi_investigation.application.ports import CohortStore
+from revi_kernel.errors import SourceUnavailableError
+
+logger = logging.getLogger("revi.scheduler.sweep")
+
+# apps/scheduler/src/revi_scheduler/sweep.py → repo root
+_REPO_ROOT = Path(__file__).resolve().parents[4]
+
+# ``drop_expired_cohorts`` compiles no probe, so the catalog and metric
+# contracts the repository constructor demands are never consulted. The sweep
+# hands over an empty catalog rather than loading catalog YAML it has no
+# business reading.
+_EMPTY_CATALOG = CatalogSnapshot(
+    entities=(),
+    dimensions=(),
+    measures=(),
+    date_bases=(),
+    calendar=CalendarDef(
+        table="unused",
+        date_column="unused",
+        range_start=date(1970, 1, 1),
+        range_end=date(1970, 1, 1),
+    ),
+)
+
+
+def _no_metrics(metric_id: str) -> None:
+    """No metric contract is ever resolved: the sweep compiles no probes."""
+    return None
+
+
+class CohortTableDropper(Protocol):
+    """The one slice of ``AnalyticalRepository`` the sweep uses."""
+
+    async def drop_expired_cohorts(self, now: datetime) -> tuple[str, ...]: ...
+
+
+@dataclass(frozen=True)
+class CohortStoreChoice:
+    """The metadata half's outcome of environment resolution. ``store`` is
+    ``None`` when the half is skipped; ``detail`` says why, for the report."""
+
+    store: CohortStore | None
+    detail: str
+
+
+@dataclass(frozen=True)
+class SweepReport:
+    """What the sweep actually did — never more than it measured."""
+
+    now: datetime
+    dry_run: bool
+    store_detail: str
+    dropped: tuple[str, ...]  # cohort TABLES dropped in the warehouse
+    expired: tuple[str, ...] | None  # expired cohort METADATA; None ⇒ half skipped
+
+    def summary(self) -> tuple[str, ...]:
+        lines = [f"cohort TTL sweep @ {self.now.isoformat()}" + (" [DRY RUN]" if self.dry_run else "")]
+        if self.dry_run:
+            lines.append(
+                "  warehouse: not touched — the connector has no dry-run drop primitive, "
+                "so drop_expired_cohorts was NOT called"
+            )
+        else:
+            lines.append(f"  warehouse: dropped {len(self.dropped)} cohort table(s){_ids(self.dropped)}")
+            if not self.dropped:
+                lines.append(
+                    "             (the connector's cohort registry is process-local: a fresh "
+                    "sweep only ever drops what it materialized itself)"
+                )
+        if self.expired is None:
+            lines.append(f"  metadata:  skipped — {self.store_detail}")
+        else:
+            lines.append(
+                f"  metadata:  {len(self.expired)} expired cohort record(s){_ids(self.expired)} "
+                f"[{self.store_detail}]"
+            )
+            if not self.dry_run:
+                lines.extend(self._reconciliation())
+        return tuple(lines)
+
+    def _reconciliation(self) -> tuple[str, ...]:
+        """The two halves may honestly disagree; name the difference rather
+        than averaging it away."""
+        expired = set(self.expired or ())
+        dropped = set(self.dropped)
+        lines: list[str] = []
+        if metadata_only := sorted(expired - dropped):
+            lines.append(
+                f"  note:      {len(metadata_only)} expired record(s) had no table dropped here "
+                f"(already gone, or materialized by another process): {', '.join(metadata_only)}"
+            )
+        if warehouse_only := sorted(dropped - expired):
+            lines.append(
+                f"  note:      {len(warehouse_only)} dropped table(s) had no expired record "
+                f"(metadata missing or not yet expired): {', '.join(warehouse_only)}"
+            )
+        return tuple(lines)
+
+
+def _ids(ids: tuple[str, ...]) -> str:
+    return f": {', '.join(ids)}" if ids else ""
+
+
+# ----------------------------------------------------------------- environment
+
+
+def warehouse_path(env: Mapping[str, str]) -> Path:
+    """``REVI_WAREHOUSE_PATH``, defaulted exactly as ``revi_api.wiring`` does."""
+    return Path(env.get("REVI_WAREHOUSE_PATH", str(_REPO_ROOT / "data/revi_warehouse.duckdb")))
+
+
+def build_cohort_store(env: Mapping[str, str]) -> CohortStoreChoice:
+    """Postgres cohort store when ``REVI_DATABASE_URL`` is set *and* reachable;
+    otherwise no store at all — the sweep skips the metadata half rather than
+    silently reporting an in-memory store's empty answer as the truth."""
+    url = env.get("REVI_DATABASE_URL", "").strip()
+    if not url:
+        logger.warning(
+            "REVI_DATABASE_URL unset — SKIPPING the cohort-metadata half of the sweep "
+            "(warehouse tables can still be dropped; expired metadata cannot be reported)"
+        )
+        return CohortStoreChoice(None, "no database configured (REVI_DATABASE_URL unset)")
+    try:
+        import sqlalchemy
+
+        from revi_store_postgres import PostgresCohortStore, create_engine
+
+        engine = create_engine(url)
+        with engine.connect() as connection:  # reachability probe
+            connection.execute(sqlalchemy.text("SELECT 1"))
+        logger.info("using POSTGRES cohort store at %s", url.split("@")[-1])
+        return CohortStoreChoice(PostgresCohortStore(engine), "postgres")
+    except Exception as exc:
+        logger.error(
+            "REVI_DATABASE_URL set but unreachable (%s) — SKIPPING the cohort-metadata half",
+            exc,
+        )
+        return CohortStoreChoice(None, "database configured but unreachable")
+
+
+# ----------------------------------------------------------------------- sweep
+
+
+async def run_sweep(
+    repository: CohortTableDropper,
+    choice: CohortStoreChoice,
+    *,
+    now: datetime,
+    dry_run: bool,
+) -> SweepReport:
+    """Run both halves (metadata first, so a dry run still reports something)."""
+    expired: tuple[str, ...] | None = None
+    if choice.store is not None:
+        records = await choice.store.expired(now)
+        expired = tuple(record.id for record in records)
+        logger.info("cohort metadata expired as of %s: %d record(s)", now.isoformat(), len(expired))
+
+    dropped: tuple[str, ...] = ()
+    if dry_run:
+        logger.warning(
+            "--dry-run: NOT calling drop_expired_cohorts (the connector offers no dry-run drop, "
+            "so the only honest dry run is to leave the warehouse alone)"
+        )
+    else:
+        dropped = await repository.drop_expired_cohorts(now)
+        logger.info("dropped %d expired cohort table(s) in the warehouse", len(dropped))
+
+    return SweepReport(now=now, dry_run=dry_run, store_detail=choice.detail, dropped=dropped, expired=expired)
+
+
+# ------------------------------------------------------------------------- cli
+
+
+def _iso_datetime(raw: str) -> datetime:
+    try:
+        value = datetime.fromisoformat(raw)
+    except ValueError:
+        raise argparse.ArgumentTypeError(f"not an ISO-8601 datetime: {raw!r}") from None
+    return value if value.tzinfo is not None else value.replace(tzinfo=UTC)
+
+
+def build_parser() -> argparse.ArgumentParser:
+    parser = argparse.ArgumentParser(
+        prog="python -m revi_scheduler.sweep",
+        description=(
+            "Cohort TTL sweep: drop expired pinned-cohort tables from the DuckDB warehouse "
+            "and report which cohort metadata records have expired."
+        ),
+    )
+    parser.add_argument(
+        "--now",
+        type=_iso_datetime,
+        default=None,
+        metavar="ISO8601",
+        help="evaluate TTLs as of this instant (naive values are read as UTC); default: now, UTC",
+    )
+    parser.add_argument(
+        "--dry-run",
+        action="store_true",
+        help=(
+            "report what has expired without dropping anything. The connector has no dry-run "
+            "drop primitive, so this queries cohort metadata only and never calls "
+            "drop_expired_cohorts"
+        ),
+    )
+    return parser
+
+
+def main(argv: list[str] | None = None, env: Mapping[str, str] | None = None) -> int:
+    logging.basicConfig(level=logging.INFO, format="%(levelname)s %(name)s: %(message)s")
+    args = build_parser().parse_args(argv)
+    env = env if env is not None else dict(os.environ)
+    now: datetime = args.now if args.now is not None else datetime.now(UTC)
+
+    warehouse = warehouse_path(env)
+    logger.info("warehouse=%s now=%s dry_run=%s", warehouse, now.isoformat(), args.dry_run)
+    if not warehouse.is_file():
+        logger.error(
+            "warehouse not found at %s — generate it with `make warehouse`, or point "
+            "REVI_WAREHOUSE_PATH at an existing file",
+            warehouse,
+        )
+        return 2
+
+    repository = DuckDbAnalyticalRepository(warehouse, _EMPTY_CATALOG, _no_metrics)
+    choice = build_cohort_store(env)
+    try:
+        report = asyncio.run(run_sweep(repository, choice, now=now, dry_run=args.dry_run))
+    except SourceUnavailableError as exc:
+        logger.error("the analytical warehouse is unavailable (%s) — nothing was swept", exc)
+        return 1
+
+    for line in report.summary():
+        print(line)
+    return 0
+
+
+if __name__ == "__main__":
+    sys.exit(main())

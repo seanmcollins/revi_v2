@@ -81,7 +81,7 @@
       },
       "AnomalyCard": {
         "additionalProperties": false,
-        "description": "One detected anomaly, ranked by the governed priority formula.\n\nThe decomposed components (impact, age, recoverable estimate,\nactionability rationale) travel with the score \u2014 no black-box\nordering \u2014 and ``drill_filters`` + ``drill_window`` are the typed\nhandle the UI uses to start an ordinary investigation turn.",
+        "description": "One detected anomaly, ranked by the governed priority formula.\n\nThe decomposed components (impact, age, recoverable estimate,\nactionability rationale) travel with the score \u2014 no black-box\nordering \u2014 and ``drill_filters`` + ``drill_window`` are the typed\nhandle the UI uses to start an ordinary investigation turn.\n\n**No evidence grade, by construction.** A grade certifies how a number\nwas *computed by this platform* from certified semantics (design \u00a75.3);\nan anomaly card is not that. It is a record read from an external\ndetection system as-of a watermark, so the platform cannot honestly\nstamp DIRECT/DERIVED/PROXY on it. Instead every card declares its\n``provenance`` (``external_detection``), the ``priority_formula_version``\nthat ordered it, and the ``source_watermark_id`` it was read at \u2014 the\nthree facts a grade would otherwise have implied. Drilling a card starts\nan ordinary investigation turn, and *that* answer carries a real grade.",
         "properties": {
           "actionability_label": {
             "default": "",
@@ -157,10 +157,19 @@
             "title": "Metric Id",
             "type": "string"
           },
+          "priority_formula_version": {
+            "title": "Priority Formula Version",
+            "type": "string"
+          },
           "priority_score": {
             "default": 0.0,
             "title": "Priority Score",
             "type": "number"
+          },
+          "provenance": {
+            "const": "external_detection",
+            "title": "Provenance",
+            "type": "string"
           },
           "recoverable_cents_estimate": {
             "default": 0,
@@ -169,6 +178,10 @@
           },
           "severity": {
             "title": "Severity",
+            "type": "string"
+          },
+          "source_watermark_id": {
+            "title": "Source Watermark Id",
             "type": "string"
           },
           "status": {
@@ -192,6 +205,9 @@
         },
         "required": [
           "anomaly_id",
+          "provenance",
+          "priority_formula_version",
+          "source_watermark_id",
           "title",
           "description",
           "category",
@@ -262,6 +278,304 @@
         "title": "CapabilitiesResponse",
         "type": "object"
       },
+      "ChartRow": {
+        "additionalProperties": false,
+        "properties": {
+          "referent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Referent Id"
+          },
+          "series": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Series"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "x": {
+            "title": "X",
+            "type": "string"
+          }
+        },
+        "required": [
+          "x"
+        ],
+        "title": "ChartRow",
+        "type": "object"
+      },
+      "ChartSpec": {
+        "additionalProperties": false,
+        "description": "A renderable chart; row referent ids make clicks compile to\n``DrillInto`` \u2014 no natural language in the gesture loop.",
+        "properties": {
+          "annotations": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Annotations",
+            "type": "array"
+          },
+          "chart_type": {
+            "enum": [
+              "bar",
+              "grouped_bar",
+              "stacked_bar",
+              "line",
+              "waterfall",
+              "table",
+              "range_band"
+            ],
+            "title": "Chart Type",
+            "type": "string"
+          },
+          "frame_id": {
+            "title": "Frame Id",
+            "type": "string"
+          },
+          "grade": {
+            "default": "direct",
+            "title": "Grade",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "recipe_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recipe Id"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/ChartRow"
+            },
+            "title": "Rows",
+            "type": "array"
+          },
+          "series": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Series"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          },
+          "x": {
+            "title": "X",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "chart_type",
+          "title",
+          "frame_id",
+          "x",
+          "value"
+        ],
+        "title": "ChartSpec",
+        "type": "object"
+      },
+      "ContextHeaderPayload": {
+        "additionalProperties": false,
+        "description": "Structured chips plus the canonical one-line display string.",
+        "properties": {
+          "basis": {
+            "title": "Basis",
+            "type": "string"
+          },
+          "cohort": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cohort"
+          },
+          "cohort_size": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cohort Size"
+          },
+          "comparison_end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comparison End"
+          },
+          "comparison_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comparison Kind"
+          },
+          "comparison_start": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comparison Start"
+          },
+          "display": {
+            "default": "",
+            "title": "Display",
+            "type": "string"
+          },
+          "filter_chips": {
+            "items": {
+              "$ref": "#/components/schemas/FilterChip"
+            },
+            "title": "Filter Chips",
+            "type": "array"
+          },
+          "filters": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Filters",
+            "type": "array"
+          },
+          "watermark_id": {
+            "default": "",
+            "title": "Watermark Id",
+            "type": "string"
+          },
+          "window_end": {
+            "format": "date",
+            "title": "Window End",
+            "type": "string"
+          },
+          "window_start": {
+            "format": "date",
+            "title": "Window Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "window_start",
+          "window_end",
+          "basis"
+        ],
+        "title": "ContextHeaderPayload",
+        "type": "object"
+      },
+      "DefinitionalPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "pack_id": {
+            "title": "Pack Id",
+            "type": "string"
+          },
+          "pack_snapshot_id": {
+            "title": "Pack Snapshot Id",
+            "type": "string"
+          },
+          "pack_version": {
+            "title": "Pack Version",
+            "type": "string"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          },
+          "terms": {
+            "items": {
+              "$ref": "#/components/schemas/TermPayload"
+            },
+            "title": "Terms",
+            "type": "array"
+          }
+        },
+        "required": [
+          "question",
+          "pack_id",
+          "pack_version",
+          "pack_snapshot_id"
+        ],
+        "title": "DefinitionalPayload",
+        "type": "object"
+      },
       "DrillIntoModel": {
         "additionalProperties": false,
         "properties": {
@@ -280,6 +594,30 @@
           "target"
         ],
         "title": "DrillIntoModel",
+        "type": "object"
+      },
+      "ErrorEnvelope": {
+        "additionalProperties": false,
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "correlation_id": {
+            "title": "Correlation Id",
+            "type": "string"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "message",
+          "correlation_id"
+        ],
+        "title": "ErrorEnvelope",
         "type": "object"
       },
       "ExpandModel": {
@@ -321,6 +659,49 @@
           "target"
         ],
         "title": "ExplainModel",
+        "type": "object"
+      },
+      "FilterChip": {
+        "additionalProperties": false,
+        "properties": {
+          "dimension": {
+            "title": "Dimension",
+            "type": "string"
+          },
+          "op": {
+            "title": "Op",
+            "type": "string"
+          },
+          "origin_turn": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin Turn"
+          },
+          "pinned": {
+            "default": false,
+            "title": "Pinned",
+            "type": "boolean"
+          },
+          "values": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "dimension",
+          "op",
+          "values"
+        ],
+        "title": "FilterChip",
         "type": "object"
       },
       "FindingPayload": {
@@ -555,6 +936,78 @@
         "title": "LineageEdgePayload",
         "type": "object"
       },
+      "MetaAnswerPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "finding_values": {
+            "items": {
+              "$ref": "#/components/schemas/FindingValue"
+            },
+            "title": "Finding Values",
+            "type": "array"
+          },
+          "grades": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Grades",
+            "type": "object"
+          },
+          "investigation_id": {
+            "title": "Investigation Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "operators": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Operators",
+            "type": "array"
+          },
+          "probes": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Probes",
+            "type": "array"
+          },
+          "reconciliation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reconciliation"
+          },
+          "referent": {
+            "title": "Referent",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "referent",
+          "label",
+          "investigation_id"
+        ],
+        "title": "MetaAnswerPayload",
+        "type": "object"
+      },
       "OpenSessionRequest": {
         "additionalProperties": false,
         "properties": {
@@ -674,6 +1127,30 @@
           "by"
         ],
         "title": "RankByModel",
+        "type": "object"
+      },
+      "ReferentPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "kind",
+          "label"
+        ],
+        "title": "ReferentPayload",
         "type": "object"
       },
       "RemoveFilterModel": {
@@ -939,6 +1416,261 @@
         "title": "SetWindowModel",
         "type": "object"
       },
+      "TermPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "definition": {
+            "title": "Definition",
+            "type": "string"
+          },
+          "kind": {
+            "title": "Kind",
+            "type": "string"
+          },
+          "source": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source"
+          },
+          "term": {
+            "title": "Term",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "term",
+          "kind",
+          "title",
+          "definition"
+        ],
+        "title": "TermPayload",
+        "type": "object"
+      },
+      "TurnAnswer": {
+        "additionalProperties": false,
+        "properties": {
+          "chart_specs": {
+            "items": {
+              "$ref": "#/components/schemas/ChartSpec"
+            },
+            "title": "Chart Specs",
+            "type": "array"
+          },
+          "context_header": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContextHeaderPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "definitional": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DefinitionalPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/FindingPayload"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "investigation_id": {
+            "title": "Investigation Id",
+            "type": "string"
+          },
+          "meta_answer": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MetaAnswerPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "narrative": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Narrative"
+          },
+          "outcome": {
+            "const": "answer",
+            "title": "Outcome",
+            "type": "string"
+          },
+          "plan_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Hash"
+          },
+          "reconciliation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reconciliation"
+          },
+          "referents": {
+            "items": {
+              "$ref": "#/components/schemas/ReferentPayload"
+            },
+            "title": "Referents",
+            "type": "array"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "turn_class": {
+            "title": "Turn Class",
+            "type": "string"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/UsageSummary"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "watermark_stale": {
+            "default": false,
+            "title": "Watermark Stale",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "outcome",
+          "session_id",
+          "investigation_id",
+          "turn_class"
+        ],
+        "title": "TurnAnswer",
+        "type": "object"
+      },
+      "TurnClarification": {
+        "additionalProperties": false,
+        "properties": {
+          "investigation_id": {
+            "title": "Investigation Id",
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "outcome": {
+            "const": "clarification_required",
+            "title": "Outcome",
+            "type": "string"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/UsageSummary"
+          },
+          "watermark_stale": {
+            "default": false,
+            "title": "Watermark Stale",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "outcome",
+          "session_id",
+          "investigation_id",
+          "question"
+        ],
+        "title": "TurnClarification",
+        "type": "object"
+      },
+      "TurnError": {
+        "additionalProperties": false,
+        "properties": {
+          "error": {
+            "$ref": "#/components/schemas/ErrorEnvelope"
+          },
+          "outcome": {
+            "const": "error",
+            "title": "Outcome",
+            "type": "string"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          }
+        },
+        "required": [
+          "outcome",
+          "error"
+        ],
+        "title": "TurnError",
+        "type": "object"
+      },
       "TurnRequest": {
         "additionalProperties": false,
         "description": "One turn: an utterance OR typed refinement operators (\u00a712).",
@@ -1064,6 +1796,70 @@
         "title": "TurnRequest",
         "type": "object"
       },
+      "TurnStreamEvent": {
+        "additionalProperties": false,
+        "description": "One Server-Sent Event frame on the turn route.\n\nOn the wire each frame is ``event: <kind>\\ndata: <json>\\n\\n``; this\nmodel documents that pairing (it is never serialized as a JSON body).\nOrdering: ``stage*`` interleaved with ``warning*``, then either\n``clarification`` or (``context_header``, ``finding*``, ``chart_spec*``,\n``narrative_delta*``), always terminated by exactly one\n``turn_complete`` \u2014 or by ``error`` if the turn failed.",
+        "properties": {
+          "data": {
+            "additionalProperties": true,
+            "title": "Data",
+            "type": "object"
+          },
+          "event": {
+            "enum": [
+              "stage",
+              "warning",
+              "clarification",
+              "context_header",
+              "finding",
+              "chart_spec",
+              "narrative_delta",
+              "error",
+              "turn_complete"
+            ],
+            "title": "Event",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event",
+          "data"
+        ],
+        "title": "TurnStreamEvent",
+        "type": "object"
+      },
+      "UsageSummary": {
+        "additionalProperties": false,
+        "properties": {
+          "cost_usd": {
+            "default": "0",
+            "title": "Cost Usd",
+            "type": "string"
+          },
+          "input_tokens": {
+            "default": 0,
+            "title": "Input Tokens",
+            "type": "integer"
+          },
+          "llm_calls": {
+            "default": 0,
+            "title": "Llm Calls",
+            "type": "integer"
+          },
+          "output_tokens": {
+            "default": 0,
+            "title": "Output Tokens",
+            "type": "integer"
+          },
+          "schema_retries": {
+            "default": 0,
+            "title": "Schema Retries",
+            "type": "integer"
+          }
+        },
+        "title": "UsageSummary",
+        "type": "object"
+      },
       "ValidationError": {
         "properties": {
           "ctx": {
@@ -1151,6 +1947,7 @@
   "paths": {
     "/v1/capabilities": {
       "get": {
+        "description": "Repository capabilities, pinned pack, newest watermark, LLM mode.",
         "operationId": "get_capabilities_v1_capabilities_get",
         "responses": {
           "200": {
@@ -1162,6 +1959,46 @@
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable \u00a712 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, \u2026)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unknown session, investigation, or referent (REFERENT_NOT_FOUND)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "WATERMARK_STALE or CONTEXT_CONFLICT \u2014 the pinned context cannot absorb the request without an explicit decision."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "SOURCE_UNAVAILABLE or DATA_LOADING \u2014 the analytical source cannot serve this watermark right now."
           }
         },
         "summary": "Get Capabilities"
@@ -1169,6 +2006,7 @@
     },
     "/v1/health": {
       "get": {
+        "description": "Liveness plus the wiring actually in effect (stores, LLM mode).",
         "operationId": "health_v1_health_get",
         "responses": {
           "200": {
@@ -1182,6 +2020,46 @@
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable \u00a712 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, \u2026)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unknown session, investigation, or referent (REFERENT_NOT_FOUND)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "WATERMARK_STALE or CONTEXT_CONFLICT \u2014 the pinned context cannot absorb the request without an explicit decision."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "SOURCE_UNAVAILABLE or DATA_LOADING \u2014 the analytical source cannot serve this watermark right now."
           }
         },
         "summary": "Health"
@@ -1189,6 +2067,7 @@
     },
     "/v1/investigations/{investigation_id}": {
       "get": {
+        "description": "Re-fetch a completed turn (reconnect / refresh recovery).",
         "operationId": "get_investigation_v1_investigations__investigation_id__get",
         "parameters": [
           {
@@ -1212,6 +2091,36 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable \u00a712 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, \u2026)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unknown session, investigation, or referent (REFERENT_NOT_FOUND)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "WATERMARK_STALE or CONTEXT_CONFLICT \u2014 the pinned context cannot absorb the request without an explicit decision."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1221,6 +2130,16 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "SOURCE_UNAVAILABLE or DATA_LOADING \u2014 the analytical source cannot serve this watermark right now."
           }
         },
         "summary": "Get Investigation"
@@ -1228,6 +2147,7 @@
     },
     "/v1/portfolio/latest": {
       "get": {
+        "description": "Detected anomalies at the pinned watermark, governed-priority\nranked. Cards carry `provenance` rather than an evidence grade.",
         "operationId": "get_portfolio_v1_portfolio_latest_get",
         "responses": {
           "200": {
@@ -1239,6 +2159,46 @@
               }
             },
             "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable \u00a712 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, \u2026)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unknown session, investigation, or referent (REFERENT_NOT_FOUND)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "WATERMARK_STALE or CONTEXT_CONFLICT \u2014 the pinned context cannot absorb the request without an explicit decision."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "SOURCE_UNAVAILABLE or DATA_LOADING \u2014 the analytical source cannot serve this watermark right now."
           }
         },
         "summary": "Get Portfolio"
@@ -1246,6 +2206,7 @@
     },
     "/v1/sessions": {
       "post": {
+        "description": "Open a session pinned to the newest watermark and active pack.",
         "operationId": "open_session_v1_sessions_post",
         "requestBody": {
           "content": {
@@ -1268,6 +2229,36 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable \u00a712 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, \u2026)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unknown session, investigation, or referent (REFERENT_NOT_FOUND)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "WATERMARK_STALE or CONTEXT_CONFLICT \u2014 the pinned context cannot absorb the request without an explicit decision."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1277,6 +2268,16 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "SOURCE_UNAVAILABLE or DATA_LOADING \u2014 the analytical source cannot serve this watermark right now."
           }
         },
         "summary": "Open Session"
@@ -1284,6 +2285,7 @@
     },
     "/v1/sessions/{session_id}/lineage": {
       "get": {
+        "description": "The session's investigation DAG: nodes plus refinement edges.",
         "operationId": "get_lineage_v1_sessions__session_id__lineage_get",
         "parameters": [
           {
@@ -1307,6 +2309,36 @@
             },
             "description": "Successful Response"
           },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable \u00a712 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, \u2026)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unknown session, investigation, or referent (REFERENT_NOT_FOUND)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "WATERMARK_STALE or CONTEXT_CONFLICT \u2014 the pinned context cannot absorb the request without an explicit decision."
+          },
           "422": {
             "content": {
               "application/json": {
@@ -1316,6 +2348,16 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "SOURCE_UNAVAILABLE or DATA_LOADING \u2014 the analytical source cannot serve this watermark right now."
           }
         },
         "summary": "Get Lineage"
@@ -1323,6 +2365,7 @@
     },
     "/v1/sessions/{session_id}/turns": {
       "post": {
+        "description": "**`Accept: text/event-stream`** streams Server-Sent Events; \n**`Accept: application/json`** blocks and returns the same \n`TurnResponse` body. One route, two transports.\n\nEach SSE frame is `event: <kind>` + `data: <json>` \u2014 see the \n`TurnStreamEvent` schema. Frame kinds and payloads:\n\n- `stage` \u2014 {stage: str} \u2014 pipeline progress (classify, plan, validate, execute, calculate, findings, present, narrate).\n- `warning` \u2014 {code: str, ...} \u2014 a stable \u00a712 code plus code-specific detail (e.g. WATERMARK_STALE carries pinned/newest, RECONCILIATION_FAILED carries detail).\n- `clarification` \u2014 {question: str, reason: str|null} \u2014 a successful outcome, never an error.\n- `context_header` \u2014 ContextHeaderPayload \u2014 the effective context of the answer (\u00a77.2); emitted before any finding.\n- `finding` \u2014 FindingPayload \u2014 one certified, referent-addressable result.\n- `chart_spec` \u2014 ChartSpec \u2014 a renderable chart whose row referent ids compile clicks into typed DrillInto refinements.\n- `narrative_delta` \u2014 {delta: str} \u2014 one streamed narrative chunk; provisional until turn_complete.\n- `error` \u2014 ErrorEnvelope \u2014 a failed turn; the stream then ends.\n- `turn_complete` \u2014 TurnResponse \u2014 the FULL authoritative payload. The stream is progress; this last frame is the answer.\n\nThe stream is progress; the final `turn_complete` frame carries the \nauthoritative `TurnResponse`. `CLARIFICATION_REQUIRED` is a 200 \noutcome, never an error.",
         "operationId": "submit_turn_v1_sessions__session_id__turns_post",
         "parameters": [
           {
@@ -1350,11 +2393,65 @@
             "content": {
               "application/json": {
                 "schema": {
-                  "title": "Response Submit Turn V1 Sessions  Session Id  Turns Post"
+                  "discriminator": {
+                    "mapping": {
+                      "answer": "#/components/schemas/TurnAnswer",
+                      "clarification_required": "#/components/schemas/TurnClarification",
+                      "error": "#/components/schemas/TurnError"
+                    },
+                    "propertyName": "outcome"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/TurnAnswer"
+                    },
+                    {
+                      "$ref": "#/components/schemas/TurnClarification"
+                    },
+                    {
+                      "$ref": "#/components/schemas/TurnError"
+                    }
+                  ],
+                  "title": "Response 200 Submit Turn V1 Sessions  Session Id  Turns Post"
+                }
+              },
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/TurnStreamEvent"
                 }
               }
             },
-            "description": "Successful Response"
+            "description": "The turn's `TurnResponse` (JSON), or \u2014 with `Accept: text/event-stream` \u2014 the SSE stream whose frames are `TurnStreamEvent`."
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable \u00a712 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, \u2026)."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unknown session, investigation, or referent (REFERENT_NOT_FOUND)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "WATERMARK_STALE or CONTEXT_CONFLICT \u2014 the pinned context cannot absorb the request without an explicit decision."
           },
           "422": {
             "content": {
@@ -1365,9 +2462,19 @@
               }
             },
             "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "SOURCE_UNAVAILABLE or DATA_LOADING \u2014 the analytical source cannot serve this watermark right now."
           }
         },
-        "summary": "Submit Turn"
+        "summary": "Submit one turn (utterance OR typed refinement operators)"
       }
     }
   }

@@ -535,7 +535,9 @@ describe("Portfolio contract (parsePortfolioSnapshot)", () => {
         impactCents: 117_141_515,
         impactLabel: "billed at risk",
         detail: "414 July claims unsubmitted.",
-        grade: "direct",
+        provenance: "external_detection",
+        priorityFormulaVersion: "dollar_impact@1",
+        sourceWatermarkId: "wm_003",
         drill: { label: "Drill in", refinement: { op: "DrillInto", target: "P1" } },
       },
     ],
@@ -570,7 +572,9 @@ describe("Portfolio contract (parsePortfolioSnapshot)", () => {
           category: "timely_filing_watch",
           impact_cents: 117_141_515,
           description: "414 July claims unsubmitted.",
-          grade: "direct",
+          provenance: "external_detection",
+          priority_formula_version: "dollar_impact@1",
+          source_watermark_id: "wm_003",
         },
       ],
       watermark_id: "wm_003",
@@ -583,18 +587,43 @@ describe("Portfolio contract (parsePortfolioSnapshot)", () => {
       issueClass: "timely_filing_watch",
       impactCents: 117_141_515,
       detail: "414 July claims unsubmitted.",
+      provenance: "external_detection",
+      priorityFormulaVersion: "dollar_impact@1",
+      sourceWatermarkId: "wm_003",
     });
     expect(value?.watermark).toBe("wm_003");
     expect(value?.rankingPolicy).toBe("dollar_impact@1");
   });
 
-  it("reports the missing evidence grade rather than inventing one", () => {
-    // AnomalyCard carries no grade yet; the drift banner is the designed
-    // outcome, not a silent default. See contract-openapi.test.ts.
+  it("reports a card that declares no provenance rather than inventing one", () => {
+    // BEHAVIOUR CHANGE: this used to assert drift on a missing `grade`. The
+    // server settled that argument — AnomalyCard publishes no grade by design
+    // (grading an external detection would invent provenance) and now carries
+    // `provenance` instead, which IS required. A card that declares neither
+    // still trips the visible drift banner rather than being drawn unlabelled.
+    // See contract-openapi.test.ts.
     const { value, drift } = parsePortfolioSnapshot({
       items: [{ anomaly_id: "A1", title: "T", impact_cents: 1 }],
     });
     expect(value?.items).toEqual([]);
-    expect(drift).toContain("items[0].grade");
+    expect(drift).toContain("items[0].provenance");
+  });
+
+  it("degrades the badge annotations to empty instead of dropping the card", () => {
+    // priority_formula_version / source_watermark_id are spec-required but
+    // only annotate the DETECTION badge tooltip — a server that omits them
+    // should cost the tooltip, not the card.
+    const { value, drift } = parsePortfolioSnapshot({
+      items: [
+        { anomaly_id: "A1", title: "T", impact_cents: 1, provenance: "external_detection" },
+      ],
+    });
+    expect(drift).toEqual([]);
+    expect(value?.items[0]).toMatchObject({
+      referent: "A1",
+      provenance: "external_detection",
+      priorityFormulaVersion: "",
+      sourceWatermarkId: "",
+    });
   });
 });

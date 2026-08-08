@@ -21,7 +21,7 @@ conclusion_policies:
       A coordination-of-benefits problem exists for the scoped payer
       population (claims billed primary while other coverage exists).
     required_grade: direct
-    required_evidence: [cob_flag_split]
+    required_evidence: [cob_mismatch_by_payer]
     estimate_label_required: false
   - id: cob_suspected_claim
     claim: >-

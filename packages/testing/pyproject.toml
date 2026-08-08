@@ -1,7 +1,7 @@
 [project]
 name = "revi-testing"
 version = "0.1.0"
-description = "Test harness: in-memory fakes, MockLanguageModel, contract suites, golden-conversation runner, fixtures."
+description = "Test harness: in-memory fakes, MockLanguageModel, contract suites, reference-conversation runner, fixtures."
 requires-python = ">=3.12"
 dependencies = [
     "revi-kernel",

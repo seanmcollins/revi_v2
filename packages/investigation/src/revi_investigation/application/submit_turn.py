@@ -625,6 +625,7 @@ class SubmitTurnService:
             watermark=session.watermark,
             pack_snapshot_id=self._pack.snapshot_id,
             turn_id=state.turn_id,
+            grades=dict(validated.grades),
         )
         state.time_stage("execute")
 

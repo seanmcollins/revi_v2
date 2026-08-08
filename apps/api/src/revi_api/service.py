@@ -41,9 +41,14 @@ TurnResult = TurnAnswer | TurnClarification | TurnError
 
 
 class NotFoundError(ReviError):
-    """Resource-miss for GET routes (mapped to HTTP 404)."""
+    """Resource-miss for GET routes (mapped to HTTP 404).
 
-    code = ErrorCode.UNSUPPORTED_CONCEPT
+    ``REFERENT_NOT_FOUND`` is the §12 code for "the thing you named does
+    not exist here" — the same failure whether the handle is F2 or an
+    investigation id. UNSUPPORTED_CONCEPT would say something different and
+    false: that the platform cannot express what was asked."""
+
+    code = ErrorCode.REFERENT_NOT_FOUND
 
 
 def _session_response(session: Session) -> SessionResponse:

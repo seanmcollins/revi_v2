@@ -1,4 +1,6 @@
-"""Test harness: in-memory fakes, MockLanguageModel, contract suites, golden-conversation runner, fixtures."""
+"""Test harness: in-memory fakes, MockLanguageModel, contract suites,
+reference-conversation runner, fixtures.
+"""
 
 from revi_testing.analytical_contract import AnalyticalRepositoryContract
 from revi_testing.fixtures import FIXTURE_METRICS, fixture_metrics

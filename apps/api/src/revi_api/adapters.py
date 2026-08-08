@@ -34,8 +34,15 @@ from revi_investigation.application.capability_ports import (
     TransformStepSpec,
 )
 from revi_kernel.frame import EvidenceFrame
+from revi_kernel.grades import EvidenceGrade
 from revi_kernel.refs import MetricRef
-from revi_pack.domain import CodeDefinition, Concept, KnowledgeCard, PackSnapshot
+from revi_pack.domain import (
+    BindingState,
+    CodeDefinition,
+    Concept,
+    KnowledgeCard,
+    PackSnapshot,
+)
 
 
 class PackSnapshotPort:
@@ -161,6 +168,16 @@ class PackSnapshotPort:
                     required_grade=policy.required_grade,
                     estimate_label_required=policy.estimate_label_required,
                 )
+        return None
+
+    def binding_strength(self, concept_id: str, field_id: str) -> EvidenceGrade | None:
+        for binding in self._snapshot.bindings:
+            if (
+                binding.concept_id == concept_id
+                and binding.dimension_or_measure_id == field_id
+                and binding.state is not BindingState.DEPRECATED
+            ):
+                return binding.strength
         return None
 
 

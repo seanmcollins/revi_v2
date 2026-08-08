@@ -5,7 +5,7 @@ SHELL := /bin/bash
 
 WAREHOUSE_PATH ?= data/revi_warehouse.duckdb
 
-.PHONY: help bootstrap warehouse db-up db-down migrate portfolio api web dev \
+.PHONY: help bootstrap warehouse db-up db-down migrate sweep api web dev \
         test reference lint fmt typecheck openapi clean
 
 help: ## List targets
@@ -27,8 +27,8 @@ db-down: ## Stop Postgres
 migrate: ## Apply Postgres migrations
 	uv run alembic -c packages/store-postgres/alembic.ini upgrade head
 
-portfolio: ## Run one portfolio pre-materialization pass
-	uv run python -m revi_scheduler.portfolio
+sweep: ## Run one cohort TTL sweep (drop expired cohort tables; --dry-run supported)
+	uv run python -m revi_scheduler.sweep
 
 api: ## Run the FastAPI app (dev)
 	uv run uvicorn revi_api.main:app --reload --port 8000

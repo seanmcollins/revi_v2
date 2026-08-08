@@ -4,18 +4,19 @@
 (no warehouse/DB/LLM needed — route and DTO shapes only).
 
 The frontend wires its own generation step (owned by the frontend
-workstream; `apps/web` is not touched by the API workstream). Suggested
-setup, to be added under `apps/web`:
+workstream; `apps/web` is not touched by the API workstream). It is already
+set up under `apps/web`:
 
 ```jsonc
 // apps/web/package.json (devDependencies)
-"openapi-typescript": "^7"
+"openapi-typescript": "^7.13.0"
 
 // apps/web/package.json (scripts)
-"generate:types": "openapi-typescript ../../contracts/openapi.json -o src/lib/types.gen.ts"
+"gen:types": "openapi-typescript ../../contracts/openapi.json -o src/lib/types.gen.ts"
 ```
 
-Flow: `make openapi && (cd apps/web && pnpm generate:types)`.
+Flow: `make openapi && (cd apps/web && pnpm gen:types)` — writes
+`apps/web/src/lib/types.gen.ts`.
 
 Notes for the frontend agent:
 

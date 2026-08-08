@@ -123,6 +123,20 @@ class PackPort(Protocol):
 
     def conclusion_policy(self, policy_id: str) -> ConclusionPolicySpec | None: ...
 
+    def binding_strength(self, concept_id: str, field_id: str) -> EvidenceGrade | None:
+        """Declared evidence strength of ``field_id`` **as evidence for**
+        ``concept_id`` (design §5.5), or ``None`` when the pack declares no
+        binding between them.
+
+        The same field is not equally good evidence for every concept: a
+        CARC is the direct representation of a *denial* and only a proxy for
+        *coordination of benefits*, because a reason code is a payer's
+        assertion about coverage, not the coverage itself. Grading therefore
+        has to be asked per concept — a field-only lookup would either
+        downgrade honest denial analysis or launder COB guesswork.
+        """
+        ...
+
 
 # ---------------------------------------------------------------------------
 # versioned kernel transforms (implemented by revi_calculation)

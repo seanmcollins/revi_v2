@@ -72,6 +72,7 @@ def _make_spec(
     entity: EntityGrain = EntityGrain.CLAIM,
     limit: int | None = None,
     watermark: DataWatermark = TEST_WATERMARK,
+    concepts: tuple[str, ...] = (),
 ) -> AnalysisSpec:
     resolved = resolve_window(window, watermark.loaded_at.date(), basis=basis)
     context = InvestigationContext(
@@ -88,6 +89,7 @@ def _make_spec(
         measures=tuple(MetricRef(m) for m in measures),
         dimensions=tuple(DimensionRef(d) for d in dimensions),
         limit=limit,
+        concepts=concepts,
     )
 
 

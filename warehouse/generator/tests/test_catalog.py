@@ -49,7 +49,7 @@ def test_dimensions_yaml() -> None:
     dims = data["dimensions"]
     certified = {k for k, v in dims.items() if v["certified"]}
     uncertified = {k for k, v in dims.items() if not v["certified"]}
-    assert len(certified) == 19, sorted(certified)
+    assert len(certified) == 20, sorted(certified)
     assert uncertified == {"rarc_synthetic", "revenue_code"}
     for name, spec in dims.items():
         assert spec["synonyms"], f"{name} needs synonyms"

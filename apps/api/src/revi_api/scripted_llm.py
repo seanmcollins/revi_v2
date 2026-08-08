@@ -1,10 +1,17 @@
 """A table-driven ``LanguageModelPort`` for demo mode (no API key, no SDK).
 
-Serves the reference five-turn conversation script plus honest fallbacks:
-an unmatched structured call returns ``structured_output=None``, which the
-engine converts into a clarification — the demo never guesses. The same
-script backs the reference-over-HTTP tests, so demo mode and CI exercise
-one table.
+Serves the reference five-turn conversation, the definitional anchor
+("what is PR3"), and the COB playbook, plus honest fallbacks: an unmatched
+structured call returns ``structured_output=None``, which the engine
+converts into a clarification — the demo never guesses. The same script
+backs the reference-over-HTTP tests, so demo mode and CI exercise one
+table.
+
+What is scripted here is *only* the probabilistic layer: turn class,
+interpreted ids, refinement operators. Every number, grade, chart and
+header downstream is computed by the real engine against the real
+warehouse, which is what makes demo mode a genuine test of the pipeline
+rather than a puppet show.
 """
 
 from __future__ import annotations
@@ -97,6 +104,26 @@ _T1_INTERPRETATION: dict[str, Any] = {
 }
 
 
+DEFINITIONAL_QUESTION = "what is pr3"
+COB_QUESTION = "Do I have a COB problem?"
+
+_COB_INTERPRETATION: dict[str, Any] = {
+    "intent_summary": "Assess whether a coordination-of-benefits problem exists",
+    "metric_ids": [],
+    "dimension_ids": ["payer"],
+    # the concept id is load-bearing: it is what grades the CARC branch
+    # PROXY and the mismatch-flag branch DIRECT (design §5.5)
+    "concept_ids": ["cob"],
+    "playbook_id": "cob_investigation",
+    "window": {"quantity": "4", "unit": "month", "mode": "full_periods"},
+    "basis": None,
+    "comparison": None,
+    "scope": [],
+    "clarification": None,
+    "definitional_terms": [],
+}
+
+
 def demo_script_entries() -> list[ScriptEntry]:
     """The reference five-turn conversation as a scripted-demo table."""
     def classify(contains: str, turn_class: str, confidence: float) -> ScriptEntry:
@@ -162,6 +189,13 @@ def demo_script_entries() -> list[ScriptEntry]:
             },
         ),
         classify(REFERENCE_QUESTIONS[4], "meta", 0.95),
+        # --- guide-question anchors, answered by the same generic paths ---
+        # DEFINITIONAL needs no interpretation call: the term resolves
+        # against pack content deterministically, zero probes.
+        classify("pr3", "definitional", 0.96),
+        classify("PR3", "definitional", 0.96),
+        classify(COB_QUESTION, "new_investigation", 0.91),
+        ScriptEntry("interpret_question", "COB", _COB_INTERPRETATION),
     ]
 
 

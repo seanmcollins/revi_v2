@@ -70,6 +70,12 @@ class AnalysisSpec:
     rank_by: MetricRef | None = None
     rank_descending: bool = True
     limit: int | None = None
+    #: Pack concept ids this investigation is *about* (validated against the
+    #: pack at interpretation time — a closed set, never free text). They
+    #: carry across refinements because refining scope does not change what
+    #: the question is about, and grading needs them: the same field is
+    #: direct evidence for one concept and only a proxy for another (§5.5).
+    concepts: tuple[str, ...] = ()
 
     def with_context(self, context: InvestigationContext) -> AnalysisSpec:
         return replace(self, context=context)

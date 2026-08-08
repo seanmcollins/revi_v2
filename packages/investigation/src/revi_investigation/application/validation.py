@@ -2,8 +2,13 @@
 
 1. **Resolution.** Every probe dimension and scope-predicate dimension must
    resolve in the semantic catalog (``UNSUPPORTED_CONCEPT`` otherwise), and
-   each node is graded: any uncertified dimension anywhere in the chain
-   downgrades the node to DISCOVERY (design §2.3). Resolution also covers
+   each node is graded on two independent axes, weakest wins:
+   *certification* — any uncertified dimension anywhere in the chain
+   downgrades the node to DISCOVERY (design §2.3); and *binding strength* —
+   the pack's declared strength of each touched field as evidence for the
+   concepts under investigation (§5.5), so certified-but-proxy evidence
+   (a CARC standing in for coordination of benefits) cannot launder into a
+   certified conclusion. Resolution also covers
    measure *fields*: a contract whose measure fields are not answerable at
    the source (no catalog measure at the probe's entity, no declared
    column) prunes its probe from the plan with a surfaced warning — the
@@ -64,7 +69,7 @@ from revi_kernel.errors import (
     UnsupportedConceptError,
 )
 from revi_kernel.filters import Predicate, iter_cohorts, iter_predicates
-from revi_kernel.grades import EvidenceGrade
+from revi_kernel.grades import EvidenceGrade, min_grade
 from revi_kernel.probes import AggregationProbe, SnapshotProbe
 from revi_kernel.refs import SERVICE, DateBasisRef, DimensionRef
 
@@ -141,7 +146,7 @@ class PlanValidationService:
 
         grades: list[tuple[str, EvidenceGrade]] = []
         for node in plan.nodes:
-            grade = self._resolve_and_grade(node)  # step 1
+            grade = self._resolve_and_grade(node, spec.concepts)  # step 1
             self._check_grain(node)  # step 2
             self._check_basis(node, warnings)  # step 3
             self._check_cardinality(node, warnings)  # step 4
@@ -248,7 +253,7 @@ class PlanValidationService:
         assert isinstance(probe, (AggregationProbe, SnapshotProbe))
         return probe.dimensions
 
-    def _resolve_and_grade(self, node: ProbeNode) -> EvidenceGrade:
+    def _resolve_and_grade(self, node: ProbeNode, concepts: tuple[str, ...]) -> EvidenceGrade:
         uncertified = False
         for ref in (
             *self._probe_dimensions(node),
@@ -264,7 +269,47 @@ class PlanValidationService:
                 )
             if not dim.certified:
                 uncertified = True
-        return EvidenceGrade.DISCOVERY if uncertified else EvidenceGrade.DIRECT
+        catalog_grade = EvidenceGrade.DISCOVERY if uncertified else EvidenceGrade.DIRECT
+        return min_grade(catalog_grade, *self._binding_grades(node, concepts))
+
+    def _binding_grades(
+        self, node: ProbeNode, concepts: tuple[str, ...]
+    ) -> tuple[EvidenceGrade, ...]:
+        """Declared binding strengths for the concepts under investigation
+        (design §5.5), over every field this probe actually touches.
+
+        Certification says a field is trustworthy; a *binding* says how well
+        that field stands in for the concept being asked about. A COB probe
+        cut by CARC is perfectly certified data and still only proxy
+        evidence that a COB problem exists — the code is the payer's
+        assertion about coverage, not the coverage. Without this the grade
+        law would let proxy evidence carry a certified conclusion, which is
+        exactly the laundering §5.5 forbids.
+
+        Fields the pack declares no binding for contribute nothing: silence
+        is not a downgrade.
+        """
+        if not concepts:
+            return ()
+        fields: set[str] = set()
+        for ref in (
+            *self._probe_dimensions(node),
+            *(p.dimension for p in self._scope_predicates(node)),
+        ):
+            if not ref.id.startswith(_TIME_BUCKET_PREFIX):
+                fields.add(ref.id)
+        for contract in self._contracts_for(node):
+            fields.add(contract.id)
+            fields.update(_measure_fields(contract.numerator))
+            fields.update(_measure_fields(contract.denominator))
+            fields.update(_internal_filter_dimensions(contract))
+        grades: list[EvidenceGrade] = []
+        for concept_id in concepts:
+            for field_id in sorted(fields):
+                strength = self._pack.binding_strength(concept_id, field_id)
+                if strength is not None:
+                    grades.append(strength)
+        return tuple(grades)
 
     # ------------------------------------------------------- step 2: grain
 

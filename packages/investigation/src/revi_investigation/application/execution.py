@@ -7,6 +7,12 @@ are executed as-of the session watermark, suppressed, then cached (the
 suppressed frame is cached: suppression is deterministic per catalog
 policy, so caching post-policy frames keeps cache reads zero-work).
 
+**Grades.** The repository stamps what an adapter can know — catalog
+certification. The planner's §6.6 grade additionally knows the pack's
+concept bindings, so it is applied here, after the cache, weakest-wins.
+Cache entries therefore stay concept-independent while each answer still
+carries the grade its question earned.
+
 **Small-cell suppression rule** (design §15: "aggregates leak in small
 cohorts"): in frames whose schema contains a count-unit measure column, any
 row where some count value ``c`` satisfies ``0 < c < threshold`` has ALL
@@ -21,6 +27,7 @@ magnitude may not.
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
 from revi_catalog_contracts.model import CatalogSnapshot
@@ -29,6 +36,7 @@ from revi_investigation.application.ports import EvidenceCache, TurnEvent, TurnE
 from revi_kernel.capabilities import AnalyticalRepository
 from revi_kernel.filters import Scalar
 from revi_kernel.frame import EvidenceFrame, FrameRow, ProbeProvenance
+from revi_kernel.grades import EvidenceGrade
 from revi_kernel.refs import MetricRef
 from revi_kernel.watermark import DataWatermark
 
@@ -103,6 +111,7 @@ class ExecuteInvestigationService:
         watermark: DataWatermark,
         pack_snapshot_id: str,
         turn_id: str,
+        grades: Mapping[str, EvidenceGrade] | None = None,
     ) -> tuple[ExecutedProbe, ...]:
         executed: list[ExecutedProbe] = []
         total = len(plan.nodes)
@@ -119,6 +128,15 @@ class ExecuteInvestigationService:
                 frame = apply_small_cell_suppression(frame, self._threshold)
                 await self._cache.put(digest, watermark.id, pack_snapshot_id, frame)
                 hit = False
+            # The §6.6 grade lands here, AFTER the cache: the adapter can
+            # only see catalog certification, while binding strength depends
+            # on the concept being asked about. Caching the adapter's frame
+            # keeps entries concept-independent (the same bytes serve a
+            # denial question and a COB question); the weaker of the two
+            # grades is what the answer is allowed to claim.
+            planned = (grades or {}).get(node.id)
+            if planned is not None and planned.strength < frame.evidence_grade.strength:
+                frame = replace(frame, evidence_grade=planned)
             await self._events.publish(
                 TurnEvent(
                     kind="stage",

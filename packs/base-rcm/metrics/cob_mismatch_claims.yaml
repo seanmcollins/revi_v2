@@ -1,0 +1,27 @@
+# Coordination-of-benefits mismatch volume. The DIRECT branch of the COB
+# question: the population is defined INSIDE the contract (governed meaning),
+# not by a filter a playbook or a prompt bolted on. Pairs with claim_volume
+# as its denominator context; see cob_mismatch_rate for the ratio.
+id: cob_mismatch_claims
+version: 1
+kind: flow
+entity_grain: claim
+numerator:
+  filtered:
+    inner: {count_distinct: claim_id}
+    where: {dimension: cob_mismatch_flag, op: eq, value: true}
+primary_date_basis: service
+allowed_date_bases: [service, submission, discharge]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, provider,
+   provider_specialty, facility, region, service_line, claim_type,
+   payer_sequence]
+sign: higher_is_bad
+unit: count
+description: >-
+  Distinct claims billed as primary while other insurance exists on the
+  account — coordination of benefits out of order. This is the certified
+  direct measurement of the COB concept: it counts the billing error itself,
+  not a payer's reason code about it. Rework on these claims is near-certain
+  (rebill to the true primary, then secondary), so volume here is a direct
+  read on avoidable touches, not merely a denial risk.

@@ -2,7 +2,7 @@
 
 import { ArrowUpRight } from "lucide-react";
 
-import { GradeBadge } from "@/components/answer/GradeBadge";
+import { DetectionBadge } from "@/components/portfolio/DetectionBadge";
 import { Button } from "@/components/ui/button";
 import { formatSignedCents, formatCents } from "@/lib/format";
 import { PORTFOLIO_ITEMS, PORTFOLIO_META, type PortfolioItem } from "@/lib/mock/portfolio";
@@ -17,6 +17,12 @@ import { cn } from "@/lib/utils";
  *
  * In api mode this comes from GET /v1/portfolio/latest (a 501 is the
  * graceful "not built yet"); mock mode keeps the local fixture.
+ *
+ * Cards wear a DETECTION provenance chip, never a GradeBadge: they are
+ * external detections read at a watermark, not numbers this platform
+ * computed from certified semantics. The per-card priority formula and
+ * source watermark live in that chip's tooltip; the snapshot-level ranking
+ * policy and watermark stay in the header/footer, so neither is duplicated.
  */
 export function PortfolioPanel() {
   const emitRefinement = useSessionStore((s) => s.emitRefinement);
@@ -89,7 +95,10 @@ export function PortfolioPanel() {
                     {item.detail}
                   </p>
                   <div className="mt-1.5 flex items-center justify-between">
-                    <GradeBadge grade={item.grade} size="xs" />
+                    <DetectionBadge
+                      priorityFormulaVersion={item.priorityFormulaVersion}
+                      sourceWatermarkId={item.sourceWatermarkId}
+                    />
                     <Button
                       variant="ghost"
                       size="xs"

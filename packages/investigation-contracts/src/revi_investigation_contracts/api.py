@@ -242,9 +242,24 @@ class AnomalyCard(ClosedModel):
     The decomposed components (impact, age, recoverable estimate,
     actionability rationale) travel with the score — no black-box
     ordering — and ``drill_filters`` + ``drill_window`` are the typed
-    handle the UI uses to start an ordinary investigation turn."""
+    handle the UI uses to start an ordinary investigation turn.
+
+    **No evidence grade, by construction.** A grade certifies how a number
+    was *computed by this platform* from certified semantics (design §5.3);
+    an anomaly card is not that. It is a record read from an external
+    detection system as-of a watermark, so the platform cannot honestly
+    stamp DIRECT/DERIVED/PROXY on it. Instead every card declares its
+    ``provenance`` (``external_detection``), the ``priority_formula_version``
+    that ordered it, and the ``source_watermark_id`` it was read at — the
+    three facts a grade would otherwise have implied. Drilling a card starts
+    an ordinary investigation turn, and *that* answer carries a real grade."""
 
     anomaly_id: str
+    # Required, never defaulted: a card that could omit its provenance is a
+    # card a client could mistake for platform-computed evidence.
+    provenance: Literal["external_detection"]
+    priority_formula_version: str
+    source_watermark_id: str
     title: str
     description: str
     category: str
@@ -276,6 +291,59 @@ class PortfolioResponse(ClosedModel):
     weights: dict[str, float] = Field(default_factory=dict)
     items: list[AnomalyCard] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# SSE frames (POST /v1/sessions/{sid}/turns with Accept: text/event-stream)
+
+
+TurnEventKind = Literal[
+    "stage",
+    "warning",
+    "clarification",
+    "context_header",
+    "finding",
+    "chart_spec",
+    "narrative_delta",
+    "error",
+    "turn_complete",
+]
+
+#: Wire payload per frame kind — the contract the stream parser codes to.
+TURN_EVENT_PAYLOADS: dict[str, str] = {
+    "stage": "{stage: str} — pipeline progress (classify, plan, validate, "
+    "execute, calculate, findings, present, narrate).",
+    "warning": "{code: str, ...} — a stable §12 code plus code-specific "
+    "detail (e.g. WATERMARK_STALE carries pinned/newest, "
+    "RECONCILIATION_FAILED carries detail).",
+    "clarification": "{question: str, reason: str|null} — a successful "
+    "outcome, never an error.",
+    "context_header": "ContextHeaderPayload — the effective context of the "
+    "answer (§7.2); emitted before any finding.",
+    "finding": "FindingPayload — one certified, referent-addressable result.",
+    "chart_spec": "ChartSpec — a renderable chart whose row referent ids "
+    "compile clicks into typed DrillInto refinements.",
+    "narrative_delta": "{delta: str} — one streamed narrative chunk; "
+    "provisional until turn_complete.",
+    "error": "ErrorEnvelope — a failed turn; the stream then ends.",
+    "turn_complete": "TurnResponse — the FULL authoritative payload. The "
+    "stream is progress; this last frame is the answer.",
+}
+
+
+class TurnStreamEvent(ClosedModel):
+    """One Server-Sent Event frame on the turn route.
+
+    On the wire each frame is ``event: <kind>\\ndata: <json>\\n\\n``; this
+    model documents that pairing (it is never serialized as a JSON body).
+    Ordering: ``stage*`` interleaved with ``warning*``, then either
+    ``clarification`` or (``context_header``, ``finding*``, ``chart_spec*``,
+    ``narrative_delta*``), always terminated by exactly one
+    ``turn_complete`` — or by ``error`` if the turn failed.
+    """
+
+    event: TurnEventKind
+    data: dict[str, Any]
 
 
 class CapabilitiesResponse(ClosedModel):

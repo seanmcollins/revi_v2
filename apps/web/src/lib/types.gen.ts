@@ -11,7 +11,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Capabilities */
+        /**
+         * Get Capabilities
+         * @description Repository capabilities, pinned pack, newest watermark, LLM mode.
+         */
         get: operations["get_capabilities_v1_capabilities_get"];
         put?: never;
         post?: never;
@@ -28,7 +31,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Health */
+        /**
+         * Health
+         * @description Liveness plus the wiring actually in effect (stores, LLM mode).
+         */
         get: operations["health_v1_health_get"];
         put?: never;
         post?: never;
@@ -45,7 +51,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Investigation */
+        /**
+         * Get Investigation
+         * @description Re-fetch a completed turn (reconnect / refresh recovery).
+         */
         get: operations["get_investigation_v1_investigations__investigation_id__get"];
         put?: never;
         post?: never;
@@ -62,7 +71,11 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Portfolio */
+        /**
+         * Get Portfolio
+         * @description Detected anomalies at the pinned watermark, governed-priority
+         *     ranked. Cards carry `provenance` rather than an evidence grade.
+         */
         get: operations["get_portfolio_v1_portfolio_latest_get"];
         put?: never;
         post?: never;
@@ -81,7 +94,10 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Open Session */
+        /**
+         * Open Session
+         * @description Open a session pinned to the newest watermark and active pack.
+         */
         post: operations["open_session_v1_sessions_post"];
         delete?: never;
         options?: never;
@@ -96,7 +112,10 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        /** Get Lineage */
+        /**
+         * Get Lineage
+         * @description The session's investigation DAG: nodes plus refinement edges.
+         */
         get: operations["get_lineage_v1_sessions__session_id__lineage_get"];
         put?: never;
         post?: never;
@@ -115,7 +134,29 @@ export interface paths {
         };
         get?: never;
         put?: never;
-        /** Submit Turn */
+        /**
+         * Submit one turn (utterance OR typed refinement operators)
+         * @description **`Accept: text/event-stream`** streams Server-Sent Events;
+         *     **`Accept: application/json`** blocks and returns the same
+         *     `TurnResponse` body. One route, two transports.
+         *
+         *     Each SSE frame is `event: <kind>` + `data: <json>` — see the
+         *     `TurnStreamEvent` schema. Frame kinds and payloads:
+         *
+         *     - `stage` — {stage: str} — pipeline progress (classify, plan, validate, execute, calculate, findings, present, narrate).
+         *     - `warning` — {code: str, ...} — a stable §12 code plus code-specific detail (e.g. WATERMARK_STALE carries pinned/newest, RECONCILIATION_FAILED carries detail).
+         *     - `clarification` — {question: str, reason: str|null} — a successful outcome, never an error.
+         *     - `context_header` — ContextHeaderPayload — the effective context of the answer (§7.2); emitted before any finding.
+         *     - `finding` — FindingPayload — one certified, referent-addressable result.
+         *     - `chart_spec` — ChartSpec — a renderable chart whose row referent ids compile clicks into typed DrillInto refinements.
+         *     - `narrative_delta` — {delta: str} — one streamed narrative chunk; provisional until turn_complete.
+         *     - `error` — ErrorEnvelope — a failed turn; the stream then ends.
+         *     - `turn_complete` — TurnResponse — the FULL authoritative payload. The stream is progress; this last frame is the answer.
+         *
+         *     The stream is progress; the final `turn_complete` frame carries the
+         *     authoritative `TurnResponse`. `CLARIFICATION_REQUIRED` is a 200
+         *     outcome, never an error.
+         */
         post: operations["submit_turn_v1_sessions__session_id__turns_post"];
         delete?: never;
         options?: never;
@@ -165,6 +206,16 @@ export interface components {
          *     actionability rationale) travel with the score — no black-box
          *     ordering — and ``drill_filters`` + ``drill_window`` are the typed
          *     handle the UI uses to start an ordinary investigation turn.
+         *
+         *     **No evidence grade, by construction.** A grade certifies how a number
+         *     was *computed by this platform* from certified semantics (design §5.3);
+         *     an anomaly card is not that. It is a record read from an external
+         *     detection system as-of a watermark, so the platform cannot honestly
+         *     stamp DIRECT/DERIVED/PROXY on it. Instead every card declares its
+         *     ``provenance`` (``external_detection``), the ``priority_formula_version``
+         *     that ordered it, and the ``source_watermark_id`` it was read at — the
+         *     three facts a grade would otherwise have implied. Drilling a card starts
+         *     an ordinary investigation turn, and *that* answer carries a real grade.
          */
         AnomalyCard: {
             /**
@@ -212,11 +263,18 @@ export interface components {
             impact_cents: number;
             /** Metric Id */
             metric_id: string;
+            /** Priority Formula Version */
+            priority_formula_version: string;
             /**
              * Priority Score
              * @default 0
              */
             priority_score: number;
+            /**
+             * Provenance
+             * @constant
+             */
+            provenance: "external_detection";
             /**
              * Recoverable Cents Estimate
              * @default 0
@@ -224,6 +282,8 @@ export interface components {
             recoverable_cents_estimate: number;
             /** Severity */
             severity: string;
+            /** Source Watermark Id */
+            source_watermark_id: string;
             /** Status */
             status: string;
             /** Title */
@@ -278,6 +338,109 @@ export interface components {
                 [key: string]: unknown;
             };
         };
+        /** ChartRow */
+        ChartRow: {
+            /** Referent Id */
+            referent_id?: string | null;
+            /** Series */
+            series?: string | null;
+            /** Value */
+            value?: string | number | null;
+            /** X */
+            x: string;
+        };
+        /**
+         * ChartSpec
+         * @description A renderable chart; row referent ids make clicks compile to
+         *     ``DrillInto`` — no natural language in the gesture loop.
+         */
+        ChartSpec: {
+            /** Annotations */
+            annotations?: string[];
+            /**
+             * Chart Type
+             * @enum {string}
+             */
+            chart_type: "bar" | "grouped_bar" | "stacked_bar" | "line" | "waterfall" | "table" | "range_band";
+            /** Frame Id */
+            frame_id: string;
+            /**
+             * Grade
+             * @default direct
+             */
+            grade: string;
+            /** Id */
+            id: string;
+            /** Recipe Id */
+            recipe_id?: string | null;
+            /** Rows */
+            rows?: components["schemas"]["ChartRow"][];
+            /** Series */
+            series?: string | null;
+            /** Title */
+            title: string;
+            /** Unit */
+            unit?: string | null;
+            /** Value */
+            value: string;
+            /** X */
+            x: string;
+        };
+        /**
+         * ContextHeaderPayload
+         * @description Structured chips plus the canonical one-line display string.
+         */
+        ContextHeaderPayload: {
+            /** Basis */
+            basis: string;
+            /** Cohort */
+            cohort?: string | null;
+            /** Cohort Size */
+            cohort_size?: number | null;
+            /** Comparison End */
+            comparison_end?: string | null;
+            /** Comparison Kind */
+            comparison_kind?: string | null;
+            /** Comparison Start */
+            comparison_start?: string | null;
+            /**
+             * Display
+             * @default
+             */
+            display: string;
+            /** Filter Chips */
+            filter_chips?: components["schemas"]["FilterChip"][];
+            /** Filters */
+            filters?: string[];
+            /**
+             * Watermark Id
+             * @default
+             */
+            watermark_id: string;
+            /**
+             * Window End
+             * Format: date
+             */
+            window_end: string;
+            /**
+             * Window Start
+             * Format: date
+             */
+            window_start: string;
+        };
+        /** DefinitionalPayload */
+        DefinitionalPayload: {
+            /** Pack Id */
+            pack_id: string;
+            /** Pack Snapshot Id */
+            pack_snapshot_id: string;
+            /** Pack Version */
+            pack_version: string;
+            /** Question */
+            question: string;
+            /** Terms */
+            terms?: components["schemas"]["TermPayload"][];
+        };
         /** DrillIntoModel */
         DrillIntoModel: {
             /**
@@ -287,6 +450,15 @@ export interface components {
             op: "drill_into";
             /** Target */
             target: string;
+        };
+        /** ErrorEnvelope */
+        ErrorEnvelope: {
+            /** Code */
+            code: string;
+            /** Correlation Id */
+            correlation_id: string;
+            /** Message */
+            message: string;
         };
         /** ExpandModel */
         ExpandModel: {
@@ -307,6 +479,22 @@ export interface components {
             op: "explain";
             /** Target */
             target: string;
+        };
+        /** FilterChip */
+        FilterChip: {
+            /** Dimension */
+            dimension: string;
+            /** Op */
+            op: string;
+            /** Origin Turn */
+            origin_turn?: string | null;
+            /**
+             * Pinned
+             * @default false
+             */
+            pinned: boolean;
+            /** Values */
+            values: string[];
         };
         /** FindingPayload */
         FindingPayload: {
@@ -388,6 +576,33 @@ export interface components {
             /** Turn Id */
             turn_id: string;
         };
+        /** MetaAnswerPayload */
+        MetaAnswerPayload: {
+            /** Finding Values */
+            finding_values?: components["schemas"]["FindingValue"][];
+            /** Grades */
+            grades?: {
+                [key: string]: string;
+            };
+            /** Investigation Id */
+            investigation_id: string;
+            /** Label */
+            label: string;
+            /** Operators */
+            operators?: {
+                [key: string]: unknown;
+            }[];
+            /** Probes */
+            probes?: {
+                [key: string]: unknown;
+            }[];
+            /** Reconciliation */
+            reconciliation?: string | null;
+            /** Referent */
+            referent: string;
+            /** Warnings */
+            warnings?: string[];
+        };
         /** OpenSessionRequest */
         OpenSessionRequest: {
             /** Session Id */
@@ -449,6 +664,15 @@ export interface components {
              * @enum {string}
              */
             op: "rank_by";
+        };
+        /** ReferentPayload */
+        ReferentPayload: {
+            /** Id */
+            id: string;
+            /** Kind */
+            kind: string;
+            /** Label */
+            label: string;
         };
         /** RemoveFilterModel */
         RemoveFilterModel: {
@@ -554,6 +778,91 @@ export interface components {
             /** Window */
             window: components["schemas"]["WindowSpecModel"] | components["schemas"]["AbsoluteWindowModel"];
         };
+        /** TermPayload */
+        TermPayload: {
+            /** Definition */
+            definition: string;
+            /** Kind */
+            kind: string;
+            /** Source */
+            source?: string | null;
+            /** Term */
+            term: string;
+            /** Title */
+            title: string;
+        };
+        /** TurnAnswer */
+        TurnAnswer: {
+            /** Chart Specs */
+            chart_specs?: components["schemas"]["ChartSpec"][];
+            context_header?: components["schemas"]["ContextHeaderPayload"] | null;
+            definitional?: components["schemas"]["DefinitionalPayload"] | null;
+            /** Findings */
+            findings?: components["schemas"]["FindingPayload"][];
+            /** Investigation Id */
+            investigation_id: string;
+            meta_answer?: components["schemas"]["MetaAnswerPayload"] | null;
+            /** Narrative */
+            narrative?: string | null;
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            outcome: "answer";
+            /** Plan Hash */
+            plan_hash?: string | null;
+            /** Reconciliation */
+            reconciliation?: string | null;
+            /** Referents */
+            referents?: components["schemas"]["ReferentPayload"][];
+            /** Session Id */
+            session_id: string;
+            /** Turn Class */
+            turn_class: string;
+            usage?: components["schemas"]["UsageSummary"];
+            /** Warnings */
+            warnings?: string[];
+            /**
+             * Watermark Stale
+             * @default false
+             */
+            watermark_stale: boolean;
+        };
+        /** TurnClarification */
+        TurnClarification: {
+            /** Investigation Id */
+            investigation_id: string;
+            /** Options */
+            options?: string[];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            outcome: "clarification_required";
+            /** Question */
+            question: string;
+            /** Reason */
+            reason?: string | null;
+            /** Session Id */
+            session_id: string;
+            usage?: components["schemas"]["UsageSummary"];
+            /**
+             * Watermark Stale
+             * @default false
+             */
+            watermark_stale: boolean;
+        };
+        /** TurnError */
+        TurnError: {
+            error: components["schemas"]["ErrorEnvelope"];
+            /**
+             * @description discriminator enum property added by openapi-typescript
+             * @enum {string}
+             */
+            outcome: "error";
+            /** Session Id */
+            session_id?: string | null;
+        };
         /**
          * TurnRequest
          * @description One turn: an utterance OR typed refinement operators (§12).
@@ -574,6 +883,56 @@ export interface components {
             refinements?: (components["schemas"]["SetDimensionsModel"] | components["schemas"]["AddFilterModel"] | components["schemas"]["RemoveFilterModel"] | components["schemas"]["SetWindowModel"] | components["schemas"]["SetComparisonModel"] | components["schemas"]["SetGrainModel"] | components["schemas"]["DrillIntoModel"] | components["schemas"]["PivotModel"] | components["schemas"]["ExplainModel"] | components["schemas"]["RankByModel"] | components["schemas"]["ExpandModel"] | components["schemas"]["ResetContextModel"])[] | null;
             /** Utterance */
             utterance?: string | null;
+        };
+        /**
+         * TurnStreamEvent
+         * @description One Server-Sent Event frame on the turn route.
+         *
+         *     On the wire each frame is ``event: <kind>\ndata: <json>\n\n``; this
+         *     model documents that pairing (it is never serialized as a JSON body).
+         *     Ordering: ``stage*`` interleaved with ``warning*``, then either
+         *     ``clarification`` or (``context_header``, ``finding*``, ``chart_spec*``,
+         *     ``narrative_delta*``), always terminated by exactly one
+         *     ``turn_complete`` — or by ``error`` if the turn failed.
+         */
+        TurnStreamEvent: {
+            /** Data */
+            data: {
+                [key: string]: unknown;
+            };
+            /**
+             * Event
+             * @enum {string}
+             */
+            event: "stage" | "warning" | "clarification" | "context_header" | "finding" | "chart_spec" | "narrative_delta" | "error" | "turn_complete";
+        };
+        /** UsageSummary */
+        UsageSummary: {
+            /**
+             * Cost Usd
+             * @default 0
+             */
+            cost_usd: string;
+            /**
+             * Input Tokens
+             * @default 0
+             */
+            input_tokens: number;
+            /**
+             * Llm Calls
+             * @default 0
+             */
+            llm_calls: number;
+            /**
+             * Output Tokens
+             * @default 0
+             */
+            output_tokens: number;
+            /**
+             * Schema Retries
+             * @default 0
+             */
+            schema_retries: number;
         };
         /** ValidationError */
         ValidationError: {
@@ -633,6 +992,42 @@ export interface operations {
                     "application/json": components["schemas"]["CapabilitiesResponse"];
                 };
             };
+            /** @description Stable §12 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, …). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unknown session, investigation, or referent (REFERENT_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description WATERMARK_STALE or CONTEXT_CONFLICT — the pinned context cannot absorb the request without an explicit decision. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description SOURCE_UNAVAILABLE or DATA_LOADING — the analytical source cannot serve this watermark right now. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
         };
     };
     health_v1_health_get: {
@@ -653,6 +1048,42 @@ export interface operations {
                     "application/json": {
                         [key: string]: unknown;
                     };
+                };
+            };
+            /** @description Stable §12 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, …). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unknown session, investigation, or referent (REFERENT_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description WATERMARK_STALE or CONTEXT_CONFLICT — the pinned context cannot absorb the request without an explicit decision. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description SOURCE_UNAVAILABLE or DATA_LOADING — the analytical source cannot serve this watermark right now. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
         };
@@ -677,6 +1108,33 @@ export interface operations {
                     "application/json": components["schemas"]["InvestigationResponse"];
                 };
             };
+            /** @description Stable §12 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, …). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unknown session, investigation, or referent (REFERENT_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description WATERMARK_STALE or CONTEXT_CONFLICT — the pinned context cannot absorb the request without an explicit decision. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -684,6 +1142,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description SOURCE_UNAVAILABLE or DATA_LOADING — the analytical source cannot serve this watermark right now. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
         };
@@ -704,6 +1171,42 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["PortfolioResponse"];
+                };
+            };
+            /** @description Stable §12 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, …). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unknown session, investigation, or referent (REFERENT_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description WATERMARK_STALE or CONTEXT_CONFLICT — the pinned context cannot absorb the request without an explicit decision. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description SOURCE_UNAVAILABLE or DATA_LOADING — the analytical source cannot serve this watermark right now. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
         };
@@ -730,6 +1233,33 @@ export interface operations {
                     "application/json": components["schemas"]["SessionResponse"];
                 };
             };
+            /** @description Stable §12 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, …). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unknown session, investigation, or referent (REFERENT_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description WATERMARK_STALE or CONTEXT_CONFLICT — the pinned context cannot absorb the request without an explicit decision. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -737,6 +1267,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description SOURCE_UNAVAILABLE or DATA_LOADING — the analytical source cannot serve this watermark right now. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
         };
@@ -761,6 +1300,33 @@ export interface operations {
                     "application/json": components["schemas"]["SessionLineageResponse"];
                 };
             };
+            /** @description Stable §12 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, …). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unknown session, investigation, or referent (REFERENT_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description WATERMARK_STALE or CONTEXT_CONFLICT — the pinned context cannot absorb the request without an explicit decision. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
             /** @description Validation Error */
             422: {
                 headers: {
@@ -768,6 +1334,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description SOURCE_UNAVAILABLE or DATA_LOADING — the analytical source cannot serve this watermark right now. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
         };
@@ -787,13 +1362,41 @@ export interface operations {
             };
         };
         responses: {
-            /** @description Successful Response */
+            /** @description The turn's `TurnResponse` (JSON), or — with `Accept: text/event-stream` — the SSE stream whose frames are `TurnStreamEvent`. */
             200: {
                 headers: {
                     [name: string]: unknown;
                 };
                 content: {
-                    "application/json": unknown;
+                    "application/json": components["schemas"]["TurnAnswer"] | components["schemas"]["TurnClarification"] | components["schemas"]["TurnError"];
+                    "text/event-stream": components["schemas"]["TurnStreamEvent"];
+                };
+            };
+            /** @description Stable §12 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, …). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unknown session, investigation, or referent (REFERENT_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description WATERMARK_STALE or CONTEXT_CONFLICT — the pinned context cannot absorb the request without an explicit decision. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
             /** @description Validation Error */
@@ -803,6 +1406,15 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description SOURCE_UNAVAILABLE or DATA_LOADING — the analytical source cannot serve this watermark right now. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
                 };
             };
         };

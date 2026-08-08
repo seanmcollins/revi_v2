@@ -323,6 +323,36 @@ describe("ApiDriver streaming", () => {
     expect(onConnectionState).not.toHaveBeenCalledWith("offline", expect.anything());
   });
 
+  it("decodes the envelope on a 400 — §12 domain errors moved off 422", async () => {
+    // The server used to answer domain (§12) failures with 422 and now answers
+    // with 400, reserving 422 for a malformed request body. The driver decodes
+    // an envelope out of ANY non-2xx body, so no status list needed updating —
+    // this pins that, because a status-gated decoder would regress silently.
+    const { fetchImpl } = scriptedFetch((call) =>
+      call.url.endsWith("/v1/sessions")
+        ? fakeResponse({ json: SESSION_WIRE })
+        : fakeResponse({
+            status: 400,
+            bodyText: JSON.stringify({
+              code: "GRAIN_INCOMPATIBLE",
+              message: "That comparison mixes grains.",
+              correlation_id: "corr_400",
+            }),
+          }),
+    );
+    const driver = makeDriver(fetchImpl);
+
+    const events = await collectSubmit(driver, { utterance: "q" });
+    expect(events).toEqual([
+      {
+        type: "error",
+        code: "GRAIN_INCOMPATIBLE",
+        message: "That comparison mixes grains.",
+        correlationId: "corr_400",
+      },
+    ]);
+  });
+
   it("falls back to HTTP_<status> when the error body is not an envelope", async () => {
     const { fetchImpl } = scriptedFetch((call) =>
       call.url.endsWith("/v1/sessions")
@@ -495,7 +525,9 @@ describe("GET endpoint fetchers", () => {
               referent: "P1",
               title: "Timely filing risk",
               impactCents: 117_141_515,
-              grade: "direct",
+              provenance: "external_detection",
+              priorityFormulaVersion: "dollar_impact@1",
+              sourceWatermarkId: "wm_003",
             },
           ],
           rankingPolicy: "dollar_impact@1",
