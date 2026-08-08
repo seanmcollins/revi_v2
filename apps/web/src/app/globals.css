@@ -1,0 +1,219 @@
+@import "tailwindcss";
+@import "tw-animate-css";
+
+@custom-variant dark (&:is(.dark *));
+
+/* ---------------------------------------------------------------------------
+   Revi design tokens — financial-grade, dark-first, one confident accent.
+
+   Accent semantics (never decorative):
+     verified  teal    → governed / deterministic / reconciled
+     warning   amber   → caveats, proxy grades, stale data
+     negative  red     → failures and direction-of-bad only
+   Chart series colors are CVD-validated pairs (dataviz six-check validator):
+     light  #0d9488 / #2a78d6   dark  #0d9488 / #3987e5
+--------------------------------------------------------------------------- */
+
+:root {
+  --background: #f7f7f8;
+  --foreground: #18181b;
+  --card: #ffffff;
+  --card-foreground: #18181b;
+  --popover: #ffffff;
+  --popover-foreground: #18181b;
+  --primary: #18181b;
+  --primary-foreground: #fafafa;
+  --secondary: #f1f1f3;
+  --secondary-foreground: #27272a;
+  --muted: #f1f1f3;
+  --muted-foreground: #6d6d78;
+  --accent: #eceff0;
+  --accent-foreground: #18181b;
+  --destructive: #dc2626;
+  --destructive-foreground: #fafafa;
+  --border: #e4e4e7;
+  --input: #e4e4e7;
+  --ring: #0d9488;
+  --radius: 0.5rem;
+
+  --surface-raised: #ffffff;
+  --surface-sunken: #f1f1f3;
+
+  --verified: #0d9488;
+  --positive: #047857;
+  --negative: #dc2626;
+  --warning: #b45309;
+
+  --grade-direct: #0d9488;
+  --grade-derived: #1d6fc4;
+  --grade-proxy: #b45309;
+  --grade-discovery: #7c3aed;
+  --grade-unavailable: #6d6d78;
+
+  --chart-current: #0d9488;
+  --chart-baseline: #2a78d6;
+  --chart-grid: rgba(24, 24, 27, 0.07);
+  --chart-axis: #6d6d78;
+}
+
+.dark {
+  --background: #0b0b0d;
+  --foreground: #ececef;
+  --card: #131316;
+  --card-foreground: #ececef;
+  --popover: #17171b;
+  --popover-foreground: #ececef;
+  --primary: #fafafa;
+  --primary-foreground: #131316;
+  --secondary: #1d1d22;
+  --secondary-foreground: #d4d4d8;
+  --muted: #1a1a1f;
+  --muted-foreground: #9d9da8;
+  --accent: #202027;
+  --accent-foreground: #ececef;
+  --destructive: #ef4444;
+  --destructive-foreground: #fafafa;
+  --border: #232329;
+  --input: #2a2a31;
+  --ring: #2dd4bf;
+
+  --surface-raised: #17171b;
+  --surface-sunken: #0e0e10;
+
+  --verified: #2dd4bf;
+  --positive: #34d399;
+  --negative: #f87171;
+  --warning: #fbbf24;
+
+  --grade-direct: #2dd4bf;
+  --grade-derived: #60a5fa;
+  --grade-proxy: #fbbf24;
+  --grade-discovery: #a78bfa;
+  --grade-unavailable: #9d9da8;
+
+  --chart-current: #0d9488;
+  --chart-baseline: #3987e5;
+  --chart-grid: rgba(255, 255, 255, 0.07);
+  --chart-axis: #9d9da8;
+}
+
+@theme inline {
+  --color-background: var(--background);
+  --color-foreground: var(--foreground);
+  --color-card: var(--card);
+  --color-card-foreground: var(--card-foreground);
+  --color-popover: var(--popover);
+  --color-popover-foreground: var(--popover-foreground);
+  --color-primary: var(--primary);
+  --color-primary-foreground: var(--primary-foreground);
+  --color-secondary: var(--secondary);
+  --color-secondary-foreground: var(--secondary-foreground);
+  --color-muted: var(--muted);
+  --color-muted-foreground: var(--muted-foreground);
+  --color-accent: var(--accent);
+  --color-accent-foreground: var(--accent-foreground);
+  --color-destructive: var(--destructive);
+  --color-destructive-foreground: var(--destructive-foreground);
+  --color-border: var(--border);
+  --color-input: var(--input);
+  --color-ring: var(--ring);
+
+  --color-surface-raised: var(--surface-raised);
+  --color-surface-sunken: var(--surface-sunken);
+
+  --color-verified: var(--verified);
+  --color-positive: var(--positive);
+  --color-negative: var(--negative);
+  --color-warning: var(--warning);
+
+  --color-grade-direct: var(--grade-direct);
+  --color-grade-derived: var(--grade-derived);
+  --color-grade-proxy: var(--grade-proxy);
+  --color-grade-discovery: var(--grade-discovery);
+  --color-grade-unavailable: var(--grade-unavailable);
+
+  --color-chart-current: var(--chart-current);
+  --color-chart-baseline: var(--chart-baseline);
+
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
+
+  --radius-sm: calc(var(--radius) - 4px);
+  --radius-md: calc(var(--radius) - 2px);
+  --radius-lg: var(--radius);
+  --radius-xl: calc(var(--radius) + 4px);
+}
+
+* {
+  border-color: var(--border);
+}
+
+html {
+  color-scheme: light;
+}
+html.dark {
+  color-scheme: dark;
+}
+
+body {
+  background: var(--background);
+  color: var(--foreground);
+  font-family: var(--font-sans);
+  font-feature-settings: "cv11", "ss01";
+  -webkit-font-smoothing: antialiased;
+}
+
+/* Every number the user sees is load-bearing. */
+.num {
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: -0.01em;
+}
+
+/* Thin, quiet scrollbars */
+* {
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+*::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
+}
+*::-webkit-scrollbar-thumb {
+  background: var(--border);
+  border-radius: 3px;
+}
+*::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* Subtle pulse for the active pipeline stage */
+@keyframes stage-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+.stage-active-dot {
+  animation: stage-pulse 1.4s ease-in-out infinite;
+}
+
+/* Streaming caret at the end of a narrative in flight */
+@keyframes caret-blink {
+  0%,
+  49% {
+    opacity: 1;
+  }
+  50%,
+  100% {
+    opacity: 0;
+  }
+}
+.stream-caret::after {
+  content: "▍";
+  margin-left: 1px;
+  color: var(--verified);
+  animation: caret-blink 1s step-end infinite;
+}
