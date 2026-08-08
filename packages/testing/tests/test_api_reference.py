@@ -15,12 +15,13 @@ from revi_api.scripted_llm import REFERENCE_QUESTIONS, demo_language_model
 from revi_api.service import ApiService
 from revi_api.wiring import build_components
 from revi_investigation_contracts.api import (
+    AnomalyCard,
     OpenSessionRequest,
+    PortfolioResponse,
     TurnAnswer,
-    TurnClarification,
     TurnRequest,
 )
-from revi_investigation_contracts.refinements import SetWindowModel
+from revi_investigation_contracts.refinements import AbsoluteWindowModel, RemoveFilterModel
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WAREHOUSE = REPO_ROOT / "data" / "revi_warehouse.duckdb"
@@ -92,103 +93,151 @@ class TestReferenceOverHttp:
         assert len(t5.meta_answer.probes) == 6
 
 
+def _drillable_card(portfolio: PortfolioResponse) -> AnomalyCard:
+    """A card cut by payer + service line whose metric the catalog can
+    answer — the shape the walkthrough's §18.1-10 example uses."""
+    return next(
+        card
+        for card in portfolio.items
+        if card.drill_spec.metric_ids == ["denied_dollars"]
+        and sorted(card.drill_spec.dimensions) == ["payer", "service_line"]
+    )
+
+
 class TestPortfolioDrillDown:
-    """§18.1-10, daily-prioritization half.
+    """§18.1-10, daily-prioritization half — the drill-down anchor.
 
-    What holds today: the portfolio is produced by generic machinery (an
-    external detection feed read as-of a watermark, ranked by the versioned
-    ``anomaly_priority`` formula), every card declares its provenance rather
-    than borrowing an evidence grade it did not earn, and every card carries
-    a *complete, well-typed* drill handle — ordinary ``set_window`` +
-    ``add_filter`` operators from the same closed 12-op set a chart click
-    emits. Nothing about a card is portfolio-specific machinery.
+    The portfolio is generic machinery: an external detection feed read
+    as-of a watermark, ranked by the versioned ``anomaly_priority``
+    formula, every card declaring its provenance rather than borrowing an
+    evidence grade it did not earn. What M13 could not do was *land* on a
+    card. Its drill handle was a set of sound refinement operators with
+    nowhere to go: a refinement refines a parent investigation, and a
+    portfolio card is not one, so a cold-start drill returned
+    CLARIFICATION_REQUIRED — honest, but not an answer.
 
-    What does NOT hold yet, and is asserted here rather than glossed: those
-    operators have nowhere to land. Refinements refine a parent
-    investigation, and a portfolio card is not one — so posting a card's
-    handle to a fresh session returns the designed CLARIFICATION_REQUIRED
-    ("no prior answer in this session to refine yet"), not an answer. The
-    missing piece is the one the build plan named and this milestone did not
-    build: ``PortfolioResponse`` carrying a portfolio-anchored session id
-    whose investigation the card's operators can refine. Recorded as the
-    open gap on §18.1-10 in docs/acceptance-walkthrough.md.
+    The fix is not a portfolio-anchored session (a hidden parent minted per
+    surface). It is the typed FIRST turn: a card's handle is a complete
+    ``TypedInvestigationSpec``, and a turn carrying one is a
+    NEW_INVESTIGATION by construction — zero model calls, no parent
+    required, the ordinary planning/§6.6-validation/execution pipeline
+    after that. Chart clicks from a fresh session get it for free, because
+    nothing about the machinery is portfolio-specific.
     """
 
-    async def test_cards_carry_complete_typed_drill_handles(self) -> None:
+    async def test_cards_carry_a_complete_typed_drill_handle(self) -> None:
         transport = httpx.ASGITransport(app=create_app(_service()))
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as raw:
             portfolio = await HttpInvestigationClient(raw).get_portfolio()
 
         assert portfolio.status == "ok" and portfolio.items
-        card = next(c for c in portfolio.items if c.drill_filters and c.drill_window)
-        # provenance, not a grade — the card is an external detector's
-        # record, and it says so (see AnomalyCard's docstring)
-        assert card.provenance == "external_detection"
-        assert card.priority_formula_version == portfolio.formula_version
-        assert card.source_watermark_id == portfolio.watermark_id
-        # the handle is real refinement operators over certified dimensions,
-        # bounded by the anomaly's own window
-        assert all(f.op == "add_filter" and f.values for f in card.drill_filters)
-        assert card.drill_window.start <= card.drill_window.end
-        assert {f.dimension for f in card.drill_filters} == {
-            d.dimension for d in card.dimensions
-        }
+        for card in portfolio.items:
+            # provenance, not a grade — the card is an external detector's
+            # record, and it says so (see AnomalyCard's docstring)
+            assert card.provenance == "external_detection"
+            assert card.priority_formula_version == portfolio.formula_version
+            assert card.source_watermark_id == portfolio.watermark_id
+            # every card is executable: its own governed metric, its
+            # dimensions as the breakdown AND at their detected values as
+            # the scope, bounded by its own observation window
+            spec = card.drill_spec
+            assert spec.metric_ids == [card.metric_id]
+            assert spec.dimensions == [d.dimension for d in card.dimensions]
+            assert [(f.dimension, f.predicate_op, f.values) for f in spec.filters] == [
+                (d.dimension, "eq", [d.value]) for d in card.dimensions
+            ]
+            assert isinstance(spec.window, AbsoluteWindowModel)
+            assert spec.window.start == card.window_start
+            assert spec.window.end == card.window_end
+            # a card asserts a level, not a movement; comparison is one
+            # ordinary refinement away — and now has a parent to land on
+            assert spec.comparison is None
 
-    async def test_drilling_a_card_from_a_fresh_session_clarifies(self) -> None:
-        """The honest failure mode of the open gap: a clarification, never a
-        wrong answer over an unanchored context."""
+    async def test_drilling_a_card_from_a_fresh_session_answers(self) -> None:
+        """The gap, closed: a cold-start drill is a real answer at the
+        card's own watermark and window, with findings — not a
+        clarification, and not a model call."""
         transport = httpx.ASGITransport(app=create_app(_service()))
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as raw:
             client = HttpInvestigationClient(raw)
             portfolio = await client.get_portfolio()
-            card = next(c for c in portfolio.items if c.drill_filters and c.drill_window)
+            card = _drillable_card(portfolio)
             session = await client.open_session(OpenSessionRequest(tenant="demo"))
             response = await client.submit_turn(
-                session.session_id,
-                TurnRequest(
-                    refinements=[
-                        SetWindowModel(op="set_window", window=card.drill_window),
-                        *card.drill_filters,
-                    ]
-                ),
+                session.session_id, TurnRequest(spec=card.drill_spec)
             )
-        assert isinstance(response, TurnClarification), response
-        assert response.reason == "refinement without a parent investigation"
-        assert response.usage.llm_calls == 0  # zero probes, zero model calls
+            lineage = await client.get_session_lineage(session.session_id)
 
-    async def test_a_card_refines_an_existing_investigation(self) -> None:
-        """And the operators themselves are sound: applied to a session that
-        HAS an investigation, the same handle narrows it exactly as a chart
-        click would — proving the gap is the anchor, not the handle."""
-        transport = httpx.ASGITransport(app=create_app(_service()))
-        async with httpx.AsyncClient(transport=transport, base_url="http://test") as raw:
-            client = HttpInvestigationClient(raw)
-            portfolio = await client.get_portfolio()
-            card = next(
-                c
-                for c in portfolio.items
-                if c.drill_window
-                and sorted(f.dimension for f in c.drill_filters) == ["payer", "service_line"]
-            )
-            session = await client.open_session(OpenSessionRequest(tenant="demo"))
-            await client.submit_turn(
-                session.session_id, TurnRequest(utterance=REFERENCE_QUESTIONS[0])
-            )
-            response = await client.submit_turn(
-                session.session_id,
-                TurnRequest(
-                    refinements=[
-                        SetWindowModel(op="set_window", window=card.drill_window),
-                        *card.drill_filters,
-                    ]
-                ),
-            )
         assert isinstance(response, TurnAnswer), response
+        assert response.turn_class == "new_investigation"
+        assert response.usage.llm_calls == 0  # typed in, typed out: no model
+        assert response.plan_hash is not None  # a real plan really executed
+
         header = response.context_header
         assert header is not None
-        # the drill lands at the portfolio's own watermark and window, and
-        # the card's dimensions come back as visible chips (§7.2, §18.1-16)
         assert header.watermark_id == portfolio.watermark_id
-        assert header.window_start == card.drill_window.start
-        assert header.window_end == card.drill_window.end
+        assert header.window_start == card.window_start
+        assert header.window_end == card.window_end
+        # the detected cell comes back as visible chips (§7.2, §18.1-16)
         assert {chip.dimension for chip in header.filter_chips} == {"payer", "service_line"}
+
+        # ... and it answers: a certified finding over the detector's cell,
+        # re-derived from the platform's own metric contract, carrying the
+        # evidence grade the card itself could not claim
+        assert response.findings, "a drilled card must answer, not just execute"
+        finding = response.findings[0]
+        assert finding.referent == "F1"
+        assert finding.metric_ids == [card.metric_id]
+        assert finding.grade == "direct"
+        assert finding.impact_cents is not None and finding.impact_cents > 0
+        assert all(d.value in finding.title for d in card.dimensions)
+
+        # one investigation, no parent: a card starts a thread, it does not
+        # continue one that was never there
+        [investigation] = lineage.investigations
+        assert investigation.parent_id is None
+        assert investigation.turn_class == "new_investigation"
+        assert lineage.edges == []
+
+    async def test_a_card_drill_is_an_anchor_later_refinements_can_land_on(self) -> None:
+        """The point of the anchor: after a cold-start drill, the ordinary
+        typed refinement path works — including inside a session that was
+        already investigating something else, where the card correctly
+        starts a NEW thread rather than silently narrowing the old one."""
+        transport = httpx.ASGITransport(app=create_app(_service()))
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as raw:
+            client = HttpInvestigationClient(raw)
+            portfolio = await client.get_portfolio()
+            card = _drillable_card(portfolio)
+            session = await client.open_session(OpenSessionRequest(tenant="demo"))
+            unrelated = await client.submit_turn(
+                session.session_id, TurnRequest(utterance=REFERENCE_QUESTIONS[0])
+            )
+            drilled = await client.submit_turn(
+                session.session_id, TurnRequest(spec=card.drill_spec)
+            )
+            widened = await client.submit_turn(
+                session.session_id,
+                TurnRequest(
+                    refinements=[RemoveFilterModel(op="remove_filter", dimension="service_line")]
+                ),
+            )
+            lineage = await client.get_session_lineage(session.session_id)
+
+        assert isinstance(unrelated, TurnAnswer) and isinstance(drilled, TurnAnswer)
+        # the card did NOT refine the cash-decline answer that preceded it
+        assert drilled.turn_class == "new_investigation"
+        drilled_header = drilled.context_header
+        assert drilled_header is not None
+        assert drilled_header.window_start == card.window_start
+
+        # and the refinement that follows lands on the CARD's investigation
+        assert isinstance(widened, TurnAnswer), widened
+        assert widened.turn_class == "refinement"
+        widened_header = widened.context_header
+        assert widened_header is not None
+        assert widened_header.window_start == card.window_start
+        assert {chip.dimension for chip in widened_header.filter_chips} == {"payer"}
+        [edge] = lineage.edges
+        assert edge.parent_id == drilled.investigation_id
+        assert edge.child_id == widened.investigation_id

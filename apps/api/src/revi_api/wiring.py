@@ -7,7 +7,10 @@ Wiring matrix (each choice is logged loudly at startup):
 - **Catalog**: ``REVI_CATALOG_DIR`` (default ``warehouse/catalog``).
 - **Pack**: ``REVI_PACK_DIR`` (default ``packs/base-rcm``) plus the
   demo-tenant overlay when present; the anomaly-actionability rules ride
-  alongside as governed pack-adjacent content.
+  alongside as governed pack-adjacent content. The composed pack is checked
+  against the catalog before anything is wired to it
+  (:func:`revi_pack.conformance.validate_pack_catalog_conformance`) — a
+  non-conforming pack fails startup instead of failing one probe later.
 - **Stores**: Postgres adapters when ``REVI_DATABASE_URL`` is set and
   reachable, else in-memory stores.
 - **LLM**: the Claude Agent SDK adapter when ``REVI_MODEL_PIN`` is set and
@@ -70,6 +73,7 @@ from revi_investigation.application.refinement_llm import (
 from revi_investigation.application.submit_turn import OpenSessionService, SubmitTurnService
 from revi_investigation.application.validation import PlanValidationService
 from revi_kernel.capabilities import AnalyticalRepository
+from revi_pack.conformance import validate_pack_catalog_conformance
 from revi_pack.domain import PackSnapshot
 from revi_pack.loader import load_layer
 from revi_pack.snapshot import build_snapshot
@@ -209,6 +213,12 @@ def build_components(
         layers.append(load_layer(overlay_dir))
         logger.info("pack overlay applied: %s", overlay_dir.name)
     pack_snapshot = build_snapshot(layers)
+    # Governed content is only as good as the semantics it names. A metric
+    # exclusion that resolves nowhere removes nothing, reports nothing, and
+    # waits for a question that may never come — so the deployment refuses to
+    # start rather than serving a pack whose meaning the catalog cannot carry
+    # (design §5.2/§12; see packs/base-rcm/NOTES.md, "Exclusion polarity").
+    validate_pack_catalog_conformance(pack_snapshot, catalog)
     pack_port = PackSnapshotPort(pack_snapshot)
 
     repository = DuckDbAnalyticalRepository(warehouse, catalog, pack_snapshot.metric)

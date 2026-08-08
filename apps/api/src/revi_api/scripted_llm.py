@@ -8,15 +8,26 @@ backs the reference-over-HTTP tests, so demo mode and CI exercise one
 table.
 
 What is scripted here is *only* the probabilistic layer: turn class,
-interpreted ids, refinement operators. Every number, grade, chart and
-header downstream is computed by the real engine against the real
-warehouse, which is what makes demo mode a genuine test of the pipeline
-rather than a puppet show.
+interpreted ids, refinement operators, and the *shape* of the narrative
+sentence. Every number, grade, chart and header downstream is computed by
+the real engine against the real warehouse, which is what makes demo mode
+a genuine test of the pipeline rather than a puppet show.
+
+The narrative is composed per turn from the certified findings the engine
+put in the prompt (:func:`compose_demo_narrative`) — never from a fixed
+sentence. Referent handles are session-monotonic (turn 2 of the reference
+conversation certifies F4/F5/F6, not F1/F2/F3), so a hard-coded fixture
+cites handles that do not exist on later turns and the grounding validator
+correctly redacts it. Reading the handles back out of the prompt is what
+makes demo mode survive :func:`revi_presentation.narrative.validate_narrative`
+on every turn, for the same reason a real model would: it says only what
+the certified findings support.
 """
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Mapping
+import re
+from collections.abc import AsyncIterator, Callable, Mapping, Sequence
 from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
@@ -47,12 +58,19 @@ class ScriptEntry:
     response: Mapping[str, Any] | None
 
 
+NarrativeComposer = Callable[[TextLlmRequest], Sequence[str]]
+
+
 @dataclass
 class ScriptedLanguageModel:
-    """``LanguageModelPort`` over a fixed script (first match wins)."""
+    """``LanguageModelPort`` over a fixed script (first match wins).
+
+    ``narrator`` composes the streamed narrative from the rendered prompt;
+    with no narrator the model streams nothing, which the assembly layer
+    treats as "no narrative on this turn"."""
 
     entries: list[ScriptEntry] = field(default_factory=list)
-    narrative_chunks: tuple[str, ...] = ()
+    narrator: NarrativeComposer | None = None
     structured_calls: list[StructuredLlmRequest] = field(default_factory=list)
     text_calls: list[TextLlmRequest] = field(default_factory=list)
 
@@ -70,9 +88,10 @@ class ScriptedLanguageModel:
 
     def stream_text(self, request: TextLlmRequest) -> AsyncIterator[str]:
         self.text_calls.append(request)
+        chunks = tuple(self.narrator(request)) if self.narrator is not None else ()
 
         async def iterate() -> AsyncIterator[str]:
-            for chunk in self.narrative_chunks:
+            for chunk in chunks:
                 yield chunk
 
         return iterate()
@@ -199,16 +218,84 @@ def demo_script_entries() -> list[ScriptEntry]:
     ]
 
 
-# Claim sentences cite referents and carry no free numbers, so the demo
-# narrative always survives grounding validation.
-DEMO_NARRATIVE_CHUNKS = (
-    "Posted cash fell versus the prior week, and the decline concentrates in a ",
-    "small set of payers (F1, F2, F3). ",
-    "The largest single driver is F1; see the payer chart for the full split.",
-)
+# ---------------------------------------------------------------------------
+# narrative
+#
+# The composer reads the "Certified findings:" block of the rendered
+# ``compose_narrative`` prompt and reuses ONLY what the grounding validator
+# can already vouch for: the referent handles and their evidence grades, in
+# the order the engine ranked them. It states no free numbers at all and no
+# proper names, so every sentence is trivially grounded on every turn —
+# which is the honest shape of a narrative anyway: the numbers live on the
+# finding cards and the chart, where they carry their own provenance.
+
+_FINDINGS_HEADER = "Certified findings:"
+_FINDINGS_END = "\nReconciliation:"
+_FINDING_LINE = re.compile(r"^-\s+(?P<referent>[FD]\d+):\s+(?P<body>.+?)\s*$")
+_GRADE = re.compile(r"\(grade (?P<grade>[a-z_]+), confidence [^;]+;")
+
+
+def parse_certified_findings(prompt: str) -> tuple[tuple[str, str], ...]:
+    """``(referent, grade)`` per certified finding, in prompt (rank) order."""
+    _, _, tail = prompt.partition(_FINDINGS_HEADER)
+    block = tail.partition(_FINDINGS_END)[0]
+    parsed: list[tuple[str, str]] = []
+    for line in block.splitlines():
+        match = _FINDING_LINE.match(line.strip())
+        if match is None:
+            continue
+        grades = _GRADE.findall(match.group("body"))
+        parsed.append((match.group("referent"), grades[-1] if grades else "unstated"))
+    return tuple(parsed)
+
+
+def _join(items: Sequence[str]) -> str:
+    if len(items) == 1:
+        return items[0]
+    return f"{', '.join(items[:-1])} and {items[-1]}"
+
+
+def compose_demo_narrative(request: TextLlmRequest) -> tuple[str, ...]:
+    """A grounded narrative for *this* turn's findings, as stream chunks.
+
+    Empty when the prompt certifies nothing — the demo never narrates a
+    turn it has no findings for (the assembly layer short-circuits before
+    that anyway, but the model must not depend on it)."""
+    findings = parse_certified_findings(request.rendered_prompt)
+    if not findings:
+        return ()
+    handles = [referent for referent, _ in findings]
+    weak = [f"{referent} ({grade})" for referent, grade in findings if grade != "direct"]
+
+    if len(handles) == 1:
+        lead = f"{handles[0]} is the only certified finding on this turn."
+    elif len(handles) == 2:
+        lead = (
+            f"{handles[0]} leads the certified findings on this turn, "
+            f"with {handles[1]} behind it."
+        )
+    else:
+        lead = (
+            f"{handles[0]} leads the certified findings on this turn, "
+            f"followed by {handles[1]} and {handles[2]}."
+        )
+    chunks = [lead + " "]
+    if len(handles) > 3:
+        chunks.append("The remaining findings are ranked below them. ")
+    if weak:
+        verb = "rests" if len(weak) == 1 else "rest"
+        pronoun = "it" if len(weak) == 1 else "them"
+        chunks.append(
+            f"{_join(weak)} {verb} on evidence weaker than direct, "
+            f"so read {pronoun} as indicative rather than settled. "
+        )
+    else:
+        chunks.append("Every finding here is graded direct against certified semantics. ")
+    chunks.append("Open a finding to see the probes, grades and figures behind it.")
+    return tuple(chunks)
 
 
 def demo_language_model() -> ScriptedLanguageModel:
     return ScriptedLanguageModel(
-        entries=demo_script_entries(), narrative_chunks=DEMO_NARRATIVE_CHUNKS
+        entries=demo_script_entries(), narrator=compose_demo_narrative
     )

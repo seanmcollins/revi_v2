@@ -1,6 +1,12 @@
 # Never-worked denials share — the headline "money left on the table" metric.
+# v2 repairs an inverted exclusion: v1 wrote `denial_category neq
+# PATIENT_RESP`, which compiles to NOT(neq) — it kept only the
+# patient-responsibility records it meant to drop. This is the only one of
+# the pack's seven inverted exclusions whose dimension resolves, so it is the
+# only one that executed and published numbers ("Exclusion polarity" in
+# NOTES.md).
 id: denials_unworked_pct
-version: 1
+version: 2
 kind: flow
 entity_grain: denial
 numerator:
@@ -8,7 +14,7 @@ numerator:
     inner: {count_distinct: denial_id}
     where: {dimension: appeal_status, op: eq, value: NONE}
 denominator: {count_distinct: denial_id}
-exclusions: {dimension: denial_category, op: neq, value: PATIENT_RESP}
+exclusions: {dimension: denial_category, op: eq, value: PATIENT_RESP}
 primary_date_basis: remit
 allowed_date_bases: [remit, service]
 scope_dimensions:
@@ -18,11 +24,12 @@ sign: higher_is_bad
 unit: ratio
 description: >-
   Share of denial records with no appeal activity (appeal status NONE) among
-  denials in the window, remittance-date basis. Exclusion: patient-
-  responsibility category records (PR-group deductible/copay/coinsurance
-  notices) are excluded from both sides — they are billing instructions, not
-  workable denials, and would inflate the unworked share. Watermark note:
-  recent denials legitimately show NONE before an appeal is filed, so
+  workable denials in the window, remittance-date basis. Exclusion:
+  patient-responsibility category records (PR-group deductible, copay and
+  coinsurance notices) are removed from both sides — they are billing
+  instructions, not workable denials, and would inflate the unworked share.
+  Watermark note: recent denials legitimately show NONE before an appeal is
+  filed, so
   trailing windows overstate abandonment near the data edge. Benchmark
   context: industry sweeps put never-worked denials near two-thirds of all
   denials.

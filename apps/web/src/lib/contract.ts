@@ -1,5 +1,5 @@
 /**
- * Wire-contract guard for the real API driver (M11).
+ * Wire-contract guard AND the wire → UI translation layer.
  *
  * Typed-but-tolerant parsing:
  *   - unknown EXTRA fields are ignored (forward compatibility);
@@ -8,31 +8,44 @@
  *     visible banner and console.errors the exact field path. Never a
  *     silent blank UI.
  *
- * The REQUIRED_* path tables below are the single source of truth for
- * what this UI needs from the wire. `lib/contract-expectations.test.ts`
- * pins them against fixtures; `lib/contract-openapi.test.ts` binds them to
- * `contracts/openapi.json` (via the generated `lib/types.gen.ts`, refreshed
- * with `pnpm gen:types`) at both compile time and run time — any mismatch
- * fails those tests loudly.
+ * The REQUIRED_* path tables below name **published wire paths**, and that
+ * is the correction this file exists to record. Through M13 they named the
+ * UI's own shapes instead (`finding.referent.value`, `charts`, `status`),
+ * so they agreed with the hand-written fixtures and disagreed with the
+ * server: the suite was green while a live turn produced nothing but
+ * drift. `lib/contract-expectations.test.ts` now pins them against payloads
+ * captured from a running API, and `lib/contract-openapi.test.ts` binds
+ * them to `contracts/openapi.json` (via the generated `lib/types.gen.ts`,
+ * refreshed with `pnpm gen:types`) at both compile time and run time — so a
+ * server-side rename fails a test instead of blanking a panel.
+ *
+ * Translating rather than re-typing the UI is deliberate: `types.gen.ts`
+ * owns the wire, `lib/types.ts` owns the screen, and the mapping between
+ * them lives here, in one place, with every reduction named (see "The
+ * wire → UI seam" below).
  */
 
 import type {
+  ChartRow,
   ChartSpec,
   ClarificationData,
+  ComparisonKind,
+  Confidence,
   ContextHeaderData,
   DataWatermark,
+  DateBasis,
   DefinitionCardData,
-  EvidenceBundle,
   EvidenceGrade,
+  FilterClause,
   Finding,
-  InterpretationData,
   LineageEdge,
   LineageNode,
-  MetricContractSummary,
   PackVersionRef,
+  Refinement,
   SessionLineageData,
+  StageId,
+  SuggestedRefinement,
   TurnClass,
-  TurnCompleteEvent,
   TurnEvent,
   WarningEvent,
 } from "@/lib/types";
@@ -187,59 +200,115 @@ function normalizeLoadedAt(value: string): string {
 }
 
 /* ------------------------------------------------------------------ */
-/* SSE frames — required paths per event kind                          */
+/* The wire → UI seam                                                  */
 /* ------------------------------------------------------------------ */
 
 /**
- * The fields the UI cannot render without, per SSE event kind. Paths are
- * relative to the decoded event object (event name merged in as `type`).
- * Containers whose emptiness is valid (filters, suggestedRefinements,
- * probes…) are DEFAULTED instead — see `withDefaults`.
+ * Everything below translates the **published** payloads
+ * (`contracts/openapi.json`, mirrored into `lib/types.gen.ts`) into the
+ * UI's own `TurnEvent` union. The two vocabularies are deliberately
+ * different and neither is wrong:
+ *
+ *   the wire speaks the *domain* — `FindingPayload.referent` is the string
+ *     "F1", a `ChartSpec` is a frame plus column names, a context header is
+ *     window bounds and filter chips;
+ *   the UI speaks *rendering* — a referent is `{value, kind}`, a chart is
+ *     series and rows keyed for a chart library, a header is chips with
+ *     display labels.
+ *
+ * Before this seam existed the parser simply asserted the UI vocabulary
+ * against the server and every live frame was contract drift. What changed
+ * is the direction of authority: `types.gen.ts` owns the wire, `types.ts`
+ * owns the screen, and the mapping between them is written down here, once,
+ * where it can be tested against real server output.
+ *
+ * Three facts the UI renders are **not** on the wire and are sourced from
+ * the session pin (`POST /v1/sessions`, whose fields are spec-required):
+ * the watermark's `loaded_at`, its `newest_data_date`, and the pack
+ * version. `ContextHeaderPayload` publishes the watermark *id* only; the
+ * mapper carries the id through verbatim so a header from another epoch
+ * stays visibly different from the pin rather than being silently
+ * relabelled.
  */
-export const REQUIRED_EVENT_FIELDS: Record<TurnEvent["type"], readonly string[]> = {
-  stage: ["stage", "status"],
-  context_header: [
-    "turnClass",
-    "header.window.start",
-    "header.window.end",
-    "header.window.basis",
-    "header.grain.entity",
-    "header.watermark.id",
-    "header.watermark.loadedAt",
-    "header.watermark.newestDataDate",
-    "header.packVersion.packId",
-    "header.packVersion.version",
-  ],
-  finding: [
-    "finding.referent.value",
-    "finding.referent.kind",
-    "finding.title",
-    "finding.statement",
-    "finding.grade",
-    "finding.directionOfGood",
-    "finding.confidence",
-  ],
-  chart_spec: ["spec.id", "spec.kind", "spec.title", "spec.unit", "spec.series", "spec.rows"],
-  narrative_delta: ["text"],
-  clarification: ["clarification.question", "clarification.options"],
-  warning: ["code", "message", "severity"],
-  turn_complete: ["investigationId", "status"],
-  error: ["code", "message"],
-  interpretation: [
-    "interpretation.metric.id",
-    "interpretation.metric.name",
-    "interpretation.metric.version",
-    "interpretation.windowDescription",
-  ],
-  evidence: ["evidence.reconciliation.status"],
-  definition_card: [
-    "definition.term",
-    "definition.normalizedTo",
-    "definition.definition",
-    "definition.packVersion.packId",
-    "definition.packVersion.version",
-  ],
+
+/** The session pin a header is rendered against (see above). */
+export interface WirePin {
+  watermark: DataWatermark;
+  pack: PackVersionRef;
+}
+
+/** The nine SSE frame kinds `TurnStreamEvent.event` publishes. */
+export type TurnFrameKind =
+  | "stage"
+  | "warning"
+  | "clarification"
+  | "context_header"
+  | "finding"
+  | "chart_spec"
+  | "narrative_delta"
+  | "error"
+  | "turn_complete";
+
+export const TURN_FRAME_KINDS: ReadonlySet<string> = new Set<TurnFrameKind>([
+  "stage",
+  "warning",
+  "clarification",
+  "context_header",
+  "finding",
+  "chart_spec",
+  "narrative_delta",
+  "error",
+  "turn_complete",
+]);
+
+/**
+ * Wire fields the UI cannot render a frame without, per published kind.
+ * Every path here is `required` in the spec — `contract-openapi.test.ts`
+ * asserts exactly that, so a field demoted to optional server-side fails
+ * a test instead of blanking a panel. Containers whose emptiness is valid
+ * (`rows`, `filter_chips`, `metric_ids`, `values`, `options`) and fields
+ * with server-side defaults (`grade`, `confidence`, `watermark_id`) are
+ * read tolerantly instead.
+ */
+export const REQUIRED_FRAME_FIELDS: Record<TurnFrameKind, readonly string[]> = {
+  stage: ["stage"],
+  warning: ["code"],
+  clarification: ["question"],
+  context_header: ["window_start", "window_end", "basis"],
+  finding: ["referent", "title", "statement"],
+  chart_spec: ["id", "chart_type", "title", "frame_id", "x", "value"],
+  narrative_delta: ["delta"],
+  error: ["code", "message", "correlation_id"],
+  // the frame body is the full discriminated TurnResponse; the variant
+  // tables below carry the rest
+  turn_complete: ["outcome"],
 };
+
+/** `TurnAnswer | TurnClarification | TurnError`, discriminated on `outcome`. */
+export const REQUIRED_ANSWER_FIELDS = [
+  "outcome",
+  "session_id",
+  "investigation_id",
+  "turn_class",
+] as const;
+
+export const REQUIRED_CLARIFICATION_FIELDS = [
+  "outcome",
+  "session_id",
+  "investigation_id",
+  "question",
+] as const;
+
+export const REQUIRED_TURN_ERROR_FIELDS = ["outcome", "error"] as const;
+
+/** `GET /v1/investigations/{iid}` — the reconnect-recovery shape. */
+export const REQUIRED_INVESTIGATION_FIELDS = [
+  "investigation_id",
+  "turn_id",
+  "turn_class",
+  "status",
+  "created_at",
+] as const;
 
 const TURN_STATUSES: ReadonlySet<string> = new Set([
   "complete",
@@ -247,255 +316,676 @@ const TURN_STATUSES: ReadonlySet<string> = new Set([
   "failed",
 ]);
 
-const CHART_SERIES_ITEM_FIELDS = ["key", "label", "role"] as const;
-const CHART_ROW_ITEM_FIELDS = ["label", "values"] as const;
-
-function checkArrayItems(
-  root: unknown,
-  arrayPath: string,
-  itemFields: readonly string[],
-  missing: string[],
-): void {
-  const array = getPath(root, arrayPath);
-  if (!Array.isArray(array)) {
-    // Presence was already checked by REQUIRED_EVENT_FIELDS; a non-array is drift.
-    if (array !== undefined && array !== null) missing.push(arrayPath);
-    return;
-  }
-  array.forEach((item, index) => {
-    for (const field of itemFields) {
-      const value = getPath(item, field);
-      if (value === undefined || value === null) missing.push(`${arrayPath}[${index}].${field}`);
-    }
-  });
-}
+/* ------------------------------------------------------------------ */
+/* Vocabulary reductions (each one named, none silent)                 */
+/* ------------------------------------------------------------------ */
 
 /**
- * Validate one decoded SSE event against the required-field table and
- * return it with defaultable containers filled. `ok: false` means the
- * frame must NOT be rendered — the caller reports contract drift.
+ * Engine stage → the rail's coarser slot. The engine reports ten stages;
+ * the rail shows eight, so three interpretation-family stages share one
+ * slot. `findings` maps to the `reconciled` slot because findings
+ * evaluation and the parent reconciliation are the same step of
+ * `_run_analysis` and that slot is what reports it.
  */
-export function validateTurnEvent(event: TurnEvent): ParseResult<TurnEvent> {
-  const missing: string[] = [];
-  missingAt(event, REQUIRED_EVENT_FIELDS[event.type] ?? [], missing);
+const STAGE_BY_WIRE: Record<string, StageId> = {
+  classify: "classified",
+  interpret: "interpreted",
+  definitional: "interpreted",
+  resolve_referents: "interpreted",
+  emit_refinements: "interpreted",
+  plan: "planned",
+  validate: "validated",
+  execute: "executing",
+  calculate: "calculating",
+  findings: "reconciled",
+  present: "narrating",
+  narrate: "narrating",
+};
 
-  switch (event.type) {
-    case "chart_spec":
-      checkArrayItems(event, "spec.series", CHART_SERIES_ITEM_FIELDS, missing);
-      checkArrayItems(event, "spec.rows", CHART_ROW_ITEM_FIELDS, missing);
-      break;
-    case "clarification": {
-      const options = getPath(event, "clarification.options");
-      if (options !== undefined && options !== null && !Array.isArray(options)) {
-        missing.push("clarification.options");
-      }
-      break;
-    }
-    case "turn_complete": {
-      const status = getPath(event, "status");
-      if (typeof status === "string" && !TURN_STATUSES.has(status)) missing.push("status");
-      break;
-    }
-    default:
-      break;
-  }
+/**
+ * `ChartSpec.chart_type` → the three shapes `InvestigationChart` draws.
+ * The reduction is lossy and deliberate: a waterfall renders as bars and a
+ * range band as a line rather than being dropped, because a chart the UI
+ * cannot draw *exactly* is still better than a blank panel — and the
+ * published type travels on `wireChartType` so nothing is thrown away.
+ */
+const CHART_KIND_BY_WIRE: Record<string, ChartSpec["kind"]> = {
+  bar: "bar",
+  grouped_bar: "grouped_bar",
+  stacked_bar: "grouped_bar",
+  line: "line",
+  waterfall: "bar",
+  table: "bar",
+  range_band: "line",
+};
 
-  if (missing.length > 0) return { ok: false, missing };
-  return { ok: true, value: withDefaults(event) };
-}
+/** Kernel measure unit → the unit the formatters understand. */
+const CHART_UNIT_BY_WIRE: Record<string, ChartSpec["unit"]> = {
+  money_cents: "cents",
+  ratio: "percent",
+  percent: "percent",
+  count: "count",
+  days: "count",
+};
 
-/** Fill containers whose emptiness is valid, without mutating the input. */
-function withDefaults(event: TurnEvent): TurnEvent {
-  switch (event.type) {
-    case "context_header":
-      return { ...event, header: { ...event.header, filters: event.header.filters ?? [] } };
-    case "finding": {
-      const finding = event.finding;
-      return {
-        ...event,
-        finding: {
-          ...finding,
-          values: finding.values ?? {},
-          metricRefs: finding.metricRefs ?? [],
-          suggestedRefinements: finding.suggestedRefinements ?? [],
-        },
-      };
-    }
-    case "interpretation": {
-      const interpretation = event.interpretation;
-      return {
-        ...event,
-        interpretation: {
-          ...interpretation,
-          filterDescriptions: interpretation.filterDescriptions ?? [],
-          synonymMappings: interpretation.synonymMappings ?? [],
-        },
-      };
-    }
-    case "evidence": {
-      const evidence = event.evidence;
-      return {
-        ...event,
-        evidence: {
-          ...evidence,
-          probes: (evidence.probes ?? []).map((probe) => ({
-            ...probe,
-            operators: probe.operators ?? [],
-          })),
-          zeroProbeTurn: evidence.zeroProbeTurn ?? false,
-        },
-      };
-    }
-    case "definition_card": {
-      const definition = event.definition;
-      return {
-        ...event,
-        definition: {
-          ...definition,
-          sources: definition.sources ?? [],
-          relatedConcepts: definition.relatedConcepts ?? [],
-        },
-      };
-    }
-    default:
-      return event;
-  }
-}
+const COMPARISON_KIND_BY_WIRE: Record<string, ComparisonKind> = {
+  prior_period: "prior_period",
+  prior_year: "same_period_last_year",
+  custom: "custom",
+};
 
 /* ------------------------------------------------------------------ */
-/* TurnResponse (blocking JSON + GET /v1/investigations/{iid})         */
+/* Payload mappers                                                     */
 /* ------------------------------------------------------------------ */
-
-export const REQUIRED_TURN_RESPONSE_FIELDS = ["investigationId", "status"] as const;
-
-export interface TurnResponseData {
-  investigationId: string;
-  status: TurnCompleteEvent["status"];
-  turnClass?: TurnClass;
-  header?: ContextHeaderData;
-  interpretation?: InterpretationData;
-  findings?: Finding[];
-  charts?: ChartSpec[];
-  narrative?: string;
-  warnings?: Omit<WarningEvent, "type">[];
-  clarification?: ClarificationData;
-  evidence?: EvidenceBundle;
-  definition?: DefinitionCardData;
-  answerGrade?: EvidenceGrade;
-  metric?: MetricContractSummary;
-}
 
 /** camelCase is canonical (mirrors types.ts); snake_case is tolerated. */
 function alias(record: UnknownRecord, camel: string, snake: string): unknown {
   return record[camel] ?? record[snake];
 }
 
-export interface TurnResponseParse {
-  /** Null when core required fields are missing (fatal drift). */
-  value: TurnResponseData | null;
-  /** Every missing required path found, fatal or not. */
-  drift: string[];
+function asString(value: unknown, fallback = ""): string {
+  return typeof value === "string" ? value : fallback;
+}
+
+function asNumber(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function asArray(value: unknown): unknown[] {
+  return Array.isArray(value) ? value : [];
+}
+
+/** `[{name, value}]` → `{name: value}`, dropping nulls and booleans. */
+function mapFindingValues(raw: unknown): Record<string, number | string> {
+  const out: Record<string, number | string> = {};
+  for (const entry of asArray(raw)) {
+    if (!isRecord(entry) || typeof entry.name !== "string") continue;
+    const value = entry.value;
+    if (typeof value === "number" || typeof value === "string") out[entry.name] = value;
+  }
+  return out;
+}
+
+const DRILL_SUGGESTION = /^drill into ([FD]\d+)$/i;
+
+function mapSuggestedRefinements(raw: unknown): SuggestedRefinement[] {
+  const out: SuggestedRefinement[] = [];
+  for (const entry of asArray(raw)) {
+    if (typeof entry !== "string") continue;
+    const match = DRILL_SUGGESTION.exec(entry.trim());
+    // Only suggestions that compile to a typed operator become actions;
+    // free text stays out of the gesture loop by design (§7.4).
+    if (match) out.push({ label: entry, refinement: { op: "DrillInto", target: match[1] } });
+  }
+  return out;
+}
+
+export function mapFinding(raw: unknown): Finding | null {
+  if (!isRecord(raw)) return null;
+  const values = mapFindingValues(raw.values);
+  const impactCents = asNumber(raw.impact_cents);
+  return {
+    referent: { value: asString(raw.referent), kind: "finding" },
+    title: asString(raw.title),
+    statement: asString(raw.statement),
+    metricRefs: asArray(raw.metric_ids).filter((m): m is string => typeof m === "string"),
+    values,
+    grade: asString(raw.grade, "direct") as EvidenceGrade,
+    ...(impactCents !== undefined ? { impactCents } : {}),
+    // A movement finding carries a signed delta; a concentration finding
+    // carries a level. The wire says which by which value it published.
+    impactKind: "delta_cents" in values ? "delta" : "level",
+    // NOT published per finding: direction-of-good lives on the metric
+    // contract, not on the payload, so tone colouring is withheld rather
+    // than guessed from the sign of the number.
+    directionOfGood: "neutral",
+    confidence: asString(raw.confidence, "high") as Confidence,
+    suggestedRefinements: mapSuggestedRefinements(raw.suggested_refinements),
+  };
+}
+
+export function mapChartSpec(raw: unknown): ChartSpec | null {
+  if (!isRecord(raw)) return null;
+  const wireType = asString(raw.chart_type);
+  const valueColumn = asString(raw.value);
+  const seriesColumn = typeof raw.series === "string" ? raw.series : null;
+
+  const seriesKeys: string[] = [];
+  const rowsByX = new Map<string, ChartRow>();
+  for (const entry of asArray(raw.rows)) {
+    if (!isRecord(entry)) continue;
+    const label = asString(entry.x);
+    // A null `series` means one series named by the measure column; a
+    // non-null one means the rows are already long-format by series.
+    const key = typeof entry.series === "string" ? entry.series : valueColumn;
+    if (!seriesKeys.includes(key)) seriesKeys.push(key);
+    const row = rowsByX.get(label) ?? { label, values: {} };
+    const value = asNumber(entry.value);
+    if (value !== undefined) row.values[key] = value;
+    if (typeof entry.referent_id === "string") row.referent = entry.referent_id;
+    rowsByX.set(label, row);
+  }
+  if (seriesKeys.length === 0) seriesKeys.push(valueColumn);
+
+  return {
+    id: asString(raw.id),
+    kind: CHART_KIND_BY_WIRE[wireType] ?? "bar",
+    wireChartType: wireType,
+    title: asString(raw.title),
+    unit: CHART_UNIT_BY_WIRE[asString(raw.unit)] ?? "count",
+    xLabel: asString(raw.x) || undefined,
+    series: seriesKeys.map((key, index) => ({
+      key,
+      label: seriesColumn === null ? valueColumn : key,
+      role: index === 0 ? "current" : "baseline",
+    })),
+    rows: [...rowsByX.values()],
+    ...(asArray(raw.annotations).length > 0
+      ? { highlightLabel: String(asArray(raw.annotations)[0]) }
+      : {}),
+  };
+}
+
+export function mapContextHeader(raw: unknown, pin: WirePin): ContextHeaderData | null {
+  if (!isRecord(raw)) return null;
+  const basis = asString(raw.basis) as DateBasis;
+  const comparisonStart = raw.comparison_start;
+  const comparisonEnd = raw.comparison_end;
+  const cohortId = raw.cohort;
+  const cohortSize = asNumber(raw.cohort_size);
+
+  const filters: FilterClause[] = [];
+  for (const chip of asArray(raw.filter_chips)) {
+    if (!isRecord(chip)) continue;
+    filters.push({
+      dimension: asString(chip.dimension),
+      // The wire publishes ids, not display labels; the id IS the label
+      // until a labelling endpoint exists, and inventing one would be a
+      // second vocabulary nobody governs.
+      dimensionLabel: asString(chip.dimension),
+      op: asString(chip.op, "eq") as FilterClause["op"],
+      values: asArray(chip.values).map((v) => String(v)),
+      originTurn: asString(chip.origin_turn),
+      ...(chip.pinned === true ? { pinned: true } : {}),
+    });
+  }
+
+  return {
+    window: { start: asString(raw.window_start), end: asString(raw.window_end), basis },
+    ...(typeof comparisonStart === "string" && typeof comparisonEnd === "string"
+      ? {
+          comparison: {
+            kind: COMPARISON_KIND_BY_WIRE[asString(raw.comparison_kind)] ?? "custom",
+            window: { start: comparisonStart, end: comparisonEnd, basis },
+          },
+        }
+      : {}),
+    filters,
+    ...(typeof cohortId === "string"
+      ? {
+          cohort: {
+            id: cohortId,
+            definition: cohortId,
+            pinned: true,
+            originTurn: "",
+            size: cohortSize ?? 0,
+          },
+        }
+      : {}),
+    // The watermark ID is the header's own; the load time and pack pin come
+    // from the session (see the seam docstring).
+    watermark: { ...pin.watermark, id: asString(raw.watermark_id, pin.watermark.id) },
+    packVersion: pin.pack,
+  };
+}
+
+export function mapDefinitional(raw: unknown, pin: WirePin): DefinitionCardData | null {
+  if (!isRecord(raw)) return null;
+  const terms = asArray(raw.terms).filter(isRecord);
+  const primary = terms[0];
+  if (!primary) return null;
+  return {
+    term: asString(raw.question) || asString(primary.term),
+    normalizedTo: terms.map((t) => asString(t.title)).join(" · "),
+    definition: terms.map((t) => asString(t.definition)).join(" "),
+    sources: terms
+      .filter((t) => typeof t.source === "string")
+      .map((t) => ({ label: String(t.source), authority: "governed_pack" as const })),
+    packVersion: {
+      packId: asString(raw.pack_id, pin.pack.packId),
+      version: asString(raw.pack_version, pin.pack.version),
+    },
+    relatedConcepts: terms.slice(1).map((t) => asString(t.term)),
+  };
 }
 
 /**
- * Parse a full TurnResponse. Core fields are fatal when missing; broken
- * optional sub-shapes are dropped and reported as drift so a partially
- * damaged response still renders what it can.
+ * A `warning` SSE frame: a stable §12 code plus code-specific detail. The
+ * UI needs one sentence, so the known codes get a written one and anything
+ * else falls back to the detail the server sent rather than to the bare
+ * code.
  */
-export function parseTurnResponse(raw: unknown): TurnResponseParse {
-  const drift: string[] = [];
-  if (!isRecord(raw)) return { value: null, drift: [...REQUIRED_TURN_RESPONSE_FIELDS] };
+export function mapWarningFrame(raw: unknown): Omit<WarningEvent, "type"> | null {
+  if (!isRecord(raw) || typeof raw.code !== "string") return null;
+  const code = raw.code;
+  if (code === "WATERMARK_STALE") {
+    return {
+      code,
+      message: `The warehouse has loaded ${asString(raw.newest, "a newer watermark")} since this session pinned ${asString(raw.pinned, "its watermark")}. Results stay pinned until you re-anchor.`,
+      severity: "caution",
+    };
+  }
+  if (code === "RECONCILIATION_FAILED") {
+    return {
+      code,
+      message: `These children do not reconcile to their parent: ${asString(raw.detail, "no detail supplied")}.`,
+      severity: "caution",
+    };
+  }
+  return {
+    code,
+    message: asString(raw.detail) || asString(raw.message) || code,
+    severity: STABLE_ERROR_CODES.has(code) ? "caution" : "info",
+  };
+}
 
-  const investigationId = alias(raw, "investigationId", "investigation_id");
-  const status = raw.status;
-  if (typeof investigationId !== "string") drift.push("investigationId");
-  if (typeof status !== "string" || !TURN_STATUSES.has(status)) drift.push("status");
+/**
+ * `TurnAnswer.warnings` is a list of sentences, not structured codes. Ones
+ * that begin with a stable §12 code keep it; the rest are notes, and are
+ * labelled as notes rather than being dressed up as codes.
+ */
+export function mapAnswerWarning(sentence: string): Omit<WarningEvent, "type"> {
+  const [head, ...rest] = sentence.split(": ");
+  if (rest.length > 0 && STABLE_ERROR_CODES.has(head)) {
+    return { code: head, message: rest.join(": "), severity: "caution" };
+  }
+  return { code: "ANSWER_NOTE", message: sentence, severity: "info" };
+}
+
+/* ------------------------------------------------------------------ */
+/* SSE frame parsing                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Validate one decoded SSE frame against the required *wire* paths and map
+ * it to the UI event union. `null` means an unpublished frame kind
+ * (forward compatibility — skipped, never crashed on); `ok: false` means
+ * the frame is drift and must NOT be rendered.
+ *
+ * `turn_complete` is not handled here: its body is the whole
+ * `TurnResponse`, which `parseTurnResponse` owns.
+ */
+export function parseTurnFrame(
+  kind: string,
+  data: unknown,
+  pin: WirePin,
+): ParseResult<TurnEvent> | null {
+  if (!TURN_FRAME_KINDS.has(kind)) return null;
+  const frameKind = kind as TurnFrameKind;
+  const missing: string[] = [];
+  missingAt(data, REQUIRED_FRAME_FIELDS[frameKind], missing);
+  if (missing.length > 0) return { ok: false, missing };
+  const raw = data as UnknownRecord;
+
+  switch (frameKind) {
+    case "stage": {
+      const stage = STAGE_BY_WIRE[asString(raw.stage)];
+      // An engine stage the rail has no slot for is skipped, not drift:
+      // progress frames are advisory and the answer does not depend on them.
+      if (stage === undefined) return null;
+      return { ok: true, value: { type: "stage", stage, status: "started" } };
+    }
+    case "warning": {
+      const warning = mapWarningFrame(raw);
+      if (warning === null) return { ok: false, missing: ["code"] };
+      return { ok: true, value: { type: "warning", ...warning } };
+    }
+    case "clarification":
+      return {
+        ok: true,
+        value: {
+          type: "clarification",
+          clarification: {
+            question: asString(raw.question),
+            options: asArray(raw.options).map((o) => String(o)),
+            ...(typeof raw.reason === "string" ? { reason: raw.reason } : {}),
+          },
+        },
+      };
+    case "context_header": {
+      const header = mapContextHeader(raw, pin);
+      if (header === null) return { ok: false, missing: [...REQUIRED_FRAME_FIELDS.context_header] };
+      // The frame does not carry the turn class; the header panel needs
+      // one, and `new_investigation` is the only honest default before
+      // `turn_complete` says otherwise (it overwrites this).
+      return { ok: true, value: { type: "context_header", header, turnClass: "new_investigation" } };
+    }
+    case "finding": {
+      const finding = mapFinding(raw);
+      if (finding === null) return { ok: false, missing: [...REQUIRED_FRAME_FIELDS.finding] };
+      return { ok: true, value: { type: "finding", finding } };
+    }
+    case "chart_spec": {
+      const spec = mapChartSpec(raw);
+      if (spec === null) return { ok: false, missing: [...REQUIRED_FRAME_FIELDS.chart_spec] };
+      return { ok: true, value: { type: "chart_spec", spec } };
+    }
+    case "narrative_delta":
+      return { ok: true, value: { type: "narrative_delta", text: asString(raw.delta) } };
+    case "error":
+      return {
+        ok: true,
+        value: {
+          type: "error",
+          code: asString(raw.code),
+          message: asString(raw.message),
+          correlationId: asString(raw.correlation_id),
+        },
+      };
+    case "turn_complete":
+      // Handled by the caller via parseTurnResponse — the frame body is the
+      // authoritative TurnResponse, not a summary of it.
+      return null;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* TurnResponse — the discriminated 200 body                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The parsed 200 body, discriminated exactly as the wire is. Earlier
+ * milestones flattened all three outcomes onto one `status` string; that
+ * is what made a clarification indistinguishable from an answer with no
+ * findings, and a `TurnError` (which carries no investigation id at all)
+ * impossible to represent.
+ */
+export type TurnResponseData =
+  | {
+      outcome: "answer";
+      investigationId: string;
+      sessionId: string;
+      turnClass: TurnClass;
+      header?: ContextHeaderData;
+      findings: Finding[];
+      charts: ChartSpec[];
+      narrative?: string;
+      warnings: Omit<WarningEvent, "type">[];
+      definition?: DefinitionCardData;
+      reconciliation?: string;
+      planHash?: string;
+      watermarkStale: boolean;
+    }
+  | {
+      outcome: "clarification_required";
+      investigationId: string;
+      sessionId: string;
+      clarification: ClarificationData;
+      watermarkStale: boolean;
+    }
+  | { outcome: "error"; sessionId?: string; error: ErrorEnvelopeData };
+
+export interface TurnResponseParse {
+  /** Null when required fields are missing (fatal drift). */
+  value: TurnResponseData | null;
+  /** Every missing required path found. */
+  drift: string[];
+}
+
+/** Parse `POST .../turns` (application/json) or a `turn_complete` frame. */
+export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse {
+  if (!isRecord(raw)) return { value: null, drift: ["outcome"] };
+  const outcome = raw.outcome;
+  if (typeof outcome !== "string") return { value: null, drift: ["outcome"] };
+
+  if (outcome === "error") {
+    const drift: string[] = [];
+    missingAt(raw, REQUIRED_TURN_ERROR_FIELDS, drift);
+    if (drift.length > 0) return { value: null, drift };
+    const envelope = parseErrorEnvelope(raw.error);
+    if (!envelope.ok) {
+      return { value: null, drift: envelope.missing.map((path) => `error.${path}`) };
+    }
+    return {
+      value: {
+        outcome: "error",
+        ...(typeof raw.session_id === "string" ? { sessionId: raw.session_id } : {}),
+        error: envelope.value,
+      },
+      drift: [],
+    };
+  }
+
+  if (outcome === "clarification_required") {
+    const drift: string[] = [];
+    missingAt(raw, REQUIRED_CLARIFICATION_FIELDS, drift);
+    if (drift.length > 0) return { value: null, drift };
+    return {
+      value: {
+        outcome: "clarification_required",
+        investigationId: asString(raw.investigation_id),
+        sessionId: asString(raw.session_id),
+        clarification: {
+          question: asString(raw.question),
+          options: asArray(raw.options).map((o) => String(o)),
+          ...(typeof raw.reason === "string" ? { reason: raw.reason } : {}),
+        },
+        watermarkStale: raw.watermark_stale === true,
+      },
+      drift: [],
+    };
+  }
+
+  if (outcome !== "answer") return { value: null, drift: ["outcome"] };
+
+  const drift: string[] = [];
+  missingAt(raw, REQUIRED_ANSWER_FIELDS, drift);
   if (drift.length > 0) return { value: null, drift };
 
-  const value: TurnResponseData = {
-    investigationId: investigationId as string,
-    status: status as TurnCompleteEvent["status"],
+  const findings: Finding[] = [];
+  asArray(raw.findings).forEach((entry, index) => {
+    const finding = mapFinding(entry);
+    if (finding === null || finding.referent.value === "") {
+      drift.push(`findings[${index}].referent`);
+      return;
+    }
+    findings.push(finding);
+  });
+
+  const charts: ChartSpec[] = [];
+  asArray(raw.chart_specs).forEach((entry, index) => {
+    const spec = mapChartSpec(entry);
+    if (spec === null || spec.id === "") {
+      drift.push(`chart_specs[${index}].id`);
+      return;
+    }
+    charts.push(spec);
+  });
+
+  const header = raw.context_header != null ? mapContextHeader(raw.context_header, pin) : null;
+  const definition = raw.definitional != null ? mapDefinitional(raw.definitional, pin) : null;
+
+  return {
+    value: {
+      outcome: "answer",
+      investigationId: asString(raw.investigation_id),
+      sessionId: asString(raw.session_id),
+      turnClass: asString(raw.turn_class) as TurnClass,
+      ...(header !== null ? { header } : {}),
+      findings,
+      charts,
+      ...(typeof raw.narrative === "string" && raw.narrative !== ""
+        ? { narrative: raw.narrative }
+        : {}),
+      warnings: asArray(raw.warnings)
+        .filter((w): w is string => typeof w === "string")
+        .map(mapAnswerWarning),
+      ...(definition !== null ? { definition } : {}),
+      ...(typeof raw.reconciliation === "string" ? { reconciliation: raw.reconciliation } : {}),
+      ...(typeof raw.plan_hash === "string" ? { planHash: raw.plan_hash } : {}),
+      watermarkStale: raw.watermark_stale === true,
+    },
+    drift,
   };
+}
 
-  const turnClass = alias(raw, "turnClass", "turn_class");
-  if (typeof turnClass === "string") value.turnClass = turnClass as TurnClass;
+/**
+ * Parse `GET /v1/investigations/{iid}` — a different shape from the turn
+ * body and the only recovery path when the stream dropped after the
+ * investigation id was known. It carries findings and warnings but no
+ * header, charts or narrative, so a recovered turn renders what the server
+ * actually kept rather than pretending the rest arrived.
+ */
+export function parseInvestigationResponse(raw: unknown): TurnResponseParse {
+  const drift: string[] = [];
+  if (!isRecord(raw)) return { value: null, drift: [...REQUIRED_INVESTIGATION_FIELDS] };
+  missingAt(raw, REQUIRED_INVESTIGATION_FIELDS, drift);
+  const status = asString(raw.status);
+  if (!TURN_STATUSES.has(status)) drift.push("status");
+  if (drift.length > 0) return { value: null, drift };
 
-  const sub = <T extends TurnEvent>(event: T, prefix: string): T | null => {
-    const result = validateTurnEvent(event);
-    if (result.ok) return result.value as T;
-    drift.push(...result.missing.map((path) => `${prefix}${path}`));
-    return null;
-  };
-
-  if (raw.header !== undefined && raw.header !== null) {
-    const event = sub(
-      {
-        type: "context_header",
-        header: raw.header as ContextHeaderData,
-        turnClass: (value.turnClass ?? "new_investigation") as TurnClass,
+  const investigationId = asString(raw.investigation_id);
+  if (status === "clarification_required") {
+    return {
+      value: {
+        outcome: "clarification_required",
+        investigationId,
+        sessionId: asString(raw.session_id),
+        clarification: {
+          question: "This turn ended with a question — resend it to see the options again.",
+          options: [],
+        },
+        watermarkStale: false,
       },
-      "",
-    );
-    if (event) value.header = event.header;
+      drift,
+    };
   }
-  if (raw.interpretation !== undefined && raw.interpretation !== null) {
-    const event = sub(
-      { type: "interpretation", interpretation: raw.interpretation as InterpretationData },
-      "",
-    );
-    if (event) value.interpretation = event.interpretation;
+  if (status === "failed") {
+    return {
+      value: {
+        outcome: "error",
+        sessionId: asString(raw.session_id),
+        error: {
+          code: "TURN_FAILED",
+          message: asArray(raw.warnings).map(String).join(" ") || "This turn failed server-side.",
+          correlationId: investigationId,
+        },
+      },
+      drift,
+    };
   }
-  if (Array.isArray(raw.findings)) {
-    value.findings = [];
-    raw.findings.forEach((finding, index) => {
-      const event = sub({ type: "finding", finding: finding as Finding }, `findings[${index}].`);
-      if (event) value.findings?.push(event.finding);
-    });
-  }
-  if (Array.isArray(raw.charts)) {
-    value.charts = [];
-    raw.charts.forEach((spec, index) => {
-      const event = sub({ type: "chart_spec", spec: spec as ChartSpec }, `charts[${index}].`);
-      if (event) value.charts?.push(event.spec);
-    });
-  }
-  if (typeof raw.narrative === "string") value.narrative = raw.narrative;
-  if (Array.isArray(raw.warnings)) {
-    value.warnings = [];
-    raw.warnings.forEach((warning, index) => {
-      const event = sub(
-        { type: "warning", ...(warning as Omit<WarningEvent, "type">) },
-        `warnings[${index}].`,
-      );
-      if (event) {
-        value.warnings?.push({ code: event.code, message: event.message, severity: event.severity });
-      }
-    });
-  }
-  if (raw.clarification !== undefined && raw.clarification !== null) {
-    const event = sub(
-      { type: "clarification", clarification: raw.clarification as ClarificationData },
-      "",
-    );
-    if (event) value.clarification = event.clarification;
-  }
-  if (raw.evidence !== undefined && raw.evidence !== null) {
-    const event = sub({ type: "evidence", evidence: raw.evidence as EvidenceBundle }, "");
-    if (event) value.evidence = event.evidence;
-  }
-  const definition = alias(raw, "definition", "definition_card");
-  if (definition !== undefined && definition !== null) {
-    const event = sub(
-      { type: "definition_card", definition: definition as DefinitionCardData },
-      "",
-    );
-    if (event) value.definition = event.definition;
-  }
-  const answerGrade = alias(raw, "answerGrade", "answer_grade");
-  if (typeof answerGrade === "string") value.answerGrade = answerGrade as EvidenceGrade;
-  if (isRecord(raw.metric)) value.metric = raw.metric as unknown as MetricContractSummary;
 
-  return { value, drift };
+  const findings: Finding[] = [];
+  asArray(raw.findings).forEach((entry, index) => {
+    const finding = mapFinding(entry);
+    if (finding === null || finding.referent.value === "") {
+      drift.push(`findings[${index}].referent`);
+      return;
+    }
+    findings.push(finding);
+  });
+
+  return {
+    value: {
+      outcome: "answer",
+      investigationId,
+      sessionId: asString(raw.session_id),
+      turnClass: asString(raw.turn_class) as TurnClass,
+      findings,
+      charts: [],
+      warnings: asArray(raw.warnings)
+        .filter((w): w is string => typeof w === "string")
+        .map(mapAnswerWarning),
+      ...(typeof raw.plan_hash === "string" ? { planHash: raw.plan_hash } : {}),
+      watermarkStale: false,
+    },
+    drift,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* Typed gestures: UI refinement → published operator                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The UI names operators in PascalCase and the wire in snake_case with an
+ * `op` discriminator. Chart clicks and drill chips were being posted in the
+ * UI's spelling, which a conforming server rejects as a malformed body, so
+ * the translation is written down here next to everything else.
+ * Unmappable operators return null rather than being sent as something
+ * they are not.
+ */
+export function refinementToWire(refinement: Refinement): UnknownRecord | null {
+  switch (refinement.op) {
+    case "SetDimensions":
+      return { op: "set_dimensions", dimensions: refinement.dimensions };
+    case "AddFilter":
+      return {
+        op: "add_filter",
+        dimension: refinement.filter.dimension,
+        predicate_op: refinement.filter.op,
+        values: refinement.filter.values,
+      };
+    case "RemoveFilter":
+      return { op: "remove_filter", dimension: refinement.dimension };
+    case "SetWindow":
+      return {
+        op: "set_window",
+        window: { start: refinement.window.start, end: refinement.window.end },
+        basis: refinement.window.basis,
+      };
+    case "SetComparison":
+      return refinement.comparison === null
+        ? { op: "set_comparison", kind: null, custom: null }
+        : {
+            op: "set_comparison",
+            kind: refinement.comparison.kind === "same_period_last_year" ? "prior_year" : null,
+            custom:
+              refinement.comparison.kind === "custom"
+                ? {
+                    start: refinement.comparison.window.start,
+                    end: refinement.comparison.window.end,
+                  }
+                : null,
+          };
+    case "SetGrain":
+      return {
+        op: "set_grain",
+        entity: refinement.grain.entity,
+        time_bucket: refinement.grain.timeBucket ?? null,
+      };
+    case "DrillInto":
+      // The wire takes one target per operator; a multi-target UI gesture
+      // becomes several operators (see `refinementsToWire`).
+      return Array.isArray(refinement.target)
+        ? null
+        : { op: "drill_into", target: refinement.target };
+    case "Pivot":
+      return { op: "pivot", measures: refinement.measures };
+    case "Explain":
+      return { op: "explain", target: refinement.target };
+    case "RankBy":
+      return { op: "rank_by", by: refinement.metric, descending: refinement.descending };
+    case "Expand":
+      // `limit` is required and positive on the wire; the UI gesture has no
+      // number attached, so it asks for the engine's default page.
+      return { op: "expand", limit: 50 };
+    case "ResetContext":
+      return { op: "reset_context", keep_pins: refinement.keepPins };
+  }
+}
+
+export function refinementsToWire(refinements: readonly Refinement[]): UnknownRecord[] {
+  const out: UnknownRecord[] = [];
+  for (const refinement of refinements) {
+    if (refinement.op === "DrillInto" && Array.isArray(refinement.target)) {
+      for (const target of refinement.target) out.push({ op: "drill_into", target });
+      continue;
+    }
+    const mapped = refinementToWire(refinement);
+    if (mapped !== null) out.push(mapped);
+  }
+  return out;
 }
 
 /* ------------------------------------------------------------------ */
@@ -508,8 +998,6 @@ export interface ReceivedTurnState {
   chartIds: Set<string>;
   narrativeLength: number;
   hasHeader: boolean;
-  hasInterpretation: boolean;
-  hasEvidence: boolean;
   hasDefinition: boolean;
   hasClarification: boolean;
   warningKeys: Set<string>;
@@ -521,22 +1009,17 @@ export function newReceivedState(): ReceivedTurnState {
     chartIds: new Set(),
     narrativeLength: 0,
     hasHeader: false,
-    hasInterpretation: false,
-    hasEvidence: false,
     hasDefinition: false,
     hasClarification: false,
     warningKeys: new Set(),
   };
 }
 
-/** Record a successfully validated event into the received-state tracker. */
+/** Record a successfully parsed event into the received-state tracker. */
 export function trackReceived(received: ReceivedTurnState, event: TurnEvent): void {
   switch (event.type) {
     case "context_header":
       received.hasHeader = true;
-      break;
-    case "interpretation":
-      received.hasInterpretation = true;
       break;
     case "finding":
       received.findingReferents.add(event.finding.referent.value);
@@ -549,9 +1032,6 @@ export function trackReceived(received: ReceivedTurnState, event: TurnEvent): vo
       break;
     case "warning":
       received.warningKeys.add(`${event.code}:${event.message}`);
-      break;
-    case "evidence":
-      received.hasEvidence = true;
       break;
     case "definition_card":
       received.hasDefinition = true;
@@ -576,49 +1056,64 @@ export function turnResponseToEvents(
 ): TurnEvent[] {
   const events: TurnEvent[] = [];
 
-  if (response.header && response.turnClass && !received.hasHeader) {
-    events.push({ type: "context_header", header: response.header, turnClass: response.turnClass });
+  if (response.outcome === "error") {
+    events.push({
+      type: "error",
+      code: response.error.code,
+      message: response.error.message,
+      correlationId: response.error.correlationId,
+    });
+    return events;
   }
-  if (response.interpretation && !received.hasInterpretation) {
-    events.push({ type: "interpretation", interpretation: response.interpretation });
+
+  if (response.outcome === "clarification_required") {
+    events.push({ type: "stage", stage: "interpreted", status: "completed" });
+    if (!received.hasClarification) {
+      events.push({ type: "clarification", clarification: response.clarification });
+    }
+    events.push({
+      type: "turn_complete",
+      investigationId: response.investigationId,
+      status: "clarification_required",
+    });
+    return events;
+  }
+
+  if (response.header && !received.hasHeader) {
+    events.push({
+      type: "context_header",
+      header: response.header,
+      turnClass: response.turnClass,
+    });
   }
   // Close out the stage rail honestly: the pipeline finished server-side.
-  if (response.status === "complete") {
-    events.push({ type: "stage", stage: "narrating", status: "completed" });
-  } else if (response.status === "clarification_required") {
-    events.push({ type: "stage", stage: "interpreted", status: "completed" });
-  }
-  for (const finding of response.findings ?? []) {
+  events.push({ type: "stage", stage: "narrating", status: "completed" });
+  for (const finding of response.findings) {
     if (!received.findingReferents.has(finding.referent.value)) {
       events.push({ type: "finding", finding });
     }
   }
-  for (const spec of response.charts ?? []) {
+  for (const spec of response.charts) {
     if (!received.chartIds.has(spec.id)) events.push({ type: "chart_spec", spec });
   }
-  for (const warning of response.warnings ?? []) {
+  for (const warning of response.warnings) {
     if (!received.warningKeys.has(`${warning.code}:${warning.message}`)) {
       events.push({ type: "warning", ...warning });
     }
   }
   if (response.narrative !== undefined && response.narrative.length > received.narrativeLength) {
-    events.push({ type: "narrative_delta", text: response.narrative.slice(received.narrativeLength) });
-  }
-  if (response.evidence && !received.hasEvidence) {
-    events.push({ type: "evidence", evidence: response.evidence });
+    events.push({
+      type: "narrative_delta",
+      text: response.narrative.slice(received.narrativeLength),
+    });
   }
   if (response.definition && !received.hasDefinition) {
     events.push({ type: "definition_card", definition: response.definition });
   }
-  if (response.clarification && !received.hasClarification) {
-    events.push({ type: "clarification", clarification: response.clarification });
-  }
   events.push({
     type: "turn_complete",
     investigationId: response.investigationId,
-    status: response.status,
-    ...(response.answerGrade !== undefined ? { answerGrade: response.answerGrade } : {}),
-    ...(response.metric !== undefined ? { metric: response.metric } : {}),
+    status: "complete",
   });
   return events;
 }
@@ -832,6 +1327,10 @@ export function parsePortfolioSnapshot(raw: unknown): PortfolioParse {
       provenance: record.provenance as PortfolioItem["provenance"],
       priorityFormulaVersion: typeof formulaVersion === "string" ? formulaVersion : "",
       sourceWatermarkId: typeof sourceWatermarkId === "string" ? sourceWatermarkId : "",
+      // The card's typed first turn, carried through verbatim: it is
+      // already the published shape, so translating it would only be an
+      // opportunity to get it wrong.
+      ...(isRecord(record.drill_spec) ? { drillSpec: record.drill_spec } : {}),
       drill: isRecord(record.drill)
         ? (record.drill as unknown as PortfolioItem["drill"])
         : { label: "Drill in", refinement: { op: "DrillInto", target: referent } },

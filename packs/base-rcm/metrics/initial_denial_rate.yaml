@@ -3,7 +3,9 @@
 # FIRST remit (rebill/appeal remits never carry new denials), so the numerator
 # is exactly first-pass denials with no dedup step needed, and no rebill
 # exclusion flag is required because resubmissions are not separate claims
-# here (documented in packs/base-rcm/NOTES.md).
+# here (documented in packs/base-rcm/NOTES.md). The submitted-only exclusion
+# was removed because `submission_date` is not a catalog dimension; on the
+# primary submission basis it was a no-op ("Exclusion polarity" in NOTES.md).
 id: initial_denial_rate
 version: 1
 kind: flow
@@ -16,7 +18,6 @@ numerator:
         - {dimension: clean_claim, op: eq, value: false}
         - {dimension: status, op: neq, value: OPEN}
 denominator: {count_distinct: claim_id}
-exclusions: {not: {dimension: submission_date, op: is_null}}
 primary_date_basis: submission
 allowed_date_bases: [submission, service]
 scope_dimensions:
@@ -26,10 +27,14 @@ scope_dimensions:
 sign: higher_is_bad
 unit: ratio
 description: >-
-  Claims denied on first adjudication as a share of claims submitted in the
-  window (submission-date basis, per the Task Force denominator convention;
-  the published 3-month-average smoothing is a comparison-window choice made
-  at probe time, not baked into the contract). Differs from denial_rate in
+  Claims denied on first adjudication as a share of every claim in the window
+  (primary submission-date basis, per the Task Force denominator convention,
+  where the population is exactly the claims submitted in the window because
+  an unsubmitted claim has no submission date to fall inside it; on the
+  alternate service basis the denominator also carries never-submitted
+  claims. The published 3-month-average smoothing is a comparison-window
+  choice made at probe time, not baked into the contract). Differs from
+  denial_rate in
   denominator and basis: submitted-but-not-yet-adjudicated claims sit in the
   denominator only, so recent windows read low until adjudication catches up
   — the watermark context header discloses this. Benchmark context: Kodiak

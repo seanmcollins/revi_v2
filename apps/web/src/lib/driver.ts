@@ -17,6 +17,16 @@ export type ConnectionState = "connecting" | "online" | "offline";
 
 export interface TurnSubmission {
   utterance?: string;
+  /**
+   * A typed FIRST turn — an explicit `TypedInvestigationSpec` (metric ids,
+   * dimensions, filters, window/basis) that opens a NEW investigation with
+   * no parent and no model call. This is what a portfolio card's
+   * `drill_spec` is, and what a chart click posts when the session has no
+   * prior answer to refine. Passed to the wire verbatim: it is already the
+   * published shape, so translating it would only be a chance to get it
+   * wrong.
+   */
+  spec?: Record<string, unknown>;
   refinements?: Refinement[];
   /** Reply to a pending clarification — sent as `clarification_response`. */
   clarificationResponse?: string;

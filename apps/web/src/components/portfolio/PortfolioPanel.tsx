@@ -26,6 +26,7 @@ import { cn } from "@/lib/utils";
  */
 export function PortfolioPanel() {
   const emitRefinement = useSessionStore((s) => s.emitRefinement);
+  const submit = useSessionStore((s) => s.submit);
   const mode = useSessionStore((s) => s.connection.mode);
   const query = usePortfolioQuery(mode === "api");
 
@@ -104,7 +105,12 @@ export function PortfolioPanel() {
                       size="xs"
                       className="h-5 gap-0.5 rounded-full px-1.5 text-[0.62rem] font-normal text-verified opacity-0 transition-opacity duration-150 hover:text-verified group-hover:opacity-100"
                       onClick={() =>
-                        emitRefinement(item.drill.refinement, { referent: item.referent })
+                        item.drillSpec
+                          ? // A card is not a refinement of whatever you were
+                            // looking at: its handle is a typed FIRST turn, so
+                            // it opens its own investigation (§18.1-10).
+                            void submit({ spec: item.drillSpec })
+                          : emitRefinement(item.drill.refinement, { referent: item.referent })
                       }
                     >
                       {item.drill.label}

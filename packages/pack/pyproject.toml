@@ -7,6 +7,7 @@ dependencies = [
     "revi-kernel",
     "revi-pack-contracts",
     "revi-calculation-contracts",
+    "revi-catalog-contracts",
     "pyyaml>=6.0",
 ]
 
@@ -21,3 +22,4 @@ packages = ["src/revi_pack"]
 revi-kernel = { workspace = true }
 revi-pack-contracts = { workspace = true }
 revi-calculation-contracts = { workspace = true }
+revi-catalog-contracts = { workspace = true }

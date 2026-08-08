@@ -2,6 +2,8 @@
 # primary basis; carc is deliberately NOT a scope dimension — cutting a
 # claim-grain rate by a line-level code is the designed GRAIN_INCOMPATIBLE
 # demonstration (denied_dollars at line grain carries the carc scope).
+# The status-OPEN exclusion was removed because `status` is not a catalog
+# dimension (see "Exclusion polarity" in NOTES.md).
 id: denial_rate
 version: 1
 kind: flow
@@ -11,7 +13,6 @@ numerator:
     inner: {count_distinct: claim_id}
     where: {dimension: clean_claim, op: eq, value: false}
 denominator: {count_distinct: claim_id}
-exclusions: {dimension: status, op: neq, value: OPEN}
 primary_date_basis: remit
 allowed_date_bases: [remit, service, submission]
 scope_dimensions:
@@ -21,11 +22,13 @@ scope_dimensions:
 sign: higher_is_bad
 unit: ratio
 description: >-
-  Share of adjudicated claims that received at least one denial: claims whose
-  outcome-derived clean flag is false, divided by all claims with a visible
-  adjudication outcome (status OPEN excluded from both sides — the
-  denominator law applies any scope filter to numerator and denominator
-  alike). Primary basis is remittance (adjudication) date per the MAP AR-5
+  Share of claims that received at least one denial: claims whose
+  outcome-derived clean flag is false, divided by every claim in the window
+  on the chosen date basis. The population is not restricted to adjudicated
+  claims — a claim still awaiting its first remittance carries a false clean
+  flag and therefore counts as denied, so trailing windows at a fresh
+  watermark read high until adjudication catches up. Primary basis is
+  remittance (adjudication) date per the MAP AR-5
   convention; service and submission are labeled alternates. Claims denied
   and later paid (for example COB rebills) still count as denied — this is
   the remittance denial rate, not standing-denied inventory. Benchmark

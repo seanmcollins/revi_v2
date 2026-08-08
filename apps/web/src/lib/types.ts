@@ -106,12 +106,20 @@ export interface Comparison {
 }
 
 /** One scope clause, tagged with the turn that introduced it. */
+/**
+ * One scope clause, tagged with the turn that introduced it. `op` mirrors
+ * the published `PredicateOp` set verbatim (`FilterChip.op`) rather than a
+ * UI-local subset — a chip that says "between" when the server said
+ * "range" is a chip that lies about the population.
+ */
 export interface FilterClause {
   dimension: string;
   dimensionLabel: string;
-  op: "eq" | "in" | "not_in" | "between";
+  op: "eq" | "neq" | "in" | "not_in" | "range" | "is_null" | "contains";
   values: string[];
   originTurn: string;
+  /** A session pin (carryover law 5) rather than a turn-local filter. */
+  pinned?: boolean;
 }
 
 export interface CohortSummary {
@@ -134,7 +142,8 @@ export interface ContextHeaderData {
   comparison?: Comparison;
   filters: FilterClause[];
   cohort?: CohortSummary;
-  grain: Grain;
+  /** Not published on `ContextHeaderPayload`; present only in mock data. */
+  grain?: Grain;
   watermark: DataWatermark;
   packVersion: PackVersionRef;
 }
@@ -202,7 +211,13 @@ export interface ClarificationData {
 /* Findings (domain/records.Finding + display fields)                  */
 /* ------------------------------------------------------------------ */
 
-export type Confidence = "high" | "medium" | "low";
+/**
+ * `FindingPayload.confidence`. "qualified" is the engine's own word for a
+ * finding whose evidence is weaker than its playbook's conclusion policy
+ * demands — it is published, so it is spelled here rather than being
+ * flattened into "low", which would say something different.
+ */
+export type Confidence = "high" | "medium" | "low" | "qualified";
 
 export interface FindingComparisonStat {
   currentCents: number;
@@ -260,7 +275,11 @@ export interface ChartSeries {
 
 export interface ChartSpec {
   id: string;
+  /** The shape this UI draws — a reduction of `chart_type` (see contract.ts). */
   kind: "bar" | "grouped_bar" | "line";
+  /** The published `ChartSpec.chart_type`, kept verbatim so the reduction
+   *  is visible and reversible rather than lossy. */
+  wireChartType?: string;
   title: string;
   unit: "cents" | "percent" | "count";
   series: ChartSeries[];

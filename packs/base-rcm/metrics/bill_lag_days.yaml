@@ -1,11 +1,13 @@
-# Bill lag days — service to claim submission, per submitted claim.
+# Bill lag days — service to claim submission, per claim in the window. The
+# submitted-only exclusion was removed because `submission_date` is not a
+# catalog dimension (see "Exclusion polarity" in NOTES.md); on the primary
+# submission basis it was a no-op.
 id: bill_lag_days
 version: 1
 kind: flow
 entity_grain: claim
 numerator: {sum: submission_lag_days}
 denominator: {count_distinct: claim_id}
-exclusions: {not: {dimension: submission_date, op: is_null}}
 primary_date_basis: submission
 allowed_date_bases: [submission, service]
 scope_dimensions:
@@ -15,10 +17,14 @@ scope_dimensions:
 sign: higher_is_bad
 unit: days
 description: >-
-  Mean days from service date to claim submission over claims submitted in
-  the window (claim-weighted; unsubmitted claims are excluded from both
-  sides — their lag is measured by DNFB and timely-filing-at-risk views
-  instead, so this metric never averages in unresolved inventory).
+  Mean days from service date to claim submission over every claim in the
+  window (claim-weighted). On the primary submission basis that population is
+  exactly the claims submitted in the window, because an unsubmitted claim
+  has no submission date to fall inside it; on the alternate service basis
+  the denominator also counts claims that were never submitted, whose lag is
+  null and which therefore dilute the mean — use DNFB and the
+  timely-filing-at-risk views for unresolved inventory rather than reading
+  this metric on the service basis.
   submission_lag_days is a documented probe-time derived measure
   (submission_date minus service_date per claim; see pack NOTES).
   Institutional claims bill after discharge, so their floor is the length of

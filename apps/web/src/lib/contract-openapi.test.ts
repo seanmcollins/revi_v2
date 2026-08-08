@@ -37,22 +37,20 @@
  * 3. STILL A GAP: `SessionLineageResponse` names the node list
  *    `investigations` and omits a display `label`; the parser aliases the
  *    former and derives the latter (see LINEAGE_NODE_ALIASES).
- * 4. SSE frames ARE modelled now, partially. `TurnStreamEvent` publishes the
- *    nine frame kinds the turn route emits, and they are bound below to
- *    REQUIRED_EVENT_FIELDS. Its `data` is an open object, so the per-kind
- *    payload shape remains the UI's own contract, pinned by fixtures in
- *    contract-expectations.test.ts. Three UI event kinds — `interpretation`,
- *    `evidence`, `definition_card` — are deliberately NOT SSE frames: they
- *    arrive inside the `turn_complete` payload, and that asymmetry is
+ * 4. SSE frames are modelled and their BODIES are bound. `TurnStreamEvent`
+ *    publishes the nine frame kinds; `data` is an open object, but each
+ *    frame body is itself a published model (`ContextHeaderPayload`,
+ *    `FindingPayload`, `ChartSpec`, `ErrorEnvelope`), so those are bound
+ *    below too. Three UI event kinds — `interpretation`, `evidence`,
+ *    `definition_card` — are deliberately NOT frames, and that asymmetry is
  *    asserted rather than assumed.
- * 5. NEW GAP, opened by the same change: the turn route's blocking 200 JSON
- *    is now a discriminated `TurnAnswer | TurnClarification | TurnError` on
- *    `outcome`, and none of those carries the `status` `parseTurnResponse`
- *    requires. The GET-by-id recovery path is fine (InvestigationResponse
- *    guarantees both fields); the same-idempotency-key JSON replay is not,
- *    and trips the drift banner against a conforming server. Pinned at the
- *    bottom of this file rather than papered over — closing it means binding
- *    the TurnAnswer payload sections, not aliasing one field.
+ * 5. CLOSED (M14): the blocking 200 body is a discriminated
+ *    `TurnAnswer | TurnClarification | TurnError` on `outcome`, and the
+ *    parser now discriminates the same way instead of demanding a `status`
+ *    field none of the variants carries. Each variant is bound to its own
+ *    schema below, `GET /v1/investigations/{iid}` keeps its own parser and
+ *    binding, and `TurnRequest.spec` (the typed first turn a portfolio
+ *    card's `drill_spec` posts) is bound alongside them.
  */
 
 import { readFileSync } from "node:fs";
@@ -63,15 +61,17 @@ import {
   LINEAGE_EDGE_ALIASES,
   LINEAGE_NODE_ALIASES,
   PORTFOLIO_ITEM_ALIASES,
+  REQUIRED_ANSWER_FIELDS,
+  REQUIRED_CLARIFICATION_FIELDS,
   REQUIRED_ERROR_ENVELOPE_FIELDS,
-  REQUIRED_EVENT_FIELDS,
+  REQUIRED_FRAME_FIELDS,
+  REQUIRED_INVESTIGATION_FIELDS,
   REQUIRED_LINEAGE_EDGE_FIELDS,
   REQUIRED_LINEAGE_NODE_FIELDS,
   REQUIRED_PORTFOLIO_ITEM_FIELDS,
   REQUIRED_SESSION_FIELDS,
-  REQUIRED_TURN_RESPONSE_FIELDS,
+  REQUIRED_TURN_ERROR_FIELDS,
 } from "@/lib/contract";
-import type { TurnEvent } from "@/lib/types";
 import type { components, paths } from "@/lib/types.gen";
 
 type Schemas = components["schemas"];
@@ -101,13 +101,59 @@ const ERROR_ENVELOPE_BACKING = {
   correlation_id: "correlation_id",
 } satisfies Record<(typeof REQUIRED_ERROR_ENVELOPE_FIELDS)[number], keyof Schemas["ErrorEnvelope"]>;
 
-const TURN_RESPONSE_BACKING = {
-  investigationId: "investigation_id",
-  status: "status",
+/**
+ * The 200 body is a discriminated union, so each variant is bound to its
+ * own schema. Every required path is a wire key now — the parser reads the
+ * published spelling directly instead of demanding a `status` field none of
+ * the three variants has ever carried.
+ */
+const ANSWER_BACKING = {
+  outcome: "outcome",
+  session_id: "session_id",
+  investigation_id: "investigation_id",
+  turn_class: "turn_class",
+} satisfies Record<(typeof REQUIRED_ANSWER_FIELDS)[number], keyof Schemas["TurnAnswer"]>;
+
+const CLARIFICATION_BACKING = {
+  outcome: "outcome",
+  session_id: "session_id",
+  investigation_id: "investigation_id",
+  question: "question",
 } satisfies Record<
-  (typeof REQUIRED_TURN_RESPONSE_FIELDS)[number],
+  (typeof REQUIRED_CLARIFICATION_FIELDS)[number],
+  keyof Schemas["TurnClarification"]
+>;
+
+const TURN_ERROR_BACKING = {
+  outcome: "outcome",
+  error: "error",
+} satisfies Record<(typeof REQUIRED_TURN_ERROR_FIELDS)[number], keyof Schemas["TurnError"]>;
+
+/** `GET /v1/investigations/{iid}` — the reconnect-recovery shape. */
+const INVESTIGATION_BACKING = {
+  investigation_id: "investigation_id",
+  turn_id: "turn_id",
+  turn_class: "turn_class",
+  status: "status",
+  created_at: "created_at",
+} satisfies Record<
+  (typeof REQUIRED_INVESTIGATION_FIELDS)[number],
   keyof Schemas["InvestigationResponse"]
 >;
+
+/**
+ * Per-frame payload schemas. `TurnStreamEvent.data` is an open object, so
+ * the spec pins the frame KINDS but not their contents — except that every
+ * frame body IS a published model, and these bindings say which. A rename
+ * inside `ContextHeaderPayload` or `FindingPayload` is now a type error
+ * here rather than a blank panel at runtime.
+ */
+const FRAME_PAYLOAD_SCHEMA: Partial<Record<keyof typeof REQUIRED_FRAME_FIELDS, keyof Schemas>> = {
+  context_header: "ContextHeaderPayload",
+  finding: "FindingPayload",
+  chart_spec: "ChartSpec",
+  error: "ErrorEnvelope",
+};
 
 const LINEAGE_NODE_BACKING = {
   turnId: "turn_id",
@@ -157,10 +203,19 @@ const TURN_REQUEST_KEYS = [
   "idempotency_key",
   "correlation_id",
   "utterance",
+  "spec",
   "refinements",
   "clarification_response",
   "re_anchor",
 ] as const satisfies readonly (keyof Schemas["TurnRequest"])[];
+
+/** A portfolio card's drill handle IS a typed first turn (§18.1-10). */
+const DRILL_SPEC_BACKING = {
+  metric_ids: "metric_ids",
+  dimensions: "dimensions",
+  filters: "filters",
+  window: "window",
+} satisfies Record<string, keyof Schemas["TypedInvestigationSpec"]>;
 
 /** The endpoints the driver calls, with the method it calls them by. */
 const DRIVER_OPERATIONS = {
@@ -182,11 +237,7 @@ const ENVELOPE_REF = "#/components/schemas/ErrorEnvelope";
  * sections of the `turn_complete` payload, replayed as synthetic events by
  * `turnResponseToEvents`. Asserted below so the asymmetry stays deliberate.
  */
-const TURN_COMPLETE_ONLY_KINDS = [
-  "interpretation",
-  "evidence",
-  "definition_card",
-] as const satisfies readonly TurnEvent["type"][];
+const TURN_COMPLETE_ONLY_KINDS = ["interpretation", "evidence", "definition_card"] as const;
 
 /* ------------------------------------------------------------------ */
 /* Run-time binding against contracts/openapi.json                      */
@@ -284,8 +335,22 @@ describe("OpenAPI reconciliation — turn submission", () => {
     for (const key of TURN_REQUEST_KEYS) expect(properties).toContain(key);
   });
 
-  it("guarantees the fields a recovered TurnResponse is read for", () => {
-    expectGuaranteed("InvestigationResponse", Object.values(TURN_RESPONSE_BACKING));
+  it("guarantees every field each 200 variant is read for", () => {
+    expectGuaranteed("TurnAnswer", Object.values(ANSWER_BACKING));
+    expectGuaranteed("TurnClarification", Object.values(CLARIFICATION_BACKING));
+    expectGuaranteed("TurnError", Object.values(TURN_ERROR_BACKING));
+  });
+
+  it("guarantees the fields a recovered turn is read for", () => {
+    expectGuaranteed("InvestigationResponse", Object.values(INVESTIGATION_BACKING));
+  });
+
+  it("publishes the typed first turn a portfolio card posts", () => {
+    expectGuaranteed("TypedInvestigationSpec", ["metric_ids", "window"]);
+    const properties = Object.keys(schema("TypedInvestigationSpec").properties ?? {});
+    for (const key of Object.values(DRILL_SPEC_BACKING)) expect(properties).toContain(key);
+    // and every card carries one, so a cold-start drill is never guesswork
+    expectGuaranteed("AnomalyCard", ["drill_spec"]);
   });
 });
 
@@ -413,41 +478,40 @@ describe("OpenAPI reconciliation — SSE frames", () => {
     ).toBe("#/components/schemas/TurnStreamEvent");
   });
 
-  it("binds every published frame kind to a REQUIRED_EVENT_FIELDS entry", () => {
+  it("binds every published frame kind to a required-field table", () => {
     const published = publishedSseKinds();
     expect(published).toHaveLength(9);
-    for (const kind of published) {
-      expect(
-        Object.keys(REQUIRED_EVENT_FIELDS),
-        `SSE frame "${kind}" is published but the UI has no required-field table for it`,
-      ).toContain(kind);
+    expect(published.sort()).toEqual(Object.keys(REQUIRED_FRAME_FIELDS).sort());
+  });
+
+  it("guarantees every wire field the frame parser requires", () => {
+    // `TurnStreamEvent.data` is an open object, but each frame body IS a
+    // published model. Binding them here is what turns a server-side rename
+    // into a failing test instead of a blank panel.
+    for (const [kind, schemaName] of Object.entries(FRAME_PAYLOAD_SCHEMA)) {
+      expectGuaranteed(
+        schemaName as string,
+        REQUIRED_FRAME_FIELDS[kind as keyof typeof REQUIRED_FRAME_FIELDS],
+      );
     }
   });
 
   it("keeps the three turn_complete-only kinds out of the SSE enum", () => {
-    // interpretation / evidence / definition_card are sections of the
-    // turn_complete payload, replayed as synthetic events by
-    // turnResponseToEvents. They are NOT frames, and must not be "fixed" by
-    // adding them to TurnStreamEvent.
+    // interpretation / evidence / definition_card are UI event kinds the
+    // server does not stream: the definition card rides inside the
+    // turn_complete payload, and the other two are UI-only shapes with no
+    // wire counterpart at all. They must not be "fixed" by adding them to
+    // TurnStreamEvent.
     const published = publishedSseKinds();
     for (const kind of TURN_COMPLETE_ONLY_KINDS) {
-      expect(Object.keys(REQUIRED_EVENT_FIELDS)).toContain(kind);
-      expect(published, `"${kind}" rides inside turn_complete, it is not an SSE frame`).not.toContain(
+      expect(published, `"${kind}" is not an SSE frame`).not.toContain(kind);
+      expect(Object.keys(REQUIRED_FRAME_FIELDS), `"${kind}" is not a wire frame`).not.toContain(
         kind,
       );
     }
   });
 
-  it("accounts for every UI event kind as either published or turn_complete-only", () => {
-    expect([...publishedSseKinds(), ...TURN_COMPLETE_ONLY_KINDS].sort()).toEqual(
-      Object.keys(REQUIRED_EVENT_FIELDS).sort(),
-    );
-  });
-
-  it("leaves the per-kind payload shape to the UI — `data` is an open object", () => {
-    // TurnStreamEvent.data is `{type: object, additionalProperties: true}`, so
-    // the spec pins the frame KINDS but not their contents. REQUIRED_EVENT_FIELDS
-    // remains the only contract for those, pinned by contract-expectations.test.ts.
+  it("leaves the per-kind envelope open while the bodies stay typed", () => {
     expect(schema("TurnStreamEvent").properties?.data).toMatchObject({
       type: "object",
       additionalProperties: true,
@@ -455,26 +519,19 @@ describe("OpenAPI reconciliation — SSE frames", () => {
   });
 });
 
-describe("OpenAPI reconciliation — OPEN GAP: the blocking turn body", () => {
+describe("OpenAPI reconciliation — the discriminated 200 turn body", () => {
   /**
-   * `parseTurnResponse` has two callers and the spec now models them
-   * differently:
+   * M13 pinned this as an open gap: the 200 body became
+   * `TurnAnswer | TurnClarification | TurnError` discriminated on
+   * `outcome`, while `parseTurnResponse` still required a `status` field
+   * none of the three carries — so a conforming server's JSON replay
+   * tripped the drift banner on every turn.
    *
-   *   GET /v1/investigations/{iid}  → InvestigationResponse — bound above
-   *     (TURN_RESPONSE_BACKING); `investigation_id` and `status` are both
-   *     guaranteed, so recovery-by-id is honest.
-   *   POST .../turns, Accept: application/json (`replayTurnJson`, the
-   *     same-idempotency-key recovery) → now a discriminated
-   *     `TurnAnswer | TurnClarification | TurnError` on `outcome`. Those
-   *     carry NO `status`, TurnError carries no `investigation_id`, and the
-   *     payload sections are spelled differently again (`context_header`,
-   *     `chart_specs`, `definitional`).
-   *
-   * So a conforming server's JSON replay trips the drift banner on `status`.
-   * That is the correct visible failure mode, not a silent one — but it is a
-   * real gap, and closing it means mapping `outcome` → status AND binding the
-   * TurnAnswer payload sections, not aliasing one field. These assertions pin
-   * the mismatch so it cannot rot into a silent assumption either way.
+   * It is closed, and not by aliasing `outcome` to `status`. The parser
+   * discriminates the same way the wire does and each variant maps to its
+   * own outcome: an answer, a clarification (a *successful* outcome, §2.8),
+   * or a turn error that carries an envelope and no investigation id at
+   * all. These assertions hold the shape of what was reconciled.
    */
   const TURN_OUTCOME_VARIANTS = ["TurnAnswer", "TurnClarification", "TurnError"] as const;
 
@@ -490,21 +547,30 @@ describe("OpenAPI reconciliation — OPEN GAP: the blocking turn body", () => {
     );
   });
 
-  it("none of the three variants carries the `status` parseTurnResponse requires", () => {
-    expect(REQUIRED_TURN_RESPONSE_FIELDS as readonly string[]).toContain("status");
+  it("discriminates on `outcome`, which every variant guarantees", () => {
     for (const name of TURN_OUTCOME_VARIANTS) {
+      expectGuaranteed(name, ["outcome"]);
+      // and none of them has a `status` — the field the old parser demanded
       expect(Object.keys(schema(name).properties ?? {}), `${name}.status`).not.toContain("status");
-      expect(schema(name).required, `${name}.outcome`).toContain("outcome");
     }
   });
 
   it("only the answer/clarification variants carry an investigation id", () => {
     expectGuaranteed("TurnAnswer", ["investigation_id"]);
     expectGuaranteed("TurnClarification", ["investigation_id"]);
+    // TurnError has none, which is why the parsed union has none either
     expect(Object.keys(schema("TurnError").properties ?? {})).not.toContain("investigation_id");
+    expect(REQUIRED_TURN_ERROR_FIELDS as readonly string[]).not.toContain("investigation_id");
   });
 
-  it("keeps recovery-by-id honest — InvestigationResponse still guarantees both", () => {
-    expectGuaranteed("InvestigationResponse", ["investigation_id", "status"]);
+  it("names the answer's payload sections the way the parser reads them", () => {
+    const properties = Object.keys(schema("TurnAnswer").properties ?? {});
+    for (const key of ["context_header", "chart_specs", "findings", "definitional", "warnings"]) {
+      expect(properties, `TurnAnswer.${key}`).toContain(key);
+    }
+  });
+
+  it("keeps recovery-by-id honest — InvestigationResponse guarantees its own shape", () => {
+    expectGuaranteed("InvestigationResponse", Object.values(INVESTIGATION_BACKING));
   });
 });

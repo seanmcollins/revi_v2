@@ -1,11 +1,16 @@
-# M13 acceptance walkthrough — design §18.1, items 1–16
+# Acceptance walkthrough — design §18.1, items 1–16
+
+Written for M13 and **updated by the post-M13 fix pass**, which closed five
+of the defects this document had pinned. Where a claim changed, the original
+finding is kept alongside the fix rather than deleted: what was wrong, and
+what it took to see it, is the part that does not repeat itself.
 
 Every claim below was **run**, not recalled. Where a criterion is met by an
 adaptation rather than literally, the adaptation is named and the residue is
 stated. Where something does not hold, it says so.
 
-- Repository: `/Users/dev/revi_v2`, base commit `652d8ee` plus the
-  uncommitted M13 working tree.
+- Repository: `/Users/dev/revi_v2`, base commit `327ec97` plus the
+  uncommitted fix-pass working tree.
 - Warehouse: `data/revi_warehouse.duckdb`, newest watermark `wm_003`
   (`2026-08-03 04:10`, newest data date `2026-08-02`).
 - Pack: `base-rcm@1.0.0` (+ the `demo-tenant` overlay where the API wires it).
@@ -14,13 +19,16 @@ stated. Where something does not hold, it says so.
 
 | Gate | Command | Result |
 |---|---|---|
-| Python suite | `uv run pytest -q` | **586 passed**, 16 deselected (`live_llm`, `postgres`) |
-| Reference regressions | `uv run pytest -m reference -q` | **43 passed**, 559 deselected |
+| Python suite | `uv run pytest -q` | **633 passed**, 16 deselected (`live_llm`, `postgres`) |
+| Reference regressions | `uv run pytest -m reference -q` | **57 passed**, 592 deselected |
 | Lint + boundaries | `make lint` | ruff clean · import-linter **6 kept, 0 broken** · name guard clean |
-| Types | `uv run mypy packages/*/src warehouse/generator/src apps/api/src apps/scheduler/src` | **no issues in 114 source files** (strict) |
-| Frontend | `cd apps/web && pnpm lint && pnpm test && pnpm build` | eslint clean · **208 tests, 6 files** · build ✓ |
+| Types | `uv run mypy packages/*/src warehouse/generator/src apps/api/src apps/scheduler/src` | **no issues in 115 source files** (strict) |
+| Frontend | `cd apps/web && pnpm lint && pnpm test && pnpm build` | eslint clean · **208 passed, 3 skipped** (the live-API suite) · build ✓ |
+| Live API driver | server up + `REVI_LIVE_API=… npx vitest run src/lib/liveApi.test.ts` | **3 passed** — T1, a cold-start portfolio drill, a clarification, all with zero contract drift |
 
-Baseline at the start of M13 was 545 tests; the milestone added 41.
+Baseline at the start of M13 was 545 tests; the milestone added 41. The
+post-M13 fix pass took 586 → 633 (the three inverted §18.1-10 tests were
+un-inverted in place, not counted as new).
 
 ---
 
@@ -146,14 +154,18 @@ Four independent guards, each with tests:
 3. **Unanswerable probes are pruned with a surfaced warning rather than
    fabricated.** Seen live on T1: `probe 'lag_distribution_compare' omitted:
    its measures are not answerable at the source for this catalog`.
-4. **The narrative validator redacts ungrounded sentences.** Observed live and
-   unedited: the scripted demo narrative cites `F1/F2/F3`, but referent
-   handles are session-monotonic, so on T2 the same sentence cites handles
-   that do not exist in that turn — and the platform redacts it rather than
+4. **The narrative validator redacts ungrounded sentences.** M13 observed this
+   live and unedited: the scripted demo narrative cited `F1/F2/F3`, referent
+   handles are session-monotonic, so on T2 the same sentence cited handles
+   that did not exist in that turn — and the platform redacted it rather than
    printing it: `narrative sentence redacted: cites unknown referent(s) ['F1','F2','F3']`.
-   That is the validator doing its job on a stale script. (The scripted demo
-   narrative is a fixture limitation, not an engine defect; noted in
-   "Findings and follow-ups".)
+   The validator was doing its job on a stale script, and the script is fixed
+   now (follow-up 6): the scripted model reads the certified findings out of
+   its own prompt and cites that turn's handles. The guard is unchanged and
+   still covered by `packages/presentation/tests/test_narrative.py`;
+   `packages/testing/tests/test_demo_narrative.py` asserts that no demo turn
+   is redacted any more, which is a stronger statement than the old one — the
+   validator stays armed and now has nothing to fire at.
 
 ## 7. The LLM cannot mutate the active pack
 
@@ -291,24 +303,42 @@ behaviour: an un-fixable pile of dollars must not outrank fixable ones.
 Covered by `packages/testing/tests/test_portfolio.py` (12 tests, 2 of them
 reference-marked against the generated warehouse).
 
-**GAP — drill-down continuity.** Each card carries a complete, well-typed
-drill handle (`set_window` + `add_filter` operators over certified
-dimensions, bounded by the anomaly's own window), and those operators are
-sound: applied to a session that already has an investigation they narrow it
-exactly as a chart click would
-(`test_api_reference.py::TestPortfolioDrillDown::test_a_card_refines_an_existing_investigation`
-— header lands at the portfolio's watermark and window with `payer` and
-`service_line` chips). But there is nothing for them to land on from a cold
-start: a refinement refines a parent investigation, and a portfolio card is
-not one. Posting a card's handle to a fresh session returns the designed
-`CLARIFICATION_REQUIRED` ("no prior answer in this session to refine yet")
-with zero probes and zero LLM calls — honest, but not an answer
-(`test_drilling_a_card_from_a_fresh_session_clarifies`).
+**Drill-down continuity — CLOSED in the post-M13 fix pass.** M13's gap was
+that a card's operators had nowhere to land: a refinement refines a parent
+investigation and a portfolio card is not one, so a cold-start drill
+returned `CLARIFICATION_REQUIRED`. The fix is not the portfolio-anchored
+session the build plan named — that needs a hidden parent per surface — but
+the **typed first turn**: `TurnRequest.spec` carries a
+`TypedInvestigationSpec`, a turn carrying one is `NEW_INVESTIGATION` by
+construction with no parent and zero model calls, and `AnomalyCard.drill_spec`
+is exactly that spec (design in `docs/architecture.md`). Chart drills from a
+fresh session get the same machinery; nothing about it is portfolio-specific.
 
-The missing piece is the one the build plan named and this milestone did not
-build: `PortfolioResponse` carrying a portfolio-anchored session id whose
-investigation the card's operators refine. All three tests are checked in so
-the gap cannot quietly close or quietly widen.
+The three pinning tests are un-inverted and now assert the working flow
+(`test_api_reference.py::TestPortfolioDrillDown`):
+`test_cards_carry_a_complete_typed_drill_handle` (over **every** card),
+`test_drilling_a_card_from_a_fresh_session_answers`,
+`test_a_card_drill_is_an_anchor_later_refinements_can_land_on`. Observed live
+over real HTTP against a fresh session — `llm_calls=0`, header
+`2026-06-25..2026-07-25 (remit) · filters: payer eq [Federal Medicare];
+service_line eq [Imaging] · watermark wm_003`, finding
+`F1 Federal Medicare / Imaging: $35,515 denied dollars [direct]`, and a
+following `remove_filter` landing on that investigation as an ordinary
+refinement.
+
+**Residue, stated plainly: 6 of the 33 cards answer today.** The other 27
+return typed §12 errors — and every one of them is a pre-existing pack↔catalog
+content gap the anchor made visible rather than a defect in the anchor:
+
+| Cards | Metric(s) | Refusal |
+|---|---|---|
+| 9 | `denial_rate` | `DATE_BASIS_INVALID` — its primary basis `remit` is not bound at its own `claim` grain (`warehouse/catalog/date_bases.yaml`), so it can never be probed on it. Pinned by `test_denial_rate_cannot_be_probed_on_its_own_primary_basis`. |
+| 12 | `avg_days_to_pay`, `bill_lag_days`, `charge_lag_days`, `credit_balance_dollars`, `gross_collection_rate`, `late_charge_pct`, `underpayment_variance` | `UNSUPPORTED_CONCEPT` — measure fields (`payment_lag_days`, `submission_lag_days`, `charge_entry_lag_days`, `credit_balance_cents`, `payment_cents`, `late_charge_cents`, `underpayment_cents`) that the catalog does not define at those entities. |
+| 6 | `dnfb_dollars`, `timely_filing_at_risk_dollars` | `UNSUPPORTED_CONCEPT` — contract-internal `filtered:` predicates over `discharge_date` / `submission_date`, which are base-view columns, not catalog dimensions (the same class as the exclusions defect; see follow-up 3). |
+
+All three rows are catalog work, deliberately out of scope for this pass.
+A refusal with a stable code is the designed behaviour; an empty answer would
+not be.
 
 ## 11. Any combination of certified dimensions, filter algebra, and time windows executes with no new code
 
@@ -466,8 +496,16 @@ scripted.
 
 Server stopped afterwards.
 
-`pnpm build` and `pnpm test` pass (208 tests); a browser-driven verification of
-the running UI against the live API was **not** performed.
+`pnpm build` and `pnpm test` pass (208 tests). **Post-M13 addition:** the real
+`ApiDriver` is now driven against this same running server by
+`apps/web/src/lib/liveApi.test.ts` — T1 over SSE (13 stage frames, header,
+F1/F2/F3 at the answer-key impacts, 4 charts, a narrative citing F1 with no
+redaction), a portfolio card drilled from a **fresh** session (zero model
+calls, header at `wm_003` with `payer`/`service_line` chips, a certified
+finding), and a clarification rendered as a clarification — all with **zero
+contract drift**. A browser-driven verification of the rendered UI was still
+not performed; the driver, the parser and the store are covered, the pixels
+are not.
 
 ---
 
@@ -501,40 +539,93 @@ the running UI against the live API was **not** performed.
   the same column name.
 - README and `scripts/generate_web_types.md` corrected to match reality.
 
-## Findings and follow-ups (not fixed here)
+## Findings and follow-ups
 
-1. **Portfolio drill-down anchor** — item 10's gap above. The highest-value
-   next piece of work.
-2. **The blocking-JSON turn body does not map to the UI's parser.** Publishing
-   the 200 body made a pre-existing mismatch visible: the server returns
-   `TurnAnswer | TurnClarification | TurnError` discriminated on `outcome`,
-   while `parseTurnResponse` expects `status`/`header`/`charts`. The
-   `GET /v1/investigations/{iid}` recovery path is fine; the same-idempotency-key
-   JSON replay path trips the drift banner. Deliberately not papered over with
-   an `outcome → status` alias, since the rest of the payload would still fail
-   to map. Pinned in `contract-openapi.test.ts`.
-3. **Two pack contracts have inverted `exclusions` polarity.** `exclusions` is
-   compiled as `NOT(expr)` — it names what to *remove*. `clean_claim_rate`
-   (`{status neq OPEN}`) and `first_pass_yield`
-   (`{not: {submission_date is_null}}`) therefore keep exactly the population
-   their descriptions say they exclude. Currently inert: both reference
-   `status` / `submission_date`, which are not catalog dimensions, so the
-   metrics cannot execute at all today. Fixing properly means certifying those
-   dimensions as well.
-4. **`drop_expired_cohorts` is process-local.** The DuckDB connector tracks
-   materialised cohorts in an in-process dict, so a freshly started
-   `make sweep` reports "dropped 0" meaning "this process materialised
+Items 1, 2, 3, 5 and 6 below were **fixed in the post-M13 fix pass**; the
+notes are kept and rewritten rather than deleted, because what the fix was
+matters as much as that there was one.
+
+1. **Portfolio drill-down anchor — FIXED.** Item 10's gap, closed by the typed
+   first turn rather than by a portfolio-anchored session (design in
+   `docs/architecture.md`; residue table under item 10).
+2. **The blocking-JSON turn body did not map to the UI's parser — FIXED, and
+   it was worse than the note said.** Publishing the 200 body made the
+   mismatch visible, but the mismatch was not confined to it: the UI's
+   required-field tables named the UI's own vocabulary throughout
+   (`finding.referent.value` vs the wire's `"F1"`, `charts` vs `chart_specs`,
+   `header.grain.entity`, which is neither published nor rendered), and its
+   fixtures were hand-written in that same vocabulary — so the suite was green
+   while *no* live frame could be read. `lib/contract.ts` is now a real
+   wire → UI seam with every reduction named; `contract-expectations.test.ts`
+   runs against payloads captured from a running server; and
+   `lib/liveApi.test.ts` drives the real `ApiDriver` against a real API
+   (skipped unless `REVI_LIVE_API` names one). Two live-only bugs fell out on
+   the way: typed refinements were being posted in the UI's PascalCase
+   spelling (a 422 against a conforming server), and the engine published no
+   `execute` stage frame at all, so a streaming client watched the rail stall
+   on "validate" for the whole warehouse round trip.
+3. **Exclusion polarity — FIXED, and it was seven contracts, not two.**
+   All seven of `base-rcm`'s `exclusions:` clauses were authored as inclusion
+   predicates (`exclusions` compiles to `FILTER (WHERE NOT …)`). Six named
+   non-catalog dimensions and were inert; `denials_unworked_pct` named a
+   certified one, executed, and had been reporting over patient-responsibility
+   denials only — 41/62 = 66.13% where the contract means 1182/1520 = 77.76%
+   at `wm_003`. The six were removed with their populations restated, the
+   seventh repaired at v2, and a pack↔catalog conformance guard now fails
+   startup on the class (`revi_pack.conformance`). `clean_claim_rate` executes
+   for the first time: 13,725/18,410 = 74.55%. The guard catches six of the
+   seven and **cannot** catch the live-and-wrong one — an exclusion whose
+   dimension resolves is indistinguishable from a correct one; polarity is
+   pinned in executed numbers instead. Residues, all enumerated in
+   `packs/base-rcm/NOTES.md`: `first_pass_yield` and six other contracts stay
+   unanswerable on `filtered:` predicates over uncertified columns, and
+   `denial_rate`'s `remit` primary basis is unbound at claim grain.
+4. **`drop_expired_cohorts` is process-local.** (Still open.) The DuckDB
+   connector tracks materialised cohorts in an in-process dict, so a freshly
+   started `make sweep` reports "dropped 0" meaning "this process materialised
    nothing", not "no stale tables exist". The CLI says so in its own output
    rather than implying the warehouse was cleaned. A real cron sweep needs the
    connector to persist that registry or expose a list-cohort-tables
    primitive.
-5. **All portfolio cards report `age_days: 0`.** Onset falls back to
-   `detected_at`, which the generator stamps at the watermark, so the recency
-   term contributes uniformly and does not currently separate anything.
-6. **The scripted demo narrative cites fixed referent handles** (`F1/F2/F3`)
-   while handles are session-monotonic, so refinement turns redact it. The
-   validator is correct; the fixture is stale. Cosmetic, but it makes demo
-   mode look worse than the engine is.
-7. **`ruff format --check` reports 78 pre-existing unformatted files.** `make
-   lint` runs `ruff check` (clean) and does not gate on formatting. Left alone
-   deliberately: reformatting the repo mid-milestone would bury the diff.
+5. **All portfolio cards reported `age_days: 0` — FIXED.** Onset now comes
+   from the source: `detected_anomalies.window_start` *is* this feed's onset,
+   and `DuckDbAnomalySource` publishes it as the evidence fact the formula
+   already read (a feed that states its own `onset_date` still wins). The 33
+   cards at `wm_003` span 28 distinct ages from 1 to 155 days (median 38), and
+   flattening the onsets demonstrably reorders the portfolio.
+6. **The scripted demo narrative cited fixed referent handles — FIXED.** The
+   scripted model now reads the certified findings out of the rendered
+   `compose_narrative` prompt and templates from that turn's own handles and
+   grades, stating no free numbers and no proper names. Every demo turn
+   validates with zero redactions.
+7. **`ruff format --check` reports 78 pre-existing unformatted files.** (Still
+   open.) `make lint` runs `ruff check` (clean) and does not gate on
+   formatting. Left alone deliberately: reformatting the repo mid-milestone
+   would bury the diff.
+
+### Newly enumerated, not fixed
+
+8. **`denial_rate` cannot be probed on its own primary basis.** It is
+   `entity_grain: claim` with `primary_date_basis: remit`, and
+   `warehouse/catalog/date_bases.yaml` binds REMIT only on
+   `remit`/`transaction`/`denial`. `clean_claim_rate` has the same latent
+   problem one level down: it lists `remit` as an *allowed* alternate at claim
+   grain. Pinned by
+   `test_duckdb_contract.py::test_denial_rate_cannot_be_probed_on_its_own_primary_basis`.
+   The obvious next conformance check — every declared date basis must be
+   bound at the contract's own entity grain — trips exactly these two.
+   Deliberately not implemented here: the fix is a real modelling decision
+   (rebind `denial_rate` to denial grain, or bind REMIT on claim) and belongs
+   with the catalog work, not with a guard that would fail startup on content
+   nobody can fix in this pass.
+9. **Six metric contracts reference measure fields the catalog does not
+   define** at their entity (`payment_lag_days`, `submission_lag_days`,
+   `charge_entry_lag_days`, `credit_balance_cents`, `payment_cents`,
+   `late_charge_cents`, `underpayment_cents`, plus `first_pass_paid` as a
+   filter dimension). They prune to `UNSUPPORTED_CONCEPT` rather than
+   answering. Enumerated in `packs/base-rcm/NOTES.md`; all catalog work.
+10. **`FindingPayload` publishes no direction-of-good.** It lives on the
+    metric contract (`sign:`), so the UI cannot tone-colour a delta in API
+    mode and withholds the colour rather than inferring it from the sign of
+    the number. Publishing it per finding is a small server change nobody has
+    needed yet.

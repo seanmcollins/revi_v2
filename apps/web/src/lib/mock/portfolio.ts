@@ -30,6 +30,13 @@ export interface PortfolioItem {
   priorityFormulaVersion: string;
   /** The watermark the detection was read at (AnomalyCard.source_watermark_id). */
   sourceWatermarkId: string;
+  /**
+   * The card's typed first turn (`AnomalyCard.drill_spec`): a complete
+   * `TypedInvestigationSpec` that opens a NEW investigation with no parent
+   * and no model call. Present on live cards; absent in this mock, which
+   * has no server to have produced one.
+   */
+  drillSpec?: Record<string, unknown>;
   drill: { label: string; refinement: Refinement };
 }
 

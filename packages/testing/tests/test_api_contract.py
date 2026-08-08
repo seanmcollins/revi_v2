@@ -27,8 +27,9 @@ from revi_investigation_contracts.api import (
     TurnClarification,
     TurnError,
     TurnRequest,
+    TypedInvestigationSpec,
 )
-from revi_investigation_contracts.refinements import SetDimensionsModel
+from revi_investigation_contracts.refinements import SetDimensionsModel, WindowSpecModel
 from revi_testing.mock_llm import MockLanguageModel
 
 T1 = "Why did cash decline last week?"
@@ -145,6 +146,58 @@ class TestApiContract:
         assert response.narrative is not None and "F1" in response.narrative
         assert response.plan_hash is not None
         assert response.usage.llm_calls >= 2
+
+    async def test_typed_first_turn_opens_an_investigation_with_no_model_call(
+        self, client: Client
+    ) -> None:
+        """A ``TypedInvestigationSpec`` is a NEW_INVESTIGATION by
+        construction: no parent, no classification, no interpretation — but
+        the same planning, §6.6 validation, execution and findings a
+        sentence would have earned. This is what lets a portfolio card or a
+        chart click in a fresh session open a thread instead of being told
+        there is nothing to refine."""
+        session = await client.open_session(OpenSessionRequest(tenant="demo"))
+        response = await client.submit_turn(
+            session.session_id,
+            TurnRequest(
+                spec=TypedInvestigationSpec(
+                    metric_ids=["cash_posted"],
+                    dimensions=["payer"],
+                    filters=[],
+                    window=WindowSpecModel(quantity="1", unit="week", mode="full_periods"),
+                    basis="post",
+                )
+            ),
+        )
+        assert isinstance(response, TurnAnswer), response
+        assert response.turn_class == "new_investigation"
+        assert response.usage.llm_calls == 0  # the whole point: zero model calls
+        assert response.plan_hash is not None
+        assert response.findings and response.chart_specs
+        header = response.context_header
+        assert header is not None and header.basis == "post"
+
+        lineage = await client.get_session_lineage(session.session_id)
+        [investigation] = lineage.investigations
+        assert investigation.parent_id is None and lineage.edges == []
+
+    async def test_typed_first_turn_validates_ids_like_an_interpreted_one(
+        self, client: Client
+    ) -> None:
+        """It skips the guessing, never the governance: an id the pack does
+        not define is the same §12 refusal a hallucinated one gets."""
+        session = await client.open_session(OpenSessionRequest(tenant="demo"))
+        response = await client.submit_turn(
+            session.session_id,
+            TurnRequest(
+                spec=TypedInvestigationSpec(
+                    metric_ids=["flurbs_posted"],
+                    window=WindowSpecModel(quantity="1", unit="week", mode="full_periods"),
+                )
+            ),
+        )
+        assert isinstance(response, TurnError), response
+        assert response.error.code == "UNSUPPORTED_CONCEPT"
 
     async def test_typed_refinement_turn(self, client: Client) -> None:
         session = await client.open_session(OpenSessionRequest(tenant="demo"))

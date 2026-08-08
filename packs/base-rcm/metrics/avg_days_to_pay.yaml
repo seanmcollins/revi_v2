@@ -1,13 +1,15 @@
-# Average days to pay — submission to payment posting, per payment
-# transaction. The payer-scorecard staple and the lag half of the
-# cash-decline decomposition.
+# Average days to pay — submission to payment posting, per transaction. The
+# payer-scorecard staple and the lag half of the cash-decline decomposition.
+# The payments-only restriction was removed because `txn_type` is not a
+# catalog dimension and the exclusion was inverted anyway (it removed exactly
+# the payments it meant to keep) — see "Exclusion polarity" in NOTES.md. This
+# is the one removal of the seven that costs declared meaning.
 id: avg_days_to_pay
 version: 1
 kind: flow
 entity_grain: transaction
 numerator: {sum: payment_lag_days}
 denominator: {count: {}}
-exclusions: {dimension: txn_type, op: eq, value: PAYMENT}
 primary_date_basis: post
 allowed_date_bases: [post, remit]
 scope_dimensions:
@@ -16,10 +18,17 @@ scope_dimensions:
 sign: higher_is_bad
 unit: days
 description: >-
-  Mean days from claim submission to payment posting, over payer payment
-  transactions posted in the window (payment-transaction weighted; the
-  exclusions restrict the population to PAYMENT transactions, applying to
-  numerator and denominator alike). payment_lag_days is a documented
+  Mean days from claim submission to payment posting, over every transaction
+  posted in the window. The contract cannot restrict the population to payer
+  PAYMENT transactions: `txn_type` is not a certified catalog dimension, so
+  the restriction is not expressible in contract-internal filter algebra
+  today. The numerator carries this partly: payment_lag_days is null for
+  non-PAYMENT transactions and a sum skips nulls, so only payment lag enters
+  the numerator — but the denominator counts every transaction, so the mean
+  is diluted downward in proportion to the non-payment transaction share.
+  Read the level only after scoping to a payment-dominated population, and
+  prefer period-over-period movement to the absolute number until `txn_type`
+  is certified. payment_lag_days is a documented
   probe-time derived measure (post date minus the parent claim's submission
   date per payment transaction; see pack NOTES). Cut by payer to build the
   scorecard; a stretch in this metric with flat volume is the timing

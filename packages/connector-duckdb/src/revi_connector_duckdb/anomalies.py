@@ -11,6 +11,21 @@ Row shape: anomaly_id, detected_at, category, title, description,
 metric_id, dimensions (JSON object of dimension → value), window_start,
 window_end, impact_cents, severity, confidence, status, evidence (JSON
 object of facts).
+
+**Onset.** For this feed ``window_start`` *is* the onset of the observation
+window: the generator plants each scenario with an ``onset`` date and writes
+it as the window start, and the detector only counts events inside
+``window_start..window_end``. ``detected_at`` is the load timestamp of the
+snapshot that observed it, identical for every row, so it says when the feed
+ran, never when the problem began. The source therefore publishes an
+``onset_date`` evidence fact derived from ``window_start``.
+
+This belongs in the source, not in the consumer: the source is the only
+component that knows this feed's row shape, and the governed
+``anomaly_priority`` formula must stay expressed in evidence facts rather
+than learning DuckDB column names. An explicit ``onset_date`` already
+present in the row's evidence always wins — a real detection feed that
+knows its own onset must not be overwritten by our derivation.
 """
 
 from __future__ import annotations
@@ -120,6 +135,11 @@ class DuckDbAnomalySource:
             if not isinstance(detected_at, datetime):
                 raise SourceUnavailableError("detected_anomalies returned a non-datetime")
             dimensions = _json_object(row[6])
+            window_start = _as_date(row[7])
+            evidence = _json_object(row[13])
+            # window_start is this feed's onset (see the module docstring);
+            # never clobber an onset the feed stated for itself
+            evidence.setdefault("onset_date", window_start.isoformat())
             records.append(
                 AnomalyRecord(
                     anomaly_id=str(row[0]),
@@ -129,13 +149,13 @@ class DuckDbAnomalySource:
                     description=str(row[4]),
                     metric_id=str(row[5]),
                     dimensions=tuple(sorted((k, str(v)) for k, v in dimensions.items())),
-                    window_start=_as_date(row[7]),
+                    window_start=window_start,
                     window_end=_as_date(row[8]),
                     impact_cents=int(row[9]),
                     severity=str(row[10]),
                     confidence=str(row[11]),
                     status=str(row[12]),
-                    evidence=_json_object(row[13]),
+                    evidence=evidence,
                 )
             )
         return tuple(records)

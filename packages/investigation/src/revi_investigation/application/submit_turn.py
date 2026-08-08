@@ -3,8 +3,19 @@ the §8.3 zero-probe paths, over one explicit typed context.
 
 Turn dispatch (after the session watermark check):
 
+- **Typed first turn** — a request carrying a ``TypedInvestigationSpec``
+  is a NEW_INVESTIGATION by construction and needs no parent: the spec
+  states the metrics, dimensions, scope and window outright, so
+  classification and interpretation are simply *known*, not guessed
+  (zero model calls). Everything after the spec is built is the ordinary
+  pipeline, §6.6 validation included. This is the anchor typed
+  refinements always needed: a portfolio card's drill handle, or a chart
+  click in a session with no prior answer, opens an investigation
+  instead of returning "nothing to refine yet".
 - **Typed gesture** — a request carrying refinement DTOs skips NL entirely
-  and enters the refinement pipeline at the operator converter.
+  and enters the refinement pipeline at the operator converter. Unlike
+  the typed first turn, this one *edits* the session's latest
+  investigation and therefore does require a parent.
 - **NEW_INVESTIGATION** — classify → interpret → plan → §6.6 validation →
   cache-first execution → deterministic calculation → findings/referents.
 - **DEFINITIONAL** — governed pack content with provenance; zero probes.
@@ -112,6 +123,7 @@ from revi_investigation.domain.refinements import (
     detect_conflict,
 )
 from revi_investigation.domain.turns import ClarificationRequest, TurnClass
+from revi_investigation_contracts.api import TypedInvestigationSpec
 from revi_investigation_contracts.header import ContextHeaderPayload, build_header_payload
 from revi_kernel.capabilities import AnalyticalRepository
 from revi_kernel.cohort import CohortRef
@@ -143,6 +155,8 @@ class SubmitTurnRequest:
     tenant: str
     question: str
     session_id: str | None = None
+    # Typed FIRST turn (§8.1): an explicit investigation spec, no parent.
+    spec: TypedInvestigationSpec | None = None
     # Typed-gesture path (§12): validated refinement DTOs skip NL entirely.
     refinements: tuple[AnyRefinementOperator, ...] | None = None
     # Watermark epochs (§7.1): opt into re-anchoring on a newer load.
@@ -330,6 +344,11 @@ class SubmitTurnService:
         )
         session = await self._check_watermark(session, state, request)
 
+        if request.spec is not None:
+            # typed FIRST turn: an explicit investigation, never a
+            # refinement — no NL, no classification, no LLM
+            return await self._typed_investigation_turn(session, state, request.spec)
+
         if request.refinements is not None:
             # typed-gesture path: no NL, no classification, no LLM
             return await self._refinement_turn(
@@ -437,6 +456,48 @@ class SubmitTurnService:
             parent=None,
             operators=(),
             interpreted=interpreted,
+        )
+
+    # -------------------------------------------------- typed first turn
+
+    async def _typed_investigation_turn(
+        self, session: Session, state: _TurnState, typed: TypedInvestigationSpec
+    ) -> TurnOutcome:
+        """A NEW_INVESTIGATION stated in the typed vocabulary (§8.1).
+
+        The twin of the interpreted first turn with the probabilistic
+        stage removed: the caller supplies what the model would have
+        proposed, ``from_typed_spec`` disposes it against the pack and
+        catalog, and the *identical* planning → §6.6 validation →
+        cache-first execution → calculation → findings pipeline runs. Zero
+        model calls, and no parent required — which is what lets a
+        portfolio card, or a chart click in a fresh session, become an
+        investigation instead of a clarification.
+        """
+        await self._stage(state, "interpret")
+        interpreted = self._interpreter.from_typed_spec(
+            typed, session=session, turn_id=state.turn_id
+        )
+        state.time_stage("interpret")
+
+        # carryover law 5: session pins persist until explicitly cleared
+        spec = interpreted.spec
+        pins = await self._inherited_pins(session)
+        if pins:
+            spec = spec.with_context(replace(spec.context, pins=pins))
+
+        return await self._run_analysis(
+            session,
+            state,
+            None,
+            spec=spec,
+            playbook_id=None,
+            window_explicit=True,
+            turn_class=TurnClass.NEW_INVESTIGATION,
+            parent=None,
+            operators=(),
+            interpreted=interpreted,
+            trace_extra={"typed_spec": typed.model_dump(mode="json")},
         )
 
     # ------------------------------------------------------------ refinement
@@ -599,6 +660,7 @@ class SubmitTurnService:
         operators: tuple[Refinement, ...],
         interpreted: InterpretedInvestigation | None = None,
         refinement_extra: Mapping[str, Any] | None = None,
+        trace_extra: Mapping[str, Any] | None = None,
         prelude_warnings: tuple[str, ...] = (),
     ) -> TurnOutcome:
         effective_playbook = playbook_id if not spec.measures else None
@@ -620,6 +682,10 @@ class SubmitTurnService:
         validated = self._validator.validate(plan, spec)
         state.time_stage("validate")
 
+        # the longest stage of the pipeline; it published no progress frame
+        # until now, so a streaming client watched the rail stall on
+        # "validate" for the whole warehouse round trip
+        await self._stage(state, "execute")
         executed = await self._executor.execute(
             validated.plan,
             watermark=session.watermark,
@@ -688,6 +754,8 @@ class SubmitTurnService:
         extra: dict[str, Any] = {
             "plan_context": {"playbook_id": playbook_id, "window_explicit": window_explicit}
         }
+        if trace_extra is not None:
+            extra.update(dict(trace_extra))
         if refinement_extra is not None:
             refinement_payload = dict(refinement_extra)
             if diff is not None:

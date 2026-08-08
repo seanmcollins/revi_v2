@@ -1606,6 +1606,7 @@ source = { editable = "packages/pack" }
 dependencies = [
     { name = "pyyaml" },
     { name = "revi-calculation-contracts" },
+    { name = "revi-catalog-contracts" },
     { name = "revi-kernel" },
     { name = "revi-pack-contracts" },
 ]
@@ -1614,6 +1615,7 @@ dependencies = [
 requires-dist = [
     { name = "pyyaml", specifier = ">=6.0" },
     { name = "revi-calculation-contracts", editable = "packages/calculation-contracts" },
+    { name = "revi-catalog-contracts", editable = "packages/catalog-contracts" },
     { name = "revi-kernel", editable = "packages/kernel" },
     { name = "revi-pack-contracts", editable = "packages/pack-contracts" },
 ]

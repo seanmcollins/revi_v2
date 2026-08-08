@@ -17,10 +17,19 @@ The DEFINITIONAL path answers from governed pack content with provenance
 and ZERO probes: lead-in phrases are stripped deterministically and the
 remainder resolves through ``PackSnapshot.resolve_term`` semantics via the
 :class:`PackPort` seam ("what is PR3" → the PR group code and CARC 3).
+
+``from_typed_spec`` is the typed twin of ``interpret``: a caller that
+already knows what it wants states it in the typed vocabulary and the same
+deterministic disposal runs — pack/catalog id validation, basis legality,
+one-shot window resolution — with zero model calls. It exists so that
+surfaces with an already-typed intent (a portfolio card, a chart click in
+a fresh session) can open an investigation instead of being told there is
+nothing to refine.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
 
@@ -48,6 +57,12 @@ from revi_investigation.application.ports import (
 from revi_investigation.domain.context import AnalysisSpec, InvestigationContext
 from revi_investigation.domain.records import Session
 from revi_investigation.domain.turns import ClarificationRequest, TurnClass, TurnClassification
+from revi_investigation_contracts.api import TypedInvestigationSpec
+from revi_investigation_contracts.refinements import (
+    AbsoluteWindowModel,
+    AddFilterModel,
+    WindowSpecModel,
+)
 from revi_kernel.errors import DateBasisInvalidError, UnsupportedConceptError
 from revi_kernel.filters import (
     EMPTY_SCOPE,
@@ -59,10 +74,12 @@ from revi_kernel.filters import (
 )
 from revi_kernel.refs import DateBasisRef, DimensionRef, Grain, MetricRef
 from revi_kernel.scope import (
+    AbsoluteRange,
     ComparisonKind,
     RangeMode,
     RelativeRange,
     TimeUnit,
+    TimeWindow,
     derive_comparison,
     resolve_window,
 )
@@ -256,6 +273,69 @@ class InterpretQuestionService:
             pack_id=self._pack.pack_id,
             pack_version=self._pack.pack_version,
             pack_snapshot_id=self._pack.snapshot_id,
+        )
+
+    def from_typed_spec(
+        self, typed: TypedInvestigationSpec, *, session: Session, turn_id: str
+    ) -> InterpretedInvestigation:
+        """The typed twin of :meth:`interpret`: same governance, no model.
+
+        A caller that already knows what it wants (a portfolio card, a
+        chart click in a fresh session, a saved view) states it in the
+        typed vocabulary instead of a sentence. Everything the LLM would
+        have *proposed* is supplied; everything deterministic code
+        *disposes* is unchanged — every metric id is checked against the
+        pinned pack, every dimension (breakdown and scope alike) against
+        the semantic catalog, the date basis against the governing
+        contract's ``allowed_date_bases``, and the window resolves exactly
+        once into stored concrete dates (§6.1) just as it does here.
+
+        Zero LLM calls by construction: nothing on this path touches
+        :class:`LanguageModelPort`.
+        """
+        contracts: list[MetricContract] = []
+        for metric_id in typed.metric_ids:
+            contract = self._pack.metric(metric_id)
+            if contract is None:
+                raise UnsupportedConceptError(
+                    f"typed metric {metric_id!r} is not in the pack",
+                    details={"metric": metric_id},
+                )
+            contracts.append(contract)
+        for dimension_id in typed.dimensions:
+            if self._catalog.dimension(dimension_id) is None:
+                raise UnsupportedConceptError(
+                    f"typed dimension {dimension_id!r} is not in the catalog",
+                    details={"dimension": dimension_id},
+                )
+        primary = contracts[0]
+        basis = self._resolve_basis(typed.basis, primary)
+        window = self._typed_window(typed.window, basis, session)
+        context = InvestigationContext(
+            window=window,
+            comparison=None,
+            scope=self._typed_scope(typed.filters, turn_id),
+            cohort=None,
+            grain=Grain(primary.entity_grain),
+            watermark=session.watermark,
+            pack_version=session.pack_version,
+        )
+        if typed.comparison is not None:
+            context = replace(
+                context, comparison=derive_comparison(window, ComparisonKind(typed.comparison))
+            )
+        return InterpretedInvestigation(
+            spec=AnalysisSpec(
+                context=context,
+                measures=tuple(MetricRef(mid) for mid in typed.metric_ids),
+                dimensions=tuple(DimensionRef(did) for did in typed.dimensions),
+            ),
+            playbook_id=None,
+            window_explicit=True,
+            intent_summary="typed investigation spec (no interpretation)",
+            metric_ids=tuple(typed.metric_ids),
+            dimension_ids=tuple(typed.dimensions),
+            concept_ids=(),
         )
 
     async def interpret(
@@ -459,6 +539,59 @@ class InterpretQuestionService:
             unit=TimeUnit(parsed.window.unit),
             mode=RangeMode(parsed.window.mode),
         )
+
+    def _typed_window(
+        self,
+        window: WindowSpecModel | AbsoluteWindowModel,
+        basis: DateBasisRef,
+        session: Session,
+    ) -> TimeWindow:
+        """Resolve a typed window once, into stored concrete dates (§6.1)."""
+        if isinstance(window, AbsoluteWindowModel):
+            if window.end < window.start:
+                raise UnsupportedConceptError(
+                    f"typed window {window.start.isoformat()}..{window.end.isoformat()} "
+                    "ends before it starts",
+                    details={"start": window.start.isoformat(), "end": window.end.isoformat()},
+                )
+            return TimeWindow(
+                basis=basis,
+                range=AbsoluteRange(start=window.start, end=window.end),
+                requested=None,
+            )
+        try:
+            quantity = Decimal(window.quantity)
+        except InvalidOperation:
+            raise UnsupportedConceptError(
+                f"window quantity {window.quantity!r} is not a decimal",
+                details={"quantity": window.quantity},
+            ) from None
+        requested = RelativeRange(
+            quantity=quantity, unit=TimeUnit(window.unit), mode=RangeMode(window.mode)
+        )
+        return resolve_window(requested, session.watermark.loaded_at.date(), basis=basis)
+
+    def _typed_scope(self, filters: Sequence[AddFilterModel], turn_id: str) -> FilterExpr:
+        """Typed filter clauses → kernel scope, catalog-validated like any
+        interpreted one (an unknown dimension is UNSUPPORTED_CONCEPT)."""
+        predicates: list[Predicate] = []
+        for clause in filters:
+            if self._catalog.dimension(clause.dimension) is None:
+                raise UnsupportedConceptError(
+                    f"typed filter dimension {clause.dimension!r} is not in the catalog",
+                    details={"dimension": clause.dimension},
+                )
+            predicates.append(
+                Predicate(
+                    dimension=DimensionRef(clause.dimension),
+                    op=PredicateOp(clause.predicate_op),
+                    values=tuple(self._scalar(value) for value in clause.values),
+                    origin_turn=turn_id,
+                )
+            )
+        if not predicates:
+            return EMPTY_SCOPE
+        return and_merge(*predicates)
 
     def _resolve_scope(self, parsed: InterpretationResponse, turn_id: str) -> FilterExpr:
         predicates: list[Predicate] = []

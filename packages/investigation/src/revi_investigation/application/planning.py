@@ -5,7 +5,10 @@ Two planning modes:
 **Direct metric query** — the spec's measures compile into probes grouped by
 (metric kind, entity grain, effective date basis): FLOW groups become one
 :class:`AggregationProbe` each; SNAPSHOT groups become a
-:class:`SnapshotProbe` as-of the watermark's newest data date.
+:class:`SnapshotProbe` as-of the watermark's newest data date. A direct
+query cut by dimensions with *no* comparison also gets a ``rank`` step, so
+a ranked-population question answers instead of executing correctly and
+returning nothing (see ``_rank_uncompared``).
 
 **Playbook mode** — the pack playbook's probe templates expand through the
 same grouping. Template semantics:
@@ -272,12 +275,49 @@ class BuildInvestigationPlanService:
                 )
             )
         steps = self._pair_comparisons(nodes, spec)
+        if not steps and dimensions:
+            steps.extend(self._rank_uncompared(nodes))
         return InvestigationPlan(
             nodes=tuple(nodes),
             transforms=TransformPlan(steps=tuple(steps)),
             playbook_id=None,
             notes=tuple(notes),
         )
+
+    @staticmethod
+    def _rank_uncompared(nodes: list[ProbeNode]) -> list[TransformPlanStep]:
+        """Rank a grouped query that has nothing to compare.
+
+        A direct query cut by dimensions with no comparison window is a
+        *ranked population* question — "which cells hold the most?" —
+        which is exactly the shape the concentration finding path reads.
+        Without this step such a plan executes perfectly and then answers
+        **nothing**: correct evidence, no findings. That was the silent
+        emptiness M13 fixed for playbooks; a typed first turn (a portfolio
+        card drill, a chart click from a fresh session) makes direct
+        queries hit it too, so the same generic step is emitted here
+        rather than a second finding shape being invented.
+
+        Ranked by the group's first measure, descending — biggest first,
+        whatever the unit. ``impact_cents`` still only appears when that
+        measure is money (the findings layer owns that rule).
+        """
+        steps: list[TransformPlanStep] = []
+        for node in nodes:
+            probe = node.probe
+            # Row-evidence probes retrieve masked sample rows, not measures;
+            # there is nothing to rank and nothing to conclude from them.
+            if not isinstance(probe, (AggregationProbe, SnapshotProbe)) or not probe.measures:
+                continue
+            steps.append(
+                TransformPlanStep(
+                    id=f"{node.id}__rank",
+                    operator="rank",
+                    inputs=(node.id,),
+                    args=(("by", probe.measures[0].id), ("descending", "true")),
+                )
+            )
+        return steps
 
     # ------------------------------------------------------------- playbook
 

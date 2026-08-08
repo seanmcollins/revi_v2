@@ -1,6 +1,8 @@
-# First-pass yield: paid on first adjudication with no denial, over claims
-# submitted. Measured at the payer outcome (vs clean_claim_rate's edit-stage
-# industry framing).
+# First-pass yield: paid on first adjudication with no denial, over claims in
+# the window. Measured at the payer outcome (vs clean_claim_rate's edit-stage
+# industry framing). The submitted-only exclusion was removed because
+# `submission_date` is not a catalog dimension (see NOTES.md); on the primary
+# submission basis it was a no-op anyway.
 id: first_pass_yield
 version: 1
 kind: flow
@@ -10,7 +12,6 @@ numerator:
     inner: {count_distinct: claim_id}
     where: {dimension: first_pass_paid, op: eq, value: true}
 denominator: {count_distinct: claim_id}
-exclusions: {not: {dimension: submission_date, op: is_null}}
 primary_date_basis: submission
 allowed_date_bases: [submission, service]
 scope_dimensions:
@@ -20,10 +21,17 @@ scope_dimensions:
 sign: higher_is_good
 unit: ratio
 description: >-
-  Claims paid on their first remittance with no denial, as a share of claims
-  submitted in the window (submission basis). Recently submitted claims sit
-  in the denominator until adjudication is visible, so trailing windows read
-  conservatively at fresh watermarks. Distinct from clean_claim_rate: yield
-  is measured at payer outcome over submissions; the clean rate is measured
-  over adjudicated claims. Benchmark context: 90-95 percent or better is the
-  commonly cited range for first-pass resolution.
+  Claims paid on their first remittance with no denial, as a share of every
+  claim in the window on the chosen date basis. On the primary submission
+  basis that population is exactly the claims submitted in the window — a
+  claim with no submission date cannot fall inside a submission window at
+  all. On the alternate service basis the denominator also carries claims
+  that were never submitted, whose yield is zero by construction, so a
+  service-basis reading is a yield-per-service-volume view and sits below the
+  submission-basis rate; the alternate-basis label on the answer says which
+  one produced the number. Recently submitted claims sit in the denominator
+  until adjudication is visible, so trailing windows read conservatively at
+  fresh watermarks. Distinct from clean_claim_rate: yield is measured at the
+  payer's first-pass outcome; the clean rate reads the outcome-derived clean
+  flag. Benchmark context: 90-95 percent or better is the commonly cited
+  range for first-pass resolution.

@@ -17,24 +17,35 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  mapAnswerWarning,
   newReceivedState,
   parseErrorEnvelope,
+  parseInvestigationResponse,
   parsePortfolioSnapshot,
   parseSessionLineage,
   parseSessionResponse,
+  parseTurnFrame,
   parseTurnResponse,
+  refinementsToWire,
+  REQUIRED_ANSWER_FIELDS,
+  REQUIRED_CLARIFICATION_FIELDS,
   REQUIRED_ERROR_ENVELOPE_FIELDS,
-  REQUIRED_EVENT_FIELDS,
+  REQUIRED_FRAME_FIELDS,
+  REQUIRED_INVESTIGATION_FIELDS,
   REQUIRED_SESSION_FIELDS,
-  REQUIRED_TURN_RESPONSE_FIELDS,
   STABLE_ERROR_CODES,
   trackReceived,
   turnResponseToEvents,
-  validateTurnEvent,
+  type TurnFrameKind,
+  type WirePin,
 } from "@/lib/contract";
-import { clarificationEvents, PR3_EVENTS } from "@/lib/mock/definitions";
-import { REFERENCE_TURNS } from "@/lib/mock/reference";
-import type { TurnEvent } from "@/lib/types";
+import type { Refinement } from "@/lib/types";
+
+/* eslint-disable @typescript-eslint/no-explicit-any */
+import RAW_SAMPLES from "@/lib/__fixtures__/wire-samples.json";
+
+/** Captured live server output — see the note above FRAME_FIXTURES. */
+const SAMPLES = RAW_SAMPLES as any;
 
 /* ------------------------------------------------------------------ */
 /* Helpers                                                             */
@@ -53,173 +64,273 @@ function withoutPath<T>(value: T, path: string): T {
 }
 
 /* ------------------------------------------------------------------ */
-/* SSE frames                                                          */
+/* SSE frames — parsed from REAL server output                         */
 /* ------------------------------------------------------------------ */
 
-/** One minimal valid fixture per SSE event kind. */
-const EVENT_FIXTURES: Record<TurnEvent["type"], TurnEvent> = {
-  stage: { type: "stage", stage: "executing", status: "started", probesDone: 1, probesTotal: 3 },
-  context_header: {
-    type: "context_header",
-    turnClass: "new_investigation",
-    header: {
-      window: { start: "2026-07-27", end: "2026-08-02", basis: "post" },
-      filters: [],
-      grain: { entity: "transaction", timeBucket: "week" },
-      watermark: { id: "wm_003", loadedAt: "2026-08-03 04:10", newestDataDate: "2026-08-02" },
-      packVersion: { packId: "base-rcm", version: "1.0.0" },
-    },
+/**
+ * `__fixtures__/wire-samples.json` is not hand-written. It is captured
+ * verbatim from a live `REVI_LLM_MOCK=1 uvicorn revi_api.main:app` run —
+ * the T1 reference turn, a portfolio card and its cold-start drill, a
+ * clarification, a definitional answer, and a `GET /v1/investigations/{id}`
+ * body. That is deliberate: the previous fixtures were written in the UI's
+ * own vocabulary, so they agreed with the parser and disagreed with the
+ * server, and the suite was green while every live frame was drift.
+ */
+const PIN: WirePin = {
+  watermark: {
+    id: SAMPLES.session.watermark_id,
+    loadedAt: "2026-08-03 04:10",
+    newestDataDate: SAMPLES.session.newest_data_date,
   },
-  finding: {
-    type: "finding",
-    finding: {
-      referent: { value: "F1", kind: "finding" },
-      title: "State Medicaid cash down",
-      statement: "Posted cash fell 52.9% week over week.",
-      metricRefs: ["cash_posted"],
-      values: { delta_cents: -9_909_308 },
-      grade: "direct",
-      impactCents: -9_909_308,
-      directionOfGood: "up_is_good",
-      confidence: "high",
-      suggestedRefinements: [],
-    },
-  },
-  chart_spec: {
-    type: "chart_spec",
-    spec: {
-      id: "c1",
-      kind: "grouped_bar",
-      title: "Cash by payer",
-      unit: "cents",
-      series: [{ key: "current", label: "This week", role: "current" }],
-      rows: [{ label: "State Medicaid", referent: "F1", values: { current: 8_812_843 } }],
-    },
-  },
-  narrative_delta: { type: "narrative_delta", text: "Payer cash fell " },
-  clarification: {
-    type: "clarification",
-    clarification: { question: "Which window did you mean?", options: ["Last week", "July"] },
-  },
-  warning: { type: "warning", code: "PROXY_GRADE", message: "Proxy evidence only.", severity: "caution" },
-  turn_complete: {
-    type: "turn_complete",
-    investigationId: "inv_001",
-    status: "complete",
-    answerGrade: "direct",
-  },
-  error: { type: "error", code: "QUERY_BUDGET_EXCEEDED", message: "Budget exhausted." },
-  interpretation: {
-    type: "interpretation",
-    interpretation: {
-      metric: { id: "cash_posted", name: "Cash posted (payer)", version: 3 },
-      windowDescription: "last week → Jul 27–Aug 2 (post date)",
-      filterDescriptions: [],
-      synonymMappings: [],
-    },
-  },
-  evidence: {
-    type: "evidence",
-    evidence: {
-      probes: [],
-      reconciliation: { status: "passed", detail: "children sum to parent" },
-      zeroProbeTurn: false,
-    },
-  },
-  definition_card: {
-    type: "definition_card",
-    definition: {
-      term: "PR3",
-      normalizedTo: "Group code PR · CARC 3",
-      definition: "Amount applied as the member's copay.",
-      sources: [],
-      packVersion: { packId: "base-rcm", version: "1.0.0" },
-      relatedConcepts: [],
-    },
+  pack: { packId: SAMPLES.session.pack_id, version: SAMPLES.session.pack_version },
+};
+
+/** One real payload per published frame kind (turn_complete has its own suite). */
+const FRAME_FIXTURES: Record<Exclude<TurnFrameKind, "turn_complete">, Record<string, unknown>> = {
+  stage: SAMPLES.stage,
+  context_header: SAMPLES.context_header,
+  finding: SAMPLES.finding,
+  chart_spec: SAMPLES.chart_spec,
+  narrative_delta: SAMPLES.narrative_delta,
+  clarification: { question: "Which window did you mean?", options: [], reason: "ambiguous" },
+  warning: { code: "WATERMARK_STALE", pinned: "wm_003", newest: "wm_004" },
+  error: {
+    code: "QUERY_BUDGET_EXCEEDED",
+    message: "Query budget exhausted for this turn.",
+    correlation_id: "corr_123",
   },
 };
 
-describe("SSE frame contract (validateTurnEvent)", () => {
-  const kinds = Object.keys(EVENT_FIXTURES) as TurnEvent["type"][];
+describe("SSE frame contract (parseTurnFrame)", () => {
+  const kinds = Object.keys(FRAME_FIXTURES) as (keyof typeof FRAME_FIXTURES)[];
 
-  it("covers every event kind in the union", () => {
-    expect(kinds.sort()).toEqual(Object.keys(REQUIRED_EVENT_FIELDS).sort());
+  it("covers every published frame kind except turn_complete", () => {
+    expect([...kinds, "turn_complete"].sort()).toEqual(Object.keys(REQUIRED_FRAME_FIELDS).sort());
   });
 
   for (const kind of kinds) {
     describe(kind, () => {
-      it("accepts the canonical fixture", () => {
-        const result = validateTurnEvent(EVENT_FIXTURES[kind]);
-        expect(result.ok).toBe(true);
+      it("accepts the real server payload", () => {
+        const result = parseTurnFrame(kind, FRAME_FIXTURES[kind], PIN);
+        expect(result, `${kind} must be a published kind`).not.toBeNull();
+        expect(result?.ok).toBe(true);
       });
 
-      for (const path of REQUIRED_EVENT_FIELDS[kind]) {
+      for (const path of REQUIRED_FRAME_FIELDS[kind]) {
         it(`fails loudly when required field "${path}" is missing`, () => {
-          const broken = withoutPath(EVENT_FIXTURES[kind], path);
-          const result = validateTurnEvent(broken);
-          expect(result.ok).toBe(false);
-          if (!result.ok) expect(result.missing).toContain(path);
+          const broken = withoutPath(FRAME_FIXTURES[kind], path);
+          const result = parseTurnFrame(kind, broken, PIN);
+          expect(result?.ok).toBe(false);
+          if (result && !result.ok) expect(result.missing).toContain(path);
         });
       }
     });
   }
 
-  it("every reference mock event is a valid wire fixture", () => {
-    const allEvents: TurnEvent[] = [
-      ...REFERENCE_TURNS.flatMap((t) => t.events),
-      ...PR3_EVENTS,
-      ...clarificationEvents("unscripted question", "Why did cash decline last week?"),
+  it("skips an unpublished frame kind instead of failing (forward compatibility)", () => {
+    expect(parseTurnFrame("something_new", { anything: true }, PIN)).toBeNull();
+  });
+
+  it("skips an engine stage the rail has no slot for, without calling it drift", () => {
+    expect(parseTurnFrame("stage", { stage: "quantum_leap" }, PIN)).toBeNull();
+  });
+
+  it("maps every engine stage the server actually emits onto the rail", () => {
+    // The eight the engine publishes today, plus the refinement pair.
+    const emitted = [
+      "classify",
+      "interpret",
+      "plan",
+      "validate",
+      "execute",
+      "calculate",
+      "findings",
+      "resolve_referents",
+      "emit_refinements",
     ];
-    expect(allEvents.length).toBeGreaterThan(50);
-    for (const event of allEvents) {
-      const result = validateTurnEvent(event);
-      expect(result.ok, `mock event ${event.type} must satisfy the contract`).toBe(true);
+    for (const stage of emitted) {
+      const result = parseTurnFrame("stage", { stage }, PIN);
+      expect(result, `engine stage "${stage}" must reach the rail`).not.toBeNull();
+      expect(result?.ok).toBe(true);
     }
   });
 
-  it("reports indexed paths for broken chart series/rows", () => {
-    const fixture = structuredClone(EVENT_FIXTURES.chart_spec);
-    if (fixture.type !== "chart_spec") throw new Error("unreachable");
-    delete (fixture.spec.series[0] as unknown as Record<string, unknown>).role;
-    delete (fixture.spec.rows[0] as unknown as Record<string, unknown>).values;
-    const result = validateTurnEvent(fixture);
-    expect(result.ok).toBe(false);
-    if (!result.ok) {
-      expect(result.missing).toContain("spec.series[0].role");
-      expect(result.missing).toContain("spec.rows[0].values");
-    }
+  it("maps a finding payload into the UI shape without inventing anything", () => {
+    const result = parseTurnFrame("finding", SAMPLES.finding, PIN);
+    expect(result?.ok).toBe(true);
+    if (!result?.ok || result.value.type !== "finding") throw new Error("unreachable");
+    const finding = result.value.finding;
+    expect(finding.referent).toEqual({ value: "F1", kind: "finding" });
+    expect(finding.metricRefs).toEqual(["cash_posted"]);
+    expect(finding.values.delta_cents).toBe(-9_909_308);
+    expect(finding.impactCents).toBe(-9_909_308);
+    expect(finding.impactKind).toBe("delta");
+    // direction-of-good lives on the metric contract, not on the payload:
+    // withheld, never guessed from the sign
+    expect(finding.directionOfGood).toBe("neutral");
+    expect(finding.suggestedRefinements).toEqual([
+      { label: "drill into F1", refinement: { op: "DrillInto", target: "F1" } },
+    ]);
   });
 
-  it("rejects an unknown turn_complete status (a fabricated 'complete' is worse than loud drift)", () => {
-    const broken = structuredClone(EVENT_FIXTURES.turn_complete) as unknown as Record<
-      string,
-      unknown
-    >;
-    broken.status = "done";
-    const result = validateTurnEvent(broken as unknown as TurnEvent);
-    expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.missing).toContain("status");
+  it("folds long-format chart rows into keyed series rows", () => {
+    const result = parseTurnFrame("chart_spec", SAMPLES.chart_spec, PIN);
+    expect(result?.ok).toBe(true);
+    if (!result?.ok || result.value.type !== "chart_spec") throw new Error("unreachable");
+    const spec = result.value.spec;
+    expect(spec.id).toBe(SAMPLES.chart_spec.id);
+    expect(spec.unit).toBe("cents"); // money_cents → the formatter's unit
+    expect(spec.series).toHaveLength(1);
+    expect(spec.rows.length).toBeGreaterThan(0);
+    expect(spec.rows[0].values[spec.series[0].key]).toBeTypeOf("number");
+    expect(spec.rows[0].referent).toMatch(/^D\d+$/); // clicks compile to DrillInto
+    // the published type is kept even where the UI reduces it to bars
+    expect(spec.wireChartType).toBe(SAMPLES.chart_spec.chart_type);
   });
 
-  it("defaults omitted containers instead of flagging drift (tolerant reads)", () => {
-    const finding = withoutPath(
-      withoutPath(EVENT_FIXTURES.finding, "finding.suggestedRefinements"),
-      "finding.metricRefs",
+  it("completes the header from the session pin, keeping the header's own watermark id", () => {
+    const result = parseTurnFrame("context_header", SAMPLES.context_header, PIN);
+    expect(result?.ok).toBe(true);
+    if (!result?.ok || result.value.type !== "context_header") throw new Error("unreachable");
+    const header = result.value.header;
+    expect(header.window).toEqual({ start: "2026-07-27", end: "2026-08-02", basis: "post" });
+    expect(header.comparison?.kind).toBe("prior_period");
+    expect(header.watermark).toEqual(PIN.watermark);
+    expect(header.packVersion).toEqual(PIN.pack);
+  });
+
+  it("carries filter chips through with their origin turn", () => {
+    const result = parseTurnFrame(
+      "context_header",
+      SAMPLES.drill_turn_complete.context_header as Record<string, unknown>,
+      PIN,
     );
-    const result = validateTurnEvent(finding);
-    expect(result.ok).toBe(true);
-    if (result.ok && result.value.type === "finding") {
-      expect(result.value.finding.suggestedRefinements).toEqual([]);
-      expect(result.value.finding.metricRefs).toEqual([]);
+    expect(result?.ok).toBe(true);
+    if (!result?.ok || result.value.type !== "context_header") throw new Error("unreachable");
+    const filters = result.value.header.filters;
+    expect(filters.map((f) => f.dimension).sort()).toEqual(["payer", "service_line"]);
+    for (const filter of filters) {
+      expect(filter.op).toBe("eq");
+      expect(filter.values).toHaveLength(1);
+      expect(filter.originTurn).toMatch(/^turn_/);
     }
+  });
+
+  it("writes a sentence for the warning codes that carry structured detail", () => {
+    const stale = parseTurnFrame("warning", FRAME_FIXTURES.warning, PIN);
+    if (!stale?.ok || stale.value.type !== "warning") throw new Error("unreachable");
+    expect(stale.value.message).toContain("wm_004");
+    expect(stale.value.message).toContain("wm_003");
+    expect(stale.value.severity).toBe("caution");
+
+    const recon = parseTurnFrame(
+      "warning",
+      { code: "RECONCILIATION_FAILED", detail: "children sum short by 4c" },
+      PIN,
+    );
+    if (!recon?.ok || recon.value.type !== "warning") throw new Error("unreachable");
+    expect(recon.value.message).toContain("children sum short by 4c");
+  });
+
+  it("labels a free-text answer warning as a note rather than faking a code", () => {
+    expect(mapAnswerWarning("suppression: small cells are suppressed")).toEqual({
+      code: "ANSWER_NOTE",
+      message: "suppression: small cells are suppressed",
+      severity: "info",
+    });
+    expect(mapAnswerWarning("RECONCILIATION_FAILED: children sum short")).toEqual({
+      code: "RECONCILIATION_FAILED",
+      message: "children sum short",
+      severity: "caution",
+    });
   });
 
   it("ignores unknown extra fields (forward compatibility)", () => {
-    const extended = {
-      ...EVENT_FIXTURES.turn_complete,
-      serverOnlyField: { anything: true },
-    } as unknown as TurnEvent;
-    expect(validateTurnEvent(extended).ok).toBe(true);
+    const extended = { ...SAMPLES.finding, serverOnlyField: { anything: true } };
+    expect(parseTurnFrame("finding", extended, PIN)?.ok).toBe(true);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Typed gestures: UI refinement → published operator                  */
+/* ------------------------------------------------------------------ */
+
+describe("refinement translation (refinementsToWire)", () => {
+  it("emits the published `op` spelling, not the UI's", () => {
+    expect(
+      refinementsToWire([
+        { op: "SetDimensions", dimensions: ["payer"] },
+        {
+          op: "AddFilter",
+          filter: {
+            dimension: "payer",
+            dimensionLabel: "Payer",
+            op: "eq",
+            values: ["Federal Medicare"],
+          },
+        },
+        { op: "RemoveFilter", dimension: "service_line" },
+        { op: "RankBy", metric: "denied_dollars", descending: true },
+        { op: "ResetContext", keepPins: true },
+      ]),
+    ).toEqual([
+      { op: "set_dimensions", dimensions: ["payer"] },
+      {
+        op: "add_filter",
+        dimension: "payer",
+        predicate_op: "eq",
+        values: ["Federal Medicare"],
+      },
+      { op: "remove_filter", dimension: "service_line" },
+      { op: "rank_by", by: "denied_dollars", descending: true },
+      { op: "reset_context", keep_pins: true },
+    ]);
+  });
+
+  it("expands a multi-target drill into one operator per target", () => {
+    expect(refinementsToWire([{ op: "DrillInto", target: ["F1", "F2", "F3"] }])).toEqual([
+      { op: "drill_into", target: "F1" },
+      { op: "drill_into", target: "F2" },
+      { op: "drill_into", target: "F3" },
+    ]);
+  });
+
+  it("produces bodies the published TurnRequest accepts", () => {
+    // Every emitted `op` must be one of the closed twelve the spec names.
+    const published = new Set([
+      "set_dimensions",
+      "add_filter",
+      "remove_filter",
+      "set_window",
+      "set_comparison",
+      "set_grain",
+      "drill_into",
+      "pivot",
+      "explain",
+      "rank_by",
+      "expand",
+      "reset_context",
+    ]);
+    const every: Refinement[] = [
+      { op: "SetDimensions", dimensions: [] },
+      {
+        op: "AddFilter",
+        filter: { dimension: "payer", dimensionLabel: "Payer", op: "in", values: ["a"] },
+      },
+      { op: "RemoveFilter", dimension: "payer" },
+      { op: "SetWindow", window: { start: "2026-01-01", end: "2026-03-31", basis: "service" } },
+      { op: "SetComparison", comparison: null },
+      { op: "SetGrain", grain: { entity: "denial" } },
+      { op: "DrillInto", target: "F1" },
+      { op: "Pivot", measures: ["denied_dollars"] },
+      { op: "Explain", target: "F1" },
+      { op: "RankBy", metric: "denied_dollars", descending: false },
+      { op: "Expand" },
+      { op: "ResetContext", keepPins: false },
+    ];
+    const wire = refinementsToWire(every);
+    expect(wire).toHaveLength(every.length);
+    for (const operator of wire) expect(published).toContain(operator.op);
   });
 });
 
@@ -281,109 +392,206 @@ describe("SessionResponse contract (parseSessionResponse)", () => {
 });
 
 /* ------------------------------------------------------------------ */
-/* TurnResponse (turn_complete payload / blocking JSON / GET recovery) */
+/* TurnResponse — the discriminated 200 body                           */
 /* ------------------------------------------------------------------ */
 
-function turnResponseFixture(): Record<string, unknown> {
-  const header = EVENT_FIXTURES.context_header;
-  const finding = EVENT_FIXTURES.finding;
-  const chart = EVENT_FIXTURES.chart_spec;
-  const evidence = EVENT_FIXTURES.evidence;
-  if (
-    header.type !== "context_header" ||
-    finding.type !== "finding" ||
-    chart.type !== "chart_spec" ||
-    evidence.type !== "evidence"
-  ) {
-    throw new Error("unreachable");
-  }
-  return structuredClone({
-    investigationId: "inv_001",
-    status: "complete",
-    turnClass: "new_investigation",
-    header: header.header,
-    findings: [finding.finding],
-    charts: [chart.spec],
-    narrative: "Payer cash fell 12.7% week over week.",
-    warnings: [{ code: "PROXY_GRADE", message: "Proxy evidence only.", severity: "caution" }],
-    evidence: evidence.evidence,
-    answerGrade: "direct",
-  });
-}
-
+/**
+ * The published 200 body is `TurnAnswer | TurnClarification | TurnError`
+ * discriminated on `outcome`. M13 pinned the fact that the parser required
+ * a `status` field none of the three carries; these fixtures are the real
+ * bodies, so the parser is now tested against what the server sends rather
+ * than against what an earlier milestone assumed it would.
+ */
 describe("TurnResponse contract (parseTurnResponse)", () => {
-  it("parses the full response with zero drift", () => {
-    const { value, drift } = parseTurnResponse(turnResponseFixture());
+  it("parses a real answer body with zero drift", () => {
+    const { value, drift } = parseTurnResponse(SAMPLES.turn_complete, PIN);
     expect(drift).toEqual([]);
-    expect(value?.investigationId).toBe("inv_001");
-    expect(value?.findings).toHaveLength(1);
-    expect(value?.charts).toHaveLength(1);
+    if (value?.outcome !== "answer") throw new Error("expected an answer");
+    expect(value.investigationId).toBe(SAMPLES.turn_complete.investigation_id);
+    expect(value.turnClass).toBe("new_investigation");
+    expect(value.findings.map((f) => f.referent.value)).toEqual(["F1", "F2", "F3"]);
+    expect(value.charts.length).toBeGreaterThan(0);
+    expect(value.header?.watermark.id).toBe("wm_003");
+    expect(value.narrative).toContain("F1");
   });
 
-  for (const path of REQUIRED_TURN_RESPONSE_FIELDS) {
-    it(`is fatal when core field "${path}" is missing`, () => {
-      const { value, drift } = parseTurnResponse(withoutPath(turnResponseFixture(), path));
+  for (const path of REQUIRED_ANSWER_FIELDS) {
+    it(`is fatal when the answer is missing "${path}"`, () => {
+      const { value, drift } = parseTurnResponse(withoutPath(SAMPLES.turn_complete, path), PIN);
       expect(value).toBeNull();
       expect(drift).toContain(path);
     });
   }
 
-  it("tolerates snake_case aliases for top-level fields", () => {
-    const fixture = turnResponseFixture();
-    fixture.investigation_id = fixture.investigationId;
-    delete fixture.investigationId;
-    fixture.answer_grade = fixture.answerGrade;
-    delete fixture.answerGrade;
-    const { value, drift } = parseTurnResponse(fixture);
+  it("parses a clarification as its own outcome, not an empty answer", () => {
+    const { value, drift } = parseTurnResponse(SAMPLES.clarification_body, PIN);
     expect(drift).toEqual([]);
-    expect(value?.investigationId).toBe("inv_001");
-    expect(value?.answerGrade).toBe("direct");
+    if (value?.outcome !== "clarification_required") throw new Error("expected a clarification");
+    expect(value.clarification.question).toBe(SAMPLES.clarification_body.question);
+    expect(value.investigationId).toBe(SAMPLES.clarification_body.investigation_id);
   });
 
-  it("drops a broken optional sub-shape with indexed drift, keeps the rest", () => {
-    const fixture = withoutPath(turnResponseFixture(), "findings.0.title");
-    const { value, drift } = parseTurnResponse(fixture);
-    expect(value).not.toBeNull();
-    expect(value?.findings).toEqual([]);
-    expect(drift).toContain("findings[0].finding.title");
-    expect(value?.charts).toHaveLength(1);
+  for (const path of REQUIRED_CLARIFICATION_FIELDS) {
+    it(`is fatal when the clarification is missing "${path}"`, () => {
+      const { value, drift } = parseTurnResponse(
+        withoutPath(SAMPLES.clarification_body, path),
+        PIN,
+      );
+      expect(value).toBeNull();
+      expect(drift).toContain(path);
+    });
+  }
+
+  it("parses a turn error, which carries an envelope and no investigation id", () => {
+    const body = {
+      outcome: "error",
+      session_id: "sess_1",
+      error: {
+        code: "REFERENT_NOT_FOUND",
+        message: "referent 'F9' is not in the live registry",
+        correlation_id: "corr_9",
+      },
+    };
+    const { value, drift } = parseTurnResponse(body, PIN);
+    expect(drift).toEqual([]);
+    if (value?.outcome !== "error") throw new Error("expected an error");
+    expect(value.error.code).toBe("REFERENT_NOT_FOUND");
+    expect(value.error.correlationId).toBe("corr_9");
   });
 
-  it("replays a fresh response as a full event stream ending in turn_complete", () => {
-    const { value } = parseTurnResponse(turnResponseFixture());
-    const events = turnResponseToEvents(value!);
+  it("reports the envelope's own missing paths when a turn error is malformed", () => {
+    const { value, drift } = parseTurnResponse(
+      { outcome: "error", error: { code: "X" } },
+      PIN,
+    );
+    expect(value).toBeNull();
+    expect(drift).toEqual(["error.message", "error.correlation_id"]);
+  });
+
+  it("refuses an unknown outcome rather than guessing which variant it is", () => {
+    const { value, drift } = parseTurnResponse({ outcome: "maybe" }, PIN);
+    expect(value).toBeNull();
+    expect(drift).toContain("outcome");
+  });
+
+  it("carries a definitional answer through to the definition card", () => {
+    const { value, drift } = parseTurnResponse(SAMPLES.definitional_body, PIN);
+    expect(drift).toEqual([]);
+    if (value?.outcome !== "answer") throw new Error("expected an answer");
+    expect(value.turnClass).toBe("definitional");
+    expect(value.definition?.definition).not.toBe("");
+    expect(value.definition?.packVersion.packId).toBe("base-rcm");
+  });
+
+  it("drops a broken finding with indexed drift and keeps the rest of the answer", () => {
+    const broken = structuredClone(SAMPLES.turn_complete);
+    delete (broken.findings[0] as Record<string, unknown>).referent;
+    const { value, drift } = parseTurnResponse(broken, PIN);
+    if (value?.outcome !== "answer") throw new Error("expected an answer");
+    expect(drift).toContain("findings[0].referent");
+    expect(value.findings).toHaveLength(2);
+    expect(value.charts.length).toBeGreaterThan(0);
+  });
+
+  it("replays a fresh answer as a full event stream ending in turn_complete", () => {
+    const { value } = parseTurnResponse(SAMPLES.turn_complete, PIN);
+    if (value?.outcome !== "answer") throw new Error("expected an answer");
+    const events = turnResponseToEvents(value);
+    // The real T1 answer carries five honest-limitation warnings (a pruned
+    // probe, two alternate-basis labels, suppression, a skipped transform),
+    // and every one of them reaches the UI as a note rather than vanishing.
     expect(events.map((e) => e.type)).toEqual([
       "context_header",
       "stage",
       "finding",
+      "finding",
+      "finding",
       "chart_spec",
       "warning",
+      "warning",
+      "warning",
+      "warning",
+      "warning",
       "narrative_delta",
-      "evidence",
       "turn_complete",
     ]);
-    for (const event of events) {
-      expect(validateTurnEvent(event).ok).toBe(true);
-    }
+    expect(events.filter((e) => e.type === "warning").map((e) => e.code)).toEqual(
+      Array(5).fill("ANSWER_NOTE"),
+    );
+  });
+
+  it("replays a clarification as a clarification, never as a complete answer", () => {
+    const { value } = parseTurnResponse(SAMPLES.clarification_body, PIN);
+    if (value?.outcome !== "clarification_required") throw new Error("unreachable");
+    const events = turnResponseToEvents(value);
+    expect(events.map((e) => e.type)).toEqual(["stage", "clarification", "turn_complete"]);
+    const complete = events[events.length - 1];
+    expect(complete.type === "turn_complete" && complete.status).toBe("clarification_required");
   });
 
   it("skips deltas already received on the live stream (duplicate-free recovery)", () => {
-    const { value } = parseTurnResponse(turnResponseFixture());
+    const { value } = parseTurnResponse(SAMPLES.turn_complete, PIN);
+    if (value?.outcome !== "answer") throw new Error("expected an answer");
     const received = newReceivedState();
-    const finding = EVENT_FIXTURES.finding;
-    if (finding.type !== "finding") throw new Error("unreachable");
-    trackReceived(received, EVENT_FIXTURES.context_header);
-    trackReceived(received, finding);
-    trackReceived(received, { type: "narrative_delta", text: "Payer cash fell " });
+    trackReceived(received, { type: "context_header", header: value.header!, turnClass: "refinement" });
+    trackReceived(received, { type: "finding", finding: value.findings[0] });
+    trackReceived(received, { type: "narrative_delta", text: value.narrative!.slice(0, 10) });
 
-    const events = turnResponseToEvents(value!, received);
+    const events = turnResponseToEvents(value, received);
     expect(events.some((e) => e.type === "context_header")).toBe(false);
-    expect(events.some((e) => e.type === "finding")).toBe(false);
+    expect(events.filter((e) => e.type === "finding")).toHaveLength(2);
     const delta = events.find((e) => e.type === "narrative_delta");
     expect(delta && delta.type === "narrative_delta" ? delta.text : "").toBe(
-      "12.7% week over week.",
+      value.narrative!.slice(10),
     );
     expect(events[events.length - 1]?.type).toBe("turn_complete");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* GET /v1/investigations/{iid} — the recovery shape                   */
+/* ------------------------------------------------------------------ */
+
+describe("InvestigationResponse contract (parseInvestigationResponse)", () => {
+  it("recovers a completed turn's findings from the by-id route", () => {
+    const { value, drift } = parseInvestigationResponse(SAMPLES.investigation);
+    expect(drift).toEqual([]);
+    if (value?.outcome !== "answer") throw new Error("expected an answer");
+    expect(value.investigationId).toBe(SAMPLES.investigation.investigation_id);
+    expect(value.findings.map((f) => f.referent.value)).toEqual(["F1"]);
+    // This route keeps findings and warnings, not charts or a header — a
+    // recovered turn renders what the server actually stored.
+    expect(value.charts).toEqual([]);
+    expect(value.header).toBeUndefined();
+  });
+
+  for (const path of REQUIRED_INVESTIGATION_FIELDS) {
+    it(`is fatal when "${path}" is missing`, () => {
+      const { value, drift } = parseInvestigationResponse(
+        withoutPath(SAMPLES.investigation, path),
+      );
+      expect(value).toBeNull();
+      expect(drift).toContain(path);
+    });
+  }
+
+  it("rejects an unknown status (a fabricated 'complete' is worse than loud drift)", () => {
+    const { value, drift } = parseInvestigationResponse({
+      ...SAMPLES.investigation,
+      status: "done",
+    });
+    expect(value).toBeNull();
+    expect(drift).toContain("status");
+  });
+
+  it("recovers a failed turn as an error outcome", () => {
+    const { value } = parseInvestigationResponse({
+      ...SAMPLES.investigation,
+      status: "failed",
+      warnings: ["the source went away"],
+    });
+    if (value?.outcome !== "error") throw new Error("expected an error");
+    expect(value.error.message).toContain("the source went away");
   });
 });
 

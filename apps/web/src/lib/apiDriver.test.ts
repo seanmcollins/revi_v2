@@ -89,10 +89,26 @@ function scriptedFetch(
   return { fetchImpl, calls };
 }
 
+/**
+ * Wire frames, in the server's own spelling. Earlier milestones wrote these
+ * in the UI's vocabulary, which is exactly how a green suite coexisted with
+ * a live turn that produced nothing but drift.
+ */
+const ANSWER_BODY = {
+  outcome: "answer",
+  session_id: "sess_a1b2",
+  investigation_id: "inv_1",
+  turn_class: "new_investigation",
+  findings: [],
+  chart_specs: [],
+  narrative: "Payer cash fell 12.7% week over week.",
+  warnings: [],
+};
+
 const COMPLETE_FRAMES = [
-  sse("stage", { stage: "classified", status: "completed", detail: "NEW_INVESTIGATION (0.98)" }),
-  sse("narrative_delta", { text: "Payer cash fell 12.7% week over week." }),
-  sse("turn_complete", { investigationId: "inv_1", status: "complete" }),
+  sse("stage", { stage: "classify" }),
+  sse("narrative_delta", { delta: "Payer cash fell 12.7% week over week." }),
+  sse("turn_complete", ANSWER_BODY),
 ];
 
 function makeDriver(fetchImpl: typeof fetch, extra: ConstructorParameters<typeof ApiDriver>[0] = {}) {
@@ -198,9 +214,34 @@ describe("ApiDriver session bootstrap", () => {
     });
 
     const turn = calls.find((c) => c.url.includes("/turns"));
-    expect(turn?.body?.refinements).toEqual([{ op: "DrillInto", target: "F2" }]);
+    // Translated to the published spelling — posting the UI's PascalCase
+    // `op` is a 422 against a conforming server.
+    expect(turn?.body?.refinements).toEqual([{ op: "drill_into", target: "F2" }]);
     expect(turn?.body?.clarification_response).toBe("Last week");
     expect(turn?.body?.re_anchor).toBe(true);
+    expect(turn?.body).not.toHaveProperty("utterance");
+  });
+
+  it("posts a typed investigation spec as a first turn, verbatim", async () => {
+    const { fetchImpl, calls } = scriptedFetch((call) =>
+      call.url.endsWith("/v1/sessions")
+        ? fakeResponse({ json: SESSION_WIRE })
+        : fakeResponse({ stream: streamOf(COMPLETE_FRAMES) }),
+    );
+    const driver = makeDriver(fetchImpl);
+    // A portfolio card's drill_spec: already the published shape, so it
+    // travels untouched — a NEW investigation, not a refinement.
+    const spec = {
+      metric_ids: ["denied_dollars"],
+      dimensions: ["payer"],
+      filters: [{ op: "add_filter", dimension: "payer", predicate_op: "eq", values: ["Atlas"] }],
+      window: { start: "2026-06-25", end: "2026-07-25" },
+    };
+    await collectSubmit(driver, { spec });
+
+    const turn = calls.find((c) => c.url.includes("/turns"));
+    expect(turn?.body?.spec).toEqual(spec);
+    expect(turn?.body).not.toHaveProperty("refinements");
     expect(turn?.body).not.toHaveProperty("utterance");
   });
 
@@ -248,14 +289,21 @@ describe("ApiDriver streaming", () => {
     const driver = makeDriver(fetchImpl, { onConnectionState });
 
     const events = await collectSubmit(driver, { utterance: "q" });
-    expect(events.map((e) => e.type)).toEqual(["stage", "narrative_delta", "turn_complete"]);
+    // The authoritative turn_complete body replays as its own events, which
+    // is why the rail gets a closing stage before the terminal frame.
+    expect(events.map((e) => e.type)).toEqual([
+      "stage",
+      "narrative_delta",
+      "stage",
+      "turn_complete",
+    ]);
     expect(onConnectionState).toHaveBeenLastCalledWith("online");
   });
 
   it("drops malformed frames, console.errors the field path, and keeps streaming", async () => {
     const onContractDrift = vi.fn();
     const frames = [
-      sse("finding", { finding: { referent: { value: "F1", kind: "finding" } } }), // missing title etc.
+      sse("finding", { referent: "F1" }), // missing title / statement
       ...COMPLETE_FRAMES,
     ];
     const { fetchImpl } = scriptedFetch((call) =>
@@ -267,20 +315,25 @@ describe("ApiDriver streaming", () => {
 
     const events = await collectSubmit(driver, { utterance: "q" });
     expect(events.some((e) => e.type === "finding")).toBe(false);
-    expect(events.map((e) => e.type)).toEqual(["stage", "narrative_delta", "turn_complete"]);
+    expect(events.map((e) => e.type)).toEqual([
+      "stage",
+      "narrative_delta",
+      "stage",
+      "turn_complete",
+    ]);
     expect(onContractDrift).toHaveBeenCalledWith(
-      expect.arrayContaining(["finding.title", "finding.statement"]),
+      expect.arrayContaining(["title", "statement"]),
       'sse frame "finding"',
     );
     expect(console.error).toHaveBeenCalledWith(
-      expect.stringContaining('missing required field "finding.title"'),
+      expect.stringContaining('missing required field "title"'),
     );
   });
 
   it("turns a malformed turn_complete into a visible CONTRACT_DRIFT error (no silent hang)", async () => {
     const frames = [
-      sse("narrative_delta", { text: "…" }),
-      sse("turn_complete", { status: "complete" }), // investigationId missing
+      sse("narrative_delta", { delta: "…" }),
+      sse("turn_complete", { outcome: "answer", session_id: "s" }), // no investigation_id
     ];
     const { fetchImpl, calls } = scriptedFetch((call) =>
       call.url.endsWith("/v1/sessions")
@@ -371,41 +424,54 @@ describe("ApiDriver streaming", () => {
 /* ------------------------------------------------------------------ */
 
 const FULL_TURN_RESPONSE = {
-  investigationId: "inv_7",
-  status: "complete",
-  turnClass: "new_investigation",
+  outcome: "answer",
+  session_id: "sess_a1b2",
+  investigation_id: "inv_7",
+  turn_class: "new_investigation",
   findings: [
     {
-      referent: { value: "F1", kind: "finding" },
+      referent: "F1",
       title: "State Medicaid cash down",
       statement: "Fell 52.9% WoW.",
-      metricRefs: [],
-      values: {},
+      metric_ids: [],
+      values: [],
       grade: "direct",
-      directionOfGood: "up_is_good",
       confidence: "high",
-      suggestedRefinements: [],
+      suggested_refinements: [],
     },
     {
-      referent: { value: "F2", kind: "finding" },
+      referent: "F2",
       title: "Atlas Commercial volume down",
       statement: "Fell 18.3% WoW.",
-      metricRefs: [],
-      values: {},
+      metric_ids: [],
+      values: [],
       grade: "direct",
-      directionOfGood: "up_is_good",
       confidence: "high",
-      suggestedRefinements: [],
+      suggested_refinements: [],
     },
   ],
+  chart_specs: [],
+  warnings: [],
   narrative: "Payer cash fell. Two payers explain most of it.",
+};
+
+/** `GET /v1/investigations/{iid}` — a different shape from the turn body. */
+const INVESTIGATION_BODY = {
+  investigation_id: "inv_9",
+  session_id: "sess_a1b2",
+  turn_id: "turn_9",
+  turn_class: "new_investigation",
+  status: "complete",
+  created_at: "2026-08-03T04:12:00Z",
+  findings: FULL_TURN_RESPONSE.findings,
+  warnings: [],
 };
 
 describe("ApiDriver reconnect tolerance", () => {
   it("recovers a dropped stream via same-key JSON replay, duplicate-free", async () => {
     const droppedFrames = [
-      sse("finding", FULL_TURN_RESPONSE.findings[0] ? { finding: FULL_TURN_RESPONSE.findings[0] } : {}),
-      sse("narrative_delta", { text: "Payer cash fell. " }),
+      sse("finding", FULL_TURN_RESPONSE.findings[0]),
+      sse("narrative_delta", { delta: "Payer cash fell. " }),
     ];
     const { fetchImpl, calls } = scriptedFetch((call) => {
       if (call.url.endsWith("/v1/sessions")) return fakeResponse({ json: SESSION_WIRE });
@@ -444,15 +510,15 @@ describe("ApiDriver reconnect tolerance", () => {
   it("prefers GET /v1/investigations/{iid} when a frame carried the id", async () => {
     const droppedFrames = [
       // Extra fields are tolerated — and the driver harvests the id.
-      sse("stage", { stage: "classified", status: "completed", investigationId: "inv_9" }),
+      sse("stage", { stage: "classify", investigation_id: "inv_9" }),
     ];
-    const response = { ...structuredClone(FULL_TURN_RESPONSE), investigationId: "inv_9" };
     const { fetchImpl, calls } = scriptedFetch((call) => {
       if (call.url.endsWith("/v1/sessions")) return fakeResponse({ json: SESSION_WIRE });
       if (call.accept === "text/event-stream") {
         return fakeResponse({ stream: streamOf(droppedFrames, true) });
       }
-      return fakeResponse({ json: response });
+      // the by-id route answers with InvestigationResponse, not a turn body
+      return fakeResponse({ json: INVESTIGATION_BODY });
     });
     const driver = makeDriver(fetchImpl);
 
@@ -465,7 +531,7 @@ describe("ApiDriver reconnect tolerance", () => {
     const { fetchImpl, calls } = scriptedFetch((call) => {
       if (call.url.endsWith("/v1/sessions")) return fakeResponse({ json: SESSION_WIRE });
       if (call.accept === "text/event-stream") {
-        return fakeResponse({ stream: streamOf([sse("narrative_delta", { text: "Half " })]) });
+        return fakeResponse({ stream: streamOf([sse("narrative_delta", { delta: "Half " })]) });
       }
       return fakeResponse({ json: FULL_TURN_RESPONSE });
     });

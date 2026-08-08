@@ -12,14 +12,16 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Annotated, Any, Literal, Protocol, Union
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from revi_investigation_contracts.header import ContextHeaderPayload
 from revi_investigation_contracts.refinements import (
     AbsoluteWindowModel,
     AddFilterModel,
     ClosedModel,
+    ComparisonLiteral,
     RefinementOperatorModel,
+    WindowSpecModel,
 )
 
 # ---------------------------------------------------------------------------
@@ -46,15 +48,69 @@ class SessionResponse(ClosedModel):
 # turn requests
 
 
+class TypedInvestigationSpec(ClosedModel):
+    """An explicit, typed investigation — the typed twin of interpretation.
+
+    A turn carrying one of these is a NEW_INVESTIGATION *by construction*:
+    it names its own governed metrics, dimensions, scope and window, so
+    there is nothing to infer and no parent investigation to refine. The
+    engine builds the ``AnalysisSpec`` from it directly with **zero model
+    calls**; the §6.6 validation pass then runs unchanged, so a typed spec
+    earns exactly the same grades, warnings and refusals an interpreted
+    one does. It skips the guessing, never the governance.
+
+    This is the anchor a typed *refinement* has always needed and never
+    had. A refinement edits a parent investigation; a portfolio card, a
+    chart click in a fresh session, a saved view or a scheduled brief has
+    no parent — it has an intent that is already typed. Expressing that as
+    a first turn (rather than minting a hidden portfolio-anchored session
+    per surface) keeps one investigation pipeline: whatever posts this
+    gets the same planning, validation, grading, findings and trace as a
+    sentence would.
+    """
+
+    #: At least one governed metric: without a model there is no playbook
+    #: to infer, so "no governing metric" is impossible by construction
+    #: rather than a runtime clarification.
+    metric_ids: list[str] = Field(min_length=1)
+    dimensions: list[str] = Field(default_factory=list)
+    #: Scope clauses, spelled as the same ``add_filter`` operator a chart
+    #: click emits — one closed shape for "a typed filter clause".
+    filters: list[AddFilterModel] = Field(default_factory=list)
+    window: WindowSpecModel | AbsoluteWindowModel
+    basis: str | None = None
+    comparison: ComparisonLiteral | None = None
+
+
 class TurnRequest(ClosedModel):
-    """One turn: an utterance OR typed refinement operators (§12)."""
+    """One turn: an utterance, a typed investigation spec, OR typed
+    refinement operators (§12)."""
 
     utterance: str | None = None
+    #: A typed FIRST turn (new investigation, no parent) — see
+    #: :class:`TypedInvestigationSpec`.
+    spec: TypedInvestigationSpec | None = None
+    #: A typed gesture (refines the session's latest investigation).
     refinements: list[RefinementOperatorModel] | None = None
     clarification_response: str | None = None
     re_anchor: bool = False
     idempotency_key: str | None = None
     correlation_id: str | None = None
+
+    @model_validator(mode="after")
+    def _one_typed_intent(self) -> TurnRequest:
+        """A turn either starts an investigation or edits one, never both.
+
+        Rejected as a malformed body (422) rather than silently resolved,
+        because either resolution order would be a guess about intent.
+        """
+        if self.spec is not None and self.refinements is not None:
+            raise ValueError(
+                "a turn carries either `spec` (a typed new investigation) or "
+                "`refinements` (a typed edit to the session's latest "
+                "investigation) — never both"
+            )
+        return self
 
 
 # ---------------------------------------------------------------------------
@@ -241,8 +297,18 @@ class AnomalyCard(ClosedModel):
 
     The decomposed components (impact, age, recoverable estimate,
     actionability rationale) travel with the score — no black-box
-    ordering — and ``drill_filters`` + ``drill_window`` are the typed
-    handle the UI uses to start an ordinary investigation turn.
+    ordering — and ``drill_spec`` is the typed handle the UI posts to
+    start an ordinary investigation turn.
+
+    ``drill_spec`` is a complete :class:`TypedInvestigationSpec`, not a
+    bag of operators: the card's own metric, its dimensions (both as the
+    breakdown and, at their detected values, as the scope), and its
+    observation window. Posting it re-derives the detector's assertion
+    from the platform's certified semantics and versioned contracts — so
+    the answer carries a real evidence grade where the card itself only
+    carries provenance. Earlier milestones shipped ``drill_filters`` +
+    ``drill_window``, which were sound operators with nowhere to land: a
+    refinement refines a parent investigation and a card is not one.
 
     **No evidence grade, by construction.** A grade certifies how a number
     was *computed by this platform* from certified semantics (design §5.3);
@@ -278,8 +344,9 @@ class AnomalyCard(ClosedModel):
     actionability_rationale: str = ""
     priority_score: float = 0.0
     compliance_floor_applied: bool = False
-    drill_filters: list[AddFilterModel] = Field(default_factory=list)
-    drill_window: AbsoluteWindowModel | None = None
+    #: Required, never defaulted: a card whose drill handle could be
+    #: absent is a card the UI would have to invent a question for.
+    drill_spec: TypedInvestigationSpec
 
 
 class PortfolioResponse(ClosedModel):

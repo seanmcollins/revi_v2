@@ -1,5 +1,7 @@
-# Clean claim rate (HFMA MAP CL-1 shape) with an honest caveat: this
-# warehouse has no scrubber events, so the clean flag is outcome-derived.
+# Clean claim rate (HFMA MAP CL-1 shape) with two honest caveats: this
+# warehouse has no scrubber events, so the clean flag is outcome-derived, and
+# there is no adjudication-status exclusion because `status` is not a catalog
+# dimension (exclusion removed — see "Exclusion polarity" in NOTES.md).
 id: clean_claim_rate
 version: 1
 kind: flow
@@ -9,7 +11,6 @@ numerator:
     inner: {count_distinct: claim_id}
     where: {dimension: clean_claim, op: eq, value: true}
 denominator: {count_distinct: claim_id}
-exclusions: {dimension: status, op: neq, value: OPEN}
 primary_date_basis: submission
 allowed_date_bases: [submission, service, remit]
 scope_dimensions:
@@ -19,11 +20,18 @@ scope_dimensions:
 sign: higher_is_good
 unit: ratio
 description: >-
-  Share of adjudicated claims flagged clean, over claims with a visible
-  adjudication outcome. Point of clarification: MAP CL-1 measures clean
-  claims at the pre-submission scrubber; this warehouse's clean_claim flag is
-  outcome-derived (claim resolved with zero denials), so this contract is an
-  outcome-based clean rate — closely related to first_pass_yield and
-  complementary to denial_rate (the two sum to one over the same
-  population). Benchmark context: 95 percent is the commonly cited target,
+  Share of claims flagged clean over every claim in the window, on the chosen
+  date basis. The denominator is not restricted to adjudicated claims: the
+  outcome-derived clean_claim flag is false until a claim resolves paid with
+  zero denials, so claims still awaiting adjudication count as not-clean and
+  trailing windows read conservatively at fresh watermarks — the watermark
+  context header discloses the data edge. Scope the window back from the
+  watermark, or cut by a status-bearing population, before reading the level
+  as a scrubber-comparable rate. Point of clarification: MAP CL-1 measures
+  clean claims at the pre-submission scrubber; this warehouse's clean_claim
+  flag is outcome-derived (claim resolved with zero denials), so this
+  contract is an outcome-based clean rate — closely related to
+  first_pass_yield and complementary to denial_rate, which reads the same
+  flag with the opposite polarity, so over an identical population the two
+  sum to one. Benchmark context: 95 percent is the commonly cited target,
   top performers near 98 (scrubber-based definitions).

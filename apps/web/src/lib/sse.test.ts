@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest";
 
-import { decodeTurnEvent, parseSseStream, type SseMessage } from "@/lib/sse";
+import { decodeTurnFrame, parseSseStream, type SseMessage } from "@/lib/sse";
 
 function streamOf(chunks: (string | Uint8Array)[]): ReadableStream<Uint8Array> {
   const encoder = new TextEncoder();
@@ -96,32 +96,29 @@ describe("parseSseStream", () => {
   });
 });
 
-describe("decodeTurnEvent", () => {
-  it("decodes a known event into the typed union", () => {
-    const event = decodeTurnEvent({
-      event: "narrative_delta",
-      data: '{"text":"hi"}',
+describe("decodeTurnFrame", () => {
+  it("decodes a frame into its published kind plus the raw wire payload", () => {
+    // The transport does NOT map to the UI union — lib/contract.ts owns
+    // that, because a header cannot be built without the session pin.
+    expect(decodeTurnFrame({ event: "narrative_delta", data: '{"delta":"hi"}' })).toEqual({
+      kind: "narrative_delta",
+      data: { delta: "hi" },
     });
-    expect(event).toEqual({ type: "narrative_delta", text: "hi" });
   });
 
-  it("the SSE event name wins over a mismatched payload type", () => {
-    const event = decodeTurnEvent({
-      event: "warning",
-      data: '{"type":"finding","code":"X","message":"m","severity":"info"}',
+  it("passes unknown kinds through — what is published is the contract layer's call", () => {
+    expect(decodeTurnFrame({ event: "mystery", data: "{}" })).toEqual({
+      kind: "mystery",
+      data: {},
     });
-    expect(event?.type).toBe("warning");
-  });
-
-  it("returns null for unknown event names", () => {
-    expect(decodeTurnEvent({ event: "mystery", data: "{}" })).toBeNull();
   });
 
   it("returns null for malformed JSON", () => {
-    expect(decodeTurnEvent({ event: "stage", data: "{not json" })).toBeNull();
+    expect(decodeTurnFrame({ event: "stage", data: "{not json" })).toBeNull();
   });
 
   it("returns null for non-object payloads", () => {
-    expect(decodeTurnEvent({ event: "stage", data: '"str"' })).toBeNull();
+    expect(decodeTurnFrame({ event: "stage", data: '"str"' })).toBeNull();
+    expect(decodeTurnFrame({ event: "stage", data: "[1,2]" })).toBeNull();
   });
 });

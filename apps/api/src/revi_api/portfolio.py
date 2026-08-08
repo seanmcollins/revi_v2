@@ -38,7 +38,12 @@ from decimal import Decimal
 
 from revi_api.actionability import ActionabilityRules, assess
 from revi_investigation.application.ports import AnomalyRecord
-from revi_investigation_contracts.api import AnomalyCard, AnomalyDimension, PortfolioResponse
+from revi_investigation_contracts.api import (
+    AnomalyCard,
+    AnomalyDimension,
+    PortfolioResponse,
+    TypedInvestigationSpec,
+)
 from revi_investigation_contracts.refinements import AbsoluteWindowModel, AddFilterModel
 from revi_kernel.watermark import DataWatermark
 from revi_pack.domain import PackSnapshot
@@ -99,6 +104,38 @@ def _age_days(record: AnomalyRecord, watermark: DataWatermark) -> int:
         except ValueError:
             pass
     return max(0, (watermark.loaded_at.date() - onset).days)
+
+
+def _drill_spec(record: AnomalyRecord) -> TypedInvestigationSpec:
+    """The card's drill handle: a complete, executable typed investigation.
+
+    The detector asserts a *level* about one cell — this metric, these
+    dimension values, this observation window. The drill re-states exactly
+    that in the platform's own vocabulary, so posting it re-derives the
+    assertion from certified semantics and a versioned metric contract and
+    the answer carries a real evidence grade (the card carries only
+    provenance — see :class:`AnomalyCard`).
+
+    The dimensions appear twice on purpose and mean two different things:
+    as ``dimensions`` they are the breakdown the answer is cut by, and at
+    their detected values as ``filters`` they are the scope that isolates
+    the cell — so the header shows them as visible chips (§7.2) and a
+    later ``remove_filter`` widens the drill back into its population
+    without having to guess what the population was.
+
+    No comparison is set. An anomaly card claims a level, not a movement;
+    ``set_comparison`` is one ordinary refinement away, and — this being
+    the point of the typed first turn — it now has a parent to land on.
+    """
+    return TypedInvestigationSpec(
+        metric_ids=[record.metric_id],
+        dimensions=[dimension for dimension, _ in record.dimensions],
+        filters=[
+            AddFilterModel(op="add_filter", dimension=dimension, predicate_op="eq", values=[value])
+            for dimension, value in record.dimensions
+        ],
+        window=AbsoluteWindowModel(start=record.window_start, end=record.window_end),
+    )
 
 
 def build_portfolio(
@@ -169,15 +206,7 @@ def build_portfolio(
                 actionability_rationale=assessment.rationale,
                 priority_score=round(float(score), 6),
                 compliance_floor_applied=floored,
-                drill_filters=[
-                    AddFilterModel(
-                        op="add_filter", dimension=d, predicate_op="eq", values=[v]
-                    )
-                    for d, v in record.dimensions
-                ],
-                drill_window=AbsoluteWindowModel(
-                    start=record.window_start, end=record.window_end
-                ),
+                drill_spec=_drill_spec(record),
                 # honest provenance in place of an evidence grade: this row
                 # is an external detector's assertion read at a watermark,
                 # ordered by a versioned platform formula (see AnomalyCard)

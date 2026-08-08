@@ -27,7 +27,11 @@
 4. **Cardinality budget.** The product of catalog cardinality estimates
    over the probe's dimensions must fit the cell budget, or the probe must
    carry a top-N limit (``QUERY_BUDGET_EXCEEDED``); a limited over-budget
-   probe warns that results are truncated.
+   probe warns that results are truncated. A dimension the probe's own
+   scope pins to an enumerated value set (a conjunctive ``eq``/``in``)
+   counts at that size rather than its catalog estimate — a group-by on
+   four dimensions each pinned to one value is one cell, not their
+   cross-product, and must not be refused for a budget it cannot spend.
 5. **Exclusion intersection.** A user scope predicate touching a
    contract's internal exclusions or filtered-numerator dimensions (the
    "denial rate for denied claims" confusion) yields a warning surfaced
@@ -68,7 +72,14 @@ from revi_kernel.errors import (
     SourceCapabilityUnsupportedError,
     UnsupportedConceptError,
 )
-from revi_kernel.filters import Predicate, iter_cohorts, iter_predicates
+from revi_kernel.filters import (
+    And,
+    FilterExpr,
+    Predicate,
+    PredicateOp,
+    iter_cohorts,
+    iter_predicates,
+)
 from revi_kernel.grades import EvidenceGrade, min_grade
 from revi_kernel.probes import AggregationProbe, SnapshotProbe
 from revi_kernel.refs import SERVICE, DateBasisRef, DimensionRef
@@ -389,13 +400,24 @@ class PlanValidationService:
     def _check_cardinality(self, node: ProbeNode, warnings: list[str]) -> None:
         probe = node.probe
         assert isinstance(probe, (AggregationProbe, SnapshotProbe))
+        pinned = self._pinned_cardinalities(node)
         cells = 1
         for dim_ref in self._probe_dimensions(node):
             if dim_ref.id.startswith(_TIME_BUCKET_PREFIX):
                 continue
             dim = self._catalog.dimension(dim_ref.id)
             assert dim is not None
-            cells = cells * max(1, dim.cardinality_estimate)
+            estimate = max(1, dim.cardinality_estimate)
+            # A dimension the scope pins to an enumerated value set can only
+            # produce that many groups, whatever the catalog estimate says.
+            # Without this, grouping by four dimensions that are each pinned
+            # to ONE value is scored at their full cross-product and refused
+            # for a budget it cannot possibly spend — which is exactly the
+            # shape of a drill into one detected cell.
+            narrowed = pinned.get(dim_ref.id)
+            if narrowed is not None:
+                estimate = min(estimate, narrowed)
+            cells = cells * estimate
             if cells > self._limits.max_group_cells * 1000:
                 break  # avoid pointless overflow-scale products
         if cells <= self._limits.max_group_cells:
@@ -410,6 +432,37 @@ class PlanValidationService:
         warnings.append(
             f"probe '{node.id}' truncated to the top {limit} of an estimated {cells} cells"
         )
+
+    def _pinned_cardinalities(self, node: ProbeNode) -> dict[str, int]:
+        """Per-dimension group counts the probe's own scope already forces.
+
+        Only *conjunctive* equality/membership narrows a group-by: an
+        ``eq``/``in`` predicate caps the distinct values at what it
+        enumerates. Anything under an ``Or``/``Not`` widens or inverts and
+        is ignored, so the estimate stays an upper bound (``iter_predicates``
+        walks every clause, so the conjunctive test is explicit below).
+        """
+        capped: dict[str, int] = {}
+        for predicate in self._top_level_predicates(node.probe.scope):
+            if predicate.op not in (PredicateOp.EQ, PredicateOp.IN) or not predicate.values:
+                continue
+            distinct = len(set(predicate.values))
+            existing = capped.get(predicate.dimension.id)
+            capped[predicate.dimension.id] = (
+                distinct if existing is None else min(existing, distinct)
+            )
+        return capped
+
+    @staticmethod
+    def _top_level_predicates(expr: FilterExpr) -> tuple[Predicate, ...]:
+        """Predicates that hold unconditionally — the top-level AND chain."""
+        if isinstance(expr, Predicate):
+            return (expr,)
+        if isinstance(expr, And):
+            return tuple(
+                p for clause in expr.clauses for p in PlanValidationService._top_level_predicates(clause)
+            )
+        return ()
 
     # ------------------------------------------- step 5: exclusion overlap
 

@@ -9,7 +9,11 @@
  *   - incomplete trailing events at EOF are discarded (per spec)
  */
 
-import { TURN_EVENT_TYPES, type TurnEvent } from "@/lib/types";
+/** One decoded frame: the published kind plus its raw wire payload. */
+export interface TurnFrame {
+  kind: string;
+  data: Record<string, unknown>;
+}
 
 export interface SseMessage {
   event: string;
@@ -103,22 +107,22 @@ export async function* parseSseStream(
 }
 
 /**
- * Decode one SSE message into a typed TurnEvent. Returns null for event
- * names outside the typed union (forward compatibility: unknown events
- * are skipped, never crashed on).
+ * Decode one SSE message into a raw wire frame. This layer does NOT map
+ * to the UI event union — that is `parseTurnFrame`'s job in lib/contract.ts,
+ * which needs the session pin to render a header. Returns null for a body
+ * that is not a JSON object (a malformed frame is skipped, never crashed
+ * on); unknown *kinds* are passed through, because deciding what is
+ * published is the contract layer's call, not the transport's.
  */
-export function decodeTurnEvent(message: SseMessage): TurnEvent | null {
-  if (!TURN_EVENT_TYPES.has(message.event)) return null;
+export function decodeTurnFrame(message: SseMessage): TurnFrame | null {
   let payload: unknown;
   try {
     payload = JSON.parse(message.data);
   } catch {
     return null;
   }
-  if (typeof payload !== "object" || payload === null) return null;
-  // The server emits the event type both as the SSE event name and inside
-  // the payload; the name wins so a mismatched body is detectable.
-  return { ...(payload as Record<string, unknown>), type: message.event } as TurnEvent;
+  if (typeof payload !== "object" || payload === null || Array.isArray(payload)) return null;
+  return { kind: message.event, data: payload as Record<string, unknown> };
 }
 
 export interface StreamTurnOptions {
@@ -149,7 +153,7 @@ export class SseHttpError extends Error {
 export async function streamTurnEvents(
   url: string,
   body: unknown,
-  onEvent: (event: TurnEvent) => void,
+  onFrame: (frame: TurnFrame) => void,
   options: StreamTurnOptions = {},
 ): Promise<void> {
   const doFetch = options.fetchImpl ?? fetch;
@@ -171,7 +175,7 @@ export async function streamTurnEvents(
     throw new Error("turn submission returned no body stream");
   }
   for await (const message of parseSseStream(response.body)) {
-    const event = decodeTurnEvent(message);
-    if (event) onEvent(event);
+    const frame = decodeTurnFrame(message);
+    if (frame) onFrame(frame);
   }
 }

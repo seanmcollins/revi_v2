@@ -15,13 +15,39 @@ declared here.
 - **`count_distinct:` fields are entity primary-key columns** exactly as
   declared by the catalog's count measures (`claim_id`, `claim_line_id`,
   `denial_id`, `remit_id`).
-- **Filter predicates inside `filtered:`/`exclusions:`** reference certified
-  catalog dimensions (`clean_claim`, `appeal_status`, `denial_category`,
-  `ar_age_bucket`, ...) or base-view columns of the measure's entity
-  (`status`, `submission_date`, `discharge_date`, `txn_type`,
-  `first_pass_paid`). Contract-internal filters are part of governed
-  meaning; analyst scope filters are validated separately against
-  `scope_dimensions`.
+- **Filter predicates inside `filtered:`/`exclusions:`** reference catalog
+  dimensions (`clean_claim`, `appeal_status`, `denial_category`,
+  `cob_mismatch_flag`, ...) and **nothing else**. Contract-internal filters
+  are part of governed meaning; analyst scope filters are validated
+  separately against `scope_dimensions`.
+
+  An earlier revision of this note also allowed "base-view columns of the
+  measure's entity (`status`, `submission_date`, `discharge_date`,
+  `txn_type`, `first_pass_paid`)". That was never true. A `sum:`/
+  `count_distinct:` **field** falls back to the entity's declared columns
+  (`_ValueBinding` in the DuckDB compiler), but a filter **dimension**
+  resolves only through `CatalogSnapshot.dimension()`, so a predicate on a
+  base-view column raises `UNSUPPORTED_CONCEPT` at compile time and the whole
+  probe is pruned as unanswerable. The mistaken convention is the root cause
+  of the exclusion-polarity defect below, and it still leaves these
+  contract-internal `filtered:` predicates unanswerable until the catalog
+  certifies the dimension:
+
+  | contract | unresolved filter dimension(s) |
+  | --- | --- |
+  | `ar_balance` | `status` |
+  | `ar_over_90_pct` | `status` |
+  | `days_in_ar` | `status` |
+  | `dnfb_dollars` | `discharge_date`, `submission_date` |
+  | `first_pass_yield` | `first_pass_paid` |
+  | `initial_denial_rate` | `status` |
+  | `timely_filing_at_risk_dollars` | `status`, `submission_date` |
+
+  `validate_pack_catalog_conformance` deliberately does **not** cover these
+  yet — it guards `exclusions:` only. Widening it to `filtered:` predicates
+  is the obvious next step and would fail composition on all seven rows above
+  until the catalog grows `status`, `submission_date`, `discharge_date` and
+  `first_pass_paid`.
 - **Cross-entity ratios** (`net_collection_rate`, `gross_collection_rate`)
   pair components from different entities (transaction cash over claim
   expected/billed); the kernel computes ratio-of-sums per cell and both
@@ -213,8 +239,106 @@ parameter as `"$dimension"` inside probe `dimensions`; the planner binds it
 to a certified catalog dimension at plan time. `$`-prefixed tokens in probe
 dimensions always refer to declared playbook params.
 
+## Exclusion polarity (2026-08-08 correction)
+
+`exclusions:` names the population to **remove**. The compiler emits
+`FILTER (WHERE NOT <expr>)` for it
+(`revi_connector_duckdb.compile._measure_expr_sql`), symmetrically on
+numerator and denominator. It is not a `where:` clause.
+
+All seven `exclusions:` in this pack were authored as if it were one — as
+inclusion predicates — so each kept exactly the population its description
+said it removed. Six were inert: the dimension they name is absent from
+`warehouse/catalog/dimensions.yaml`, so every probe touching them raised
+`UNSUPPORTED_CONCEPT` before any SQL ran. That accident is what hid the
+inversion. The seventh resolved, executed and published numbers.
+
+| contract | as authored | what it actually kept | what it meant to remove | outcome |
+| --- | --- | --- | --- | --- |
+| `avg_days_to_pay` | `txn_type eq PAYMENT` | non-payment transactions only | non-payment transactions | exclusion removed |
+| `bill_lag_days` | `not(submission_date is_null)` | unsubmitted claims only | unsubmitted claims | exclusion removed |
+| `clean_claim_rate` | `status neq OPEN` | OPEN claims only | claims with no adjudication outcome | exclusion removed |
+| `denial_rate` | `status neq OPEN` | OPEN claims only | claims with no adjudication outcome | exclusion removed |
+| `denials_unworked_pct` | `denial_category neq PATIENT_RESP` | patient-responsibility records only | patient-responsibility records | **polarity repaired, v1 → v2** |
+| `first_pass_yield` | `not(submission_date is_null)` | unsubmitted claims only | unsubmitted claims | exclusion removed |
+| `initial_denial_rate` | `not(submission_date is_null)` | unsubmitted claims only | unsubmitted claims | exclusion removed |
+
+### Why the six were removed rather than repaired
+
+`status`, `submission_date` and `txn_type` are base-view columns, not catalog
+dimensions, and filter predicates resolve only through the catalog (see the
+field-reference note above). A repaired-but-still-unresolvable exclusion
+would stay inert and go on hiding. Restoring any of them is one catalog
+change — certify the dimension in `warehouse/catalog/dimensions.yaml` (id,
+label, `entities:` binding, synonyms, `phi`), then re-add the exclusion with
+`exclusions:` polarity — and `warehouse/` is out of scope for a pack pass.
+
+Residue, per contract:
+
+- **`avg_days_to_pay`** — the one removal that costs declared meaning. The
+  population is now every transaction posted in the window, not payer
+  payments. `payment_lag_days` is null for non-PAYMENT rows so a `sum:`
+  numerator is unaffected, but the `count: {}` denominator counts every
+  transaction and dilutes the mean downward. Certifying `txn_type` restores
+  it; so would a derived measure carrying its own `filter_sql`. Moot in
+  practice today: `payment_lag_days` is an undelivered derived measure, so
+  the metric is unanswerable either way.
+- **`bill_lag_days`, `first_pass_yield`, `initial_denial_rate`** — the
+  exclusion was a no-op on each contract's *primary* `submission` basis: a
+  claim with a null `submission_date` cannot fall inside a submission window,
+  so it is already absent from the population. It bites only on the alternate
+  `service` basis, where never-submitted claims now enter the denominator.
+  Every affected description says so.
+- **`clean_claim_rate`, `denial_rate`** — materially wider populations: every
+  claim in the window, not adjudicated claims only. `clean_claim` is
+  `paid AND NOT denied`, so an unadjudicated claim reads false — it lowers
+  `clean_claim_rate` and raises `denial_rate` near the watermark. Both
+  descriptions state it; certifying `status` restores the adjudicated-only
+  population.
+
+### Why `denials_unworked_pct` was repaired instead
+
+`denial_category` is certified, so this contract resolved and executed. It has
+been reporting over patient-responsibility notices only — the exact records it
+meant to drop. Repairing the polarity (`neq` → `eq`) changes a number in
+service, so it takes a version: **v1 → v2**. Over 2026-05-01..2026-08-02 at
+`wm_003` the reading moves from 41/62 = 66.13% to 1182/1520 = 77.76%, a 24×
+denominator change. Nothing pins the old values — no `data/answer_key.json`
+entry, no reference test, no portfolio fixture. (The `unworked_denials`
+anomaly specs in the warehouse generator name this metric id but carry
+pre-baked detection values; they never evaluate the contract.)
+
+### Versions
+
+Only `denials_unworked_pct` was bumped. A contract version exists so a
+recorded number can be traced to the meaning that produced it and rolled back
+to it. The other six could never produce a number, so there is no v1 reading
+to distinguish from a v2 one, and minting a version would assert a field
+history that does not exist. The change is not silent regardless: `exclusions`
+is part of the §5.2 semantic fingerprint, so every one of the seven moves the
+pack snapshot id.
+
+### What now guards this
+
+`revi_pack.conformance.validate_pack_catalog_conformance` fails pack
+composition when an `exclusions:` predicate names a dimension the catalog does
+not define, and `revi_api.wiring.build_components` calls it unconditionally at
+startup. It would have caught six of these seven. It cannot catch
+`denials_unworked_pct` — an exclusion whose dimension resolves is
+structurally indistinguishable from a correct one, since only the prose says
+which population was intended. The compensating controls are the executed
+polarity pin
+(`packages/connector-duckdb/tests/test_duckdb_contract.py::TestExclusionPolarity`)
+and reading each description against its predicate at review time.
+
 ## Contract revisions
 
+- **`denials_unworked_pct` v2 (exclusion polarity repair, 2026-08-08).** v1's
+  `exclusions: {denial_category neq PATIENT_RESP}` compiles to
+  `NOT(denial_category <> 'PATIENT_RESP')`, i.e. it kept only the
+  patient-responsibility records the description says are removed. v2 states
+  the predicate as the population to remove (`op: eq`). Details and the
+  before/after numbers are in "Exclusion polarity" above.
 - **`denied_dollars` v2 (grain rebind, M7).** v1 declared `entity_grain:
   line`, but its measure (`denied_amount_cents`) and code-level scope
   dimensions (`carc`, `group_code`, `denial_category`) all bind on the

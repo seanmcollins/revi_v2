@@ -95,11 +95,15 @@ class ApiService:
             stored = self._idempotent.get((session_id, request.idempotency_key))
             if stored is not None:
                 return stored
-        utterance = request.utterance or request.clarification_response or "(typed gesture)"
+        default_question = (
+            "(typed investigation)" if request.spec is not None else "(typed gesture)"
+        )
+        utterance = request.utterance or request.clarification_response or default_question
         engine_request = SubmitTurnRequest(
             tenant="api",  # sessions carry the tenant; new implicit sessions use this
             question=utterance,
             session_id=session_id,
+            spec=request.spec,
             refinements=tuple(request.refinements) if request.refinements is not None else None,
             re_anchor=request.re_anchor,
         )

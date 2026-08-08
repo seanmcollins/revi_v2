@@ -204,8 +204,18 @@ export interface components {
          *
          *     The decomposed components (impact, age, recoverable estimate,
          *     actionability rationale) travel with the score — no black-box
-         *     ordering — and ``drill_filters`` + ``drill_window`` are the typed
-         *     handle the UI uses to start an ordinary investigation turn.
+         *     ordering — and ``drill_spec`` is the typed handle the UI posts to
+         *     start an ordinary investigation turn.
+         *
+         *     ``drill_spec`` is a complete :class:`TypedInvestigationSpec`, not a
+         *     bag of operators: the card's own metric, its dimensions (both as the
+         *     breakdown and, at their detected values, as the scope), and its
+         *     observation window. Posting it re-derives the detector's assertion
+         *     from the platform's certified semantics and versioned contracts — so
+         *     the answer carries a real evidence grade where the card itself only
+         *     carries provenance. Earlier milestones shipped ``drill_filters`` +
+         *     ``drill_window``, which were sound operators with nowhere to land: a
+         *     refinement refines a parent investigation and a card is not one.
          *
          *     **No evidence grade, by construction.** A grade certifies how a number
          *     was *computed by this platform* from certified semantics (design §5.3);
@@ -253,9 +263,7 @@ export interface components {
             detected_at: string;
             /** Dimensions */
             dimensions?: components["schemas"]["AnomalyDimension"][];
-            /** Drill Filters */
-            drill_filters?: components["schemas"]["AddFilterModel"][];
-            drill_window?: components["schemas"]["AbsoluteWindowModel"] | null;
+            drill_spec: components["schemas"]["TypedInvestigationSpec"];
             /**
              * Impact Cents
              * @default 0
@@ -865,7 +873,8 @@ export interface components {
         };
         /**
          * TurnRequest
-         * @description One turn: an utterance OR typed refinement operators (§12).
+         * @description One turn: an utterance, a typed investigation spec, OR typed
+         *     refinement operators (§12).
          */
         TurnRequest: {
             /** Clarification Response */
@@ -881,6 +890,7 @@ export interface components {
             re_anchor: boolean;
             /** Refinements */
             refinements?: (components["schemas"]["SetDimensionsModel"] | components["schemas"]["AddFilterModel"] | components["schemas"]["RemoveFilterModel"] | components["schemas"]["SetWindowModel"] | components["schemas"]["SetComparisonModel"] | components["schemas"]["SetGrainModel"] | components["schemas"]["DrillIntoModel"] | components["schemas"]["PivotModel"] | components["schemas"]["ExplainModel"] | components["schemas"]["RankByModel"] | components["schemas"]["ExpandModel"] | components["schemas"]["ResetContextModel"])[] | null;
+            spec?: components["schemas"]["TypedInvestigationSpec"] | null;
             /** Utterance */
             utterance?: string | null;
         };
@@ -905,6 +915,41 @@ export interface components {
              * @enum {string}
              */
             event: "stage" | "warning" | "clarification" | "context_header" | "finding" | "chart_spec" | "narrative_delta" | "error" | "turn_complete";
+        };
+        /**
+         * TypedInvestigationSpec
+         * @description An explicit, typed investigation — the typed twin of interpretation.
+         *
+         *     A turn carrying one of these is a NEW_INVESTIGATION *by construction*:
+         *     it names its own governed metrics, dimensions, scope and window, so
+         *     there is nothing to infer and no parent investigation to refine. The
+         *     engine builds the ``AnalysisSpec`` from it directly with **zero model
+         *     calls**; the §6.6 validation pass then runs unchanged, so a typed spec
+         *     earns exactly the same grades, warnings and refusals an interpreted
+         *     one does. It skips the guessing, never the governance.
+         *
+         *     This is the anchor a typed *refinement* has always needed and never
+         *     had. A refinement edits a parent investigation; a portfolio card, a
+         *     chart click in a fresh session, a saved view or a scheduled brief has
+         *     no parent — it has an intent that is already typed. Expressing that as
+         *     a first turn (rather than minting a hidden portfolio-anchored session
+         *     per surface) keeps one investigation pipeline: whatever posts this
+         *     gets the same planning, validation, grading, findings and trace as a
+         *     sentence would.
+         */
+        TypedInvestigationSpec: {
+            /** Basis */
+            basis?: string | null;
+            /** Comparison */
+            comparison?: ("prior_period" | "prior_year") | null;
+            /** Dimensions */
+            dimensions?: string[];
+            /** Filters */
+            filters?: components["schemas"]["AddFilterModel"][];
+            /** Metric Ids */
+            metric_ids: string[];
+            /** Window */
+            window: components["schemas"]["WindowSpecModel"] | components["schemas"]["AbsoluteWindowModel"];
         };
         /** UsageSummary */
         UsageSummary: {

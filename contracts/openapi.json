@@ -81,7 +81,7 @@
       },
       "AnomalyCard": {
         "additionalProperties": false,
-        "description": "One detected anomaly, ranked by the governed priority formula.\n\nThe decomposed components (impact, age, recoverable estimate,\nactionability rationale) travel with the score \u2014 no black-box\nordering \u2014 and ``drill_filters`` + ``drill_window`` are the typed\nhandle the UI uses to start an ordinary investigation turn.\n\n**No evidence grade, by construction.** A grade certifies how a number\nwas *computed by this platform* from certified semantics (design \u00a75.3);\nan anomaly card is not that. It is a record read from an external\ndetection system as-of a watermark, so the platform cannot honestly\nstamp DIRECT/DERIVED/PROXY on it. Instead every card declares its\n``provenance`` (``external_detection``), the ``priority_formula_version``\nthat ordered it, and the ``source_watermark_id`` it was read at \u2014 the\nthree facts a grade would otherwise have implied. Drilling a card starts\nan ordinary investigation turn, and *that* answer carries a real grade.",
+        "description": "One detected anomaly, ranked by the governed priority formula.\n\nThe decomposed components (impact, age, recoverable estimate,\nactionability rationale) travel with the score \u2014 no black-box\nordering \u2014 and ``drill_spec`` is the typed handle the UI posts to\nstart an ordinary investigation turn.\n\n``drill_spec`` is a complete :class:`TypedInvestigationSpec`, not a\nbag of operators: the card's own metric, its dimensions (both as the\nbreakdown and, at their detected values, as the scope), and its\nobservation window. Posting it re-derives the detector's assertion\nfrom the platform's certified semantics and versioned contracts \u2014 so\nthe answer carries a real evidence grade where the card itself only\ncarries provenance. Earlier milestones shipped ``drill_filters`` +\n``drill_window``, which were sound operators with nowhere to land: a\nrefinement refines a parent investigation and a card is not one.\n\n**No evidence grade, by construction.** A grade certifies how a number\nwas *computed by this platform* from certified semantics (design \u00a75.3);\nan anomaly card is not that. It is a record read from an external\ndetection system as-of a watermark, so the platform cannot honestly\nstamp DIRECT/DERIVED/PROXY on it. Instead every card declares its\n``provenance`` (``external_detection``), the ``priority_formula_version``\nthat ordered it, and the ``source_watermark_id`` it was read at \u2014 the\nthree facts a grade would otherwise have implied. Drilling a card starts\nan ordinary investigation turn, and *that* answer carries a real grade.",
         "properties": {
           "actionability_label": {
             "default": "",
@@ -131,22 +131,8 @@
             "title": "Dimensions",
             "type": "array"
           },
-          "drill_filters": {
-            "items": {
-              "$ref": "#/components/schemas/AddFilterModel"
-            },
-            "title": "Drill Filters",
-            "type": "array"
-          },
-          "drill_window": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/AbsoluteWindowModel"
-              },
-              {
-                "type": "null"
-              }
-            ]
+          "drill_spec": {
+            "$ref": "#/components/schemas/TypedInvestigationSpec"
           },
           "impact_cents": {
             "default": 0,
@@ -217,7 +203,8 @@
           "status",
           "detected_at",
           "window_start",
-          "window_end"
+          "window_end",
+          "drill_spec"
         ],
         "title": "AnomalyCard",
         "type": "object"
@@ -1673,7 +1660,7 @@
       },
       "TurnRequest": {
         "additionalProperties": false,
-        "description": "One turn: an utterance OR typed refinement operators (\u00a712).",
+        "description": "One turn: an utterance, a typed investigation spec, OR typed\nrefinement operators (\u00a712).",
         "properties": {
           "clarification_response": {
             "anyOf": [
@@ -1781,6 +1768,16 @@
             ],
             "title": "Refinements"
           },
+          "spec": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TypedInvestigationSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "utterance": {
             "anyOf": [
               {
@@ -1826,6 +1823,77 @@
           "data"
         ],
         "title": "TurnStreamEvent",
+        "type": "object"
+      },
+      "TypedInvestigationSpec": {
+        "additionalProperties": false,
+        "description": "An explicit, typed investigation \u2014 the typed twin of interpretation.\n\nA turn carrying one of these is a NEW_INVESTIGATION *by construction*:\nit names its own governed metrics, dimensions, scope and window, so\nthere is nothing to infer and no parent investigation to refine. The\nengine builds the ``AnalysisSpec`` from it directly with **zero model\ncalls**; the \u00a76.6 validation pass then runs unchanged, so a typed spec\nearns exactly the same grades, warnings and refusals an interpreted\none does. It skips the guessing, never the governance.\n\nThis is the anchor a typed *refinement* has always needed and never\nhad. A refinement edits a parent investigation; a portfolio card, a\nchart click in a fresh session, a saved view or a scheduled brief has\nno parent \u2014 it has an intent that is already typed. Expressing that as\na first turn (rather than minting a hidden portfolio-anchored session\nper surface) keeps one investigation pipeline: whatever posts this\ngets the same planning, validation, grading, findings and trace as a\nsentence would.",
+        "properties": {
+          "basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis"
+          },
+          "comparison": {
+            "anyOf": [
+              {
+                "enum": [
+                  "prior_period",
+                  "prior_year"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comparison"
+          },
+          "dimensions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "filters": {
+            "items": {
+              "$ref": "#/components/schemas/AddFilterModel"
+            },
+            "title": "Filters",
+            "type": "array"
+          },
+          "metric_ids": {
+            "items": {
+              "type": "string"
+            },
+            "minItems": 1,
+            "title": "Metric Ids",
+            "type": "array"
+          },
+          "window": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WindowSpecModel"
+              },
+              {
+                "$ref": "#/components/schemas/AbsoluteWindowModel"
+              }
+            ],
+            "title": "Window"
+          }
+        },
+        "required": [
+          "metric_ids",
+          "window"
+        ],
+        "title": "TypedInvestigationSpec",
         "type": "object"
       },
       "UsageSummary": {

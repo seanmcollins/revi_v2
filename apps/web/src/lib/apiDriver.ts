@@ -23,18 +23,21 @@
 import {
   newReceivedState,
   parseErrorEnvelope,
+  parseInvestigationResponse,
   parsePortfolioSnapshot,
   parseSessionLineage,
   parseSessionResponse,
+  parseTurnFrame,
   parseTurnResponse,
+  refinementsToWire,
   trackReceived,
   turnResponseToEvents,
-  validateTurnEvent,
   type ErrorEnvelopeData,
   type PortfolioSnapshotData,
   type ReceivedTurnState,
   type SessionBootstrap,
   type TurnResponseParse,
+  type WirePin,
 } from "@/lib/contract";
 import type {
   ConnectionState,
@@ -205,7 +208,7 @@ export async function fetchInvestigation(
     { method: "GET" },
     options,
   );
-  const parse = parseTurnResponse(raw);
+  const parse = parseInvestigationResponse(raw);
   if (parse.drift.length > 0) {
     reportDriftToConsole(parse.drift, `GET /v1/investigations/${investigationId}`, options.onDrift);
   }
@@ -325,9 +328,15 @@ export class ApiDriver implements TurnDriver {
       idempotency_key: idempotencyKey,
       correlation_id: correlationId,
       ...(submission.utterance !== undefined ? { utterance: submission.utterance } : {}),
+      // The UI names operators in PascalCase; the wire does not. Posting
+      // the UI spelling is a 422, so translate at the boundary.
       ...(submission.refinements && submission.refinements.length > 0
-        ? { refinements: submission.refinements }
+        ? { refinements: refinementsToWire(submission.refinements) }
         : {}),
+      // A typed FIRST turn (a portfolio card's drill handle, or a chart
+      // click with no prior answer to refine): a new investigation, not an
+      // edit to one.
+      ...(submission.spec !== undefined ? { spec: submission.spec } : {}),
       ...(submission.clarificationResponse !== undefined
         ? { clarification_response: submission.clarificationResponse }
         : {}),
@@ -354,40 +363,63 @@ export class ApiDriver implements TurnDriver {
     const body = this.turnBody(submission, idempotencyKey, correlationId);
     const url = `${this.baseUrl}/v1/sessions/${encodeURIComponent(session.sessionId)}/turns`;
 
+    const pin: WirePin = { watermark: session.watermark, pack: session.pack };
     const received = newReceivedState();
     let sawTerminal = false;
     let investigationId: string | undefined;
 
-    const gatedEmit = (event: TurnEvent): void => {
-      // Harvest an investigation id from ANY frame that carries one (extra
-      // fields are tolerated) — it unlocks GET-based recovery pre-completion.
-      const carried = (event as unknown as Record<string, unknown>).investigationId;
-      if (typeof carried === "string") investigationId = carried;
+    const emitMapped = (event: TurnEvent): void => {
+      trackReceived(received, event);
+      if (event.type === "turn_complete" || event.type === "error") sawTerminal = true;
+      emit(event);
+    };
 
-      const result = validateTurnEvent(event);
+    const onFrame = (frame: { kind: string; data: Record<string, unknown> }): void => {
+      // Harvest an investigation id from ANY frame that carries one — it
+      // unlocks GET-based recovery before the turn completes.
+      if (typeof frame.data.investigation_id === "string") {
+        investigationId = frame.data.investigation_id;
+      }
+      if (frame.kind === "turn_complete") {
+        // The stream is progress; this frame is the authoritative answer.
+        const parse = parseTurnResponse(frame.data, pin);
+        if (parse.drift.length > 0) this.reportDrift(parse.drift, 'sse frame "turn_complete"');
+        if (!parse.value) {
+          sawTerminal = true;
+          emit({
+            type: "error",
+            code: "CONTRACT_DRIFT",
+            message:
+              'The server sent a malformed "turn_complete" frame — required fields are missing (paths in the console).',
+            correlationId,
+          });
+          return;
+        }
+        for (const event of turnResponseToEvents(parse.value, received)) emitMapped(event);
+        return;
+      }
+      const result = parseTurnFrame(frame.kind, frame.data, pin);
+      if (result === null) return; // unpublished kind — skipped, not drift
       if (!result.ok) {
-        this.reportDrift(result.missing, `sse frame "${event.type}"`);
-        if (event.type === "turn_complete" || event.type === "error") {
+        this.reportDrift(result.missing, `sse frame "${frame.kind}"`);
+        if (frame.kind === "error") {
           // The terminal frame itself is malformed — the turn must not hang.
           sawTerminal = true;
           emit({
             type: "error",
             code: "CONTRACT_DRIFT",
-            message: `The server sent a malformed "${event.type}" frame — required fields are missing (paths in the console).`,
+            message:
+              'The server sent a malformed "error" frame — required fields are missing (paths in the console).',
             correlationId,
           });
         }
         return; // drop the malformed frame, never render partial garbage
       }
-      trackReceived(received, result.value);
-      if (result.value.type === "turn_complete" || result.value.type === "error") {
-        sawTerminal = true;
-      }
-      emit(result.value);
+      emitMapped(result.value);
     };
 
     try {
-      await streamTurnEvents(url, body, gatedEmit, {
+      await streamTurnEvents(url, body, onFrame, {
         signal,
         fetchImpl: this.fetchImpl,
       });
@@ -406,7 +438,7 @@ export class ApiDriver implements TurnDriver {
       // Transport drop mid-stream → fall through to recovery.
     }
 
-    await this.recoverTurn({ emit: gatedEmit, url, body, received, correlationId, signal }, () => ({
+    await this.recoverTurn({ emit: emitMapped, url, body, pin, received, correlationId, signal }, () => ({
       sawTerminal,
       investigationId,
     }));
@@ -425,6 +457,7 @@ export class ApiDriver implements TurnDriver {
       emit: (event: TurnEvent) => void;
       url: string;
       body: Record<string, unknown>;
+      pin: WirePin;
       received: ReceivedTurnState;
       correlationId: string;
       signal?: AbortSignal;
@@ -444,7 +477,7 @@ export class ApiDriver implements TurnDriver {
         const { investigationId } = state();
         const parse = investigationId
           ? await fetchInvestigation(investigationId, requestOptions)
-          : await this.replayTurnJson(args.url, args.body, requestOptions);
+          : await this.replayTurnJson(args.url, args.body, args.pin, requestOptions);
         if (!parse.value) {
           // Core fields missing — retrying will not help; fail visibly.
           args.emit({
@@ -487,6 +520,7 @@ export class ApiDriver implements TurnDriver {
   private async replayTurnJson(
     url: string,
     body: Record<string, unknown>,
+    pin: WirePin,
     options: RequestOptions,
   ): Promise<TurnResponseParse> {
     const raw = await requestJson(
@@ -498,7 +532,7 @@ export class ApiDriver implements TurnDriver {
       },
       options,
     );
-    const parse = parseTurnResponse(raw);
+    const parse = parseTurnResponse(raw, pin);
     if (parse.drift.length > 0) this.reportDrift(parse.drift, "turn replay (application/json)");
     return parse;
   }
