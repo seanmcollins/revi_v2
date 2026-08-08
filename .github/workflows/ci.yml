@@ -1,0 +1,63 @@
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  python:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: revi
+          POSTGRES_PASSWORD: revi_dev_only
+          POSTGRES_DB: revi
+        ports: ["5433:5432"]
+        options: >-
+          --health-cmd "pg_isready -U revi -d revi"
+          --health-interval 5s --health-timeout 3s --health-retries 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: astral-sh/setup-uv@v5
+        with:
+          python-version: "3.12"
+      - name: Sync workspace
+        run: uv sync --all-packages
+      - name: Lint (ruff + import-linter + naming guard)
+        run: make lint
+      - name: Types (strict domains)
+        run: |
+          uv run mypy packages/kernel/src packages/calculation/src \
+            packages/calculation-contracts/src packages/pack/src \
+            packages/catalog-contracts/src packages/catalog/src \
+            packages/connector-duckdb/src packages/investigation/src \
+            packages/store-postgres/src
+      - name: Generate warehouse
+        run: make warehouse
+      - name: Tests (default + golden)
+        run: uv run pytest -q
+      - name: Postgres store tests
+        env:
+          REVI_DATABASE_URL: postgresql+psycopg://revi:revi_dev_only@localhost:5433/revi
+        run: uv run pytest -m postgres -q
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Frontend build + test
+        run: |
+          if [ -f apps/web/package.json ]; then
+            cd apps/web && pnpm install --frozen-lockfile && pnpm lint && pnpm test && pnpm build
+          else
+            echo "apps/web not scaffolded yet"
+          fi
