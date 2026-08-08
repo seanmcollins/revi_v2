@@ -95,6 +95,117 @@ catalog's derived `ar_age_bucket` dimension):
   unapplied cash, takeback rate**: no supporting events/fields in the mock
   schema — covered as governed concepts/vocabulary only.
 
+## KB wave 1 (machine-researched knowledge, 2026-08-07)
+
+`knowledge.yaml` and `benchmarks.yaml` carry the first wave of governed
+narrative knowledge: **55 knowledge cards** and **19 benchmark figures**,
+every one `review_status: machine_researched` and
+`authored_by: machine-researched (KB wave 1, 2026-08-07)`. Nothing in this
+wave is certified. Sean reviews and approves before any card or figure may
+be treated as governed truth; the promotion path (machine_researched →
+human_approved, with the proposal/delta machinery in
+`revi_pack.domain.PackDelta`) is Phase 4 work. Until then, consumers must
+surface the provenance tier alongside the content, exactly as they surface
+`cohort_label` and `cautions` on a benchmark.
+
+### Card id namespaces
+
+| Namespace | Cards | Scope |
+| --- | --- | --- |
+| `benchmark.*` | 12 | published external figures and survey context (denial rates, overturn rates, A/R aging, cost/admin burden, patient collections) |
+| `payer.*` | 12 | payer behavior by segment (MA, commercial, Medicaid, marketplace) — denial patterns, downcoding, clawbacks, prompt-pay stalling |
+| `reg.*` | 15 | regulation and standards (CMS-4201-F, CMS-0057-F, No Surprises Act IDR, price transparency, 501(r), ERISA, HIPAA transactions/attachments, X12 licensing) |
+| `ops.*` | 16 | denial and appeal operations (taxonomy, CARC root-cause mapping, appeal ladders by payer, appeal economics, prevention, write-off governance, measurement) |
+
+### Cards elaborate concepts; they never contradict them
+
+`concepts.yaml` owns the one-paragraph governed definition; a card adds key
+points, cautions, and dated provenance. Card aliases may deliberately
+overlap concept aliases (`resolve_term` returns the concept first, then the
+elaborating card) — alias uniqueness is enforced **among cards only**. Five
+such overlaps are authored on purpose and pinned by test, so a definitional
+turn returns definition *plus* elaboration: `soft denial` /
+`hard denial` → `ops.denial_taxonomy`, `coordination of benefits` →
+`ops.cob_ordering_msp`, `map keys` → `ops.map_keys_measurement`,
+`denial write-off` → `ops.write_off_governance`, `unworked denials` →
+`benchmark.denials_never_worked`. Where
+a card touches a concept's territory (e.g. `ops.group_code_liability` vs the
+group-code definitions in `codes.yaml`), the card elaborates the operational
+consequence and defers to the concept/code definition for meaning.
+
+### No licensed code text
+
+CARC/RARC/group-code descriptions in cards are paraphrased in our own words,
+the same discipline `codes.yaml` follows. X12 publishes the lists openly but
+asserts copyright and licenses redistribution
+(`reg.carc_rarc_licensing` documents the exposure); verbatim code-list text
+is never reproduced in pack content.
+
+### Benchmark metric mapping
+
+Every `BenchmarkFigure.metric_id` resolves to a real pack metric contract
+(snapshot integrity enforces it). Mapped figures:
+
+- `initial_denial_rate` (7): Kodiak, Optum, Premier private-payer, Health
+  Affairs MA, Crowe commercial, traditional Medicare, Medicaid.
+- `appeal_overturn_rate` (4): KFF MA prior-auth appeals, Premier private
+  payer, Health Affairs MA claims, OIG SNF admission denials.
+- `denials_unworked_pct` (3): marketplace consumer appeal share, MA
+  prior-auth appealed share, HFMA best-practice appeal share (all recorded
+  as appealed-share with the complement noted in `cautions`).
+- `denial_rate` (1): ACA marketplace plan-reported in-network denials.
+- `days_in_ar` (2): Kodiak YoY direction, trade guidance range.
+- `ar_over_90_pct` (1), `clean_claim_rate` (1).
+
+### Benchmarks dropped for want of a Revi metric
+
+Researched figures with no metric contract to hang on were dropped rather
+than force-fit. They stay in the cards (as narrative with sources) but are
+not benchmark artifacts:
+
+- **Final denial rate as % of net revenue** and **median bad-debt rate**
+  (Kodiak): Revi has `denial_write_off_dollars` (dollars, OTHER_ADJ family),
+  not an NPSR-denominated ratio — see "Deferred metrics" above
+  (`denial_write_off_pct_of_revenue`). Narrative lives in
+  `benchmark.final_denial_rate`.
+- **Prior-authorization denial rates** (MA 7.7%, Medicaid MCO 12.5%,
+  post-acute SNF/IRF/LTCH, traditional Medicare FFS 22.9%) and
+  **prior-auth turnaround SLAs** (CMS-0057-F 72h/7d): the denominator is
+  PA requests, not claims — no PA entity exists in the warehouse. Narrative
+  in `payer.ma.prior_auth_appeal_gap`, `payer.medicaid.denials_oversight`,
+  `payer.ma.post_acute_denials`, `reg.cms_0057f`.
+- **Avoidable/preventable denial share** (Optum 84%, HFMA 90%): no
+  preventability classification exists on the denial entity. Narrative in
+  `benchmark.denial_avoidability`.
+- **Cost to rework or fight a denial** ($25.20–$43.84) and **cost to
+  collect** (2–4% of NPR): cost-to-collect (MAP FM-6/FM-7) is a deferred
+  metric with no supporting cost data. Narrative in
+  `benchmark.cost_to_collect_admin_burden` and `ops.appeal_economics`.
+- **Patient/self-pay collection rate** (Kodiak 34.5–37.6%): `patient_cash_posted`
+  is a dollar flow, not a rate against patient responsibility. Narrative in
+  `benchmark.patient_collections_bad_debt`.
+- **Total write-offs as % of collections** (<5% vendor target): no
+  collections-denominated write-off ratio contract.
+- **Aged A/R over 120 days** (MGMA better performers 8.1%): only
+  `ar_over_90_pct` exists; the buckets are not interchangeable.
+- **Federal IDR statistics** (dispute volume, provider win rate ~85–88%,
+  ineligibility rate): out-of-network arbitration is not a Revi metric
+  family. Narrative in `reg.nsa_idr_outcomes`.
+- **Medicaid unwinding disenrollment/eligibility churn**, **inappropriate-denial
+  share** (OIG 13–18%), and **credentialing delay cost** ($10,122/physician/day):
+  no eligibility, audit-outcome, or enrollment-cost metrics. Narrative in
+  `reg.medicaid_unwinding`, `reg.ma_denial_oversight`,
+  `ops.credentialing_enrollment`.
+
+### Figures deliberately not captured at all
+
+The research sweeps flagged widely circulated numbers with no retrievable
+primary source: "50–65% of denials are never reworked" (attributed to MGMA),
+absolute national medians for net days in A/R, DNFB days, charge lag, and
+net collection rate. These are recorded as cautions inside the relevant
+cards (`benchmark.days_in_ar`, `benchmark.denials_never_worked`) and are
+never asserted as benchmark figures.
+
 ## Playbook parameter convention
 
 `dimension_scorecard` declares `params: [dimension]` and references the

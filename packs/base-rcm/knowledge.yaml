@@ -1,0 +1,3054 @@
+# Governed knowledge cards — KB wave 1 (machine-researched, 2026-08-07).
+# Cards ELABORATE existing concepts (aliases may overlap concepts by design;
+# alias uniqueness is enforced only among cards). Every card carries
+# review_status: machine_researched — nothing here is certified until Sean
+# approves it (promotion machinery is Phase 4; see NOTES.md).
+# All code descriptions are paraphrased in our own words; no licensed X12
+# code-list text is reproduced.
+knowledge_cards:
+  # ==================================================================
+  # benchmark.* — published external figures and survey context
+  # ==================================================================
+  - id: benchmark.initial_denial_rates
+    title: "Initial claim denial rates: national hospital benchmarks"
+    domains: [benchmarks, denials]
+    aliases:
+      - initial denial rate benchmark
+      - national denial rate
+      - denial rate benchmark
+      - average denial rate
+    summary: >-
+      Two large proprietary datasets converge on an initial denial rate of
+      roughly 11.8-12% of hospital claims in 2023-2024, up from about 9-10%
+      before 2020. Provider survey data (Premier) puts private-payer initial
+      denials higher, near 15%. The rate has risen nearly every year since
+      2016, with payers increasingly using denials and information requests
+      to slow payment even though most denied claims are eventually paid.
+    key_points:
+      - >-
+        Kodiak Solutions (2,100+ hospitals, 300,000+ physicians): initial
+        denial rate hit 11.81% of claims in 2024, up 2.4% year over year;
+        earlier Kodiak data showed 10.15% in 2020 rising to 11.99% by Q3 2023.
+      - >-
+        Optum 2024 Revenue Cycle Denials Index (~124M hospital claim remits,
+        1,400+ hospitals, Jan-Dec 2023): average denial rate ~12% in 2023,
+        vs 10% in 2020 and 9% in 2016.
+      - >-
+        Regional spread is wide: Optum found 2023 denial rates from 9.16%
+        (Mountain) to 16.48% (Pacific).
+      - >-
+        Premier survey (516 hospitals, fielded Oct-Dec 2023): nearly 15% of
+        claims submitted to private payers are initially denied, including
+        ~3.2% that had already received prior authorization.
+      - >-
+        Clearinghouse/remit platform data (Kodiak, Optum) runs lower than
+        provider self-report surveys (Premier); the spread is methodological,
+        and some Kodiak series measure share of claim value, not claim count.
+    cautions:
+      - >-
+        Kodiak reports payers ultimately pay roughly 90% of initially denied
+        claims — initial denial rates measure friction, not final loss.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: techtarget-kodiak-2024
+        title: Initial claim denial rates put revenue cycle in tough spot
+        publisher: TechTarget (Kodiak Solutions data)
+        url: https://www.techtarget.com/revcyclemanagement/news/366625109/Initial-claim-denial-rates-put-revenue-cycle-in-tough-spot
+        authority: trade press reporting proprietary platform data
+        effective_from: 2024-01-01
+        last_verified_at: 2026-08-07
+      - id: optum-denials-index-2024
+        title: The Optum 2024 Revenue Cycle Denials Index
+        publisher: Optum (formerly Change Healthcare)
+        url: https://marketplace.optum.com/content/dam/change-healthcare/marketplace-assets/outcomes-and-insights/2024-denials-index.pdf
+        authority: clearinghouse claims analysis (primary)
+        effective_from: 2023-01-01
+        last_verified_at: 2026-08-07
+      - id: premier-denials-2024
+        title: "Trend Alert: Private Payers Retain Profits by Refusing or Delaying Legitimate Medical Claims"
+        publisher: Premier Inc.
+        url: https://premierinc.com/newsroom/blog/trend-alert-private-payers-retain-profits-by-refusing-or-delaying-legitimate-medical-claims
+        authority: national provider survey (primary)
+        effective_from: 2023-12-31
+        last_verified_at: 2026-08-07
+
+  - id: benchmark.denial_rate_by_payer_type
+    title: Initial denial rates by payer type (MA vs commercial vs Medicaid vs Medicare)
+    domains: [benchmarks, denials, payer_behavior]
+    aliases:
+      - denial rate by payer
+      - denial rates by payer type
+      - payer type denial rates
+    summary: >-
+      Payer type is one of the strongest predictors of denial exposure.
+      Premier's 2023 survey found Medicaid FFS (16.7%) and Medicare Advantage
+      (15.7%) with the highest initial denial rates and traditional Medicare
+      the lowest (8.4%). Crowe platform data shows an even starker gap:
+      commercial payers initially denied 15.1% of hospital claims in Q1 2023
+      versus 3.9% for traditional Medicare.
+    key_points:
+      - >-
+        Premier survey (2023): Medicaid 16.7%, Medicare Advantage 15.7%,
+        managed Medicaid 15.1%, commercial 13.9%, traditional Medicare 8.4%
+        of claims initially denied.
+      - >-
+        Crowe RCA (1,800+ hospitals, Q1 2023): commercial payers initially
+        denied 15.1% of inpatient+outpatient claims vs 3.9% for traditional
+        Medicare; authorization-related inpatient denials were 3.2%
+        (commercial) vs 0.2% (Medicare).
+      - >-
+        The Medicare spread (3.9% Crowe vs 8.4% Premier) reflects methodology
+        differences — platform remit data vs self-reported survey — not payer
+        behavior.
+      - >-
+        KFF consumer polling (2023) is directionally consistent: ~21% of
+        employer-sponsored enrollees and 20% of marketplace enrollees
+        reported claim denials vs 10% in traditional Medicare and 12% in
+        Medicaid.
+    cautions: []
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: techtarget-payer-breakdown
+        title: Breaking down claim denial rates by healthcare payer
+        publisher: TechTarget (Premier, KFF, CMS data)
+        url: https://www.techtarget.com/revcyclemanagement/feature/Breaking-down-claim-denial-rates-by-healthcare-payer
+        authority: trade press synthesis of primary sources
+        effective_from: 2023-01-01
+        last_verified_at: 2026-08-07
+      - id: crowe-denials-2023
+        title: Hospitals' revenues continue to decline due to increasing delays and denials by commercial insurers
+        publisher: Crowe LLP (via PR Newswire)
+        url: https://www.prnewswire.com/news-releases/hospitals-revenues-continue-to-decline-due-to-increasing-delays-and-denials-by-commercial-insurers-301827645.html
+        authority: proprietary platform data (primary)
+        effective_from: 2023-03-31
+        last_verified_at: 2026-08-07
+
+  - id: benchmark.final_denial_rate
+    title: Final (net) denial rates and denial-driven revenue leakage
+    domains: [benchmarks, denials, write_offs]
+    aliases:
+      - final denial rate benchmark
+      - net denial rate
+      - denial revenue leakage
+    summary: >-
+      While most initial denials are eventually paid, the share written off
+      as final denials is rising fast. Kodiak reports the median final denial
+      rate rose from 2.5% of net revenue in 2024 to 2.7% in 2025, and
+      combined losses from final denials plus patient bad debt grew 25% to
+      over $48 billion across 2,300+ hospitals in 2025. Clinical denial
+      categories (prior authorization and medical necessity) drove virtually
+      all of the increase.
+    key_points:
+      - >-
+        Kodiak (Mar 2026): median final denial rate 2.5% (2024) to 2.7%
+        (2025); median bad debt rate 1.1% to 1.3%; combined net revenue
+        losses $38.6B (2024) to $48B+ (2025) across 2,300+ hospitals.
+      - >-
+        Kodiak (May 2024): final denial rate for inpatient claims rose 51%
+        from 2021 to 2023, draining an estimated $1.2B in revenue.
+      - >-
+        Crowe (Q1 2023): 8 cents of every dollar billed to commercial payers
+        is never received or is taken back (bad debt + final denials +
+        takebacks combined).
+      - >-
+        Final denial rate (net %) runs roughly one-quarter of the initial
+        denial rate (~2.5-2.7% vs ~11.8-12%), quantifying how much of the
+        denial burden is recoverable rework vs true loss.
+    cautions:
+      - >-
+        The March 2026 Kodiak release was verified via a syndicated copy
+        (businesswire.com itself timed out); figures match Healthcare Finance
+        News coverage.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: kodiak-final-denials-2026
+        title: Healthcare Provider Organizations Saw Net Revenue Losses From Final Denials and Bad Debt Grow by 25% in 2025
+        publisher: Kodiak Solutions (via Business Wire)
+        url: https://www.businesswire.com/news/home/20260331038554/en/Healthcare-Provider-Organizations-Saw-Net-Revenue-Losses-From-Final-Denials-and-Bad-Debt-Grow-by-25-in-2025-According-to-Kodiak-Solutions-Proprietary-Data
+        authority: vendor press release, primary data
+        effective_from: 2025-01-01
+        last_verified_at: 2026-08-07
+      - id: crowe-denials-2023
+        title: Hospitals' revenues continue to decline due to increasing delays and denials by commercial insurers
+        publisher: Crowe LLP (via PR Newswire)
+        url: https://www.prnewswire.com/news-releases/hospitals-revenues-continue-to-decline-due-to-increasing-delays-and-denials-by-commercial-insurers-301827645.html
+        authority: proprietary platform data (primary)
+        effective_from: 2023-03-31
+        last_verified_at: 2026-08-07
+
+  - id: benchmark.denial_avoidability
+    title: Denial root causes, avoidability, and recoverability
+    domains: [benchmarks, denials, prevention]
+    aliases:
+      - avoidable denial share
+      - preventable denial share
+      - denial root cause benchmark
+    summary: >-
+      Both major clearinghouse analyses agree that most denials originate in
+      the front end of the revenue cycle and the great majority are
+      preventable. Optum's 2024 index attributes 44% of 2023 denials to
+      front-end issues, with registration/eligibility the single largest
+      cause (24.3%), and finds 84% of denials potentially avoidable — though
+      22% of avoidable denials cannot be recovered once they occur.
+    key_points:
+      - >-
+        Optum 2024 Denials Index (2023 data): registration/eligibility
+        24.33%, missing or invalid claim data 15.89%,
+        authorization/precertification 12.80%, medical documentation
+        requested 12.08%, service not covered 9.67%, medical necessity 6.76%.
+      - >-
+        By revenue-cycle stage (2023): front end 44%, back end 32%, mid-cycle
+        16%, unknown 8% — the front-end share has been 41-46% in every period
+        since 2019.
+      - >-
+        84% of denials are potentially avoidable, but 22% of those avoidable
+        denials are not recoverable once denied (Optum, 2023); an earlier
+        Change Healthcare analysis put avoidability at 86%.
+      - >-
+        HFMA-published guidance holds roughly 90% of denials preventable and
+        about two-thirds of preventable denials successfully appealable.
+      - >-
+        Kodiak (2024): authorization-related denials fell 7.7% while
+        medical-necessity (+5%) and records-request (+5.4%) denials rose —
+        the avoidability mix is shifting toward harder clinical categories.
+    cautions: []
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: optum-denials-index-2024
+        title: The Optum 2024 Revenue Cycle Denials Index
+        publisher: Optum (formerly Change Healthcare)
+        url: https://marketplace.optum.com/content/dam/change-healthcare/marketplace-assets/outcomes-and-insights/2024-denials-index.pdf
+        authority: clearinghouse claims analysis (primary)
+        effective_from: 2023-01-01
+        last_verified_at: 2026-08-07
+      - id: hfma-proactive-denials
+        title: Strategies for Proactive Denial Management and Prevention
+        publisher: HFMA
+        url: https://www.hfma.org/revenue-cycle/denials-management/61778/
+        authority: industry association guidance
+        last_verified_at: 2026-08-07
+
+  - id: benchmark.appeal_overturn_rates
+    title: Appeal and overturn rates across payers
+    domains: [benchmarks, appeals, payer_behavior]
+    aliases:
+      - overturn rate benchmark
+      - appeal success rates
+      - denial overturn benchmark
+    summary: >-
+      Overturn rates on provider-initiated appeals are consistently high —
+      54-57% of claim denials are ultimately paid, and over 80% of appealed
+      MA prior-authorization denials are reversed — the core evidence that
+      initial denials function largely as payment friction rather than final
+      coverage decisions. Consumer-initiated appeals fare far worse: insurers
+      upheld 56-66% of marketplace internal appeals.
+    key_points:
+      - >-
+        Premier survey (2023): 54.3% of private-payer claim denials were
+        ultimately overturned and paid; MA-specific overturns near 53%.
+      - >-
+        Health Affairs (2019 MA claims): 57% of MA claim denials ultimately
+        overturned; the unrecovered remainder still cut provider MA revenue
+        7%.
+      - >-
+        KFF (2024): 80.7% of appealed MA prior-auth denials partially or
+        fully overturned (81.7% in 2023); more than 8 in 10 in every year
+        studied.
+      - >-
+        Kodiak reports payers ultimately pay approximately 90% of initially
+        denied claims.
+      - >-
+        Contrast — KFF marketplace consumer appeals: insurers upheld 56%
+        (2023) and 66% (2024) of internal appeals, i.e. consumer overturn
+        rates of only ~34-44%.
+    cautions: []
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: premier-denials-2024
+        title: "Trend Alert: Private Payers Retain Profits by Refusing or Delaying Legitimate Medical Claims"
+        publisher: Premier Inc.
+        url: https://premierinc.com/newsroom/blog/trend-alert-private-payers-retain-profits-by-refusing-or-delaying-legitimate-medical-claims
+        authority: national provider survey (primary)
+        effective_from: 2023-12-31
+        last_verified_at: 2026-08-07
+      - id: kff-ma-prior-auth-2024
+        title: Medicare Advantage Insurers Made Nearly 53 Million Prior Authorization Determinations in 2024
+        publisher: KFF
+        url: https://www.kff.org/medicare/medicare-advantage-insurers-made-nearly-53-million-prior-authorization-determinations-in-2024/
+        authority: independent analysis of CMS data (high)
+        effective_from: 2024-01-01
+        last_verified_at: 2026-08-07
+      - id: healthaffairs-ma-denials-2025
+        title: Medicare Advantage Denies 17 Percent Of Initial Claims; Most Denials Are Reversed, But Provider Payouts Dip 7 Percent
+        publisher: Health Affairs
+        url: https://www.healthaffairs.org/doi/10.1377/hlthaff.2024.01485
+        authority: peer-reviewed journal
+        effective_from: 2019-01-01
+
+  - id: benchmark.denials_never_worked
+    title: Denials never appealed or reworked
+    domains: [benchmarks, denials, appeals, workflow]
+    aliases:
+      - unworked denial share
+      - never appealed denials
+      - denial appeal rates
+      # deliberate concept overlap: the concept defines, this card elaborates
+      - unworked denials
+    summary: >-
+      The best-documented figures on unworked denials come from payer-side
+      data: fewer than 1% of denied marketplace claims are appealed by
+      consumers, and only 11.5% of denied MA prior-auth requests are appealed
+      — despite 80%+ overturn rates when appeals happen. The widely quoted
+      claim that 50-65% of provider-side denials are never reworked is
+      attributed to MGMA but has no publicly accessible primary source and
+      should be treated as directional only.
+    key_points:
+      - >-
+        KFF marketplace data: consumers appealed fewer than 1% of denied
+        in-network claims in both 2023 (376,508 appeals out of ~86M denials)
+        and 2024.
+      - >-
+        KFF MA data: only 11.5% of denied prior-auth requests were appealed
+        in 2024, meaning ~88% of denials — most of which would likely be
+        overturned — go unchallenged.
+      - >-
+        Premier: providers spend ~$19.7B/year adjudicating denials, and
+        $10.6B of that is spent arguing claims that should have been paid at
+        submission.
+      - >-
+        Change Healthcare/MGMA-published figure: 24% of denials are not
+        recoverable at all, which bounds the theoretical maximum recovery
+        from working every denial.
+    cautions:
+      - >-
+        The "50-65% of denials never reworked (MGMA)" attribution could not
+        be traced to a citable primary MGMA publication; do not present it as
+        a hard benchmark.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: kff-marketplace-denials-2024
+        title: Claims Denials and Appeals in ACA Marketplace Plans in 2024
+        publisher: KFF
+        url: https://www.kff.org/patient-consumer-protections/claims-denials-and-appeals-in-aca-marketplace-plans-in-2024/
+        authority: independent analysis of CMS data (high)
+        effective_from: 2024-01-01
+        last_verified_at: 2026-08-07
+      - id: kff-ma-prior-auth-2024
+        title: Medicare Advantage Insurers Made Nearly 53 Million Prior Authorization Determinations in 2024
+        publisher: KFF
+        url: https://www.kff.org/medicare/medicare-advantage-insurers-made-nearly-53-million-prior-authorization-determinations-in-2024/
+        authority: independent analysis of CMS data (high)
+        effective_from: 2024-01-01
+        last_verified_at: 2026-08-07
+      - id: premier-denials-2024
+        title: "Trend Alert: Private Payers Retain Profits by Refusing or Delaying Legitimate Medical Claims"
+        publisher: Premier Inc.
+        url: https://premierinc.com/newsroom/blog/trend-alert-private-payers-retain-profits-by-refusing-or-delaying-legitimate-medical-claims
+        authority: national provider survey (primary)
+        effective_from: 2023-12-31
+        last_verified_at: 2026-08-07
+
+  - id: benchmark.aged_ar_over_90
+    title: Aged A/R greater than 90 days as a share of total receivables
+    domains: [benchmarks, accounts_receivable]
+    aliases:
+      - ar over 90 benchmark
+      - aged ar benchmark
+      - receivables aging benchmark
+    summary: >-
+      Kodiak's platform data documents a structural deterioration in
+      receivables aging: commercial A/R over 90 days climbed from about 27%
+      of receivables in 2020 to 36% by Q3 2023, and Medicare Advantage from
+      19% to 27%. AHA survey data corroborates the scale — half of hospitals
+      reported over $100 million in receivables older than six months in
+      2022.
+    key_points:
+      - >-
+        Kodiak (Dec 2023): commercial-payer A/R aged over 90 days reached 36%
+        in Q3 2023, up from ~27% in 2020; Medicare Advantage 27%, up from 19%.
+      - >-
+        Crowe (Q1 2023): 31% of commercial inpatient claims went unpaid for
+        more than 90 days vs 12% of Medicare claims — aging is payer-driven,
+        not process-driven.
+      - >-
+        AHA survey: 50% of hospitals/health systems reported more than $100M
+        in A/R for claims older than six months in 2022.
+      - >-
+        Aged A/R over 90 days corresponds to HFMA MAP Keys AR-1 through AR-4;
+        the figures above are the only large-sample published values for the
+        metric.
+    cautions: []
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: kodiak-payment-delays-2023
+        title: Healthcare providers face increasingly long waits for payments, worsening financial stress
+        publisher: Kodiak Solutions (via PRWeb)
+        url: https://www.prweb.com/releases/healthcare-providers-face-increasingly-long-waits-for-payments-worsening-financial-stress-302013958.html
+        authority: vendor press release, primary data
+        effective_from: 2023-09-30
+        last_verified_at: 2026-08-07
+      - id: aha-admin-costs-2024
+        title: Skyrocketing Hospital Administrative Costs, Burdensome Commercial Insurer Policies Impacting Patient Care
+        publisher: American Hospital Association
+        url: https://www.aha.org/guidesreports/2024-09-10-skyrocketing-hospital-administrative-costs-burdensome-commercial-insurer-policies-are-impacting
+        authority: national trade association report
+        effective_from: 2022-01-01
+        last_verified_at: 2026-08-07
+
+  - id: benchmark.days_in_ar
+    title: "Days in A/R: published direction and definitional authority"
+    domains: [benchmarks, accounts_receivable, measurement]
+    aliases:
+      - days in ar benchmark
+      - ar days benchmark
+      - days in ar trend
+    summary: >-
+      No authoritative source publishes a stable national median for net days
+      in A/R — HFMA MAP Keys (FM-1) defines the metric but its benchmark
+      values are member data. What is publicly citable is direction (Kodiak
+      reports true A/R days grew 5.2% year over year in 2024) plus broad
+      trade-press guidance ranges (30-40 days preferable, below 50 minimum
+      acceptable) that carry lower evidentiary weight.
+    key_points:
+      - >-
+        Kodiak (2024 full year, 2,100+ hospitals): true A/R days grew 5.2%
+        year over year; as of October 2024 they were up 2.2% YoY and 5.4%
+        year to date.
+      - >-
+        HFMA MAP Keys is the definitional standard (Net Days in A/R is FM-1);
+        published MAP medians are members-only.
+      - >-
+        Trade reporting (TechTarget, citing AAFP guidance) quotes 30-40 days
+        as preferable and under 50 as the minimum acceptable — guidance-tier
+        figures, not measured medians.
+      - >-
+        For Revi: benchmark direction (rising) and aged-over-90 shares are
+        citable; treat absolute day-count "industry medians" circulating in
+        vendor blogs as folklore.
+    cautions:
+      - >-
+        Revi's days_in_ar contract is a billed-weighted aging variant, not
+        MAP FM-1's net-revenue form; compare against external figures with
+        that label attached.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: techtarget-kodiak-2024
+        title: Initial claim denial rates put revenue cycle in tough spot
+        publisher: TechTarget (Kodiak Solutions data)
+        url: https://www.techtarget.com/revcyclemanagement/news/366625109/Initial-claim-denial-rates-put-revenue-cycle-in-tough-spot
+        authority: trade press reporting proprietary platform data
+        effective_from: 2024-01-01
+        last_verified_at: 2026-08-07
+      - id: hfma-map-keys
+        title: MAP Keys - Industry-standard revenue cycle KPIs
+        publisher: HFMA
+        url: https://www.hfma.org/data-and-insights/map-initiative/map-keys/
+        authority: industry standard-setter (definitions)
+        last_verified_at: 2026-08-07
+      - id: techtarget-rcm-kpis
+        title: Breaking Down the Top 5 Healthcare Revenue Cycle KPIs
+        publisher: TechTarget RevCycle Management
+        url: https://www.techtarget.com/revcyclemanagement/feature/Breaking-Down-the-Top-5-Healthcare-Revenue-Cycle-KPIs
+        authority: trade publication
+        last_verified_at: 2026-08-07
+
+  - id: benchmark.cost_to_collect_admin_burden
+    title: Cost to collect, denial rework cost, and administrative burden
+    domains: [benchmarks, cost_to_collect]
+    aliases:
+      - cost to collect benchmark
+      - cost to rework a denial
+      - administrative cost benchmark
+      - caqh index
+    summary: >-
+      Publicly citable cost figures anchor at the transaction and program
+      level rather than a cost-to-collect percentage: reworking a denied
+      claim costs about $25 (MGMA-published) to $44 (Premier), providers
+      spend roughly $19.7B a year adjudicating denials, and the CAQH Index
+      sizes remaining administrative automation savings at $20B annually.
+      AHA reports administrative activities now consume over 40% of hospital
+      expense.
+    key_points:
+      - >-
+        Premier (2023 survey): average cost to fight a denied claim is
+        $43.84 ($47.77 for MA claims); ~$19.7B/year spent on denial
+        adjudication, $10.6B of it on claims that should have been paid
+        initially.
+      - >-
+        MGMA-published figure: average cost to rework a single denied claim
+        is $25.20.
+      - >-
+        AHA (Sept 2024): administrative costs exceed 40% of total hospital
+        expense; a cited McKinsey estimate puts hospital billing-and-
+        collections spend near $40B/year.
+      - >-
+        CAQH Index 2024 (600+ provider organizations plus plans covering 63%
+        of insured lives): $20B/year further savings available from
+        converting manual transactions to electronic; automation already
+        avoided $222B; full automation saves ~70 minutes per patient visit.
+      - >-
+        The often-quoted "cost to collect = 2-4% of net patient revenue"
+        traces to trade reporting; HFMA MAP Keys defines Cost to Collect
+        (FM-6/FM-7) but published medians are members-only.
+    cautions:
+      - >-
+        CAQH's blog URL on caqh.org now redirects to dataspring.com; the
+        full 2024 Index PDF exists on caqh.org but was not load-verified.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: premier-denials-2024
+        title: "Trend Alert: Private Payers Retain Profits by Refusing or Delaying Legitimate Medical Claims"
+        publisher: Premier Inc.
+        url: https://premierinc.com/newsroom/blog/trend-alert-private-payers-retain-profits-by-refusing-or-delaying-legitimate-medical-claims
+        authority: national provider survey (primary)
+        effective_from: 2023-12-31
+        last_verified_at: 2026-08-07
+      - id: mgma-denials-6keys
+        title: 6 keys to addressing denials in your medical practice's revenue cycle
+        publisher: MGMA
+        url: https://www.mgma.com/mgma-stats/6-keys-to-addressing-denials-in-your-medical-practice-s-revenue-cycle
+        authority: professional association
+        effective_from: 2021-03-16
+        last_verified_at: 2026-08-07
+      - id: caqh-index-2024
+        title: New CAQH Index Reveals $20B Savings Opportunity to Cut Waste, Reduce Costs, and Improve Patient Access
+        publisher: CAQH
+        url: https://www.dataspring.com/blog/new-caqh-index-reveals-20b-savings-opportunity-to-cut-waste-reduce-costs-and-improve-patient-access
+        authority: industry standards body annual index
+        effective_from: 2024-01-01
+        last_verified_at: 2026-08-07
+
+  - id: benchmark.provider_denial_surveys
+    title: Provider-reported denial trends (Experian, MGMA, Premier surveys)
+    domains: [benchmarks, denials]
+    aliases:
+      - denial trend surveys
+      - experian state of claims
+      - mgma denial polls
+      - denials increasing
+    summary: >-
+      Survey data consistently shows providers experiencing denial
+      escalation: roughly three in four providers told Experian in 2024 that
+      denials are increasing, the share of providers with denial rates of
+      10%+ grew from 30% (2022) to 41% (2025), and MGMA's 2024 polling found
+      60% of medical groups reporting rising denials. These are perception
+      and share-of-provider measures — useful context alongside, never in
+      place of, claims-based rates.
+    key_points:
+      - >-
+        Experian State of Claims 2024 (n=210 revenue-cycle staff): ~3 in 4
+        say denials are increasing (+31% vs 2022); 77% say payer policy
+        changes are more frequent; 67% say time to reimbursement is
+        increasing.
+      - >-
+        Experian 2025 (3rd annual wave): 41% of providers face denial rates
+        of 10%+ — an all-time high for the series; intake data errors are now
+        the third most common denial cause.
+      - >-
+        MGMA Stat (Mar 2024): 60% of medical group leaders reported rising
+        denial rates; only 11% achieved reductions, crediting front-desk
+        training, denials task forces, and tightened eligibility and
+        authorization processes.
+      - >-
+        Top provider-reported causes (Experian): missing or inaccurate data,
+        authorizations, incomplete patient information — consistent with
+        Optum's front-end root-cause data.
+    cautions:
+      - >-
+        Survey percentages measure the share of providers reporting a trend,
+        not claim-level rates; do not blend with Kodiak/Optum denial-rate
+        benchmarks.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: experian-state-of-claims-2025
+        title: "State of Claims 2025: The denial problem (and is AI the answer?)"
+        publisher: Experian Health
+        url: https://www.experian.com/blogs/healthcare/state-of-claims-2025/
+        authority: vendor survey (primary)
+        effective_from: 2025-01-01
+        last_verified_at: 2026-08-07
+      - id: mgma-stat-denials-2024
+        title: "MGMA Stat: Strategic improvements in your RCM to reduce your practice's claim denials"
+        publisher: MGMA
+        url: https://www.mgma.com/mgma-stat/strategic-improvements-in-your-rcm-to-reduce-your-practices-claim-denials
+        authority: professional association poll (primary)
+        effective_from: 2024-03-01
+        last_verified_at: 2026-08-07
+      - id: experian-state-of-claims-2024
+        title: Healthcare's dissatisfaction with payer reimbursements continues (State of Claims 2024)
+        publisher: Experian Health
+        url: https://www.experianplc.com/newsroom/press-releases/2024/healthcare-s-dissatisfaction-with-payer-reimbursements-continues
+        authority: vendor survey (primary)
+        effective_from: 2024-01-01
+        last_verified_at: 2026-08-07
+
+  - id: benchmark.patient_collections_bad_debt
+    title: Patient-responsibility collection rates and the insured bad-debt shift
+    domains: [benchmarks, patient_collections]
+    aliases:
+      - patient collection rate benchmark
+      - insured bad debt
+      - self-pay collection benchmark
+    summary: >-
+      Kodiak's data shows collections from insured patients' out-of-pocket
+      balances deteriorating: providers collected 34.46% of
+      self-pay-after-insurance balances in 2024, down from 37.58% in 2023,
+      and a separate Kodiak analysis of fully resolved commercial claims
+      found collection rates falling from 54.8% (2021) to 47.6% (2022-23).
+      Insured patients now generate the majority of hospital bad debt — 53%
+      of the estimated $17.4B written off in 2023.
+    key_points:
+      - >-
+        Kodiak (2024): 34.46% of balances owed by insured patients collected,
+        down from 37.58% in 2023.
+      - >-
+        Kodiak (Feb 2024, ~3M fully resolved commercial claims): patient
+        collection rate fell from 54.8% (2021 dates of service) to 47.6%
+        (2022-2023) — definitions differ by denominator.
+      - >-
+        53% of the estimated $17.4B in provider bad-debt write-offs in 2023
+        came from insured patients; commercially insured patients carried
+        ~23% of their medical bills as of Q3 2023.
+      - >-
+        Collections drop sharply with balance size: ~69 cents per dollar on
+        bills under $100, with steep drop-off above $500 and again above
+        $5,000.
+      - >-
+        Median bad-debt rate across 2,300+ Kodiak hospitals: 1.1% (2024)
+        rising to 1.3% (2025).
+    cautions: []
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: techtarget-kodiak-2024
+        title: Initial claim denial rates put revenue cycle in tough spot
+        publisher: TechTarget (Kodiak Solutions data)
+        url: https://www.techtarget.com/revcyclemanagement/news/366625109/Initial-claim-denial-rates-put-revenue-cycle-in-tough-spot
+        authority: trade press reporting proprietary platform data
+        effective_from: 2024-01-01
+        last_verified_at: 2026-08-07
+      - id: kodiak-bad-debt-2024
+        title: Insured patients account for more than half of bad debts written off by provider organizations in 2023
+        publisher: Kodiak Solutions (via Business Wire syndication)
+        url: https://markets.financialcontent.com/winslow/article/bizwire-2024-2-22-insured-patients-account-for-more-than-half-of-bad-debts-written-off-by-provider-organizations-in-2023-according-to-kodiak-solutions-analysis
+        authority: vendor press release, primary data
+        effective_from: 2023-01-01
+        last_verified_at: 2026-08-07
+
+  - id: benchmark.commercial_payment_delays
+    title: Commercial payer payment delays and records-request pressure
+    domains: [benchmarks, commercial, payer_behavior]
+    aliases:
+      - commercial payment delays
+      - payment delay benchmark
+      - records request denials trend
+    summary: >-
+      Commercial insurers pay far more slowly than traditional Medicare and
+      the pressure is growing through requests for information. Crowe found
+      31% of commercial inpatient claims unpaid after 90+ days in Q1 2023;
+      AHA reports commercial claims-processing time rose 19.7% in 2023; and
+      Kodiak data through late 2024 shows records-request denial rates up 17%
+      year over year.
+    key_points:
+      - >-
+        Crowe RCA (Q1 2023): 31% of commercial inpatient claims unpaid more
+        than 90 days vs 12% for Medicare.
+      - >-
+        AHA: time for commercial payers to process and pay hospital claims
+        increased 19.7% in 2023; commercial denials rose 20.2% for the median
+        hospital Jan 2022-Jul 2023 (vs +55.7% for MA).
+      - >-
+        Kodiak via HFMA (Oct 2024): request-for-information denial rates up
+        17% YoY; initial denial rates on inpatient commercial claims up 7%
+        YoY.
+      - >-
+        Kodiak (2024 full year): authorization-related initial denials fell
+        7.7% while medical-necessity denials rose 5% and records-request
+        denials rose 5.4% — payers shifting denial tactics toward clinical
+        categories.
+    cautions: []
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: crowe-denials-2023
+        title: Hospitals' revenues continue to decline due to increasing delays and denials by commercial insurers
+        publisher: Crowe LLP (via PR Newswire)
+        url: https://www.prnewswire.com/news-releases/hospitals-revenues-continue-to-decline-due-to-increasing-delays-and-denials-by-commercial-insurers-301827645.html
+        authority: proprietary platform data (primary)
+        effective_from: 2023-03-31
+        last_verified_at: 2026-08-07
+      - id: hfma-benchmarks-2024
+        title: Hospital financial and revenue cycle benchmarks paint a complicated picture heading into the new year
+        publisher: HFMA
+        url: https://www.hfma.org/finance-and-business-strategy/hospital-financial-and-revenue-cycle-benchmarks-paint-a-complicated-picture-heading-into-the-new-year/
+        authority: industry association journalism citing Kodiak/MDaudit/Fitch
+        effective_from: 2024-10-01
+        last_verified_at: 2026-08-07
+      - id: aha-admin-costs-2024
+        title: Skyrocketing Hospital Administrative Costs, Burdensome Commercial Insurer Policies Impacting Patient Care
+        publisher: American Hospital Association
+        url: https://www.aha.org/guidesreports/2024-09-10-skyrocketing-hospital-administrative-costs-burdensome-commercial-insurer-policies-are-impacting
+        authority: national trade association report
+        effective_from: 2022-01-01
+        last_verified_at: 2026-08-07
+
+  # ==================================================================
+  # payer.* — payer-specific behavior patterns
+  # ==================================================================
+  - id: payer.ma.denial_patterns
+    title: Medicare Advantage claim denial patterns
+    domains: [payer_behavior, medicare_advantage, denials]
+    aliases:
+      - MA denial rate
+      - medicare advantage denials
+      - MA claim denials
+    summary: >-
+      MA plans deny substantially more initial claims than traditional
+      Medicare and their denial volume is growing fastest of any payer class.
+      A peer-reviewed Health Affairs study of 270 million MA claims found a
+      17% initial denial rate with 57% of denials eventually overturned, but
+      the unrecovered remainder still cut provider MA revenue by 7%. AHA data
+      shows MA denials grew 55.7% for the median hospital between January
+      2022 and July 2023.
+    key_points:
+      - >-
+        Health Affairs (June 2025, 2019 claims covering ~30% of the MA
+        market): MA denied 17% of initial claim submissions — 21.1% of
+        noninpatient, 17.3% of inpatient, and 14.6% of physician claims.
+      - >-
+        57% of MA claim denials were ultimately overturned, yet denials still
+        produced a 7% net reduction in provider MA revenue (dollar-weighted
+        share not overturned).
+      - >-
+        AHA (Sept 2024): MA denial-related revenue reductions rose 55.7% for
+        the median hospital from Jan 2022 to July 2023, vs 20.2% for
+        commercial plans.
+      - >-
+        Premier survey (2023): 15.7% of MA claims initially denied — highest
+        among private payer types; over a quarter of MA claims are subject to
+        prior authorization.
+      - >-
+        Kodiak: MA accounts receivable aged over 90 days grew from 19% (2020)
+        to 27% (Q3 2023), signaling slower MA payment.
+    cautions:
+      - >-
+        Health Affairs full text is paywalled; figures verified against the
+        journal's abstract and secondary coverage. The study uses 2019 claims
+        — pre-dating the post-2022 MA denial surge, so current MA denial
+        rates are likely higher.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: healthaffairs-ma-denials-2025
+        title: Medicare Advantage Denies 17 Percent Of Initial Claims; Most Denials Are Reversed, But Provider Payouts Dip 7 Percent
+        publisher: Health Affairs (Vabson, Hicks, Chernew)
+        url: https://www.healthaffairs.org/doi/10.1377/hlthaff.2024.01485
+        authority: peer-reviewed journal
+        effective_from: 2019-01-01
+      - id: aha-admin-costs-2024
+        title: Skyrocketing Hospital Administrative Costs, Burdensome Commercial Insurer Policies Impacting Patient Care
+        publisher: American Hospital Association
+        url: https://www.aha.org/guidesreports/2024-09-10-skyrocketing-hospital-administrative-costs-burdensome-commercial-insurer-policies-are-impacting
+        authority: national trade association report
+        effective_from: 2022-01-01
+        last_verified_at: 2026-08-07
+      - id: premier-denials-2024
+        title: "Trend Alert: Private Payers Retain Profits by Refusing or Delaying Legitimate Medical Claims"
+        publisher: Premier Inc.
+        url: https://premierinc.com/newsroom/blog/trend-alert-private-payers-retain-profits-by-refusing-or-delaying-legitimate-medical-claims
+        authority: national provider survey (primary)
+        effective_from: 2023-12-31
+        last_verified_at: 2026-08-07
+
+  - id: payer.ma.prior_auth_appeal_gap
+    title: "MA prior authorization: volume, denial rates, and the appeal-overturn gap"
+    domains: [payer_behavior, medicare_advantage, prior_authorization, appeals]
+    aliases:
+      - MA prior auth denials
+      - MA PA appeal gap
+      - prior auth overturn gap
+    summary: >-
+      MA insurers made nearly 53 million prior authorization determinations
+      in 2024 (about 1.7 per enrollee) and denied 7.7% in full or in part, up
+      from 6.4% in 2023. Only 11.5% of denials were appealed, yet 80.7% of
+      appeals were partially or fully overturned. Most MA PA denials die
+      unchallenged even though appeals succeed at very high rates, so
+      systematic appeal workflows are among the highest-yield denial
+      interventions.
+    key_points:
+      - >-
+        52.9M prior authorization determinations in 2024, up from 49.8M in
+        2023; 7.7% (4.1M) fully or partially denied vs 6.4% in 2023 and 7.4%
+        in 2022 (KFF analysis of CMS data).
+      - >-
+        Only 11.5% of denied requests were appealed in 2024 (up from 7.5% in
+        2019); 80.7% of appealed denials were partially or fully overturned.
+      - >-
+        Traditional Medicare required prior authorization for far fewer
+        services (~625,000 requests in FY2024) but denied 22.9% of them —
+        a much narrower base, not comparable to overall claim denial rates.
+      - >-
+        A 2018 HHS OIG audit estimated 75% of MA care denials from 2014-2016
+        were eventually overturned on appeal.
+      - >-
+        Operational takeaway: the low appeal rate combined with the 80%+
+        overturn rate means unappealed MA denials are largely recoverable
+        revenue left on the table.
+    cautions: []
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: kff-ma-prior-auth-2024
+        title: Medicare Advantage Insurers Made Nearly 53 Million Prior Authorization Determinations in 2024
+        publisher: KFF
+        url: https://www.kff.org/medicare/medicare-advantage-insurers-made-nearly-53-million-prior-authorization-determinations-in-2024/
+        authority: independent analysis of CMS data (high)
+        effective_from: 2024-01-01
+        last_verified_at: 2026-08-07
+
+  - id: payer.ma.oig_inappropriate_denials
+    title: "OIG findings: MA plans deny care and payment that meet Medicare coverage rules"
+    domains: [payer_behavior, medicare_advantage, regulatory]
+    aliases:
+      - OIG MA denials report
+      - inappropriate MA denials
+      - OEI-09-18-00260
+    summary: >-
+      HHS OIG's April 2022 report (OEI-09-18-00260) reviewed denials by 15
+      large MA organizations and found 13% of denied prior authorization
+      requests and 18% of denied payment requests actually met Medicare
+      coverage and billing rules. Denials stemmed from plans layering
+      clinical criteria beyond Medicare rules, demanding documentation that
+      was already sufficient, and manual or system errors. This is the
+      canonical citation when appealing MA denials that would have paid under
+      original Medicare.
+    key_points:
+      - >-
+        13% of prior authorization denials in the OIG sample met Medicare
+        coverage rules and would likely have been approved under traditional
+        Medicare.
+      - >-
+        18% of payment denials met both Medicare coverage rules and MA
+        billing rules; many were caused by manual review and claims-system
+        processing errors.
+      - >-
+        Plans applied clinical criteria not found in Medicare coverage rules
+        (e.g. requiring an x-ray before approving advanced imaging) and
+        denied for "insufficient documentation" when OIG physician reviewers
+        found the records adequate.
+      - >-
+        Most commonly affected: advanced imaging (MRI) and post-acute
+        facility stays (e.g. inpatient rehabilitation).
+      - >-
+        OIG's recommendations were implemented by CMS and fed into the CY2024
+        rule (CMS-4201-F).
+    cautions:
+      - >-
+        Figures come from a stratified random sample of 500 cases — treat as
+        directional, not a population rate.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: oig-ma-denials-2022
+        title: Some Medicare Advantage Organization Denials of Prior Authorization Requests Raise Concerns About Beneficiary Access to Medically Necessary Care (OEI-09-18-00260)
+        publisher: HHS Office of Inspector General
+        url: https://oig.hhs.gov/reports/all/2022/some-medicare-advantage-organization-denials-of-prior-authorization-requests-raise-concerns-about-beneficiary-access-to-medically-necessary-care/
+        authority: federal audit (highest)
+        last_verified_at: 2026-08-07
+
+  - id: payer.ma.post_acute_denials
+    title: "MA post-acute care: the highest denial rates and near-total reversal on appeal"
+    domains: [payer_behavior, medicare_advantage, prior_authorization]
+    aliases:
+      - post-acute denials
+      - SNF denials
+      - navihealth denials
+      - IRF LTCH denials
+    summary: >-
+      Post-acute care is the sharpest MA denial hotspot. KFF found 2024 PA
+      denial rates of 65% for long-term care hospitals, 54% for inpatient
+      rehabilitation, and 12% for skilled nursing versus an overall rate
+      under 8%. A June 2026 OIG data brief found MA organizations overturned
+      95% of appealed SNF admission denials, strongly suggesting
+      inappropriate initial denials. Delegated utilization-management vendors
+      and nursing-home-resident populations show distinctly worse patterns.
+    key_points:
+      - >-
+        2024 MA prior authorization denial rates by setting: LTCH 65%, IRF
+        54%, SNF 12%, vs under 8% overall (KFF, July 2026); appealed denials
+        were overturned at 95% (SNF), 43% (IRF), and 36% (LTCH).
+      - >-
+        OIG (OEI-09-24-00331, June 2026): across 19 MAOs in June 2024, 12% of
+        SNF admission requests were denied (range 0.4%-23%); 18% of denials
+        were appealed and 95% of appeals were overturned.
+      - >-
+        naviHealth (UnitedHealth-owned delegated UM vendor) processed roughly
+        half of SNF requests, denied 14% (vs 11% for internal MAO review),
+        and had 97% of its appealed denials overturned.
+      - >-
+        Nursing home residents were denied SNF admission at 40% vs 11% for
+        other enrollees.
+      - >-
+        RCM implication: aggressively appeal post-acute denials and track
+        denials by delegated UM vendor, not just by plan.
+    cautions:
+      - >-
+        OIG denial/overturn statistics are single-month (June 2024) and
+        post-acute-specific; they are not plan-wide denial rates.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: kff-ma-post-acute-2026
+        title: Medicare Advantage Insurers Deny Prior Authorization Requests for Post-Acute Care at Substantially Higher Rates Than the Overall Denial Rate
+        publisher: KFF
+        url: https://www.kff.org/medicare/medicare-advantage-insurers-deny-prior-authorization-requests-for-post-acute-care-at-substantially-higher-rates-than-the-overall-denial-rate/
+        authority: independent analysis of CMS data (high)
+        last_verified_at: 2026-08-07
+      - id: oig-snf-overturns-2026
+        title: Medicare Advantage Organizations Overturned Nearly All Appealed Prior Authorization Denials for Skilled Nursing Facility Admission (OEI-09-24-00331)
+        publisher: HHS Office of Inspector General
+        url: https://oig.hhs.gov/reports/all/2026/medicare-advantage-organizations-overturned-nearly-all-appealed-prior-authorization-denials-for-skilled-nursing-facility-admission-raising-concerns-about-initial-denials/
+        authority: federal audit (highest)
+        last_verified_at: 2026-08-07
+
+  - id: payer.ma.drg_downgrades
+    title: "MA DRG downgrades: retrospective downcoding of inpatient claims"
+    domains: [payer_behavior, medicare_advantage, denials]
+    aliases:
+      - DRG downgrade patterns
+      - DRG validation audits
+      - sepsis downgrade
+      - clinical validation audit
+    summary: >-
+      MA plans increasingly run retrospective DRG validation / clinical
+      validation audits that strip major complication or comorbidity
+      diagnoses (sepsis, acute respiratory failure, acute kidney injury,
+      severe malnutrition) and repay claims at a lower DRG — sometimes even
+      on prior-authorized admissions. A single sepsis-to-simple-pneumonia
+      downgrade cuts payment by roughly $5,316, and one health system
+      reported downgrades touching up to 10% of inpatient discharges.
+    key_points:
+      - >-
+        Mechanism: retrospective chart review disputes documentation for
+        high-weight diagnoses and reassigns a lower-weight DRG; payment is
+        reduced without a traditional denial, so it surfaces as a payment
+        variance, not on denial dashboards.
+      - >-
+        Typical downgrades cost $3,000-$5,000+ per claim; Ballad Health
+        reported downgrades affecting up to 10% of inpatient discharges.
+      - >-
+        Secondary damage: repeated downgrades depress Case Mix Index,
+        dragging down future payment rates and distorting quality metrics.
+      - >-
+        Plans position DRG audits as coding reviews, not medical-necessity
+        determinations, to sidestep CMS-4201-F utilization-management limits;
+        appeals should challenge that framing.
+    cautions:
+      - >-
+        Per-claim dollar figures are illustrative examples from one
+        consultancy's analysis, not payer-published data.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: ascendient-drg-downgrades
+        title: "Medicare (Dis)Advantage: DRG Downgrades"
+        publisher: Ascendient
+        url: https://www.ascendient.com/higher-thinking/medicare-dis-advantage-drg-downgrades
+        authority: industry consultancy analysis
+        last_verified_at: 2026-08-07
+      - id: premier-denials-2024
+        title: "Trend Alert: Private Payers Retain Profits by Refusing or Delaying Legitimate Medical Claims"
+        publisher: Premier Inc.
+        url: https://premierinc.com/newsroom/blog/trend-alert-private-payers-retain-profits-by-refusing-or-delaying-legitimate-medical-claims
+        authority: national provider survey (primary)
+        effective_from: 2023-12-31
+        last_verified_at: 2026-08-07
+
+  - id: payer.commercial.em_downcoding
+    title: "Commercial E/M downcoding programs: Cigna R49 and peer policies"
+    domains: [payer_behavior, commercial, denials]
+    aliases:
+      - cigna r49
+      - em downcoding
+      - algorithmic downcoding
+      - em coding accuracy policy
+    summary: >-
+      Effective October 1, 2025, Cigna's Evaluation and Management Coding
+      Accuracy Policy (R49) unilaterally downcodes level 4/5 E/M claims by
+      one level for professionals flagged as consistently coding above peers,
+      paying the adjusted rate immediately. Providers can submit records for
+      reconsideration and request a policy bypass after five or more
+      adjustments if 80% of reviewed claims validate. Similar pattern-based
+      programs have been reported at other national payers, making downcode
+      detection on remits a standing commercial-payer workflow.
+    key_points:
+      - >-
+        Cigna R49 (Oct 1, 2025): automatic one-level downcoding of 99204,
+        99205, 99214, 99215, 99244, 99245 when submitted diagnoses do not
+        appear to support visit complexity; ~97-99% of in-network providers
+        unaffected at launch per Cigna.
+      - >-
+        Claims pay promptly at the reduced level with the adjustment flagged
+        on the explanation of payment — a payment variance, not a denial, so
+        denial dashboards can miss it.
+      - >-
+        Reconsideration: submit complete encounter records; if documentation
+        supports the original level, payment is corrected. Bypass available
+        after 5+ adjusted claims when at least 80% of reviewed claims were
+        billed in line with AMA guidelines.
+      - >-
+        RCM playbook: reconcile paid vs billed CPT on every remit to catch
+        silent downcodes, aggregate by payer and policy, and batch
+        documentation rebuttals.
+    cautions:
+      - >-
+        Reports of similar programs at other national payers circulated in
+        2025 trade press but were not verified against payer bulletins;
+        confirm per payer before citing.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: cigna-r49-bulletin
+        title: New Reimbursement Policy for Professional Evaluation and Management Services Claims effective October 1, 2025
+        publisher: Cigna Healthcare (Provider Newsroom)
+        url: https://providernewsroom.com/cigna-healthcare/new-reimbursement-policy-for-professional-evaluation-and-management-services-claims-effective-october-1-2025/
+        authority: payer bulletin (primary)
+        effective_from: 2025-10-01
+        last_verified_at: 2026-08-07
+      - id: aafp-cigna-downcoding
+        title: Cigna's downcoding policy gets pushback from physician groups
+        publisher: AAFP / FPM
+        url: https://www.aafp.org/fpm/blogs/getting-paid/cigna-downcoding-em
+        authority: professional association
+
+  - id: payer.commercial.silent_ppo
+    title: Silent PPOs and rental network discounts
+    domains: [payer_behavior, commercial]
+    aliases:
+      - silent ppo
+      - rental network
+      - rental network ppo
+      - repricer discount
+    summary: >-
+      Rental network PPOs broker discounted physician rates and lease their
+      panels to many downstream payers, TPAs, and repricers. A "silent PPO"
+      takes that discount without a contractual right to it or without
+      disclosing which network contract was applied. The tell on a remit is
+      an unexplained contractual adjustment from an unfamiliar payer or
+      repricer; the correct response is to demand the contractual basis for
+      the discount before accepting the reduced payment.
+    key_points:
+      - >-
+        Rental network PPOs lease physician panels and discount rates to
+        assorted payers; silent-PPO behavior applies a network discount
+        without prior approval from, and often without notice to, the
+        physician (AMA).
+      - >-
+        AMA backs NCOIL model rental-network transparency legislation,
+        adopted in several states.
+      - >-
+        Detection: reconcile every contractual adjustment to a known
+        contract; flag remits from repricers or networks never contracted
+        with, discounts deeper than the contracted rate, and "network
+        access" language on EOBs.
+      - >-
+        Response: request the specific contract chain authorizing the
+        discount, rebill at billed charges when none exists, and audit
+        historical remits for the same repricer once one silent discount is
+        confirmed.
+    cautions: []
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: ama-fair-contracting
+        title: Fair contracting (silent PPOs / rental network PPOs)
+        publisher: American Medical Association
+        url: https://www.ama-assn.org/practice-management/claims-processing/fair-contracting
+        authority: professional association
+        last_verified_at: 2026-08-07
+
+  - id: payer.commercial.timely_filing_variation
+    title: "Commercial timely filing: 90-365 days, contract-controlled"
+    domains: [payer_behavior, commercial, timely_filing]
+    aliases:
+      - commercial timely filing
+      - payer filing limits
+      - filing limit variation
+    summary: >-
+      There is no industry-standard commercial filing window. Published
+      in-network defaults cluster at 90-180 days from date of service
+      (UnitedHealthcare, Aetna, Cigna, Humana commonly 90 days), while BCBS
+      affiliates range from 90 to 365 days by state — and the individual
+      participation agreement overrides every published number.
+      Corrected-claim and appeal clocks run separately, often from the
+      remittance date, and appeal windows are usually shorter than filing
+      windows.
+    key_points:
+      - >-
+        Published in-network commercial defaults: UnitedHealthcare 90 days
+        (up to 180 in some contracts), Aetna 90, Cigna 90, Humana 90 on
+        legacy commercial agreements; BCBS affiliates range roughly 90-365
+        days by state.
+      - >-
+        Corrected claims frequently run from the remittance-advice date
+        rather than date of service (e.g. UHC 180 days from original
+        remittance), which can extend effective filing time.
+      - >-
+        Appeal deadlines (commonly 60-180 days) are a separate, usually
+        shorter clock than initial filing windows.
+      - >-
+        Timely-filing denials should always be checked against the actual
+        contract plus proof of timely submission (clearinghouse acceptance
+        reports).
+    cautions:
+      - >-
+        Aggregator-sourced data; some secondary sources list Aetna at 120
+        days for certain plans. Payer defaults change and contracts override
+        them — always confirm in the participation agreement and current
+        provider manual.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: muni-timely-filing-2026
+        title: "Timely Filing Limits by Insurance Company: 2026 Guide"
+        publisher: Muni Health (industry aggregator)
+        url: https://muni.health/blog/timely-filing-limits-by-company-2026
+        authority: industry aggregator (verify against contract)
+        last_verified_at: 2026-08-07
+
+  - id: payer.medicaid.denials_oversight
+    title: "Medicaid behavior: high MCO denial rates, weak oversight, short filing windows"
+    domains: [payer_behavior, medicaid, denials, timely_filing]
+    aliases:
+      - medicaid denial rate
+      - medicaid mco denials
+      - medicaid timely filing
+    summary: >-
+      The federal OIG found Medicaid MCOs denied one in eight (12.5%) prior
+      authorization requests in 2019 — about double the MA rate that year —
+      with a dozen plans denying over 25% and limited state oversight of
+      denials. On the claims side, Premier's survey found Medicaid the
+      highest-denying payer category (16.7% FFS, 15.1% managed). Layered on
+      top, Medicaid timely filing is a trap: state FFS windows range from
+      90-95 days to 12 months, and MCOs impose their own, often shorter,
+      contractual deadlines.
+    key_points:
+      - >-
+        HHS OIG (OEI-09-19-00350, July 2023): the 115 MCOs studied (7 parent
+        companies, 37 states, 29.8M enrollees) denied 12.5% of prior
+        authorization requests in 2019; 12 MCOs exceeded 25%.
+      - >-
+        Unlike Medicare Advantage, most states do not routinely review the
+        appropriateness of MCO denials, and enrollees have limited access to
+        external medical review.
+      - >-
+        Premier survey (2023): Medicaid FFS 16.7% and managed Medicaid 15.1%
+        initial claim denial rates — both above the ~15% private-payer
+        average; Medicaid denials skew administrative/eligibility-driven,
+        high-volume but lower dollar value.
+      - >-
+        Timely filing varies sharply by state (e.g. Texas 95 days, New York
+        90, many states 12 months); MCO contractual deadlines (commonly
+        90-180 days) are separate and the shorter deadline controls.
+    cautions:
+      - >-
+        State filing windows come from an industry aggregator and change;
+        verify against the state Medicaid manual and MCO contract before
+        relying on a specific deadline.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: oig-medicaid-mco-2023
+        title: High Rates of Prior Authorization Denials by Some Plans and Limited State Oversight Raise Concerns About Access to Care in Medicaid Managed Care (OEI-09-19-00350)
+        publisher: HHS Office of Inspector General
+        url: https://oig.hhs.gov/reports/all/2023/high-rates-of-prior-authorization-denials-by-some-plans-and-limited-state-oversight-raise-concerns-about-access-to-care-in-medicaid-managed-care/
+        authority: federal audit (highest)
+        effective_from: 2019-01-01
+        last_verified_at: 2026-08-07
+      - id: medstates-medicaid-filing
+        title: Medicaid Timely Filing Limits | State & MCO Filing Deadlines
+        publisher: MedStates (industry aggregator)
+        url: https://www.medstates.com/medicaid-claim-filing-deadlines-2025/
+        authority: industry aggregator (verify against contract)
+        last_verified_at: 2026-08-07
+
+  - id: payer.marketplace.denials
+    title: ACA marketplace in-network claim denials (CMS transparency data)
+    domains: [payer_behavior, marketplace, denials]
+    aliases:
+      - marketplace denial rate
+      - aca marketplace denials
+      - healthcare.gov denials
+      - marketplace claim denials
+    summary: >-
+      KFF's analysis of CMS transparency-in-coverage data shows
+      HealthCare.gov insurers denied about 20% of in-network claims in 2023
+      and 19% in 2024, with enormous insurer-level variation (1% to 54% in
+      2023). Consumers appealed fewer than 1% of denials, and insurers upheld
+      most appeals they received — making the marketplace the
+      best-documented example of denials that are never contested.
+    key_points:
+      - >-
+        2023: 20% of 436M in-network claims denied; 36% of out-of-network
+        claims denied; insurer-level rates ranged 1-54%; state averages 6%
+        (SD) to 34% (AL).
+      - >-
+        2024: 19% of 451M in-network claims denied; 37% out-of-network; 157
+        reporting insurers.
+      - >-
+        Consumers appealed fewer than 1% of denied in-network claims in both
+        years; insurers upheld 56% of internal appeals in 2023 and 66% in
+        2024.
+      - >-
+        Most common denial reasons (2024): "other" 36%, administrative 25%,
+        excluded service 13%, lack of prior auth or referral 9%, medical
+        necessity 5% — public data gives limited insight into true root
+        causes.
+      - >-
+        This plan-reported federal data covers HealthCare.gov issuers only;
+        it is the closest thing to a public regulator-collected denial-rate
+        dataset for any commercial segment.
+    cautions: []
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: kff-marketplace-denials-2024
+        title: Claims Denials and Appeals in ACA Marketplace Plans in 2024
+        publisher: KFF
+        url: https://www.kff.org/patient-consumer-protections/claims-denials-and-appeals-in-aca-marketplace-plans-in-2024/
+        authority: independent analysis of CMS data (high)
+        effective_from: 2024-01-01
+        last_verified_at: 2026-08-07
+      - id: kff-marketplace-denials-2023
+        title: Claims Denials and Appeals in ACA Marketplace Plans in 2023
+        publisher: KFF
+        url: https://www.kff.org/private-insurance/claims-denials-and-appeals-in-aca-marketplace-plans-in-2023/
+        authority: independent analysis of CMS data (high)
+        effective_from: 2023-01-01
+        last_verified_at: 2026-08-07
+
+  - id: payer.prompt_pay_rfi_stalling
+    title: Records-request stalling and the MA prompt-payment loophole
+    domains: [payer_behavior, medicare_advantage, commercial]
+    aliases:
+      - prompt pay
+      - records request stalling
+      - clean claim disputes
+      - payment delay tactics
+    summary: >-
+      There is no uniform federal prompt-payment standard for in-network MA
+      claims, and the broad "clean claim" definition lets plans restart the
+      payment clock by repeatedly requesting duplicative documentation or
+      claiming records were lost. AHA reports 50% of surveyed hospitals carry
+      more than $100M in claims unpaid for over six months. RCM teams should
+      log every additional-documentation request with dates, track clock
+      restarts per claim, and escalate repeat requests as a payer-behavior
+      pattern rather than one-off events.
+    key_points:
+      - >-
+        A "clean claim" is one without defect, impropriety, or missing
+        required documentation — wording that gives plans unilateral
+        discretion to declare claims not clean (AHA, May 2026).
+      - >-
+        Plans restart the prompt-payment timeline by requesting additional
+        materials or asserting documentation was lost, sometimes multiple
+        times per claim; one documented example demanded records the plan had
+        already received during prior authorization.
+      - >-
+        In-network MA claims generally face no federal interest penalty for
+        late payment; original Medicare and Part D have strong prompt-pay
+        standards, and MA has one only for out-of-network claims.
+      - >-
+        772 surveyed hospitals reported $6.4B+ in delayed or denied claims;
+        50% of hospitals report more than $100M unpaid past six months.
+      - >-
+        Pending federal fixes to watch: Medicare Advantage Prompt Pay Act
+        (95% of clean claims paid in 14 days in-network) and Medicare
+        Advantage Improvement Act (authorized services deemed clean, 30-day
+        payment).
+    cautions:
+      - >-
+        AHA is a hospital advocacy body; figures come from member surveys.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: aha-prompt-pay-2026
+        title: "Fact Sheet: Prompt Payment Standards in Medicare Advantage (May 2026)"
+        publisher: American Hospital Association
+        url: https://www.aha.org/system/files/media/file/2026/05/fact-sheet-prompt-payment-standards-in-medicare-advantage.pdf
+        authority: national trade association fact sheet
+        last_verified_at: 2026-08-07
+
+  - id: payer.overpayment_clawbacks
+    title: "Clawbacks and takebacks: overpayment lookback windows vary by state and program"
+    domains: [payer_behavior, commercial, write_offs]
+    aliases:
+      - clawback lookback
+      - overpayment recovery
+      - recoupment lookback
+      - takeback windows
+    summary: >-
+      Payers recover claimed overpayments through demand letters and
+      unilateral offsets against future remittances, and the permissible
+      lookback window depends on state law and line of business.
+      EmblemHealth's published policy illustrates the spread: 2 years for
+      commercial, 1 year for Medicare Advantage (5 with new material
+      evidence), 3 years for FEHB, 6 years for Medicaid reclamation. Validate
+      every takeback against the applicable lookback limit before repaying or
+      allowing offset.
+    key_points:
+      - >-
+        NY Insurance Law 3224-b caps most commercial recoveries at 24 months
+        after original payment with required notice, but exempts fraud or
+        abusive billing, self-funded plans, and government programs; other
+        states set 12-30 month limits and some restrict unilateral offset.
+      - >-
+        Fraud allegations remove time limits almost everywhere — payers
+        sometimes invoke "abusive billing" language to reach past the cap,
+        which is contestable.
+      - >-
+        Coordination-of-benefits-driven takebacks (payer later claims it was
+        secondary) are a major clawback category; pair recoupment defense
+        with corrected billing to the true primary within its filing window.
+      - >-
+        Operational control: route all recoupment demands and offsets through
+        a single queue that checks state lookback law, contract terms, notice
+        adequacy, and appeal deadlines before funds move.
+    cautions:
+      - >-
+        EmblemHealth is one payer's published policy used as a concrete
+        example; state-by-state lookback statutes were not individually
+        verified.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: emblemhealth-lookback
+        title: Look-Back Periods to Reconcile Overpayments
+        publisher: EmblemHealth (payer policy page)
+        url: https://www.emblemhealth.com/providers/claims-corner/policies-procedures/look-back-periods-to-reconcile-overpayments
+        authority: payer policy (primary example)
+        last_verified_at: 2026-08-07
+
+  # ==================================================================
+  # reg.* — regulatory and standards landscape
+  # ==================================================================
+  - id: reg.cms_4201f
+    title: "CMS-4201-F: MA plans must follow traditional Medicare coverage criteria"
+    domains: [regulatory, medicare_advantage, prior_authorization]
+    aliases:
+      - cms-4201-f
+      - cy2024 ma rule
+      - two-midnight rule MA
+      - ma coverage criteria rule
+    summary: >-
+      The CY2024 MA final rule (CMS-4201-F, 88 FR 22120), with
+      utilization-management provisions applicable to coverage beginning
+      January 1, 2024, requires MA plans to make medical-necessity
+      determinations per traditional Medicare coverage criteria (statutes,
+      NCDs, LCDs), which brings the two-midnight inpatient benchmark into MA.
+      Internal coverage criteria are allowed only where Medicare criteria are
+      not fully established, must be evidence-based and publicly accessible,
+      and algorithms or AI cannot substitute for individual patient review.
+      This is the strongest regulatory hook for appealing MA
+      medical-necessity denials and observation downgrades.
+    key_points:
+      - >-
+        42 CFR 422.101(c): determinations must consider individual
+        circumstances, physician recommendation, and clinical notes, applying
+        fully established traditional Medicare coverage criteria.
+      - >-
+        Internal coverage criteria are permitted only when Medicare criteria
+        are not fully established, must rest on widely used treatment
+        guidelines or clinical literature, and must be publicly accessible
+        (no paywall) per the CMS FAQ memo of Feb 6, 2024.
+      - >-
+        Algorithms and AI may assist but cannot be the basis to deny
+        inpatient admission, downgrade to observation, or terminate
+        post-acute services; individual reassessment is required.
+      - >-
+        If a patient meets coverage criteria for a physician-ordered
+        post-acute setting, the MA plan cannot deny admission or redirect to
+        a different setting; screening tools like MCG/InterQual cannot
+        override the regulation for status determinations.
+      - >-
+        RCM lever: cite 422.101(b)/(c), the two-midnight benchmark, and the
+        Feb 2024 FAQ in inpatient-status and post-acute appeals.
+    cautions: []
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: cms-4201f-faq-memo
+        title: "CMS memo: FAQs related to Coverage Criteria and Utilization Management Requirements in CMS Final Rule (CMS-4201-F), Feb. 6, 2024"
+        publisher: CMS (PDF hosted by AHA)
+        url: https://www.aha.org/system/files/media/file/2024/02/faqs-related-to-coverage-criteria-and-utilization-management-requirements-in-cms-final-rule-cms-4201-f.pdf
+        authority: federal regulator guidance
+        effective_from: 2024-01-01
+        last_verified_at: 2026-08-07
+      - id: fr-cms-4201f
+        title: Medicare Program; Contract Year 2024 Policy and Technical Changes to the Medicare Advantage Program (CMS-4201-F, 88 FR 22120)
+        publisher: Federal Register
+        url: https://www.federalregister.gov/documents/2023/04/12/2023-07115/medicare-program-contract-year-2024-policy-and-technical-changes-to-the-medicare-advantage-program
+        authority: federal regulation (primary)
+        effective_from: 2023-06-05
+        last_verified_at: 2026-08-07
+
+  - id: reg.cms_0057f
+    title: "CMS-0057-F: prior authorization deadlines, denial reasons, and FHIR APIs"
+    domains: [regulatory, prior_authorization, medicare_advantage, medicaid]
+    aliases:
+      - cms-0057-f
+      - interoperability and prior authorization rule
+      - prior authorization api
+      - pa decision timeframes
+    summary: >-
+      The Interoperability and Prior Authorization final rule (CMS-0057-F, 89
+      FR 8758, published Feb 8, 2024) binds MA organizations, Medicaid and
+      CHIP FFS and managed care, and QHP issuers on federally facilitated
+      exchanges. From January 1, 2026 impacted payers must decide expedited
+      PA requests within 72 hours and standard requests within 7 calendar
+      days, give a specific reason for every denial, and publicly report PA
+      metrics; four FHIR API mandates (including the Prior Authorization API)
+      generally take effect January 1, 2027. Drug prior authorizations are
+      excluded throughout.
+    key_points:
+      - >-
+        Decision timeframes from Jan 1, 2026: 72 hours expedited, 7 calendar
+        days standard (medical items/services; QHP issuers exempt from the
+        timeframe provisions).
+      - >-
+        Specific denial reasons required regardless of submission channel —
+        a direct input to denial-prevention analytics and a hook for
+        challenging vague determinations.
+      - >-
+        Public PA metrics (approvals, denials, appeal outcomes, timeframes)
+        due initially by March 31, 2026 — a new benchmarking data source for
+        payer-performance scoring.
+      - >-
+        By Jan 1, 2027: Prior Authorization API (covered-item list,
+        documentation requirements, request/response with specific denial
+        reasons), Provider Access API, and Payer-to-Payer API on FHIR R4.
+      - >-
+        HHS announced enforcement discretion for the X12 278 standard when
+        payers implement FHIR-based Prior Authorization APIs.
+    cautions:
+      - >-
+        Compliance dates vary slightly by payer type (some Medicaid managed
+        care dates follow rating periods); the CMS fact-sheet URL blocks
+        automated fetch — rule content verified via the Federal Register API
+        and secondary analysis.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: fr-cms-0057f
+        title: Advancing Interoperability and Improving Prior Authorization Processes (CMS-0057-F, 89 FR 8758)
+        publisher: Federal Register
+        url: https://www.federalregister.gov/documents/2024/02/08/2024-00895/medicare-and-medicaid-programs-patient-protection-and-affordable-care-act-advancing-interoperability
+        authority: federal regulation (primary)
+        effective_from: 2026-01-01
+        last_verified_at: 2026-08-07
+      - id: cms-0057f-fact-sheet
+        title: CMS Interoperability and Prior Authorization Final Rule (CMS-0057-F) Fact Sheet
+        publisher: CMS
+        url: https://www.cms.gov/newsroom/fact-sheets/cms-interoperability-and-prior-authorization-final-rule-cms-0057-f
+        authority: federal regulator fact sheet
+
+  - id: reg.nsa_idr_operations
+    title: "No Surprises Act: Federal IDR Operations final rule (2026)"
+    domains: [regulatory, no_surprises_act]
+    aliases:
+      - idr ops rule
+      - federal idr rule
+      - nsa arbitration rule
+    summary: >-
+      On May 28, 2026 HHS, DOL, Treasury, and OPM finalized the Federal IDR
+      Operations rule (published June 4, 2026; effective August 3, 2026),
+      overhauling No Surprises Act arbitration. It cuts the per-party
+      administrative fee to $15, forces open negotiation through the federal
+      IDR portal, tightens batching and eligibility timelines, creates a
+      payer IDR Registry, and requires payers to flag NSA-subject claims on
+      remittances using designated CARCs/RARCs.
+    key_points:
+      - >-
+        Administrative fee cut to $15 per party per dispute (from $115);
+        unpaid fees mean a party's offer is not considered received.
+      - >-
+        Payers must use specified CARCs/RARCs on remittance advice to
+        non-contracted providers to indicate whether a claim is subject to
+        NSA surprise-billing/IDR provisions, plus disclose plan legal
+        business name and IDR registration number — a new regulatory meaning
+        layered onto 835 data.
+      - >-
+        Open negotiation must start through the federal IDR portal (30
+        business-day clock); response notice due by the 15th business day.
+      - >-
+        Batching allowed for same patient encounter, same service code across
+        patients, and same-CPT-section ancillary codes — capped at 50 line
+        items per dispute.
+      - >-
+        Certified IDR entities must determine eligibility within 5 business
+        days of final selection; a new payer IDR Registry supports
+        eligibility checks and enforcement jurisdiction.
+    cautions:
+      - >-
+        The specific CARC/RARC values for NSA claim flagging will be set in
+        future guidance; several applicability dates are staggered off the
+        August 3, 2026 effective date.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: fr-idr-ops-2026
+        title: "Federal Register: Federal Independent Dispute Resolution Operations (Final Rule, 2026-11140)"
+        publisher: Federal Register (HHS/DOL/Treasury/OPM)
+        url: https://www.federalregister.gov/documents/2026/06/04/2026-11140/federal-independent-dispute-resolution-operations
+        authority: federal regulation (primary)
+        effective_from: 2026-08-03
+        last_verified_at: 2026-08-07
+      - id: cms-idr-ops-factsheet
+        title: Federal Independent Dispute Resolution Operations Final Rule (Fact Sheet, May 28, 2026)
+        publisher: CMS
+        url: https://www.cms.gov/newsroom/fact-sheets/federal-independent-dispute-resolution-operations-final-rule
+        authority: federal regulator fact sheet
+        effective_from: 2026-08-03
+        last_verified_at: 2026-08-07
+
+  - id: reg.nsa_idr_outcomes
+    title: "No Surprises Act: federal IDR volume and outcomes through mid-2026"
+    domains: [regulatory, no_surprises_act, benchmarks]
+    aliases:
+      - idr data
+      - nsa arbitration outcomes
+      - idr win rate
+    summary: >-
+      Federal IDR volume runs far above original projections: 6.34 million
+      disputes were initiated between April 2022 and May 2026, with roughly
+      250k-314k new disputes per month in 2026. Certified IDR entities have
+      largely cleared the backlog, and independent analysis of the public use
+      files shows providers winning the large majority of payment
+      determinations at multiples of the qualifying payment amount.
+    key_points:
+      - >-
+        Cumulative Apr 15, 2022 - May 31, 2026 (CMS): 6,336,032 disputes
+        initiated; 5,862,819 closed; 4,588,154 closed by payment
+        determination; ~18% of closures found ineligible.
+      - >-
+        Georgetown CHIR analysis of 2025 public use files: providers won 88%
+        of determinations in H1 2025 (up from 85% in 2024), with median
+        awards commonly 3-9x the QPA for high-volume initiators.
+      - >-
+        Initiation is highly concentrated: four organizations (HaloMD, Team
+        Health, Radiology Partners, SCP Health) initiated over 56% of H1 2025
+        disputes.
+      - >-
+        Disputes are not claims — a batched dispute can contain many line
+        items (capped at 50 under the 2026 ops rule); public use files lag
+        about six months.
+    cautions:
+      - >-
+        Win-rate and QPA-multiple figures are CHIR's analysis of CMS files,
+        not CMS's own statistics.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: cms-idr-reports
+        title: Independent Dispute Resolution Reports (bi-monthly data through May 31, 2026)
+        publisher: CMS
+        url: https://www.cms.gov/nosurprises/policies-and-resources/reports
+        authority: federal program data (primary)
+        last_verified_at: 2026-08-07
+      - id: chir-idr-2025-data
+        title: "The No Surprises Act IDR Process: An Early Look at 2025 Data (Mar 20, 2026)"
+        publisher: Georgetown University Center on Health Insurance Reforms
+        url: https://chir.georgetown.edu/the-no-surprises-act-idr-process-an-early-look-at-2025-data/
+        authority: independent research analysis
+        last_verified_at: 2026-08-07
+
+  - id: reg.hospital_price_transparency
+    title: "Hospital price transparency: CY2026 allowed-amount and attestation requirements"
+    domains: [regulatory, price_transparency]
+    aliases:
+      - hospital price transparency
+      - machine-readable file
+      - mrf allowed amounts
+      - 45 cfr 180
+    summary: >-
+      In the CY2026 OPPS/ASC final rule (CMS-1834-FC, Nov 21, 2025), CMS
+      requires hospitals to publish actual dollar figures in their
+      machine-readable files: the median, 10th, and 90th percentile allowed
+      amounts (plus the count used), calculated from 835 remittance data.
+      Percentage or algorithm-based negotiated charges must be converted to
+      dollars, attestations are strengthened, and Type 2 NPIs must be
+      encoded. New requirements took effect January 1, 2026 with enforcement
+      from April 1, 2026.
+    key_points:
+      - >-
+        The "estimated allowed amount" is replaced by median, 10th, and 90th
+        percentile allowed amounts plus a count element, derived from EDI 835
+        remittance data over a 12-15 month lookback — hospital MRF economics
+        now run on the same 835 data RCM analytics consume.
+      - >-
+        Strengthened attestation at 45 CFR 180.50: data is true, accurate,
+        and complete, and the MRF must name the accountable senior official.
+      - >-
+        Hospitals must encode organizational (Type 2) NPIs with hospital
+        taxonomy codes in the MRF.
+      - >-
+        Civil monetary penalties are reduced 35% when a hospital waives its
+        ALJ hearing — except for core violations (no MRF at all, or no
+        shoppable-services display or price estimator).
+    cautions: []
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: cms-opps-2026-hpt
+        title: CY 2026 OPPS and ASC Final Rule - Hospital Price Transparency Policy Changes (Fact Sheet, Nov 21, 2025)
+        publisher: CMS
+        url: https://www.cms.gov/newsroom/fact-sheets/cy-2026-opps-ambulatory-surgical-center-final-rule-hospital-price-transparency-policy-changes
+        authority: federal regulator fact sheet
+        effective_from: 2026-01-01
+        last_verified_at: 2026-08-07
+
+  - id: reg.transparency_in_coverage
+    title: "Payer price transparency: Transparency in Coverage MRFs and the 2025 proposed overhaul"
+    domains: [regulatory, price_transparency]
+    aliases:
+      - tic
+      - transparency in coverage
+      - payer mrf
+    summary: >-
+      Non-grandfathered group health plans and issuers must publicly post
+      monthly machine-readable files of in-network negotiated rates and
+      out-of-network allowed amounts (enforced since July 1, 2022), plus
+      consumer cost-sharing tools. Compliance is assessed against MRF schema
+      version 2.0 beginning February 2, 2026. A December 23, 2025 proposed
+      rule would restructure the files around provider networks, add
+      contextual files, and remove "ghost rates."
+    key_points:
+      - >-
+        Baseline obligations: monthly public in-network rate and
+        out-of-network allowed-amount files plus an internet price-comparison
+        tool covering all items and services.
+      - >-
+        The Dec 2025 proposed rule would organize in-network files at the
+        provider-network level, add plan identifiers and enrollment counts,
+        and drop unlikely provider-to-service rate mappings to shrink files.
+      - >-
+        TiC files are the standard external reference for benchmarking
+        negotiated rates against payer-reported data, but are payer-attested
+        and notoriously noisy (ghost rates, stale mappings) — defects the
+        proposed rule itself acknowledges.
+      - >-
+        The proposal would also require cost information by phone, satisfying
+        No Surprises Act section 114 obligations.
+    cautions:
+      - >-
+        The December 2025 rule is proposed, not final — track before building
+        ingest pipelines against it. DOL's FAQ page could not be loaded
+        directly; schema v2.0 dates rest on consistent search summaries.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: fr-tic-nprm-2025
+        title: "Federal Register: Transparency in Coverage (Proposed Rule, Dec 23, 2025, 2025-23693)"
+        publisher: Federal Register (HHS/DOL/Treasury/OPM)
+        url: https://www.federalregister.gov/documents/2025/12/23/2025-23693/transparency-in-coverage
+        authority: federal proposed regulation (primary)
+        last_verified_at: 2026-08-07
+      - id: cms-tic-use
+        title: Use of Pricing Information Published under the Transparency in Coverage Final Rule
+        publisher: CMS
+        url: https://www.cms.gov/priorities/healthplan-price-transparency/overview/use-pricing-information-published-under-transparency-coverage-final-rule
+        authority: federal regulator guidance
+        last_verified_at: 2026-08-07
+
+  - id: reg.irs_501r
+    title: "IRC 501(r): charity care, AGB limits, and collection restrictions"
+    domains: [regulatory, patient_collections]
+    aliases:
+      - 501r
+      - 501(r)
+      - financial assistance policy
+      - extraordinary collection actions
+      - charity care rules
+    summary: >-
+      Section 501(r) conditions hospital tax exemption on maintaining a
+      written financial assistance policy (FAP), limiting charges to
+      FAP-eligible patients to amounts generally billed (AGB), and making
+      reasonable efforts to determine FAP eligibility before any
+      extraordinary collection action (ECA). The regulations define a 120-day
+      notification period and a 240-day application period from the first
+      post-discharge billing statement, and hold hospitals accountable for
+      the conduct of collection agencies and debt buyers.
+    key_points:
+      - >-
+        ECAs include credit bureau reporting, debt sales, liens, lawsuits,
+        wage garnishment, and deferring or denying care over prior unpaid
+        bills.
+      - >-
+        No ECAs during the first 120 days after the first post-discharge
+        billing statement, and at least 30 days' written notice before
+        initiating ECAs; FAP applications must be accepted for at least 240
+        days, with incomplete applications suspending ECAs.
+      - >-
+        Debt sales are generally ECAs unless a binding agreement bars the
+        purchaser from ECAs and makes debt returnable on FAP-eligibility
+        determination; hospitals are responsible for ECAs by their debt
+        collectors and buyers.
+      - >-
+        For denial and A/R analytics: 501(r) status shapes how self-pay and
+        patient-responsibility balances can be pursued and when accounts may
+        lawfully move to collections — a compliance overlay on patient-
+        balance aging.
+    cautions: []
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: irs-501r6
+        title: Billing and collections - Section 501(r)(6)
+        publisher: IRS
+        url: https://www.irs.gov/charities-non-profits/billing-and-collections-section-501r6
+        authority: federal regulator (primary)
+        last_verified_at: 2026-08-07
+      - id: irs-501r4
+        title: Financial assistance policy and emergency medical care policy - Section 501(r)(4)
+        publisher: IRS
+        url: https://www.irs.gov/charities-non-profits/financial-assistance-policy-and-emergency-medical-care-policy-section-501r4
+        authority: federal regulator (primary)
+        last_verified_at: 2026-08-07
+
+  - id: reg.medicare_timely_filing_coverage
+    title: "Traditional Medicare: 12-month filing limit and LCD/NCD coverage denials"
+    domains: [regulatory, medicare, timely_filing, denials]
+    aliases:
+      - medicare timely filing
+      - lcd
+      - ncd
+      - abn
+      - local coverage determination
+    summary: >-
+      Medicare FFS claims must reach the MAC within one calendar year of the
+      date of service or they are denied outright, with only narrow
+      CMS-defined exceptions. Coverage denials are driven by national
+      coverage determinations (NCDs) and MAC-specific local coverage
+      determinations (LCDs) — the same code and diagnosis can pay in one
+      jurisdiction and deny in another. Diagnosis-driven medical-necessity
+      edits deny automatically, and patient liability turns on whether a
+      valid Advance Beneficiary Notice was obtained.
+    key_points:
+      - >-
+        All claims for services on or after Jan 1, 2010 must be filed within
+        12 months of the date of service (ACA sec. 6404); there is no grace
+        period, and late claims deny under the timely-filing reason code
+        (CARC 29 — filing deadline passed).
+      - >-
+        Exceptions are limited to CMS-defined circumstances: administrative
+        or government error, retroactive Medicare entitlement (including with
+        Medicaid recoupment), and retroactive disenrollment from an MA plan.
+      - >-
+        NCDs bind all MACs nationally; where no NCD is on point, each MAC's
+        LCDs control — creating jurisdiction-level variation in what
+        diagnoses support medical necessity. Scrubbing charge entry against
+        LCD diagnosis lists is the primary prevention.
+      - >-
+        Patient liability requires a properly executed ABN before service
+        (billed with the GA modifier); without it the provider absorbs the
+        denial.
+    cautions:
+      - >-
+        The CMS coverage-determination page blocked automated fetch; LCD/NCD
+        mechanics corroborated via the verified MAC page and CMS-4201-F FAQ.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: noridian-timely-filing
+        title: Timely Filing - JE Part A
+        publisher: Noridian Healthcare Solutions (Medicare Administrative Contractor)
+        url: https://med.noridianmedicare.com/web/jea/topics/claim-submission/timely-filing
+        authority: medicare contractor guidance
+        last_verified_at: 2026-08-07
+      - id: cms-coverage-determination-process
+        title: Medicare Coverage Determination Process
+        publisher: CMS
+        url: https://www.cms.gov/medicare/coverage/determination-process
+        authority: federal regulator guidance
+
+  - id: reg.medicare_corrections_rebilling
+    title: "Medicare corrections and rebilling: XX7 adjustments, XXQ reopenings, W2, A-to-B"
+    domains: [regulatory, medicare, workflow]
+    aliases:
+      - xx7
+      - xxq
+      - condition code w2
+      - a to b rebilling
+      - medicare reopening
+    summary: >-
+      Corrections within Medicare's 12-month filing window use adjustment
+      bill type XX7; corrections beyond it require the XXQ reopening process
+      with condition code W2 attesting the claim duplicates the original bill
+      with no appeal in process. Hospitals that self-audit and determine an
+      inpatient admission was not reasonable and necessary may rebill Part B
+      inpatient services after submitting a provider-liable no-pay Part A
+      claim — but the rebilled claim is still bound by the same 12-month
+      limit.
+    key_points:
+      - >-
+        Within timely filing: submit adjustment claims as bill type XX7.
+        Beyond it, an XX7 is returned to provider; use the XXQ reopening
+        request instead — but only for clerical errors and omissions, not
+        medical-record-based denials, which require appeals.
+      - >-
+        Condition code W2 attests the provider is reopening a previously
+        submitted bill and no appeal is in process (a bill cannot be
+        simultaneously reopened and appealed).
+      - >-
+        Part A-to-B rebilling after self-audit (CMS-1599-F, admissions on or
+        after Oct 1, 2013): first a no-pay bill-type 110 inpatient claim
+        accepting provider liability, then the inpatient Part B claim (12x)
+        with condition code W2 referencing the denied claim.
+      - >-
+        Rebilled 12x claims get no timely-filing exception — recovery is lost
+        when audits find issues more than a year after service, making
+        inpatient-status accuracy at admission financially decisive.
+    cautions: []
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: noridian-a-to-b
+        title: Part A to B Rebilling Guidance - JE Part A
+        publisher: Noridian Healthcare Solutions (Medicare MAC)
+        url: https://med.noridianmedicare.com/web/jea/topics/claim-submission/submission-errors-solutions/a-to-b-rebilling
+        authority: medicare contractor guidance
+        last_verified_at: 2026-08-07
+      - id: noridian-timely-filing
+        title: Timely Filing - JE Part A
+        publisher: Noridian Healthcare Solutions (Medicare MAC)
+        url: https://med.noridianmedicare.com/web/jea/topics/claim-submission/timely-filing
+        authority: medicare contractor guidance
+        last_verified_at: 2026-08-07
+
+  - id: reg.medicaid_unwinding
+    title: Medicaid unwinding aftermath and the coming six-month redetermination regime
+    domains: [regulatory, medicaid, eligibility]
+    aliases:
+      - medicaid unwinding
+      - redetermination churn
+      - procedural disenrollment
+      - continuous enrollment unwind
+    summary: >-
+      The post-pandemic unwinding (April 2023 through late 2024) disenrolled
+      over 25 million people from Medicaid — about 31% of completed
+      redeterminations — mostly for paperwork/procedural reasons rather than
+      confirmed ineligibility. Many disenrolled patients remained eligible
+      and later re-enrolled, often retroactively. The 2025 reconciliation law
+      (H.R. 1) makes churn structural: expansion adults face six-month
+      redeterminations and 80-hour/month work requirements from around
+      December 31, 2026.
+    key_points:
+      - >-
+        KFF final tally (Sept 2024): 25M+ disenrolled, 56M+ renewed; 31% of
+        completed redeterminations ended in disenrollment, ranging from under
+        20% in five states to over 50% in five states; roughly 69% of losses
+        were procedural.
+      - >-
+        GAO-25-107413 (June 2025): about 27 million disenrolled in the first
+        18 months; enrollment stood near 79 million in Oct 2024, ~10% above
+        pre-pandemic.
+      - >-
+        RCM playbook: real-time eligibility checks at scheduling and service,
+        monitor for retroactive reinstatement before writing off eligibility
+        denials, delay self-pay conversion until retro eligibility is ruled
+        out, and use retroactive-eligibility exceptions to timely filing
+        where available.
+      - >-
+        H.R. 1: six-month redeterminations for expansion adults (renewals
+        scheduled on/after Dec 31, 2026) and 80-hour/month community
+        engagement requirements — model eligibility-denial rates as a
+        persistent policy-driven baseline, not a one-time unwinding artifact.
+    cautions:
+      - >-
+        State-level variation is extreme — national averages mislead for
+        state-specific payer-mix models.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: kff-unwinding-conclusion
+        title: As Medicaid Unwinding Concludes in Most States, KFF Finds 25 Million Lost Medicaid Coverage (Sept 18, 2024)
+        publisher: KFF
+        url: https://www.kff.org/medicaid/as-medicaid-unwinding-concludes-in-most-states-kff-finds-25-million-lost-medicaid-coverage-but-enrollment-is-10-million-higher-than-pre-pandemic-levels/
+        authority: independent research (high)
+        last_verified_at: 2026-08-07
+      - id: gao-25-107413
+        title: "Medicaid and CHIP: Disenrollments After COVID-19 Varied Across States and Populations (GAO-25-107413)"
+        publisher: GAO
+        url: https://www.gao.gov/products/gao-25-107413
+        authority: federal oversight (highest)
+        last_verified_at: 2026-08-07
+      - id: kff-hr1-health
+        title: Health Provisions in the 2025 Federal Budget Reconciliation Law
+        publisher: KFF
+        url: https://www.kff.org/medicaid/health-provisions-in-the-2025-federal-budget-reconciliation-law/
+        authority: independent research (high)
+        last_verified_at: 2026-08-07
+
+  - id: reg.erisa_claims_appeals
+    title: ERISA claims and appeals deadlines for group health plans (29 CFR 2560.503-1)
+    domains: [regulatory, commercial, appeals]
+    aliases:
+      - erisa claims procedure
+      - erisa appeal deadlines
+      - dol claims regulation
+    summary: >-
+      The DOL claims-procedure regulation sets the minimum adjudication and
+      appeal timelines for ERISA plans, which govern most employer-sponsored
+      commercial coverage. Group health plans must decide urgent claims in 72
+      hours, pre-service claims in 15 days, and post-service claims in 30
+      days (each with limited extensions), and must give claimants at least
+      180 days to appeal an adverse benefit determination. Appeal reviews
+      must be independent and de novo; procedural failures let claimants deem
+      remedies exhausted.
+    key_points:
+      - >-
+        Initial determinations: urgent 72 hours; pre-service 15 days (+15-day
+        extension); post-service 30 days (+15-day extension);
+        missing-information notices give claimants at least 45 days, tolling
+        the clock.
+      - >-
+        Appeals: at least 180 days after an adverse determination for group
+        health plans; appeal decisions due in 72 hours (urgent), 30 days
+        (pre-service), 60 days (post-service), halved per level for two-level
+        plans.
+      - >-
+        Review must not defer to the initial determination and must be
+        conducted by a different named fiduciary; medical-judgment denials
+        require consultation with an appropriately trained health
+        professional.
+      - >-
+        Denial notices must state specific reasons, cite plan provisions, and
+        disclose any internal rule or medical-necessity criteria relied upon.
+      - >-
+        For provider-side RCM: deadlines run for the claimant (providers
+        typically appeal under assignment/authorized-representative status),
+        and self-funded plan appeal SLAs are governed by this regulation
+        rather than state prompt-pay laws.
+    cautions: []
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: ecfr-2560-503-1
+        title: 29 CFR 2560.503-1 - Claims procedure (current eCFR)
+        publisher: eCFR (U.S. Department of Labor)
+        url: https://www.ecfr.gov/current/title-29/subtitle-B/chapter-XXV/subchapter-G/part-2560/section-2560.503-1
+        authority: federal regulation (primary)
+        last_verified_at: 2026-08-07
+
+  - id: reg.hipaa_transaction_standards
+    title: "HIPAA transaction standards: 837/835, operating rules, recent Part 162 changes"
+    domains: [regulatory, edi]
+    aliases:
+      - hipaa transactions
+      - 45 cfr 162
+      - x12 5010
+      - operating rules
+    summary: >-
+      45 CFR part 162 adopts the X12N version 005010 standards — the 837
+      institutional/professional/dental for claims and the 835 for payment
+      and remittance advice — that all covered entities must use, together
+      with federally mandated CAQH CORE operating rules for eligibility,
+      claim status, and EFT/ERA. The part has been actively amended: NCPDP
+      pharmacy standard updates phase in through 2027-2028, and a March 24,
+      2026 rule adopted the first claims-attachment standards.
+    key_points:
+      - >-
+        Claims: X12N 837 professional/institutional/dental are the adopted
+        standards (162.1102); remittance: 835 (162.1602); eligibility
+        270/271, claim status 276/277, enrollment 834 round out the set.
+      - >-
+        Operating rules under ACA section 1104 are mandatory for eligibility,
+        claim status, and EFT/ERA — including the CORE rule constraining
+        uniform CARC/RARC use (compliance since Jan 1, 2014); CAQH CORE is
+        the HHS-designated authoring entity.
+      - >-
+        CMS-0057-F introduced enforcement discretion for the X12 278 prior
+        authorization transaction when payers implement FHIR-based Prior
+        Authorization APIs — an explicit crack in the X12-only regime.
+      - >-
+        For analytics: 835 CARC/RARC/group-code semantics are the regulatory
+        backbone of denial categorization, and CY2026 hospital price
+        transparency allowed amounts must now also be computed from 835 data.
+    cautions: []
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: ecfr-part-162
+        title: 45 CFR Part 162 - Administrative Requirements (current eCFR, incl. Mar 24, 2026 amendments)
+        publisher: eCFR (HHS)
+        url: https://www.ecfr.gov/current/title-45/subtitle-A/subchapter-C/part-162
+        authority: federal regulation (primary)
+        last_verified_at: 2026-08-07
+      - id: caqh-core-payment-remit
+        title: CAQH CORE Payment and Remittance Operating Rules
+        publisher: CAQH CORE
+        url: https://www.caqh.org/core/caqh-core-payment-and-remittance-operating-rules
+        authority: standards development organization
+        last_verified_at: 2026-08-07
+
+  - id: reg.hipaa_attachments
+    title: HIPAA claims-attachment standards adopted (March 2026, compliance May 2028)
+    domains: [regulatory, edi]
+    aliases:
+      - claims attachments rule
+      - 275 transaction
+      - 277 rfai
+      - subpart t
+    summary: >-
+      A final rule published March 24, 2026 (91 FR 14405) added Subpart T to
+      45 CFR part 162, adopting for the first time national HIPAA standards
+      for the claims-attachment transaction — provider-to-plan attachment
+      information and plan-to-provider requests for additional information.
+      The adopted standards (X12N 275/277 version 6020 plus HL7 C-CDA
+      document formats and a digital-signature guide) apply on and after May
+      26, 2028.
+    key_points:
+      - >-
+        The transaction covers attachment information supporting a claim or
+        encounter and a health plan's request to a provider for that
+        information (162.2001).
+      - >-
+        Standards effective on/after May 26, 2028: X12N 275 (additional
+        information to support a claim) and 277 (request for additional
+        information), with HL7 C-CDA document payloads and CDA digital
+        signatures.
+      - >-
+        RCM impact: standardizes the additional-documentation loop behind
+        documentation-request denials and payer ADR requests, which today
+        run through proprietary portals, fax, and mail — expect payer
+        workflows to converge on 277 RFAI + 275 by mid-2028.
+      - >-
+        CAQH CORE already publishes (not yet federally mandated) attachments
+        operating rules — likely candidates for future adoption.
+    cautions:
+      - >-
+        The codified Subpart T addresses claims attachments — do not assume
+        the same mandate covers prior-authorization attachments. Payer
+        adoption before 2028 is voluntary and will be uneven.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: ecfr-part-162-subpart-t
+        title: "45 CFR Part 162, Subpart T - Health Care Claims Attachments (source: 91 FR 14405, Mar 24, 2026)"
+        publisher: eCFR (HHS)
+        url: https://www.ecfr.gov/current/title-45/subtitle-A/subchapter-C/part-162
+        authority: federal regulation (primary)
+        effective_from: 2028-05-26
+        last_verified_at: 2026-08-07
+
+  - id: reg.carc_rarc_licensing
+    title: "CARC/RARC stewardship: X12 maintenance, CORE code combinations, licensing"
+    domains: [regulatory, edi, denials]
+    aliases:
+      - carc licensing
+      - x12 licensing
+      - core code combinations
+      - core 360
+    summary: >-
+      X12 maintains the claim adjustment reason codes and remittance advice
+      remark codes used in every 835; group codes assign financial liability.
+      The lists are freely viewable on x12.org, but X12 asserts exclusive
+      copyright and runs a multi-tier licensing program for products that
+      embed or redistribute the code lists. The federally mandated CORE rule
+      constrains which CARC/RARC combinations payers may use, organized into
+      four business scenarios, with the combinations document updated three
+      times a year.
+    key_points:
+      - >-
+        X12 updates the CARC/RARC lists roughly three times per year via a
+        public maintenance process; codes carry start/modified/stop dates
+        that matter for historical claim data.
+      - >-
+        Licensing: public viewability is not a redistribution license —
+        embedding the lists in commercial software or distributing them to
+        third parties requires an X12 Commercial Use license (Internal
+        Use and Developer tiers cover other cases).
+      - >-
+        The CAQH CORE uniform-use rule (835) is federally mandated under ACA
+        section 1104: payer CARC/RARC pairs must fit CORE-defined business
+        scenarios; current combinations version is February 2026 v3.10.0.
+      - >-
+        The 2026 IDR Operations rule will additionally require designated
+        CARCs/RARCs to flag NSA-subject out-of-network claims — new
+        regulatory semantics layered onto 835 parsing.
+      - >-
+        Revi practice: this pack paraphrases code meanings in its own words
+        and never reproduces licensed X12 text; an RCM product shipping code
+        descriptions should confirm its licensing posture.
+    cautions:
+      - >-
+        CORE code-combination conformance is a floor for payers, not a
+        guarantee — nonstandard local codes still appear in the wild.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: x12-licensing
+        title: X12 Licensing Program (multi-tier IP licensing)
+        publisher: X12
+        url: https://x12.org/products/licensing-program
+        authority: standards body (primary)
+        last_verified_at: 2026-08-07
+      - id: x12-carc-list
+        title: Claim Adjustment Reason Codes (code list maintainer page)
+        publisher: X12
+        url: https://x12.org/codes/claim-adjustment-reason-codes
+        authority: standards body (primary)
+        last_verified_at: 2026-08-07
+      - id: caqh-core-payment-remit
+        title: CAQH CORE Payment and Remittance Operating Rules
+        publisher: CAQH CORE
+        url: https://www.caqh.org/core/caqh-core-payment-and-remittance-operating-rules
+        authority: standards development organization
+        last_verified_at: 2026-08-07
+
+  - id: reg.ma_denial_oversight
+    title: "MA denial oversight 2024-2026: OIG, GAO, and CMS actions"
+    domains: [regulatory, medicare_advantage, denials]
+    aliases:
+      - ma denial audits
+      - oig ma reports
+      - gao ma oversight
+    summary: >-
+      Federal watchdogs escalated scrutiny of Medicare Advantage denials
+      through mid-2026: OIG's June 2026 post-acute reports documented
+      near-total reversal of appealed SNF denials, GAO pushed CMS to target
+      behavioral health in program audits (implemented in 2025-2026 cycles),
+      and CMS itself suspended enforcement of some CY2025
+      utilization-management transparency requirements in June 2025. The
+      CY2024 rule (CMS-4201-F) remains the substantive standard MA denials
+      are audited against.
+    key_points:
+      - >-
+        OIG OEI-09-24-00331 (June 2026) and companion reports: high
+        post-acute denial rates, 95-97% overturn of appealed SNF denials,
+        and delegated-vendor concentration (naviHealth ~50% of SNF requests).
+      - >-
+        GAO-25-107342 (May 2025): most large MAOs applied internal coverage
+        criteria to inpatient behavioral health prior authorizations; GAO's
+        recommendation that CMS target behavioral health in program-audit
+        denial reviews was implemented.
+      - >-
+        June 16, 2025: CMS announced non-enforcement of CY2025 provisions
+        requiring health-equity expertise on UM committees and public
+        plan-level analyses of PA approvals and denials — reducing planned
+        denial-transparency data.
+      - >-
+        The substantive standards remain CMS-4201-F (traditional-Medicare
+        coverage criteria, 90-day continuity for approved PAs, annual UM
+        committee review) plus CMS-0057-F's 2026 timeframe/denial-reason and
+        2027 API requirements.
+    cautions:
+      - >-
+        High overturn rates argue for aggressive first-level appeals on MA
+        post-acute denials, but the OIG samples are narrow — do not project
+        them as plan-wide rates.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: gao-25-107342
+        title: "Medicare Advantage: CMS Oversight of Prior Authorization Criteria Should Target Behavioral Health (GAO-25-107342)"
+        publisher: GAO
+        url: https://www.gao.gov/products/gao-25-107342
+        authority: federal oversight (highest)
+        last_verified_at: 2026-08-07
+      - id: oig-snf-overturns-2026
+        title: Medicare Advantage Organizations Overturned Nearly All Appealed Prior Authorization Denials for Skilled Nursing Facility Admission (OEI-09-24-00331)
+        publisher: HHS Office of Inspector General
+        url: https://oig.hhs.gov/reports/all/2026/medicare-advantage-organizations-overturned-nearly-all-appealed-prior-authorization-denials-for-skilled-nursing-facility-admission-raising-concerns-about-initial-denials/
+        authority: federal audit (highest)
+        last_verified_at: 2026-08-07
+      - id: chir-ma-suspension
+        title: CMS Suspends New Medicare Advantage Prior Authorization Transparency Rules (Nov 2025)
+        publisher: Georgetown CHIR Medicare Policy Initiative
+        url: https://medicare.chir.georgetown.edu/cms-suspends-new-medicare-advantage-prior-authorization-transparency-rules-amid-public-concerns-about-care-denials/
+        authority: independent research analysis
+        last_verified_at: 2026-08-07
+
+  # ==================================================================
+  # ops.* — denial and appeal operations
+  # ==================================================================
+  - id: ops.denial_taxonomy
+    title: "Denial taxonomy in practice: recoverability, cause type, preventability"
+    domains: [workflow, denials, measurement]
+    aliases:
+      - denial classification
+      - denial types elaborated
+      - hard vs soft denials
+      # deliberate concept overlap: the concept defines, this card elaborates
+      - soft denial
+      - hard denial
+    summary: >-
+      Denials should be classified on three axes that drive different
+      workflows: recoverability (soft denials are correctable and
+      resubmittable; hard denials require formal appeal or become
+      write-offs), cause type (clinical vs administrative/technical), and
+      preventability. HFMA-published guidance holds that roughly 90% of
+      denials are preventable and about two-thirds of those are recoverable
+      on appeal, so classification is the entry point for both recovery
+      routing and prevention analytics.
+    key_points:
+      - >-
+        Soft denial: payer contests specific data points and payment is
+        recoverable via correction or resubmission, often within short
+        windows. Hard denial: firm refusal (medical necessity, non-covered
+        service, expired filing) requiring formal appeal, frequently
+        abandoned as lost revenue.
+      - >-
+        Distinguish front-end rejections (never adjudicated) from true
+        denials (adjudicated and deemed unpayable) — they need separate
+        metrics and queues (HBMA).
+      - >-
+        Cause-type split: administrative/technical (coding errors,
+        duplicates, late filing, wrong identifiers, missing authorization)
+        vs clinical (medical necessity, insufficient documentation).
+      - >-
+        HFMA figures imply roughly 60% of all denials are recoverable and
+        ~30% are permanently lost prevention failures.
+      - >-
+        Analytics use: tag every denial with recoverability class, cause
+        type, and a preventable flag so recovery queues, appeal triage, and
+        prevention feedback loops can each be measured separately.
+    cautions:
+      - >-
+        Typical hard/soft share splits are not published with citable rigor;
+        use the preventable/recoverable figures instead.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: hbma-denials-mgmt
+        title: What Is Denials Management?
+        publisher: Healthcare Business Management Association (HBMA), RCM Advisor Q1 2025
+        url: https://www.hbma.org/rcmadvisor/quarter-1-2025-volume-30-issue-1/what-is-denials-management
+        authority: industry association
+        last_verified_at: 2026-08-07
+      - id: hfma-proactive-denials
+        title: Strategies for Proactive Denial Management and Prevention
+        publisher: HFMA
+        url: https://www.hfma.org/revenue-cycle/denials-management/61778/
+        authority: industry association guidance
+        last_verified_at: 2026-08-07
+
+  - id: ops.root_cause_carc_mapping
+    title: "Root-cause mapping: CARC codes to upstream process failures"
+    domains: [workflow, denials, prevention]
+    aliases:
+      - carc root cause map
+      - denial root cause mapping
+      - carc to process map
+    summary: >-
+      Claim adjustment reason codes, read together with group codes and
+      remark codes, map denials to the upstream process that failed. The
+      canonical mappings: 197 to the authorization workflow, 22 to COB/MSP
+      data capture, 29 to billing timeliness, 16 to claim data quality, and
+      96/50 to benefit verification and medical-necessity alignment. A CARC
+      alone is often ambiguous — codes 16 and 96 require companion remark
+      codes to identify the specific defect.
+    key_points:
+      - >-
+        CARC 197 (authorization or precertification missing) maps to patient
+        access — an authorization was never obtained or notification was
+        missed — distinct from a data-quality denial where an obtained auth
+        number was merely omitted from the claim.
+      - >-
+        CARC 22 (another payer may be responsible under coordination of
+        benefits) maps to registration-time COB capture; Medicare contractors
+        advise prevention via a completed MSP questionnaire and payer-status
+        verification before submission.
+      - >-
+        CARC 29 (filing deadline passed) maps to billing/follow-up
+        timeliness; it is a hard denial generally only overturnable with
+        proof of timely original submission.
+      - >-
+        CARC 16 (claim missing information or containing submission errors)
+        maps to claim data quality and edit coverage; remark-code parsing is
+        mandatory to identify the missing field.
+      - >-
+        CARC 96 (charges not covered) maps to benefit verification; CARC 50
+        (payer deems the service not medically necessary) maps to
+        coverage-criteria alignment and clinical documentation.
+      - >-
+        Root-cause attribution needs the CARC + group code + RARC triplet
+        plus payer context; the same CARC under different group codes implies
+        different liability and different corrective owners.
+    cautions: []
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: fcso-co22
+        title: Tips to prevent claim adjustment reason code (CARC) CO 22
+        publisher: First Coast Service Options (Medicare Administrative Contractor)
+        url: https://medicare.fcso.com/claims/denial-tips/co-22
+        authority: medicare contractor guidance
+        last_verified_at: 2026-08-07
+      - id: x12-carc-list
+        title: Claim Adjustment Reason Codes (code list maintainer page)
+        publisher: X12
+        url: https://x12.org/codes/claim-adjustment-reason-codes
+        authority: standards body (primary)
+        last_verified_at: 2026-08-07
+
+  - id: ops.group_code_liability
+    title: Group codes and financial liability in denial analytics
+    domains: [workflow, denials, measurement]
+    aliases:
+      - group code liability
+      - co vs pr
+      - adjustment liability
+    summary: >-
+      Group codes assign financial responsibility for each adjustment amount
+      and therefore determine whether a balance becomes a write-off, a
+      patient transfer, or neither. CO amounts are provider liability and
+      cannot be billed to the patient; PR amounts may be billed to the
+      beneficiary; OA amounts can be billed to neither party. Analytics that
+      ignore group codes conflate contractual adjustments with true denials.
+    key_points:
+      - >-
+        CO (contractual obligation): provider is financially liable —
+        participation-agreement adjustments, late filing penalties, certain
+        medical-necessity denials; the beneficiary may not be billed.
+      - >-
+        PR (patient responsibility): billable to the beneficiary —
+        deductibles, coinsurance, and denials where a valid liability
+        agreement (e.g. ABN) exists. OA (other adjustment): neither party can
+        be held responsible. PI (payer-initiated reduction): payer-driven,
+        not contractual.
+      - >-
+        The same CARC flips meaning by group — e.g. a non-covered-charge code
+        under PR may transfer to the patient while the same code under CO is
+        a provider write-off.
+      - >-
+        Denial-rate metrics should exclude routine CO contractual amounts to
+        avoid overstating denials; denial write-offs at posting time should
+        be forced to a denial-specific reason code, never a generic
+        contractual code.
+    cautions: []
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: noridian-group-codes
+        title: Claim Adjustment Group Codes
+        publisher: Noridian Healthcare Solutions (Medicare Administrative Contractor)
+        url: https://med.noridianmedicare.com/web/jddme/topics/ra/claim-adjustment-group-codes
+        authority: medicare contractor guidance
+        last_verified_at: 2026-08-07
+
+  - id: ops.appeals_medicare_ffs
+    title: "Medicare FFS appeals: five levels and deadlines"
+    domains: [workflow, appeals, medicare]
+    aliases:
+      - medicare appeal levels
+      - redetermination deadline
+      - qic reconsideration
+      - alj hearing
+    summary: >-
+      Original Medicare has a five-level appeal ladder: MAC redetermination,
+      QIC reconsideration, OMHA ALJ hearing, Medicare Appeals Council review,
+      and federal district court. The redetermination must be filed within
+      120 days of the initial determination with no minimum dollar threshold;
+      later levels carry 60-180 day windows and annually adjusted
+      amount-in-controversy thresholds at levels 3 and 5.
+    key_points:
+      - >-
+        Level 1 — MAC redetermination: file in writing within 120 days of
+        receipt (notice presumed received 5 calendar days after its date);
+        no minimum amount in controversy.
+      - >-
+        Level 2 — QIC reconsideration: file within 180 days of the
+        redetermination decision; independent review of the record.
+      - >-
+        Level 3 — OMHA ALJ hearing: amount-in-controversy threshold applies,
+        recalculated annually ($200 for CY2026). Level 5 — federal district
+        court within 60 days of the Council decision ($1,900 threshold for
+        CY2025).
+      - >-
+        Model appeal-deadline clocks per level with the 5-day receipt
+        presumption, and gate level-3+ escalation on the current-year
+        threshold.
+      - >-
+        Minor clerical errors go through reopenings rather than burning the
+        formal redetermination level.
+    cautions:
+      - >-
+        Amount-in-controversy thresholds change every calendar year; refresh
+        annually from the Federal Register notice.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: cms-ffs-appeals
+        title: Original Medicare (Fee-for-service) Appeals
+        publisher: CMS
+        url: https://www.cms.gov/medicare/appeals-grievances/fee-for-service
+        authority: federal regulator (primary)
+        last_verified_at: 2026-08-07
+      - id: cms-ffs-l1
+        title: "First Level of Appeal: Redetermination by a Medicare Contractor"
+        publisher: CMS
+        url: https://www.cms.gov/medicare/appeals-grievances/fee-for-service/first-level-appeal-redetermination-medicare-contractor
+        authority: federal regulator (primary)
+        last_verified_at: 2026-08-07
+
+  - id: ops.appeals_ma
+    title: "Medicare Advantage appeals: plan reconsideration and IRE auto-forward"
+    domains: [workflow, appeals, medicare_advantage]
+    aliases:
+      - ma appeals
+      - ma reconsideration
+      - part c ire
+      - ire auto-forward
+    summary: >-
+      MA appeals start with a reconsideration filed with the plan within 65
+      calendar days of the organization determination notice. Plans must
+      decide within 72 hours (expedited pre-service), 30 days (standard
+      pre-service), or 60 days (payment requests). Any adverse plan
+      reconsideration is automatically forwarded to the Part C Independent
+      Review Entity — the provider does not have to request second-level
+      review — after which the case follows the standard ALJ/Council/court
+      ladder.
+    key_points:
+      - >-
+        File reconsideration within 65 calendar days of the organization
+        determination notice (CMS's current figure — not the older 60-day
+        number); plans must expedite when a physician requests it.
+      - >-
+        Plan decision clocks: 72 hours expedited pre-service, 30 calendar
+        days standard pre-service, 7 days standard Part B drug, 60 days for
+        payment requests.
+      - >-
+        If the plan upholds its denial in whole or part, it must
+        automatically submit the case to the Part C IRE — a structural
+        difference from FFS where the appellant files each level.
+      - >-
+        IRE contractor transition: MAXIMUS Federal Services through April 30,
+        2026; C2C Innovative Solutions effective May 1, 2026.
+      - >-
+        For MA payment denials, expect a ~60-day plan decision window before
+        auto-forward; track IRE outcomes separately from plan-level
+        decisions.
+    cautions: []
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: cms-ma-recon
+        title: Reconsideration by the Medicare Advantage (Part C) Health Plan
+        publisher: CMS
+        url: https://www.cms.gov/medicare/appeals-grievances/managed-care/reconsideration-advantage-health-plan-part-c
+        authority: federal regulator (primary)
+        last_verified_at: 2026-08-07
+      - id: cms-partc-ire
+        title: Reconsideration by Part C Independent Review Entity (IRE)
+        publisher: CMS
+        url: https://www.cms.gov/medicare/appeals-grievances/managed-care/review-part-c-independent-entitiy
+        authority: federal regulator (primary)
+        last_verified_at: 2026-08-07
+
+  - id: ops.appeals_medicaid
+    title: Medicaid managed care appeals and state fair hearings (42 CFR 438)
+    domains: [workflow, appeals, medicaid]
+    aliases:
+      - medicaid appeals
+      - state fair hearing
+      - 42 cfr 438
+    summary: >-
+      Under 42 CFR part 438, a Medicaid managed care enrollee has 60 calendar
+      days from an adverse benefit determination notice to file a plan-level
+      appeal, which the plan must resolve within 30 calendar days (72 hours
+      expedited, extendable by up to 14 days). The plan appeal must be
+      exhausted before a state fair hearing, and states must allow 90-120
+      calendar days from the plan's resolution notice to request the hearing.
+      Procedures and provider standing vary meaningfully by state.
+    key_points:
+      - >-
+        Filing: 60 calendar days from the adverse benefit determination
+        notice, orally or in writing (438.402).
+      - >-
+        Resolution: standard appeals within 30 calendar days; expedited
+        within 72 hours; both extendable up to 14 days (438.408).
+      - >-
+        Exhaustion: a fair hearing is available only after the plan upholds
+        the determination — except that plan failure to meet notice and
+        timing requirements deems the appeal exhausted.
+      - >-
+        Fair-hearing window: no less than 90 and no more than 120 calendar
+        days from the plan's notice of resolution (438.408).
+      - >-
+        Medicaid appeal analytics must be state- and plan-parameterized:
+        the federal floor sets ranges, but states set exact deadlines,
+        provider standing, and claim-dispute channels.
+    cautions:
+      - >-
+        These are beneficiary-appeal rules; provider claim-dispute processes
+        for Medicaid MCOs are governed by state contracts and vary widely.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: cfr-438-402
+        title: 42 CFR 438.402 - General requirements (grievance and appeal system)
+        publisher: Cornell Legal Information Institute (eCFR mirror)
+        url: https://www.law.cornell.edu/cfr/text/42/438.402
+        authority: federal regulation (primary)
+        last_verified_at: 2026-08-07
+      - id: cfr-438-408
+        title: "42 CFR 438.408 - Resolution and notification: grievances and appeals"
+        publisher: Cornell Legal Information Institute (eCFR mirror)
+        url: https://www.law.cornell.edu/cfr/text/42/438.408
+        authority: federal regulation (primary)
+        last_verified_at: 2026-08-07
+
+  - id: ops.appeals_commercial
+    title: "Commercial appeals under the ACA: internal appeal then external review"
+    domains: [workflow, appeals, commercial]
+    aliases:
+      - aca appeals
+      - internal appeal
+      - external review
+    summary: >-
+      ACA-governed plans must offer an internal appeal, filed within 180 days
+      of the denial notice, followed by an independent external review
+      requested within four months of the final internal denial. External
+      review covers denials involving medical judgment,
+      experimental/investigational determinations, and rescissions, and its
+      decision is binding on the insurer. Reviews run through state
+      processes, HHS-administered federal review, or contracted independent
+      review organizations.
+    key_points:
+      - >-
+        Internal appeal: within 180 days of the denial notice; insurers must
+        issue denial notices within 15 days (prior authorization), 30 days
+        (services received), or 72 hours (urgent).
+      - >-
+        External review: written request due within four months of the final
+        adverse determination; the reviewer's decision is binding by law.
+        Urgent situations allow concurrent internal and external review.
+      - >-
+        External-review scope: medical judgment, experimental or
+        investigational determinations, and rescissions — pure contractual or
+        administrative denials generally do not qualify.
+      - >-
+        These are member-appeal protections; provider-initiated dispute
+        rights on commercial claims are contractual (provider-manual
+        reconsideration and appeal tiers) and typically shorter, e.g. 120-180
+        days from the explanation of payment.
+      - >-
+        The HHS-administered federal external review process was flagged
+        temporarily unavailable as of July 1, 2026.
+    cautions: []
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: hcgov-internal
+        title: Internal appeals
+        publisher: HealthCare.gov (CMS/HHS)
+        url: https://www.healthcare.gov/appeal-insurance-company-decision/internal-appeals/
+        authority: federal regulator (primary)
+        last_verified_at: 2026-08-07
+      - id: hcgov-external
+        title: External Review
+        publisher: HealthCare.gov (CMS/HHS)
+        url: https://www.healthcare.gov/appeal-insurance-company-decision/external-review/
+        authority: federal regulator (primary)
+        last_verified_at: 2026-08-07
+
+  - id: ops.appeal_economics
+    title: "Appeal economics: cost per appeal, overturn odds, and when to appeal"
+    domains: [workflow, appeals, denials]
+    aliases:
+      - when to appeal
+      - appeal cost benefit
+      - appeal roi
+    summary: >-
+      Premier's national hospital survey found fighting a denial costs an
+      average of $43.84 per claim, yet 54.3% of private-payer denials are
+      ultimately overturned and paid — typically after about three review
+      rounds of 45-60 days each. HFMA-published practice is to appeal 85-88%
+      of denials; materially higher suggests fighting unwinnable cases,
+      materially lower suggests leaving recoverable revenue. The operational
+      decision rule is expected-value based.
+    key_points:
+      - >-
+        Average cost to fight a denied claim $43.84; overturned denials
+        typically required ~3 rounds of review of 45-60 days each, so
+        recovered cash routinely lags 6+ months (Premier).
+      - >-
+        Best-practice organizations appeal 85-88% of denials; appealing above
+        ~92% indicates pursuing unwinnable denials, lower rates signal
+        under-appealing that payers notice (HFMA).
+      - >-
+        Decision rule: appeal when p(overturn | payer, reason code, service
+        line) times expected recovery exceeds cost per round times expected
+        rounds; calibrate the overturn probability from the organization's
+        own payer-by-reason history, not industry averages.
+      - >-
+        Skip-appeal candidates: low-balance technical denials better resolved
+        by corrected claims, denials below the cost-to-appeal floor (route to
+        write-off governance), and hard denials with no documentation basis.
+    cautions:
+      - >-
+        Premier figures are survey-based, hospital-centric, private-payer
+        only; the 85-88% target presumes an effective prevention program.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: premier-denials-2024
+        title: "Trend Alert: Private Payers Retain Profits by Refusing or Delaying Legitimate Medical Claims"
+        publisher: Premier Inc.
+        url: https://premierinc.com/newsroom/blog/trend-alert-private-payers-retain-profits-by-refusing-or-delaying-legitimate-medical-claims
+        authority: national provider survey (primary)
+        effective_from: 2023-12-31
+        last_verified_at: 2026-08-07
+      - id: hfma-proactive-denials
+        title: Strategies for Proactive Denial Management and Prevention
+        publisher: HFMA
+        url: https://www.hfma.org/revenue-cycle/denials-management/61778/
+        authority: industry association guidance
+        last_verified_at: 2026-08-07
+
+  - id: ops.rebill_vs_appeal
+    title: "Rebill (corrected claim) vs appeal: decision rules"
+    domains: [workflow, denials, appeals]
+    aliases:
+      - rebill or appeal
+      - corrected claim vs appeal
+      - resubmit vs appeal
+    summary: >-
+      A corrected claim and an appeal are different instruments with
+      different clocks: rebill when the original claim itself was wrong
+      (units, modifiers, diagnosis sequencing, missing data); appeal or
+      request reconsideration when the claim was accurate but the payer's
+      adjudication is disputed. Payers maintain distinct filing windows for
+      each path, and using the wrong instrument wastes a limited window.
+    key_points:
+      - >-
+        Corrected claim: the original submission contained billing errors or
+        missing data — a replacement or void resubmission, not a dispute of
+        the payer's decision.
+      - >-
+        Appeal/reconsideration: disagreement with a denial or payment
+        reduction, disputes over policy application, or post-service
+        authorization denials — the claim data itself was correct.
+      - >-
+        Example payer windows (Centene affiliate): Medicaid appeals 365 days
+        from service or 120 days from the EOP (whichever is later), MA 180
+        days from the EOP, commercial 120 days from the EOP — with separate
+        corrected-claim windows.
+      - >-
+        Timely-filing denials are appealed with proof of original timely
+        submission, not rebilled — resubmitting restarts nothing and can
+        generate duplicate denials.
+      - >-
+        Soft denials with correctable defects resolve fastest as corrected
+        claims; escalate to formal appeal only when reconsideration fails or
+        the dispute is substantive.
+    cautions:
+      - >-
+        The filing windows cited are one payer's example — encode
+        per-payer/per-product timeframes as data, not constants.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: meridian-appeals-vs-corrected
+        title: "Reference Guide: Appeals/Reconsiderations vs. Corrected Claims"
+        publisher: Meridian (Centene) provider bulletin
+        url: https://www.mimeridian.com/providers/bulletins/052025-appeals-reconsiderations-corrected-claims.html
+        authority: payer bulletin (primary example)
+        last_verified_at: 2026-08-07
+      - id: hbma-denials-mgmt
+        title: What Is Denials Management?
+        publisher: Healthcare Business Management Association (HBMA)
+        url: https://www.hbma.org/rcmadvisor/quarter-1-2025-volume-30-issue-1/what-is-denials-management
+        authority: industry association
+        last_verified_at: 2026-08-07
+
+  - id: ops.write_off_governance
+    title: "Write-off governance: categories, small-balance thresholds, approval tiers"
+    domains: [workflow, write_offs]
+    aliases:
+      - write-off policy
+      - small balance threshold
+      - write-off approval
+      # deliberate concept overlap: the concept defines, this card elaborates
+      - denial write-off
+    summary: >-
+      Sound write-off governance separates write-offs into reason-coded
+      categories (contractual, bad debt, charity, administrative, small
+      balance, timely filing, uncredentialed provider), sets a small-balance
+      threshold below which collection is not cost-effective, and requires
+      tiered documented approval with segregation of duties and periodic
+      audit. The essential analytics split is avoidable vs unavoidable
+      write-offs: HFMA MAP Key AR-6 tracks denial write-offs specifically so
+      preventable leakage is not buried inside contractual adjustments.
+    key_points:
+      - >-
+        Maintain distinct write-off reason codes — each category carries
+        different compliance and prevention implications.
+      - >-
+        Small-balance thresholds sit where pursuit costs exceed recovery,
+        commonly cited in the $10-$20 range for auto-adjustment — an
+        organizational policy decision, not an industry mandate.
+      - >-
+        Approval governance: documented rationale, tiered approval escalating
+        with dollar amount, manager or compliance sign-off, and periodic
+        appropriateness reviews with segregation of duties; a cited operating
+        KPI keeps total write-offs under 5% of collections.
+      - >-
+        Never let denial-driven write-offs post under generic contractual
+        adjustment codes; a CO group code plus a denial CARC at posting time
+        should force a denial-write-off reason code.
+    cautions:
+      - >-
+        Specific dollar thresholds and approval tiers are vendor-published
+        guidance, not association-set standards.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: mdclarity-writeoffs
+        title: "Writing Off Patient Balances: Best Practices for Provider Organizations"
+        publisher: MD Clarity
+        url: https://www.mdclarity.com/blog/writing-off-patient-balances
+        authority: industry vendor guidance
+        last_verified_at: 2026-08-07
+      - id: hfma-map-keys
+        title: MAP Keys - Industry-standard revenue cycle KPIs
+        publisher: HFMA
+        url: https://www.hfma.org/data-and-insights/map-initiative/map-keys/
+        authority: industry standard-setter (definitions)
+        last_verified_at: 2026-08-07
+
+  - id: ops.denial_prevention_front_end
+    title: "Prevention loops: eligibility cadence, auth workqueues, COB capture"
+    domains: [workflow, prevention, denials]
+    aliases:
+      - denial prevention
+      - eligibility cadence
+      - auth workqueue
+      - prevention feedback loop
+    summary: >-
+      The highest-yield denial prevention lives at the front end: verifying
+      eligibility at scheduling and again before service, working
+      authorization workqueues to closure before the date of service, and
+      capturing coordination-of-benefits/MSP data at registration. MGMA
+      polling shows practices that reduced denials credited front-desk
+      training, dedicated denials task forces, and tightened eligibility and
+      authorization processes.
+    key_points:
+      - >-
+        Verify eligibility at scheduling and re-verify close to the date of
+        service — single-point verification misses mid-cycle coverage changes
+        that surface as eligibility and COB denials.
+      - >-
+        Run authorization workqueues that force resolution before service;
+        authorization denials are rarely recoverable after the fact.
+      - >-
+        Capture COB/MSP data at registration (for Medicare, a completed MSP
+        questionnaire) and verify payer ordering before submission.
+      - >-
+        MGMA (Mar 2024): 60% of groups reported rising denials and only 11%
+        achieved reductions — reducers credited front-desk training, denials
+        task forces, clinical documentation improvement, and refined
+        authorization processes.
+      - >-
+        Close the loop: route every preventable denial back to the owning
+        upstream department with reason-code-based root-cause tagging, and
+        track recurrence by root cause after each fix.
+    cautions: []
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: mgma-stat-denials-2024
+        title: "MGMA Stat: Strategic improvements in your RCM to reduce your practice's claim denials"
+        publisher: MGMA
+        url: https://www.mgma.com/mgma-stat/strategic-improvements-in-your-rcm-to-reduce-your-practices-claim-denials
+        authority: professional association poll (primary)
+        effective_from: 2024-03-01
+        last_verified_at: 2026-08-07
+      - id: fcso-co22
+        title: Tips to prevent claim adjustment reason code (CARC) CO 22
+        publisher: First Coast Service Options (Medicare Administrative Contractor)
+        url: https://medicare.fcso.com/claims/denial-tips/co-22
+        authority: medicare contractor guidance
+        last_verified_at: 2026-08-07
+
+  - id: ops.claim_edit_maintenance
+    title: Claim-edit and scrubber maintenance as a prevention discipline
+    domains: [workflow, prevention, measurement]
+    aliases:
+      - edit maintenance
+      - scrubber maintenance
+      - edit library
+    summary: >-
+      Clean claim rate — HFMA MAP Key CL-1, claims requiring no manual
+      intervention — is the standard measure of edit effectiveness, with 90%+
+      expected and 95% widely cited as the industry standard. Because payers
+      change policies continuously (a majority of surveyed providers say
+      clean claim submission is getting harder), edit libraries decay without
+      maintenance: denial CARC/RARC patterns must feed back into scrubber
+      rules on a scheduled cadence.
+    key_points:
+      - >-
+        Experian 2025: nearly 70% of providers say submitting clean claims is
+        harder than a year prior and 54% report claim errors increasing —
+        static edit libraries lose ground to payer policy churn.
+      - >-
+        Maintenance loop: mine new denial CARC+RARC combinations monthly,
+        convert recurring preventable patterns into pre-submission edits, and
+        retire zero-hit edits to keep scrubber latency down.
+      - >-
+        Track paired metrics: pre-submission edit hit rate vs
+        post-adjudication denial rate for the same defect class — a rising
+        denial share for an editable defect means the edit library is stale.
+      - >-
+        Monitor payer bulletins and policy-change feeds as a standing input;
+        frequent payer policy changes are a consistently cited denial driver.
+    cautions:
+      - >-
+        HFMA does not publish the 90/95% numeric targets on its open MAP Keys
+        page; the figures come via trade reporting on the MAP framework.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: techtarget-rcm-kpis
+        title: Breaking Down the Top 5 Healthcare Revenue Cycle KPIs
+        publisher: TechTarget RevCycle Management (citing HFMA MAP Keys)
+        url: https://www.techtarget.com/revcyclemanagement/feature/Breaking-Down-the-Top-5-Healthcare-Revenue-Cycle-KPIs
+        authority: trade publication
+        last_verified_at: 2026-08-07
+      - id: experian-state-of-claims-2025
+        title: "State of Claims 2025: The denial problem (and is AI the answer?)"
+        publisher: Experian Health
+        url: https://www.experian.com/blogs/healthcare/state-of-claims-2025/
+        authority: vendor survey (primary)
+        effective_from: 2025-01-01
+        last_verified_at: 2026-08-07
+
+  - id: ops.map_keys_measurement
+    title: "Measurement framework: MAP Keys for denial and A/R analytics"
+    domains: [workflow, measurement]
+    aliases:
+      - map keys for denials
+      - denial kpis
+      - kpi framework
+      # deliberate concept overlap: the concept defines, this card elaborates
+      - map keys
+    summary: >-
+      HFMA's MAP Keys are the industry-standard revenue-cycle KPI
+      definitions: 29 metrics across Patient Access, Pre-Billing, Claims,
+      Account Resolution, and Financial Management. For denial analytics the
+      load-bearing keys are CL-1 (clean claim rate), AR-5 (remittance denial
+      rate), AR-6 (denial write-offs), and the aged A/R keys; using MAP
+      definitions makes internal metrics benchmarkable against industry
+      norms. Benchmark values, however, are member data and not freely
+      published.
+    key_points:
+      - >-
+        CL-1 clean claim rate: claims requiring no manual intervention — the
+        standard numerator/denominator for edit effectiveness.
+      - >-
+        AR-5 remittance denial rate (claims denied over claims remitted) is
+        the standard initial-denial outcome measure; AR-6 denial write-offs
+        (net dollars written off as denials relative to revenue) is the
+        standard failed-recovery measure.
+      - >-
+        Aged A/R keys (AR-1..AR-4) standardize aging-bucket analysis by payer
+        group; MGMA better performers hold over 70% of A/R under 30 days and
+        only 8.1% over 120 days (dated 2021 report, 2020 data).
+      - >-
+        Recommended usage for Revi: align metric formulas to MAP Key
+        definitions, then benchmark values against the citable
+        Kodiak/Crowe/Optum/KFF figures in the benchmark cards.
+    cautions:
+      - >-
+        HFMA MAP medians and quartiles are members-only; public articles cite
+        directional changes, not stable absolute medians.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: hfma-map-keys
+        title: MAP Keys - Industry-standard revenue cycle KPIs
+        publisher: HFMA
+        url: https://www.hfma.org/data-and-insights/map-initiative/map-keys/
+        authority: industry standard-setter (definitions)
+        last_verified_at: 2026-08-07
+      - id: mgma-data-mine
+        title: "Data Mine: Measuring success - Finding the right metrics to optimize the revenue cycle"
+        publisher: MGMA
+        url: https://www.mgma.com/articles/data-mine-measuring-success-finding-the-right-metrics-to-optimize-the-revenue-cycle
+        authority: professional association
+        last_verified_at: 2026-08-07
+
+  - id: ops.denial_staffing
+    title: "Denial operations staffing: investigation model, not processing model"
+    domains: [workflow, denials]
+    aliases:
+      - denial staffing
+      - denials task force
+      - denial processing vs management
+    summary: >-
+      AAPC's guidance draws a hard line between denial management (root-cause
+      investigation requiring coding, documentation, and billing expertise
+      with cross-functional coordination) and denial processing (mechanically
+      resubmitting, attaching records, and hoping for reversal). Assigning
+      denials to undertrained entry-level staff loses revenue and raises
+      audit risk; work should be routed by required skill level, with
+      clinical and coding-intensive denials handled by credentialed staff.
+    key_points:
+      - >-
+        Denial management is investigative: verify whether coding,
+        documentation, and diagnosis actually support payment before
+        resubmitting or appealing — blind resubmission and reflexive records
+        release are processing, not management.
+      - >-
+        Anti-patterns: changing modifiers without evaluating applicability,
+        resubmitting claims unreviewed, fulfilling payer record requests
+        without evaluating the documentation, treating appeals as
+        administrative busywork.
+      - >-
+        Organizational patterns credited with reductions include dedicated
+        denials task forces spanning front desk, clinical documentation,
+        eligibility, and authorization functions (MGMA).
+      - >-
+        Public accounts-per-FTE productivity benchmarks are not available
+        from open association content (MGMA DataDive and HFMA benchmarking
+        are paywalled); skill-based routing and outcome KPIs (overturn rate,
+        touches per resolved denial) are the citable alternatives.
+    cautions: []
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: aapc-denial-mgmt-care
+        title: Approach Denial Management With Care
+        publisher: AAPC Knowledge Center
+        url: https://www.aapc.com/blog/93145-approach-denial-management-with-care/
+        authority: industry association
+        last_verified_at: 2026-08-07
+      - id: mgma-stat-denials-2024
+        title: "MGMA Stat: Strategic improvements in your RCM to reduce your practice's claim denials"
+        publisher: MGMA
+        url: https://www.mgma.com/mgma-stat/strategic-improvements-in-your-rcm-to-reduce-your-practices-claim-denials
+        authority: professional association poll (primary)
+        effective_from: 2024-03-01
+        last_verified_at: 2026-08-07
+
+  - id: ops.cob_ordering_msp
+    title: "COB ordering rules: NAIC order of benefits and Medicare Secondary Payer"
+    domains: [workflow, cob, medicare]
+    aliases:
+      - birthday rule
+      - cob ordering
+      - msp rules
+      # deliberate concept overlap: the concept defines, this card elaborates
+      - coordination of benefits
+      - working aged
+    summary: >-
+      COB denials arise when claims go to the wrong payer first. Commercial
+      ordering follows NAIC-derived rules: the plan covering someone as
+      subscriber pays before a plan covering them as dependent; for dependent
+      children, the parent whose birthday falls earlier in the calendar year
+      is primary; active-employee coverage beats retiree coverage. Medicare
+      Secondary Payer rules override for Medicare patients: employer group
+      plans pay primary for the working aged when the employer has 20+
+      employees, large group plans (100+) pay primary for the disabled, and
+      ESRD has a 30-month coordination period.
+    key_points:
+      - >-
+        Non-dependent/dependent rule: the plan covering the patient as
+        enrollee/subscriber is primary over one covering them as a dependent.
+      - >-
+        Birthday rule (dependent children): the parent whose birthday
+        (month/day only, not age) falls first in the calendar year is
+        primary; identical birthdays fall back to the longer-in-effect plan;
+        divorce decrees and court orders can supersede.
+      - >-
+        MSP working aged: for beneficiaries 65+ with group coverage through
+        current employment, the group plan is primary if the employer has 20+
+        employees. Disability: large group plans (100+ employees) pay
+        primary. ESRD: the group plan pays primary during a 30-month
+        coordination period regardless of employer size.
+      - >-
+        Operational musts: administer the MSP questionnaire at registration,
+        submit MSP codes and primary-payer information on claims, and treat
+        COB denials as a routing problem — rebill the true primary within its
+        filing window, then bill secondary with the primary's remittance.
+    cautions:
+      - >-
+        State COB regulations can vary from the NAIC model.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: cgs-msp-chapter11
+        title: Medicare Secondary Payer (MSP) Chapter 11
+        publisher: CGS Administrators (Medicare Administrative Contractor)
+        url: https://www.cgsmedicare.com/jc/pubs/pdf/chpt11.pdf
+        authority: medicare contractor manual
+        last_verified_at: 2026-08-07
+      - id: aetnafeds-naic-cob
+        title: NAIC Coordination of Benefits Policy
+        publisher: Aetna (Federal Plans)
+        url: https://aetnafeds.com/NAIC.php
+        authority: payer policy (primary example)
+        last_verified_at: 2026-08-07
+
+  - id: ops.credentialing_enrollment
+    title: Credentialing and enrollment-lag denials
+    domains: [workflow, credentialing, denials]
+    aliases:
+      - credentialing denials
+      - enrollment lag
+      - retro effective date
+      - provider not credentialed
+    summary: >-
+      Claims billed before a payer loads a provider's effective date deny as
+      "provider not enrolled/credentialed," and MGMA polling found 54% of
+      practices saw such denials rise. Payers can take up to 100 days just to
+      issue an effective date, sometimes with no retroactive billing allowed;
+      Medicare permits retrospective billing only up to 30 days before the
+      enrollment application filing date (90 in a declared disaster), while
+      many commercial payers refuse retro billing entirely.
+    key_points:
+      - >-
+        MGMA Stat (Aug 2021, 425 responses): 54% of practices reported
+        credentialing-related denials increased.
+      - >-
+        Root causes: slow payer application processing (up to 100 days), no
+        correspondence on stalled files, closed networks, and payer-side
+        errors (dropped providers, wrong taxonomy).
+      - >-
+        Medicare: retrospective billing limited to 30 days before the
+        application filing date (90 days for declared disasters) under 42 CFR
+        424.521 — file enrollment before the provider's start date.
+      - >-
+        Many commercial payers do not honor retroactive effective dates —
+        hold claims rather than release them to certain denial.
+      - >-
+        Controls: start enrollment 120-180 days pre-start, hold claims by
+        payer-specific effective-date logic, calendar recredentialing dates,
+        and appeal enrollment denials where the payer caused the delay. A
+        dated (2019) estimate puts onboarding delay near $10,122 lost per
+        physician per day.
+    cautions:
+      - >-
+        The eCFR page for 424.521 blocked automated fetch; confirm the 30/90
+        day rule against current regulation text. The $10,122/day figure is a
+        2019 single-survey estimate.
+    authored_by: machine-researched (KB wave 1, 2026-08-07)
+    review_status: machine_researched
+    sources:
+      - id: mgma-credentialing-denials
+        title: More than half of practices report credentialing-related denials on the rise in 2021
+        publisher: MGMA
+        url: https://www.mgma.com/mgma-stat/more-than-half-of-practices-report-credentialing-related-denials-on-the-rise-in-2021
+        authority: professional association poll (primary)
+        last_verified_at: 2026-08-07

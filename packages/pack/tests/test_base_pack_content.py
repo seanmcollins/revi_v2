@@ -3,7 +3,7 @@ plus the demo-tenant overlay, loaded through the real loader and composed by
 the real snapshot builder. Content-level invariants live here; structural
 loader/merge/snapshot behavior is covered by the sibling test modules."""
 
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 from pathlib import Path
 
 import pytest
@@ -18,7 +18,14 @@ from revi_calculation_contracts.contract import (
     Sum,
 )
 from revi_kernel.refs import DateBasisRef, EntityGrain
-from revi_pack.domain import CodeDefinition, CodeSystem, Concept, PackSnapshot
+from revi_pack.domain import (
+    CodeDefinition,
+    CodeSystem,
+    Concept,
+    KnowledgeCard,
+    PackSnapshot,
+    ReviewStatus,
+)
 from revi_pack.loader import load_layer
 from revi_pack.snapshot import build_snapshot
 
@@ -93,6 +100,11 @@ def test_concept_breadth(snapshot: PackSnapshot) -> None:
 
 def test_metric_breadth(snapshot: PackSnapshot) -> None:
     assert len(snapshot.metric_contracts) >= 22
+
+
+def test_knowledge_and_benchmark_breadth(snapshot: PackSnapshot) -> None:
+    assert len(snapshot.knowledge_cards) >= 40
+    assert len(snapshot.benchmarks) >= 15
 
 
 def test_playbooks_policies_rules_present(snapshot: PackSnapshot) -> None:
@@ -260,6 +272,100 @@ def test_group_codes_and_carcs_governed(snapshot: PackSnapshot) -> None:
     # CR is honest about never appearing in the mock data.
     cr = snapshot.code(CodeSystem.GROUP_CODE, "CR")
     assert cr is not None and "never emits" in cr.definition_paraphrase
+
+
+# ---------------------------------------------------------------------------
+# governed knowledge: cards and benchmark figures (KB wave 1)
+
+KNOWLEDGE_NAMESPACES = frozenset({"benchmark", "payer", "reg", "ops"})
+
+
+def test_card_ids_use_the_declared_namespaces(snapshot: PackSnapshot) -> None:
+    for card in snapshot.knowledge_cards:
+        namespace = card.id.split(".")[0]
+        assert namespace in KNOWLEDGE_NAMESPACES, f"{card.id}: unknown namespace {namespace!r}"
+        assert card.domains, f"{card.id}: needs at least one domain"
+        assert card.key_points, f"{card.id}: a card must elaborate, not just summarize"
+
+
+def test_every_card_carries_a_sourced_url(snapshot: PackSnapshot) -> None:
+    for card in snapshot.knowledge_cards:
+        assert card.sources, f"{card.id}: knowledge cards must cite at least one source"
+        assert any(s.url for s in card.sources), f"{card.id}: no source carries a url"
+        for source in card.sources:
+            assert source.authority, f"{card.id}: source {source.id!r} declares no authority"
+
+
+def test_every_benchmark_resolves_to_a_pack_metric(snapshot: PackSnapshot) -> None:
+    for benchmark in snapshot.benchmarks:
+        contract = snapshot.metric(benchmark.metric_id)
+        assert contract is not None, f"{benchmark.id}: unknown metric {benchmark.metric_id!r}"
+        assert benchmark in snapshot.benchmarks_for_metric(benchmark.metric_id)
+        assert benchmark.cohort_label, f"{benchmark.id}: cohort_label must be surfaced"
+        assert benchmark.sources, f"{benchmark.id}: benchmark figures must cite a source"
+
+
+def test_benchmark_ranges_are_ordered_where_numeric(snapshot: PackSnapshot) -> None:
+    for benchmark in snapshot.benchmarks:
+        try:
+            low = Decimal(benchmark.value_low)
+            high = Decimal(benchmark.value_high)
+        except InvalidOperation:
+            continue  # qualified figures like '<1' or '+2.2' stay as authored text
+        assert low <= high, f"{benchmark.id}: value_low {low} exceeds value_high {high}"
+
+
+def test_benchmark_values_are_yaml_strings(snapshot: PackSnapshot) -> None:
+    """Authored as strings so published figures never round-trip through float."""
+    document = yaml.safe_load((BASE_PACK_DIR / "benchmarks.yaml").read_text(encoding="utf-8"))
+    for entry in document["benchmarks"]:
+        for key in ("value_low", "value_high"):
+            assert isinstance(entry[key], str), f"{entry['id']}: {key} must be authored as a string"
+
+
+def test_nothing_self_certifies(snapshot: PackSnapshot) -> None:
+    """Machine-researched content stays machine-researched until a human
+    promotes it; promotion machinery is Phase 4 (see packs/base-rcm/NOTES.md)."""
+    for card in snapshot.knowledge_cards:
+        assert card.review_status is ReviewStatus.MACHINE_RESEARCHED, card.id
+        assert card.authored_by.startswith("machine-researched"), card.id
+    for benchmark in snapshot.benchmarks:
+        assert benchmark.review_status is ReviewStatus.MACHINE_RESEARCHED, benchmark.id
+
+
+def test_resolve_ma_denial_rate_surfaces_a_card(snapshot: PackSnapshot) -> None:
+    matches = snapshot.resolve_term("MA denial rate")
+    cards = [m for m in matches if isinstance(m, KnowledgeCard)]
+    assert cards, "expected a knowledge card for 'MA denial rate'"
+    card = cards[0]
+    assert card.id == "payer.ma.denial_patterns"
+    assert "medicare_advantage" in card.domains
+
+
+@pytest.mark.parametrize(
+    ("term", "concept_id", "card_id"),
+    [
+        ("soft denial", "soft_denial", "ops.denial_taxonomy"),
+        ("coordination of benefits", "cob", "ops.cob_ordering_msp"),
+        ("map keys", "map_keys", "ops.map_keys_measurement"),
+        ("denial write-off", "denial_write_off", "ops.write_off_governance"),
+        ("unworked denials", "unworked_denials", "benchmark.denials_never_worked"),
+    ],
+)
+def test_cards_elaborate_concepts_rather_than_replacing_them(
+    snapshot: PackSnapshot, term: str, concept_id: str, card_id: str
+) -> None:
+    """A card may share an alias with a concept: the governed definition
+    resolves first, the elaborating card follows."""
+    matches = snapshot.resolve_term(term)
+    assert isinstance(matches[0], Concept) and matches[0].id == concept_id
+    assert any(isinstance(m, KnowledgeCard) and m.id == card_id for m in matches)
+
+
+def test_card_ids_never_collide_with_concepts_or_metrics(snapshot: PackSnapshot) -> None:
+    card_ids = {c.id for c in snapshot.knowledge_cards}
+    assert not card_ids & {c.id for c in snapshot.concepts}
+    assert not card_ids & {m.id for m in snapshot.metric_contracts}
 
 
 # ---------------------------------------------------------------------------

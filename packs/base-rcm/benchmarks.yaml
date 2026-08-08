@@ -1,0 +1,401 @@
+# Governed benchmark figures — KB wave 1 (machine-researched, 2026-08-07).
+# Every metric_id resolves to a pack metric contract (snapshot integrity
+# enforces this). Values are ranges, never point targets; cohort_label and
+# cautions must be surfaced alongside the figures. Benchmarks whose metric
+# does not exist in Revi (prior-auth request rates, final-denial % of net
+# revenue, cost-to-rework dollars, IDR statistics, ...) were deliberately
+# dropped — see NOTES.md "KB wave 1".
+benchmarks:
+  # -- initial denial rate ---------------------------------------------
+  - id: benchmark.initial_denial_rate.kodiak_us_hospitals
+    metric_id: initial_denial_rate
+    cohort_label: US hospitals and health systems (Kodiak RCA platform, 2,100+ hospitals, 300k+ physicians)
+    value_low: "11.81"
+    value_high: "11.99"
+    unit: percent of claims initially denied
+    period: Q3 2023 - FY2024
+    authority: proprietary platform data (via TechTarget)
+    review_status: machine_researched
+    cautions:
+      - "11.81% = FY2024; 11.99% = Q3 2023 (share of claim value); 2020 baseline was 10.15%"
+    sources:
+      - id: techtarget-kodiak-2024
+        title: Initial claim denial rates put revenue cycle in tough spot
+        publisher: TechTarget (Kodiak Solutions data)
+        url: https://www.techtarget.com/revcyclemanagement/news/366625109/Initial-claim-denial-rates-put-revenue-cycle-in-tough-spot
+        authority: trade press reporting proprietary platform data
+        effective_from: 2024-01-01
+        last_verified_at: 2026-08-07
+
+  - id: benchmark.initial_denial_rate.optum_us_hospitals
+    metric_id: initial_denial_rate
+    cohort_label: US hospitals, claims denied on initial submission (Optum/Change Healthcare clearinghouse, ~124M remits, 1,400+ hospitals)
+    value_low: "11"
+    value_high: "12"
+    unit: percent of claims
+    period: H2 2021 - FY2023 (9% in 2016, 10% in 2020)
+    authority: clearinghouse claims analysis
+    review_status: machine_researched
+    cautions:
+      - "2023 regional range: 9.16% (Mountain) to 16.48% (Pacific)"
+    sources:
+      - id: optum-denials-index-2024
+        title: The Optum 2024 Revenue Cycle Denials Index
+        publisher: Optum (formerly Change Healthcare)
+        url: https://marketplace.optum.com/content/dam/change-healthcare/marketplace-assets/outcomes-and-insights/2024-denials-index.pdf
+        authority: clearinghouse claims analysis (primary)
+        effective_from: 2023-01-01
+        last_verified_at: 2026-08-07
+
+  - id: benchmark.initial_denial_rate.premier_private_payers
+    metric_id: initial_denial_rate
+    cohort_label: Private payers overall - initial denials (Premier survey, 516 hospitals, 36 states, fielded Oct-Dec 2023)
+    value_low: "13.9"
+    value_high: "15.7"
+    unit: percent of claims initially denied
+    period: CY2022-2023 claims experience
+    authority: national provider survey
+    review_status: machine_researched
+    cautions:
+      - "Overall 'nearly 15%'; commercial 13.9%, managed Medicaid 15.1%, Medicare Advantage 15.7%; ~3.2% of denied claims had prior authorization approved before service"
+      - Self-reported hospital survey, not payer-published data
+    sources:
+      - id: premier-denials-2024
+        title: "Trend Alert: Private Payers Retain Profits by Refusing or Delaying Legitimate Medical Claims"
+        publisher: Premier Inc.
+        url: https://premierinc.com/newsroom/blog/trend-alert-private-payers-retain-profits-by-refusing-or-delaying-legitimate-medical-claims
+        authority: national provider survey (primary)
+        effective_from: 2023-12-31
+        last_verified_at: 2026-08-07
+
+  - id: benchmark.initial_denial_rate.ma_health_affairs
+    metric_id: initial_denial_rate
+    cohort_label: Medicare Advantage - initial claim denials (Health Affairs, 270M claims, ~30% of MA market)
+    value_low: "14.6"
+    value_high: "21.1"
+    unit: percent of initial claim submissions denied
+    period: 2019 claims (published June 2025)
+    authority: peer-reviewed study
+    review_status: machine_researched
+    cautions:
+      - "Overall 17%; physician 14.6%, inpatient 17.3%, noninpatient 21.1%; 57% of denials overturned; net 7% MA revenue reduction"
+      - Pre-2022 data; current MA rates likely higher. Full text paywalled; verified via journal abstract and secondary coverage
+    sources:
+      - id: healthaffairs-ma-denials-2025
+        title: Medicare Advantage Denies 17 Percent Of Initial Claims; Most Denials Are Reversed, But Provider Payouts Dip 7 Percent
+        publisher: Health Affairs (Vabson, Hicks, Chernew)
+        url: https://www.healthaffairs.org/doi/10.1377/hlthaff.2024.01485
+        authority: peer-reviewed journal
+        effective_from: 2019-01-01
+
+  - id: benchmark.initial_denial_rate.commercial_crowe
+    metric_id: initial_denial_rate
+    cohort_label: Commercial payers - hospital inpatient+outpatient claims (Crowe RCA, 1,800+ hospitals)
+    value_low: "15.1"
+    value_high: "15.1"
+    unit: percent of claims initially denied
+    period: Q1 2023
+    authority: proprietary platform data
+    review_status: machine_researched
+    cautions:
+      - "Companion figures: prior-auth-related denials 3.2% (vs 0.2% Medicare); records-request denials 4.8% (vs 0.4%)"
+      - Single-quarter point estimate reported as a degenerate range
+    sources:
+      - id: crowe-denials-2023
+        title: Hospitals' revenues continue to decline due to increasing delays and denials by commercial insurers
+        publisher: Crowe LLP (via PR Newswire)
+        url: https://www.prnewswire.com/news-releases/hospitals-revenues-continue-to-decline-due-to-increasing-delays-and-denials-by-commercial-insurers-301827645.html
+        authority: proprietary platform data (primary)
+        effective_from: 2023-03-31
+        last_verified_at: 2026-08-07
+
+  - id: benchmark.initial_denial_rate.medicare_ffs
+    metric_id: initial_denial_rate
+    cohort_label: Traditional Medicare - initial claim denials (Crowe platform vs Premier survey)
+    value_low: "3.9"
+    value_high: "8.4"
+    unit: percent of claims initially denied
+    period: Q1 2023 (Crowe) / 2023 survey (Premier)
+    authority: "mixed: platform data vs provider survey"
+    review_status: machine_researched
+    cautions:
+      - 3.9% is Crowe remit-level platform data; 8.4% is Premier self-reported survey - methodology, not payer behavior, explains the gap
+    sources:
+      - id: techtarget-payer-breakdown
+        title: Breaking down claim denial rates by healthcare payer
+        publisher: TechTarget (Crowe / Premier data)
+        url: https://www.techtarget.com/revcyclemanagement/feature/Breaking-down-claim-denial-rates-by-healthcare-payer
+        authority: trade press synthesis of primary sources
+        effective_from: 2023-01-01
+        last_verified_at: 2026-08-07
+
+  - id: benchmark.initial_denial_rate.medicaid_premier
+    metric_id: initial_denial_rate
+    cohort_label: Medicaid - initial claim denials (Premier survey; managed Medicaid vs FFS)
+    value_low: "15.1"
+    value_high: "16.7"
+    unit: percent of claims initially denied
+    period: "2023"
+    authority: national provider survey
+    review_status: machine_researched
+    cautions:
+      - 15.1% managed Medicaid; 16.7% Medicaid FFS; Medicaid denials skew administrative/eligibility-driven (high volume, lower dollars)
+    sources:
+      - id: techtarget-payer-breakdown
+        title: Breaking down claim denial rates by healthcare payer
+        publisher: TechTarget (Premier data)
+        url: https://www.techtarget.com/revcyclemanagement/feature/Breaking-down-claim-denial-rates-by-healthcare-payer
+        authority: trade press synthesis of primary sources
+        effective_from: 2023-01-01
+        last_verified_at: 2026-08-07
+
+  - id: benchmark.denial_rate.marketplace_kff
+    metric_id: denial_rate
+    cohort_label: ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported
+    value_low: "19"
+    value_high: "20"
+    unit: percent of in-network claims denied
+    period: 2023-2024
+    authority: independent analysis of CMS transparency data
+    review_status: machine_researched
+    cautions:
+      - "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%"
+      - Plan-reported data with no initial/final distinction
+    sources:
+      - id: kff-marketplace-denials-2024
+        title: Claims Denials and Appeals in ACA Marketplace Plans in 2024
+        publisher: KFF
+        url: https://www.kff.org/patient-consumer-protections/claims-denials-and-appeals-in-aca-marketplace-plans-in-2024/
+        authority: independent analysis of CMS data (high)
+        effective_from: 2024-01-01
+        last_verified_at: 2026-08-07
+
+  # -- appeal overturn rate --------------------------------------------
+  - id: benchmark.appeal_overturn_rate.ma_prior_auth_kff
+    metric_id: appeal_overturn_rate
+    cohort_label: Medicare Advantage - appealed prior authorization denials (all MA insurers, CMS data)
+    value_low: "80.7"
+    value_high: "81.7"
+    unit: percent of appealed denials partially or fully overturned
+    period: 2023-2024
+    authority: independent analysis of CMS data
+    review_status: machine_researched
+    cautions:
+      - Denominator is appealed prior-authorization denials, not claim-denial appeals; only 11.5-11.7% of denied PA requests were appealed
+      - More than 8 in 10 appeals overturned in every year KFF studied
+    sources:
+      - id: kff-ma-prior-auth-2024
+        title: Medicare Advantage Insurers Made Nearly 53 Million Prior Authorization Determinations in 2024
+        publisher: KFF
+        url: https://www.kff.org/medicare/medicare-advantage-insurers-made-nearly-53-million-prior-authorization-determinations-in-2024/
+        authority: independent analysis of CMS data (high)
+        effective_from: 2024-01-01
+        last_verified_at: 2026-08-07
+
+  - id: benchmark.appeal_overturn_rate.private_payer_premier
+    metric_id: appeal_overturn_rate
+    cohort_label: Private payer claim denials ultimately overturned and paid (Premier survey, 516 hospitals)
+    value_low: "52.7"
+    value_high: "54.3"
+    unit: percent of denied claims eventually overturned and paid
+    period: CY2022-2023
+    authority: national provider survey
+    review_status: machine_researched
+    cautions:
+      - "54.3% all private payers; 52.7% Medicare Advantage; overturn typically took ~3 review rounds of 45-60 days each"
+      - Denominator is all denials, not decided appeals - Revi's appeal_overturn_rate divides by decided appeals, so compare with care
+    sources:
+      - id: premier-denials-2024
+        title: "Trend Alert: Private Payers Retain Profits by Refusing or Delaying Legitimate Medical Claims"
+        publisher: Premier Inc.
+        url: https://premierinc.com/newsroom/blog/trend-alert-private-payers-retain-profits-by-refusing-or-delaying-legitimate-medical-claims
+        authority: national provider survey (primary)
+        effective_from: 2023-12-31
+        last_verified_at: 2026-08-07
+
+  - id: benchmark.appeal_overturn_rate.ma_claims_health_affairs
+    metric_id: appeal_overturn_rate
+    cohort_label: Medicare Advantage claim denials ultimately overturned (Health Affairs, 2019 claims)
+    value_low: "57"
+    value_high: "57"
+    unit: percent of all claim denials ultimately overturned
+    period: 2019 claims (published June 2025)
+    authority: peer-reviewed study
+    review_status: machine_researched
+    cautions:
+      - Despite overturns, non-overturned denials cut provider MA revenue 7% (dollar-weighted)
+      - Denominator is all denials, not decided appeals; single point estimate reported as a degenerate range
+    sources:
+      - id: healthaffairs-ma-denials-2025
+        title: Medicare Advantage Denies 17 Percent Of Initial Claims; Most Denials Are Reversed, But Provider Payouts Dip 7 Percent
+        publisher: Health Affairs
+        url: https://www.healthaffairs.org/doi/10.1377/hlthaff.2024.01485
+        authority: peer-reviewed journal
+        effective_from: 2019-01-01
+
+  - id: benchmark.appeal_overturn_rate.ma_snf_pa_oig
+    metric_id: appeal_overturn_rate
+    cohort_label: Appealed MA skilled-nursing-facility admission prior-auth denials (OIG, 19 MAOs, June 2024)
+    value_low: "95"
+    value_high: "97"
+    unit: percent of appealed denials reversed by the MA organization
+    period: June 2024 sample (published June 2026)
+    authority: federal audit
+    review_status: machine_researched
+    cautions:
+      - "95% overall; 97% for naviHealth-processed denials; only 18% of denials were appealed, so the overturn rate reflects a self-selected subset"
+      - Single-month, post-acute-specific sample - not a plan-wide rate
+    sources:
+      - id: oig-snf-overturns-2026
+        title: Medicare Advantage Organizations Overturned Nearly All Appealed Prior Authorization Denials for Skilled Nursing Facility Admission (OEI-09-24-00331)
+        publisher: HHS Office of Inspector General
+        url: https://oig.hhs.gov/reports/all/2026/medicare-advantage-organizations-overturned-nearly-all-appealed-prior-authorization-denials-for-skilled-nursing-facility-admission-raising-concerns-about-initial-denials/
+        authority: federal audit (highest)
+        last_verified_at: 2026-08-07
+
+  # -- A/R aging and days in A/R ---------------------------------------
+  - id: benchmark.ar_over_90_pct.kodiak_commercial
+    metric_id: ar_over_90_pct
+    cohort_label: Commercial payer A/R aged over 90 days as share of receivables (Kodiak, 1,800+ hospitals)
+    value_low: "27"
+    value_high: "36"
+    unit: percent of A/R aged over 90 days
+    period: 2020 (27%) to Q3 2023 (36%)
+    authority: proprietary platform data
+    review_status: machine_researched
+    cautions:
+      - "Medicare Advantage: 19% (2020) to 27% (Q3 2023); Crowe Q1 2023: 31% of commercial inpatient claims unpaid >90 days vs 12% Medicare"
+      - Commercial-payer cohort; blended-payer shares run lower
+    sources:
+      - id: kodiak-payment-delays-2023
+        title: Healthcare providers face increasingly long waits for payments, worsening financial stress
+        publisher: Kodiak Solutions (via PRWeb)
+        url: https://www.prweb.com/releases/healthcare-providers-face-increasingly-long-waits-for-payments-worsening-financial-stress-302013958.html
+        authority: vendor press release, primary data
+        effective_from: 2023-09-30
+        last_verified_at: 2026-08-07
+
+  - id: benchmark.days_in_ar.kodiak_trend
+    metric_id: days_in_ar
+    cohort_label: US hospitals - true A/R days year-over-year change (Kodiak platform)
+    value_low: "+2.2"
+    value_high: "+5.2"
+    unit: percent change year over year (direction, not a level)
+    period: Oct 2024 (+2.2% YoY) and FY2024 (+5.2% YoY)
+    authority: proprietary platform data
+    review_status: machine_researched
+    cautions:
+      - Direction only - no authoritative public source publishes an absolute national median for net days in A/R; HFMA MAP medians are members-only
+      - Revi's days_in_ar is a billed-weighted aging variant, not MAP FM-1's net-revenue form
+    sources:
+      - id: techtarget-kodiak-2024
+        title: Initial claim denial rates put revenue cycle in tough spot
+        publisher: TechTarget (Kodiak Solutions data)
+        url: https://www.techtarget.com/revcyclemanagement/news/366625109/Initial-claim-denial-rates-put-revenue-cycle-in-tough-spot
+        authority: trade press reporting proprietary platform data
+        effective_from: 2024-01-01
+        last_verified_at: 2026-08-07
+
+  - id: benchmark.days_in_ar.trade_guidance
+    metric_id: days_in_ar
+    cohort_label: US provider organizations - net days in A/R guidance range (trade reporting)
+    value_low: "30"
+    value_high: "50"
+    unit: days (30-40 preferable; below 50 minimum acceptable)
+    period: trade reporting verified 2026-08-07
+    authority: trade publication citing AAFP guidance
+    review_status: machine_researched
+    cautions:
+      - Guidance-tier figures, not measured medians; hospital vs physician-practice norms differ
+      - Revi's days_in_ar is a billed-weighted aging variant - compare against external figures with that label attached
+    sources:
+      - id: techtarget-rcm-kpis
+        title: Breaking Down the Top 5 Healthcare Revenue Cycle KPIs
+        publisher: TechTarget RevCycle Management
+        url: https://www.techtarget.com/revcyclemanagement/feature/Breaking-Down-the-Top-5-Healthcare-Revenue-Cycle-KPIs
+        authority: trade publication
+        last_verified_at: 2026-08-07
+
+  # -- clean claim rate ------------------------------------------------
+  - id: benchmark.clean_claim_rate.map_guidance
+    metric_id: clean_claim_rate
+    cohort_label: US providers - claims passing edits with no manual intervention (HFMA MAP CL-1 shape)
+    value_low: "90"
+    value_high: "95"
+    unit: percent of claims (90% floor, 95% cited industry standard)
+    period: trade reporting on HFMA MAP Keys, verified 2026-08-07
+    authority: trade publication citing HFMA MAP framework
+    review_status: machine_researched
+    cautions:
+      - HFMA does not publish the numeric target on its open MAP Keys page; figure comes via trade reporting
+      - Revi's clean_claim_rate is outcome-derived (no scrubber events in the warehouse), while MAP CL-1 measures at pre-submission edits
+    sources:
+      - id: techtarget-rcm-kpis
+        title: Breaking Down the Top 5 Healthcare Revenue Cycle KPIs
+        publisher: TechTarget RevCycle Management (citing HFMA MAP Keys)
+        url: https://www.techtarget.com/revcyclemanagement/feature/Breaking-Down-the-Top-5-Healthcare-Revenue-Cycle-KPIs
+        authority: trade publication
+        last_verified_at: 2026-08-07
+
+  # -- unworked denials (appealed-share complements) --------------------
+  - id: benchmark.denials_unworked_pct.marketplace_consumer_appeals
+    metric_id: denials_unworked_pct
+    cohort_label: Denied in-network marketplace claims appealed by consumers (HealthCare.gov issuers)
+    value_low: "<1"
+    value_high: "<1"
+    unit: percent of denied claims appealed (i.e. more than 99% never contested)
+    period: 2023-2024
+    authority: independent analysis of CMS data
+    review_status: machine_researched
+    cautions:
+      - Consumer-side measure reported as the appealed share - the complement of Revi's unworked share; provider-side 'never reworked' estimates (50-65%, attributed to MGMA) lack a retrievable primary source
+      - "MA parallel: only 11.5% of denied PA requests appealed (2024)"
+    sources:
+      - id: kff-marketplace-denials-2024
+        title: Claims Denials and Appeals in ACA Marketplace Plans in 2024
+        publisher: KFF
+        url: https://www.kff.org/patient-consumer-protections/claims-denials-and-appeals-in-aca-marketplace-plans-in-2024/
+        authority: independent analysis of CMS data (high)
+        effective_from: 2024-01-01
+        last_verified_at: 2026-08-07
+
+  - id: benchmark.denials_unworked_pct.ma_pa_appealed_share
+    metric_id: denials_unworked_pct
+    cohort_label: Denied MA prior authorization requests that were appealed (all MA insurers, CMS data)
+    value_low: "11.5"
+    value_high: "11.7"
+    unit: percent of denials appealed (i.e. ~88% unchallenged)
+    period: 2023-2024
+    authority: independent analysis of CMS data
+    review_status: machine_researched
+    cautions:
+      - Reported as the appealed share - the complement of Revi's unworked share; up from 7.5% in 2019
+      - Prior-authorization denials, not claim denials; 80%+ of the appeals that do happen succeed
+    sources:
+      - id: kff-ma-prior-auth-2024
+        title: Medicare Advantage Insurers Made Nearly 53 Million Prior Authorization Determinations in 2024
+        publisher: KFF
+        url: https://www.kff.org/medicare/medicare-advantage-insurers-made-nearly-53-million-prior-authorization-determinations-in-2024/
+        authority: independent analysis of CMS data (high)
+        effective_from: 2024-01-01
+        last_verified_at: 2026-08-07
+
+  - id: benchmark.denials_unworked_pct.best_practice_appeal_share
+    metric_id: denials_unworked_pct
+    cohort_label: Best-practice US provider denial programs - share of denials appealed (HFMA guidance)
+    value_low: "85"
+    value_high: "88"
+    unit: percent of denials appealed (best-practice target; complement of unworked share)
+    period: HFMA-published guidance (verified 2026-08-07)
+    authority: industry association guidance
+    review_status: machine_researched
+    cautions:
+      - Operating target, not an observed cohort; appealing above ~92% suggests fighting unwinnable cases, below range suggests under-appealing
+      - Presumes an effective prevention program; not a target for organizations with high preventable-denial volume
+    sources:
+      - id: hfma-proactive-denials
+        title: Strategies for Proactive Denial Management and Prevention
+        publisher: HFMA
+        url: https://www.hfma.org/revenue-cycle/denials-management/61778/
+        authority: industry association guidance
+        last_verified_at: 2026-08-07
