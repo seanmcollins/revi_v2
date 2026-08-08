@@ -1,0 +1,1374 @@
+{
+  "components": {
+    "schemas": {
+      "AbsoluteWindowModel": {
+        "additionalProperties": false,
+        "properties": {
+          "end": {
+            "format": "date",
+            "title": "End",
+            "type": "string"
+          },
+          "start": {
+            "format": "date",
+            "title": "Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "start",
+          "end"
+        ],
+        "title": "AbsoluteWindowModel",
+        "type": "object"
+      },
+      "AddFilterModel": {
+        "additionalProperties": false,
+        "properties": {
+          "dimension": {
+            "title": "Dimension",
+            "type": "string"
+          },
+          "op": {
+            "const": "add_filter",
+            "title": "Op",
+            "type": "string"
+          },
+          "predicate_op": {
+            "enum": [
+              "eq",
+              "neq",
+              "in",
+              "not_in",
+              "range",
+              "is_null",
+              "contains"
+            ],
+            "title": "Predicate Op",
+            "type": "string"
+          },
+          "values": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                },
+                {
+                  "type": "number"
+                },
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ]
+            },
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "op",
+          "dimension",
+          "predicate_op"
+        ],
+        "title": "AddFilterModel",
+        "type": "object"
+      },
+      "AnomalyCard": {
+        "additionalProperties": false,
+        "description": "One detected anomaly, ranked by the governed priority formula.\n\nThe decomposed components (impact, age, recoverable estimate,\nactionability rationale) travel with the score \u2014 no black-box\nordering \u2014 and ``drill_filters`` + ``drill_window`` are the typed\nhandle the UI uses to start an ordinary investigation turn.",
+        "properties": {
+          "actionability_label": {
+            "default": "",
+            "title": "Actionability Label",
+            "type": "string"
+          },
+          "actionability_rationale": {
+            "default": "",
+            "title": "Actionability Rationale",
+            "type": "string"
+          },
+          "age_days": {
+            "default": 0,
+            "title": "Age Days",
+            "type": "integer"
+          },
+          "anomaly_id": {
+            "title": "Anomaly Id",
+            "type": "string"
+          },
+          "category": {
+            "title": "Category",
+            "type": "string"
+          },
+          "compliance_floor_applied": {
+            "default": false,
+            "title": "Compliance Floor Applied",
+            "type": "boolean"
+          },
+          "confidence": {
+            "title": "Confidence",
+            "type": "string"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "detected_at": {
+            "format": "date-time",
+            "title": "Detected At",
+            "type": "string"
+          },
+          "dimensions": {
+            "items": {
+              "$ref": "#/components/schemas/AnomalyDimension"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "drill_filters": {
+            "items": {
+              "$ref": "#/components/schemas/AddFilterModel"
+            },
+            "title": "Drill Filters",
+            "type": "array"
+          },
+          "drill_window": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AbsoluteWindowModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "impact_cents": {
+            "default": 0,
+            "title": "Impact Cents",
+            "type": "integer"
+          },
+          "metric_id": {
+            "title": "Metric Id",
+            "type": "string"
+          },
+          "priority_score": {
+            "default": 0.0,
+            "title": "Priority Score",
+            "type": "number"
+          },
+          "recoverable_cents_estimate": {
+            "default": 0,
+            "title": "Recoverable Cents Estimate",
+            "type": "integer"
+          },
+          "severity": {
+            "title": "Severity",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "window_end": {
+            "format": "date",
+            "title": "Window End",
+            "type": "string"
+          },
+          "window_start": {
+            "format": "date",
+            "title": "Window Start",
+            "type": "string"
+          }
+        },
+        "required": [
+          "anomaly_id",
+          "title",
+          "description",
+          "category",
+          "metric_id",
+          "severity",
+          "confidence",
+          "status",
+          "detected_at",
+          "window_start",
+          "window_end"
+        ],
+        "title": "AnomalyCard",
+        "type": "object"
+      },
+      "AnomalyDimension": {
+        "additionalProperties": false,
+        "properties": {
+          "dimension": {
+            "title": "Dimension",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dimension",
+          "value"
+        ],
+        "title": "AnomalyDimension",
+        "type": "object"
+      },
+      "CapabilitiesResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "llm": {
+            "default": "mock",
+            "title": "Llm",
+            "type": "string"
+          },
+          "newest_watermark_id": {
+            "default": "",
+            "title": "Newest Watermark Id",
+            "type": "string"
+          },
+          "pack_id": {
+            "default": "",
+            "title": "Pack Id",
+            "type": "string"
+          },
+          "pack_snapshot_id": {
+            "default": "",
+            "title": "Pack Snapshot Id",
+            "type": "string"
+          },
+          "pack_version": {
+            "default": "",
+            "title": "Pack Version",
+            "type": "string"
+          },
+          "repository": {
+            "additionalProperties": true,
+            "title": "Repository",
+            "type": "object"
+          }
+        },
+        "title": "CapabilitiesResponse",
+        "type": "object"
+      },
+      "DrillIntoModel": {
+        "additionalProperties": false,
+        "properties": {
+          "op": {
+            "const": "drill_into",
+            "title": "Op",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "op",
+          "target"
+        ],
+        "title": "DrillIntoModel",
+        "type": "object"
+      },
+      "ExpandModel": {
+        "additionalProperties": false,
+        "properties": {
+          "limit": {
+            "exclusiveMinimum": 0.0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "op": {
+            "const": "expand",
+            "title": "Op",
+            "type": "string"
+          }
+        },
+        "required": [
+          "op",
+          "limit"
+        ],
+        "title": "ExpandModel",
+        "type": "object"
+      },
+      "ExplainModel": {
+        "additionalProperties": false,
+        "properties": {
+          "op": {
+            "const": "explain",
+            "title": "Op",
+            "type": "string"
+          },
+          "target": {
+            "title": "Target",
+            "type": "string"
+          }
+        },
+        "required": [
+          "op",
+          "target"
+        ],
+        "title": "ExplainModel",
+        "type": "object"
+      },
+      "FindingPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "confidence": {
+            "default": "high",
+            "title": "Confidence",
+            "type": "string"
+          },
+          "grade": {
+            "default": "direct",
+            "title": "Grade",
+            "type": "string"
+          },
+          "impact_cents": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Impact Cents"
+          },
+          "metric_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Metric Ids",
+            "type": "array"
+          },
+          "referent": {
+            "title": "Referent",
+            "type": "string"
+          },
+          "statement": {
+            "title": "Statement",
+            "type": "string"
+          },
+          "suggested_refinements": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Suggested Refinements",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "values": {
+            "items": {
+              "$ref": "#/components/schemas/FindingValue"
+            },
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "required": [
+          "referent",
+          "title",
+          "statement"
+        ],
+        "title": "FindingPayload",
+        "type": "object"
+      },
+      "FindingValue": {
+        "additionalProperties": false,
+        "properties": {
+          "name": {
+            "title": "Name",
+            "type": "string"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "integer"
+              },
+              {
+                "type": "number"
+              },
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "name"
+        ],
+        "title": "FindingValue",
+        "type": "object"
+      },
+      "HTTPValidationError": {
+        "properties": {
+          "detail": {
+            "items": {
+              "$ref": "#/components/schemas/ValidationError"
+            },
+            "title": "Detail",
+            "type": "array"
+          }
+        },
+        "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "InvestigationResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/FindingPayload"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "investigation_id": {
+            "title": "Investigation Id",
+            "type": "string"
+          },
+          "parent_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Parent Id"
+          },
+          "plan_hash": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Plan Hash"
+          },
+          "question": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "title": "Status",
+            "type": "string"
+          },
+          "turn_class": {
+            "title": "Turn Class",
+            "type": "string"
+          },
+          "turn_id": {
+            "title": "Turn Id",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "investigation_id",
+          "session_id",
+          "turn_id",
+          "turn_class",
+          "status",
+          "created_at"
+        ],
+        "title": "InvestigationResponse",
+        "type": "object"
+      },
+      "LineageEdgePayload": {
+        "additionalProperties": false,
+        "properties": {
+          "child_id": {
+            "title": "Child Id",
+            "type": "string"
+          },
+          "operators": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "Operators",
+            "type": "array"
+          },
+          "parent_id": {
+            "title": "Parent Id",
+            "type": "string"
+          },
+          "turn_id": {
+            "title": "Turn Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "parent_id",
+          "child_id",
+          "turn_id"
+        ],
+        "title": "LineageEdgePayload",
+        "type": "object"
+      },
+      "OpenSessionRequest": {
+        "additionalProperties": false,
+        "properties": {
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          },
+          "tenant": {
+            "title": "Tenant",
+            "type": "string"
+          }
+        },
+        "required": [
+          "tenant"
+        ],
+        "title": "OpenSessionRequest",
+        "type": "object"
+      },
+      "PivotModel": {
+        "additionalProperties": false,
+        "properties": {
+          "measures": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Measures",
+            "type": "array"
+          },
+          "op": {
+            "const": "pivot",
+            "title": "Op",
+            "type": "string"
+          }
+        },
+        "required": [
+          "op",
+          "measures"
+        ],
+        "title": "PivotModel",
+        "type": "object"
+      },
+      "PortfolioResponse": {
+        "additionalProperties": false,
+        "description": "Detected anomalies at the pinned watermark, governed-priority ranked.",
+        "properties": {
+          "formula_version": {
+            "default": "",
+            "title": "Formula Version",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AnomalyCard"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "status": {
+            "default": "empty",
+            "enum": [
+              "ok",
+              "empty"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "watermark_id": {
+            "default": "",
+            "title": "Watermark Id",
+            "type": "string"
+          },
+          "weights": {
+            "additionalProperties": {
+              "type": "number"
+            },
+            "title": "Weights",
+            "type": "object"
+          }
+        },
+        "title": "PortfolioResponse",
+        "type": "object"
+      },
+      "RankByModel": {
+        "additionalProperties": false,
+        "properties": {
+          "by": {
+            "title": "By",
+            "type": "string"
+          },
+          "descending": {
+            "default": true,
+            "title": "Descending",
+            "type": "boolean"
+          },
+          "op": {
+            "const": "rank_by",
+            "title": "Op",
+            "type": "string"
+          }
+        },
+        "required": [
+          "op",
+          "by"
+        ],
+        "title": "RankByModel",
+        "type": "object"
+      },
+      "RemoveFilterModel": {
+        "additionalProperties": false,
+        "properties": {
+          "dimension": {
+            "title": "Dimension",
+            "type": "string"
+          },
+          "op": {
+            "const": "remove_filter",
+            "title": "Op",
+            "type": "string"
+          }
+        },
+        "required": [
+          "op",
+          "dimension"
+        ],
+        "title": "RemoveFilterModel",
+        "type": "object"
+      },
+      "ResetContextModel": {
+        "additionalProperties": false,
+        "properties": {
+          "keep_pins": {
+            "default": true,
+            "title": "Keep Pins",
+            "type": "boolean"
+          },
+          "op": {
+            "const": "reset_context",
+            "title": "Op",
+            "type": "string"
+          }
+        },
+        "required": [
+          "op"
+        ],
+        "title": "ResetContextModel",
+        "type": "object"
+      },
+      "SessionLineageResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "edges": {
+            "items": {
+              "$ref": "#/components/schemas/LineageEdgePayload"
+            },
+            "title": "Edges",
+            "type": "array"
+          },
+          "investigations": {
+            "items": {
+              "$ref": "#/components/schemas/InvestigationResponse"
+            },
+            "title": "Investigations",
+            "type": "array"
+          },
+          "session": {
+            "$ref": "#/components/schemas/SessionResponse"
+          }
+        },
+        "required": [
+          "session"
+        ],
+        "title": "SessionLineageResponse",
+        "type": "object"
+      },
+      "SessionResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "epoch": {
+            "title": "Epoch",
+            "type": "integer"
+          },
+          "newest_data_date": {
+            "format": "date",
+            "title": "Newest Data Date",
+            "type": "string"
+          },
+          "pack_id": {
+            "title": "Pack Id",
+            "type": "string"
+          },
+          "pack_version": {
+            "title": "Pack Version",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "tenant": {
+            "title": "Tenant",
+            "type": "string"
+          },
+          "watermark_id": {
+            "title": "Watermark Id",
+            "type": "string"
+          },
+          "watermark_loaded_at": {
+            "format": "date-time",
+            "title": "Watermark Loaded At",
+            "type": "string"
+          }
+        },
+        "required": [
+          "session_id",
+          "tenant",
+          "pack_id",
+          "pack_version",
+          "watermark_id",
+          "watermark_loaded_at",
+          "newest_data_date",
+          "epoch"
+        ],
+        "title": "SessionResponse",
+        "type": "object"
+      },
+      "SetComparisonModel": {
+        "additionalProperties": false,
+        "properties": {
+          "custom": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AbsoluteWindowModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "prior_period",
+                  "prior_year"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Kind"
+          },
+          "op": {
+            "const": "set_comparison",
+            "title": "Op",
+            "type": "string"
+          }
+        },
+        "required": [
+          "op"
+        ],
+        "title": "SetComparisonModel",
+        "type": "object"
+      },
+      "SetDimensionsModel": {
+        "additionalProperties": false,
+        "properties": {
+          "dimensions": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Dimensions",
+            "type": "array"
+          },
+          "op": {
+            "const": "set_dimensions",
+            "title": "Op",
+            "type": "string"
+          }
+        },
+        "required": [
+          "op",
+          "dimensions"
+        ],
+        "title": "SetDimensionsModel",
+        "type": "object"
+      },
+      "SetGrainModel": {
+        "additionalProperties": false,
+        "properties": {
+          "entity": {
+            "enum": [
+              "claim",
+              "line",
+              "encounter",
+              "transaction",
+              "remit",
+              "denial"
+            ],
+            "title": "Entity",
+            "type": "string"
+          },
+          "op": {
+            "const": "set_grain",
+            "title": "Op",
+            "type": "string"
+          },
+          "time_bucket": {
+            "anyOf": [
+              {
+                "enum": [
+                  "day",
+                  "week",
+                  "month"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Time Bucket"
+          }
+        },
+        "required": [
+          "op",
+          "entity"
+        ],
+        "title": "SetGrainModel",
+        "type": "object"
+      },
+      "SetWindowModel": {
+        "additionalProperties": false,
+        "properties": {
+          "basis": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Basis"
+          },
+          "op": {
+            "const": "set_window",
+            "title": "Op",
+            "type": "string"
+          },
+          "window": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WindowSpecModel"
+              },
+              {
+                "$ref": "#/components/schemas/AbsoluteWindowModel"
+              }
+            ],
+            "title": "Window"
+          }
+        },
+        "required": [
+          "op",
+          "window"
+        ],
+        "title": "SetWindowModel",
+        "type": "object"
+      },
+      "TurnRequest": {
+        "additionalProperties": false,
+        "description": "One turn: an utterance OR typed refinement operators (\u00a712).",
+        "properties": {
+          "clarification_response": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Clarification Response"
+          },
+          "correlation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Correlation Id"
+          },
+          "idempotency_key": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Idempotency Key"
+          },
+          "re_anchor": {
+            "default": false,
+            "title": "Re Anchor",
+            "type": "boolean"
+          },
+          "refinements": {
+            "anyOf": [
+              {
+                "items": {
+                  "discriminator": {
+                    "mapping": {
+                      "add_filter": "#/components/schemas/AddFilterModel",
+                      "drill_into": "#/components/schemas/DrillIntoModel",
+                      "expand": "#/components/schemas/ExpandModel",
+                      "explain": "#/components/schemas/ExplainModel",
+                      "pivot": "#/components/schemas/PivotModel",
+                      "rank_by": "#/components/schemas/RankByModel",
+                      "remove_filter": "#/components/schemas/RemoveFilterModel",
+                      "reset_context": "#/components/schemas/ResetContextModel",
+                      "set_comparison": "#/components/schemas/SetComparisonModel",
+                      "set_dimensions": "#/components/schemas/SetDimensionsModel",
+                      "set_grain": "#/components/schemas/SetGrainModel",
+                      "set_window": "#/components/schemas/SetWindowModel"
+                    },
+                    "propertyName": "op"
+                  },
+                  "oneOf": [
+                    {
+                      "$ref": "#/components/schemas/SetDimensionsModel"
+                    },
+                    {
+                      "$ref": "#/components/schemas/AddFilterModel"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RemoveFilterModel"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SetWindowModel"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SetComparisonModel"
+                    },
+                    {
+                      "$ref": "#/components/schemas/SetGrainModel"
+                    },
+                    {
+                      "$ref": "#/components/schemas/DrillIntoModel"
+                    },
+                    {
+                      "$ref": "#/components/schemas/PivotModel"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ExplainModel"
+                    },
+                    {
+                      "$ref": "#/components/schemas/RankByModel"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ExpandModel"
+                    },
+                    {
+                      "$ref": "#/components/schemas/ResetContextModel"
+                    }
+                  ]
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refinements"
+          },
+          "utterance": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Utterance"
+          }
+        },
+        "title": "TurnRequest",
+        "type": "object"
+      },
+      "ValidationError": {
+        "properties": {
+          "ctx": {
+            "title": "Context",
+            "type": "object"
+          },
+          "input": {
+            "title": "Input"
+          },
+          "loc": {
+            "items": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "integer"
+                }
+              ]
+            },
+            "title": "Location",
+            "type": "array"
+          },
+          "msg": {
+            "title": "Message",
+            "type": "string"
+          },
+          "type": {
+            "title": "Error Type",
+            "type": "string"
+          }
+        },
+        "required": [
+          "loc",
+          "msg",
+          "type"
+        ],
+        "title": "ValidationError",
+        "type": "object"
+      },
+      "WindowSpecModel": {
+        "additionalProperties": false,
+        "description": "A relative window; ``quantity`` is a decimal string (\"1\", \"3.25\").",
+        "properties": {
+          "mode": {
+            "enum": [
+              "trailing",
+              "full_periods",
+              "to_date"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "quantity": {
+            "title": "Quantity",
+            "type": "string"
+          },
+          "unit": {
+            "enum": [
+              "day",
+              "week",
+              "month",
+              "quarter",
+              "year"
+            ],
+            "title": "Unit",
+            "type": "string"
+          }
+        },
+        "required": [
+          "quantity",
+          "unit",
+          "mode"
+        ],
+        "title": "WindowSpecModel",
+        "type": "object"
+      }
+    }
+  },
+  "info": {
+    "title": "Revi Investigation API",
+    "version": "1.0.0"
+  },
+  "openapi": "3.1.0",
+  "paths": {
+    "/v1/capabilities": {
+      "get": {
+        "operationId": "get_capabilities_v1_capabilities_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CapabilitiesResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Capabilities"
+      }
+    },
+    "/v1/health": {
+      "get": {
+        "operationId": "health_v1_health_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "additionalProperties": true,
+                  "title": "Response Health V1 Health Get",
+                  "type": "object"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Health"
+      }
+    },
+    "/v1/investigations/{investigation_id}": {
+      "get": {
+        "operationId": "get_investigation_v1_investigations__investigation_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "investigation_id",
+            "required": true,
+            "schema": {
+              "title": "Investigation Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/InvestigationResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Investigation"
+      }
+    },
+    "/v1/portfolio/latest": {
+      "get": {
+        "operationId": "get_portfolio_v1_portfolio_latest_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/PortfolioResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          }
+        },
+        "summary": "Get Portfolio"
+      }
+    },
+    "/v1/sessions": {
+      "post": {
+        "operationId": "open_session_v1_sessions_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/OpenSessionRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Open Session"
+      }
+    },
+    "/v1/sessions/{session_id}/lineage": {
+      "get": {
+        "operationId": "get_lineage_v1_sessions__session_id__lineage_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionLineageResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Get Lineage"
+      }
+    },
+    "/v1/sessions/{session_id}/turns": {
+      "post": {
+        "operationId": "submit_turn_v1_sessions__session_id__turns_post",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/TurnRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "title": "Response Submit Turn V1 Sessions  Session Id  Turns Post"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          }
+        },
+        "summary": "Submit Turn"
+      }
+    }
+  }
+}

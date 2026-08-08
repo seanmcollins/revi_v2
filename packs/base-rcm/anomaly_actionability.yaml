@@ -1,0 +1,84 @@
+# Governed anomaly-actionability rules: "can this actually be fixed?"
+#
+# Deterministic recoverable-fraction assessments applied to each detected
+# anomaly's EVIDENCE FACTS (counts, deadline stats, flags) by the portfolio
+# service — never hardcoded per anomaly. Each category rule declares:
+#
+#   mode: fraction        -> recoverable = impact x fraction
+#         open_share      -> recoverable = impact x open / (open + expired)
+#                            (facts named by open_fact / expired_fact;
+#                            missing facts fall back to `fraction`)
+#         flag_share      -> recoverable = impact x numerator / denominator
+#                            (facts named by numerator_fact / denominator_fact)
+#   compliance_floor: true -> the priority score is floored at the governed
+#                             anomaly_compliance_floor policy value —
+#                             compliance work does not sink below noise.
+#   rationale: plain-language justification the narrative and UI may cite.
+#
+# This file is pack-adjacent governed content: the strict pack loader is
+# mid-flight in a concurrent workflow, so these rules ride in their own
+# file (read and content-hashed by the API composition root) until the
+# loader gains an anomaly_actionability artifact type.
+version: 1
+default:
+  mode: fraction
+  fraction: 0.50
+  rationale: >-
+    No category-specific assessment exists; assume half the impact is
+    workable until the category gains governed rules.
+categories:
+  TIMELY_FILING:
+    mode: open_share
+    open_fact: open_claims
+    expired_fact: expired_claims
+    fraction: 0.0
+    rationale: >-
+      Only claims still inside their filing limit can be recovered; dollars
+      on claims past the deadline are gone (0 when everything has expired,
+      the full share of still-open claims otherwise).
+  UNDERPAYMENT:
+    mode: fraction
+    fraction: 0.85
+    rationale: >-
+      Contract-variance disputes recover most of the shortfall through the
+      payer dispute path; expected-vs-allowed evidence is already on file.
+  CREDIT_BALANCE:
+    mode: fraction
+    fraction: 1.0
+    compliance_floor: true
+    rationale: >-
+      Credit balances are compliance-mandatory work: refunds are owed
+      regardless of dollar size, so priority is floored — small balances
+      never sink below discretionary work.
+  DUPLICATE:
+    mode: fraction
+    fraction: 0.90
+    rationale: >-
+      Duplicate denials resolve through the rebill/void path with high
+      certainty; the dollars are almost always recoverable.
+  DENIAL_SPIKE:
+    mode: flag_share
+    numerator_fact: appealable_claims
+    denominator_fact: denied_claims
+    fraction: 0.40
+    rationale: >-
+      Recoverability follows the appealable share of the denied claims;
+      non-appealable denials route to prevention, not recovery.
+  COB:
+    mode: fraction
+    fraction: 0.70
+    rationale: >-
+      Coordination-of-benefits rebills recover most affected dollars once
+      the correct payer order is established.
+  CASH_DECLINE:
+    mode: fraction
+    fraction: 0.30
+    rationale: >-
+      A posted-cash decline mixes timing (self-correcting) with volume
+      (not recoverable after the fact); only the workable slice counts.
+  CONTRACTUAL:
+    mode: fraction
+    fraction: 0.02
+    rationale: >-
+      Working-as-designed contractual adjustments are not an error; the
+      dollars are not recoverable and the anomaly is informational.

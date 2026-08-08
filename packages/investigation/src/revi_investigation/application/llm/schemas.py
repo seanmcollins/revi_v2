@@ -8,10 +8,11 @@ carries ``additionalProperties: false``, and every enum-ish field is a
 a model returns is trusted until it is re-validated against pack, catalog,
 or referent-registry content.
 
-``RefinementEmissionResponse`` mirrors the twelve-operator closed set of
-``revi_investigation.domain.refinements`` with an ``op`` discriminator. It
-is defined now (single schema source) although the refinement path itself
-lands with the conversational core milestone.
+The twelve-operator refinement DTO union is the platform's *public* wire
+shape (typed gestures, traces, replay), so `revi_investigation_contracts`
+owns it; this module re-exports it so engine code has a single schema
+import site, and layers `RefinementEmissionResponse` on top for the
+`emit_refinements` call site.
 
 ``sanitize_json_schema`` strips the OpenAPI-style ``discriminator`` keyword
 Pydantic emits beside ``oneOf`` for discriminated unions: the Claude CLI's
@@ -22,10 +23,70 @@ trap #1). The strip is lossless — ``oneOf`` plus each variant's ``const``
 
 from __future__ import annotations
 
-from datetime import date
-from typing import Annotated, Any, Literal, Union
+from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
+
+from revi_investigation_contracts.refinements import (
+    AbsoluteWindowModel,
+    AddFilterModel,
+    AnyRefinementOperator,
+    ComparisonLiteral,
+    DrillIntoModel,
+    EntityGrainLiteral,
+    ExpandModel,
+    ExplainModel,
+    PivotModel,
+    PredicateOpLiteral,
+    RangeModeLiteral,
+    RankByModel,
+    RefinementOperatorModel,
+    RemoveFilterModel,
+    ResetContextModel,
+    ScalarValue,
+    SetComparisonModel,
+    SetDimensionsModel,
+    SetGrainModel,
+    SetWindowModel,
+    TimeBucketLiteral,
+    TimeUnitLiteral,
+    WindowSpecModel,
+)
+
+__all__ = [
+    "AbsoluteWindowModel",
+    "AddFilterModel",
+    "AnyRefinementOperator",
+    "ChartSuggestionResponse",
+    "ComparisonLiteral",
+    "DrillIntoModel",
+    "EntityGrainLiteral",
+    "ExpandModel",
+    "ExplainModel",
+    "InterpretationResponse",
+    "PivotModel",
+    "PredicateOpLiteral",
+    "RangeModeLiteral",
+    "RankByModel",
+    "ReferentResolutionModel",
+    "ReferentResolutionResponse",
+    "RefinementEmissionResponse",
+    "RefinementOperatorModel",
+    "RemoveFilterModel",
+    "ResetContextModel",
+    "ScalarValue",
+    "ScopePredicateModel",
+    "SetComparisonModel",
+    "SetDimensionsModel",
+    "SetGrainModel",
+    "SetWindowModel",
+    "TimeBucketLiteral",
+    "TimeUnitLiteral",
+    "TurnClassLiteral",
+    "TurnClassificationResponse",
+    "WindowSpecModel",
+    "sanitize_json_schema",
+]
 
 # ---------------------------------------------------------------------------
 # shared closed vocabularies (mirroring kernel / domain enums)
@@ -39,15 +100,6 @@ TurnClassLiteral = Literal[
     "clarification_response",
     "definitional",
 ]
-
-TimeUnitLiteral = Literal["day", "week", "month", "quarter", "year"]
-RangeModeLiteral = Literal["trailing", "full_periods", "to_date"]
-ComparisonLiteral = Literal["prior_period", "prior_year"]
-PredicateOpLiteral = Literal["eq", "neq", "in", "not_in", "range", "is_null", "contains"]
-EntityGrainLiteral = Literal["claim", "line", "encounter", "transaction", "remit", "denial"]
-TimeBucketLiteral = Literal["day", "week", "month"]
-
-ScalarValue = Union[str, int, float, bool, None]  # noqa: UP007 - schema union spelled out
 
 
 class _Closed(BaseModel):
@@ -68,14 +120,6 @@ class TurnClassificationResponse(_Closed):
 
 # ---------------------------------------------------------------------------
 # interpret_question
-
-
-class WindowSpecModel(_Closed):
-    """A relative window; ``quantity`` is a decimal string ("1", "3.25")."""
-
-    quantity: str
-    unit: TimeUnitLiteral
-    mode: RangeModeLiteral
 
 
 class ScopePredicateModel(_Closed):
@@ -114,97 +158,6 @@ class ReferentResolutionResponse(_Closed):
 
 # ---------------------------------------------------------------------------
 # emit_refinements — the twelve-operator closed set, discriminated on "op"
-
-
-class AbsoluteWindowModel(_Closed):
-    start: date
-    end: date
-
-
-class SetDimensionsModel(_Closed):
-    op: Literal["set_dimensions"]
-    dimensions: list[str]
-
-
-class AddFilterModel(_Closed):
-    op: Literal["add_filter"]
-    dimension: str
-    predicate_op: PredicateOpLiteral
-    values: list[ScalarValue] = Field(default_factory=list)
-
-
-class RemoveFilterModel(_Closed):
-    op: Literal["remove_filter"]
-    dimension: str
-
-
-class SetWindowModel(_Closed):
-    op: Literal["set_window"]
-    window: WindowSpecModel | AbsoluteWindowModel
-    basis: str | None = None
-
-
-class SetComparisonModel(_Closed):
-    op: Literal["set_comparison"]
-    kind: ComparisonLiteral | None = None
-    custom: AbsoluteWindowModel | None = None
-
-
-class SetGrainModel(_Closed):
-    op: Literal["set_grain"]
-    entity: EntityGrainLiteral
-    time_bucket: TimeBucketLiteral | None = None
-
-
-class DrillIntoModel(_Closed):
-    op: Literal["drill_into"]
-    target: str
-
-
-class PivotModel(_Closed):
-    op: Literal["pivot"]
-    measures: list[str]
-
-
-class ExplainModel(_Closed):
-    op: Literal["explain"]
-    target: str
-
-
-class RankByModel(_Closed):
-    op: Literal["rank_by"]
-    by: str
-    descending: bool = True
-
-
-class ExpandModel(_Closed):
-    op: Literal["expand"]
-    limit: int = Field(gt=0)
-
-
-class ResetContextModel(_Closed):
-    op: Literal["reset_context"]
-    keep_pins: bool = True
-
-
-# The plain twelve-variant union (typed-gesture requests carry these
-# directly); the Annotated form below adds the discriminator for parsing.
-AnyRefinementOperator = Union[  # noqa: UP007 - closed union spelled out for clarity
-    SetDimensionsModel,
-    AddFilterModel,
-    RemoveFilterModel,
-    SetWindowModel,
-    SetComparisonModel,
-    SetGrainModel,
-    DrillIntoModel,
-    PivotModel,
-    ExplainModel,
-    RankByModel,
-    ExpandModel,
-    ResetContextModel,
-]
-
-RefinementOperatorModel = Annotated[AnyRefinementOperator, Field(discriminator="op")]
 
 
 class RefinementEmissionResponse(_Closed):

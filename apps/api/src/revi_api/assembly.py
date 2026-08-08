@@ -1,0 +1,276 @@
+"""Turn-outcome → TurnResponse assembly: charts, narrative, payload maps.
+
+This is the presentation stage of the turn pipeline (§8.1 steps 13-14).
+It runs OUTSIDE the engine — the capability-independence contract bars
+``revi_investigation`` from importing ``revi_presentation`` — and is
+shared by both clients, so the SSE ordering falls out naturally:
+
+    stage* (engine) → context_header → finding* → chart_spec* →
+    narrative_delta* → turn_complete (the full TurnResponse)
+
+The narrative stream is provisional; the grounding-validated text on the
+final TurnResponse is authoritative (violating sentences are redacted with
+a bracketed note, warnings recorded, and a supplementary narrative trace
+record persisted).
+"""
+
+from __future__ import annotations
+
+from collections.abc import Awaitable, Callable
+from datetime import UTC, datetime
+from decimal import Decimal
+from typing import Any
+
+from revi_api.wiring import ApiComponents
+from revi_investigation.application.llm.guard import assert_safe_payload
+from revi_investigation.application.ports import TextLlmRequest, TraceRecord
+from revi_investigation.application.submit_turn import TurnOutcome
+from revi_investigation.domain.records import Finding, Investigation
+from revi_investigation_contracts.api import (
+    ChartSpec,
+    DefinitionalPayload,
+    FindingPayload,
+    FindingValue,
+    InvestigationResponse,
+    MetaAnswerPayload,
+    ReferentPayload,
+    TermPayload,
+    TurnAnswer,
+    TurnClarification,
+    UsageSummary,
+)
+from revi_presentation import (
+    NARRATIVE_TEMPLATE_ID,
+    NARRATIVE_TEMPLATE_VERSION,
+    build_chart_specs,
+    build_narrative_facts,
+    build_narrative_prompt,
+    template_hash,
+    validate_narrative,
+)
+
+OnEvent = Callable[[str, dict[str, Any]], Awaitable[None]]
+
+
+def _finding_value(name: str, value: object) -> FindingValue:
+    if isinstance(value, Decimal):
+        return FindingValue(name=name, value=float(value))
+    if value is None or isinstance(value, (str, int, float, bool)):
+        return FindingValue(name=name, value=value)
+    return FindingValue(name=name, value=str(value))
+
+
+def finding_payload(finding: Finding) -> FindingPayload:
+    return FindingPayload(
+        referent=finding.referent.value,
+        title=finding.title,
+        statement=finding.statement,
+        metric_ids=[ref.id for ref in finding.metric_refs],
+        values=[_finding_value(name, value) for name, value in finding.values],
+        grade=finding.grade.value,
+        impact_cents=finding.impact_cents,
+        confidence=finding.confidence,
+        suggested_refinements=list(finding.suggested_refinements),
+    )
+
+
+def investigation_response(investigation: Investigation) -> InvestigationResponse:
+    return InvestigationResponse(
+        investigation_id=investigation.id,
+        session_id=investigation.session_id,
+        parent_id=investigation.parent_id,
+        turn_id=investigation.turn_id,
+        turn_class=investigation.turn_class.value,
+        status=investigation.status.value,
+        question=investigation.question,
+        plan_hash=investigation.plan_hash,
+        findings=[finding_payload(f) for f in investigation.findings],
+        warnings=list(investigation.warnings),
+        created_at=investigation.created_at,
+    )
+
+
+def _usage_from_trace(trace: TraceRecord | None) -> UsageSummary:
+    if trace is None:
+        return UsageSummary()
+    entries = trace.payload.get("llm", [])
+    cost = Decimal(0)
+    input_tokens = output_tokens = retries = 0
+    for entry in entries:
+        cost += Decimal(str(entry.get("cost_usd", "0")))
+        input_tokens += int(entry.get("input_tokens", 0))
+        output_tokens += int(entry.get("output_tokens", 0))
+        retries += int(entry.get("schema_retries", 0))
+    return UsageSummary(
+        llm_calls=len(entries),
+        cost_usd=str(cost),
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        schema_retries=retries,
+    )
+
+
+async def _compose_narrative(
+    components: ApiComponents,
+    outcome: TurnOutcome,
+    findings: list[FindingPayload],
+    warnings: list[str],
+    on_event: OnEvent | None,
+) -> str | None:
+    header = outcome.header
+    if header is None or not findings:
+        return None
+    prompt = build_narrative_prompt(
+        findings=findings,
+        header=header,
+        reconciliation=outcome.reconciliation,
+        benchmarks=(),
+    )
+    assert_safe_payload(prompt)
+    chunks: list[str] = []
+    stream = components.llm.stream_text(
+        TextLlmRequest(
+            template_id=NARRATIVE_TEMPLATE_ID,
+            template_version=NARRATIVE_TEMPLATE_VERSION,
+            rendered_prompt=prompt,
+        )
+    )
+    async for delta in stream:
+        chunks.append(delta)
+        if on_event is not None:
+            await on_event("narrative_delta", {"delta": delta})
+    provisional = "".join(chunks).strip()
+    if not provisional:
+        return None
+    facts = build_narrative_facts(findings=findings, header=header)
+    validation = validate_narrative(provisional, facts)
+    warnings.extend(validation.warnings)
+    await components.traces.save(
+        TraceRecord(
+            trace_id=f"{outcome.trace_id}:narrative",
+            session_id=outcome.session.id,
+            investigation_id=outcome.investigation.id,
+            turn_id=outcome.investigation.turn_id,
+            created_at=datetime.now(UTC),
+            payload={
+                "narrative": {
+                    "template": f"{NARRATIVE_TEMPLATE_ID}@{NARRATIVE_TEMPLATE_VERSION}",
+                    "template_hash": template_hash(),
+                    "provisional_chars": len(provisional),
+                    "redactions": [r.model_dump() for r in validation.redactions],
+                    "validated": True,
+                }
+            },
+        )
+    )
+    return validation.text
+
+
+async def assemble_turn_response(
+    components: ApiComponents,
+    outcome: TurnOutcome,
+    *,
+    on_event: OnEvent | None = None,
+) -> TurnAnswer | TurnClarification:
+    """Map an engine outcome to the wire shape, emitting presentation
+    events along the way (see module docstring for the ordering)."""
+    trace = await components.traces.get(outcome.trace_id)
+    usage = _usage_from_trace(trace)
+
+    if outcome.clarification is not None:
+        return TurnClarification(
+            outcome="clarification_required",
+            session_id=outcome.session.id,
+            investigation_id=outcome.investigation.id,
+            question=outcome.clarification.question,
+            options=list(outcome.clarification.options),
+            reason=outcome.clarification.reason,
+            watermark_stale=outcome.watermark_stale,
+            usage=usage,
+        )
+
+    findings = [finding_payload(f) for f in outcome.findings]
+    if outcome.header is not None and on_event is not None:
+        await on_event("context_header", outcome.header.model_dump(mode="json"))
+    if on_event is not None:
+        for payload in findings:
+            await on_event("finding", payload.model_dump(mode="json"))
+
+    playbook_id: str | None = None
+    if trace is not None:
+        plan_context = trace.payload.get("plan_context") or {}
+        raw = plan_context.get("playbook_id")
+        playbook_id = raw if isinstance(raw, str) else None
+    row_referents = {
+        entry.dimension_value: entry.referent.value
+        for entry in outcome.referents
+        if entry.dimension_value is not None
+    }
+    chart_specs: list[ChartSpec] = list(
+        build_chart_specs(
+            outcome.frames,
+            recipes=components.recipes,
+            playbook_id=playbook_id,
+            row_referents=row_referents,
+        )
+    )
+    if on_event is not None:
+        for spec in chart_specs:
+            await on_event("chart_spec", spec.model_dump(mode="json"))
+
+    warnings = list(outcome.warnings)
+    narrative = await _compose_narrative(components, outcome, findings, warnings, on_event)
+
+    definitional: DefinitionalPayload | None = None
+    if outcome.definitional is not None:
+        definitional = DefinitionalPayload(
+            question=outcome.definitional.question,
+            terms=[
+                TermPayload(
+                    term=t.term,
+                    kind=t.kind,
+                    title=t.title,
+                    definition=t.definition,
+                    source=t.source,
+                )
+                for t in outcome.definitional.terms
+            ],
+            pack_id=outcome.definitional.pack_id,
+            pack_version=outcome.definitional.pack_version,
+            pack_snapshot_id=outcome.definitional.pack_snapshot_id,
+        )
+    meta: MetaAnswerPayload | None = None
+    if outcome.meta is not None:
+        meta = MetaAnswerPayload(
+            referent=outcome.meta.referent,
+            label=outcome.meta.label,
+            investigation_id=outcome.meta.investigation_id,
+            probes=[dict(p) for p in outcome.meta.probes],
+            operators=[dict(op) for op in outcome.meta.operators],
+            grades=dict(outcome.meta.grades),
+            reconciliation=outcome.meta.reconciliation,
+            finding_values=[_finding_value(n, v) for n, v in outcome.meta.finding_values],
+            warnings=list(outcome.meta.warnings),
+        )
+
+    return TurnAnswer(
+        outcome="answer",
+        session_id=outcome.session.id,
+        investigation_id=outcome.investigation.id,
+        turn_class=outcome.investigation.turn_class.value,
+        context_header=outcome.header,
+        findings=findings,
+        chart_specs=chart_specs,
+        narrative=narrative,
+        warnings=warnings,
+        meta_answer=meta,
+        definitional=definitional,
+        referents=[
+            ReferentPayload(id=e.referent.value, kind=e.referent.kind.value, label=e.label)
+            for e in outcome.referents
+        ],
+        reconciliation=outcome.reconciliation,
+        plan_hash=outcome.investigation.plan_hash,
+        watermark_stale=outcome.watermark_stale,
+        usage=usage,
+    )

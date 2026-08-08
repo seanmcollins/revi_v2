@@ -1,0 +1,141 @@
+"""DuckDB-backed ``AnomalySource``: reads ``<snapshot>.detected_anomalies``.
+
+The warehouse generator persists planted scenarios as-if an external
+anomaly-detection system wrote them, one table per snapshot schema — so
+reading per-snapshot naturally excludes anomalies that are absent (or
+self-resolved away) at the pinned watermark. The table is landing in a
+concurrent generator change: a missing table yields an EMPTY result, never
+an error (callers surface a warning).
+
+Row shape: anomaly_id, detected_at, category, title, description,
+metric_id, dimensions (JSON object of dimension → value), window_start,
+window_end, impact_cents, severity, confidence, status, evidence (JSON
+object of facts).
+"""
+
+from __future__ import annotations
+
+import asyncio
+import json
+import logging
+from datetime import date, datetime
+from pathlib import Path
+from typing import Any
+
+import duckdb
+
+from revi_investigation.application.ports import AnomalyRecord
+from revi_kernel.errors import SourceUnavailableError, WatermarkStaleError
+from revi_kernel.watermark import DataWatermark
+
+logger = logging.getLogger(__name__)
+
+_WATERMARKS_SQL = (
+    "SELECT watermark_id, schema_name FROM main.watermarks ORDER BY loaded_at, watermark_id"
+)
+_COLUMNS = (
+    "anomaly_id, detected_at, category, title, description, metric_id, dimensions, "
+    "window_start, window_end, impact_cents, severity, confidence, status, evidence"
+)
+
+
+def _json_object(raw: object) -> dict[str, Any]:
+    if isinstance(raw, dict):
+        return {str(k): v for k, v in raw.items()}
+    if isinstance(raw, str) and raw.strip():
+        try:
+            parsed = json.loads(raw)
+        except json.JSONDecodeError:
+            return {}
+        if isinstance(parsed, dict):
+            return {str(k): v for k, v in parsed.items()}
+    return {}
+
+
+def _as_date(value: object) -> date:
+    if isinstance(value, datetime):
+        return value.date()
+    if isinstance(value, date):
+        return value
+    raise SourceUnavailableError("detected_anomalies returned a non-date window bound")
+
+
+class DuckDbAnomalySource:
+    """``AnomalySource`` over the generated warehouse's anomaly tables."""
+
+    def __init__(self, warehouse_path: str | Path) -> None:
+        self._path = str(Path(warehouse_path))
+
+    async def list_anomalies(self, watermark: DataWatermark) -> tuple[AnomalyRecord, ...]:
+        return await asyncio.to_thread(self._list_sync, watermark)
+
+    # ------------------------------------------------------------ internals
+
+    def _list_sync(self, watermark: DataWatermark) -> tuple[AnomalyRecord, ...]:
+        try:
+            con = duckdb.connect(self._path, read_only=True)
+        except duckdb.Error as exc:
+            logger.error("duckdb connect failed for %s: %s", self._path, exc)
+            raise SourceUnavailableError("analytical source is unavailable") from None
+        try:
+            try:
+                rows = con.execute(_WATERMARKS_SQL).fetchall()
+            except duckdb.Error as exc:
+                logger.error("duckdb watermark listing failed: %s", exc)
+                raise SourceUnavailableError("analytical source is unavailable") from None
+            schema: str | None = None
+            for row in rows:
+                if row[0] == watermark.id:
+                    schema = str(row[1])
+                    break
+            if schema is None:
+                raise WatermarkStaleError(
+                    f"watermark {watermark.id!r} is not a completed load",
+                    details={"watermark": watermark.id},
+                )
+            try:
+                raw = con.execute(
+                    f'SELECT {_COLUMNS} FROM "{schema}".detected_anomalies '
+                    "ORDER BY impact_cents DESC, anomaly_id"
+                ).fetchall()
+            except duckdb.CatalogException:
+                # the anomaly table lands with a concurrent generator change;
+                # its absence is an empty portfolio, never an error
+                logger.warning(
+                    "no detected_anomalies table in schema %s — serving an empty portfolio",
+                    schema,
+                )
+                return ()
+            except duckdb.Error as exc:
+                logger.error("duckdb anomaly read failed: %s", exc)
+                raise SourceUnavailableError("anomaly read failed at the source") from None
+        finally:
+            con.close()
+
+        records: list[AnomalyRecord] = []
+        for row in raw:
+            detected_at = row[1]
+            if isinstance(detected_at, date) and not isinstance(detected_at, datetime):
+                detected_at = datetime(detected_at.year, detected_at.month, detected_at.day)
+            if not isinstance(detected_at, datetime):
+                raise SourceUnavailableError("detected_anomalies returned a non-datetime")
+            dimensions = _json_object(row[6])
+            records.append(
+                AnomalyRecord(
+                    anomaly_id=str(row[0]),
+                    detected_at=detected_at,
+                    category=str(row[2]),
+                    title=str(row[3]),
+                    description=str(row[4]),
+                    metric_id=str(row[5]),
+                    dimensions=tuple(sorted((k, str(v)) for k, v in dimensions.items())),
+                    window_start=_as_date(row[7]),
+                    window_end=_as_date(row[8]),
+                    impact_cents=int(row[9]),
+                    severity=str(row[10]),
+                    confidence=str(row[11]),
+                    status=str(row[12]),
+                    evidence=_json_object(row[13]),
+                )
+            )
+        return tuple(records)

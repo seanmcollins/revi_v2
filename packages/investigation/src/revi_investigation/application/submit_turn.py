@@ -38,7 +38,7 @@ import time
 import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass, field, replace
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -112,6 +112,7 @@ from revi_investigation.domain.refinements import (
     detect_conflict,
 )
 from revi_investigation.domain.turns import ClarificationRequest, TurnClass
+from revi_investigation_contracts.header import ContextHeaderPayload, build_header_payload
 from revi_kernel.capabilities import AnalyticalRepository
 from revi_kernel.cohort import CohortRef
 from revi_kernel.errors import ContextConflictError, DataLoadingError, ReferentNotFoundError
@@ -148,20 +149,9 @@ class SubmitTurnRequest:
     re_anchor: bool = False
 
 
-@dataclass(frozen=True, slots=True)
-class ContextHeader:
-    """The effective-context header attached to every answer (design §7.2)."""
-
-    window_start: date
-    window_end: date
-    basis: str
-    comparison_kind: str | None
-    comparison_start: date | None
-    comparison_end: date | None
-    filters: tuple[str, ...]
-    cohort: str | None
-    watermark_id: str
-    display: str
+# The canonical header shape and its builder live in the contracts package
+# (single source of truth for API payloads, traces, and outcomes — §7.2).
+ContextHeader = ContextHeaderPayload
 
 
 @dataclass(frozen=True, slots=True)
@@ -186,7 +176,7 @@ class TurnOutcome:
     session: Session
     investigation: Investigation
     findings: tuple[Finding, ...]
-    header: ContextHeader | None
+    header: ContextHeaderPayload | None
     frames: tuple[tuple[str, EvidenceFrame], ...]
     warnings: tuple[str, ...]
     clarification: ClarificationRequest | None
@@ -199,33 +189,16 @@ class TurnOutcome:
     diff: PlanDiff | None = None
 
 
-def build_context_header(spec: AnalysisSpec, session: Session) -> ContextHeader:
+def build_context_header(spec: AnalysisSpec, session: Session) -> ContextHeaderPayload:
+    """Delegate to the canonical contracts builder (§7.2 single source)."""
     context = spec.context
-    window = context.window
-    filters = tuple(_predicate_label(p) for p in iter_predicates(context.effective_scope()))
-    comparison = context.comparison
-    parts = [f"{window.range.start.isoformat()}..{window.range.end.isoformat()} ({window.basis.id})"]
-    if comparison is not None:
-        parts.append(
-            f"vs {comparison.window.range.start.isoformat()}.."
-            f"{comparison.window.range.end.isoformat()}"
-        )
-    if filters:
-        parts.append("filters: " + "; ".join(filters))
-    if context.cohort is not None:
-        parts.append(f"cohort: {context.cohort.id} ({context.cohort.size} claims)")
-    parts.append(f"watermark {session.watermark.id}")
-    return ContextHeader(
-        window_start=window.range.start,
-        window_end=window.range.end,
-        basis=window.basis.id,
-        comparison_kind=comparison.kind.value if comparison is not None else None,
-        comparison_start=comparison.window.range.start if comparison is not None else None,
-        comparison_end=comparison.window.range.end if comparison is not None else None,
-        filters=filters,
-        cohort=context.cohort.id if context.cohort is not None else None,
+    return build_header_payload(
+        window=context.window,
+        comparison=context.comparison,
+        predicates=tuple(iter_predicates(context.scope)),
+        pinned_predicates=tuple(pin.predicate for pin in context.pins),
+        cohort=context.cohort,
         watermark_id=session.watermark.id,
-        display=" · ".join(parts),
     )
 
 

@@ -118,3 +118,48 @@ detector_policies:
     threshold: 0.03
     threshold_min: 0.01
     threshold_max: 0.10
+  # --- anomaly portfolio prioritization (governed parameters) --------------
+  # The priority formula itself is versioned platform code
+  # (revi_api.portfolio, anomaly_priority@1); these bounded parameters are
+  # the tunable pack content it combines. Weights are relative shares of
+  # the three components (normalized in code); the half-life drives the
+  # recency decay 0.5^(age_days / half_life); the compliance floor is the
+  # minimum priority score a compliance-mandatory category may sink to.
+  - id: anomaly_priority_impact_weight
+    description: >-
+      Weight of the dollar-weighted component (raw impact_cents) in the
+      anomaly priority score. Deliberately below the actionability weight:
+      un-fixable dollars must not outrank fixable ones.
+    threshold: 0.25
+    threshold_min: 0.10
+    threshold_max: 0.70
+  - id: anomaly_priority_recency_weight
+    description: >-
+      Weight of the recency component (half-life decay over the anomaly's
+      age at the pinned watermark) in the anomaly priority score.
+    threshold: 0.15
+    threshold_min: 0.05
+    threshold_max: 0.50
+  - id: anomaly_priority_actionability_weight
+    description: >-
+      Weight of the actionability component (the recoverable-dollar
+      estimate from the governed actionability rules) in the anomaly
+      priority score. The dominant component: "can this actually be
+      fixed?" is the primary discriminator.
+    threshold: 0.60
+    threshold_min: 0.10
+    threshold_max: 0.80
+  - id: anomaly_recency_half_life_days
+    description: >-
+      Half-life, in days, of the recency decay: an anomaly this old
+      contributes half the recency score of one detected today.
+    threshold: 14
+    threshold_min: 3
+    threshold_max: 60
+  - id: anomaly_compliance_floor
+    description: >-
+      Minimum priority score for compliance-mandatory categories (credit
+      balances must be worked regardless of dollar size).
+    threshold: 0.60
+    threshold_min: 0.30
+    threshold_max: 0.90

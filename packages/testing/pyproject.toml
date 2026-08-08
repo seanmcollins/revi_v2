@@ -12,6 +12,7 @@ dependencies = [
     "revi-pack",
     "revi-presentation",
     "revi-connector-duckdb",
+    "revi-api",
     "httpx>=0.27",
     "pytest>=8.3",
 ]
@@ -32,3 +33,4 @@ revi-calculation = { workspace = true }
 revi-pack = { workspace = true }
 revi-presentation = { workspace = true }
 revi-connector-duckdb = { workspace = true }
+revi-api = { workspace = true }

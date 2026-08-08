@@ -7,6 +7,9 @@ dependencies = [
     "revi-kernel",
     "revi-catalog-contracts",
     "revi-calculation-contracts",
+    # AnomalySource port + AnomalyRecord live in the investigation
+    # application ports (the portfolio surface reads through them).
+    "revi-investigation",
     "duckdb>=1.1",
 ]
 
@@ -21,3 +24,4 @@ packages = ["src/revi_connector_duckdb"]
 revi-kernel = { workspace = true }
 revi-catalog-contracts = { workspace = true }
 revi-calculation-contracts = { workspace = true }
+revi-investigation = { workspace = true }

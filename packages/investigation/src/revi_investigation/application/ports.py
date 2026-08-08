@@ -8,7 +8,7 @@ from __future__ import annotations
 
 from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any, Protocol
 
@@ -22,6 +22,7 @@ from revi_investigation.domain.records import (
 from revi_kernel.cohort import CohortDefinition, CohortRef
 from revi_kernel.frame import EvidenceFrame
 from revi_kernel.refs import ReferentId
+from revi_kernel.watermark import DataWatermark
 
 # --- language model ---------------------------------------------------------
 
@@ -189,3 +190,41 @@ class TurnEvent:
 
 class TurnEventBus(Protocol):
     async def publish(self, event: TurnEvent) -> None: ...
+
+
+# --- detected anomalies (the portfolio surface) -----------------------------
+
+
+@dataclass(frozen=True, slots=True)
+class AnomalyRecord:
+    """One detected anomaly as persisted at a warehouse watermark.
+
+    Mirrors the warehouse ``detected_anomalies`` shape: an external
+    detection system writes these; the platform only reads and ranks them.
+    ``dimensions`` is (dimension id, value) pairs — together with the
+    window they form the drillable handle an anomaly card carries, so the
+    UI can start an ordinary investigation turn from it.
+    """
+
+    anomaly_id: str
+    detected_at: datetime
+    category: str
+    title: str
+    description: str
+    metric_id: str
+    dimensions: tuple[tuple[str, str], ...]
+    window_start: date
+    window_end: date
+    impact_cents: int
+    severity: str
+    confidence: str
+    status: str
+    evidence: Mapping[str, Any]
+
+
+class AnomalySource(Protocol):
+    """Read-only access to detected anomalies as-of a watermark. A
+    prebuilt external detection system implements this port; locally the
+    DuckDB connector serves the generator's planted scenarios."""
+
+    async def list_anomalies(self, watermark: DataWatermark) -> tuple[AnomalyRecord, ...]: ...

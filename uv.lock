@@ -1442,6 +1442,7 @@ version = "0.1.0"
 source = { editable = "apps/api" }
 dependencies = [
     { name = "fastapi" },
+    { name = "httpx" },
     { name = "orjson" },
     { name = "revi-adapter-claude" },
     { name = "revi-calculation" },
@@ -1458,6 +1459,7 @@ dependencies = [
 [package.metadata]
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115" },
+    { name = "httpx", specifier = ">=0.27" },
     { name = "orjson", specifier = ">=3.10" },
     { name = "revi-adapter-claude", editable = "packages/adapter-claude" },
     { name = "revi-calculation", editable = "packages/calculation" },
@@ -1541,6 +1543,7 @@ dependencies = [
     { name = "duckdb" },
     { name = "revi-calculation-contracts" },
     { name = "revi-catalog-contracts" },
+    { name = "revi-investigation" },
     { name = "revi-kernel" },
 ]
 
@@ -1549,6 +1552,7 @@ requires-dist = [
     { name = "duckdb", specifier = ">=1.1" },
     { name = "revi-calculation-contracts", editable = "packages/calculation-contracts" },
     { name = "revi-catalog-contracts", editable = "packages/catalog-contracts" },
+    { name = "revi-investigation", editable = "packages/investigation" },
     { name = "revi-kernel", editable = "packages/kernel" },
 ]
 
@@ -1698,6 +1702,7 @@ source = { editable = "packages/testing" }
 dependencies = [
     { name = "httpx" },
     { name = "pytest" },
+    { name = "revi-api" },
     { name = "revi-calculation" },
     { name = "revi-catalog" },
     { name = "revi-connector-duckdb" },
@@ -1712,6 +1717,7 @@ dependencies = [
 requires-dist = [
     { name = "httpx", specifier = ">=0.27" },
     { name = "pytest", specifier = ">=8.3" },
+    { name = "revi-api", editable = "apps/api" },
     { name = "revi-calculation", editable = "packages/calculation" },
     { name = "revi-catalog", editable = "packages/catalog" },
     { name = "revi-connector-duckdb", editable = "packages/connector-duckdb" },

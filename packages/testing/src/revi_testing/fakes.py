@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from decimal import Decimal
 
 from revi_investigation.application.ports import (
+    AnomalyRecord,
     LlmUsage,
     RegisteredReferent,
     TextLlmRequest,
@@ -89,9 +90,9 @@ class FakeInvestigationStore:
         investigations = tuple(
             inv for inv in self.investigations.values() if inv.session_id == session_id
         )
-        return SessionLineage(
-            session=session, investigations=investigations, edges=tuple(self.edges)
-        )
+        ids = {inv.id for inv in investigations}
+        edges = tuple(edge for edge in self.edges if edge.child_id in ids)
+        return SessionLineage(session=session, investigations=investigations, edges=edges)
 
 
 class FakeTraceStore:
@@ -182,6 +183,19 @@ class FakeTurnEventBus:
         return tuple(event.kind for event in self.events)
 
 
+class FakeAnomalySource:
+    """Serves a fixed anomaly population regardless of watermark (tests
+    build watermark-specific populations by constructing new fakes)."""
+
+    def __init__(self, records: tuple[AnomalyRecord, ...] = ()) -> None:
+        self.records = records
+        self.calls: list[DataWatermark] = []
+
+    async def list_anomalies(self, watermark: DataWatermark) -> tuple[AnomalyRecord, ...]:
+        self.calls.append(watermark)
+        return self.records
+
+
 # ---------------------------------------------------------------------------
 # analytical repository doubles (the kernel port)
 
@@ -270,6 +284,7 @@ class FakeLanguageModelStream:
 
 
 __all__ = [
+    "FakeAnomalySource",
     "FakeCohortStore",
     "FakeEvidenceCache",
     "FakeFrameStore",
