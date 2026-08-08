@@ -7,6 +7,7 @@ import { PortfolioPanel } from "@/components/portfolio/PortfolioPanel";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { apiBaseUrl } from "@/lib/apiDriver";
 import { useSessionStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -28,12 +29,13 @@ export function SessionRail({
   const showFailurePreview = useSessionStore((s) => s.showFailurePreview);
   const reset = useSessionStore((s) => s.reset);
   const turnCount = useSessionStore((s) => s.turns.length);
+  const mode = useSessionStore((s) => s.connection.mode);
 
   return (
-    <aside className="flex h-full min-h-0 flex-col border-r bg-surface-sunken/40">
+    <aside className="panel flex h-full min-h-0 flex-col border-r">
       <div className="flex items-center justify-between px-4 py-3.5">
         <div className="flex items-center gap-2">
-          <span className="flex size-6 items-center justify-center rounded-md bg-verified/15 font-mono text-sm font-bold text-verified">
+          <span className="accent-gradient flex size-6 items-center justify-center rounded-md font-mono text-sm font-bold text-white">
             R
           </span>
           <span className="text-[0.9rem] font-semibold tracking-tight">Revi</span>
@@ -49,10 +51,10 @@ export function SessionRail({
           onClick={onReplay}
           disabled={replayDisabled}
           size="sm"
-          className="w-full gap-1.5 bg-verified text-[0.72rem] font-medium text-white hover:bg-verified/90 dark:text-zinc-950"
+          className="accent-gradient w-full gap-1.5 text-[0.72rem] font-medium text-white shadow-sm transition-all duration-150 hover:brightness-110 hover:shadow-md"
         >
           <Play className="size-3" />
-          Replay golden demo
+          Replay reference demo
         </Button>
       </div>
 
@@ -132,9 +134,19 @@ export function SessionRail({
 
       <div className="border-t px-4 py-2.5">
         <p className="num text-[0.58rem] leading-relaxed text-muted-foreground/70">
-          Mock data · seed 20260807 · snap_003
-          <br />
-          M11 pre-work — API wiring lands in M8
+          {mode === "api" ? (
+            <>
+              Live API · {apiBaseUrl()}
+              <br />
+              M11 — real driver behind the mock&apos;s seam
+            </>
+          ) : (
+            <>
+              Mock data · seed 20260807 · snap_003
+              <br />
+              Set NEXT_PUBLIC_REVI_DRIVER=api for the live API
+            </>
+          )}
         </p>
       </div>
     </aside>

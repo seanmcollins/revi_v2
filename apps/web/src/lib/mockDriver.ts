@@ -1,5 +1,5 @@
 /**
- * Mock TurnDriver — replays the golden five-turn conversation through the
+ * Mock TurnDriver — replays the reference five-turn conversation through the
  * SAME typed TurnEvent pipeline the real POST-SSE driver will use (see
  * lib/sse.ts). Swapping in the real API later means replacing this class
  * with one that calls `streamTurnEvents` — nothing else changes.
@@ -10,7 +10,7 @@
  */
 
 import type { TurnDriver, TurnSubmission } from "@/lib/driver";
-import { GOLDEN_TURNS } from "@/lib/mock/golden";
+import { REFERENCE_TURNS } from "@/lib/mock/reference";
 import { clarificationEvents, PR3_EVENTS } from "@/lib/mock/definitions";
 import type { TurnEvent } from "@/lib/types";
 
@@ -47,25 +47,26 @@ export function chunkNarrative(text: string, wordsPerChunk = 4): string[] {
 }
 
 export class MockDriver implements TurnDriver {
-  /** How far through the golden conversation this session has advanced. */
-  private goldenProgress = 0;
+  /** How far through the reference conversation this session has advanced. */
+  private referenceProgress = 0;
   /** Pace multiplier: 1 = demo speed, 0 = instant (tests). */
   constructor(private readonly pace: number = 1) {}
 
-  nextGoldenQuestion(): string | undefined {
-    return GOLDEN_TURNS[this.goldenProgress]?.question;
+  nextReferenceQuestion(): string | undefined {
+    return REFERENCE_TURNS[this.referenceProgress]?.question;
   }
 
   private resolveEvents(submission: TurnSubmission): TurnEvent[] {
-    const text = submission.utterance?.trim() ?? "";
+    // Clarification responses re-enter the interpreter as ordinary text.
+    const text = (submission.utterance ?? submission.clarificationResponse)?.trim() ?? "";
     if (PR3_TRIGGER.test(text)) return PR3_EVENTS;
 
-    const next = GOLDEN_TURNS[this.goldenProgress];
+    const next = REFERENCE_TURNS[this.referenceProgress];
     if (next && next.trigger.test(text)) {
-      this.goldenProgress += 1;
+      this.referenceProgress += 1;
       return next.events;
     }
-    // A later golden turn asked out of order, or anything unscripted →
+    // A later reference turn asked out of order, or anything unscripted →
     // first-class clarification. The interpreter never guesses.
     return clarificationEvents(text, next?.question);
   }
@@ -115,8 +116,8 @@ export class MockDriver implements TurnDriver {
   }
 
   resetProgress(): void {
-    this.goldenProgress = 0;
+    this.referenceProgress = 0;
   }
 }
 
-export const GOLDEN_QUESTIONS: string[] = GOLDEN_TURNS.map((t) => t.question);
+export const REFERENCE_QUESTIONS: string[] = REFERENCE_TURNS.map((t) => t.question);

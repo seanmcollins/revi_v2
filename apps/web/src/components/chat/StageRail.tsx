@@ -80,7 +80,7 @@ function StageNode({ stage }: { stage: StageStatus }) {
   return (
     <span
       className={cn(
-        "inline-flex h-5 items-center gap-1 rounded-full px-1.5 text-[0.65rem] transition-colors duration-200",
+        "inline-flex h-5 items-center gap-1 rounded-full px-1.5 text-[0.65rem] transition-all duration-200",
         stage.state === "done" && "text-secondary-foreground",
         stage.state === "active" && "bg-verified/10 font-medium text-verified",
         stage.state === "pending" && "text-muted-foreground/50",

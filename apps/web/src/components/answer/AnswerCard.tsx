@@ -23,17 +23,42 @@ import { cn } from "@/lib/utils";
  * interpretation strip → trust badges → findings → charts → narrative →
  * warnings → feedback. Nothing renders a number without its context.
  */
-export function AnswerCard({ turn }: { turn: TurnRecord }) {
+export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?: boolean }) {
   const openDrawer = useSessionStore((s) => s.openDrawer);
   const streaming = turn.answer.status === "streaming";
   const a = turn.answer;
 
   return (
-    <div className="space-y-3">
+    <div className={cn("space-y-3", active && "relative isolate")}>
+      {/* Depth model: a faint accent glow marks the answer being read. */}
+      {active && (
+        <div
+          aria-hidden
+          className="answer-glow pointer-events-none absolute -inset-x-10 -top-8 -z-10 h-80"
+        />
+      )}
       <StageRail stages={a.stages} streaming={streaming} cacheHits={a.cacheHits} />
 
-      {a.header && <ContextHeader header={a.header} />}
+      {a.header && (
+        <div className="fade-up">
+          <ContextHeader header={a.header} />
+        </div>
+      )}
       {a.interpretation && <InterpretationPanel interpretation={a.interpretation} />}
+
+      {/* Space is reserved while the pipeline runs — content replaces the
+          shimmer in place, never jumping the layout. */}
+      {streaming &&
+        a.findings.length === 0 &&
+        a.charts.length === 0 &&
+        a.narrative === "" &&
+        !a.definition &&
+        !a.clarification && (
+          <div aria-hidden className="grid gap-2.5 min-[1450px]:grid-cols-2">
+            <div className="skeleton h-28" />
+            <div className="skeleton hidden h-28 min-[1450px]:block" />
+          </div>
+        )}
 
       {(a.answerGrade || a.metric || a.evidence?.zeroProbeTurn) && (
         <div className="flex flex-wrap items-center gap-1.5">
@@ -89,14 +114,22 @@ export function AnswerCard({ turn }: { turn: TurnRecord }) {
 
       {a.findings.length > 0 && (
         <div className="grid gap-2.5 min-[1450px]:grid-cols-2">
-          {a.findings.map((finding) => (
-            <FindingCard key={finding.referent.value} finding={finding} turnId={turn.id} />
+          {a.findings.map((finding, i) => (
+            <div
+              key={finding.referent.value}
+              className="fade-up h-full"
+              style={{ animationDelay: `${Math.min(i, 6) * 45}ms` }}
+            >
+              <FindingCard finding={finding} turnId={turn.id} />
+            </div>
           ))}
         </div>
       )}
 
       {a.charts.map((spec) => (
-        <InvestigationChart key={spec.id} spec={spec} turnId={turn.id} />
+        <div key={spec.id} className="fade-up">
+          <InvestigationChart spec={spec} turnId={turn.id} />
+        </div>
       ))}
 
       {(a.narrative || streaming) && a.status !== "clarification" && (

@@ -6,95 +6,120 @@
 /* ---------------------------------------------------------------------------
    Revi design tokens — financial-grade, dark-first, one confident accent.
 
+   Depth model (both themes): page < panel < raised < overlay, hairline
+   borders, layered translucent surfaces over a faintly glowing page.
+   Dark surfaces carry a subtle WARM tint (not pure zinc); light is
+   paper-white warmth.
+
    Accent semantics (never decorative):
      verified  teal    → governed / deterministic / reconciled
      warning   amber   → caveats, proxy grades, stale data
      negative  red     → failures and direction-of-bad only
+   One restrained gradient (teal → deep blue) is reserved for primary
+   actions, active states, and the hero glow — never content.
    Chart series colors are CVD-validated pairs (dataviz six-check validator):
      light  #0d9488 / #2a78d6   dark  #0d9488 / #3987e5
 --------------------------------------------------------------------------- */
 
 :root {
-  --background: #f7f7f8;
-  --foreground: #18181b;
+  /* Paper, not white. The page sits a step BELOW the raised cards so the
+     depth model reads in light mode too (sunken < page < panel < raised). */
+  --background: #f6f5f0;
+  --foreground: #1a1916;
   --card: #ffffff;
-  --card-foreground: #18181b;
+  --card-foreground: #1a1916;
   --popover: #ffffff;
-  --popover-foreground: #18181b;
-  --primary: #18181b;
-  --primary-foreground: #fafafa;
-  --secondary: #f1f1f3;
-  --secondary-foreground: #27272a;
-  --muted: #f1f1f3;
-  --muted-foreground: #6d6d78;
-  --accent: #eceff0;
-  --accent-foreground: #18181b;
+  --popover-foreground: #1a1916;
+  --primary: #1a1916;
+  --primary-foreground: #fafaf9;
+  --secondary: #f1efeb;
+  --secondary-foreground: #292723;
+  --muted: #f1efeb;
+  --muted-foreground: #6f6c64;
+  --accent: #edebe6;
+  --accent-foreground: #1a1916;
   --destructive: #dc2626;
   --destructive-foreground: #fafafa;
-  --border: #e4e4e7;
-  --input: #e4e4e7;
+  --border: #e7e4de;
+  --input: #e2dfd8;
   --ring: #0d9488;
   --radius: 0.5rem;
 
+  --surface-page: #f6f5f0;
+  --surface-panel: rgba(255, 255, 255, 0.55);
   --surface-raised: #ffffff;
-  --surface-sunken: #f1f1f3;
+  --surface-sunken: #f1efeb;
+  --surface-overlay: #ffffff;
 
   --verified: #0d9488;
   --positive: #047857;
   --negative: #dc2626;
   --warning: #b45309;
 
+  --accent-from: #0d9488;
+  --accent-to: #2a63d4;
+  --glow-a: rgba(13, 148, 136, 0.07);
+  --glow-b: rgba(42, 99, 212, 0.05);
+
   --grade-direct: #0d9488;
   --grade-derived: #1d6fc4;
   --grade-proxy: #b45309;
   --grade-discovery: #7c3aed;
-  --grade-unavailable: #6d6d78;
+  --grade-unavailable: #6f6c64;
 
   --chart-current: #0d9488;
   --chart-baseline: #2a78d6;
-  --chart-grid: rgba(24, 24, 27, 0.07);
-  --chart-axis: #6d6d78;
+  --chart-grid: rgba(26, 25, 22, 0.07);
+  --chart-axis: #6f6c64;
 }
 
 .dark {
-  --background: #0b0b0d;
-  --foreground: #ececef;
-  --card: #131316;
-  --card-foreground: #ececef;
-  --popover: #17171b;
-  --popover-foreground: #ececef;
-  --primary: #fafafa;
-  --primary-foreground: #131316;
-  --secondary: #1d1d22;
-  --secondary-foreground: #d4d4d8;
-  --muted: #1a1a1f;
-  --muted-foreground: #9d9da8;
-  --accent: #202027;
-  --accent-foreground: #ececef;
+  --background: #0b0a09;
+  --foreground: #edecea;
+  --card: #131211;
+  --card-foreground: #edecea;
+  --popover: #1b1a18;
+  --popover-foreground: #edecea;
+  --primary: #fafaf9;
+  --primary-foreground: #131211;
+  --secondary: #1d1b19;
+  --secondary-foreground: #d6d4d0;
+  --muted: #191817;
+  --muted-foreground: #a09d97;
+  --accent: #201e1b;
+  --accent-foreground: #edecea;
   --destructive: #ef4444;
   --destructive-foreground: #fafafa;
-  --border: #232329;
-  --input: #2a2a31;
+  --border: rgba(255, 255, 255, 0.075);
+  --input: rgba(255, 255, 255, 0.13);
   --ring: #2dd4bf;
 
-  --surface-raised: #17171b;
-  --surface-sunken: #0e0e10;
+  --surface-page: #0b0a09;
+  --surface-panel: rgba(19, 18, 16, 0.72);
+  --surface-raised: #161514;
+  --surface-sunken: #0e0d0c;
+  --surface-overlay: #1b1a18;
 
   --verified: #2dd4bf;
   --positive: #34d399;
   --negative: #f87171;
   --warning: #fbbf24;
 
+  --accent-from: #14b8a6;
+  --accent-to: #3987e5;
+  --glow-a: rgba(45, 212, 191, 0.055);
+  --glow-b: rgba(57, 135, 229, 0.045);
+
   --grade-direct: #2dd4bf;
   --grade-derived: #60a5fa;
   --grade-proxy: #fbbf24;
   --grade-discovery: #a78bfa;
-  --grade-unavailable: #9d9da8;
+  --grade-unavailable: #a09d97;
 
   --chart-current: #0d9488;
   --chart-baseline: #3987e5;
   --chart-grid: rgba(255, 255, 255, 0.07);
-  --chart-axis: #9d9da8;
+  --chart-axis: #a09d97;
 }
 
 @theme inline {
@@ -118,13 +143,19 @@
   --color-input: var(--input);
   --color-ring: var(--ring);
 
+  --color-surface-page: var(--surface-page);
+  --color-surface-panel: var(--surface-panel);
   --color-surface-raised: var(--surface-raised);
   --color-surface-sunken: var(--surface-sunken);
+  --color-surface-overlay: var(--surface-overlay);
 
   --color-verified: var(--verified);
   --color-positive: var(--positive);
   --color-negative: var(--negative);
   --color-warning: var(--warning);
+
+  --color-accent-from: var(--accent-from);
+  --color-accent-to: var(--accent-to);
 
   --color-grade-direct: var(--grade-direct);
   --color-grade-derived: var(--grade-derived);
@@ -163,10 +194,60 @@ body {
   -webkit-font-smoothing: antialiased;
 }
 
+/* The page glow: two faint radial accents the translucent panels blur.
+   Restrained on purpose — atmosphere, never content. */
+.page-glow {
+  background:
+    radial-gradient(52rem 34rem at 18% -6%, var(--glow-a), transparent 62%),
+    radial-gradient(46rem 30rem at 92% 108%, var(--glow-b), transparent 60%);
+}
+
+/* Layered translucent panel over the glowing page. */
+.panel {
+  background: var(--surface-panel);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+}
+
+/* The one gradient accent: primary actions + active states only. */
+.accent-gradient {
+  background-image: linear-gradient(135deg, var(--accent-from), var(--accent-to));
+}
+.accent-gradient-text {
+  background-image: linear-gradient(120deg, var(--accent-from), var(--accent-to));
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+}
+
+/* Soft radial glow behind the hero / active answer. */
+.hero-glow {
+  background: radial-gradient(
+    38rem 22rem at 50% 42%,
+    var(--glow-a),
+    transparent 70%
+  );
+}
+
+/* The depth model's focal point: a faint accent glow behind the answer the
+   analyst is currently reading. Fainter than the hero — atmosphere only. */
+.answer-glow {
+  background: radial-gradient(34rem 18rem at 50% 0%, var(--glow-a), transparent 72%);
+}
+
 /* Every number the user sees is load-bearing. */
 .num {
   font-variant-numeric: tabular-nums lining-nums;
   letter-spacing: -0.01em;
+}
+
+/* Headline financial figures. Presence comes from SIZE, never from weight —
+   a heavy number reads as a sales claim, a large light one reads as a
+   measurement. Tracking stays a function of size: tight on display numerals,
+   neutral in body copy, wide (+0.1em) on the uppercase micro-labels. */
+.numeral {
+  font-variant-numeric: tabular-nums lining-nums;
+  letter-spacing: -0.015em;
 }
 
 /* Thin, quiet scrollbars */
@@ -185,6 +266,11 @@ body {
 *::-webkit-scrollbar-track {
   background: transparent;
 }
+
+/* ---------------------------------------------------------------------------
+   Motion — 120–180ms ease-out micro-interactions, entrance staggering,
+   skeleton shimmer. Everything collapses under prefers-reduced-motion.
+--------------------------------------------------------------------------- */
 
 /* Subtle pulse for the active pipeline stage */
 @keyframes stage-pulse {
@@ -216,4 +302,81 @@ body {
   margin-left: 1px;
   color: var(--verified);
   animation: caret-blink 1s step-end infinite;
+}
+
+/* Entrance: content fades up once as it lands (no layout jank — the
+   translate is tiny and space is reserved by the flow). */
+@keyframes fade-up {
+  from {
+    opacity: 0;
+    transform: translateY(5px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.fade-up {
+  animation: fade-up 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* Skeleton shimmer while a turn streams. */
+@keyframes shimmer {
+  from {
+    background-position: 200% 0;
+  }
+  to {
+    background-position: -200% 0;
+  }
+}
+.skeleton {
+  border-radius: var(--radius-md);
+  background: linear-gradient(
+    100deg,
+    var(--surface-sunken) 40%,
+    var(--accent) 50%,
+    var(--surface-sunken) 60%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+}
+
+/* Command-palette overlay fade / panel pop. */
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+@keyframes panel-in {
+  from {
+    opacity: 0;
+    transform: translateY(6px) scale(0.985);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+.overlay-in {
+  animation: overlay-in 140ms ease-out both;
+}
+.panel-in {
+  animation: panel-in 160ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .fade-up,
+  .skeleton,
+  .overlay-in,
+  .panel-in,
+  .stage-active-dot,
+  .stream-caret::after {
+    animation: none;
+  }
+  * {
+    transition-duration: 0.01ms !important;
+  }
 }

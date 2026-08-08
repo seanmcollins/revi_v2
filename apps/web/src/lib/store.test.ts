@@ -1,6 +1,6 @@
 import { beforeEach, describe, expect, it } from "vitest";
 
-import { GOLDEN_TURNS } from "@/lib/mock/golden";
+import { REFERENCE_TURNS } from "@/lib/mock/reference";
 import { chunkNarrative, MockDriver } from "@/lib/mockDriver";
 import {
   applyEventToAnswer,
@@ -57,7 +57,7 @@ describe("applyEventToAnswer (pure reducer)", () => {
   });
 
   it("collects findings and charts in arrival order", () => {
-    const t1 = GOLDEN_TURNS[0].events;
+    const t1 = REFERENCE_TURNS[0].events;
     const answer = reduce(t1);
     expect(answer.findings.map((f) => f.referent.value)).toEqual(["F1", "F2", "F3"]);
     expect(answer.charts).toHaveLength(1);
@@ -77,7 +77,7 @@ describe("applyEventToAnswer (pure reducer)", () => {
   });
 
   it("turn_complete finalizes stages and carries grade + metric", () => {
-    const answer = reduce(GOLDEN_TURNS[2].events);
+    const answer = reduce(REFERENCE_TURNS[2].events);
     expect(answer.status).toBe("complete");
     expect(answer.answerGrade).toBe("proxy");
     expect(answer.metric?.id).toBe("denied_dollars");
@@ -100,9 +100,9 @@ describe("applyEventToAnswer (pure reducer)", () => {
   });
 });
 
-describe("golden fixtures — invariants the UI depends on", () => {
+describe("reference fixtures — invariants the UI depends on", () => {
   it("T1 header matches §10.3 verbatim values", () => {
-    const headerEvent = GOLDEN_TURNS[0].events.find((e) => e.type === "context_header");
+    const headerEvent = REFERENCE_TURNS[0].events.find((e) => e.type === "context_header");
     if (headerEvent?.type !== "context_header") throw new Error("missing header");
     expect(headerEvent.header.window).toMatchObject({
       start: "2026-07-27",
@@ -113,7 +113,7 @@ describe("golden fixtures — invariants the UI depends on", () => {
   });
 
   it("T2 reconciliation: payer children sum exactly to the parent delta", () => {
-    const evidence = GOLDEN_TURNS[1].events.find((e) => e.type === "evidence");
+    const evidence = REFERENCE_TURNS[1].events.find((e) => e.type === "evidence");
     if (evidence?.type !== "evidence") throw new Error("missing evidence");
     expect(evidence.evidence.reconciliation.status).toBe("passed");
     expect(evidence.evidence.reconciliation.childSumCents).toBe(
@@ -122,19 +122,19 @@ describe("golden fixtures — invariants the UI depends on", () => {
   });
 
   it("T3 carries proxy grade per the grade law (min-propagation)", () => {
-    const complete = GOLDEN_TURNS[2].events.find((e) => e.type === "turn_complete");
+    const complete = REFERENCE_TURNS[2].events.find((e) => e.type === "turn_complete");
     if (complete?.type !== "turn_complete") throw new Error("missing complete");
     expect(complete.answerGrade).toBe(minGrade("direct", "proxy", "direct"));
   });
 
   it("T4 evidence contains a cache hit (primary side reused)", () => {
-    const evidence = GOLDEN_TURNS[3].events.find((e) => e.type === "evidence");
+    const evidence = REFERENCE_TURNS[3].events.find((e) => e.type === "evidence");
     if (evidence?.type !== "evidence") throw new Error("missing evidence");
     expect(evidence.evidence.probes.some((p) => p.cacheHit)).toBe(true);
   });
 
   it("T5 is a zero-probe META turn", () => {
-    const evidence = GOLDEN_TURNS[4].events.find((e) => e.type === "evidence");
+    const evidence = REFERENCE_TURNS[4].events.find((e) => e.type === "evidence");
     if (evidence?.type !== "evidence") throw new Error("missing evidence");
     expect(evidence.evidence.zeroProbeTurn).toBe(true);
     expect(evidence.evidence.probes).toHaveLength(0);
@@ -147,7 +147,7 @@ describe("session store + mock driver (the real event pipeline)", () => {
     useSessionStore.getState().setDriver(new MockDriver(0));
   });
 
-  it("streams the golden T1 into a complete turn", async () => {
+  it("streams the reference T1 into a complete turn", async () => {
     await useSessionStore.getState().submit({ utterance: "Why did cash decline last week?" });
     const turn = useSessionStore.getState().turns[0];
     expect(turn.answer.status).toBe("complete");

@@ -36,7 +36,11 @@ export function ContextHeader({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      <Chip icon={<CalendarRange className="size-3" />} label={windowChipLabel(header.window)}>
+      <Chip
+        icon={<CalendarRange className="size-3" />}
+        name="Window"
+        label={windowChipLabel(header.window)}
+      >
         <ChipDoc title="Analysis window">
           <p>
             {formatWindow(header.window)}
@@ -59,7 +63,11 @@ export function ContextHeader({
       {header.comparison && (
         <Chip
           icon={<GitCompareArrows className="size-3" />}
-          label={header.comparison.label ? `vs ${header.comparison.label}` : comparisonChipLabel(header.comparison.window)}
+          name="vs"
+          label={
+            header.comparison.label ??
+            comparisonChipLabel(header.comparison.window).replace(/^vs /, "")
+          }
         >
           <ChipDoc title="Comparison">
             <p>
@@ -79,9 +87,10 @@ export function ContextHeader({
 
       <Chip
         icon={<Filter className="size-3" />}
+        name="Scope"
         label={
           header.filters.length === 0
-            ? "Scope: all"
+            ? "all"
             : header.filters.map((f) => `${f.dimensionLabel}: ${f.values.join(", ")}`).join(" · ")
         }
       >
@@ -108,7 +117,8 @@ export function ContextHeader({
       {header.cohort && (
         <Chip
           icon={<Users className="size-3" />}
-          label={`Cohort: ${formatCount(header.cohort.size)} payers (pinned)`}
+          name="Cohort"
+          label={`${formatCount(header.cohort.size)} payers (pinned)`}
           accent
         >
           <ChipDoc title="Pinned cohort">
@@ -123,7 +133,8 @@ export function ContextHeader({
 
       <Chip
         icon={<Database className="size-3" />}
-        label={`Watermark: ${header.watermark.loadedAt}`}
+        name="Watermark"
+        label={header.watermark.loadedAt}
         trailing={pinnedEpoch ? <Pin className="size-2.5 text-muted-foreground" /> : undefined}
       >
         <ChipDoc title="Data watermark">
@@ -151,14 +162,21 @@ const BASIS_DOCS: Record<string, string> = {
   discharge: "encounters count on the discharge date.",
 };
 
+/**
+ * A metadata chip: uppercase wide-tracked micro-label (WINDOW · WATERMARK
+ * · SCOPE) carrying the §10.3 verbatim value in tabular numerals. The
+ * label names the dimension so the value never has to repeat it.
+ */
 function Chip({
   icon,
+  name,
   label,
   trailing,
   accent,
   children,
 }: {
   icon: ReactNode;
+  name: string;
   label: string;
   trailing?: ReactNode;
   accent?: boolean;
@@ -175,6 +193,14 @@ function Chip({
           )}
         >
           <span className="shrink-0 opacity-70">{icon}</span>
+          <span
+            className={cn(
+              "shrink-0 text-[0.55rem] font-semibold uppercase tracking-[0.14em]",
+              accent ? "text-verified/70" : "text-muted-foreground",
+            )}
+          >
+            {name}
+          </span>
           <span className="num truncate">{label}</span>
           {trailing}
         </button>

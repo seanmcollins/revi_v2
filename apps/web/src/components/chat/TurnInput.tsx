@@ -16,6 +16,7 @@ export function TurnInput({ suggestions }: { suggestions: string[] }) {
   const submit = useSessionStore((s) => s.submit);
   const streaming = useSessionStore((s) => s.streamingTurnId !== null);
   const pending = useSessionStore((s) => s.pendingRefinements.length);
+  const mode = useSessionStore((s) => s.connection.mode);
 
   const send = (text: string) => {
     const trimmed = text.trim();
@@ -49,6 +50,7 @@ export function TurnInput({ suggestions }: { suggestions: string[] }) {
         }}
       >
         <Textarea
+          id="turn-composer"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => {
@@ -80,7 +82,9 @@ export function TurnInput({ suggestions }: { suggestions: string[] }) {
       </form>
       <p className="num text-[0.62rem] text-muted-foreground">
         {pending > 0
-          ? `${pending} typed refinement${pending === 1 ? "" : "s"} queued (logged to console — API lands in M8)`
+          ? mode === "api"
+            ? `${pending} typed refinement${pending === 1 ? "" : "s"} queued — submitting when this turn completes`
+            : `${pending} typed refinement${pending === 1 ? "" : "s"} queued (logged to console — mock driver)`
           : "Answers are computed by the deterministic kernel; the model never invents numbers."}
       </p>
     </div>

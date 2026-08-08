@@ -6,6 +6,7 @@ import { Button } from "@/components/ui/button";
 import { deltaTone, formatCents, formatSignedCents, formatSignedPct } from "@/lib/format";
 import { useSessionStore } from "@/lib/store";
 import type { Finding } from "@/lib/types";
+import { useCountUp } from "@/lib/useCountUp";
 import { cn } from "@/lib/utils";
 
 const TONE_TEXT = {
@@ -28,19 +29,21 @@ export function FindingCard({ finding, turnId }: { finding: Finding; turnId: str
       ? deltaTone(finding.impactCents, finding.directionOfGood)
       : "neutral";
 
+  // The impact stat lands with a short count-up (reduced-motion snaps).
+  const animatedCents = useCountUp(finding.impactCents ?? 0);
   const impact =
     finding.impactDisplay ??
     (finding.impactCents !== undefined
       ? finding.impactKind === "delta"
-        ? formatSignedCents(finding.impactCents)
-        : formatCents(finding.impactCents)
+        ? formatSignedCents(animatedCents)
+        : formatCents(animatedCents)
       : null);
 
   return (
     <article
       id={`referent-${finding.referent.value}`}
       className={cn(
-        "flex flex-col gap-2.5 rounded-lg border bg-card p-3.5 transition-shadow duration-200",
+        "flex h-full flex-col gap-2.5 rounded-lg border bg-card p-3.5 transition-all duration-150 hover:-translate-y-px hover:border-ring/30",
         focused && "ring-2 ring-ring/60",
       )}
     >
@@ -52,11 +55,11 @@ export function FindingCard({ finding, turnId }: { finding: Finding; turnId: str
       <div className="flex items-end justify-between gap-3">
         <div>
           {impact && (
-            <p className={cn("num text-xl font-semibold tracking-tight", TONE_TEXT[tone])}>
+            <p className={cn("numeral text-[1.55rem] font-medium leading-none", TONE_TEXT[tone])}>
               {impact}
             </p>
           )}
-          <p className="mt-0.5 flex items-center gap-1.5 text-[0.65rem] text-muted-foreground">
+          <p className="mt-1.5 flex items-center gap-1.5 text-[0.65rem] text-muted-foreground">
             {finding.impactLabel}
             {finding.deltaPct !== undefined && (
               <span className={cn("num font-medium", TONE_TEXT[tone])}>

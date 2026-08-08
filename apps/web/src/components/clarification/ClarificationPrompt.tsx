@@ -19,7 +19,9 @@ export function ClarificationPrompt({ clarification }: { clarification: Clarific
   const [freeText, setFreeText] = useState("");
 
   const choose = (text: string) => {
-    if (!streaming) void submit({ utterance: text });
+    // Replies travel on the dedicated clarification channel — the API
+    // receives `clarification_response`, not a fresh utterance.
+    if (!streaming) void submit({ clarificationResponse: text });
   };
 
   return (

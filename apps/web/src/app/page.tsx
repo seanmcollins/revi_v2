@@ -1,42 +1,103 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { Command } from "lucide-react";
+import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import { ChatThread } from "@/components/chat/ChatThread";
 import { TurnInput } from "@/components/chat/TurnInput";
+import { CommandPalette } from "@/components/command/CommandPalette";
+import { ConnectionPill } from "@/components/workspace/ConnectionPill";
 import { ContextPanel } from "@/components/workspace/ContextPanel";
 import { SessionRail } from "@/components/workspace/SessionRail";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { ApiDriver, fetchHealth, resolveDriverKind } from "@/lib/apiDriver";
+import type { DriverKind, TurnDriver } from "@/lib/driver";
 import { mediumDate } from "@/lib/format";
-import { GOLDEN_QUESTIONS, MockDriver } from "@/lib/mockDriver";
+import { REFERENCE_QUESTIONS, MockDriver } from "@/lib/mockDriver";
 import { useSessionStore } from "@/lib/store";
 
 /**
  * The Revi workspace: left rail (sessions + portfolio), center thread,
  * right contextual panel (evidence + lineage). Desktop tool — designed
- * down to 1280px.
+ * down to 1280px. Keyboard-first: ⌘K opens the command palette.
+ *
+ * Driver selection: NEXT_PUBLIC_REVI_DRIVER=mock|api (default mock), with
+ * a client-side localStorage override from the palette. Both drivers speak
+ * the same TurnEvent seam; api mode adds session bootstrap, the health-
+ * checked connection pill, and live portfolio/lineage fetches.
  */
+const noopSubscribe = () => () => {};
+const envDriverKind = (): DriverKind =>
+  process.env.NEXT_PUBLIC_REVI_DRIVER === "api" ? "api" : "mock";
+
 export default function Workspace() {
-  const driver = useMemo(() => new MockDriver(), []);
+  // Hydration-safe driver selection: the server snapshot is the env
+  // default; the client snapshot honors the palette's localStorage
+  // override (which reloads the page on change — no live subscription).
+  const driverKind = useSyncExternalStore<DriverKind>(
+    noopSubscribe,
+    resolveDriverKind,
+    envDriverKind,
+  );
+
+  const driver = useMemo<TurnDriver>(() => {
+    if (driverKind === "api") {
+      return new ApiDriver({
+        onSession: (session) => useSessionStore.getState().adoptSession(session),
+        onConnectionState: (state, detail) =>
+          useSessionStore.getState().setConnection({ state, detail }),
+        onContractDrift: (paths) => useSessionStore.getState().reportContractDrift(paths),
+      });
+    }
+    return new MockDriver();
+  }, [driverKind]);
   const setDriver = useSessionStore((s) => s.setDriver);
   const submit = useSessionStore((s) => s.submit);
   const streaming = useSessionStore((s) => s.streamingTurnId !== null);
   const turns = useSessionStore((s) => s.turns);
   const watermark = useSessionStore((s) => s.watermark);
+  const pack = useSessionStore((s) => s.pack);
   const [replaying, setReplaying] = useState(false);
+  const [paletteOpen, setPaletteOpen] = useState(false);
 
   useEffect(() => {
     setDriver(driver);
   }, [driver, setDriver]);
 
-  const answeredGolden = turns.filter((t) =>
-    GOLDEN_QUESTIONS.includes(t.submission.utterance ?? ""),
+  // Connection state machine (api mode): connecting → online ⇄ offline,
+  // driven by a health heartbeat — fast retries while offline, slow while
+  // online. Turn submission failures flip it offline via the driver.
+  useEffect(() => {
+    const { setConnection } = useSessionStore.getState();
+    if (driverKind !== "api") {
+      setConnection({ mode: "mock", state: "online", detail: undefined });
+      return;
+    }
+    setConnection({ mode: "api", state: "connecting" });
+    let cancelled = false;
+    let timer: number | undefined;
+    const probe = async (): Promise<void> => {
+      const healthy = await fetchHealth();
+      if (cancelled) return;
+      setConnection({ state: healthy ? "online" : "offline" });
+      timer = window.setTimeout(() => void probe(), healthy ? 30_000 : 5_000);
+    };
+    void probe();
+    return () => {
+      cancelled = true;
+      if (timer !== undefined) window.clearTimeout(timer);
+    };
+  }, [driverKind]);
+
+  const answeredReference = turns.filter((t) =>
+    REFERENCE_QUESTIONS.includes(t.submission.utterance ?? ""),
   ).length;
 
   const replay = async () => {
     if (replaying || streaming) return;
     setReplaying(true);
     try {
-      for (const question of GOLDEN_QUESTIONS.slice(answeredGolden)) {
+      for (const question of REFERENCE_QUESTIONS.slice(answeredReference)) {
         await submit({ utterance: question });
       }
     } finally {
@@ -45,42 +106,74 @@ export default function Workspace() {
   };
 
   const suggestions =
-    answeredGolden < GOLDEN_QUESTIONS.length
-      ? [GOLDEN_QUESTIONS[answeredGolden], ...(turns.length === 0 ? ["What is PR3?"] : [])]
-      : ["What is PR3?"];
+    turns.length === 0
+      ? []
+      : answeredReference < REFERENCE_QUESTIONS.length
+        ? [REFERENCE_QUESTIONS[answeredReference]]
+        : ["What is PR3?"];
 
   return (
-    <div className="grid h-dvh grid-cols-[16.5rem_minmax(0,1fr)_21rem] min-[1440px]:grid-cols-[17.5rem_minmax(0,1fr)_23rem]">
-      <SessionRail onReplay={() => void replay()} replayDisabled={replaying || streaming} />
+    <div className="relative h-dvh overflow-hidden bg-background">
+      <div aria-hidden className="page-glow pointer-events-none absolute inset-0" />
 
-      <main className="flex h-full min-h-0 flex-col">
-        <header className="flex shrink-0 items-center justify-between border-b px-6 py-2.5">
-          <div>
-            <h1 className="text-[0.85rem] font-semibold tracking-tight">
-              Cash decline — week of Jul 27
-            </h1>
-            <p className="num text-[0.62rem] text-muted-foreground">
-              Session pinned · watermark {watermark.loadedAt} · data through{" "}
-              {mediumDate(watermark.newestDataDate)} · base-rcm@1.0.0
-            </p>
+      <div className="relative grid h-full grid-cols-[16.5rem_minmax(0,1fr)_21rem] min-[1440px]:grid-cols-[17.5rem_minmax(0,1fr)_23rem]">
+        <SessionRail onReplay={() => void replay()} replayDisabled={replaying || streaming} />
+
+        <main className="flex h-full min-h-0 flex-col">
+          <header className="flex shrink-0 items-center justify-between gap-4 border-b bg-background/55 px-6 py-2.5 backdrop-blur-md">
+            <div className="min-w-0">
+              <h1 className="truncate text-[0.85rem] font-semibold tracking-tight">
+                Cash decline — week of Jul 27
+              </h1>
+              <p className="num truncate text-[0.62rem] text-muted-foreground">
+                Session pinned · watermark {watermark.loadedAt} · data through{" "}
+                {mediumDate(watermark.newestDataDate)} · {pack.packId}@{pack.version}
+              </p>
+            </div>
+            <div className="flex shrink-0 items-center gap-2.5">
+              <ConnectionPill />
+              <p className="num whitespace-nowrap text-[0.62rem] text-muted-foreground">
+                {turns.length} turn{turns.length === 1 ? "" : "s"}
+              </p>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={() => setPaletteOpen(true)}
+                    aria-label="Open command palette"
+                    className="flex items-center gap-1 rounded-md border bg-surface-sunken/70 px-1.5 py-1 text-[0.62rem] font-medium text-muted-foreground transition-colors duration-150 hover:border-ring/40 hover:text-foreground"
+                  >
+                    <Command className="size-3" />
+                    <span className="font-mono">K</span>
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-[0.65rem]">
+                  Command palette · ⌘K
+                </TooltipContent>
+              </Tooltip>
+            </div>
+          </header>
+
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <ChatThread />
           </div>
-          <p className="num text-[0.62rem] text-muted-foreground">
-            {turns.length} turn{turns.length === 1 ? "" : "s"}
-          </p>
-        </header>
 
-        <div className="min-h-0 flex-1 overflow-y-auto">
-          <ChatThread />
-        </div>
+          <footer className="shrink-0 border-t bg-background/55 px-6 py-3 backdrop-blur-md">
+            <div className="mx-auto max-w-3xl">
+              <TurnInput suggestions={suggestions} />
+            </div>
+          </footer>
+        </main>
 
-        <footer className="shrink-0 border-t px-6 py-3">
-          <div className="mx-auto max-w-3xl">
-            <TurnInput suggestions={suggestions} />
-          </div>
-        </footer>
-      </main>
+        <ContextPanel />
+      </div>
 
-      <ContextPanel />
+      <CommandPalette
+        open={paletteOpen}
+        onOpenChange={setPaletteOpen}
+        onReplay={() => void replay()}
+        replayDisabled={replaying || streaming}
+      />
     </div>
   );
 }

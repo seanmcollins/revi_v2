@@ -7,9 +7,15 @@
 
 import { create } from "zustand";
 
-import type { TurnDriver, TurnSubmission } from "@/lib/driver";
+import type {
+  ConnectionState,
+  DriverKind,
+  TurnDriver,
+  TurnSubmission,
+} from "@/lib/driver";
 import {
   STAGE_ORDER,
+  type PackVersionRef,
   type ChartSpec,
   type ClarificationData,
   type ContextHeaderData,
@@ -186,9 +192,23 @@ export interface WatermarkBannerState {
   decision?: "stay_pinned" | "re_anchor";
 }
 
+export interface ConnectionStatus {
+  mode: DriverKind;
+  state: ConnectionState;
+  detail?: string;
+}
+
 interface SessionState {
   sessionId: string;
   watermark: DataWatermark;
+  pack: PackVersionRef;
+  /** True once a real API session has been created and adopted. */
+  sessionLive: boolean;
+  connection: ConnectionStatus;
+  /** Field paths missing from server responses — drives the drift banner. */
+  contractDrift: string[];
+  /** Send `re_anchor: true` with the next turn (analyst chose re-anchor). */
+  pendingReAnchor: boolean;
   turns: TurnRecord[];
   referents: Record<string, ReferentEntry>;
   pendingRefinements: PendingRefinement[];
@@ -203,6 +223,14 @@ interface SessionState {
   driver: TurnDriver | null;
 
   setDriver: (driver: TurnDriver) => void;
+  setConnection: (patch: Partial<ConnectionStatus>) => void;
+  adoptSession: (session: {
+    sessionId: string;
+    watermark: DataWatermark;
+    pack: PackVersionRef;
+  }) => void;
+  reportContractDrift: (paths: string[]) => void;
+  dismissContractDrift: () => void;
   submit: (submission: TurnSubmission) => Promise<void>;
   emitRefinement: (
     refinement: Refinement,
@@ -270,9 +298,16 @@ function registerReferents(
   return referents;
 }
 
+export const INITIAL_PACK: PackVersionRef = { packId: "base-rcm", version: "1.0.0" };
+
 export const useSessionStore = create<SessionState>((set, get) => ({
   sessionId: "sess_demo_001",
   watermark: INITIAL_WATERMARK,
+  pack: INITIAL_PACK,
+  sessionLive: false,
+  connection: { mode: "mock", state: "online" },
+  contractDrift: [],
+  pendingReAnchor: false,
   turns: [],
   referents: {},
   pendingRefinements: [],
@@ -287,19 +322,41 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   setDriver: (driver) => set({ driver }),
 
+  setConnection: (patch) =>
+    set((state) => ({ connection: { ...state.connection, ...patch } })),
+
+  adoptSession: (session) =>
+    set({
+      sessionId: session.sessionId,
+      watermark: session.watermark,
+      pack: session.pack,
+      sessionLive: true,
+    }),
+
+  reportContractDrift: (paths) =>
+    set((state) => ({
+      contractDrift: Array.from(new Set([...state.contractDrift, ...paths])),
+    })),
+
+  dismissContractDrift: () => set({ contractDrift: [] }),
+
   submit: async (submission) => {
-    const { driver, streamingTurnId } = get();
+    const { driver, streamingTurnId, pendingReAnchor } = get();
     if (!driver || streamingTurnId) return;
+    const effective: TurnSubmission = pendingReAnchor
+      ? { ...submission, reAnchor: true }
+      : submission;
+    if (pendingReAnchor) set({ pendingReAnchor: false });
     const id = nextTurnId();
     const record: TurnRecord = {
       id,
       index: get().turns.length,
-      submission,
+      submission: effective,
       answer: emptyAnswer(),
     };
     set((state) => ({ turns: [...state.turns, record], streamingTurnId: id }));
     try {
-      await driver.submit(submission, (event) => {
+      await driver.submit(effective, (event) => {
         set((state) => ({
           turns: state.turns.map((t) =>
             t.id === id ? { ...t, answer: applyEventToAnswer(t.answer, event) } : t,
@@ -309,12 +366,27 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       });
     } finally {
       set({ streamingTurnId: null });
+      // Gestures made while streaming were queued — flush them as one
+      // refinement turn now that the pipeline is free (api mode only).
+      const after = get();
+      if (after.connection.mode === "api" && after.pendingRefinements.length > 0) {
+        const refinements = after.pendingRefinements.map((p) => p.refinement);
+        set({ pendingRefinements: [] });
+        void after.submit({ refinements });
+      }
     }
   },
 
   emitRefinement: (refinement, source) => {
     // Typed refinement objects are the gesture channel — no NL in the loop.
-    // Until the API lands (M8) they are logged and queued, visibly.
+    const { connection, streamingTurnId } = get();
+    if (connection.mode === "api" && !streamingTurnId) {
+      // Live API: a gesture IS a turn — submit the typed operator directly.
+      void get().submit({ refinements: [refinement] });
+      return;
+    }
+    // Mock mode (logged + queued, visibly) or mid-stream (queued, flushed
+    // as one refinement turn when the current stream finishes).
     console.info("[revi] typed refinement emitted", refinement, source ?? {});
     set((state) => ({
       pendingRefinements: [
@@ -349,6 +421,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         decision === "re_anchor" && state.watermarkBanner.newWatermark
           ? state.watermarkBanner.newWatermark
           : state.watermark,
+      // The next turn carries re_anchor: true so the server re-pins too.
+      pendingReAnchor: state.pendingReAnchor || decision === "re_anchor",
     })),
 
   toggleFailurePreview: () =>
@@ -356,7 +430,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
 
   reset: () => {
     turnCounter = 0;
-    set({
+    set((state) => ({
       turns: [],
       referents: {},
       pendingRefinements: [],
@@ -366,8 +440,12 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       drawerTurnId: null,
       focusedReferent: null,
       streamingTurnId: null,
-      watermark: INITIAL_WATERMARK,
+      // A live API session stays pinned to its real watermark across a
+      // thread reset; only the mock demo rewinds to the seed watermark.
+      watermark: state.sessionLive ? state.watermark : INITIAL_WATERMARK,
       replaying: false,
-    });
+      contractDrift: [],
+      pendingReAnchor: false,
+    }));
   },
 }));

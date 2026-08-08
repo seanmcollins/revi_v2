@@ -16,9 +16,13 @@ function ScrollArea({
       className={cn("relative", className)}
       {...props}
     >
+      {/* `[&>div]:!block` is load-bearing: Radix inlines `display:table` on the
+          viewport's content wrapper, which sizes it to its widest child and
+          silently breaks every `truncate` / `line-clamp` inside a fixed-width
+          rail. Forcing block + `min-w-0` re-constrains it to the viewport. */}
       <ScrollAreaPrimitive.Viewport
         data-slot="scroll-area-viewport"
-        className="size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1"
+        className="size-full rounded-[inherit] transition-[color,box-shadow] outline-none focus-visible:ring-[3px] focus-visible:ring-ring/50 focus-visible:outline-1 [&>div]:!block [&>div]:!min-w-0"
       >
         {children}
       </ScrollAreaPrimitive.Viewport>

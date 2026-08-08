@@ -18,6 +18,7 @@ import { Button } from "@/components/ui/button";
 import { formatCents, formatCount, formatCompactCents } from "@/lib/format";
 import { useSessionStore } from "@/lib/store";
 import type { ChartSpec } from "@/lib/types";
+import { usePrefersReducedMotion } from "@/lib/useReducedMotion";
 
 const SERIES_COLOR: Record<"current" | "baseline", string> = {
   current: "var(--chart-current)",
@@ -37,6 +38,20 @@ interface RowDatum {
  */
 export function InvestigationChart({ spec, turnId }: { spec: ChartSpec; turnId: string }) {
   const emitRefinement = useSessionStore((s) => s.emitRefinement);
+  const reducedMotion = usePrefersReducedMotion();
+
+  /**
+   * Draw in ONCE, fast (260ms ease-out) — Recharts' 1.5s default is a
+   * different product's motion language, and it re-runs on every data
+   * change. `animationId` is pinned to the spec so a re-render (theme
+   * flip, focus change) never replays the draw.
+   */
+  const drawIn = {
+    isAnimationActive: !reducedMotion,
+    animationDuration: 260,
+    animationEasing: "ease-out",
+    animationId: spec.id,
+  } as const;
 
   const data: RowDatum[] = spec.rows.map((row) => ({
     label: row.label,
@@ -128,6 +143,7 @@ export function InvestigationChart({ spec, turnId }: { spec: ChartSpec; turnId: 
                   strokeWidth={2}
                   dot={false}
                   activeDot={{ r: 4, strokeWidth: 0 }}
+                  {...drawIn}
                 />
               ))}
             </LineChart>
@@ -165,6 +181,7 @@ export function InvestigationChart({ spec, turnId }: { spec: ChartSpec; turnId: 
                   maxBarSize={spec.series.length > 1 ? 14 : 22}
                   className="cursor-pointer"
                   onClick={handleBarClick}
+                  {...drawIn}
                 />
               ))}
             </BarChart>

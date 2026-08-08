@@ -22,7 +22,7 @@ export function ContextPanel() {
   const selectedIndex = selected ? turns.findIndex((t) => t.id === selected.id) : -1;
 
   return (
-    <aside className="flex h-full min-h-0 flex-col border-l bg-surface-sunken/40">
+    <aside className="panel flex h-full min-h-0 flex-col border-l">
       <Tabs defaultValue="evidence" className="flex h-full min-h-0 flex-col gap-0">
         <div className="border-b px-3 py-2">
           <TabsList className="h-7 w-full bg-surface-sunken">

@@ -1,5 +1,5 @@
 /**
- * The golden five-turn drill-down (design doc §10.3), scripted as typed
+ * The reference five-turn drill-down (design doc §10.3), scripted as typed
  * TurnEvent streams. Every dollar figure is taken from the generated
  * warehouse's answer key (data/answer_key.json, seed 20260807, snap_003,
  * watermark 2026-08-03 04:10) — never invented.
@@ -992,7 +992,7 @@ const T5_EVENTS: TurnEvent[] = [
   },
 ];
 
-export const GOLDEN_TURNS: ScriptedTurn[] = [
+export const REFERENCE_TURNS: ScriptedTurn[] = [
   {
     id: "T1",
     question: "Why did cash decline last week?",

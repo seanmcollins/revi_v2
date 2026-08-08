@@ -5,7 +5,7 @@
  * tabular numerals.
  */
 
-import type { DateBasis, DirectionOfGood, ResolvedWindow } from "@/lib/types";
+import type { DateBasis, DirectionOfGood, Refinement, ResolvedWindow } from "@/lib/types";
 
 export const MINUS = "−";
 
@@ -164,4 +164,39 @@ export function comparisonChipLabel(window: ResolvedWindow): string {
 /** Big count with grouping: 120000 → "120,000". */
 export function formatCount(n: number): string {
   return new Intl.NumberFormat("en-US").format(n);
+}
+
+/**
+ * Terse display form of a typed refinement operator — the user-bubble and
+ * lineage-edge rendering of gesture turns: `DrillInto(F2)`, `RankBy(…)`.
+ */
+export function describeRefinement(refinement: Refinement): string {
+  switch (refinement.op) {
+    case "SetDimensions":
+      return `SetDimensions(${refinement.dimensions.join(", ")})`;
+    case "AddFilter":
+      return `AddFilter(${refinement.filter.dimension} ${refinement.filter.op} ${refinement.filter.values.join("|")})`;
+    case "RemoveFilter":
+      return `RemoveFilter(${refinement.dimension})`;
+    case "SetWindow":
+      return `SetWindow(${refinement.window.start}…${refinement.window.end})`;
+    case "SetComparison":
+      return refinement.comparison
+        ? `SetComparison(${refinement.comparison.label ?? refinement.comparison.kind})`
+        : "SetComparison(none)";
+    case "SetGrain":
+      return `SetGrain(${refinement.grain.entity})`;
+    case "DrillInto":
+      return `DrillInto(${Array.isArray(refinement.target) ? refinement.target.join(", ") : refinement.target})`;
+    case "Pivot":
+      return `Pivot(${refinement.measures.join(", ")})`;
+    case "Explain":
+      return `Explain(${refinement.target})`;
+    case "RankBy":
+      return `RankBy(${refinement.metric} ${refinement.descending ? "desc" : "asc"})`;
+    case "Expand":
+      return "Expand";
+    case "ResetContext":
+      return `ResetContext(keepPins=${String(refinement.keepPins)})`;
+  }
 }

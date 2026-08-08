@@ -5,7 +5,7 @@
  */
 
 import type { TurnEvent } from "@/lib/types";
-import { PACK, WATERMARK } from "@/lib/mock/golden";
+import { PACK, WATERMARK } from "@/lib/mock/reference";
 
 export const PR3_EVENTS: TurnEvent[] = [
   { type: "stage", stage: "classified", status: "completed", detail: "DEFINITIONAL · 0.99" },
@@ -87,9 +87,9 @@ export const PR3_EVENTS: TurnEvent[] = [
 ];
 
 /** Fallback: unscripted input → first-class clarification, never a guess. */
-export function clarificationEvents(utterance: string, nextGoldenQuestion?: string): TurnEvent[] {
+export function clarificationEvents(utterance: string, nextReferenceQuestion?: string): TurnEvent[] {
   const options = [
-    ...(nextGoldenQuestion ? [nextGoldenQuestion] : []),
+    ...(nextReferenceQuestion ? [nextReferenceQuestion] : []),
     "Why did cash decline last week?",
     "What is PR3?",
   ];
