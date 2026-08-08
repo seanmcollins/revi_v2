@@ -33,7 +33,7 @@ make db-up migrate            # Postgres + schema
 make dev                      # API :8000 + web :3000
 ```
 
-`make help` lists everything else (`test`, `golden`, `lint`, `portfolio`, …).
+`make help` lists everything else (`test`, `reference`, `lint`, `portfolio`, …).
 
 ## Repository map
 

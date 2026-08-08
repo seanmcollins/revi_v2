@@ -79,7 +79,7 @@ def medicaid_cohort() -> CohortRef:
     )
 
 
-class TestGoldenAnchoring:
+class TestReferenceAnchoring:
     def test_last_full_week_matches_design_10_3(self) -> None:
         """T1's header: Window Jul 27-Aug 2 (post) at watermark 2026-08-03."""
         spec = base_spec()

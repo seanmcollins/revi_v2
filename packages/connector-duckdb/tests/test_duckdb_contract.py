@@ -7,7 +7,7 @@ Three layers:
    small generated warehouse (session fixture, fast).
 2. ``TestDuckDbAdapterBehavior`` — adapter-specific error mapping and
    compilation rules not covered by the generic suite.
-3. ``@pytest.mark.golden`` — answer-key regressions against the full-scale
+3. ``@pytest.mark.reference`` — answer-key regressions against the full-scale
    ``data/revi_warehouse.duckdb`` through the full probe path.
 """
 
@@ -54,8 +54,8 @@ from revi_testing.fixtures import fixture_metrics
 
 ROOT = Path(__file__).resolve().parents[3]
 CATALOG_DIR = ROOT / "warehouse" / "catalog"
-GOLDEN_DB = ROOT / "data" / "revi_warehouse.duckdb"
-GOLDEN_KEY = ROOT / "data" / "answer_key.json"
+REFERENCE_DB = ROOT / "data" / "revi_warehouse.duckdb"
+REFERENCE_KEY = ROOT / "data" / "answer_key.json"
 
 _H1_2026 = AbsoluteRange(date(2026, 1, 1), date(2026, 6, 30))
 
@@ -336,21 +336,21 @@ class TestDuckDbAdapterBehavior:
 
 
 # ---------------------------------------------------------------------------
-# 3. golden answer-key regressions (full-scale warehouse in data/)
+# 3. reference answer-key regressions (full-scale warehouse in data/)
 
 
 @pytest.fixture(scope="session")
-def golden_repository(catalog: CatalogSnapshot) -> DuckDbAnalyticalRepository:
-    if not GOLDEN_DB.exists():
+def reference_repository(catalog: CatalogSnapshot) -> DuckDbAnalyticalRepository:
+    if not REFERENCE_DB.exists():
         pytest.skip("data/revi_warehouse.duckdb not generated")
-    return DuckDbAnalyticalRepository(GOLDEN_DB, catalog, fixture_metrics)
+    return DuckDbAnalyticalRepository(REFERENCE_DB, catalog, fixture_metrics)
 
 
 @pytest.fixture(scope="session")
 def answer_key() -> dict[str, object]:
-    if not GOLDEN_KEY.exists():
+    if not REFERENCE_KEY.exists():
         pytest.skip("data/answer_key.json not generated")
-    return json.loads(GOLDEN_KEY.read_text())  # type: ignore[no-any-return]
+    return json.loads(REFERENCE_KEY.read_text())  # type: ignore[no-any-return]
 
 
 def _scenario3(answer_key: dict[str, object]) -> dict[str, object]:
@@ -359,18 +359,18 @@ def _scenario3(answer_key: dict[str, object]) -> dict[str, object]:
     return scenarios["3_cash_decline"]["snap_003"]  # type: ignore[index,no-any-return]
 
 
-@pytest.mark.golden
-class TestGoldenAnswerKey:
-    async def test_watermarks_match_design(self, golden_repository: DuckDbAnalyticalRepository) -> None:
-        watermarks = await golden_repository.list_watermarks()
+@pytest.mark.reference
+class TestReferenceAnswerKey:
+    async def test_watermarks_match_design(self, reference_repository: DuckDbAnalyticalRepository) -> None:
+        watermarks = await reference_repository.list_watermarks()
         assert [w.id for w in watermarks] == ["wm_001", "wm_002", "wm_003"]
         assert [str(w.newest_data_date) for w in watermarks] == ["2026-07-31", "2026-08-01", "2026-08-02"]
 
-    async def test_golden_week_cash_by_payer_matches_scenario3(
-        self, golden_repository: DuckDbAnalyticalRepository, answer_key: dict[str, object]
+    async def test_reference_week_cash_by_payer_matches_scenario3(
+        self, reference_repository: DuckDbAnalyticalRepository, answer_key: dict[str, object]
     ) -> None:
         s3 = _scenario3(answer_key)
-        wm = (await golden_repository.list_watermarks())[-1]
+        wm = (await reference_repository.list_watermarks())[-1]
         probe = AggregationProbe(
             measures=(MetricRef("cash_posted"),),
             dimensions=(DimensionRef("payer"),),
@@ -378,7 +378,7 @@ class TestGoldenAnswerKey:
             window=TimeWindow(basis=POST, range=AbsoluteRange(date(2026, 7, 20), date(2026, 8, 2))),
             grain=Grain(EntityGrain.TRANSACTION, TimeBucket.WEEK),
         )
-        frame = await golden_repository.execute(probe, watermark=wm)
+        frame = await reference_repository.execute(probe, watermark=wm)
         assert frame.schema.names == ("payer", "week", "cash_posted")
         wk_prior, wk_decline = date(2026, 7, 20), date(2026, 7, 27)
         cash: dict[tuple[str, date], int] = {(r[0], r[1]): r[2] for r in frame.rows}  # type: ignore[misc]
@@ -401,13 +401,13 @@ class TestGoldenAnswerKey:
         drops = sorted(by_payer, key=lambda e: e["delta_cents"])  # type: ignore[arg-type,return-value]
         assert {drops[0]["payer_name"], drops[1]["payer_name"]} == {"State Medicaid", "Atlas Commercial"}
 
-    async def test_golden_denial_rate_monthly_shows_carc197_break(
-        self, golden_repository: DuckDbAnalyticalRepository, answer_key: dict[str, object]
+    async def test_reference_denial_rate_monthly_shows_carc197_break(
+        self, reference_repository: DuckDbAnalyticalRepository, answer_key: dict[str, object]
     ) -> None:
         scenarios = answer_key["scenarios"]
         assert isinstance(scenarios, dict)
         monthly = scenarios["1_denial_spike_meridian_imaging"]["snap_003"]["monthly_by_first_remit"]
-        wm = (await golden_repository.list_watermarks())[-1]
+        wm = (await reference_repository.list_watermarks())[-1]
         probe = AggregationProbe(
             measures=(MetricRef("denial_rate"),),
             dimensions=(),
@@ -420,7 +420,7 @@ class TestGoldenAnswerKey:
             window=TimeWindow(basis=REMIT, range=AbsoluteRange(date(2025, 1, 1), date(2026, 8, 2))),
             grain=Grain(EntityGrain.DENIAL, TimeBucket.MONTH),
         )
-        frame = await golden_repository.execute(probe, watermark=wm)
+        frame = await reference_repository.execute(probe, watermark=wm)
         assert frame.schema.names == ("month", "denial_rate__num", "denial_rate__den")
         got = {row[0].strftime("%Y-%m"): (row[1], row[2]) for row in frame.rows}  # type: ignore[union-attr]
         key_197 = {m["remit_month"]: m["carc197_denied_claims"] for m in monthly}
@@ -440,14 +440,14 @@ class TestGoldenAnswerKey:
         assert pre and post
         assert sum(post) / len(post) >= 2 * (sum(pre) / len(pre))
 
-    async def test_golden_weekly_cash_by_payer_type_last_13_weeks(
-        self, golden_repository: DuckDbAnalyticalRepository, answer_key: dict[str, object]
+    async def test_reference_weekly_cash_by_payer_type_last_13_weeks(
+        self, reference_repository: DuckDbAnalyticalRepository, answer_key: dict[str, object]
     ) -> None:
         """Regression anchor for the '3.25 months of payer payments by payer
         type, weekly' guide question: trailing ~13 weeks resolve via the
         kernel and come back as 13 Monday-aligned weekly buckets."""
         s3 = _scenario3(answer_key)
-        wm = (await golden_repository.list_watermarks())[-1]
+        wm = (await reference_repository.list_watermarks())[-1]
         anchor = wm.newest_data_date  # 2026-08-02
         window = resolve_relative(RelativeRange(Decimal(13), TimeUnit.WEEK, RangeMode.TRAILING), anchor)
         assert window == AbsoluteRange(date(2026, 5, 4), date(2026, 8, 2))
@@ -458,7 +458,7 @@ class TestGoldenAnswerKey:
             window=TimeWindow(basis=POST, range=window),
             grain=Grain(EntityGrain.TRANSACTION, TimeBucket.WEEK),
         )
-        frame = await golden_repository.execute(probe, watermark=wm)
+        frame = await reference_repository.execute(probe, watermark=wm)
         assert frame.schema.names == ("payer_type", "week", "cash_posted")
         weeks = sorted({row[1] for row in frame.rows})  # type: ignore[type-var]
         assert len(weeks) == 13

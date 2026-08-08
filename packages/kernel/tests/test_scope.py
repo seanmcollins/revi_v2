@@ -22,7 +22,7 @@ from revi_kernel.scope import (
     shift_years,
 )
 
-ANCHOR = date(2026, 8, 3)  # matches the design §10.3 golden conversation
+ANCHOR = date(2026, 8, 3)  # matches the design §10.3 reference conversation
 
 
 class TestShiftMonths:

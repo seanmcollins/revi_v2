@@ -30,7 +30,7 @@ WAREHOUSE = REPO_ROOT / "data" / "revi_warehouse.duckdb"
 ANSWER_KEY = REPO_ROOT / "data" / "answer_key.json"
 
 pytestmark = [
-    pytest.mark.golden,
+    pytest.mark.reference,
     pytest.mark.skipif(
         not (WAREHOUSE.is_file() and ANSWER_KEY.is_file()),
         reason="generated warehouse missing — run: "
@@ -80,7 +80,7 @@ def outcome(engine: WiredEngine) -> TurnOutcome:
     )
 
 
-class TestGoldenFirstTurn:
+class TestReferenceFirstTurn:
     async def test_context_header(self, outcome: TurnOutcome) -> None:
         header = outcome.header
         assert header is not None

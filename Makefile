@@ -6,7 +6,7 @@ SHELL := /bin/bash
 WAREHOUSE_PATH ?= data/revi_warehouse.duckdb
 
 .PHONY: help bootstrap warehouse db-up db-down migrate portfolio api web dev \
-        test golden lint fmt typecheck openapi clean
+        test reference lint fmt typecheck openapi clean
 
 help: ## List targets
 	@grep -E '^[a-zA-Z_-]+:.*?## ' $(MAKEFILE_LIST) | awk 'BEGIN{FS=":.*?## "}{printf "  %-12s %s\n", $$1, $$2}'
@@ -42,8 +42,8 @@ dev: ## Run API + web together (dev)
 test: ## Run the Python test suite (excludes live_llm/postgres markers)
 	uv run pytest
 
-golden: ## Golden-conversation + answer-key regression tests (needs `make warehouse`)
-	uv run pytest -m golden
+reference: ## Reference-conversation + answer-key regression tests (needs `make warehouse`)
+	uv run pytest -m reference
 
 lint: ## Ruff + import-linter + naming guard
 	uv run ruff check .
@@ -60,8 +60,8 @@ fmt: ## Auto-format
 typecheck: ## mypy (strict on kernel/domain)
 	uv run mypy packages/kernel/src
 
-openapi: ## Export OpenAPI spec + regenerate frontend types
-	@echo "wired in M8/M11"
+openapi: ## Export OpenAPI spec to contracts/openapi.json (frontend types: see scripts/generate_web_types.md)
+	uv run python -m revi_api.export_openapi
 
 clean: ## Remove generated artifacts
 	rm -rf data/*.duckdb data/answer_key.json

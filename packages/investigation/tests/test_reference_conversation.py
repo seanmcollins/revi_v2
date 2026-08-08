@@ -1,4 +1,4 @@
-"""M7 acceptance: the §10.3 five-turn golden conversation on the real
+"""M7 acceptance: the §10.3 five-turn reference conversation on the real
 generated warehouse (wm_003), real base pack, real catalog, canned LLM.
 
 T1 cash decline → T2 payer breakdown (reconciled) → T3 drill into the top
@@ -42,7 +42,7 @@ WAREHOUSE = REPO_ROOT / "data" / "revi_warehouse.duckdb"
 ANSWER_KEY = REPO_ROOT / "data" / "answer_key.json"
 
 pytestmark = [
-    pytest.mark.golden,
+    pytest.mark.reference,
     pytest.mark.skipif(
         not (WAREHOUSE.is_file() and ANSWER_KEY.is_file()),
         reason="generated warehouse missing — run: "

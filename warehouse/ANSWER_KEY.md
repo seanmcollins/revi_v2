@@ -87,7 +87,7 @@ SELECT AVG(gap) FROM (
 Expected: share ~7.7% of the window's Silverline claims, avg rebill gap ~36 days
 (answer key: `scenarios.2_cob_silverline`).
 
-## Scenario 3 — Cash decline (the golden-conversation scenario)
+## Scenario 3 — Cash decline (the reference-conversation scenario)
 
 **Mechanism.** Posted payer cash (`fact_transaction.txn_type = 'PAYMENT'`, post
 date basis) in week 2026-07-27..2026-08-02 is ~12–13% below week

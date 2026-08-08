@@ -1,6 +1,6 @@
 """Full-scale answer-key regression against the checked-out data/ warehouse.
 
-Marked golden: needs `make warehouse` to have produced data/revi_warehouse.duckdb
+Marked reference: needs `make warehouse` to have produced data/revi_warehouse.duckdb
 and data/answer_key.json at full scale; skips otherwise.
 """
 
@@ -18,7 +18,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 DB_PATH = REPO_ROOT / "data" / "revi_warehouse.duckdb"
 KEY_PATH = REPO_ROOT / "data" / "answer_key.json"
 
-pytestmark = pytest.mark.golden
+pytestmark = pytest.mark.reference
 
 
 @pytest.fixture(scope="module")
@@ -37,7 +37,7 @@ def test_full_scale_verification_passes(full_key: dict) -> None:
     assert not failures, [f"{c.name}: {c.detail}" for c in failures]
 
 
-def test_golden_conversation_numbers(full_key: dict) -> None:
+def test_reference_conversation_numbers(full_key: dict) -> None:
     """The section-10.3 anchor numbers: cash decline week at the newest watermark."""
     s3 = full_key["scenarios"]["3_cash_decline"]["snap_003"]
     assert -0.14 <= s3["delta_pct"] <= -0.10

@@ -37,7 +37,7 @@ jobs:
             packages/store-postgres/src
       - name: Generate warehouse
         run: make warehouse
-      - name: Tests (default + golden)
+      - name: Tests (default + reference)
         run: uv run pytest -q
       - name: Postgres store tests
         env:
