@@ -20,6 +20,8 @@ SAMPLED_TABLES = (
     "snap_003.fact_transaction",
     "snap_003.fact_denial",
     "snap_003.dim_patient",
+    "snap_002.detected_anomalies",
+    "snap_003.detected_anomalies",
     "main.watermarks",
 )
 
@@ -30,6 +32,7 @@ ORDER_COLUMNS = {
     "fact_transaction": "txn_id",
     "fact_denial": "denial_id",
     "dim_patient": "patient_id",
+    "detected_anomalies": "anomaly_id",
     "watermarks": "watermark_id",
 }
 

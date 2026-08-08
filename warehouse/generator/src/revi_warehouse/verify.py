@@ -9,13 +9,27 @@ A failing check makes the CLI exit nonzero.
 from __future__ import annotations
 
 import itertools
+import json
+import math
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Any
 
 import duckdb
 
-from revi_warehouse.config import SNAPSHOTS, GeneratorConfig
+from revi_warehouse.anomalies import (
+    compute_detection,
+    confidence_for,
+    is_emitted,
+    severity_for,
+)
+from revi_warehouse.config import (
+    ANOMALY_SPECS,
+    SELF_RESOLVING_IDS,
+    SNAPSHOTS,
+    GeneratorConfig,
+    day,
+)
 from revi_warehouse.writer import FACT_TABLES
 
 
@@ -373,12 +387,233 @@ def _scenario_checks(key: dict[str, Any], config: GeneratorConfig) -> list[Check
     return checks
 
 
+# ---------------------------------------------------------------------------
+# detected-anomaly population checks
+
+
+def _anomaly_checks(con: duckdb.DuckDBPyConnection, key: dict[str, Any]) -> list[Check]:
+    """Re-derive every emitted anomaly per snapshot and compare with the table."""
+    checks: list[Check] = []
+    expected_final = {s.spec_id for s in ANOMALY_SPECS} - SELF_RESOLVING_IDS
+    prev_ids: set[str] | None = None
+    for snap in SNAPSHOTS:
+        sch = snap.schema_name
+        stored = {
+            row[0]: (int(row[1]), row[2], float(row[3]), row[4], json.loads(row[5]))
+            for row in con.execute(
+                f"SELECT anomaly_id, impact_cents, severity, CAST(confidence AS DOUBLE), "
+                f"status, CAST(evidence AS VARCHAR) FROM {sch}.detected_anomalies"
+            ).fetchall()
+        }
+        recomputed: dict[str, tuple[int, int]] = {}
+        for spec in ANOMALY_SPECS:
+            if day(spec.onset) > snap.cutoff_day:
+                continue
+            n_events, impact, _evidence = compute_detection(con, sch, spec, snap.newest_data_date)
+            if is_emitted(spec, n_events, impact):
+                recomputed[spec.spec_id] = (n_events, impact)
+        checks.append(
+            Check(
+                f"{sch}: emitted anomaly set matches recomputation",
+                set(stored) == set(recomputed),
+                f"stored-only={sorted(set(stored) - set(recomputed))} "
+                f"recomputed-only={sorted(set(recomputed) - set(stored))}",
+            )
+        )
+        mismatched = [
+            aid
+            for aid, (n_events, impact) in recomputed.items()
+            if aid in stored
+            and (
+                stored[aid][0] != impact
+                or stored[aid][1] != severity_for(impact)
+                or stored[aid][2] != confidence_for(n_events)
+                or stored[aid][3] != "open"
+                or stored[aid][4].get("n_events") != n_events
+            )
+        ]
+        checks.append(
+            Check(
+                f"{sch}: every anomaly impact/severity/confidence recomputes identically",
+                not mismatched,
+                f"mismatched={mismatched}",
+            )
+        )
+        ids = set(stored)
+        if prev_ids is not None:
+            regressed = {a for a in prev_ids - ids if a not in SELF_RESOLVING_IDS}
+            checks.append(
+                Check(
+                    f"{sch}: visibility monotonic except documented self-resolvers",
+                    not regressed,
+                    f"disappeared={sorted(regressed)}",
+                )
+            )
+        prev_ids = ids
+        key_ids = [row["anomaly_id"] for row in key.get("anomalies", {}).get(sch, [])]
+        checks.append(
+            Check(
+                f"{sch}: answer-key anomalies mirror the table",
+                sorted(ids) == key_ids,
+                f"table={len(ids)} key={len(key_ids)}",
+            )
+        )
+    final = SNAPSHOTS[-1].schema_name
+    final_ids = {
+        row[0]
+        for row in con.execute(f"SELECT anomaly_id FROM {final}.detected_anomalies").fetchall()
+    }
+    checks.append(
+        Check(
+            f"{final}: population complete (all specs except self-resolvers)",
+            final_ids == expected_final,
+            f"missing={sorted(expected_final - final_ids)} "
+            f"unexpected={sorted(final_ids - expected_final)}",
+        )
+    )
+    checks.append(
+        Check(
+            "self-resolving anomalies absent at the final snapshot",
+            not (final_ids & SELF_RESOLVING_IDS),
+            f"lingering={sorted(final_ids & SELF_RESOLVING_IDS)}",
+        )
+    )
+    return checks
+
+
+# ---------------------------------------------------------------------------
+# non-interference: injected rows must not move any scenario aggregate
+
+
+_BASE_RELATIONS = (
+    "v_claim",
+    "v_claim_line",
+    "v_transaction",
+    "v_denial",
+    "fact_claim",
+    "fact_claim_line",
+    "fact_remit",
+    "fact_transaction",
+    "fact_denial",
+)
+
+
+def _values_equal(a: Any, b: Any) -> bool:
+    if isinstance(a, float) or isinstance(b, float):
+        if a is None or b is None:
+            return a is None and b is None
+        return math.isclose(float(a), float(b), rel_tol=1e-12, abs_tol=1e-9)
+    if isinstance(a, dict) and isinstance(b, dict):
+        return set(a) == set(b) and all(_values_equal(a[k], b[k]) for k in a)
+    if isinstance(a, list) and isinstance(b, list):
+        return len(a) == len(b) and all(_values_equal(x, y) for x, y in zip(a, b, strict=True))
+    return bool(a == b)
+
+
+def _non_interference_checks(db_path: Path, key: dict[str, Any]) -> list[Check]:
+    """Recompute all five scenarios over base claims only (injected rows excluded)
+    and require exact agreement with the recorded all-rows values; plus direct
+    guards that no injected row can reach a scenario aggregate."""
+    from revi_warehouse.answer_key import (
+        _cash_decline,
+        _cob,
+        _denial_spike,
+        _timely_filing,
+        _underpayment,
+    )
+
+    checks: list[Check] = []
+    threshold = key["anomalies_meta"]["first_injected_claim_id"]
+    con = duckdb.connect()  # in-memory primary; warehouse attached read-only
+    try:
+        con.execute(f"ATTACH '{db_path}' AS wh (READ_ONLY)")
+        guards: tuple[tuple[str, str], ...] = (
+            (
+                "no injected claim on Silverline Medicare Advantage",
+                f"SELECT count(*) FROM wh.snap_003.v_claim WHERE claim_id >= '{threshold}' "
+                "AND payer_name = 'Silverline Medicare Advantage'",
+            ),
+            (
+                "no injected claim in Meridian Health x Imaging",
+                f"SELECT count(*) FROM wh.snap_003.v_claim WHERE claim_id >= '{threshold}' "
+                "AND payer_name = 'Meridian Health' AND service_line_name = 'Imaging'",
+            ),
+            (
+                "no injected claim on State Medicaid HMO x Eastside",
+                f"SELECT count(*) FROM wh.snap_003.v_claim WHERE claim_id >= '{threshold}' "
+                "AND plan_name = 'State Medicaid HMO' "
+                "AND facility_name = 'Eastside Medical Center'",
+            ),
+            (
+                "no injected Atlas submission in the scenario-3a window",
+                f"SELECT count(*) FROM wh.snap_003.v_claim WHERE claim_id >= '{threshold}' "
+                "AND payer_name = 'Atlas Commercial' "
+                "AND submission_date BETWEEN DATE '2026-06-15' AND DATE '2026-08-02'",
+            ),
+            (
+                "no injected Northbridge ORTHO-SURG line",
+                f"SELECT count(*) FROM wh.snap_003.v_claim_line WHERE claim_id >= '{threshold}' "
+                "AND payer_name = 'Northbridge Commercial' AND proc_group = 'ORTHO-SURG'",
+            ),
+            (
+                "no injected payer/patient cash inside the reference compare weeks",
+                f"SELECT count(*) FROM wh.snap_003.v_transaction WHERE claim_id >= '{threshold}' "
+                "AND txn_type IN ('PAYMENT', 'PATIENT_PAYMENT') "
+                "AND post_date BETWEEN DATE '2026-07-20' AND DATE '2026-08-02'",
+            ),
+            (
+                "no injected State Medicaid payment with remit on/after 2026-07-06",
+                f"SELECT count(*) FROM wh.snap_003.v_transaction WHERE claim_id >= '{threshold}' "
+                "AND txn_type = 'PAYMENT' AND payer_name = 'State Medicaid' "
+                "AND remit_date >= DATE '2026-07-06'",
+            ),
+        )
+        for name, sql in guards:
+            n = con.execute(sql).fetchone()
+            assert n is not None
+            checks.append(Check(f"non-interference guard: {name}", int(n[0]) == 0, f"{n[0]} rows"))
+
+        for snap in SNAPSHOTS:
+            sch = snap.schema_name
+            base = f"base_{sch}"
+            con.execute(f"CREATE SCHEMA {base}")
+            for rel in _BASE_RELATIONS:
+                con.execute(
+                    f"CREATE VIEW {base}.{rel} AS "
+                    f"SELECT * FROM wh.{sch}.{rel} WHERE claim_id < '{threshold}'"
+                )
+            base_values: dict[str, Any] = {
+                "1_denial_spike_meridian_imaging": _denial_spike(con, base),
+                "2_cob_silverline": _cob(con, base),
+                "3_cash_decline": _cash_decline(con, base),
+                "4_underpayment_northbridge_ortho": _underpayment(con, base),
+                "5_timely_filing_state_medicaid_hmo": _timely_filing(
+                    con, base, snap.newest_data_date
+                ),
+            }
+            for scenario, recomputed in base_values.items():
+                recorded = key["scenarios"][scenario][sch]
+                checks.append(
+                    Check(
+                        f"{sch}: scenario {scenario.split('_')[0]} unchanged by injection "
+                        "(base-only recomputation identical)",
+                        _values_equal(recorded, recomputed),
+                        "base-only aggregates diverge from recorded scenario values",
+                    )
+                )
+    finally:
+        con.close()
+    return checks
+
+
 def run_verification(db_path: Path, key: dict[str, Any], config: GeneratorConfig) -> list[Check]:
     """All checks; caller decides what to do with failures."""
     con = duckdb.connect(str(db_path), read_only=True)
     try:
         checks = _structural_checks(con)
+        checks.extend(_anomaly_checks(con, key))
     finally:
         con.close()
     checks.extend(_scenario_checks(key, config))
+    checks.extend(_non_interference_checks(db_path, key))
     return checks

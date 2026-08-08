@@ -196,13 +196,20 @@ class TestApiContract:
         assert capabilities.pack_id == "base-rcm"
         assert capabilities.newest_watermark_id == "wm_003"
 
-    async def test_portfolio_without_anomaly_table_is_empty_with_warning(
-        self, client: Client
-    ) -> None:
+    async def test_portfolio_serves_ranked_anomaly_population(self, client: Client) -> None:
+        """The warehouse ships a baked anomaly population (33 records at
+        wm_003); the portfolio serves them ranked with decomposed score
+        components — never a black-box ordering."""
         portfolio = await client.get_portfolio()
-        assert portfolio.status == "empty"
+        assert portfolio.status == "ok"
         assert portfolio.formula_version == "anomaly_priority@1"
-        assert portfolio.warnings
+        assert len(portfolio.items) >= 20
+        scores = [item.priority_score for item in portfolio.items]
+        assert scores == sorted(scores, reverse=True)
+        top = portfolio.items[0]
+        assert top.impact_cents != 0
+        assert top.actionability_rationale
+        assert top.age_days >= 0
 
     async def test_get_investigation_roundtrip(self, client: Client) -> None:
         session = await client.open_session(OpenSessionRequest(tenant="demo"))

@@ -14,7 +14,14 @@ from typing import Any
 import duckdb
 import numpy as np
 
-from revi_warehouse.config import REVI_SEED, SCENARIOS, SNAPSHOTS, GeneratorConfig
+from revi_warehouse.config import (
+    ANOMALY_SPECS,
+    REVI_SEED,
+    SCENARIOS,
+    SELF_RESOLVING_IDS,
+    SNAPSHOTS,
+    GeneratorConfig,
+)
 
 _S = SCENARIOS
 
@@ -327,6 +334,39 @@ def _timely_filing(con: duckdb.DuckDBPyConnection, sch: str, newest_data_date: s
     }
 
 
+_ANOMALY_COLUMNS = (
+    "anomaly_id, CAST(detected_at AS VARCHAR), category, title, description, metric_id, "
+    "CAST(dimensions AS VARCHAR), CAST(window_start AS VARCHAR), CAST(window_end AS VARCHAR), "
+    "impact_cents, severity, CAST(confidence AS VARCHAR), status, CAST(evidence AS VARCHAR)"
+)
+
+
+def _anomaly_rows(con: duckdb.DuckDBPyConnection, sch: str) -> list[dict[str, Any]]:
+    """detected_anomalies rows exactly as persisted (JSON fields parsed)."""
+    rows = con.execute(
+        f"SELECT {_ANOMALY_COLUMNS} FROM {sch}.detected_anomalies ORDER BY anomaly_id"
+    ).fetchall()
+    return [
+        {
+            "anomaly_id": r[0],
+            "detected_at": r[1],
+            "category": r[2],
+            "title": r[3],
+            "description": r[4],
+            "metric_id": r[5],
+            "dimensions": json.loads(r[6]),
+            "window_start": r[7],
+            "window_end": r[8],
+            "impact_cents": int(r[9]),
+            "severity": r[10],
+            "confidence": float(r[11]),
+            "status": r[12],
+            "evidence": json.loads(r[13]),
+        }
+        for r in rows
+    ]
+
+
 def compute_answer_key(db_path: Path, config: GeneratorConfig) -> dict[str, Any]:
     con = duckdb.connect(str(db_path), read_only=True)
     try:
@@ -356,6 +396,14 @@ def compute_answer_key(db_path: Path, config: GeneratorConfig) -> dict[str, Any]
                 "4_underpayment_northbridge_ortho": {},
                 "5_timely_filing_state_medicaid_hmo": {},
             },
+            "anomalies": {},
+            "anomalies_meta": {
+                "base_n_claims": config.n_claims,
+                "first_injected_claim_id": f"CLM-{config.n_claims + 1:07d}",
+                "spec_count": len(ANOMALY_SPECS),
+                "self_resolving_ids": sorted(SELF_RESOLVING_IDS),
+                "per_snapshot_counts": {},
+            },
         }
         for snap in SNAPSHOTS:
             sch = snap.schema_name
@@ -373,6 +421,8 @@ def compute_answer_key(db_path: Path, config: GeneratorConfig) -> dict[str, Any]
             key["scenarios"]["5_timely_filing_state_medicaid_hmo"][sch] = _timely_filing(
                 con, sch, snap.newest_data_date
             )
+            key["anomalies"][sch] = _anomaly_rows(con, sch)
+            key["anomalies_meta"]["per_snapshot_counts"][sch] = len(key["anomalies"][sch])
         return key
     finally:
         con.close()

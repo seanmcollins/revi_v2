@@ -44,8 +44,10 @@ class World:
 
     config: GeneratorConfig
     dims: Dims
-    # claims (N)
+    # claims (N). n_base_claims counts the organic world; claims appended by the
+    # anomaly injector (anomalies.py) occupy indices n_base_claims..n_claims-1.
     n_claims: int = 0
+    n_base_claims: int = 0
     svc_day: Any = None
     discharge_day: Any = None  # NEVER for professional claims
     patient_i: Any = None
@@ -133,6 +135,7 @@ def build_world(config: GeneratorConfig, rng: np.random.Generator, dims: Dims) -
     s = SCENARIOS
     n = config.n_claims
     w.n_claims = n
+    w.n_base_claims = n
 
     # --- Stage 1: service dates (weekday-weighted), sorted ascending ----------
     days = np.arange(SERVICE_START, SERVICE_END + 1)

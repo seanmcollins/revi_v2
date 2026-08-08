@@ -20,6 +20,7 @@ from typing import Any
 import duckdb
 import numpy as np
 
+from revi_warehouse.anomalies import write_detected_anomalies
 from revi_warehouse.config import SNAPSHOTS, GeneratorConfig
 from revi_warehouse.dims import (
     DENIAL_CODES,
@@ -409,9 +410,10 @@ def write_warehouse(path: Path, config: GeneratorConfig, world: World) -> dict[s
                 con.unregister("_revi_src")
             for view, sql in _VIEWS.items():
                 con.execute(f"CREATE VIEW {sch}.{view} AS {sql.format(sch=sch)}")
+            write_detected_anomalies(con, sch, snap)
             counts[sch] = {
                 t: con.execute(f"SELECT count(*) FROM {sch}.{t}").fetchone()[0]  # type: ignore[index]
-                for t in DIM_TABLES + FACT_TABLES
+                for t in DIM_TABLES + FACT_TABLES + ("detected_anomalies",)
             }
     finally:
         con.close()
