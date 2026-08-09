@@ -547,6 +547,10 @@ export class ApiDriver implements TurnDriver {
       // click with no prior answer to refine): a new investigation, not an
       // edit to one.
       ...(submission.spec !== undefined ? { spec: submission.spec } : {}),
+      // Which card this drill came from. The server reconciles the card's
+      // figure against the answer's and publishes both; omitting it is how
+      // two screens ended up disagreeing by 9.9% in silence.
+      ...(submission.anomalyRef !== undefined ? { anomaly_ref: submission.anomalyRef } : {}),
       ...(submission.clarificationResponse !== undefined
         ? { clarification_response: submission.clarificationResponse }
         : {}),
@@ -759,6 +763,7 @@ export class ApiDriver implements TurnDriver {
       code: envelope?.code ?? `HTTP_${error.status}`,
       message: envelope?.message ?? `The API rejected this turn (HTTP ${error.status}).`,
       correlationId: envelope?.correlationId ?? correlationId,
+      ...(envelope?.subcode ? { subcode: envelope.subcode } : {}),
     });
   }
 
@@ -776,6 +781,7 @@ export class ApiDriver implements TurnDriver {
         ...(error.envelope?.correlationId ?? correlationId
           ? { correlationId: error.envelope?.correlationId ?? correlationId }
           : {}),
+        ...(error.envelope?.subcode ? { subcode: error.envelope.subcode } : {}),
       });
       return;
     }

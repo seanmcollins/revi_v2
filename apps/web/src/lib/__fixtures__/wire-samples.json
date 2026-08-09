@@ -24,7 +24,7 @@
     "cohort": null,
     "cohort_size": null,
     "watermark_id": "wm_003",
-    "display": "2026-07-27..2026-08-02 (post) \u00b7 vs 2026-07-20..2026-07-26 \u00b7 watermark wm_003"
+    "display": "2026-07-27..2026-08-02 (post) · vs 2026-07-20..2026-07-26 · watermark wm_003"
   },
   "finding": {
     "referent": "F1",
@@ -61,7 +61,7 @@
   "chart_spec": {
     "id": "chart_cash_by_payer__compare",
     "chart_type": "waterfall",
-    "title": "cash posted \u2014 cash by payer  compare",
+    "title": "cash posted — cash by payer  compare",
     "frame_id": "cash_by_payer__compare",
     "x": "payer",
     "series": null,
@@ -111,7 +111,7 @@
       "cohort": null,
       "cohort_size": null,
       "watermark_id": "wm_003",
-      "display": "2026-07-27..2026-08-02 (post) \u00b7 vs 2026-07-20..2026-07-26 \u00b7 watermark wm_003"
+      "display": "2026-07-27..2026-08-02 (post) · vs 2026-07-20..2026-07-26 · watermark wm_003"
     },
     "findings": [
       {
@@ -215,7 +215,7 @@
       {
         "id": "chart_cash_by_payer__compare",
         "chart_type": "waterfall",
-        "title": "cash posted \u2014 cash by payer  compare",
+        "title": "cash posted — cash by payer  compare",
         "frame_id": "cash_by_payer__compare",
         "x": "payer",
         "series": null,
@@ -307,7 +307,7 @@
         {
           "id": "cash_by_payer",
           "hash": "d94855a5d2c7f34cecb07ae11d31f8e6f60dda655f8050b23422921fe5562f22",
-          "purpose": "Decline week versus prior week by payer; the decomposition input. Complete payer set \u2014 top_n covers the full cardinality.",
+          "purpose": "Decline week versus prior week by payer; the decomposition input. Complete payer set — top_n covers the full cardinality.",
           "kind": "aggregation",
           "metrics": [
             {
@@ -326,7 +326,7 @@
         {
           "id": "submission_volume_by_payer",
           "hash": "b14c108a2db748e68b227b2b2d867c2e003e98504ea66a1c2b2945c5786f0d63",
-          "purpose": "Weekly submitted volume by payer \u2014 volume-driven declines show up here one to three weeks before the cash effect.",
+          "purpose": "Weekly submitted volume by payer — volume-driven declines show up here one to three weeks before the cash effect.",
           "kind": "aggregation",
           "metrics": [
             {
@@ -467,7 +467,7 @@
       "cohort": null,
       "cohort_size": null,
       "watermark_id": "wm_003",
-      "display": "2026-06-25..2026-07-25 (remit) \u00b7 filters: payer eq [Federal Medicare]; service_line eq [Imaging] \u00b7 watermark wm_003"
+      "display": "2026-06-25..2026-07-25 (remit) · filters: payer eq [Federal Medicare]; service_line eq [Imaging] · watermark wm_003"
     },
     "findings": [
       {
@@ -499,7 +499,7 @@
       {
         "id": "chart_main",
         "chart_type": "stacked_bar",
-        "title": "denied dollars \u2014 main",
+        "title": "denied dollars — main",
         "frame_id": "main",
         "x": "payer",
         "series": "service_line",
@@ -617,7 +617,7 @@
     "outcome": "clarification_required",
     "session_id": "sess_6784e99d921d",
     "investigation_id": "inv_a2a8f8e25c8d",
-    "question": "I couldn't confidently read that request \u2014 could you rephrase it?",
+    "question": "I couldn't confidently read that request — could you rephrase it?",
     "options": [],
     "reason": "turn classification returned no structured output",
     "watermark_stale": false,
@@ -647,14 +647,14 @@
           "term": "PR",
           "kind": "code:group_code",
           "title": "Patient Responsibility",
-          "definition": "The adjustment amount is owed by the patient \u2014 deductible, copay, coinsurance, or services the plan places on the member. PR-group amounts are billing instructions, not denials: PR-3 means the copay belongs to the patient, which is why the group code + CARC pair is the unit of analysis.",
+          "definition": "The adjustment amount is owed by the patient — deductible, copay, coinsurance, or services the plan places on the member. PR-group amounts are billing instructions, not denials: PR-3 means the copay belongs to the patient, which is why the group code + CARC pair is the unit of analysis.",
           "source": "Claim Adjustment Group Codes (code list maintainer)"
         },
         {
           "term": "3",
           "kind": "code:carc",
           "title": "Copay",
-          "definition": "The amount is the member's copay for the service. Rides with group PR \u2014 \"PR3\" is a billing instruction to the patient, not a payer denial.",
+          "definition": "The amount is the member's copay for the service. Rides with group PR — \"PR3\" is a billing instruction to the patient, not a payer denial.",
           "source": null
         }
       ],
@@ -764,7 +764,7 @@
       {
         "id": "chart_main",
         "chart_type": "stacked_bar",
-        "title": "denied dollars \u2014 main",
+        "title": "denied dollars — main",
         "frame_id": "main",
         "x": "payer",
         "series": "service_line",
@@ -784,5 +784,946 @@
       }
     ],
     "created_at": "2026-08-08T06:06:36.939765Z"
+  },
+  "anomaly_drill_turn_complete": {
+    "outcome": "answer",
+    "session_id": "sess_d1b8e83c2933",
+    "investigation_id": "inv_29e6e7e51555",
+    "turn_class": "new_investigation",
+    "context_header": {
+      "window_start": "2026-07-03",
+      "window_end": "2026-07-29",
+      "basis": "discharge",
+      "comparison_kind": null,
+      "comparison_start": null,
+      "comparison_end": null,
+      "filters": [
+        "facility eq [Northgate Regional Hospital]",
+        "payer eq [Federal Medicare]",
+        "service_line eq [General Surgery]"
+      ],
+      "filter_chips": [
+        {
+          "dimension": "facility",
+          "op": "eq",
+          "values": [
+            "Northgate Regional Hospital"
+          ],
+          "origin_turn": "turn_62a74ff3c7e4",
+          "pinned": false
+        },
+        {
+          "dimension": "payer",
+          "op": "eq",
+          "values": [
+            "Federal Medicare"
+          ],
+          "origin_turn": "turn_62a74ff3c7e4",
+          "pinned": false
+        },
+        {
+          "dimension": "service_line",
+          "op": "eq",
+          "values": [
+            "General Surgery"
+          ],
+          "origin_turn": "turn_62a74ff3c7e4",
+          "pinned": false
+        }
+      ],
+      "cohort": null,
+      "cohort_size": null,
+      "watermark_id": "wm_003",
+      "display": "2026-07-03..2026-07-29 (discharge) · filters: facility eq [Northgate Regional Hospital]; payer eq [Federal Medicare]; service_line eq [General Surgery] · watermark wm_003"
+    },
+    "findings": [
+      {
+        "referent": "F1",
+        "title": "Northgate Regional Hospital / Federal Medicare / General Surgery: $195,873.92 dnfb dollars",
+        "statement": "Northgate Regional Hospital / Federal Medicare / General Surgery ranks #1 by dnfb dollars over 2026-07-03..2026-07-29: $195,873.92.",
+        "metric_ids": [
+          "dnfb_dollars"
+        ],
+        "values": [
+          {
+            "name": "dnfb_dollars",
+            "value": 19587392
+          },
+          {
+            "name": "rank",
+            "value": 1
+          }
+        ],
+        "grade": "direct",
+        "impact_cents": 19587392,
+        "confidence": "high",
+        "suggested_refinements": [
+          "drill into F1"
+        ],
+        "benchmarks": []
+      }
+    ],
+    "chart_specs": [
+      {
+        "id": "chart_main",
+        "chart_type": "grouped_bar",
+        "title": "dnfb dollars — main",
+        "frame_id": "main",
+        "x": "facility",
+        "series": "payer",
+        "value": "dnfb_dollars",
+        "unit": "money_cents",
+        "grade": "direct",
+        "rows": [
+          {
+            "x": "Northgate Regional Hospital",
+            "series": "Federal Medicare",
+            "value": 19587392,
+            "referent_id": null
+          }
+        ],
+        "annotations": [],
+        "recipe_id": null
+      }
+    ],
+    "narrative": "That figure comes from a direct measurement, so it can be taken at face value rather than treated as an estimate (F1). This is the largest such balance in the certified results, ranking first (F1). No benchmark range was provided for this measure on this turn, so the $195,873.92 should be read on its own terms and not compared to an external target (F1).",
+    "warnings": [
+      "suppression: cells counting fewer than 11 entities are suppressed before results leave the engine",
+      "narrative sentence redacted: 1 sentence(s) dropped from the narrative (names 'Federal Medicare General Surgery', which is outside the certified vocabulary)"
+    ],
+    "warnings_v2": [
+      {
+        "code": "SUPPRESSION_APPLIED",
+        "severity": "info",
+        "message": "suppression: cells counting fewer than 11 entities are suppressed before results leave the engine",
+        "count": 1
+      },
+      {
+        "code": "NARRATIVE_REDACTED",
+        "severity": "info",
+        "message": "narrative sentence redacted: 1 sentence(s) dropped from the narrative (names 'Federal Medicare General Surgery', which is outside the certified vocabulary)",
+        "count": 1
+      }
+    ],
+    "meta_answer": null,
+    "definitional": null,
+    "referents": [
+      {
+        "id": "F1",
+        "kind": "finding",
+        "label": "Northgate Regional Hospital / Federal Medicare / General Surgery: $195,873.92 dnfb dollars"
+      },
+      {
+        "id": "D1",
+        "kind": "dimension_value",
+        "label": "Northgate Regional Hospital / Federal Medicare / General Surgery"
+      }
+    ],
+    "cohort": null,
+    "metric_display": [
+      {
+        "metric_id": "dnfb_dollars",
+        "display_name": "Discharged not final billed (unbilled discharges)",
+        "caveat": "Counts discharged accounts that have not been billed; it says nothing about whether the delay is a coding backlog, a documentation hold, or a payer-side gate.",
+        "rationale": "\"DNFB\" is unambiguous inside revenue cycle and opaque outside it, and this metric leads the portfolio's largest card. The expansion is the whole entry; the caveat only bounds what the number diagnoses, and no formula change is implied."
+      }
+    ],
+    "anomaly_reconciliation": {
+      "anomaly_id": "ANM-021",
+      "status": "diverged",
+      "card_impact_cents": 17821682,
+      "answer_impact_cents": 19587392,
+      "delta_cents": 1765710,
+      "delta_fraction": 0.099077,
+      "answer_metric_id": "dnfb_dollars",
+      "card_metric_id": "dnfb_dollars",
+      "card_window_start": "2026-07-03",
+      "card_window_end": "2026-07-29",
+      "detail": "The detection system reported $178,216.82 for this cell in its own window (2026-07-03..2026-07-29), on its own population and valuation basis, when it fired. This platform re-derived $195,873.92 from the governed dnfb_dollars contract at the pinned watermark over the same named cell. They differ by $17,657.10 (+9.9%): the detector's window, population or valuation basis is not the contract's. The drill answers with the contract's figure and a real evidence grade; the card's figure remains the detection system's assertion, which is what it has always been.",
+      "summary": "status=diverged; card=$178,216.82; answer=$195,873.92; delta=+9.9%"
+    },
+    "benchmarks": [],
+    "reconciliation": "status=not_applicable; reason=this is a first turn; there is no parent answer to reconcile to",
+    "plan_hash": "fcd41d3869b1cb8c559eb237bf6820e736de8eac4287f3858d2d1026a16cee10",
+    "watermark_stale": false,
+    "usage": {
+      "llm_calls": 1,
+      "cost_usd": "0.021321",
+      "input_tokens": 1033,
+      "output_tokens": 398,
+      "cache_read_tokens": 0,
+      "cache_creation_tokens": 1031,
+      "schema_retries": 0
+    },
+    "evidence": {
+      "probes": [
+        {
+          "id": "main",
+          "hash": "b13d2ef8b644acaf89aafe49b517e1b4121943f7cdad018c6982a23ad13f4da3",
+          "purpose": "direct metric query",
+          "kind": "snapshot",
+          "metrics": [
+            {
+              "id": "dnfb_dollars",
+              "contract_version": 1
+            }
+          ],
+          "cache_hit": true,
+          "rows": 1,
+          "limit": null,
+          "truncated": false,
+          "suppressed_cells": 0,
+          "grade": "direct",
+          "duration_ms": 3
+        }
+      ],
+      "reconciliation": {
+        "status": "not_applicable",
+        "detail": "this is a first turn; there is no parent answer to reconcile to",
+        "summary": "status=not_applicable; reason=this is a first turn; there is no parent answer to reconcile to"
+      },
+      "warehouse_queries": 0,
+      "cache_hits": 1,
+      "zero_probe_turn": true,
+      "answer_grade": "direct"
+    },
+    "metric": {
+      "primary": {
+        "id": "dnfb_dollars",
+        "contract_version": 1
+      },
+      "metrics": [
+        {
+          "id": "dnfb_dollars",
+          "contract_version": 1
+        }
+      ],
+      "playbook_id": null,
+      "pack_id": "base-rcm",
+      "pack_version": "1.0.0",
+      "pack_snapshot_id": "ba8e7d0ffaf231e9c8647d200ae56691d05a83f1f446898cd22549d40c3f7aac"
+    }
+  },
+  "cohort_turn_complete": {
+    "outcome": "answer",
+    "session_id": "sess_e9ab515f365e",
+    "investigation_id": "inv_4da9c2028660",
+    "turn_class": "refinement",
+    "context_header": {
+      "window_start": "2026-06-01",
+      "window_end": "2026-07-31",
+      "basis": "remit",
+      "comparison_kind": null,
+      "comparison_start": null,
+      "comparison_end": null,
+      "filters": [],
+      "filter_chips": [],
+      "cohort": "cohort_f35d90b18482b2ea",
+      "cohort_size": 86415,
+      "watermark_id": "wm_003",
+      "display": "2026-06-01..2026-07-31 (remit) · cohort: cohort_f35d90b18482b2ea (86415 claims) · watermark wm_003"
+    },
+    "findings": [
+      {
+        "referent": "F4",
+        "title": "State Medicaid: $336,300.74 denied dollars",
+        "statement": "State Medicaid ranks #1 by denied dollars over 2026-06-01..2026-07-31: $336,300.74.",
+        "metric_ids": [
+          "denied_dollars"
+        ],
+        "values": [
+          {
+            "name": "denied_dollars",
+            "value": 33630074
+          },
+          {
+            "name": "rank",
+            "value": 1
+          }
+        ],
+        "grade": "direct",
+        "impact_cents": 33630074,
+        "confidence": "high",
+        "suggested_refinements": [
+          "drill into F4"
+        ],
+        "benchmarks": []
+      },
+      {
+        "referent": "F5",
+        "title": "Atlas Commercial: $297,292.31 denied dollars",
+        "statement": "Atlas Commercial ranks #2 by denied dollars over 2026-06-01..2026-07-31: $297,292.31.",
+        "metric_ids": [
+          "denied_dollars"
+        ],
+        "values": [
+          {
+            "name": "denied_dollars",
+            "value": 29729231
+          },
+          {
+            "name": "rank",
+            "value": 2
+          }
+        ],
+        "grade": "direct",
+        "impact_cents": 29729231,
+        "confidence": "high",
+        "suggested_refinements": [
+          "drill into F5"
+        ],
+        "benchmarks": []
+      }
+    ],
+    "chart_specs": [
+      {
+        "id": "chart_main",
+        "chart_type": "stacked_bar",
+        "title": "denied dollars — main",
+        "frame_id": "main",
+        "x": "payer",
+        "series": null,
+        "value": "denied_dollars",
+        "unit": "money_cents",
+        "grade": "direct",
+        "rows": [
+          {
+            "x": "Atlas Commercial",
+            "series": null,
+            "value": 29729231,
+            "referent_id": "D13"
+          },
+          {
+            "x": "Meridian Health",
+            "series": null,
+            "value": 22855710,
+            "referent_id": "D14"
+          },
+          {
+            "x": "State Medicaid",
+            "series": null,
+            "value": 33630074,
+            "referent_id": "D15"
+          }
+        ],
+        "annotations": [],
+        "recipe_id": "denial_code_mix"
+      }
+    ],
+    "narrative": "For the June 1–July 31, 2026 remit period, State Medicaid accounts for the largest share of denied dollars at $336,300.74, ranking first among payers in the cohort (F4). Atlas Commercial follows at $297,292.31 in denied dollars (F5), and Meridian Health is third at $228,557.10 (F6). All three figures are graded direct with high confidence (F4, F5, F6), so they can be read as measured denied dollars rather than estimates. No period-over-period comparison was produced on this turn, so these amounts stand on their own rather than as a trend, and no benchmark range is available to size them against peer performance.",
+    "warnings": [
+      "suppression: cells counting fewer than 11 entities are suppressed before results leave the engine",
+      "cohort pinned without its window: the 'remit' basis is not answerable at the 'claim' grain, so the cohort covers the scoped population across all time",
+      "narrative sentence redacted: 1 sentence(s) dropped from the narrative (figure '$862,150.15' matches no certified value)"
+    ],
+    "warnings_v2": [
+      {
+        "code": "SUPPRESSION_APPLIED",
+        "severity": "info",
+        "message": "suppression: cells counting fewer than 11 entities are suppressed before results leave the engine",
+        "count": 1
+      },
+      {
+        "code": "COHORT_WINDOW_DROPPED",
+        "severity": "caution",
+        "message": "cohort pinned without its window: the 'remit' basis is not answerable at the 'claim' grain, so the cohort covers the scoped population across all time",
+        "count": 1
+      },
+      {
+        "code": "NARRATIVE_REDACTED",
+        "severity": "info",
+        "message": "narrative sentence redacted: 1 sentence(s) dropped from the narrative (figure '$862,150.15' matches no certified value)",
+        "count": 1
+      }
+    ],
+    "meta_answer": null,
+    "definitional": null,
+    "referents": [
+      {
+        "id": "F4",
+        "kind": "finding",
+        "label": "State Medicaid: $336,300.74 denied dollars"
+      },
+      {
+        "id": "F5",
+        "kind": "finding",
+        "label": "Atlas Commercial: $297,292.31 denied dollars"
+      },
+      {
+        "id": "F6",
+        "kind": "finding",
+        "label": "Meridian Health: $228,557.10 denied dollars"
+      }
+    ],
+    "cohort": {
+      "id": "cohort_f35d90b18482b2ea",
+      "entity_grain": "claim",
+      "definition": "payer in [State Medicaid, Atlas Commercial, Meridian Health]",
+      "size": 86415,
+      "origin_referent": "D9",
+      "origin_turn_id": "turn_69a3e994c1d0",
+      "origin_investigation_id": "inv_4ee8840a2599",
+      "window_start": null,
+      "window_end": null,
+      "pinned": true,
+      "pinned_watermark_id": "wm_003"
+    },
+    "metric_display": [],
+    "anomaly_reconciliation": null,
+    "benchmarks": [],
+    "reconciliation": "status=not_applicable; reason=this turn produced no compared money frame to reconcile against the parent",
+    "plan_hash": "aef3ed7a754b7576e6a8b65c6bfe1c42c8849dff778bfe997a21cec28787d6ae",
+    "watermark_stale": false,
+    "usage": {
+      "llm_calls": 1,
+      "cost_usd": "0.02509",
+      "input_tokens": 1073,
+      "output_tokens": 532,
+      "cache_read_tokens": 0,
+      "cache_creation_tokens": 1071,
+      "schema_retries": 0
+    },
+    "evidence": {
+      "probes": [
+        {
+          "id": "main",
+          "hash": "9c802444bdaf6ac7ddd2ef8abd9bc496fd4601d0b7a8f7a595f7c1136c5619cb",
+          "purpose": "direct metric query",
+          "kind": "aggregation",
+          "metrics": [
+            {
+              "id": "denied_dollars",
+              "contract_version": 2
+            }
+          ],
+          "cache_hit": false,
+          "rows": 3,
+          "limit": null,
+          "truncated": false,
+          "suppressed_cells": 0,
+          "grade": "direct",
+          "duration_ms": 26
+        }
+      ],
+      "reconciliation": {
+        "status": "not_applicable",
+        "detail": "this turn produced no compared money frame to reconcile against the parent",
+        "summary": "status=not_applicable; reason=this turn produced no compared money frame to reconcile against the parent"
+      },
+      "warehouse_queries": 1,
+      "cache_hits": 0,
+      "zero_probe_turn": false,
+      "answer_grade": "direct"
+    },
+    "metric": {
+      "primary": {
+        "id": "denied_dollars",
+        "contract_version": 2
+      },
+      "metrics": [
+        {
+          "id": "denied_dollars",
+          "contract_version": 2
+        }
+      ],
+      "playbook_id": null,
+      "pack_id": "base-rcm",
+      "pack_version": "1.0.0",
+      "pack_snapshot_id": "ba8e7d0ffaf231e9c8647d200ae56691d05a83f1f446898cd22549d40c3f7aac"
+    }
+  },
+  "portfolio_lanes": {
+    "status": "ok",
+    "tenant": "demo",
+    "watermark_id": "wm_003",
+    "formula_version": "anomaly_priority@2",
+    "weights": {
+      "impact": 0.25,
+      "recency": 0.15,
+      "actionability": 0.6,
+      "half_life_days": 14.0,
+      "compliance_floor": 0.6
+    },
+    "compliance_floor_value": 0.067203,
+    "compliance_floor_basis": "relative_median",
+    "warnings": [
+      "4 of 33 detected anomalies (36% of ranked impact) are not investigable at this catalog and pack version; they are detected, ranked, and listed after the cards that can be opened, with the platform's refusal on each",
+      "8 of 29 ranked cards could not be re-derived against this platform's governed contracts; their impact figures are the detection system's assertion alone",
+      "12 ranked cards diverge from this platform's re-derivation of the same cell (largest gap 131.5%); each card publishes both figures, the delta, and the reason the detector's window, population or valuation basis is not the contract's"
+    ],
+    "warnings_v2": [
+      {
+        "code": "PORTFOLIO_CARDS_NOT_INVESTIGABLE",
+        "severity": "caution",
+        "message": "4 of 33 detected anomalies (36% of ranked impact) are not investigable at this catalog and pack version; they are detected, ranked, and listed after the cards that can be opened, with the platform's refusal on each",
+        "count": 1
+      },
+      {
+        "code": "PORTFOLIO_IMPACT_UNRECONCILED",
+        "severity": "caution",
+        "message": "8 of 29 ranked cards could not be re-derived against this platform's governed contracts; their impact figures are the detection system's assertion alone",
+        "count": 1
+      },
+      {
+        "code": "PORTFOLIO_IMPACT_DIVERGED",
+        "severity": "caution",
+        "message": "12 ranked cards diverge from this platform's re-derivation of the same cell (largest gap 131.5%); each card publishes both figures, the delta, and the reason the detector's window, population or valuation basis is not the contract's",
+        "count": 1
+      }
+    ],
+    "items": [
+      {
+        "anomaly_id": "ANM-021",
+        "provenance": "external_detection",
+        "priority_formula_version": "anomaly_priority@2",
+        "source_watermark_id": "wm_003",
+        "title": "DNFB accumulation: Northgate general-surgery discharges",
+        "description": "Federal Medicare / Northgate Regional Hospital / General Surgery: 22 unbilled discharges totaling $178,217 in window 2026-07-03..2026-07-29.",
+        "category": "dnfb",
+        "metric_id": "dnfb_dollars",
+        "severity": "critical",
+        "confidence": "0.90",
+        "status": "open",
+        "detected_at": "2026-08-03T04:10:00",
+        "window_start": "2026-07-03",
+        "window_end": "2026-07-29",
+        "dimensions": [
+          {
+            "dimension": "facility",
+            "value": "Northgate Regional Hospital"
+          },
+          {
+            "dimension": "payer",
+            "value": "Federal Medicare"
+          },
+          {
+            "dimension": "service_line",
+            "value": "General Surgery"
+          }
+        ],
+        "impact_cents": 17821682,
+        "reconciled_impact_cents": 19587392,
+        "reconciled_impact_metric_id": "dnfb_dollars",
+        "impact_agreement": "diverged",
+        "impact_delta_cents": 1765710,
+        "impact_delta_fraction": 0.099077,
+        "impact_reconciliation_note": "The detection system reported $178,216.82 for this cell in its own window (2026-07-03..2026-07-29), on its own population and valuation basis, when it fired. This platform re-derived $195,873.92 from the governed dnfb_dollars contract at the pinned watermark over the same named cell. They differ by $17,657.10 (+9.9%): the detector's window, population or valuation basis is not the contract's. The drill answers with the contract's figure and a real evidence grade; the card's figure remains the detection system's assertion, which is what it has always been.",
+        "age_days": 31,
+        "recoverable_cents_estimate": 16930598,
+        "actionability_label": "highly recoverable",
+        "actionability_rationale": "Discharged-not-final-billed dollars are not lost, only unbilled: the account exists, the charges exist, and finishing the bill recovers them. The small unrecoverable residue is the coding or documentation gap that never closes. Deliberately below DUPLICATE's certainty and above every recovery category — DNFB is the cheapest money in the portfolio, which is exactly why it should outrank larger, harder items.",
+        "priority_score": 0.328589,
+        "compliance_floor_applied": false,
+        "priority": {
+          "impact_norm": 0.361299,
+          "recency": 0.215493,
+          "recoverable_norm": 0.343234,
+          "impact_term": 0.090325,
+          "recency_term": 0.032324,
+          "actionability_term": 0.205941,
+          "weight_sum": 1.0,
+          "score_before_floor": 0.328589,
+          "floor_applied": false,
+          "floor_value": 0.067203,
+          "floor_basis": "relative_median"
+        },
+        "lane": "value",
+        "metric_display_name": "Discharged not final billed (unbilled discharges)",
+        "drill_spec": {
+          "metric_ids": [
+            "dnfb_dollars"
+          ],
+          "dimensions": [
+            "facility",
+            "payer",
+            "service_line"
+          ],
+          "filters": [
+            {
+              "op": "add_filter",
+              "dimension": "facility",
+              "predicate_op": "eq",
+              "values": [
+                "Northgate Regional Hospital"
+              ]
+            },
+            {
+              "op": "add_filter",
+              "dimension": "payer",
+              "predicate_op": "eq",
+              "values": [
+                "Federal Medicare"
+              ]
+            },
+            {
+              "op": "add_filter",
+              "dimension": "service_line",
+              "predicate_op": "eq",
+              "values": [
+                "General Surgery"
+              ]
+            }
+          ],
+          "window": {
+            "start": "2026-07-03",
+            "end": "2026-07-29"
+          },
+          "basis": null,
+          "comparison": null
+        },
+        "drillable": true,
+        "drill_unavailable_reason": null,
+        "drill_repointed_from": null,
+        "drill_repoint_rationale": null
+      },
+      {
+        "anomaly_id": "ANM-001",
+        "provenance": "external_detection",
+        "priority_formula_version": "anomaly_priority@2",
+        "source_watermark_id": "wm_003",
+        "title": "Medical-necessity denial spike: Summit Peak MA Cardiology",
+        "description": "Summit Peak Medicare Advantage / Cardiology: 27 denials totaling $170,643 in window 2026-06-20..2026-07-28.",
+        "category": "denial_spike",
+        "metric_id": "denial_rate",
+        "severity": "critical",
+        "confidence": "0.90",
+        "status": "open",
+        "detected_at": "2026-08-03T04:10:00",
+        "window_start": "2026-06-20",
+        "window_end": "2026-07-28",
+        "dimensions": [
+          {
+            "dimension": "payer",
+            "value": "Summit Peak Medicare Advantage"
+          },
+          {
+            "dimension": "service_line",
+            "value": "Cardiology"
+          }
+        ],
+        "impact_cents": 17064300,
+        "reconciled_impact_cents": 17720287,
+        "reconciled_impact_metric_id": "denied_dollars",
+        "impact_agreement": "diverged",
+        "impact_delta_cents": 655987,
+        "impact_delta_fraction": 0.038442,
+        "impact_reconciliation_note": "The detection system reported $170,643.00 for this cell in its own window (2026-06-20..2026-07-28), on its own population and valuation basis, when it fired. This platform re-derived $177,202.87 from the governed denied_dollars contract at the pinned watermark over the same named cell. They differ by $6,559.87 (+3.8%): the detector's window, population or valuation basis is not the contract's. The drill answers with the contract's figure and a real evidence grade; the card's figure remains the detection system's assertion, which is what it has always been.",
+        "age_days": 44,
+        "recoverable_cents_estimate": 13904244,
+        "actionability_label": "highly recoverable",
+        "actionability_rationale": "Recoverability follows the appealable share of the denied claims; non-appealable denials route to prevention, not recovery.",
+        "priority_score": 0.272597,
+        "compliance_floor_applied": false,
+        "priority": {
+          "impact_norm": 0.345945,
+          "recency": 0.113215,
+          "recoverable_norm": 0.281881,
+          "impact_term": 0.086486,
+          "recency_term": 0.016982,
+          "actionability_term": 0.169129,
+          "weight_sum": 1.0,
+          "score_before_floor": 0.272597,
+          "floor_applied": false,
+          "floor_value": 0.067203,
+          "floor_basis": "relative_median"
+        },
+        "lane": "value",
+        "metric_display_name": null,
+        "drill_spec": {
+          "metric_ids": [
+            "denied_dollars"
+          ],
+          "dimensions": [
+            "payer",
+            "service_line"
+          ],
+          "filters": [
+            {
+              "op": "add_filter",
+              "dimension": "payer",
+              "predicate_op": "eq",
+              "values": [
+                "Summit Peak Medicare Advantage"
+              ]
+            },
+            {
+              "op": "add_filter",
+              "dimension": "service_line",
+              "predicate_op": "eq",
+              "values": [
+                "Cardiology"
+              ]
+            }
+          ],
+          "window": {
+            "start": "2026-06-20",
+            "end": "2026-07-28"
+          },
+          "basis": null,
+          "comparison": null
+        },
+        "drillable": true,
+        "drill_unavailable_reason": null,
+        "drill_repointed_from": "denial_rate",
+        "drill_repoint_rationale": "The detector published a dollar impact under a ratio metric that is also unprobeable at its own grain (REMIT is not bound for the claim entity). denied_dollars measures the same population in the unit the card actually reports."
+      },
+      {
+        "anomaly_id": "ANM-015",
+        "provenance": "external_detection",
+        "priority_formula_version": "anomaly_priority@2",
+        "source_watermark_id": "wm_003",
+        "title": "Posting stall on late-July remits: Pinnacle Oncology",
+        "description": "Pinnacle Health Plan / Oncology: 12 remitted-unpaid claims totaling $63,552 in window 2026-07-22..2026-08-01.",
+        "category": "posting_lag",
+        "metric_id": "avg_days_to_pay",
+        "severity": "high",
+        "confidence": "0.80",
+        "status": "open",
+        "detected_at": "2026-08-03T04:10:00",
+        "window_start": "2026-07-22",
+        "window_end": "2026-08-01",
+        "dimensions": [
+          {
+            "dimension": "payer",
+            "value": "Pinnacle Health Plan"
+          },
+          {
+            "dimension": "service_line",
+            "value": "Oncology"
+          }
+        ],
+        "impact_cents": 6355160,
+        "reconciled_impact_cents": null,
+        "reconciled_impact_metric_id": null,
+        "impact_agreement": "unavailable",
+        "impact_delta_cents": null,
+        "impact_delta_fraction": null,
+        "impact_reconciliation_note": "the platform could not re-derive this figure: the drill's governed contract produces no money column, so there is no figure to compare against the card's dollar impact",
+        "age_days": 12,
+        "recoverable_cents_estimate": 953274,
+        "actionability_label": "marginally recoverable",
+        "actionability_rationale": "Remitted-but-unpaid cash mostly arrives without anyone doing anything; the impact figure is timing, not loss. The workable slice is the residue where the remit never converts — unpostables, offsets and takebacks — so this scores low on purpose. A payment-lag anomaly belongs on the worklist for what it predicts about the payer, not for dollars to go chase.",
+        "priority_score": 0.126612,
+        "compliance_floor_applied": false,
+        "priority": {
+          "impact_norm": 0.128838,
+          "recency": 0.552045,
+          "recoverable_norm": 0.019326,
+          "impact_term": 0.03221,
+          "recency_term": 0.082807,
+          "actionability_term": 0.011595,
+          "weight_sum": 1.0,
+          "score_before_floor": 0.126612,
+          "floor_applied": false,
+          "floor_value": 0.067203,
+          "floor_basis": "relative_median"
+        },
+        "lane": "value",
+        "metric_display_name": null,
+        "drill_spec": {
+          "metric_ids": [
+            "avg_days_to_pay"
+          ],
+          "dimensions": [
+            "payer",
+            "service_line"
+          ],
+          "filters": [
+            {
+              "op": "add_filter",
+              "dimension": "payer",
+              "predicate_op": "eq",
+              "values": [
+                "Pinnacle Health Plan"
+              ]
+            },
+            {
+              "op": "add_filter",
+              "dimension": "service_line",
+              "predicate_op": "eq",
+              "values": [
+                "Oncology"
+              ]
+            }
+          ],
+          "window": {
+            "start": "2026-07-22",
+            "end": "2026-08-01"
+          },
+          "basis": null,
+          "comparison": null
+        },
+        "drillable": true,
+        "drill_unavailable_reason": null,
+        "drill_repointed_from": null,
+        "drill_repoint_rationale": null
+      },
+      {
+        "anomaly_id": "ANM-023",
+        "provenance": "external_detection",
+        "priority_formula_version": "anomaly_priority@2",
+        "source_watermark_id": "wm_003",
+        "title": "Double-posted payments awaiting refund: Atlas PPO Imaging",
+        "description": "Atlas Commercial / Atlas PPO Select / Imaging: 9 overpaid claims totaling $48,939 in window 2026-06-05..2026-07-10.",
+        "category": "credit_balance",
+        "metric_id": "credit_balance_dollars",
+        "severity": "high",
+        "confidence": "0.70",
+        "status": "open",
+        "detected_at": "2026-08-03T04:10:00",
+        "window_start": "2026-06-05",
+        "window_end": "2026-07-10",
+        "dimensions": [
+          {
+            "dimension": "payer",
+            "value": "Atlas Commercial"
+          },
+          {
+            "dimension": "plan",
+            "value": "Atlas PPO Select"
+          },
+          {
+            "dimension": "service_line",
+            "value": "Imaging"
+          }
+        ],
+        "impact_cents": 4893861,
+        "reconciled_impact_cents": 4893861,
+        "reconciled_impact_metric_id": "credit_balance_dollars",
+        "impact_agreement": "agreed",
+        "impact_delta_cents": 0,
+        "impact_delta_fraction": 0.0,
+        "impact_reconciliation_note": "The detection system reported $48,938.61 for this cell in its own window (2026-06-05..2026-07-10), on its own population and valuation basis, when it fired. This platform re-derived $48,938.61 from the governed credit_balance_dollars contract at the pinned watermark over the same named cell. The two agree within half a percent.",
+        "age_days": 59,
+        "recoverable_cents_estimate": 4893861,
+        "actionability_label": "compliance-mandatory",
+        "actionability_rationale": "Credit balances are compliance-mandatory work: refunds are owed regardless of dollar size, so priority is floored — small balances never sink below discretionary work.",
+        "priority_score": 0.092412,
+        "compliance_floor_applied": false,
+        "priority": {
+          "impact_norm": 0.099213,
+          "recency": 0.053873,
+          "recoverable_norm": 0.099213,
+          "impact_term": 0.024803,
+          "recency_term": 0.008081,
+          "actionability_term": 0.059528,
+          "weight_sum": 1.0,
+          "score_before_floor": 0.092412,
+          "floor_applied": false,
+          "floor_value": 0.067203,
+          "floor_basis": "relative_median"
+        },
+        "lane": "compliance",
+        "metric_display_name": null,
+        "drill_spec": {
+          "metric_ids": [
+            "credit_balance_dollars"
+          ],
+          "dimensions": [
+            "payer",
+            "plan",
+            "service_line"
+          ],
+          "filters": [
+            {
+              "op": "add_filter",
+              "dimension": "payer",
+              "predicate_op": "eq",
+              "values": [
+                "Atlas Commercial"
+              ]
+            },
+            {
+              "op": "add_filter",
+              "dimension": "plan",
+              "predicate_op": "eq",
+              "values": [
+                "Atlas PPO Select"
+              ]
+            },
+            {
+              "op": "add_filter",
+              "dimension": "service_line",
+              "predicate_op": "eq",
+              "values": [
+                "Imaging"
+              ]
+            }
+          ],
+          "window": {
+            "start": "2026-06-05",
+            "end": "2026-07-10"
+          },
+          "basis": null,
+          "comparison": null
+        },
+        "drillable": true,
+        "drill_unavailable_reason": null,
+        "drill_repointed_from": null,
+        "drill_repoint_rationale": null
+      }
+    ],
+    "lanes": [
+      {
+        "id": "compliance",
+        "label": "Must do regardless of size",
+        "description": "Compliance-mandatory categories. These are worked because the rule says so, not because they are the largest thing on the list — a $824 credit balance and a $84,000 one carry the same obligation. Their score is floored to the median of the value-ranked work so they stay visible without displacing it.",
+        "anomaly_ids": [
+          "ANM-023"
+        ],
+        "item_count": 2,
+        "impact_cents": 4976298
+      },
+      {
+        "id": "value",
+        "label": "Ranked by value recoverable",
+        "description": "Ordered by the governed priority formula: normalized impact, recency, and the governed recoverable estimate — with the cards this platform cannot yet investigate listed last, carrying its own refusal.",
+        "anomaly_ids": [
+          "ANM-021",
+          "ANM-001",
+          "ANM-015"
+        ],
+        "item_count": 31,
+        "impact_cents": 169985085
+      }
+    ]
+  },
+  "budget_error_warehouse": {
+    "outcome": "error",
+    "session_id": "sess_d1b8e83c2933",
+    "error": {
+      "code": "QUERY_BUDGET_EXCEEDED",
+      "message": "That question would read more of the warehouse than one turn is allowed to. Narrowing it — fewer breakdowns, a shorter window, or a top-N — brings it in range.",
+      "correlation_id": "read-budget-1",
+      "subcode": "WAREHOUSE_READ_BUDGET"
+    },
+    "usage": {
+      "llm_calls": 0,
+      "cost_usd": "0",
+      "input_tokens": 0,
+      "output_tokens": 0,
+      "cache_read_tokens": 0,
+      "cache_creation_tokens": 0,
+      "schema_retries": 0
+    }
+  },
+  "budget_error_model_spend": {
+    "outcome": "error",
+    "session_id": "sess_d1b8e83c2933",
+    "error": {
+      "code": "QUERY_BUDGET_EXCEEDED",
+      "message": "This turn reached its model-spend ceiling before it could finish. Nothing about your question was too large — raising the turn's cost ceiling, choosing a cheaper model tier, or simply asking again will get you an answer.",
+      "correlation_id": "spend-stop-2",
+      "subcode": "MODEL_SPEND_BUDGET"
+    },
+    "usage": {
+      "llm_calls": 2,
+      "cost_usd": "0.021321",
+      "input_tokens": 1033,
+      "output_tokens": 398,
+      "cache_read_tokens": 0,
+      "cache_creation_tokens": 1031,
+      "schema_retries": 0
+    }
   }
 }

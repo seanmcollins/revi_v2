@@ -223,6 +223,297 @@ describe("AnswerCard — an answer with no findings (F2)", () => {
   });
 });
 
+/* ------------------------------------------------------------------ */
+/* The round-2 wire fields, rendered                                   */
+/* ------------------------------------------------------------------ */
+
+function bareTurn(overrides: Partial<TurnRecord["answer"]>): TurnRecord {
+  return {
+    id: "turn_wire",
+    index: 0,
+    submission: { utterance: "…" },
+    answer: { ...emptyAnswer(), status: "complete", investigationId: "inv_1", ...overrides },
+  };
+}
+
+describe("AnswerCard — structured warnings (F14)", () => {
+  it("titles a caution in the reader's words and keeps the engine's sentence", () => {
+    renderCard(
+      bareTurn({
+        warnings: [
+          {
+            type: "warning",
+            code: "POPULATION_CAVEAT",
+            severity: "caution",
+            message: "population_caveat: no deadline predicate is applied to this figure",
+            structured: true,
+          },
+        ],
+      }),
+    );
+    // The code prettified is still jargon; this is the same fact in the
+    // words an analyst would use.
+    expect(screen.getByText("How to read this number")).toBeInTheDocument();
+    expect(
+      screen.getByText("no deadline predicate is applied to this figure"),
+    ).toBeInTheDocument();
+    // …and not the machine prefix, which the title now carries.
+    expect(screen.queryByText(/population_caveat:/)).not.toBeInTheDocument();
+  });
+
+  it("styles a caution and a note differently, from the server's severity", () => {
+    const { container } = renderCard(
+      bareTurn({
+        warnings: [
+          {
+            type: "warning",
+            code: "WINDOW_ASSUMED",
+            severity: "caution",
+            message: "window_assumed: no window was named, so the last 30 days were used",
+            structured: true,
+          },
+          {
+            type: "warning",
+            code: "SUPPRESSION_APPLIED",
+            severity: "info",
+            message: "suppression: cells counting fewer than 11 entities are suppressed",
+            structured: true,
+          },
+        ],
+      }),
+    );
+    const caution = container.querySelector('[data-warning-code="WINDOW_ASSUMED"]');
+    const note = container.querySelector('[data-warning-code="SUPPRESSION_APPLIED"]');
+    expect(caution?.className).toContain("border-warning/40");
+    expect(note?.className).not.toContain("border-warning/40");
+    expect(screen.getByText("Window assumed")).toBeInTheDocument();
+    expect(screen.getByText("Small cells were suppressed")).toBeInTheDocument();
+  });
+
+  it("puts cautions above notes — the ones that change the reading come first", () => {
+    const { container } = renderCard(
+      bareTurn({
+        warnings: [
+          {
+            type: "warning",
+            code: "SUPPRESSION_APPLIED",
+            severity: "info",
+            message: "suppression: small cells removed",
+            structured: true,
+          },
+          {
+            type: "warning",
+            code: "EMPTY_RESULT",
+            severity: "caution",
+            message: "empty_result: no rows matched",
+            structured: true,
+          },
+        ],
+      }),
+    );
+    const codes = [...container.querySelectorAll("[data-warning-code]")].map((el) =>
+      el.getAttribute("data-warning-code"),
+    );
+    expect(codes).toEqual(["EMPTY_RESULT", "SUPPRESSION_APPLIED"]);
+  });
+
+  it("collapses duplicates into one row with a count badge", () => {
+    renderCard(
+      bareTurn({
+        warnings: [
+          {
+            type: "warning",
+            code: "ALTERNATE_BASIS_USED",
+            severity: "caution",
+            message: "alternate_basis_used: remit is not bound, so service date was used",
+            count: 4,
+            structured: true,
+          },
+        ],
+      }),
+    );
+    expect(screen.getByText("Computed on a different date basis")).toBeInTheDocument();
+    expect(screen.getByText("×4")).toBeInTheDocument();
+  });
+
+  it("renders an unclassified warning as its sentence, with no invented heading", () => {
+    // The server is saying "we have no handle for this one"; a confident
+    // title over it would be the client making the call it just declined.
+    renderCard(
+      bareTurn({
+        warnings: [
+          {
+            type: "warning",
+            code: "UNCLASSIFIED",
+            severity: "info",
+            message: "something the classifier has never seen before",
+            structured: true,
+          },
+        ],
+      }),
+    );
+    expect(
+      screen.getByText("something the classifier has never seen before"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText("UNCLASSIFIED")).not.toBeInTheDocument();
+  });
+});
+
+describe("AnswerCard — anomaly drill reconciliation (F1)", () => {
+  const diverged: TurnRecord = bareTurn({
+    anomalyReconciliation: {
+      anomalyId: "ANM-021",
+      status: "diverged",
+      cardImpactCents: 17_821_682,
+      answerImpactCents: 19_587_392,
+      deltaCents: 1_765_710,
+      deltaFraction: 0.099077,
+      cardMetricId: "dnfb_dollars",
+      answerMetricId: "dnfb_dollars",
+      detail: "The detector's window, population or valuation basis is not the contract's.",
+    },
+  });
+
+  it("shows BOTH figures and the gap", () => {
+    renderCard(diverged);
+    expect(screen.getByText("This answer differs from the card that opened it")).toBeInTheDocument();
+    expect(screen.getByText("$178,216.82")).toBeInTheDocument();
+    expect(screen.getByText("$195,873.92")).toBeInTheDocument();
+    expect(screen.getByText("+9.9%")).toBeInTheDocument();
+    expect(screen.getByText("ANM-021")).toBeInTheDocument();
+  });
+
+  it("repeats the platform's own explanation rather than summarizing it", () => {
+    renderCard(diverged);
+    expect(
+      screen.getByText(/valuation basis is not the contract's/),
+    ).toBeInTheDocument();
+  });
+
+  it("still shows both numbers when the two AGREE", () => {
+    const { container } = renderCard(
+      bareTurn({
+        anomalyReconciliation: {
+          anomalyId: "ANM-023",
+          status: "agreed",
+          cardImpactCents: 4_893_861,
+          answerImpactCents: 4_893_861,
+          deltaFraction: 0,
+        },
+      }),
+    );
+    expect(container.querySelector('[data-anomaly-status="agreed"]')).not.toBeNull();
+    expect(screen.getAllByText("$48,938.61")).toHaveLength(2);
+    // No delta column on an agreement — "+0.0%" is a fact nobody needs.
+    expect(screen.queryByText("Difference")).not.toBeInTheDocument();
+  });
+
+  it("says so when the card could not be re-derived at all", () => {
+    renderCard(
+      bareTurn({
+        anomalyReconciliation: {
+          anomalyId: "ANM-015",
+          status: "unavailable",
+          cardImpactCents: 1_000,
+        },
+      }),
+    );
+    expect(screen.getByText("The card's figure could not be re-derived here")).toBeInTheDocument();
+    expect(screen.getByText("not re-derived")).toBeInTheDocument();
+  });
+
+  it("renders nothing on a turn that drilled no card", () => {
+    const { container } = renderCard(bareTurn({}));
+    expect(container.querySelector("[data-anomaly-status]")).toBeNull();
+  });
+});
+
+describe("AnswerCard — cache chip copy (residual)", () => {
+  function zeroProbe(cacheHits: number): TurnRecord {
+    return bareTurn({
+      evidence: {
+        probes: [],
+        warehouseQueries: 0,
+        cacheHits,
+        zeroProbeTurn: true,
+      },
+    });
+  }
+
+  it("claims cache reuse only when probes actually came from the cache", () => {
+    renderCard(zeroProbe(3));
+    expect(screen.getByText(/Answered from cached results/)).toBeInTheDocument();
+  });
+
+  it("says nothing was needed when nothing was cached either", () => {
+    // `zeroProbeTurn` is `warehouseQueries === 0`, which is also true of a
+    // META or definitional turn that never had a probe to cache. "Answered
+    // from cached results" over one of those claims a reuse that never
+    // happened.
+    renderCard(zeroProbe(0));
+    expect(screen.getByText("No warehouse query was needed for this answer")).toBeInTheDocument();
+    expect(screen.queryByText(/cached results/)).not.toBeInTheDocument();
+  });
+});
+
+describe("AnswerCard — budget refusals (F19 residual)", () => {
+  it("separates a model-spend stop from a read stop, and offers the fix", () => {
+    renderCard(
+      bareTurn({
+        status: "error",
+        error: {
+          code: "QUERY_BUDGET_EXCEEDED",
+          subcode: "MODEL_SPEND_BUDGET",
+          message: "This turn reached its model-spend ceiling before it could finish.",
+          usage: {
+            llmCalls: 2,
+            costUsd: "0.021321",
+            inputTokens: 1033,
+            outputTokens: 398,
+            cacheReadTokens: 0,
+            cacheCreationTokens: 1031,
+            schemaRetries: 0,
+          },
+        },
+      }),
+    );
+    expect(screen.getByText("This turn hit its model-spend ceiling")).toBeInTheDocument();
+    // The recovery is a setting, not a rewrite — and it is one click away.
+    expect(screen.getByRole("button", { name: "Adjust cost ceiling" })).toBeInTheDocument();
+    // "Failures are free" is a claim, and it is false.
+    expect(screen.getByText(/Spent \$0\.021321 on 2 model calls before stopping/)).toBeInTheDocument();
+  });
+
+  it("sends a read stop to narrow the question instead", () => {
+    renderCard(
+      bareTurn({
+        status: "error",
+        error: {
+          code: "QUERY_BUDGET_EXCEEDED",
+          subcode: "WAREHOUSE_READ_BUDGET",
+          message: "That question would read more of the warehouse than one turn is allowed to.",
+        },
+      }),
+    );
+    expect(
+      screen.getByText("This question reads more of the warehouse than one turn allows"),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Adjust cost ceiling" })).not.toBeInTheDocument();
+  });
+
+  it("leaves an ordinary refusal exactly as it was", () => {
+    renderCard(
+      bareTurn({
+        status: "error",
+        error: { code: "GRAIN_INCOMPATIBLE", message: "That metric can't be cut that way." },
+      }),
+    );
+    expect(screen.getByText("GRAIN_INCOMPATIBLE")).toBeInTheDocument();
+    expect(screen.getByText(/That metric can't be cut that way\./)).toBeInTheDocument();
+    expect(screen.queryByText(/before stopping/)).not.toBeInTheDocument();
+  });
+});
+
 describe("AnswerCard — debug mode", () => {
   beforeEach(() => {
     useSessionStore.setState({ settings: { ...DEFAULT_SETTINGS, debug: true } });

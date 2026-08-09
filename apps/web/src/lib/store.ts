@@ -25,7 +25,10 @@ import {
 } from "@/lib/settings";
 import {
   STAGE_ORDER,
+  type AnomalyReconciliation,
+  type MetricDisplay,
   type SessionSummary,
+  type TurnUsage,
   type PackVersionRef,
   type ChartSpec,
   type ClarificationData,
@@ -87,9 +90,26 @@ export interface AnswerState {
   answerGrade?: EvidenceGrade;
   /** Whose definition these numbers are — see `MetricProvenance`. */
   metric?: MetricProvenance;
+  /**
+   * Set when this turn drilled a portfolio card AND the request carried
+   * its `anomaly_ref`: the card's published figure beside this platform's
+   * re-derivation of it, with the verdict on whether they agree.
+   */
+  anomalyReconciliation?: AnomalyReconciliation;
+  /**
+   * The governed display-name corrections this turn's measures carry.
+   * Already applied to finding titles and chart titles at the seam; kept
+   * here so the answer can also show the caveat that travels with a name.
+   */
+  metricDisplay?: MetricDisplay[];
   cacheHits: number;
   status: AnswerStatus;
-  error?: { code: string; message: string };
+  /**
+   * `subcode` refines the copy where one code covers two failures;
+   * `usage` is what the failed turn still spent, which is a real number a
+   * card that shows only the refusal quietly leaves out.
+   */
+  error?: { code: string; message: string; subcode?: string; usage?: TurnUsage };
   /**
    * Rebuilt from stored server state when this session was re-opened,
    * rather than watched as it streamed. What the server kept comes back —
@@ -149,10 +169,30 @@ export function applyEventToAnswer(answer: AnswerState, event: TurnEvent): Answe
       return { ...answer, header: event.header, turnClass: event.turnClass };
     case "interpretation":
       return { ...answer, interpretation: event.interpretation };
-    case "finding":
-      return { ...answer, findings: [...answer.findings, event.finding] };
-    case "chart_spec":
-      return { ...answer, charts: [...answer.charts, event.spec] };
+    // Upsert, not append. A referent identifies a finding, so a second
+    // event carrying one the answer already has is the SAME finding said
+    // again — and the terminal frame does say some of them again, because
+    // the governed display names that correct their titles are only known
+    // once the turn is finished (a streamed `finding` frame reads "…
+    // dnfb dollars" while the completed answer's narrative reads
+    // "discharged not final billed"). Appending would have rendered the
+    // card twice; keying by referent replaces it with the corrected copy.
+    case "finding": {
+      const index = answer.findings.findIndex(
+        (f) => f.referent.value === event.finding.referent.value,
+      );
+      if (index === -1) return { ...answer, findings: [...answer.findings, event.finding] };
+      const findings = [...answer.findings];
+      findings[index] = event.finding;
+      return { ...answer, findings };
+    }
+    case "chart_spec": {
+      const index = answer.charts.findIndex((c) => c.id === event.spec.id);
+      if (index === -1) return { ...answer, charts: [...answer.charts, event.spec] };
+      const charts = [...answer.charts];
+      charts[index] = event.spec;
+      return { ...answer, charts };
+    }
     case "narrative_delta":
       return { ...answer, narrative: answer.narrative + event.text };
     case "clarification":
@@ -174,6 +214,8 @@ export function applyEventToAnswer(answer: AnswerState, event: TurnEvent): Answe
         debug: event.debug ?? answer.debug,
         answerGrade: event.answerGrade ?? answer.answerGrade,
         metric: event.metric ?? answer.metric,
+        anomalyReconciliation: event.anomalyReconciliation ?? answer.anomalyReconciliation,
+        metricDisplay: event.metricDisplay ?? answer.metricDisplay,
         status:
           event.status === "clarification_required"
             ? "clarification"
@@ -186,7 +228,12 @@ export function applyEventToAnswer(answer: AnswerState, event: TurnEvent): Answe
       return {
         ...answer,
         status: "error",
-        error: { code: event.code, message: event.message },
+        error: {
+          code: event.code,
+          message: event.message,
+          ...(event.subcode ? { subcode: event.subcode } : {}),
+          ...(event.usage ? { usage: event.usage } : {}),
+        },
       };
     default:
       return answer;

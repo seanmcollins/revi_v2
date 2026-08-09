@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, FileSearch, History, Info, SearchX, Zap } from "lucide-react";
+import { AlertTriangle, FileSearch, History, SearchX, Zap } from "lucide-react";
 import { useMemo } from "react";
 
 import { ContextHeader } from "@/components/answer/ContextHeader";
@@ -11,7 +11,9 @@ import {
   MetricProvenanceBadge,
 } from "@/components/answer/MetricProvenanceBadge";
 import { NarrativeText } from "@/components/answer/NarrativeText";
+import { AnomalyReconciliationStrip } from "@/components/banners/AnomalyReconciliationStrip";
 import { ReconciliationBanner } from "@/components/banners/ReconciliationBanner";
+import { WarningList } from "@/components/banners/WarningBanner";
 import { InvestigationChart } from "@/components/charts/InvestigationChart";
 import { StageRail } from "@/components/chat/StageRail";
 import { ClarificationPrompt } from "@/components/clarification/ClarificationPrompt";
@@ -117,19 +119,36 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
               because there is no governed contract to point at. */}
           {a.metric && <MetricProvenanceBadge metric={a.metric} />}
           {a.answerGrade && <GradeBadge grade={a.answerGrade} />}
+          {/* Two different facts wearing one flag. `zeroProbeTurn` is
+              `warehouseQueries === 0`, which is ALSO true of a META or
+              definitional turn that never had a probe to cache — and
+              "answered from cached results" over a turn that read nothing
+              claims a reuse that never happened. The cache hit count is
+              what separates them, so the copy gates on it. */}
           {a.evidence?.zeroProbeTurn && (
             <span
               className="inline-flex h-5 items-center gap-1 rounded-full border border-verified/40 bg-verified/10 px-2 text-[0.7rem] font-medium text-verified"
-              title="Every probe this turn needed was already in the evidence cache from earlier in this session, at this same data load. The warehouse was not queried again — the numbers are not newer than the ones above them."
+              title={
+                a.evidence.cacheHits > 0
+                  ? "Every probe this turn needed was already in the evidence cache from earlier in this session, at this same data load. The warehouse was not queried again — the numbers are not newer than the ones above them."
+                  : "This turn answered without reading the warehouse at all — it needed no data probe, so there was nothing to query and nothing to reuse from the cache."
+              }
             >
               <Zap className="size-3" />
-              {/* "No new queries" read as a performance boast about the
-                  whole answer. What is actually true is narrower and more
-                  useful: the results came from cache, at the SAME data
-                  load, so nothing here is fresher than what preceded it. */}
-              Answered from cached results
-              {a.header?.watermark.id ? ` (same data load ${a.header.watermark.id})` : ""} — no new
-              warehouse query
+              {a.evidence.cacheHits > 0 ? (
+                <>
+                  {/* "No new queries" read as a performance boast about
+                      the whole answer. What is actually true is narrower
+                      and more useful: the results came from cache, at the
+                      SAME data load, so nothing here is fresher than what
+                      preceded it. */}
+                  Answered from cached results
+                  {a.header?.watermark.id ? ` (same data load ${a.header.watermark.id})` : ""} — no
+                  new warehouse query
+                </>
+              ) : (
+                "No warehouse query was needed for this answer"
+              )}
             </span>
           )}
           {a.evidence && (
@@ -148,34 +167,16 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
 
       {a.evidence && <ReconciliationBanner result={a.evidence.reconciliation} />}
 
-      {a.warnings.map((w) => (
-        <div
-          key={w.code}
-          className={cn(
-            "flex items-start gap-2 rounded-md border px-3 py-2 text-[0.72rem] leading-snug",
-            w.severity === "caution"
-              ? "border-warning/40 bg-warning/10"
-              : "border-border bg-surface-sunken/60 text-muted-foreground",
-          )}
-        >
-          {w.severity === "caution" ? (
-            <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-warning" />
-          ) : (
-            <Info className="mt-0.5 size-3.5 shrink-0" />
-          )}
-          <p>
-            {/* The §12 code is engine vocabulary — precise, and useless to
-                an analyst reading a caution. The sentence carries the same
-                meaning; the code stays one debug toggle away. */}
-            {debug && (
-              <code className="mr-1.5 font-mono text-[0.62rem] text-muted-foreground">
-                {w.code}
-              </code>
-            )}
-            {w.message}
-          </p>
-        </div>
-      ))}
+      {/* This turn opened a portfolio card: the card's figure and the
+          answer's, side by side, with the verdict. First-class, above the
+          findings — the two numbers are on consecutive screens and the
+          reader compares them whether or not anyone reconciles them. */}
+      <AnomalyReconciliationStrip reconciliation={a.anomalyReconciliation} />
+
+      {/* Code-driven, not prose-parsed: severity decides the treatment,
+          the code decides the title, and identical warnings collapse with
+          a count. See `WarningBanner`. */}
+      <WarningList warnings={a.warnings} debug={debug} />
 
       {a.definition && <DefinitionCard definition={a.definition} />}
 
@@ -207,15 +208,7 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
 
       {a.clarification && <ClarificationPrompt clarification={a.clarification} />}
 
-      {a.error && (
-        <div className="flex items-start gap-2 rounded-md border border-negative/50 bg-negative/10 px-3 py-2 text-[0.75rem]">
-          <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-negative" />
-          <p>
-            <code className="mr-1.5 font-mono text-[0.65rem]">{a.error.code}</code>
-            {a.error.message}
-          </p>
-        </div>
-      )}
+      {a.error && <TurnErrorCard error={a.error} />}
 
       {/* Debug mode: how this turn was decided, from the server's own
           recorded trace. Never rendered in the default experience. */}
@@ -226,6 +219,70 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
           <FeedbackTriage turnId={turn.id} />
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * A refused or failed turn.
+ *
+ * Two things it now says that it did not. First, WHICH budget stopped it:
+ * `QUERY_BUDGET_EXCEEDED` is two failures wearing one code, and the
+ * envelope's `subcode` separates them. A warehouse-read stop means the
+ * question read too much and the recovery is a narrower question; a
+ * model-spend stop means the question was fine and the wallet was the
+ * constraint, and sending that reader off to rewrite their question points
+ * them at something that was never the problem. The server's own sentence
+ * already differs per subcode, so what is added here is the NEXT STEP —
+ * a spend stop is fixed from the settings panel, and the panel is one
+ * click away rather than one guess away.
+ *
+ * Second, what the failure cost. `TurnError.usage` publishes the spend of
+ * a turn that errored after its model calls; a card that shows only the
+ * refusal is quietly under-reporting the bill.
+ */
+function TurnErrorCard({ error }: { error: NonNullable<TurnRecord["answer"]["error"]> }) {
+  const openSettings = useSessionStore((s) => s.openSettings);
+  const spendStop = error.subcode === "MODEL_SPEND_BUDGET";
+  const readStop = error.subcode === "WAREHOUSE_READ_BUDGET";
+  const heading = spendStop
+    ? "This turn hit its model-spend ceiling"
+    : readStop
+      ? "This question reads more of the warehouse than one turn allows"
+      : undefined;
+
+  return (
+    <div className="flex items-start gap-2 rounded-md border border-negative/50 bg-negative/10 px-3 py-2 text-[0.75rem]">
+      <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-negative" />
+      <div className="min-w-0 flex-1">
+        {heading && <p className="font-semibold">{heading}</p>}
+        <p className={cn(heading && "mt-0.5")}>
+          <code className="mr-1.5 font-mono text-[0.65rem]">{error.code}</code>
+          {error.message}
+        </p>
+        {(spendStop || error.usage) && (
+          <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.68rem] text-muted-foreground">
+            {error.usage && (
+              // The decimal string the server sent, unrounded: a price put
+              // through a float is not the price that was charged.
+              <span className="num">
+                Spent ${error.usage.costUsd} on {error.usage.llmCalls} model call
+                {error.usage.llmCalls === 1 ? "" : "s"} before stopping
+              </span>
+            )}
+            {spendStop && (
+              <Button
+                variant="outline"
+                size="xs"
+                className="h-5 rounded-full px-2 text-[0.65rem] font-normal"
+                onClick={openSettings}
+              >
+                Adjust cost ceiling
+              </Button>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

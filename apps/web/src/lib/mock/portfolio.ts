@@ -18,6 +18,40 @@ export type AnomalyProvenance = "external_detection";
 
 export type AnomalySeverity = "critical" | "high" | "medium" | "low";
 
+/**
+ * `PriorityDecompositionPayload` — every term of `anomaly_priority`, so a
+ * ranked list can show its working instead of asserting an order.
+ */
+export interface PriorityDecomposition {
+  impactNorm: number;
+  recency: number;
+  recoverableNorm: number;
+  impactTerm: number;
+  recencyTerm: number;
+  actionabilityTerm: number;
+  weightSum: number;
+  scoreBeforeFloor: number;
+  floorApplied: boolean;
+  floorValue: number;
+  /** How the compliance floor was chosen ("relative_median"). */
+  floorBasis: string;
+}
+
+/**
+ * One half of the worklist (`PortfolioLanePayload`). The lane carries its
+ * own ordering (`anomalyIds`), its totals, and the sentence that says why
+ * it exists — the rail renders the server's own explanation rather than
+ * inventing a heading for a split it did not decide.
+ */
+export interface PortfolioLane {
+  id: string;
+  label: string;
+  description: string;
+  anomalyIds: string[];
+  itemCount: number;
+  impactCents: number;
+}
+
 export interface PortfolioItem {
   rank: number;
   referent: string;
@@ -54,8 +88,51 @@ export interface PortfolioItem {
   /** `AnomalyCard.priority_score` / `compliance_floor_applied` — how it ranked. */
   priorityScore?: number;
   complianceFloorApplied?: boolean;
+  /**
+   * `AnomalyCard.priority` — every term of the governed priority formula,
+   * published so the ordering is not a black box: the normalized impact,
+   * the recency, the governed recoverable estimate, each term's weighted
+   * contribution, and the compliance floor with the basis it was taken
+   * from. Rendered in the detection badge, where the formula version it
+   * decomposes already lives.
+   */
+  priority?: PriorityDecomposition;
+  /**
+   * `AnomalyCard.lane` — which half of the worklist this belongs to.
+   * `compliance` work is done because the rule says so ($824 and $84,000
+   * carry the same obligation); `value` work is ranked by what is
+   * recoverable. Mixing the two into one ordered list is what let a small
+   * mandatory refund sink below discretionary work.
+   */
+  lane?: "compliance" | "value";
+
+  /* --- The card's figure vs this platform's re-derivation (F1) ----- */
+
+  /**
+   * `AnomalyCard.reconciled_impact_cents` — the same named cell computed
+   * from this platform's governed contract at the pinned watermark.
+   * A DIFFERENT claim from `impactCents`, which is the detection system's
+   * own assertion on its own window, population and valuation basis.
+   */
+  reconciledImpactCents?: number;
+  /** The contract the re-derivation used — not always the card's `metricId`. */
+  reconciledImpactMetricId?: string;
+  /** Whether the two agree, diverge, or could not be compared at all. */
+  impactAgreement?: "agreed" | "diverged" | "unavailable";
+  impactDeltaCents?: number;
+  /** Signed fraction (0.099077 = +9.9%). */
+  impactDeltaFraction?: number;
+  /** The platform's own account of the comparison, verbatim. */
+  impactReconciliationNote?: string;
   /** `AnomalyCard.metric_id`, `status`, `confidence` — the detection's own identity. */
   metricId?: string;
+  /**
+   * `AnomalyCard.metric_display_name` — the pack's governed name for
+   * `metricId`, published per card because a worklist has no answer to
+   * hang a warning on. Present only for the ids that overclaim; most
+   * metrics say what they measure and get no entry.
+   */
+  metricDisplayName?: string;
   status?: string;
   confidence?: string;
   detectedAt?: string;

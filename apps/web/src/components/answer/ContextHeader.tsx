@@ -117,22 +117,7 @@ export function ContextHeader({
         </ChipDoc>
       </Chip>
 
-      {header.cohort && (
-        <Chip
-          icon={<Users className="size-3" />}
-          name="Cohort"
-          label={`${formatCount(header.cohort.size)} payers (pinned)`}
-          accent
-        >
-          <ChipDoc title="Pinned cohort">
-            <p>{header.cohort.definition}.</p>
-            <p className="mt-1.5 text-muted-foreground">
-              Pinned at {header.cohort.originTurn}: the member set is frozen — later
-              turns reuse exactly these members even if the ranking would change.
-            </p>
-          </ChipDoc>
-        </Chip>
-      )}
+      {header.cohort && <CohortChip cohort={header.cohort} />}
 
       {/* Same fact as before — the pinned data load — under the name an
           analyst uses for it. "Watermark" is the engine's word and stays
@@ -158,6 +143,101 @@ export function ContextHeader({
       </Chip>
     </div>
   );
+}
+
+/**
+ * The pinned population, said in words instead of shown as a hash.
+ *
+ * The chip used to read "312 payers (pinned)" over a `cohort` field that
+ * held `coh_9f2a11…`, and both halves of that were wrong: the definition
+ * was the id (unreadable, and a label that cannot be checked is decoration
+ * on a platform whose whole claim is that the context is inspectable), and
+ * "payers" was a hardcoded noun over a population whose grain the payload
+ * actually publishes — these are claims, or lines, or remits.
+ *
+ * So the label is the INTENSIONAL definition (`payer in [State Medicaid,
+ * Atlas Commercial, Meridian Health]`), the size is stated in its own
+ * grain (`86,415 claims`), the origin referent and turn are a subtle
+ * reference underneath, and the hash — which is a debugging handle, not a
+ * name — sits in the popover.
+ *
+ * A turn that published only the header's id and size still renders: it
+ * says the id and the size, and says the definition was not published,
+ * rather than dressing the handle up as a definition.
+ */
+function CohortChip({ cohort }: { cohort: NonNullable<ContextHeaderData["cohort"]> }) {
+  const grain = cohort.entityGrain ?? "";
+  const sized = `${formatCount(cohort.size)} ${pluralGrain(grain, cohort.size)}`;
+  return (
+    <Chip
+      icon={<Users className="size-3" />}
+      name="Cohort"
+      label={cohort.detailed ? cohort.definition : cohort.id}
+      trailing={
+        <span className="num shrink-0 text-[0.6rem] font-normal text-verified/70">{sized}</span>
+      }
+      accent
+    >
+      <ChipDoc title={cohort.pinned ? "Pinned cohort" : "Cohort"}>
+        {cohort.detailed ? (
+          <>
+            <p>
+              <span className="font-medium">{sized}</span> selected by{" "}
+              <span className="font-medium">{cohort.definition}</span>.
+            </p>
+            {(cohort.windowStart || cohort.windowEnd) && (
+              <p className="mt-1.5 text-muted-foreground">
+                The definition carries its own window,{" "}
+                {mediumDate(cohort.windowStart ?? "")} – {mediumDate(cohort.windowEnd ?? "")}.
+              </p>
+            )}
+            {!cohort.windowStart && !cohort.windowEnd && (
+              <p className="mt-1.5 text-muted-foreground">
+                The definition carries no window of its own, so it covers this population
+                across all time rather than only the window above.
+              </p>
+            )}
+          </>
+        ) : (
+          <p>
+            {sized}. This turn published the population&rsquo;s handle and its size, but not
+            the rule that selected it — so the rule is not shown here rather than guessed at.
+          </p>
+        )}
+        {cohort.pinned ? (
+          <p className="mt-1.5 text-muted-foreground">
+            Pinned{cohort.originReferent ? ` from ${cohort.originReferent}` : ""}
+            {cohort.originTurn ? ` in ${cohort.originTurn}` : ""}
+            {cohort.pinnedWatermarkId ? `, at data load ${cohort.pinnedWatermarkId}` : ""}: the
+            member set is frozen — later turns reuse exactly these members even if the
+            ranking would change.
+          </p>
+        ) : (
+          <p className="mt-1.5 text-muted-foreground">
+            Not pinned: the rule is re-evaluated against the data each turn, so the members
+            can change.
+          </p>
+        )}
+        {/* The handle, where a handle belongs — reachable when an
+            operator needs it, never the name an analyst is shown. */}
+        <p className="mt-1.5 font-mono text-[0.62rem] text-muted-foreground">{cohort.id}</p>
+      </ChipDoc>
+    </Chip>
+  );
+}
+
+/**
+ * The entity grain as a countable noun. The wire publishes the kernel's
+ * own vocabulary (`claim`, `line`, `encounter`, `transaction`, `remit`,
+ * `denial`), all of which pluralize with an "s" — and a grain this build
+ * has never seen is printed as published rather than mangled by a rule
+ * written for the ones it has. A payload with no grain says "entities",
+ * which is honest: the size is real and what it counts was not stated.
+ */
+function pluralGrain(grain: string, size: number): string {
+  if (grain === "") return size === 1 ? "entity" : "entities";
+  if (size === 1) return grain;
+  return grain.endsWith("s") ? grain : `${grain}s`;
 }
 
 const BASIS_DOCS: Record<string, string> = {

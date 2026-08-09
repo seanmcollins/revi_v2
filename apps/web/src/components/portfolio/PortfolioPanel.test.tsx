@@ -12,12 +12,17 @@
 
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PortfolioPanel } from "@/components/portfolio/PortfolioPanel";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import RAW_SAMPLES from "@/lib/__fixtures__/wire-samples.json";
 import { parsePortfolioSnapshot, type PortfolioSnapshotData } from "@/lib/contract";
 import { useSessionStore } from "@/lib/store";
+
+/* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+const SAMPLES = RAW_SAMPLES as any;
 
 const LIVE_SNAPSHOT = {
   status: "ok",
@@ -97,15 +102,26 @@ const LIVE_SNAPSHOT = {
   ],
 };
 
-function snapshot(): PortfolioSnapshotData {
-  const { value } = parsePortfolioSnapshot(LIVE_SNAPSHOT);
+function parse(raw: unknown): PortfolioSnapshotData {
+  const { value } = parsePortfolioSnapshot(raw);
   if (!value) throw new Error("live snapshot failed contract validation");
   return value;
 }
 
+function snapshot(): PortfolioSnapshotData {
+  return parse(LIVE_SNAPSHOT);
+}
+
+/**
+ * Which snapshot the panel is rendered against. Set by the lane suite
+ * below, which needs the four-card `portfolio_lanes` capture rather than
+ * this file's three-card one; cleared after every test.
+ */
+let served: PortfolioSnapshotData | null = null;
+
 vi.mock("@/lib/queries", () => ({
   usePortfolioQuery: () => ({
-    data: { kind: "ok", snapshot: snapshot() },
+    data: { kind: "ok", snapshot: served ?? snapshot() },
     isPending: false,
   }),
 }));
@@ -124,7 +140,10 @@ beforeEach(() => {
   });
 });
 
-afterEach(cleanup);
+afterEach(() => {
+  cleanup();
+  served = null;
+});
 
 describe("PortfolioPanel — reading every published field", () => {
   it("shows the snapshot's own warning above the list", () => {
@@ -190,5 +209,94 @@ describe("PortfolioPanel — reading every published field", () => {
     });
     expect(value?.items[0]?.drillMetricId).toBe("denial_rate");
     expect(value?.items[0]?.drillRepointedFrom).toBe("denial_rate");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Lanes, impact agreement and the drill's anomaly_ref                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * `portfolio_lanes` is four cards trimmed verbatim from a live
+ * `GET /v1/portfolio/latest`: one per agreement state (ANM-021 diverged,
+ * ANM-023 agreed, ANM-015 unavailable) plus ANM-001, with both published
+ * lanes and their real memberships.
+ */
+describe("PortfolioPanel — lanes and impact agreement", () => {
+  beforeEach(() => {
+    served = parse(SAMPLES.portfolio_lanes);
+  });
+
+  it("splits the rail by the lanes the server published", () => {
+    renderPanel();
+    expect(screen.getByRole("button", { name: "Must do regardless of size" })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Ranked by value recoverable" }),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps a compliance card visible instead of letting size bury it", () => {
+    // ANM-023 is $48,939 against ANM-021's $178,217. In one ranked list it
+    // sinks; in its own lane it is the first thing in that lane.
+    renderPanel();
+    const headings = [...document.querySelectorAll("section")].map(
+      (section) => section.textContent ?? "",
+    );
+    const compliance = headings.find((text) => text.includes("Must do regardless of size"));
+    expect(compliance).toContain("Double-posted payments awaiting refund");
+  });
+
+  it("shows both figures on a card this platform re-derived differently", () => {
+    renderPanel();
+    // The detector's assertion (also quoted in its own description) …
+    expect(screen.getAllByText(/\$178,217/).length).toBeGreaterThan(0);
+    // … and this platform's re-derivation of the same cell, with the gap.
+    expect(screen.getByText(/this platform: \$195,874/)).toBeInTheDocument();
+    expect(screen.getByText(/\+9\.9%/)).toBeInTheDocument();
+  });
+
+  it("confirms an agreement quietly rather than repeating the number", () => {
+    renderPanel();
+    expect(screen.getByText("Matches this platform's own figure")).toBeInTheDocument();
+  });
+
+  it("says when the detector's figure stands alone", () => {
+    renderPanel();
+    expect(
+      screen.getByText("not re-derived here — the detector's figure alone"),
+    ).toBeInTheDocument();
+  });
+
+  it("names the measure in the pack's governed words when the id overclaims", () => {
+    renderPanel();
+    expect(
+      screen.getByText("Discharged not final billed (unbilled discharges)"),
+    ).toBeInTheDocument();
+  });
+
+  it("carries the card's id on the drill so the answer can reconcile to it", async () => {
+    const submit = vi.fn();
+    useSessionStore.setState({ submit });
+    renderPanel();
+    await userEvent.click(screen.getByLabelText(/Drill into DNFB accumulation/));
+    expect(submit).toHaveBeenCalledWith(
+      expect.objectContaining({ anomalyRef: "ANM-021", spec: expect.any(Object) }),
+    );
+  });
+
+  it("draws one ungrouped list when no lanes are published", () => {
+    served = snapshot();
+    renderPanel();
+    expect(
+      screen.queryByRole("button", { name: "Ranked by value recoverable" }),
+    ).not.toBeInTheDocument();
+  });
+
+  it("titles the snapshot's cautions from their codes", () => {
+    renderPanel();
+    expect(screen.getByText("Some of this list cannot be opened")).toBeInTheDocument();
+    expect(
+      screen.getByText("Some figures disagree with this platform's own"),
+    ).toBeInTheDocument();
   });
 });

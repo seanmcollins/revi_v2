@@ -3,6 +3,7 @@
 import { Radar } from "lucide-react";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import type { PriorityDecomposition } from "@/lib/mock/portfolio";
 import { cn } from "@/lib/utils";
 
 /**
@@ -23,10 +24,15 @@ import { cn } from "@/lib/utils";
 export function DetectionBadge({
   priorityFormulaVersion,
   sourceWatermarkId,
+  priority,
+  priorityScore,
   className,
 }: {
   priorityFormulaVersion?: string;
   sourceWatermarkId?: string;
+  /** Every term of the formula named above — see `PriorityDecomposition`. */
+  priority?: PriorityDecomposition;
+  priorityScore?: number;
   className?: string;
 }) {
   return (
@@ -67,7 +73,43 @@ export function DetectionBadge({
             )}
           </dl>
         )}
+        {/* The formula's own terms. A ranked list that will not show its
+            working is asking to be trusted on the ordering, and the
+            server publishes every term precisely so it does not have to
+            be. `floorApplied` is the one that changes the reading: a
+            compliance card whose score was raised to the floor did not
+            earn its position by size, and says so. */}
+        {priority && (
+          <dl className="num mt-1.5 space-y-0.5 border-t border-current/15 pt-1.5 text-[0.65rem] leading-snug opacity-70">
+            <Term label="Impact" value={priority.impactTerm} />
+            <Term label="Recency" value={priority.recencyTerm} />
+            <Term label="Recoverable" value={priority.actionabilityTerm} />
+            <div className="flex justify-between gap-3 font-medium">
+              <dt>Score</dt>
+              <dd className="font-mono">
+                {(priorityScore ?? priority.scoreBeforeFloor).toFixed(3)}
+              </dd>
+            </div>
+            {priority.floorApplied && (
+              <p className="pt-0.5 font-sans opacity-90">
+                Raised to the compliance floor ({priority.floorValue.toFixed(3)},{" "}
+                {priority.floorBasis.replace(/_/g, " ")}) from {priority.scoreBeforeFloor.toFixed(3)}
+                — worked because the rule requires it, not because of its size.
+              </p>
+            )}
+          </dl>
+        )}
       </TooltipContent>
     </Tooltip>
+  );
+}
+
+/** One weighted term of the priority score, as the server computed it. */
+function Term({ label, value }: { label: string; value: number }) {
+  return (
+    <div className="flex justify-between gap-3">
+      <dt>{label}</dt>
+      <dd className="font-mono">{value.toFixed(3)}</dd>
+    </div>
   );
 }

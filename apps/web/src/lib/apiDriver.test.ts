@@ -303,6 +303,28 @@ describe("ApiDriver session bootstrap", () => {
     expect(turn?.body?.spec).toEqual(spec);
     expect(turn?.body).not.toHaveProperty("refinements");
     expect(turn?.body).not.toHaveProperty("utterance");
+    // No card was named, so no reconciliation is requested.
+    expect(turn?.body).not.toHaveProperty("anomaly_ref");
+  });
+
+  it("names the card a drill came from, so the answer can reconcile to it", async () => {
+    const { fetchImpl, calls } = scriptedFetch((call) =>
+      call.url.endsWith("/v1/sessions")
+        ? fakeResponse({ json: SESSION_WIRE })
+        : fakeResponse({ stream: streamOf(COMPLETE_FRAMES) }),
+    );
+    const driver = makeDriver(fetchImpl);
+    // Without `anomaly_ref` the server publishes no `anomaly_reconciliation`
+    // — which is how a card reading $178,217 and its own drill reading
+    // $195,873.92 ended up on consecutive screens with nothing connecting
+    // them.
+    await collectSubmit(driver, {
+      spec: { metric_ids: ["dnfb_dollars"] },
+      anomalyRef: "ANM-021",
+    });
+
+    const turn = calls.find((c) => c.url.includes("/turns"));
+    expect(turn?.body?.anomaly_ref).toBe("ANM-021");
   });
 
   it("flags contract drift on a malformed session response without going offline", async () => {

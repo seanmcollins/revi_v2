@@ -26,9 +26,11 @@
  */
 
 import type {
+  AnomalyReconciliation,
   ChartRow,
   ChartSpec,
   ClarificationData,
+  CohortSummary,
   ComparisonKind,
   Confidence,
   ContextHeaderData,
@@ -46,6 +48,7 @@ import type {
   LineageEdge,
   LineageNode,
   MetricContractRef,
+  MetricDisplay,
   MetricProvenance,
   PackVersionRef,
   ProbeEvidence,
@@ -58,11 +61,16 @@ import type {
   SuggestedRefinement,
   TurnClass,
   TurnEvent,
+  TurnUsage,
   WarningEvent,
 } from "@/lib/types";
 import { GRADE_STRENGTH } from "@/lib/types";
 import { formatMeasure, type MeasureUnit } from "@/lib/format";
-import type { PortfolioItem } from "@/lib/mock/portfolio";
+import type {
+  PortfolioItem,
+  PortfolioLane,
+  PriorityDecomposition,
+} from "@/lib/mock/portfolio";
 
 export type ParseResult<T> = { ok: true; value: T } | { ok: false; missing: string[] };
 
@@ -124,6 +132,13 @@ export interface ErrorEnvelopeData {
   code: string;
   message: string;
   correlationId: string;
+  /**
+   * `ErrorEnvelope.subcode` — which of two failures wearing one code this
+   * was. Only `QUERY_BUDGET_EXCEEDED` publishes one today
+   * (`WAREHOUSE_READ_BUDGET` | `MODEL_SPEND_BUDGET`); read tolerantly, so
+   * a code that grows one later needs no change here.
+   */
+  subcode?: string;
 }
 
 export function parseErrorEnvelope(raw: unknown): ParseResult<ErrorEnvelopeData> {
@@ -137,6 +152,9 @@ export function parseErrorEnvelope(raw: unknown): ParseResult<ErrorEnvelopeData>
       code: String(record.code),
       message: String(record.message),
       correlationId: String(record.correlation_id),
+      ...(typeof record.subcode === "string" && record.subcode !== ""
+        ? { subcode: record.subcode }
+        : {}),
     },
   };
 }
@@ -463,8 +481,13 @@ export function humanizeColumn(column: string): string {
  * nothing is lost by putting the analyst's words on the chart itself.
  * The window is appended at render time, where the header is in scope.
  */
-function composeChartTitle(valueColumn: string, xColumn: string): string {
-  const measure = humanizeColumn(valueColumn);
+function composeChartTitle(
+  valueColumn: string,
+  xColumn: string,
+  /** `valueColumn` is already a governed display name — do not re-spell it. */
+  governedName = false,
+): string {
+  const measure = governedName ? valueColumn : humanizeColumn(valueColumn);
   if (!xColumn || xColumn === valueColumn) return measure;
   return `${measure} by ${humanizeColumn(xColumn).toLowerCase()}`;
 }
@@ -537,6 +560,16 @@ function mapSuggestedRefinements(raw: unknown): SuggestedRefinement[] {
 export interface FindingContext {
   unitByMetric?: Record<string, MeasureDisplay>;
   impactWithheldReason?: string;
+  /**
+   * `metric_display` — the pack's governed corrections, by metric id. The
+   * engine composes a finding title from the raw id (`metric_label()` is
+   * `id.replace("_", " ")`), so "timely filing at risk dollars: $22.4M"
+   * reaches this client naming a filing exposure the formula never
+   * measures. The narrative is already corrected server-side; titles are
+   * corrected here, from the same governed entries, so the two surfaces of
+   * one answer cannot call the same number two different things.
+   */
+  metricDisplay?: Record<string, MetricDisplay>;
 }
 
 /** Values that are comparison anatomy, not standalone measures. */
@@ -576,7 +609,7 @@ export function mapFinding(raw: unknown, context: FindingContext = {}): Finding 
       // Same scaling as the chart rows, from the same table: a `ratio`
       // metric publishes 0.121361 and the card must read "12.1%".
       impactDisplay = formatMeasure(value * display.scale, display.unit);
-      impactLabel = humanizeColumn(metricId).toLowerCase();
+      impactLabel = measureLabel(metricId, context.metricDisplay);
       break;
     }
     if (impactDisplay === undefined) {
@@ -590,7 +623,7 @@ export function mapFinding(raw: unknown, context: FindingContext = {}): Finding 
         const display = context.unitByMetric?.[name];
         if (display !== undefined) {
           impactDisplay = formatMeasure((value as number) * display.scale, display.unit);
-          impactLabel = humanizeColumn(name).toLowerCase();
+          impactLabel = measureLabel(name, context.metricDisplay);
         }
       }
     }
@@ -599,10 +632,30 @@ export function mapFinding(raw: unknown, context: FindingContext = {}): Finding 
   const withheld =
     impactCents === undefined && hasComparison ? context.impactWithheldReason : undefined;
 
+  // The governed name for whichever of this finding's measures has one.
+  // Only the FIRST match is carried on the finding: the caveat that
+  // travels with a display name is about one measure, and hanging two of
+  // them off one card would attribute each to the other.
+  const correction = context.metricDisplay
+    ? metricRefs.map((id) => context.metricDisplay?.[id]).find((entry) => entry !== undefined)
+    : undefined;
+
   return {
     referent: { value: asString(raw.referent), kind: "finding" },
-    title: asString(raw.title),
-    statement: asString(raw.statement),
+    // The title and statement as the engine composed them, with raw metric
+    // ids replaced by the pack's governed display names. Both, not just
+    // the title: they are composed by the same server-side formatter from
+    // the same `metric_label()` spelling and they sit two lines apart, so
+    // correcting one leaves a card whose heading and whose sentence call
+    // the same number different things. The narrative above them is
+    // already corrected server-side from these very entries. Nothing else
+    // in either string is touched — see `applyMetricDisplayNames`.
+    title: context.metricDisplay
+      ? applyMetricDisplayNames(asString(raw.title), context.metricDisplay)
+      : asString(raw.title),
+    statement: context.metricDisplay
+      ? applyMetricDisplayNames(asString(raw.statement), context.metricDisplay)
+      : asString(raw.statement),
     metricRefs,
     values,
     grade: asString(raw.grade, "direct") as EvidenceGrade,
@@ -630,7 +683,23 @@ export function mapFinding(raw: unknown, context: FindingContext = {}): Finding 
     directionOfGood: "neutral",
     confidence: asString(raw.confidence, "high") as Confidence,
     suggestedRefinements: mapSuggestedRefinements(raw.suggested_refinements),
+    ...(correction !== undefined ? { metricDisplay: correction } : {}),
   };
+}
+
+/**
+ * A measure's caption under the impact stat: the pack's governed display
+ * name when there is one, and the humanized id otherwise. Lower-cased only
+ * in the fallback — a display name is an authored phrase ("Discharged not
+ * final billed (unbilled discharges)") and lower-casing it would be this
+ * client editing governed content.
+ */
+function measureLabel(
+  metricId: string,
+  display: Record<string, MetricDisplay> | undefined,
+): string {
+  const entry = display?.[metricId];
+  return entry ? entry.displayName : humanizeColumn(metricId).toLowerCase();
 }
 
 /**
@@ -665,7 +734,10 @@ export function impactWithheldReason(warnings: readonly string[]): string | unde
     : "not published — the comparison window is not the same length as the analysis window";
 }
 
-export function mapChartSpec(raw: unknown): ChartSpec | null {
+export function mapChartSpec(
+  raw: unknown,
+  metricDisplay?: Record<string, MetricDisplay>,
+): ChartSpec | null {
   if (!isRecord(raw)) return null;
   const wireType = asString(raw.chart_type);
   const wireUnit = asString(raw.unit);
@@ -708,7 +780,15 @@ export function mapChartSpec(raw: unknown): ChartSpec | null {
     kind,
     wireChartType: wireType,
     frameId: asString(raw.frame_id) || undefined,
-    title: composeChartTitle(valueColumn, xColumn),
+    // The chart names the same measure the finding above it does, so it
+    // takes the same governed correction: a card reading "Discharged not
+    // final billed" over an axis reading "Dnfb dollars" is one answer
+    // calling one number two things.
+    title: composeChartTitle(
+      metricDisplay?.[valueColumn]?.displayName ?? valueColumn,
+      xColumn,
+      metricDisplay?.[valueColumn] !== undefined,
+    ),
     wireTitle: asString(raw.title) || undefined,
     unit: CHART_UNIT_BY_WIRE[wireUnit] ?? "count",
     xLabel: xColumn || undefined,
@@ -1122,6 +1202,58 @@ export function mapAnswerWarning(sentence: string): Omit<WarningEvent, "type"> {
   return { code: "ANSWER_NOTE", message: sentence, severity: "info" };
 }
 
+/**
+ * `warnings_v2` — the same warnings, classified server-side into
+ * `{code, severity, message, count}` so a client can group, count, filter
+ * and title them without matching substrings.
+ *
+ * Entries missing a `code` or a `message` are skipped rather than
+ * defaulted: a warning with no sentence has nothing to say, and one with
+ * no code is exactly what `UNCLASSIFIED` exists to be. `severity` is the
+ * server's two-value ladder and is never re-derived here — anything
+ * outside it reads as `caution`, because the failure mode of guessing
+ * "info" over a caution is the one that costs a reader money.
+ */
+export function mapStructuredWarning(raw: unknown): Omit<WarningEvent, "type"> | null {
+  if (!isRecord(raw)) return null;
+  const code = asString(raw.code);
+  const message = asString(raw.message);
+  if (code === "" || message === "") return null;
+  const count = asNumber(raw.count);
+  return {
+    code,
+    message,
+    severity: raw.severity === "info" ? "info" : "caution",
+    ...(count !== undefined && count > 1 ? { count } : {}),
+    structured: true,
+  };
+}
+
+/**
+ * The turn's warnings, preferring the structured list.
+ *
+ * `warnings_v2` wins whenever the server published one; the prose strings
+ * stay the fallback for turns stored before it existed, which is the whole
+ * reason both still travel. Note the asymmetry in the guard: an EMPTY
+ * `warnings_v2` beside non-empty `warnings` means this response predates
+ * the classifier (the server never drops a warning during classification),
+ * so the strings are read rather than the emptiness being believed.
+ */
+export function readTurnWarnings(
+  structured: unknown,
+  sentences: readonly string[],
+): Omit<WarningEvent, "type">[] {
+  if (Array.isArray(structured) && structured.length > 0) {
+    const mapped: Omit<WarningEvent, "type">[] = [];
+    for (const entry of structured) {
+      const warning = mapStructuredWarning(entry);
+      if (warning !== null) mapped.push(warning);
+    }
+    if (mapped.length > 0) return mapped;
+  }
+  return sentences.map(mapAnswerWarning);
+}
+
 /* ------------------------------------------------------------------ */
 /* EvidencePayload → EvidenceBundle (the drawer, banner, cache chip)    */
 /* ------------------------------------------------------------------ */
@@ -1248,6 +1380,238 @@ export function mapMetricProvenance(raw: unknown): MetricProvenance | undefined 
 }
 
 /* ------------------------------------------------------------------ */
+/* CohortPayload → CohortSummary (the context header's cohort chip)     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * `TurnAnswer.cohort` — the pinned population said in words.
+ *
+ * The context header publishes only the cohort's id and size, which is
+ * what made the chip read `coh_9f2a11… (312)`: an analyst who had just
+ * drilled "the top three payers" was handed their own selection back in a
+ * vocabulary nobody speaks. Everything the chip needs was already on the
+ * pinned cohort and none of it was on the wire; this block is that
+ * projection, and `detailed: true` marks the chip as safe to render as a
+ * definition rather than as a handle.
+ *
+ * Read tolerantly on purpose: the origin lookups are best-effort
+ * server-side (a registry entry can age out), so an incomplete provenance
+ * costs the reader the provenance line and nothing else. A payload with
+ * no `id` is not a cohort and is dropped.
+ */
+export function mapCohort(raw: unknown): CohortSummary | undefined {
+  if (!isRecord(raw)) return undefined;
+  const id = asString(raw.id);
+  if (id === "") return undefined;
+  const definition = asString(raw.definition);
+  return {
+    id,
+    // The intensional rule when there is one; the handle otherwise, so
+    // the chip never renders an empty label that reads as no population.
+    definition: definition !== "" ? definition : id,
+    pinned: raw.pinned === true,
+    // `origin_turn_id` is the turn the population was selected in — the
+    // same fact the legacy shape called `originTurn`.
+    originTurn: asString(raw.origin_turn_id),
+    size: asNumber(raw.size) ?? 0,
+    ...(optionalString(raw.entity_grain) ? { entityGrain: String(raw.entity_grain) } : {}),
+    ...(optionalString(raw.origin_referent)
+      ? { originReferent: String(raw.origin_referent) }
+      : {}),
+    ...(optionalString(raw.origin_investigation_id)
+      ? { originInvestigationId: String(raw.origin_investigation_id) }
+      : {}),
+    ...(optionalString(raw.window_start) ? { windowStart: String(raw.window_start) } : {}),
+    ...(optionalString(raw.window_end) ? { windowEnd: String(raw.window_end) } : {}),
+    ...(optionalString(raw.pinned_watermark_id)
+      ? { pinnedWatermarkId: String(raw.pinned_watermark_id) }
+      : {}),
+    detailed: true,
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* AnomalyReconciliationPayload → AnomalyReconciliation                */
+/* ------------------------------------------------------------------ */
+
+const ANOMALY_AGREEMENTS: ReadonlySet<string> = new Set([
+  "agreed",
+  "diverged",
+  "unavailable",
+]);
+
+/**
+ * `TurnAnswer.anomaly_reconciliation` — the drilled card's figure beside
+ * this platform's re-derivation of it. Published only when the turn
+ * carried an `anomaly_ref`, which is why the UI has to send one.
+ *
+ * A payload whose `status` is not one of the three published values is
+ * dropped rather than defaulted: "unavailable" and "agreed" are opposite
+ * claims about the same pair of numbers, and guessing between them is
+ * exactly the silence this strip exists to end.
+ */
+export function mapAnomalyReconciliation(raw: unknown): AnomalyReconciliation | undefined {
+  if (!isRecord(raw)) return undefined;
+  const status = asString(raw.status);
+  if (!ANOMALY_AGREEMENTS.has(status)) return undefined;
+  const cardImpact = asNumber(raw.card_impact_cents);
+  if (cardImpact === undefined) return undefined;
+  const answerImpact = asNumber(raw.answer_impact_cents);
+  const deltaCents = asNumber(raw.delta_cents);
+  const deltaFraction = asNumber(raw.delta_fraction);
+  return {
+    anomalyId: asString(raw.anomaly_id),
+    status: status as AnomalyReconciliation["status"],
+    cardImpactCents: cardImpact,
+    ...(answerImpact !== undefined ? { answerImpactCents: answerImpact } : {}),
+    ...(deltaCents !== undefined ? { deltaCents } : {}),
+    ...(deltaFraction !== undefined ? { deltaFraction } : {}),
+    ...(optionalString(raw.card_metric_id) ? { cardMetricId: String(raw.card_metric_id) } : {}),
+    ...(optionalString(raw.answer_metric_id)
+      ? { answerMetricId: String(raw.answer_metric_id) }
+      : {}),
+    ...(optionalString(raw.card_window_start)
+      ? { cardWindowStart: String(raw.card_window_start) }
+      : {}),
+    ...(optionalString(raw.card_window_end)
+      ? { cardWindowEnd: String(raw.card_window_end) }
+      : {}),
+    ...(optionalString(raw.detail) ? { detail: String(raw.detail) } : {}),
+    ...(optionalString(raw.summary) ? { summary: String(raw.summary) } : {}),
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* MetricDisplayPayload → governed display names                       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * `TurnAnswer.metric_display` / `CapabilitiesResponse.metric_display` —
+ * the pack's corrections for metric ids that overclaim.
+ *
+ * Note what this payload does NOT carry: a unit. `unitsFromChartSpecs`
+ * therefore stays exactly where it is — the turn's `chart_specs` are still
+ * the only published place a measure's unit appears, and the `ratio`
+ * rescaling that depends on it (0.121361 → "12.1%") is untouched by
+ * anything here. Display names correct what a number is CALLED; they say
+ * nothing about how it is rendered.
+ */
+export function mapMetricDisplay(raw: unknown): MetricDisplay[] {
+  const out: MetricDisplay[] = [];
+  for (const entry of asArray(raw)) {
+    if (!isRecord(entry)) continue;
+    const metricId = asString(entry.metric_id);
+    const displayName = asString(entry.display_name);
+    if (metricId === "" || displayName === "") continue;
+    out.push({
+      metricId,
+      displayName,
+      ...(optionalString(entry.caveat) ? { caveat: String(entry.caveat) } : {}),
+      ...(optionalString(entry.rationale) ? { rationale: String(entry.rationale) } : {}),
+    });
+  }
+  return out;
+}
+
+export function metricDisplayIndex(
+  entries: readonly MetricDisplay[],
+): Record<string, MetricDisplay> {
+  const index: Record<string, MetricDisplay> = {};
+  for (const entry of entries) index[entry.metricId] = entry;
+  return index;
+}
+
+/**
+ * The engine's own spelling of a metric id in prose: `metric_label()` on
+ * the server is `metric_id.replace("_", " ")`, and finding titles and
+ * statements are built from it. Matching that exact form is what lets a
+ * governed display name be substituted into a title the server already
+ * composed, without touching anything else in the sentence.
+ */
+function metricPhrase(metricId: string): string {
+  return metricId.replace(/_/g, " ");
+}
+
+/**
+ * Apply governed display names to one server-composed string.
+ *
+ * A finding title reads `… : $22.4M timely filing at risk dollars`; the
+ * pack says that measure is "Unbilled open inventory (timely-filing watch
+ * proxy)". The substitution is whole-phrase and case-insensitive, and
+ * touches nothing it was not asked to: a metric with no correction, or a
+ * title that never names its measure, comes back byte-identical.
+ *
+ * ONE pass over the text, with the alternatives ordered longest-first.
+ * Both properties are load-bearing and both were learned the hard way:
+ *
+ *   longest-first, so `denial_rate` cannot claim the "denial rate" inside
+ *     an `initial_denial_rate` phrase that has its own entry;
+ *   one pass, so a name this function has just INSERTED is never matched
+ *     again by a shorter entry — replacing sequentially turned "initial
+ *     denial rate" into "First-pass Denial rate (all payers)", which is
+ *     the correction eating its own output.
+ */
+export function applyMetricDisplayNames(
+  text: string,
+  display: Record<string, MetricDisplay>,
+): string {
+  if (text === "") return text;
+  // Both spellings a server-composed string can carry: the prose form the
+  // engine writes (`metric_label()` → "dnfb dollars") and the raw id.
+  const alternatives: { spelling: string; displayName: string }[] = [];
+  for (const entry of Object.values(display)) {
+    alternatives.push({ spelling: metricPhrase(entry.metricId), displayName: entry.displayName });
+    if (entry.metricId !== metricPhrase(entry.metricId)) {
+      alternatives.push({ spelling: entry.metricId, displayName: entry.displayName });
+    }
+  }
+  if (alternatives.length === 0) return text;
+  alternatives.sort((a, b) => b.spelling.length - a.spelling.length);
+  const bySpelling = new Map(
+    alternatives.map((a) => [a.spelling.toLowerCase(), a.displayName]),
+  );
+  const pattern = new RegExp(
+    `(^|[^\\w])(${alternatives
+      .map((a) => a.spelling.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+      .join("|")})(?![\\w])`,
+    "gi",
+  );
+  return text.replace(
+    pattern,
+    (match, lead: string, spelling: string) =>
+      `${lead}${bySpelling.get(spelling.toLowerCase()) ?? match}`,
+  );
+}
+
+/* ------------------------------------------------------------------ */
+/* UsageSummary → TurnUsage                                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * What a turn spent. `cost_usd` stays a STRING all the way to the screen:
+ * the server sends a decimal and a price rounded through a float is not
+ * the price that was charged.
+ *
+ * `undefined` when the server published no block, and when it published
+ * one recording nothing — a turn that made no model call has no cost to
+ * report, and "$0.000000" on a card is noise dressed as disclosure.
+ */
+export function mapUsage(raw: unknown): TurnUsage | undefined {
+  if (!isRecord(raw)) return undefined;
+  const usage: TurnUsage = {
+    llmCalls: asNumber(raw.llm_calls) ?? 0,
+    costUsd: asString(raw.cost_usd, "0"),
+    inputTokens: asNumber(raw.input_tokens) ?? 0,
+    outputTokens: asNumber(raw.output_tokens) ?? 0,
+    cacheReadTokens: asNumber(raw.cache_read_tokens) ?? 0,
+    cacheCreationTokens: asNumber(raw.cache_creation_tokens) ?? 0,
+    schemaRetries: asNumber(raw.schema_retries) ?? 0,
+  };
+  if (usage.llmCalls === 0 && Number(usage.costUsd) === 0) return undefined;
+  return usage;
+}
+
+/* ------------------------------------------------------------------ */
 /* SSE frame parsing                                                   */
 /* ------------------------------------------------------------------ */
 
@@ -1325,6 +1689,9 @@ export function parseTurnFrame(
           code: asString(raw.code),
           message: asString(raw.message),
           correlationId: asString(raw.correlation_id),
+          // Which of the two budgets stopped the turn, when the envelope
+          // says. The two want opposite responses from the reader.
+          ...(optionalString(raw.subcode) ? { subcode: String(raw.subcode) } : {}),
         },
       };
     case "turn_complete":
@@ -1375,6 +1742,20 @@ export type TurnResponseData =
        * nothing rather than implying an ungoverned answer.
        */
       metric?: MetricProvenance;
+      /**
+       * The pinned population as words rather than as a hash
+       * (`TurnAnswer.cohort`). Merged onto the header before it reaches
+       * the store, because the chip lives in the context header and the
+       * header payload publishes only the id and the size.
+       */
+      cohort?: CohortSummary;
+      /**
+       * The drilled card's figure beside this platform's re-derivation of
+       * it. Present only when the turn carried an `anomaly_ref`.
+       */
+      anomalyReconciliation?: AnomalyReconciliation;
+      /** The pack's governed display-name corrections for this turn's measures. */
+      metricDisplay?: MetricDisplay[];
       /** Published only when the settings in force had debug on. */
       debug?: DebugTrace;
     }
@@ -1386,7 +1767,13 @@ export type TurnResponseData =
       watermarkStale: boolean;
       debug?: DebugTrace;
     }
-  | { outcome: "error"; sessionId?: string; error: ErrorEnvelopeData };
+  | {
+      outcome: "error";
+      sessionId?: string;
+      error: ErrorEnvelopeData;
+      /** What the failed turn still spent (`TurnError.usage`). */
+      usage?: TurnUsage;
+    };
 
 export interface TurnResponseParse {
   /** Null when required fields are missing (fatal drift). */
@@ -1409,11 +1796,13 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
     if (!envelope.ok) {
       return { value: null, drift: envelope.missing.map((path) => `error.${path}`) };
     }
+    const errorUsage = mapUsage(raw.usage);
     return {
       value: {
         outcome: "error",
         ...(typeof raw.session_id === "string" ? { sessionId: raw.session_id } : {}),
         error: envelope.value,
+        ...(errorUsage !== undefined ? { usage: errorUsage } : {}),
       },
       drift: [],
     };
@@ -1448,11 +1837,14 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
   if (drift.length > 0) return { value: null, drift };
 
   const warningSentences = asArray(raw.warnings).filter((w): w is string => typeof w === "string");
+  const metricDisplay = mapMetricDisplay(raw.metric_display);
+  const displayIndex = metricDisplayIndex(metricDisplay);
   const findingContext: FindingContext = {
     unitByMetric: unitsFromChartSpecs(raw.chart_specs),
     ...(impactWithheldReason(warningSentences) !== undefined
       ? { impactWithheldReason: impactWithheldReason(warningSentences) }
       : {}),
+    ...(metricDisplay.length > 0 ? { metricDisplay: displayIndex } : {}),
   };
 
   const findings: Finding[] = [];
@@ -1467,7 +1859,7 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
 
   const charts: ChartSpec[] = [];
   asArray(raw.chart_specs).forEach((entry, index) => {
-    const spec = mapChartSpec(entry);
+    const spec = mapChartSpec(entry, displayIndex);
     if (spec === null || spec.id === "") {
       drift.push(`chart_specs[${index}].id`);
       return;
@@ -1475,7 +1867,14 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
     charts.push(spec);
   });
 
-  const header = raw.context_header != null ? mapContextHeader(raw.context_header, pin) : null;
+  const cohort = mapCohort(raw.cohort);
+  const anomalyReconciliation = mapAnomalyReconciliation(raw.anomaly_reconciliation);
+  const headerOnly = raw.context_header != null ? mapContextHeader(raw.context_header, pin) : null;
+  // The header's own cohort block is an id and a size; the full definition
+  // travels beside it on the answer. Merged here, once, so no component
+  // has to know there were ever two sources for one chip.
+  const header =
+    headerOnly !== null && cohort !== undefined ? { ...headerOnly, cohort } : headerOnly;
   const definition = raw.definitional != null ? mapDefinitional(raw.definitional, pin) : null;
   const trace = mapDebugTrace(raw.debug);
   const evidence = mapEvidence(raw.evidence);
@@ -1493,13 +1892,16 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
       ...(typeof raw.narrative === "string" && raw.narrative !== ""
         ? { narrative: raw.narrative }
         : {}),
-      warnings: warningSentences.map(mapAnswerWarning),
+      warnings: readTurnWarnings(raw.warnings_v2, warningSentences),
       ...(definition !== null ? { definition } : {}),
       ...(typeof raw.reconciliation === "string" ? { reconciliation: raw.reconciliation } : {}),
       ...(typeof raw.plan_hash === "string" ? { planHash: raw.plan_hash } : {}),
       watermarkStale: raw.watermark_stale === true,
       ...(evidence !== undefined ? { evidence } : {}),
       ...(metric !== undefined ? { metric } : {}),
+      ...(cohort !== undefined ? { cohort } : {}),
+      ...(anomalyReconciliation !== undefined ? { anomalyReconciliation } : {}),
+      ...(metricDisplay.length > 0 ? { metricDisplay } : {}),
       ...(trace !== null ? { debug: trace } : {}),
     },
     drift,
@@ -1553,6 +1955,10 @@ export function parseInvestigationResponse(raw: unknown): TurnResponseParse {
   }
 
   const restoredWarnings = asArray(raw.warnings).filter((w): w is string => typeof w === "string");
+  // `InvestigationResponse` publishes no `metric_display` block, so a
+  // restored turn's titles keep the engine's raw spelling. That is the
+  // honest read of what the store kept — inventing corrections here from
+  // today's pack would caption an older answer with names it never used.
   const restoredContext: FindingContext = {
     unitByMetric: unitsFromChartSpecs(raw.chart_specs),
     ...(impactWithheldReason(restoredWarnings) !== undefined
@@ -1586,6 +1992,11 @@ export function parseInvestigationResponse(raw: unknown): TurnResponseParse {
   });
   const evidence = mapEvidence(raw.evidence);
   const metric = mapMetricProvenance(raw.metric);
+  // `InvestigationResponse.cohort` is published and deliberately not read
+  // here: the cohort chip lives in the context header, and a restored
+  // investigation carries no header (no window, no scope, no data-load
+  // chip either). A lone cohort chip floating above findings with none of
+  // the context beside it would claim a header this turn does not have.
 
   return {
     value: {
@@ -1595,7 +2006,11 @@ export function parseInvestigationResponse(raw: unknown): TurnResponseParse {
       turnClass: asString(raw.turn_class) as TurnClass,
       findings,
       charts,
-      warnings: restoredWarnings.map(mapAnswerWarning),
+      // Structured when the stored investigation has them; the prose
+      // strings when it does not — which is exactly the case this
+      // fallback exists for, since investigations stored before
+      // `warnings_v2` shipped carry only sentences.
+      warnings: readTurnWarnings(raw.warnings_v2, restoredWarnings),
       ...(typeof raw.plan_hash === "string" ? { planHash: raw.plan_hash } : {}),
       ...(evidence !== undefined ? { evidence } : {}),
       ...(metric !== undefined ? { metric } : {}),
@@ -1749,8 +2164,17 @@ export function trackReceived(received: ReceivedTurnState, event: TurnEvent): vo
 /**
  * Convert a completed TurnResponse into the event stream the store already
  * understands, skipping everything the live stream delivered before it
- * dropped (findings by referent, charts by id, the narrative prefix).
- * Append-only answer state stays duplicate-free.
+ * dropped (findings by referent, charts by id, the narrative prefix), so
+ * the answer state stays duplicate-free.
+ *
+ * Two things are re-emitted on purpose rather than skipped, and both are
+ * the same fact: some of an answer's own vocabulary is not settled until
+ * the turn is. The context header's cohort is a hash on the streamed frame
+ * and a definition on the terminal one; findings and charts name their
+ * measure by its raw id on the streamed frame and by the pack's governed
+ * display name on the terminal one. The store replaces the header and
+ * upserts findings/charts by identity, so re-emitting corrects rather than
+ * duplicates.
  */
 export function turnResponseToEvents(
   response: TurnResponseData,
@@ -1764,6 +2188,8 @@ export function turnResponseToEvents(
       code: response.error.code,
       message: response.error.message,
       correlationId: response.error.correlationId,
+      ...(response.error.subcode ? { subcode: response.error.subcode } : {}),
+      ...(response.usage ? { usage: response.usage } : {}),
     });
     return events;
   }
@@ -1782,7 +2208,13 @@ export function turnResponseToEvents(
     return events;
   }
 
-  if (response.header && !received.hasHeader) {
+  // The header is re-emitted when this response carries a cohort even
+  // though the stream already delivered one: the streamed `context_header`
+  // frame publishes the cohort as an id and a size, and the definition,
+  // grain and origin ride only on the terminal payload. Re-emitting is
+  // safe because the store REPLACES the header (it is not append-only
+  // state like findings), so the authoritative version simply wins.
+  if (response.header && (!received.hasHeader || response.cohort !== undefined)) {
     events.push({
       type: "context_header",
       header: response.header,
@@ -1791,13 +2223,22 @@ export function turnResponseToEvents(
   }
   // Close out the stage rail honestly: the pipeline finished server-side.
   events.push({ type: "stage", stage: "narrating", status: "completed" });
+  // Findings and charts already delivered on the live stream are re-emitted
+  // when this turn published display-name corrections, for the same reason
+  // the header is: `metric_display` rides on the TERMINAL payload, so a
+  // streamed `finding` frame necessarily carries the engine's raw spelling
+  // ("… $195,873.92 dnfb dollars") while the completed answer's narrative
+  // reads "discharged not final billed". One answer must not call one
+  // number two things. The store upserts findings by referent and charts
+  // by id, so re-emitting replaces rather than duplicates.
+  const corrected = response.metricDisplay !== undefined && response.metricDisplay.length > 0;
   for (const finding of response.findings) {
-    if (!received.findingReferents.has(finding.referent.value)) {
+    if (corrected || !received.findingReferents.has(finding.referent.value)) {
       events.push({ type: "finding", finding });
     }
   }
   for (const spec of response.charts) {
-    if (!received.chartIds.has(spec.id)) events.push({ type: "chart_spec", spec });
+    if (corrected || !received.chartIds.has(spec.id)) events.push({ type: "chart_spec", spec });
   }
   for (const warning of response.warnings) {
     if (!received.warningKeys.has(`${warning.code}:${warning.message}`)) {
@@ -1832,6 +2273,14 @@ export function turnResponseToEvents(
     // a probe read is only settled once it has run) and is carried
     // through as the server projected it.
     ...(response.metric ? { metric: response.metric } : {}),
+    // Both ride on the terminal frame for the same reason the grade does:
+    // neither is settled until the turn is. The reconciliation needs the
+    // answer's own figure, and the display list names the metrics the
+    // finished answer actually cited.
+    ...(response.anomalyReconciliation
+      ? { anomalyReconciliation: response.anomalyReconciliation }
+      : {}),
+    ...(response.metricDisplay ? { metricDisplay: response.metricDisplay } : {}),
     ...(response.debug ? { debug: response.debug } : {}),
   });
   return events;
@@ -2061,19 +2510,76 @@ export interface PortfolioSnapshotData {
   watermark?: string;
   rankingPolicy?: string;
   /**
-   * `PortfolioResponse.warnings` — snapshot-level truth about the list
-   * itself ("4 of 33 detected anomalies (36% of ranked impact) are not
-   * investigable at this catalog and pack version…"). Published since the
-   * endpoint shipped and, until now, read by nothing: the panel showed
-   * 33 confident-looking rows and said nothing about the 36% it could not
-   * open.
+   * `PortfolioResponse.warnings_v2` (falling back to the prose
+   * `warnings`) — snapshot-level truth about the list itself ("4 of 33
+   * detected anomalies (36% of ranked impact) are not investigable at
+   * this catalog and pack version…"). Published since the endpoint
+   * shipped and, until recently, read by nothing: the panel showed 33
+   * confident-looking rows and said nothing about the 36% it could not
+   * open. Now classified, so the rail can style a caution apart from a
+   * note without matching substrings.
    */
-  warnings: string[];
+  warnings: Omit<WarningEvent, "type">[];
+  /**
+   * `PortfolioResponse.lanes` — the compliance/value split, in the
+   * server's own order. Empty when the deployment publishes no lanes, and
+   * the rail then draws one list rather than inventing a division.
+   */
+  lanes: PortfolioLane[];
 }
 
 export interface PortfolioParse {
   value: PortfolioSnapshotData | null;
   drift: string[];
+}
+
+/**
+ * `AnomalyCard.priority` — the formula's terms, or `undefined` when the
+ * server published none. Read tolerantly: the decomposition annotates the
+ * ranking, so a partial one should degrade the badge, not blank the card.
+ */
+function mapPriorityDecomposition(raw: unknown): PriorityDecomposition | undefined {
+  if (!isRecord(raw)) return undefined;
+  return {
+    impactNorm: asNumber(raw.impact_norm) ?? 0,
+    recency: asNumber(raw.recency) ?? 0,
+    recoverableNorm: asNumber(raw.recoverable_norm) ?? 0,
+    impactTerm: asNumber(raw.impact_term) ?? 0,
+    recencyTerm: asNumber(raw.recency_term) ?? 0,
+    actionabilityTerm: asNumber(raw.actionability_term) ?? 0,
+    weightSum: asNumber(raw.weight_sum) ?? 1,
+    scoreBeforeFloor: asNumber(raw.score_before_floor) ?? 0,
+    floorApplied: raw.floor_applied === true,
+    floorValue: asNumber(raw.floor_value) ?? 0,
+    floorBasis: asString(raw.floor_basis),
+  };
+}
+
+/**
+ * `PortfolioResponse.lanes`. A lane with no id or no label is dropped: the
+ * id is what binds cards to it and the label is the heading, and a lane
+ * missing either would render as an unnamed bucket of work.
+ */
+function mapPortfolioLanes(raw: unknown): PortfolioLane[] {
+  const lanes: PortfolioLane[] = [];
+  for (const entry of asArray(raw)) {
+    if (!isRecord(entry)) continue;
+    const id = asString(entry.id);
+    const label = asString(entry.label);
+    if (id === "" || label === "") continue;
+    const anomalyIds = asArray(entry.anomaly_ids).filter(
+      (value): value is string => typeof value === "string" && value !== "",
+    );
+    lanes.push({
+      id,
+      label,
+      description: asString(entry.description),
+      anomalyIds,
+      itemCount: asNumber(entry.item_count) ?? anomalyIds.length,
+      impactCents: asNumber(entry.impact_cents) ?? 0,
+    });
+  }
+  return lanes;
 }
 
 export function parsePortfolioSnapshot(raw: unknown): PortfolioParse {
@@ -2151,7 +2657,43 @@ export function parsePortfolioSnapshot(raw: unknown): PortfolioParse {
         : {}),
       ...(num("priority_score") !== undefined ? { priorityScore: num("priority_score") } : {}),
       ...(record.compliance_floor_applied === true ? { complianceFloorApplied: true } : {}),
+      ...(mapPriorityDecomposition(record.priority) !== undefined
+        ? { priority: mapPriorityDecomposition(record.priority) }
+        : {}),
+      ...(record.lane === "compliance" || record.lane === "value"
+        ? { lane: record.lane }
+        : {}),
+
+      // The card's figure and this platform's re-derivation of it. Two
+      // different claims, both published, and the card renders both when
+      // they disagree rather than picking the flattering one.
+      ...(num("reconciled_impact_cents") !== undefined
+        ? { reconciledImpactCents: num("reconciled_impact_cents") }
+        : {}),
+      ...(str("reconciled_impact_metric_id") !== undefined
+        ? { reconciledImpactMetricId: str("reconciled_impact_metric_id") }
+        : {}),
+      ...(record.impact_agreement === "agreed" ||
+      record.impact_agreement === "diverged" ||
+      record.impact_agreement === "unavailable"
+        ? { impactAgreement: record.impact_agreement }
+        : {}),
+      ...(num("impact_delta_cents") !== undefined
+        ? { impactDeltaCents: num("impact_delta_cents") }
+        : {}),
+      ...(num("impact_delta_fraction") !== undefined
+        ? { impactDeltaFraction: num("impact_delta_fraction") }
+        : {}),
+      ...(str("impact_reconciliation_note") !== undefined
+        ? { impactReconciliationNote: str("impact_reconciliation_note") }
+        : {}),
       ...(str("metric_id") !== undefined ? { metricId: str("metric_id") } : {}),
+      // The pack's governed name for the reported measure. A worklist has
+      // no answer to hang a §6.6 population caveat on, so the correction
+      // travels on the card itself.
+      ...(str("metric_display_name") !== undefined
+        ? { metricDisplayName: str("metric_display_name") }
+        : {}),
       ...(str("status") !== undefined ? { status: str("status") } : {}),
       ...(str("confidence") !== undefined ? { confidence: str("confidence") } : {}),
       ...(str("detected_at") !== undefined ? { detectedAt: str("detected_at") } : {}),
@@ -2185,7 +2727,11 @@ export function parsePortfolioSnapshot(raw: unknown): PortfolioParse {
   });
   const value: PortfolioSnapshotData = {
     items,
-    warnings: asArray(raw.warnings).filter((w): w is string => typeof w === "string"),
+    warnings: readTurnWarnings(
+      raw.warnings_v2,
+      asArray(raw.warnings).filter((w): w is string => typeof w === "string"),
+    ),
+    lanes: mapPortfolioLanes(raw.lanes),
   };
   // PortfolioResponse spells these `watermark_id` / `formula_version`.
   const watermark =

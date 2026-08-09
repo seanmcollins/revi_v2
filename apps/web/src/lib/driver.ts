@@ -52,6 +52,15 @@ export interface TurnSubmission {
    * wrong.
    */
   spec?: Record<string, unknown>;
+  /**
+   * `TurnRequest.anomaly_ref` — the id of the portfolio card this turn is
+   * drilling. Sent alongside `spec`, and load-bearing: it is what makes
+   * the server reconcile the card's published figure against the answer's
+   * own and publish `anomaly_reconciliation`. Without it the analyst reads
+   * $178,217 on one screen and $195,873.92 on the next with nothing
+   * anywhere connecting them.
+   */
+  anomalyRef?: string;
   refinements?: Refinement[];
   /** Reply to a pending clarification — sent as `clarification_response`. */
   clarificationResponse?: string;

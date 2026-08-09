@@ -1,15 +1,22 @@
 "use client";
 
-import { ArrowUpRight, ChevronDown, Info, Ban } from "lucide-react";
+import { ArrowUpRight, Ban, Check, ChevronDown, GitCompareArrows, Info } from "lucide-react";
 import { useState } from "react";
 
+import { WarningList } from "@/components/banners/WarningBanner";
 import { DetectionBadge } from "@/components/portfolio/DetectionBadge";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { formatWholeDollars } from "@/lib/format";
-import { PORTFOLIO_ITEMS, PORTFOLIO_META, type PortfolioItem } from "@/lib/mock/portfolio";
+import { formatSignedPct, formatWholeDollars } from "@/lib/format";
+import {
+  PORTFOLIO_ITEMS,
+  PORTFOLIO_META,
+  type PortfolioItem,
+  type PortfolioLane,
+} from "@/lib/mock/portfolio";
 import { usePortfolioQuery } from "@/lib/queries";
 import { useSessionStore } from "@/lib/store";
+import type { WarningEvent } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /** How many cards the rail shows before "Show all". */
@@ -54,7 +61,8 @@ export function PortfolioPanel() {
   const [expanded, setExpanded] = useState(false);
 
   let items: PortfolioItem[] = PORTFOLIO_ITEMS;
-  let warnings: string[] = [];
+  let warnings: Omit<WarningEvent, "type">[] = [];
+  let lanes: PortfolioLane[] = [];
   // "Watermark" is the engine's word for the pinned data load; the panel
   // says "data as of", which is the same fact in the analyst's words.
   let footer = `Computed on the data as of ${PORTFOLIO_META.watermark} · drilling in asks an ordinary question against that same data`;
@@ -64,6 +72,7 @@ export function PortfolioPanel() {
     if (query.data?.kind === "ok") {
       items = query.data.snapshot.items;
       warnings = query.data.snapshot.warnings;
+      lanes = query.data.snapshot.lanes;
       const at = query.data.snapshot.watermark;
       footer = at
         ? `Computed on the data as of ${at} · drilling in asks an ordinary question against that same data`
@@ -80,8 +89,16 @@ export function PortfolioPanel() {
     }
   }
 
-  const shown = expanded ? items : items.slice(0, COLLAPSED_COUNT);
-  const hidden = items.length - shown.length;
+  // The lane split as the SERVER decided it, in its order. Cards named by
+  // no lane are not dropped — they land in a trailing ungrouped section,
+  // because a worklist that silently loses a card is worse than one whose
+  // headings are imperfect.
+  const groups = groupByLane(items, lanes);
+  const shownCount = groups.reduce(
+    (total, group) => total + (expanded ? group.items.length : Math.min(group.items.length, COLLAPSED_COUNT)),
+    0,
+  );
+  const hidden = items.length - shownCount;
 
   return (
     <section className="space-y-2">
@@ -97,39 +114,43 @@ export function PortfolioPanel() {
       </header>
 
       {/* The snapshot's own caveats about the list, above the list —
-          not a footnote under 33 rows nobody scrolled to. */}
-      {warnings.map((warning) => (
-        <p
-          key={warning}
-          className="flex items-start gap-1.5 rounded-md border border-warning/35 bg-warning/10 px-2 py-1.5 text-[0.62rem] leading-snug"
-        >
-          <Info className="mt-px size-3 shrink-0 text-warning" />
-          {warning}
-        </p>
-      ))}
+          not a footnote under 33 rows nobody scrolled to. Code-driven
+          since the endpoint started publishing `warnings_v2`, so a
+          caution about un-openable cards is styled apart from a note. */}
+      <WarningList warnings={warnings.map((w) => ({ ...w, type: "warning" as const }))} />
 
       {emptyNote ? (
         <p className="px-1 text-[0.62rem] leading-snug text-muted-foreground">{emptyNote}</p>
       ) : (
         <>
-          <ol className="space-y-1.5">
-            {shown.map((item) => (
-              <PortfolioCard
-                key={item.referent}
-                item={item}
-                onDrill={() => {
-                  if (item.drillSpec) {
-                    // A card is not a refinement of whatever you were
-                    // looking at: its handle is a typed FIRST turn, so it
-                    // opens its own investigation (§18.1-10).
-                    void submit({ spec: item.drillSpec });
-                  } else if (item.drill) {
-                    emitRefinement(item.drill.refinement, { referent: item.referent });
-                  }
-                }}
-              />
-            ))}
-          </ol>
+          {groups.map((group) => (
+            <section key={group.id} className="space-y-1.5">
+              {/* Only when the server actually split the list. One lane
+                  (or none) gets no heading — a division nobody made
+                  should not be announced. */}
+              {groups.length > 1 && <LaneHeader lane={group.lane} count={group.items.length} />}
+              <ol className="space-y-1.5">
+                {(expanded ? group.items : group.items.slice(0, COLLAPSED_COUNT)).map((item) => (
+                  <PortfolioCard
+                    key={item.referent}
+                    item={item}
+                    onDrill={() => {
+                      if (item.drillSpec) {
+                        // A card is not a refinement of whatever you were
+                        // looking at: its handle is a typed FIRST turn, so
+                        // it opens its own investigation (§18.1-10). The
+                        // card's id rides along so the answer can reconcile
+                        // its own figure against the one on this card.
+                        void submit({ spec: item.drillSpec, anomalyRef: item.referent });
+                      } else if (item.drill) {
+                        emitRefinement(item.drill.refinement, { referent: item.referent });
+                      }
+                    }}
+                  />
+                ))}
+              </ol>
+            </section>
+          ))}
           {hidden > 0 && (
             <Button
               variant="ghost"
@@ -141,7 +162,7 @@ export function PortfolioPanel() {
               Show all ({items.length})
             </Button>
           )}
-          {expanded && items.length > COLLAPSED_COUNT && (
+          {expanded && shownCount > 0 && items.length > COLLAPSED_COUNT && (
             <Button
               variant="ghost"
               size="xs"
@@ -149,6 +170,7 @@ export function PortfolioPanel() {
               className="h-6 w-full gap-1 text-[0.65rem] font-normal text-muted-foreground hover:text-foreground"
             >
               Show top {COLLAPSED_COUNT}
+              {groups.length > 1 ? " per lane" : ""}
             </Button>
           )}
         </>
@@ -156,6 +178,87 @@ export function PortfolioPanel() {
 
       {footer && <p className="num text-[0.58rem] leading-snug text-muted-foreground">{footer}</p>}
     </section>
+  );
+}
+
+/** One rendered section of the rail: a published lane, or the leftovers. */
+interface LaneGroup {
+  id: string;
+  lane?: PortfolioLane;
+  items: PortfolioItem[];
+}
+
+/**
+ * Split the cards the way the server split them.
+ *
+ * `lanes` carries its own membership AND its own order (`anomalyIds` is
+ * the ranking), so this follows it rather than re-deriving a ranking from
+ * scores the client does not own. Two rules keep it honest:
+ *
+ *   a lane names a card the snapshot does not carry → skipped silently,
+ *     because there is nothing to draw;
+ *   a card no lane names → kept, in a trailing ungrouped section. A
+ *     worklist that quietly drops work is the one failure this panel
+ *     cannot have.
+ *
+ * With no lanes published (mock mode, or a deployment that does not split)
+ * everything lands in a single unlabelled group and the rail looks exactly
+ * as it did.
+ */
+function groupByLane(items: PortfolioItem[], lanes: PortfolioLane[]): LaneGroup[] {
+  if (lanes.length === 0) return items.length > 0 ? [{ id: "all", items }] : [];
+  const byReferent = new Map(items.map((item) => [item.referent, item]));
+  const claimed = new Set<string>();
+  const groups: LaneGroup[] = [];
+  for (const lane of lanes) {
+    const laneItems: PortfolioItem[] = [];
+    for (const id of lane.anomalyIds) {
+      const item = byReferent.get(id);
+      if (item === undefined || claimed.has(id)) continue;
+      claimed.add(id);
+      laneItems.push(item);
+    }
+    if (laneItems.length > 0) groups.push({ id: lane.id, lane, items: laneItems });
+  }
+  const orphans = items.filter((item) => !claimed.has(item.referent));
+  if (orphans.length > 0) groups.push({ id: "ungrouped", items: orphans });
+  return groups;
+}
+
+/**
+ * A lane heading with the server's own explanation of why the lane
+ * exists. Compliance work is done because the rule says so — a $824
+ * credit balance and a $84,000 one carry the same obligation — and value
+ * work is ranked by what is recoverable; mixing them into one ordered list
+ * is what let a small mandatory refund sink below discretionary work.
+ */
+function LaneHeader({ lane, count }: { lane?: PortfolioLane; count: number }) {
+  if (!lane) {
+    return (
+      <p className="px-0.5 text-[0.6rem] font-semibold uppercase tracking-wide text-muted-foreground">
+        Not in a lane ({count})
+      </p>
+    );
+  }
+  return (
+    <div className="flex items-baseline justify-between gap-2 px-0.5">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="rounded text-left text-[0.6rem] font-semibold uppercase tracking-wide text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+          >
+            {lane.label}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="right" className="max-w-80 text-[0.68rem] leading-snug">
+          {lane.description}
+        </TooltipContent>
+      </Tooltip>
+      <span className="num text-[0.58rem] text-muted-foreground">
+        {lane.itemCount} · {formatWholeDollars(lane.impactCents)}
+      </span>
+    </div>
   );
 }
 
@@ -197,6 +300,8 @@ function PortfolioCard({ item, onDrill }: { item: PortfolioItem; onDrill: () => 
               {item.impactLabel || "detected"}
             </span>
           </p>
+
+          <ImpactAgreement item={item} />
           {recoverable !== undefined && (
             <p className="num mt-0.5 text-[0.62rem] leading-snug text-muted-foreground">
               ~{formatWholeDollars(recoverable)} recoverable
@@ -239,6 +344,17 @@ function PortfolioCard({ item, onDrill }: { item: PortfolioItem; onDrill: () => 
             {item.detail}
           </p>
 
+          {/* What the number MEASURES, in the pack's governed words. A
+              worklist has no answer to hang a §6.6 population caveat on,
+              so the correction travels on the card — and it is published
+              only for the ids that overclaim, which is why most cards
+              show nothing here. */}
+          {item.metricDisplayName && (
+            <p className="mt-1 text-[0.6rem] leading-snug text-muted-foreground">
+              Measures <span className="font-medium">{item.metricDisplayName}</span>
+            </p>
+          )}
+
           {/* The drill probes a different measure than the card reports,
               and the server wrote down why. Only said when the two names
               genuinely differ — `drill_spec.metric_ids[0]` is the measure
@@ -266,6 +382,8 @@ function PortfolioCard({ item, onDrill }: { item: PortfolioItem; onDrill: () => 
             <DetectionBadge
               priorityFormulaVersion={item.priorityFormulaVersion}
               sourceWatermarkId={item.sourceWatermarkId}
+              priority={item.priority}
+              priorityScore={item.priorityScore}
             />
             {canDrill ? (
               <Button
@@ -307,6 +425,75 @@ function PortfolioCard({ item, onDrill }: { item: PortfolioItem; onDrill: () => 
         </div>
       </div>
     </li>
+  );
+}
+
+/**
+ * Whether the card's dollar figure survives this platform's own arithmetic.
+ *
+ * The card's number is the external detection system's assertion — its
+ * window, its population, its valuation basis, computed when it fired.
+ * The platform now re-derives the same named cell from its governed
+ * contract at the pinned watermark and publishes BOTH, plus the delta and
+ * a written reason. Live, 12 of 29 ranked cards diverge (largest gap
+ * 131.5%) and 8 could not be re-derived at all — so a rail that shows only
+ * the detector's figure is showing a number this platform does not agree
+ * with, without saying so.
+ *
+ * Three states, three different claims, none of them collapsed into
+ * another: agreed (a quiet confirmation), diverged (both figures, the
+ * gap, and the reason on hover), unavailable (the detector's figure
+ * stands alone, and the card says that is what it is).
+ */
+function ImpactAgreement({ item }: { item: PortfolioItem }) {
+  const agreement = item.impactAgreement;
+  if (agreement === undefined) return null;
+
+  if (agreement === "agreed") {
+    return (
+      <p className="num mt-0.5 flex items-center gap-1 text-[0.6rem] leading-snug text-verified">
+        <Check className="size-2.5 shrink-0" aria-hidden />
+        Matches this platform&apos;s own figure
+      </p>
+    );
+  }
+
+  const note =
+    item.impactReconciliationNote ||
+    (agreement === "diverged"
+      ? "This platform re-derived a different figure for the same cell from its governed contract."
+      : "This platform could not re-derive this figure from its governed contracts.");
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          className={cn(
+            "num mt-0.5 flex items-center gap-1 rounded text-left text-[0.6rem] leading-snug underline decoration-dotted underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
+            agreement === "diverged" ? "text-warning" : "text-muted-foreground",
+          )}
+        >
+          <GitCompareArrows className="size-2.5 shrink-0" aria-hidden />
+          {agreement === "diverged" && item.reconciledImpactCents !== undefined ? (
+            <>
+              this platform: {formatWholeDollars(item.reconciledImpactCents)}
+              {item.impactDeltaFraction !== undefined && (
+                <span className="font-medium">
+                  {" "}
+                  ({formatSignedPct(item.impactDeltaFraction)})
+                </span>
+              )}
+            </>
+          ) : (
+            "not re-derived here — the detector's figure alone"
+          )}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right" className="max-w-80 text-[0.68rem] leading-snug">
+        {note}
+      </TooltipContent>
+    </Tooltip>
   );
 }
 

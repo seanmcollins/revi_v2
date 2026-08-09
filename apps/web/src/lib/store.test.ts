@@ -65,6 +65,33 @@ describe("applyEventToAnswer (pure reducer)", () => {
     expect(answer.findings[0].impactCents).toBe(-9_909_308);
   });
 
+  it("replaces a finding the answer already has instead of drawing it twice", () => {
+    // A referent identifies a finding, so a second event carrying one is
+    // the SAME finding said again. The terminal frame DOES say some of them
+    // again: the governed display names that correct their titles are only
+    // known once the turn is finished, so a streamed frame reads "$195,873.92
+    // dnfb dollars" and the completed answer reads "…discharged not final
+    // billed". Appending would render the card twice.
+    const t1 = REFERENCE_TURNS[0].events;
+    const answer = reduce(t1);
+    const corrected = {
+      ...answer.findings[0],
+      title: "Corrected by the pack's governed display name",
+    };
+    const after = applyEventToAnswer(answer, { type: "finding", finding: corrected });
+    expect(after.findings).toHaveLength(answer.findings.length);
+    expect(after.findings[0].title).toBe("Corrected by the pack's governed display name");
+    expect(after.findings.map((f) => f.referent.value)).toEqual(["F1", "F2", "F3"]);
+  });
+
+  it("replaces a chart it already has, keyed by the spec id", () => {
+    const answer = reduce(REFERENCE_TURNS[0].events);
+    const corrected = { ...answer.charts[0], title: "Governed measure by payer" };
+    const after = applyEventToAnswer(answer, { type: "chart_spec", spec: corrected });
+    expect(after.charts).toHaveLength(1);
+    expect(after.charts[0].title).toBe("Governed measure by payer");
+  });
+
   it("clarification is a first-class successful state, not an error", () => {
     const answer = reduce([
       {

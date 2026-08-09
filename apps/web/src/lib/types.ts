@@ -122,13 +122,41 @@ export interface FilterClause {
   pinned?: boolean;
 }
 
+/**
+ * The pinned population, as `CohortPayload` publishes it.
+ *
+ * `definition` is the INTENSIONAL rule (§7.5) rendered in the same
+ * `dimension op [values]` grammar the filter chips use — "payer in [State
+ * Medicaid, Atlas Commercial]" — not a description of the pinned rows.
+ * `entityGrain` says what one member IS (a claim, a line, a remit), which
+ * is what makes the size figure readable: "86,415" alone is a number, and
+ * "86,415 claims" is a population.
+ *
+ * `detailed` records which of the two sources filled this in. The context
+ * header publishes only `cohort` (an id) and `cohort_size`; the richer
+ * block rides on `TurnAnswer.cohort`. A turn restored from an older
+ * store may have the first and not the second, and the chip must then say
+ * what it has rather than dressing up a hash as a definition.
+ */
 export interface CohortSummary {
   id: string;
-  /** Human-readable intensional definition ("top-3 payers by WoW cash decline"). */
+  /** Human-readable intensional definition ("payer in [State Medicaid, …]"). */
   definition: string;
   pinned: boolean;
   originTurn: string;
   size: number;
+  /** `CohortPayload.entity_grain` — what one member of this population is. */
+  entityGrain?: string;
+  /** `origin_referent` — the handle (F2) the population was selected from. */
+  originReferent?: string;
+  originInvestigationId?: string;
+  /** The cohort definition's own window, when it kept one. */
+  windowStart?: string;
+  windowEnd?: string;
+  /** The data load the membership was frozen against. */
+  pinnedWatermarkId?: string;
+  /** True when this came from `TurnAnswer.cohort` rather than the header id. */
+  detailed?: boolean;
 }
 
 export interface PackVersionRef {
@@ -249,6 +277,23 @@ export interface FindingComparisonStat {
   priorLabel: string;
 }
 
+/**
+ * `MetricDisplayPayload` — a governed correction to a metric id that
+ * overclaims. `timely_filing_at_risk_dollars` applies no deadline
+ * predicate at all, so every surface that spells the id out ("timely
+ * filing at risk dollars") promises filing exposure over a number that
+ * measures unbilled inventory. The pack publishes the honest name, the
+ * caveat that bounds it, and the rationale that argued for it.
+ */
+export interface MetricDisplay {
+  metricId: string;
+  displayName: string;
+  /** What the number does NOT say — published alongside the name. */
+  caveat?: string;
+  /** Why the correction was authored, in the pack's own words. */
+  rationale?: string;
+}
+
 export interface Finding {
   referent: ReferentId;
   title: string;
@@ -277,6 +322,14 @@ export interface Finding {
   comparison?: FindingComparisonStat;
   /** Typed follow-ups rendered as drill actions / chips. */
   suggestedRefinements: SuggestedRefinement[];
+  /**
+   * The governed display-name correction applied to this finding's title
+   * and value label, when the turn published one for its measure. Carried
+   * so the card can also show the caveat that travels with the name — the
+   * correction and its bound are one governed entry, and shipping the
+   * flattering half alone would be worse than shipping neither.
+   */
+  metricDisplay?: MetricDisplay;
 }
 
 export interface SuggestedRefinement {
@@ -411,6 +464,41 @@ export interface EvidenceBundle {
   zeroProbeTurn: boolean;
   /** The grade law over the turn's recorded finding grades (§5.3). */
   answerGrade?: EvidenceGrade;
+}
+
+/* ------------------------------------------------------------------ */
+/* Anomaly drill reconciliation (AnomalyReconciliationPayload)         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The card's figure against this platform's re-derivation of it, stated.
+ *
+ * A card published $178,217; drilling it answered $195,873.92; the turn's
+ * own §7.8 verdict said "not applicable — this is a first turn", which is
+ * true about the investigation lineage and silent about the two numbers
+ * the reader had just compared. Both figures are honest and they are
+ * different claims: `cardImpactCents` is the external detection system's
+ * assertion on its own window, population and valuation basis;
+ * `answerImpactCents` is the governed metric contract re-derived at the
+ * pinned watermark. They diverge when those differ, which is normal, is
+ * not an error, and must be *said*.
+ */
+export interface AnomalyReconciliation {
+  anomalyId: string;
+  status: "agreed" | "diverged" | "unavailable";
+  cardImpactCents: number;
+  answerImpactCents?: number;
+  deltaCents?: number;
+  /** Signed fraction (0.099077 = +9.9%). */
+  deltaFraction?: number;
+  cardMetricId?: string;
+  answerMetricId?: string;
+  cardWindowStart?: string;
+  cardWindowEnd?: string;
+  /** The platform's own account of why the two differ. */
+  detail?: string;
+  /** The one-line verdict ("status=diverged; card=…; answer=…; delta=…"). */
+  summary?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -655,11 +743,29 @@ export interface ClarificationEvent {
   clarification: ClarificationData;
 }
 
+/**
+ * One warning, with a handle a client can branch on (`WarningPayload`).
+ *
+ * `message` is the platform's own sentence verbatim; `code` is a handle
+ * added beside it, never a replacement for it. `count` is how many
+ * identical warnings collapsed into this entry — a four-probe plan
+ * emitting one population caveat four times is one caveat seen four
+ * times, and the rail renders one row that says so.
+ *
+ * `structured` records where the code came from. `true` means the server
+ * classified it (`warnings_v2`) and the code is safe to branch on; absent
+ * means it was inferred from the prose of a legacy `warnings` string, and
+ * the UI treats it as a sentence with a label rather than as a contract.
+ */
 export interface WarningEvent {
   type: "warning";
   code: string;
   message: string;
   severity: "info" | "caution";
+  /** `WarningPayload.count` — identical warnings collapsed into this one. */
+  count?: number;
+  /** True when the code came from `warnings_v2`, not from parsing prose. */
+  structured?: boolean;
 }
 
 export interface TurnCompleteEvent {
@@ -669,8 +775,31 @@ export interface TurnCompleteEvent {
   answerGrade?: EvidenceGrade;
   /** The governed provenance of this turn's numbers (`TurnAnswer.metric`). */
   metric?: MetricProvenance;
+  /**
+   * Card figure vs re-derived figure, when this turn drilled an anomaly.
+   * It rides on the terminal frame for the same reason the grade does:
+   * the answer's own figure is not known until the turn is finished.
+   */
+  anomalyReconciliation?: AnomalyReconciliation;
+  /** The governed display-name corrections this turn's measures carry. */
+  metricDisplay?: MetricDisplay[];
   /** Present only when the settings in force for the turn had debug on. */
   debug?: DebugTrace;
+}
+
+/**
+ * What one turn spent (`UsageSummary`). Cost is a DECIMAL STRING on the
+ * wire and stays one here for the same reason the settings budget does: a
+ * price rounded through a float is not the price that was charged.
+ */
+export interface TurnUsage {
+  llmCalls: number;
+  costUsd: string;
+  inputTokens: number;
+  outputTokens: number;
+  cacheReadTokens: number;
+  cacheCreationTokens: number;
+  schemaRetries: number;
 }
 
 export interface ErrorEvent {
@@ -678,6 +807,20 @@ export interface ErrorEvent {
   code: string;
   message: string;
   correlationId?: string;
+  /**
+   * `ErrorEnvelope.subcode`. `QUERY_BUDGET_EXCEEDED` is two failures
+   * wearing one code: `WAREHOUSE_READ_BUDGET` (the question reads too much
+   * — narrow it) and `MODEL_SPEND_BUDGET` (the question was fine, the
+   * wallet was the constraint — raise the ceiling or pick a cheaper tier).
+   * They want opposite responses, so they get different copy.
+   */
+  subcode?: string;
+  /**
+   * What the failed turn still spent (`TurnError.usage`). A turn that
+   * errored after two model calls cost real money, and a card that shows
+   * only the refusal is quietly under-reporting the bill.
+   */
+  usage?: TurnUsage;
 }
 
 /*
