@@ -117,7 +117,7 @@ def build_engine(
         catalog, pack_port, spy, limits if limits is not None else ValidationLimits()
     )
     executor = ExecuteInvestigationService(spy, evidence_cache, event_bus, catalog)
-    transforms = CalculationTransforms()
+    transforms = CalculationTransforms(pack_port.snapshot.metric)
     calculator = CalculateMetricsService(transforms, pack_port)
     evaluator = EvaluateFindingsService(referent_registry)
     submit = SubmitTurnService(

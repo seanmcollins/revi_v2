@@ -1,6 +1,6 @@
 "use client";
 
-import { MessageCircleQuestion, SlidersHorizontal } from "lucide-react";
+import { CircleAlert, MessageCircleQuestion, SlidersHorizontal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -12,6 +12,19 @@ import type { ClarificationData } from "@/lib/types";
 const REASON_CODE = /^([A-Z][A-Z0-9_]{3,}): ([\s\S]+)$/;
 
 /**
+ * The engine's marker for a clarification that offers NOTHING to choose
+ * from (`submit_turn.NO_OPTIONS_REASON`).
+ *
+ * Appended to the reason, never prefixed — the reason's own leading code is
+ * what every other reader keys off, and the server states that moving it
+ * would break them to label this. So it is matched at the tail, not by
+ * `REASON_CODE` above, and it is stripped from what the analyst reads: it
+ * is a shape instruction for this component, not a sentence for a human.
+ */
+const NO_OPTIONS_MARKER = "CLARIFICATION_NO_OPTIONS";
+const NO_OPTIONS_TAIL = /\s*;?\s*CLARIFICATION_NO_OPTIONS\s*$/;
+
+/**
  * Clarification is a first-class successful turn, never an error: the
  * interpreter asks instead of guessing. Options are answerable
  * interpretations rendered as buttons, plus free text.
@@ -20,6 +33,15 @@ const REASON_CODE = /^([A-Z][A-Z0-9_]{3,}): ([\s\S]+)$/;
  * The sentence after it is the honest explanation and is always shown; the
  * code itself is engine vocabulary and appears in debug mode only — same
  * meaning, one fewer thing to decode mid-investigation.
+ *
+ * ONE clarification is not a question at all. When the interpreter can
+ * offer no answerable interpretation it marks the reason
+ * `CLARIFICATION_NO_OPTIONS`, and what shipped for that was a question mark
+ * above an empty row of buttons — a prompt asking the analyst to pick from
+ * nothing, twice, live, once after a tenth of a dollar was spent deciding
+ * the platform could not do it. That state renders as a statement of what
+ * the platform needs instead, with the free-text composer as its only
+ * recovery, because that is the only recovery there is.
  */
 export function ClarificationPrompt({ clarification }: { clarification: ClarificationData }) {
   const submit = useSessionStore((s) => s.submit);
@@ -40,9 +62,17 @@ export function ClarificationPrompt({ clarification }: { clarification: Clarific
     // Re-runs when a NEW clarification lands, not on every render.
   }, [clarification.question]);
 
-  const match = clarification.reason ? REASON_CODE.exec(clarification.reason) : null;
+  // There is nothing to choose from. Keyed off the engine's marker, and
+  // also off an options list that is simply empty — that is the same defect
+  // arriving without its label, and a blank button row is not made honest
+  // by the absence of a marker explaining it.
+  const marked = (clarification.reason ?? "").includes(NO_OPTIONS_MARKER);
+  const noOptions = marked || clarification.options.length === 0;
+
+  const declared = (clarification.reason ?? "").replace(NO_OPTIONS_TAIL, "").trim();
+  const match = declared ? REASON_CODE.exec(declared) : null;
   const reasonCode = match?.[1];
-  const reasonText = debug ? clarification.reason : (match?.[2] ?? clarification.reason);
+  const reasonText = debug ? clarification.reason : (match?.[2] ?? (declared || undefined));
   // The one clarification whose recovery lives in a control rather than in
   // a reply: the per-turn cost ceiling is set in the settings panel.
   const budgetExhausted = reasonCode === "TURN_BUDGET_EXHAUSTED";
@@ -56,7 +86,11 @@ export function ClarificationPrompt({ clarification }: { clarification: Clarific
   return (
     <div
       role="group"
-      aria-label={`Clarification: ${clarification.question}`}
+      aria-label={
+        noOptions
+          ? `No answerable options: ${clarification.question}`
+          : `Clarification: ${clarification.question}`
+      }
       // Announced whether or not the focus move above wins.
       //
       // Two effects fire in the same commit when a clarification lands:
@@ -67,46 +101,78 @@ export function ClarificationPrompt({ clarification }: { clarification: Clarific
       // announced. A polite live region does not compete for focus and
       // reads the prompt either way.
       aria-live="polite"
-      className="rounded-lg border border-grade-derived/40 bg-grade-derived/5 p-3.5"
+      className={
+        noOptions
+          ? "rounded-lg border border-warning/40 bg-warning/5 p-3.5"
+          : "rounded-lg border border-grade-derived/40 bg-grade-derived/5 p-3.5"
+      }
     >
       <div className="flex items-start gap-2.5">
-        <MessageCircleQuestion className="mt-0.5 size-4 shrink-0 text-grade-derived" />
+        {noOptions ? (
+          <CircleAlert className="mt-0.5 size-4 shrink-0 text-warning" />
+        ) : (
+          <MessageCircleQuestion className="mt-0.5 size-4 shrink-0 text-grade-derived" />
+        )}
         <div className="min-w-0 flex-1 space-y-2.5">
-          <p className="text-[0.8rem] font-medium leading-snug">{clarification.question}</p>
+          {/* A statement, not a prompt. The engine's own question text is
+              kept verbatim underneath — it says what was asked and is the
+              most specific thing on the card — but the heading above it
+              stops the card reading as "pick one" when there is no one to
+              pick. */}
+          {noOptions && (
+            <p className="text-[0.8rem] font-medium leading-snug text-warning">
+              There is no answerable option to offer here.
+            </p>
+          )}
+          <p
+            className={
+              noOptions
+                ? "text-[0.75rem] leading-snug text-foreground"
+                : "text-[0.8rem] font-medium leading-snug"
+            }
+          >
+            {clarification.question}
+          </p>
           {reasonText && (
             <p className="text-[0.7rem] leading-snug text-muted-foreground">{reasonText}</p>
           )}
-          <div className="flex flex-wrap gap-1.5">
-            {clarification.options.map((option, index) => (
-              <Button
-                key={option}
-                ref={index === 0 ? firstOptionRef : undefined}
-                variant="outline"
-                size="sm"
-                disabled={streaming}
-                // Options are model-proposed sentences, not fixed short
-                // labels — h-auto/whitespace-normal let a long one wrap
-                // to a second line inside the pill instead of overflowing
-                // it (the fixed-height, no-wrap default is for icon-sized
-                // button text, not this).
-                className="h-auto min-h-7 whitespace-normal rounded-full py-1.5 text-left text-xs font-normal leading-snug"
-                onClick={() => choose(option)}
-              >
-                {option}
-              </Button>
-            ))}
-            {budgetExhausted && (
-              <Button
-                variant="ghost"
-                size="sm"
-                className="h-7 gap-1 rounded-full text-xs font-normal text-muted-foreground"
-                onClick={openSettings}
-              >
-                <SlidersHorizontal className="size-3" />
-                Open settings
-              </Button>
-            )}
-          </div>
+          {/* Rendered only when there is something in it. An empty flex row
+              still occupies a gap and still reads to a screen reader as the
+              group's set of choices, which is precisely the state the
+              engine marked this card to avoid. */}
+          {(clarification.options.length > 0 || budgetExhausted) && (
+            <div className="flex flex-wrap gap-1.5">
+              {clarification.options.map((option, index) => (
+                <Button
+                  key={option}
+                  ref={index === 0 ? firstOptionRef : undefined}
+                  variant="outline"
+                  size="sm"
+                  disabled={streaming}
+                  // Options are model-proposed sentences, not fixed short
+                  // labels — h-auto/whitespace-normal let a long one wrap
+                  // to a second line inside the pill instead of overflowing
+                  // it (the fixed-height, no-wrap default is for icon-sized
+                  // button text, not this).
+                  className="h-auto min-h-7 whitespace-normal rounded-full py-1.5 text-left text-xs font-normal leading-snug"
+                  onClick={() => choose(option)}
+                >
+                  {option}
+                </Button>
+              ))}
+              {budgetExhausted && (
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  className="h-7 gap-1 rounded-full text-xs font-normal text-muted-foreground"
+                  onClick={openSettings}
+                >
+                  <SlidersHorizontal className="size-3" />
+                  Open settings
+                </Button>
+              )}
+            </div>
+          )}
           <form
             className="flex items-end gap-2"
             onSubmit={(e) => {
@@ -117,7 +183,10 @@ export function ClarificationPrompt({ clarification }: { clarification: Clarific
             <Textarea
               value={freeText}
               onChange={(e) => setFreeText(e.target.value)}
-              placeholder="Or say it differently…"
+              // "Or say it differently" reads as the alternative to picking
+              // a chip. With no chips it is the only way forward, and the
+              // placeholder says so rather than implying a road not taken.
+              placeholder={noOptions ? "Ask it a different way…" : "Or say it differently…"}
               rows={1}
               className="min-h-8 flex-1 resize-none text-xs"
             />

@@ -227,7 +227,17 @@ class TransformPort(Protocol):
         out: str,
         out_ref: MetricRef,
         contract_version: int | None = None,
-    ) -> EvidenceFrame: ...
+        unit: str | None = None,
+    ) -> EvidenceFrame:
+        """Fold a ratio contract's components into its metric column.
+
+        ``unit`` is the metric contract's DECLARED unit. It is optional
+        because the implementation resolves the same contract ``out_ref``
+        names and may supply it itself; what is not optional is that the
+        output column carries the declaration rather than the shape of the
+        arithmetic (round-4 R4-06: days in A/R published as "15,941.2%").
+        """
+        ...
 
     def compare(
         self,

@@ -314,6 +314,40 @@ FAMILIES: list[tuple[str, str, str]] = [
         "one day shorter than the primary window — immaterial at this tolerance and "
         "disclosed rather than qualified",
     ),
+    (
+        "PREMISE_PARTIAL",
+        "caution",
+        "premise_partial: You asked about a doubling in denied dollars. It did not double — "
+        "denied dollars rose 4.2%, short of the 100% the question assumes",
+    ),
+    (
+        "COMPARISON_PRIOR_UNKNOWN",
+        "caution",
+        "comparison_prior_unknown: on denial_code_mix__compare, 6 cell(s) present now were "
+        "outside the prior window's top-N and their prior value was never retrieved. Those "
+        "cells publish no prior figure, no movement and no impact.",
+    ),
+    (
+        "REFINEMENT_REUSED_PLAN",
+        "info",
+        "refinement_reused_plan: this answer re-serves the previous turn's plan "
+        "(559f9807ad88f4cf) — the same evidence, the same findings and every caveat that "
+        "came with them.",
+    ),
+    (
+        "REFINEMENT_NOT_APPLIED",
+        "caution",
+        "refinement_not_applied: what you asked to change does not alter this plan "
+        "(559f9807ad88f4cf) — the operator(s) SetGrain left the evidence identical to the "
+        "previous answer.",
+    ),
+    (
+        "CHART_ROWS_COLLAPSED",
+        "caution",
+        "chart_rows_collapsed: chart_denial_concentration declared x=time_bucket:month and "
+        "series=payer over 30 rows that share only 3 distinct keys, so 27 rows would have "
+        "been dropped by any renderer keying on those axes",
+    ),
 ]
 
 

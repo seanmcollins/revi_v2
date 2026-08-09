@@ -22,7 +22,7 @@ from revi_investigation.application.execution import (
 )
 from revi_investigation.application.findings import (
     MAX_BOUNDED_SHARE_FOR_RANKING,
-    PREMISE_MAGNITUDE_TOLERANCE,
+    PREMISE_MAGNITUDE_BAND,
     TrendShape,
     bound_text,
     terminal_bucket_censoring,
@@ -145,8 +145,12 @@ class TestPremiseMagnitude:
     def test_a_magnitude_is_only_a_premise_when_one_is_asserted(self) -> None:
         assert asserted_multiple("which payer doubled?", False) is None
 
-    def test_the_tolerance_is_a_half(self) -> None:
-        assert Decimal("0.5") == PREMISE_MAGNITUDE_TOLERANCE
+    def test_the_band_is_two_sided(self) -> None:
+        """R4-05c. The predecessor was a one-sided FLOOR at half the
+        asserted change, so +72.6% confirmed a doubling — and so would
+        +900%. A quarter-band around the claim means +75%..+125% is a
+        doubling and nothing else is."""
+        assert Decimal("0.25") == PREMISE_MAGNITUDE_BAND
 
 
 class TestTerminalBucketMaturity:

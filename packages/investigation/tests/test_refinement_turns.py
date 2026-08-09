@@ -13,6 +13,7 @@ from revi_investigation.application.gestures import parse_gesture
 from revi_investigation.application.llm.schemas import (
     AddFilterModel,
     DrillIntoModel,
+    ExpandModel,
     RankByModel,
     SetDimensionsModel,
 )
@@ -144,6 +145,73 @@ class TestGestureAndKernelOnly:
         assert trace is not None
         assert trace.payload["refinement"]["kernel_only"] is True
         assert any(fid.endswith("__rank") for fid, _ in outcome.frames)
+
+    async def test_the_same_plan_serves_the_same_warnings(
+        self, small_warehouse_path: Path
+    ) -> None:
+        """Round-4 R4-04, the round's most dangerous defect: a re-served plan
+        published ``warnings=()``.
+
+        Three sessions saw 11 warnings become 0 and 7 become 1 across an
+        IDENTICAL ``plan_hash`` and byte-identical finding titles, and the
+        CSV export then printed "The platform attached no caveats to this
+        answer" over the same numbers. The invariant: equal plan_hash ⇒ the
+        parent's whole warning set, verbatim, plus the disclosure that this
+        is a re-serve. Referents and chart ordering ride with it, because
+        rows that cannot be drilled and a chart that has lost its sort are
+        the same defect wearing different clothes.
+        """
+        llm = MockLanguageModel()
+        _canned_t1(llm)
+        engine = _engine(small_warehouse_path, llm)
+        t1 = await _run_t1(engine)
+        assert t1.warnings, "the fixture must carry caveats for this to mean anything"
+
+        outcome = await engine.submit.submit(
+            SubmitTurnRequest(
+                tenant="demo",
+                question="(gesture)",
+                session_id=t1.session.id,
+                refinements=(
+                    RankByModel(op="rank_by", by="cash_posted__delta", descending=False),
+                ),
+            )
+        )
+        assert outcome.investigation.plan_hash == t1.investigation.plan_hash
+        assert outcome.findings == t1.findings
+        # every parent caveat, verbatim and in order…
+        assert list(outcome.warnings[: len(t1.warnings)]) == list(t1.warnings)
+        # …plus one line saying the plan was re-served rather than re-run
+        assert outcome.warnings[-1].startswith("refinement_reused_plan:")
+        # persisted too: a rehydrated turn must not lose them either
+        assert outcome.investigation.warnings == outcome.warnings
+        assert {e.referent.value for e in outcome.referents} == {
+            e.referent.value for e in t1.referents
+        }
+        assert outcome.chart_sorts == t1.chart_sorts
+
+    async def test_expanding_past_the_published_count_re_runs_the_builder(
+        self, small_warehouse_path: Path
+    ) -> None:
+        """Round-4 R4-11. The Expand branch bailed only on ``frame.truncated``
+        and then handed back ``parent.findings``, so "show me all twelve" was
+        a no-op that cost a model call and changed nothing."""
+        llm = MockLanguageModel()
+        _canned_t1(llm)
+        engine = _engine(small_warehouse_path, llm)
+        t1 = await _run_t1(engine)
+        outcome = await engine.submit.submit(
+            SubmitTurnRequest(
+                tenant="demo",
+                question="(gesture)",
+                session_id=t1.session.id,
+                refinements=(ExpandModel(op="expand", limit=len(t1.findings) + 5),),
+            )
+        )
+        trace = await engine.trace_store.get(outcome.trace_id)
+        assert trace is not None
+        # NOT the kernel path: a wider display scope is a re-selection
+        assert "kernel_only" not in (trace.payload.get("refinement") or {})
 
     async def test_unknown_referent_in_gesture_is_typed_error(
         self, small_warehouse_path: Path

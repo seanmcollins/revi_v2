@@ -755,6 +755,20 @@
             "title": "Annotations",
             "type": "array"
           },
+          "axis_order": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Axis Order"
+          },
           "chart_type": {
             "enum": [
               "bar",

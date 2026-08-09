@@ -10,6 +10,7 @@ of FastAPI imports so non-API packages can import it.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from decimal import Decimal
 
 from revi_calculation.operators import (
@@ -45,6 +46,10 @@ from revi_pack.domain import (
     KnowledgeCard,
     PackSnapshot,
 )
+
+#: ``PackSnapshot.metric`` — metric id → contract, or ``None`` when the
+#: pack declares no such metric.
+type MetricResolver = Callable[[str], MetricContract | None]
 
 
 class PackSnapshotPort:
@@ -210,7 +215,30 @@ class PackSnapshotPort:
 
 
 class CalculationTransforms:
-    """``TransformPort`` adapter over the versioned kernel operators."""
+    """``TransformPort`` adapter over the versioned kernel operators.
+
+    ``metric`` is the pack's metric-contract resolver (``snapshot.metric``),
+    supplied so a ratio's output column can carry the unit the CONTRACT
+    declares. Optional, and ``None`` behaves exactly as this adapter always
+    did — the kernel then falls back to ``ratio``.
+    """
+
+    def __init__(self, metric: MetricResolver | None = None) -> None:
+        self._metric = metric
+
+    def _declared_unit(self, metric_id: str) -> str | None:
+        """The metric contract's declared unit, or ``None`` if unknowable.
+
+        Round-4 R4-06: ``days_in_ar`` declares ``unit: days`` and is
+        numerator/denominator shaped, so it went through ``ratio()`` and
+        came out stamped ``ratio`` — published as "days in ar: 15,941.2%".
+        A ratio is a shape; the unit is a declaration, and the declaration
+        is resolved here, where the contract is in hand.
+        """
+        if self._metric is None:
+            return None
+        contract = self._metric(metric_id)
+        return contract.unit.value if contract is not None else None
 
     def ratio(
         self,
@@ -221,6 +249,7 @@ class CalculationTransforms:
         out: str,
         out_ref: MetricRef,
         contract_version: int | None = None,
+        unit: str | None = None,
     ) -> EvidenceFrame:
         return ratio(
             frame,
@@ -229,6 +258,7 @@ class CalculationTransforms:
             out=out,
             out_ref=out_ref,
             contract_version=contract_version,
+            unit=unit if unit is not None else self._declared_unit(out_ref.id),
         )
 
     def compare(

@@ -21,6 +21,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
+from revi_api.chart_integrity import apply_axis_order, enforce_row_keys
 from revi_api.cohort_payload import cohort_payload_for
 from revi_api.debug_trace import build_debug_trace
 from revi_api.evidence import build_evidence
@@ -109,6 +110,44 @@ NARRATIVE_FULLY_REDACTED_WARNING = (
 #: Mirrors the engine's per-call floor: below this there is no call worth
 #: making, only a provider refusal that would read like an outage.
 _MIN_NARRATIVE_BUDGET_USD = Decimal("0.001")
+
+
+def _police_charts(
+    specs: Sequence[ChartSpec],
+    frames: Sequence[tuple[str, EvidenceFrame]],
+    components: ApiComponents,
+) -> tuple[list[ChartSpec], list[str]]:
+    """Row-key uniqueness and declared bucket order, before publish.
+
+    Both checks need the frame the spec was built from — the spec alone
+    cannot tell a legitimately repeated x from a grouping column nobody
+    declared — so they run here, where the frames are still in hand, rather
+    than inside the chart builder.
+
+    The bucket order is read straight off the catalog by the x column's
+    dimension id, which is the same authority ``InvestigationPlan.
+    bucket_orders`` reads: doing it here means a RESTORED or re-derived
+    turn, which rebuilds its charts from persisted frames with no plan in
+    hand, gets the same axis as the live one.
+    """
+    by_id = dict(frames)
+    orders: dict[str, tuple[str, ...]] = {}
+    for _, frame in frames:
+        for column in frame.schema.columns:
+            declared = components.catalog.dimension(column.ref.id)
+            if declared is not None and declared.buckets:
+                orders[column.ref.id] = tuple(declared.buckets)
+    kept: list[ChartSpec] = []
+    warnings: list[str] = []
+    for spec in specs:
+        frame = by_id.get(spec.frame_id)
+        repaired, warning = enforce_row_keys(spec, frame)
+        if warning is not None:
+            warnings.append(warning)
+        if repaired is None:
+            continue
+        kept.append(apply_axis_order(repaired, frame, orders))
+    return kept, warnings
 
 
 def _finding_value(name: str, value: object) -> FindingValue:
@@ -444,7 +483,7 @@ async def restored_chart_specs(
         for entry in entries
         if entry.dimension_value is not None and entry.investigation_id == investigation.id
     }
-    return list(
+    specs = list(
         build_chart_specs(
             frames,
             recipes=components.recipes,
@@ -457,6 +496,11 @@ async def restored_chart_specs(
             sorts=chart_sorts_from_trace(trace),
         )
     )
+    # The same two contract checks the live turn ran (R4-09, R4-14): a
+    # restored chart that keeps a collapsing key or an alphabetised aging
+    # axis is a second, wrong rendering of the answer already published.
+    policed, _ = _police_charts(specs, frames, components)
+    return policed
 
 
 def chart_sorts_from_trace(trace: TraceRecord | None) -> dict[str, tuple[str, bool]]:
@@ -882,11 +926,16 @@ async def assemble_turn_response(
             },
         )
     )
+    # …and then the two contract checks a published chart must pass: its
+    # rows must be uniquely addressable by the axes it declares (R4-09),
+    # and an ordinal bucket axis must come off the wire in the order the
+    # catalog declares for it rather than alphabetically (R4-14).
+    chart_specs, chart_warnings = _police_charts(chart_specs, outcome.frames, components)
     if on_event is not None:
         for spec in chart_specs:
             await on_event("chart_spec", spec.model_dump(mode="json"))
 
-    warnings = list(outcome.warnings)
+    warnings = [*outcome.warnings, *chart_warnings]
     if worklist is not None:
         # Disclosed as an ordinary warning, before the narrative is
         # composed: the prose is written against this turn's findings, and

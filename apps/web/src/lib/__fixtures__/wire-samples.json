@@ -1725,5 +1725,482 @@
       "cache_creation_tokens": 1031,
       "schema_retries": 0
     }
+  },
+  "bounded_investigation": {
+    "investigation_id": "inv_d2d5e9d7e858",
+    "session_id": "sess_9901f2128ecc",
+    "parent_id": "inv_101d3009e9b5",
+    "turn_id": "turn_5e7ef8b1666d",
+    "turn_class": "refinement",
+    "status": "complete",
+    "question": "Show me all twelve payers, not just the top three",
+    "plan_hash": "9731f84551cecc0bd06726b860703c4045f879e1a00fe217a4868994448e9811",
+    "context_header": {
+      "window_start": "2026-07-01",
+      "window_end": "2026-07-31",
+      "basis": "service",
+      "comparison_kind": null,
+      "comparison_start": null,
+      "comparison_end": null,
+      "filters": [],
+      "filter_chips": [],
+      "cohort": null,
+      "cohort_size": null,
+      "watermark_id": "wm_003",
+      "as_of": null,
+      "display": "2026-07-01..2026-07-31 (service) · watermark wm_003"
+    },
+    "context_header_restored": true,
+    "watermark_id": "wm_003",
+    "newest_data_date": "2026-08-02",
+    "restoration_notes": [
+      "Restored context: the window, scope, cohort and watermark below are rebuilt from this turn's stored investigation spec at watermark wm_003, not re-computed — the figures are the ones this turn published when it ran.",
+      "The composed narrative is not stored anywhere — the narrative trace keeps its template, redactions and length, not its sentences — so this turn restores without prose. Its findings, warnings and charts are its own record."
+    ],
+    "findings": [
+      {
+        "referent": "F1",
+        "title": "State Medicaid MCO: 29.5% denial rate",
+        "statement": "State Medicaid MCO ranks #1 of 8 measured by denial rate (worst first, as asked) over 2026-07-01..2026-07-31: 29.5%.",
+        "metric_ids": [
+          "denial_rate"
+        ],
+        "values": [
+          {
+            "name": "denial_rate",
+            "value": 0.295082
+          },
+          {
+            "name": "rank",
+            "value": 1
+          }
+        ],
+        "grade": "direct",
+        "impact_cents": null,
+        "confidence": "high",
+        "suggested_refinements": [
+          "drill into F1"
+        ],
+        "benchmarks": [
+          {
+            "id": "benchmark.denial_rate.marketplace_kff",
+            "metric_id": "denial_rate",
+            "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
+            "value_low": "19",
+            "value_high": "20",
+            "unit": "percent of in-network claims denied",
+            "period": "2023-2024",
+            "authority": "independent analysis of CMS transparency data",
+            "review_status": "machine_researched",
+            "cautions": [
+              "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
+              "Plan-reported data with no initial/final distinction"
+            ],
+            "sources": [
+              "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
+            ]
+          }
+        ],
+        "metric_caveats": []
+      },
+      {
+        "referent": "F2",
+        "title": "Pinnacle Health Plan: 22.9% denial rate",
+        "statement": "Pinnacle Health Plan ranks #2 of 8 measured by denial rate (worst first, as asked) over 2026-07-01..2026-07-31: 22.9%.",
+        "metric_ids": [
+          "denial_rate"
+        ],
+        "values": [
+          {
+            "name": "denial_rate",
+            "value": 0.229167
+          },
+          {
+            "name": "rank",
+            "value": 2
+          }
+        ],
+        "grade": "direct",
+        "impact_cents": null,
+        "confidence": "high",
+        "suggested_refinements": [
+          "drill into F2"
+        ],
+        "benchmarks": [
+          {
+            "id": "benchmark.denial_rate.marketplace_kff",
+            "metric_id": "denial_rate",
+            "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
+            "value_low": "19",
+            "value_high": "20",
+            "unit": "percent of in-network claims denied",
+            "period": "2023-2024",
+            "authority": "independent analysis of CMS transparency data",
+            "review_status": "machine_researched",
+            "cautions": [
+              "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
+              "Plan-reported data with no initial/final distinction"
+            ],
+            "sources": [
+              "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
+            ]
+          }
+        ],
+        "metric_caveats": []
+      },
+      {
+        "referent": "F3",
+        "title": "Silverline Medicare Advantage: 18.8% denial rate",
+        "statement": "Silverline Medicare Advantage ranks #3 of 8 measured by denial rate (worst first, as asked) over 2026-07-01..2026-07-31: 18.8%.",
+        "metric_ids": [
+          "denial_rate"
+        ],
+        "values": [
+          {
+            "name": "denial_rate",
+            "value": 0.188034
+          },
+          {
+            "name": "rank",
+            "value": 3
+          }
+        ],
+        "grade": "direct",
+        "impact_cents": null,
+        "confidence": "high",
+        "suggested_refinements": [
+          "drill into F3"
+        ],
+        "benchmarks": [
+          {
+            "id": "benchmark.denial_rate.marketplace_kff",
+            "metric_id": "denial_rate",
+            "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
+            "value_low": "19",
+            "value_high": "20",
+            "unit": "percent of in-network claims denied",
+            "period": "2023-2024",
+            "authority": "independent analysis of CMS transparency data",
+            "review_status": "machine_researched",
+            "cautions": [
+              "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
+              "Plan-reported data with no initial/final distinction"
+            ],
+            "sources": [
+              "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
+            ]
+          }
+        ],
+        "metric_caveats": []
+      },
+      {
+        "referent": "F4",
+        "title": "Veritas Comp Fund: ≤ 76.9% denial rate (upper bound)",
+        "statement": "Veritas Comp Fund: denial rate is AT MOST 76.9% over 2026-07-01..2026-07-31 — the numerator was suppressed over a population of 13, so this is a ceiling and not a measurement. It is published unranked: a bound cannot be ordered against measured cells.",
+        "metric_ids": [
+          "denial_rate"
+        ],
+        "values": [
+          {
+            "name": "denial_rate",
+            "value": 0.769231
+          },
+          {
+            "name": "denial_rate__is_bound",
+            "value": true
+          },
+          {
+            "name": "denial_rate__bound",
+            "value": 0.7692307692307693
+          },
+          {
+            "name": "denial_rate__bound_population",
+            "value": 13
+          }
+        ],
+        "grade": "direct",
+        "impact_cents": null,
+        "confidence": "qualified",
+        "suggested_refinements": [
+          "drill into F4"
+        ],
+        "benchmarks": [
+          {
+            "id": "benchmark.denial_rate.marketplace_kff",
+            "metric_id": "denial_rate",
+            "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
+            "value_low": "19",
+            "value_high": "20",
+            "unit": "percent of in-network claims denied",
+            "period": "2023-2024",
+            "authority": "independent analysis of CMS transparency data",
+            "review_status": "machine_researched",
+            "cautions": [
+              "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
+              "Plan-reported data with no initial/final distinction"
+            ],
+            "sources": [
+              "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
+            ]
+          }
+        ],
+        "metric_caveats": []
+      },
+      {
+        "referent": "F5",
+        "title": "Lakewood Medicaid MCO: ≤ 20.8% denial rate (upper bound)",
+        "statement": "Lakewood Medicaid MCO: denial rate is AT MOST 20.8% over 2026-07-01..2026-07-31 — the numerator was suppressed over a population of 48, so this is a ceiling and not a measurement. It is published unranked: a bound cannot be ordered against measured cells.",
+        "metric_ids": [
+          "denial_rate"
+        ],
+        "values": [
+          {
+            "name": "denial_rate",
+            "value": 0.208333
+          },
+          {
+            "name": "denial_rate__is_bound",
+            "value": true
+          },
+          {
+            "name": "denial_rate__bound",
+            "value": 0.20833333333333334
+          },
+          {
+            "name": "denial_rate__bound_population",
+            "value": 48
+          }
+        ],
+        "grade": "direct",
+        "impact_cents": null,
+        "confidence": "qualified",
+        "suggested_refinements": [
+          "drill into F5"
+        ],
+        "benchmarks": [
+          {
+            "id": "benchmark.denial_rate.marketplace_kff",
+            "metric_id": "denial_rate",
+            "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
+            "value_low": "19",
+            "value_high": "20",
+            "unit": "percent of in-network claims denied",
+            "period": "2023-2024",
+            "authority": "independent analysis of CMS transparency data",
+            "review_status": "machine_researched",
+            "cautions": [
+              "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
+              "Plan-reported data with no initial/final distinction"
+            ],
+            "sources": [
+              "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
+            ]
+          }
+        ],
+        "metric_caveats": []
+      },
+      {
+        "referent": "F6",
+        "title": "Summit Peak Medicare Advantage: ≤ 18.9% denial rate (upper bound)",
+        "statement": "Summit Peak Medicare Advantage: denial rate is AT MOST 18.9% over 2026-07-01..2026-07-31 — the numerator was suppressed over a population of 53, so this is a ceiling and not a measurement. It is published unranked: a bound cannot be ordered against measured cells.",
+        "metric_ids": [
+          "denial_rate"
+        ],
+        "values": [
+          {
+            "name": "denial_rate",
+            "value": 0.188679
+          },
+          {
+            "name": "denial_rate__is_bound",
+            "value": true
+          },
+          {
+            "name": "denial_rate__bound",
+            "value": 0.18867924528301888
+          },
+          {
+            "name": "denial_rate__bound_population",
+            "value": 53
+          }
+        ],
+        "grade": "direct",
+        "impact_cents": null,
+        "confidence": "qualified",
+        "suggested_refinements": [
+          "drill into F6"
+        ],
+        "benchmarks": [
+          {
+            "id": "benchmark.denial_rate.marketplace_kff",
+            "metric_id": "denial_rate",
+            "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
+            "value_low": "19",
+            "value_high": "20",
+            "unit": "percent of in-network claims denied",
+            "period": "2023-2024",
+            "authority": "independent analysis of CMS transparency data",
+            "review_status": "machine_researched",
+            "cautions": [
+              "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
+              "Plan-reported data with no initial/final distinction"
+            ],
+            "sources": [
+              "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
+            ]
+          }
+        ],
+        "metric_caveats": []
+      }
+    ],
+    "warnings": [],
+    "warnings_v2": [],
+    "cohort": null,
+    "evidence": {
+      "probes": [],
+      "reconciliation": null,
+      "warehouse_queries": 0,
+      "cache_hits": 0,
+      "zero_probe_turn": true,
+      "answer_grade": null
+    },
+    "metric": {
+      "primary": null,
+      "metrics": [],
+      "playbook_id": null,
+      "pack_id": "base-rcm",
+      "pack_version": "1.0.0",
+      "pack_snapshot_id": "8e5f979b791b1d69a0084d7f962469469f414785666fda0f6ae4e5bfb6994a85"
+    },
+    "chart_specs": [
+      {
+        "id": "chart_main",
+        "chart_type": "line",
+        "title": "denial rate — main",
+        "frame_id": "main",
+        "x": "payer",
+        "series": null,
+        "value": "denial_rate",
+        "unit": "ratio",
+        "grade": "direct",
+        "rows": [
+          {
+            "x": "Atlas Commercial",
+            "series": null,
+            "value": 0.08169,
+            "referent_id": null,
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Bluestone Mutual",
+            "series": null,
+            "value": 0.162791,
+            "referent_id": null,
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Federal Medicare",
+            "series": null,
+            "value": 0.046729,
+            "referent_id": null,
+            "is_bound": true,
+            "bound_population": 214,
+            "provisional": false
+          },
+          {
+            "x": "Lakewood Medicaid MCO",
+            "series": null,
+            "value": 0.208333,
+            "referent_id": null,
+            "is_bound": true,
+            "bound_population": 48,
+            "provisional": false
+          },
+          {
+            "x": "Meridian Health",
+            "series": null,
+            "value": 0.130045,
+            "referent_id": null,
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Northbridge Commercial",
+            "series": null,
+            "value": 0.085714,
+            "referent_id": null,
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Pinnacle Health Plan",
+            "series": null,
+            "value": 0.229167,
+            "referent_id": null,
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Silverline Medicare Advantage",
+            "series": null,
+            "value": 0.188034,
+            "referent_id": null,
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "State Medicaid",
+            "series": null,
+            "value": 0.157895,
+            "referent_id": null,
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "State Medicaid MCO",
+            "series": null,
+            "value": 0.295082,
+            "referent_id": null,
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Summit Peak Medicare Advantage",
+            "series": null,
+            "value": 0.188679,
+            "referent_id": null,
+            "is_bound": true,
+            "bound_population": 53,
+            "provisional": false
+          },
+          {
+            "x": "Veritas Comp Fund",
+            "series": null,
+            "value": 0.769231,
+            "referent_id": null,
+            "is_bound": true,
+            "bound_population": 13,
+            "provisional": false
+          }
+        ],
+        "annotations": [
+          "upper bounds: 4 of 12 marks are ceilings, not measurements — their numerator was suppressed and they cannot be ranked against the measured marks"
+        ],
+        "recipe_id": "denial_rate_trend",
+        "sort": null
+      }
+    ],
+    "metric_display": [],
+    "created_at": "2026-08-09T17:31:39.557304Z"
   }
 }

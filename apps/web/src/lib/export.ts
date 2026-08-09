@@ -144,6 +144,20 @@ export interface AnswerCopyInput {
 const RULE = "—".repeat(4);
 
 /**
+ * What an export may say when it is holding no warnings.
+ *
+ * NOT "the platform attached no caveats to this answer". That is a claim
+ * about the analysis — that nothing needed saying — and this browser cannot
+ * establish it. It holds a payload. Live, a refinement turn re-served its
+ * parent's plan with all eleven warnings stripped, and the CSV it produced
+ * affirmed their absence under a watermark, an investigation id and a full
+ * provenance block: the most confident artifact in the product, asserting
+ * the one thing it had just lost.
+ */
+export const NO_CAVEATS_LINE =
+  "No caveats were attached to this turn's payload. That is what this export holds — not a finding that the analysis needed none.";
+
+/**
  * The turn's warnings as the sentences an export prints — cautions first,
  * each one titled by its code and counted when it was raised more than
  * once.
@@ -159,7 +173,9 @@ export function caveatLines(warnings: readonly WarningEvent[]): string[] {
   ];
   return ordered.map((warning) => {
     const title = warningTitle(warning.code);
-    const body = title ? warningBody(warning.code, warning.message) : warning.message;
+    // Unconditional, exactly as on screen: an untitled code costs the
+    // reader a heading, not a machine prefix in the middle of a caveat.
+    const body = warningBody(warning.code, warning.message);
     const times = warning.count && warning.count > 1 ? ` (raised ${warning.count} times)` : "";
     return `[${warning.severity}] ${title ? `${title} — ` : ""}${body}${times}`;
   });
@@ -303,6 +319,9 @@ export function answerToText(input: AnswerCopyInput): string {
       RULE,
       `${chart.rows.length} row${chart.rows.length === 1 ? "" : "s"} × ${chart.series.length} series, in ${unitWord(chart.unit)}${orderPhrase(chart)}`,
     );
+    // The rows below are cells, and when the wire's rows did not key
+    // uniquely onto them a reader is owed the arithmetic before the list.
+    if (chart.keying) out.push(`    ${chart.keying.note}`);
     for (const row of chart.rows) {
       const cells = chart.series.map((series) => {
         const value = row.values[series.key];
@@ -352,10 +371,15 @@ export function answerToText(input: AnswerCopyInput): string {
   }
 
   // Never optional, never below the fold, never dropped when the list is
-  // empty: "no caveats were attached" is itself a fact about the answer.
+  // empty. But what it says when the list IS empty is a claim about the
+  // PAYLOAD, not about the analysis: "the platform attached no caveats to
+  // this answer" asserts that nothing needed saying, and a refinement turn
+  // that re-served a plan with its warnings stripped published exactly that
+  // sentence under a watermark and an investigation id. This client cannot
+  // know why a warning list is empty, so it reports what it holds.
   out.push("CAVEATS THAT TRAVEL WITH THESE NUMBERS", RULE);
   const caveats = caveatLines(input.warnings);
-  out.push(...(caveats.length === 0 ? ["The platform attached no caveats to this answer."] : caveats));
+  out.push(...(caveats.length === 0 ? [NO_CAVEATS_LINE] : caveats));
   out.push("");
 
   out.push("PROVENANCE", RULE);
@@ -552,6 +576,10 @@ function unitWord(unit: MeasureUnit): string {
 function orderPhrase(spec: ChartSpec): string {
   const order = spec.order;
   if (order === undefined || order.basis === "wire") return "";
+  if (order.basis === "axis-order")
+    return order.by
+      ? `, in the catalog's declared order for ${order.by}`
+      : ", in the catalog's declared bucket order";
   if (order.basis === "ordinal-bucket") return ", ordered by bucket";
   const direction = order.descending === false ? "low to high" : "high to low";
   return order.by ? `, ordered by ${order.by} ${direction}` : `, ordered ${direction}`;
@@ -588,12 +616,23 @@ export function chartToCsv(spec: ChartSpec, meta?: ChartCsvMeta): string {
   const say = (text: string): void => {
     preamble.push(text);
   };
+  // When the wire's rows were not uniquely keyed by the axes this chart
+  // declares, the FILE carries the rows as they arrived — long format, one
+  // line per wire row — not the collapsed cells the picture draws. An
+  // export built from the collapsed cells would repeat the picture's
+  // understatement (live: $848.50 written into a May cell whose true total
+  // was $160,744.15) with a provenance block on top of it.
+  const wire = spec.keying;
+
   say(`Revi — ${spec.title}`);
   if (meta?.question) say(`Question: ${meta.question}`);
   if (meta?.windowLabel) say(`Window: ${meta.windowLabel}`);
   say(
-    `${spec.rows.length} row${spec.rows.length === 1 ? "" : "s"} × ${spec.series.length} series, in ${unitWord(spec.unit)}${orderPhrase(spec)}`,
+    wire
+      ? `${wire.rows.length} row${wire.rows.length === 1 ? "" : "s"} as the server sent them, in ${unitWord(spec.unit)}${orderPhrase(spec)}`
+      : `${spec.rows.length} row${spec.rows.length === 1 ? "" : "s"} × ${spec.series.length} series, in ${unitWord(spec.unit)}${orderPhrase(spec)}`,
   );
+  if (wire) say(wire.note);
   if (spec.truncation && spec.truncation.total > spec.truncation.shown) {
     say(
       `Truncated at the source: ${spec.truncation.shown} of ${spec.truncation.total} categories are here.`,
@@ -614,7 +653,7 @@ export function chartToCsv(spec: ChartSpec, meta?: ChartCsvMeta): string {
   if (meta?.packLabel) say(`Metric definitions: ${meta.packLabel}`);
   say("CAVEATS THAT TRAVEL WITH THESE NUMBERS");
   if (!meta?.caveats || meta.caveats.length === 0) {
-    say("The platform attached no caveats to this answer.");
+    say(NO_CAVEATS_LINE);
   } else {
     for (const caveat of meta.caveats) say(caveat);
   }
@@ -627,19 +666,35 @@ export function chartToCsv(spec: ChartSpec, meta?: ChartCsvMeta): string {
     "These numbers are as of the data load named above. Re-running the same question against a newer load can change them.",
   );
 
-  const headers = [
-    meta?.windowLabel
-      ? `${spec.xLabel ?? "category"} (${meta.windowLabel})`
-      : (spec.xLabel ?? "category"),
-    "referent",
-    ...spec.series.map((s) => `${s.label} (${suffix})`),
-    // Emitted only when the wire carries them: an always-empty column
-    // trains a reader to ignore it before it ever means anything.
-    ...(bounded || hasBound ? ["bounded"] : []),
-    ...(hasBound ? [`bound (${suffix})`] : []),
-    ...(hasDenominator ? ["denominator"] : []),
-    ...(hasProvisional ? ["provisional"] : []),
-  ];
+  const category = meta?.windowLabel
+    ? `${spec.xLabel ?? "category"} (${meta.windowLabel})`
+    : (spec.xLabel ?? "category");
+
+  const headers = wire
+    ? [
+        category,
+        // The series column is a COLUMN here, not a header per series: the
+        // rows are long-format because that is the only shape in which
+        // rows the declared axes cannot tell apart stay distinguishable.
+        wire.seriesColumn ?? "series",
+        "referent",
+        `value (${suffix})`,
+        ...(wire.rows.some((row) => row.bounded === true) ? ["bounded"] : []),
+        ...(wire.rows.some((row) => row.bound !== undefined) ? [`bound (${suffix})`] : []),
+        ...(wire.rows.some((row) => row.denominator !== undefined) ? ["denominator"] : []),
+        ...(wire.rows.some((row) => row.provisional === true) ? ["provisional"] : []),
+      ]
+    : [
+        category,
+        "referent",
+        ...spec.series.map((s) => `${s.label} (${suffix})`),
+        // Emitted only when the wire carries them: an always-empty column
+        // trains a reader to ignore it before it ever means anything.
+        ...(bounded || hasBound ? ["bounded"] : []),
+        ...(hasBound ? [`bound (${suffix})`] : []),
+        ...(hasDenominator ? ["denominator"] : []),
+        ...(hasProvisional ? ["provisional"] : []),
+      ];
 
   const scaled = (value: number): number =>
     // Money is exported in dollars for the same reason the worklist is:
@@ -654,19 +709,34 @@ export function chartToCsv(spec: ChartSpec, meta?: ChartCsvMeta): string {
         // arithmetic that got it here.
         Number(value.toPrecision(12));
 
-  const rows: CsvValue[][] = spec.rows.map((row) => [
-    row.label,
-    row.referent ?? "",
-    ...spec.series.map((s) => {
-      const value = row.values[s.key];
-      if (typeof value !== "number" || !Number.isFinite(value)) return "";
-      return scaled(value);
-    }),
-    ...(bounded || hasBound ? [row.bounded === true ? "TRUE" : ""] : []),
-    ...(hasBound ? [row.bound === undefined ? "" : scaled(row.bound)] : []),
-    ...(hasDenominator ? [row.denominator ?? ""] : []),
-    ...(hasProvisional ? [row.provisional === true ? "TRUE" : ""] : []),
-  ]);
+  const rows: CsvValue[][] = wire
+    ? wire.rows.map((row) => [
+        row.x,
+        row.series,
+        row.referent ?? "",
+        typeof row.value === "number" && Number.isFinite(row.value) ? scaled(row.value) : "",
+        ...(wire.rows.some((r) => r.bounded === true) ? [row.bounded === true ? "TRUE" : ""] : []),
+        ...(wire.rows.some((r) => r.bound !== undefined)
+          ? [row.bound === undefined ? "" : scaled(row.bound)]
+          : []),
+        ...(wire.rows.some((r) => r.denominator !== undefined) ? [row.denominator ?? ""] : []),
+        ...(wire.rows.some((r) => r.provisional === true)
+          ? [row.provisional === true ? "TRUE" : ""]
+          : []),
+      ])
+    : spec.rows.map((row) => [
+        row.label,
+        row.referent ?? "",
+        ...spec.series.map((s) => {
+          const value = row.values[s.key];
+          if (typeof value !== "number" || !Number.isFinite(value)) return "";
+          return scaled(value);
+        }),
+        ...(bounded || hasBound ? [row.bounded === true ? "TRUE" : ""] : []),
+        ...(hasBound ? [row.bound === undefined ? "" : scaled(row.bound)] : []),
+        ...(hasDenominator ? [row.denominator ?? ""] : []),
+        ...(hasProvisional ? [row.provisional === true ? "TRUE" : ""] : []),
+      ]);
 
   return buildCsv(headers, rows, preamble);
 }

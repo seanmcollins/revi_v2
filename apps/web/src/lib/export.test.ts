@@ -145,14 +145,21 @@ describe("answerToText", () => {
     expect(text).toContain("Small cells were suppressed");
   });
 
-  it("says so explicitly when there are no caveats rather than omitting the section", () => {
+  it("reports an empty warning list as a fact about the PAYLOAD, never about the analysis", () => {
     const clean = answerToText({
       header: HEADER,
       findings: [FINDING],
       narrative: "n",
       warnings: [],
     });
-    expect(clean).toContain("The platform attached no caveats to this answer.");
+    // The section is still never omitted — an absent caveats block reads as
+    // an answer that had none.
+    expect(clean).toContain("CAVEATS THAT TRAVEL WITH THESE NUMBERS");
+    expect(clean).toContain("No caveats were attached to this turn's payload");
+    // But it does not AFFIRM the absence. A refinement turn that re-served
+    // its parent's plan with all eleven warnings stripped published exactly
+    // that assertion, under a watermark and an investigation id.
+    expect(clean).not.toContain("The platform attached no caveats");
   });
 
   it("carries each benchmark's cohort, review status and cautions", () => {
@@ -500,8 +507,11 @@ describe("chartToCsv", () => {
     expect(csv).toContain("exported 2026-08-09 14:32");
   });
 
-  it("says so when the platform attached no caveats, rather than saying nothing", () => {
-    expect(chartToCsv(spec)).toContain("The platform attached no caveats to this answer.");
+  it("states what it holds when it holds no caveats, and claims nothing beyond it", () => {
+    const csv = chartToCsv(spec);
+    expect(csv).toContain("CAVEATS THAT TRAVEL WITH THESE NUMBERS");
+    expect(csv).toContain("No caveats were attached to this turn's payload");
+    expect(csv).not.toContain("The platform attached no caveats");
   });
 
   it("defuses a caveat that would otherwise execute in Excel", () => {

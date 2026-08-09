@@ -8,6 +8,7 @@ from revi_presentation.charts import (
     RecipeSpec,
     build_chart_spec,
     build_chart_specs,
+    provisional_bucket,
 )
 from revi_presentation.narrative import (
     LEAD_DISCLOSURE_CODES,
@@ -23,9 +24,11 @@ from revi_presentation.narrative import (
     build_narrative_facts,
     build_narrative_prompt,
     empty_narrative,
+    ends_on_abbreviation,
     mandatory_disclosures,
     reconciliation_disclosure,
     recovered_code,
+    split_sentences,
     template_hash,
     validate_narrative,
 )
@@ -49,9 +52,12 @@ __all__ = [
     "build_narrative_facts",
     "build_narrative_prompt",
     "empty_narrative",
+    "ends_on_abbreviation",
     "mandatory_disclosures",
+    "provisional_bucket",
     "reconciliation_disclosure",
     "recovered_code",
+    "split_sentences",
     "template_hash",
     "validate_narrative",
 ]

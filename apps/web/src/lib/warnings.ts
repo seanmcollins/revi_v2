@@ -42,6 +42,35 @@ export const WARNING_TITLES: Readonly<Record<string, string>> = {
   // window there was none." The answer that follows is context for a
   // movement that did not happen, not confirmation of one.
   PREMISE_FALSE: "The question's premise doesn't hold",
+  // Neither confirmed nor refuted: the movement went the way the question
+  // assumes and fell short of the SIZE it assumes. "Denials did not rise"
+  // would be as false as "denials doubled" over a real +72.6%.
+  PREMISE_PARTIAL: "The premise holds in direction, not in size",
+  // The other half of the same verdict, and it has to be published as
+  // loudly: a premise probe runs on every turn that asserts a movement,
+  // and reporting it only when it FAILS leaves a reader unable to tell
+  // "we checked and it happened" from "we never checked".
+  PREMISE_VERIFIED: "The question's premise holds",
+  // The flagship refusal, and until now the one that printed as
+  // "ranking_refused:" in front of the analyst. Deliberately not "Ranking
+  // refused" — the fact is that no order was published, and the engine's
+  // own sentence beneath it does the arithmetic.
+  RANKING_REFUSED: "No ranking was published",
+  BOUNDED_CELLS_UNRANKED: "These cells are ceilings, not ranked",
+  // A terminal bucket computed over a fraction of the records its
+  // siblings hold. NOT "incomplete data" — the data is fine and the
+  // period is not over.
+  ADJUDICATION_INCOMPLETE: "The last point is still settling",
+  // Distinct from RESULT_TRUNCATED ("Only the top rows were kept"), which
+  // is about the probe's rows. This one is about the write-up: the rows
+  // exist, in the chart and the evidence frame, and only some were
+  // narrated — so superlatives describe the published slice.
+  FINDINGS_TRUNCATED: "Only the top rows were written up",
+  WINDOW_RELATIVE: "Your period was anchored to this data load",
+  // "Next 30 days" names when the WORK happens, not a period to measure —
+  // and no data exists after the newest data date.
+  WINDOW_HORIZON: "That names when the work happens, not what to measure",
+  NAMED_CUT_APPLIED: "What you named was resolved to this",
   // The complement of SUPPRESSION_APPLIED: these cells were NOT withheld.
   // A numerator under the threshold over a publishable population is shown
   // as "at most N", so the best-performing cells stay in the ranking with
@@ -53,6 +82,19 @@ export const WARNING_TITLES: Readonly<Record<string, string>> = {
   // it into a period with no data at all, which is a different warning.
   WINDOW_OUT_OF_RANGE: "Part of that period isn't in this data",
   COMPARISON_ASSUMED: "Comparison window assumed",
+  // A cell that fell outside the other window's top-N was never read, so
+  // its prior figure is UNKNOWN — which is not zero, and the difference is
+  // the whole reason this warning exists.
+  COMPARISON_PRIOR_UNKNOWN: "Some cells have no prior figure to compare",
+  // A refinement that resolved to a plan already executed: same evidence,
+  // same findings, same caveats, different presentation.
+  REFINEMENT_REUSED_PLAN: "The same answer, presented differently",
+  // The operators the analyst asked for that the served answer does not
+  // reflect — named rather than silently dropped.
+  REFINEMENT_NOT_APPLIED: "Part of what you asked for was not applied",
+  // The rows a chart published were not uniquely keyed by the axes it
+  // declared, so cells that look like one category are several.
+  CHART_ROWS_COLLAPSED: "This chart's rows aren't uniquely keyed",
   VALUE_CORRECTED: "A published value was corrected",
   DIRECTION_UNMATCHED: "The movement went the other way",
   WINDOW_ASSUMED: "Window assumed",
@@ -73,6 +115,9 @@ export const WARNING_TITLES: Readonly<Record<string, string>> = {
   COHORT_WINDOW_DROPPED: "The pinned population kept no window",
   ASSUMPTION_COMMITTED: "An assumption was made and applied",
   CLARIFICATION_ANSWER_APPLIED: "Read as an answer to the question above",
+  // This platform's own dimension swap, disclosed on the turn that made
+  // it: the drill does not read the cut the card was detected on.
+  DIMENSION_REPOINTED: "This drill reads a different cut",
   /* -- what the platform did with the answer (does not change it) ---- */
   SUPPRESSION_APPLIED: "Small cells were suppressed",
   NARRATIVE_REDACTED: "A sentence was cut from the write-up",
@@ -106,6 +151,9 @@ export const WARNING_TITLES: Readonly<Record<string, string>> = {
   // The intro line above the ranked cards on an answer. Load-bearing: the
   // cards are the detection feed's ranked work, NOT findings the turn
   // computed, and this is the sentence that keeps the two apart.
+  // The question ROUTED to the governed work-prioritization playbook, so
+  // the ranked cards are not a companion to the answer — they are it.
+  WORKLIST_LEADS: "The worklist is the answer here",
   WORKLIST_ATTACHED: "Worklist attached",
   WORKLIST_UNAVAILABLE: "Worklist unavailable",
 };

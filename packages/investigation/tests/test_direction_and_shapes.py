@@ -599,14 +599,17 @@ class TestAssertedPremises:
         assert "$58,983.54" in titles[0] and "$10,915.24" in titles[0]
         assert any("Meridian Health" in title for title in titles[1:])
 
-    async def test_a_directionally_true_premise_that_falls_short_is_refuted(
+    async def test_a_directionally_true_premise_that_falls_short_is_partial(
         self, pack_port: PackSnapshotPort, make_spec: SpecFactory
     ) -> None:
-        """Round-3 R3-03: "double" is a claim about SIZE.
+        """Round-3 R3-03 plus round-4 R4-05c: "double" is a claim about SIZE,
+        and falling short of it is its own verdict.
 
         ``holds`` tested the sign alone, so "why did denials double?" over
         +4.2% was scored true, published nothing, and let the narrative lead
-        with a 243% sub-cell of a movement that never happened.
+        with a 243% sub-cell of a movement that never happened. Calling that
+        a REFUTATION is the opposite error — denials did rise — so the
+        verdict is partial support, in the question's own words.
         """
         spec = make_spec(measures=("denied_dollars",), dimensions=("payer",), watermark=WATERMARK)
         spec = replace(
@@ -624,9 +627,10 @@ class TestAssertedPremises:
             pack_port,
         )
 
-        assert warnings[0].startswith("premise_false:")
+        assert warnings[0].startswith("premise_partial:")
         assert "did not double" in warnings[0]
-        assert titles[0].startswith("Premise not supported:")
+        assert "short of the 100.0%" in warnings[0]
+        assert titles[0].startswith("Premise partly supported:")
 
     async def test_a_question_that_asserts_nothing_is_never_corrected(
         self, pack_port: PackSnapshotPort, make_spec: SpecFactory

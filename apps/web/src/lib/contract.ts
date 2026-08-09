@@ -28,8 +28,10 @@
 import type {
   AnomalyReconciliation,
   Benchmark,
+  ChartKeying,
   ChartRow,
   ChartSpec,
+  ChartWireRow,
   ClarificationData,
   CohortSummary,
   ComparisonKind,
@@ -543,6 +545,33 @@ function orderRowsByOrdinalBucket(rows: readonly ChartRow[], descending = false)
 }
 
 /**
+ * Seat the rows in the order the CATALOG declared for this axis.
+ *
+ * `ChartSpec.axis_order` is the pack's own list for an ordinal dimension
+ * (`["0-30","31-60","61-90","91-120","120+"]`), and the server emits its
+ * rows in it — so this is normally a no-op that re-states the fact rather
+ * than performing it. It is applied anyway, and applied STABLY, because a
+ * client that only labels an order it never checks is trusting a claim it
+ * could have verified for free.
+ *
+ * A label the catalog does not declare keeps its wire slot, after the
+ * declared ones — the same rule the server states. A bucket the pack has
+ * not heard of is a fact about the data, not a licence to reorder the ones
+ * it has, and it is emphatically not something this module gets to place by
+ * guessing a number out of it.
+ */
+function orderRowsByAxisOrder(
+  rows: readonly ChartRow[],
+  axisOrder: readonly string[],
+): ChartRow[] {
+  const rank = new Map(axisOrder.map((label, index) => [label, index] as const));
+  return rows
+    .map((row, index) => ({ row, index, rank: rank.get(row.label) ?? axisOrder.length }))
+    .sort((a, b) => a.rank - b.rank || a.index - b.index)
+    .map((entry) => entry.row);
+}
+
+/**
  * The resolved ordering the payload carries, in whatever spelling it
  * carries it.
  *
@@ -677,13 +706,29 @@ function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
-/** `[{name, value}]` → `{name: value}`, dropping nulls and booleans. */
-function mapFindingValues(raw: unknown): Record<string, number | string> {
-  const out: Record<string, number | string> = {};
+/**
+ * `[{name, value}]` → `{name: value}`, dropping nulls only.
+ *
+ * BOOLEANS ARE CARRIED, and that is the whole of R4-01. This filter used to
+ * read `typeof value === "number" || typeof value === "string"`, and its
+ * docstring said "dropping nulls and booleans" as though that were a
+ * tidiness measure. `denial_rate__is_bound: true` is a boolean. So the one
+ * fact that separates "Veritas denies 76.9% of claims" from "Veritas
+ * denies at most 76.9%, over thirteen of them" was discarded three lines
+ * into the client, and the hero stat rendered a suppression ceiling in the
+ * same 1.55rem numeral as the measured card three above it.
+ *
+ * A null is still dropped: the wire publishes `impact_cents: null` to mean
+ * "withheld", and a null in this map would read as a value of nothing.
+ */
+function mapFindingValues(raw: unknown): Record<string, number | string | boolean> {
+  const out: Record<string, number | string | boolean> = {};
   for (const entry of asArray(raw)) {
     if (!isRecord(entry) || typeof entry.name !== "string") continue;
     const value = entry.value;
-    if (typeof value === "number" || typeof value === "string") out[entry.name] = value;
+    if (typeof value === "number" || typeof value === "string" || typeof value === "boolean") {
+      out[entry.name] = value;
+    }
   }
   return out;
 }
@@ -737,6 +782,14 @@ export interface FindingContext {
    */
   benchmarks?: Benchmark[];
 }
+
+/**
+ * The suffixes the wire hangs off a measure name to describe a suppression
+ * ceiling: `denial_rate__is_bound`, `denial_rate__bound`,
+ * `denial_rate__bound_population`. They are anatomy of one measure, never a
+ * measure of their own.
+ */
+const BOUND_VALUE_SUFFIX = /__(is_bound|bound|bound_population)$/;
 
 /** Values that are comparison anatomy, not standalone measures. */
 const COMPARISON_VALUE_NAMES = new Set([
@@ -803,32 +856,74 @@ export function mapFinding(raw: unknown, context: FindingContext = {}): Finding 
   // because a benchmark range is quoted against this figure and a money
   // finding can carry one too. Nothing is invented — an unknown unit
   // yields nothing rather than a bare float.
+  //
+  // A measure that is a BOUND says so here, from the sibling values the
+  // wire publishes beside it (`<metric>__is_bound`, `__bound`,
+  // `__bound_population`). The exact `__bound` wins over the rounded
+  // headline `value` when both are present — they are the same ceiling and
+  // only one of them is the number the engine actually computed.
+  const boundOf = (metricId: string): Pick<MeasuredValue, "isBound" | "boundPopulation"> =>
+    values[`${metricId}__is_bound`] === true
+      ? {
+          isBound: true,
+          ...(asNumber(values[`${metricId}__bound_population`]) !== undefined
+            ? { boundPopulation: asNumber(values[`${metricId}__bound_population`]) }
+            : {}),
+        }
+      : {};
+  const figureOf = (metricId: string): number | undefined =>
+    values[`${metricId}__is_bound`] === true
+      ? (asNumber(values[`${metricId}__bound`]) ?? asNumber(values[metricId]))
+      : asNumber(values[metricId]);
+
   let measured: MeasuredValue | undefined;
   for (const metricId of metricRefs) {
-    const value = asNumber(values[metricId]);
+    const value = figureOf(metricId);
     const display = context.unitByMetric?.[metricId];
     if (value === undefined || display === undefined) continue;
-    measured = { metricId, value: value * display.scale, unit: display.unit };
+    measured = {
+      metricId,
+      value: value * display.scale,
+      unit: display.unit,
+      ...boundOf(metricId),
+    };
     break;
   }
   if (measured === undefined) {
     // Fall back to the sole non-anatomy value only when the payload
-    // leaves no ambiguity about which number the finding is about.
+    // leaves no ambiguity about which number the finding is about. The
+    // `__is_bound` / `__bound` / `__bound_population` siblings are not
+    // candidates — they are anatomy of the measure, not a second measure,
+    // and counting them would make every bounded finding "ambiguous".
     const named = Object.entries(values).filter(
-      ([name, value]) => typeof value === "number" && !COMPARISON_VALUE_NAMES.has(name),
+      ([name, value]) =>
+        typeof value === "number" &&
+        !COMPARISON_VALUE_NAMES.has(name) &&
+        !BOUND_VALUE_SUFFIX.test(name),
     );
     if (named.length === 1) {
-      const [name, value] = named[0];
+      const [name] = named[0];
       const display = context.unitByMetric?.[name];
-      if (display !== undefined) {
-        measured = { metricId: name, value: (value as number) * display.scale, unit: display.unit };
+      const value = figureOf(name);
+      if (display !== undefined && value !== undefined) {
+        measured = {
+          metricId: name,
+          value: value * display.scale,
+          unit: display.unit,
+          ...boundOf(name),
+        };
       }
     }
   }
 
-  // The headline number when no dollar impact was published.
+  // The headline number when no dollar impact was published — rendered as
+  // the ceiling it is when the wire said it is one. "≤ 76.9%" and "76.9%"
+  // are different claims and this is the only place the difference can be
+  // made, because every surface below reads `impactDisplay`.
   const headline = impactCents === undefined && !hasComparison ? measured : undefined;
-  const impactDisplay = headline ? formatMeasure(headline.value, headline.unit) : undefined;
+  const impactDisplay = headline
+    ? `${headline.isBound ? "≤ " : ""}${formatMeasure(headline.value, headline.unit)}`
+    : undefined;
   const impactLabel = headline
     ? measureLabel(headline.metricId, context.metricDisplay)
     : undefined;
@@ -953,9 +1048,25 @@ export function impactWithheldReason(warnings: readonly string[]): string | unde
     : "not published — the comparison window is not the same length as the analysis window";
 }
 
+/**
+ * What the turn said about its own ordering and its own cells, handed to
+ * the chart mapper so a figure cannot present a rank the answer refused.
+ */
+export interface ChartTurnContext {
+  metricDisplay?: Record<string, MetricDisplay>;
+  /** `warnings_v2` codes published on this turn. */
+  warningCodes?: readonly string[];
+}
+
+/** Units whose cells may be added together without inventing a number. */
+function additiveUnit(unit: ChartSpec["unit"]): boolean {
+  return unit === "cents" || unit === "count";
+}
+
 export function mapChartSpec(
   raw: unknown,
   metricDisplay?: Record<string, MetricDisplay>,
+  turn?: ChartTurnContext,
 ): ChartSpec | null {
   if (!isRecord(raw)) return null;
   const wireType = asString(raw.chart_type);
@@ -963,13 +1074,40 @@ export function mapChartSpec(
   const valueColumn = asString(raw.value);
   const xColumn = asString(raw.x);
   const seriesColumn = typeof raw.series === "string" ? raw.series : null;
+  const unit = CHART_UNIT_BY_WIRE[wireUnit] ?? "count";
   // The one place a wire value is rescaled. `ratio` frames publish
   // fractions (0.079945) and the UI renders percent, so without this the
   // axis reads "0.1%" beside a finding card reading "8.0%".
   const scale = CHART_VALUE_SCALE_BY_WIRE[wireUnit] ?? 1;
+  const codes = new Set(turn?.warningCodes ?? []);
+  // The engine refused to publish a ranking on this answer. The chart is
+  // 400px below that refusal and used to sort by value anyway.
+  const rankingRefused = codes.has("RANKING_REFUSED");
 
+  /*
+   * KEYING. A row is identified by the axes the spec DECLARES — `(x,
+   * series)` — and the wire is not obliged to send one row per key. Live it
+   * does not: a chart declaring `x=month, series=payer` published 30 rows
+   * over 3 months × 1 payer, and keying by `x` alone with a
+   * `values[series] = …` write meant twenty-seven of them silently
+   * overwrote the other three. The figure drew $3,468 of $441,808 and the
+   * CSV published the same understatement under a full caveats block.
+   *
+   * So collisions are COUNTED, not overwritten. Dollars and counts are
+   * summed (nothing is lost and the total is stated); percentages and day
+   * counts cannot be added, so the chart refuses to draw and hands over
+   * what arrived. Either way the wire's own rows are kept for the export.
+   */
   const seriesKeys: string[] = [];
   const rowsByX = new Map<string, ChartRow>();
+  const cellCount = new Map<string, number>();
+  const wireRows: ChartWireRow[] = [];
+  /** Categories whose colliding rows named different drill targets. */
+  const referentClash = new Set<string>();
+  const additive = additiveUnit(unit);
+  let wireTotal = 0;
+  let lastWriteWinsTotal = 0;
+
   for (const entry of asArray(raw.rows)) {
     if (!isRecord(entry)) continue;
     const label = asString(entry.x);
@@ -979,15 +1117,14 @@ export function mapChartSpec(
     if (!seriesKeys.includes(key)) seriesKeys.push(key);
     const row = rowsByX.get(label) ?? { label, values: {} };
     const value = asNumber(entry.value);
-    if (value !== undefined) row.values[key] = value * scale;
-    if (typeof entry.referent_id === "string") row.referent = entry.referent_id;
-    // The suppression ceiling, read in whichever spelling arrives. The
-    // structured flag is a later batch's work (R3-01: `BoundedCell.bound`
-    // plus the population it was taken over); until it lands every branch
-    // below is simply false and nothing is claimed. When it lands, the CSV
-    // starts carrying `bound` and `denominator` with no further change —
-    // a bounded row is a ceiling, and an export of ceilings that does not
-    // say so is the one this product cannot ship.
+    const cellKey = `${label}\u0000${key}`;
+    const collision = (cellCount.get(cellKey) ?? 0) > 0;
+    cellCount.set(cellKey, (cellCount.get(cellKey) ?? 0) + 1);
+
+    // The suppression ceiling, read in whichever spelling arrives.
+    // `bound_population` / `is_bound` is the spelling wave B landed; the
+    // others are earlier drafts of the same fact, kept because a payload
+    // generation that publishes neither must not have one invented for it.
     const boundValue = asNumber(entry.bound ?? entry.upper_bound);
     const bounded =
       entry.bounded === true ||
@@ -995,12 +1132,54 @@ export function mapChartSpec(
       entry.suppressed === true ||
       entry.bound === true ||
       boundValue !== undefined;
-    if (bounded) row.bounded = true;
-    if (boundValue !== undefined) row.bound = boundValue * scale;
     const denominator = asNumber(
       entry.denominator ?? entry.bound_population ?? entry.population ?? entry.n,
     );
-    if (denominator !== undefined) row.denominator = denominator;
+    const referent = typeof entry.referent_id === "string" ? entry.referent_id : undefined;
+
+    wireRows.push({
+      x: label,
+      series: key,
+      ...(value !== undefined ? { value: value * scale } : {}),
+      ...(referent !== undefined ? { referent } : {}),
+      ...(bounded ? { bounded: true } : {}),
+      ...(boundValue !== undefined ? { bound: boundValue * scale } : {}),
+      ...(denominator !== undefined ? { denominator } : {}),
+      ...(entry.provisional === true ? { provisional: true } : {}),
+    });
+    if (value !== undefined) wireTotal += value * scale;
+
+    if (value !== undefined) {
+      const prior = row.values[key];
+      if (!collision || prior === undefined) {
+        if (prior === undefined) lastWriteWinsTotal += value * scale;
+        row.values[key] = value * scale;
+      } else if (additive) {
+        row.values[key] = prior + value * scale;
+      }
+      // Non-additive collision: the first cell stands and the census below
+      // says the figure cannot be drawn. Overwriting would pick a winner.
+    }
+
+    // A collided cell has no single drill target. Keeping the last
+    // collider's referent is how a bar's drill-through came to open a
+    // different cell from the one it draws — and once a cell's referents
+    // have disagreed, no later row may restore one.
+    if (!referentClash.has(label) && referent !== undefined) {
+      if (row.referent !== undefined && row.referent !== referent) {
+        referentClash.add(label);
+        delete row.referent;
+      } else {
+        row.referent = referent;
+      }
+    }
+    // A cell holding any ceiling is a ceiling: a sum that includes a
+    // suppressed numerator is itself an upper bound, never a measurement.
+    if (bounded) row.bounded = true;
+    if (boundValue !== undefined && !collision) row.bound = boundValue * scale;
+    if (collision) delete row.bound;
+    if (denominator !== undefined && !collision) row.denominator = denominator;
+    if (collision) delete row.denominator;
     // A terminal bucket that is calendar-partial or still adjudicating is
     // not a settled measurement, and a spreadsheet that presents it as one
     // reports the claims run-out as deterioration.
@@ -1009,6 +1188,24 @@ export function mapChartSpec(
   }
   if (seriesKeys.length === 0) seriesKeys.push(valueColumn);
   const rows = [...rowsByX.values()];
+
+  const distinctKeys = cellCount.size;
+  const collided = wireRows.length > distinctKeys;
+  const keying: ChartKeying | undefined = collided
+    ? {
+        xColumn,
+        seriesColumn,
+        wireRows: wireRows.length,
+        keys: distinctKeys,
+        mode: additive ? "summed" : "unkeyable",
+        wireTotal,
+        drawnTotal: additive ? wireTotal : lastWriteWinsTotal,
+        note: additive
+          ? `The server sent ${wireRows.length} rows over ${distinctKeys} distinct (${xColumn || "x"}${seriesColumn ? `, ${seriesColumn}` : ""}) key${distinctKeys === 1 ? "" : "s"} — more rows than these axes can tell apart. The colliding rows are ADDED here, so the figure carries all of them; the CSV carries every row as it arrived.`
+          : `The server sent ${wireRows.length} rows over ${distinctKeys} distinct (${xColumn || "x"}${seriesColumn ? `, ${seriesColumn}` : ""}) key${distinctKeys === 1 ? "" : "s"} — more rows than these axes can tell apart — and this measure cannot be added up, so there is no figure to draw. The rows are in the CSV exactly as they arrived.`,
+        rows: wireRows,
+      }
+    : undefined;
 
   // The published `chart_type` is a hint, not a fact about the axis, and
   // it is unreliable in BOTH directions — so the axis decides, both ways.
@@ -1041,57 +1238,138 @@ export function mapChartSpec(
         : declared;
 
   /*
-   * ORDER. Three rules, in this order, and a stated basis for each — the
+   * ORDER. Six rules, in this order, and a stated basis for each — the
    * chart sits directly under findings that read "best to worst", and an
    * axis that disagrees with the sentence above it is the answer arguing
    * with itself.
    *
+   *   0. A DECLARED axis order wins outright. `axis_order` is the catalog's
+   *      own list for an ordinal dimension, published by the server (which
+   *      also emits the rows in it and clears `sort` when it does). It
+   *      outranks the value sort AND the shape recognizer in rule 3,
+   *      because it is the only ordering on this payload that anybody
+   *      DECLARED: the recognizer reads numbers out of labels and honestly
+   *      refuses to place `expired` or `filed`, while the pack knows
+   *      `expired` sits before `0-30` and `filed` after `90+`. Rule 3
+   *      stays as the fallback for payloads that carry no declared order.
    *   1. A temporal axis is already ordered; nothing here touches it.
    *      Sorting a month axis by value would delete the trend it draws.
-   *   2. A resolved ordering published on the payload wins. `by` is
-   *      matched against the value column, the x column and the series
-   *      keys — an ordering naming a measure this chart does not carry is
-   *      not honoured, because guessing which column was meant is how a
-   *      "ranked" chart ends up ranked on the wrong thing.
-   *   3. Failing that, a bucketed axis is ordered by its buckets. That is
-   *      not a ranking, it is the axis's own scale, and lexicographic
-   *      order on it is simply wrong (`120+` between `0-30` and `31-60`).
+   *   2. A REFUSED ranking is not re-created here. When the turn published
+   *      `RANKING_REFUSED` — "ordering ceilings against measurements sorts
+   *      by population size, not by the measure that was asked about" —
+   *      the figure keeps emission order and says the ranking was refused.
+   *      This is the defect a buyer screenshotted: a value sort running
+   *      400px below the banner that declined to run it.
+   *   3. A BUCKETED axis is ordered by its own scale, ahead of any value
+   *      sort. `0-30 · 31-60 · 61-90 · 90+ · expired` is the axis's scale,
+   *      not a ranking basis, and a value sort over it produced `expired,
+   *      90+, 0-30, 61-90, 31-60` captioned "ordered by Atlas HMO
+   *      Complete, high to low" — one arbitrary plan's dollars presented
+   *      as the axis.
+   *   4. A resolved ordering published on the payload wins. `by` must name
+   *      a column this chart actually draws; an ordering naming something
+   *      else is UNUSABLE and the wire's own order stands. It used to fall
+   *      back to `seriesKeys[0]`, which is how a by-plan ranking came to be
+   *      captioned "ordered by Central Physicians Plaza".
+   *   5. Failing that, a bucketed axis is still ordered by its buckets.
    *
    * With none of those, the engine's emission order stands. Nominal
    * categories are NOT sorted by value on a hunch: the wire has not said
    * the question was a ranking, and a chart that re-ranks itself would
    * contradict a findings list ordered by something else.
+   *
+   * And whatever the basis, BOUNDED cells are held out of it. A ceiling has
+   * no position in an order it was never measured for; it is seated after
+   * the measured rows, in wire order, and the count is published so the
+   * caption can say so.
    */
   const sort = readChartSort(raw);
+  const axisOrder = asArray(raw.axis_order).filter(
+    (value): value is string => typeof value === "string",
+  );
   const ordinal = isOrdinalBucketAxis(labels);
+  const boundedRows = rows.filter((row) => row.bounded === true).length;
+  /** Sort the MEASURED rows only; ceilings keep wire order, at the end. */
+  const holdingBounds = (
+    compare: (a: ChartRow, b: ChartRow) => number,
+  ): ChartRow[] => {
+    if (boundedRows === 0) return [...rows].sort(compare);
+    const measured = rows.filter((row) => row.bounded !== true);
+    const ceilings = rows.filter((row) => row.bounded === true);
+    return [...[...measured].sort(compare), ...ceilings];
+  };
+
   let ordered = rows;
   let order: ChartSpec["order"] = { basis: "wire" };
-  if (!temporal) {
+  if (axisOrder.length > 0) {
+    // Rule 0. Not conditioned on `temporal` or on `rankingRefused`: a
+    // declared scale is not a ranking, so a turn that refused to rank is
+    // still entitled to its aging axis — it keeps the `refused` flag so
+    // the figure's banner still says no ranking was published.
+    ordered = orderRowsByAxisOrder(rows, axisOrder);
+    order = {
+      basis: "axis-order",
+      ...(xColumn !== "" ? { by: xColumn } : {}),
+      ...(rankingRefused ? { refused: true } : {}),
+    };
+  } else if (!temporal && rankingRefused) {
+    order = { basis: "wire", refused: true };
+  } else if (!temporal) {
     const sortsOnValue =
       sort !== undefined &&
       (sort.by === valueColumn || sort.by === "value" || seriesKeys.includes(sort.by));
     const sortsOnLabel =
       sort !== undefined && (sort.by === xColumn || sort.by === "x" || sort.by === "label");
-    if (sortsOnValue) {
-      const key = seriesKeys.includes(sort.by) ? sort.by : (seriesKeys[0] ?? valueColumn);
-      const at = (row: ChartRow): number => row.values[key] ?? Number.NEGATIVE_INFINITY;
-      ordered = [...rows].sort((a, b) => (sort.descending ? at(b) - at(a) : at(a) - at(b)));
-      order = { basis: "value", by: key, descending: sort.descending };
+    // A sort naming the measure on a chart whose series are entities names
+    // no drawn column at all. Guessing one is how the axis came to be
+    // ordered by whichever plan happened to be first.
+    const valueKey =
+      sort !== undefined && seriesKeys.includes(sort.by)
+        ? sort.by
+        : seriesKeys.length === 1
+          ? seriesKeys[0]
+          : undefined;
+    if (ordinal && !sortsOnLabel) {
+      // Rule 3: the axis's own scale outranks any value sort over it.
+      ordered = orderRowsByOrdinalBucket(rows);
+      order = { basis: "ordinal-bucket" };
     } else if (sortsOnLabel && ordinal) {
       // "Order by the bucket column, ascending" means up the SCALE, not up
       // the alphabet — which is the whole of this bug on the runway chart.
       ordered = orderRowsByOrdinalBucket(rows, sort.descending);
       order = { basis: "ordinal-bucket", by: sort.by, descending: sort.descending };
+    } else if (sortsOnValue && valueKey !== undefined) {
+      const at = (row: ChartRow): number => row.values[valueKey] ?? Number.NEGATIVE_INFINITY;
+      ordered = holdingBounds((a, b) => (sort.descending ? at(b) - at(a) : at(a) - at(b)));
+      order = {
+        basis: "value",
+        by: valueKey,
+        descending: sort.descending,
+        ...(boundedRows > 0 ? { boundedExcluded: boundedRows } : {}),
+      };
     } else if (sortsOnLabel) {
-      ordered = [...rows].sort((a, b) =>
+      ordered = holdingBounds((a, b) =>
         sort.descending ? b.label.localeCompare(a.label) : a.label.localeCompare(b.label),
       );
-      order = { basis: "label", by: sort.by, descending: sort.descending };
-    } else if (ordinal) {
-      ordered = orderRowsByOrdinalBucket(rows);
-      order = { basis: "ordinal-bucket" };
+      order = {
+        basis: "label",
+        by: sort.by,
+        descending: sort.descending,
+        ...(boundedRows > 0 ? { boundedExcluded: boundedRows } : {}),
+      };
     }
   }
+
+  // `annotations[0]` is a SENTENCE about the figure ("upper bounds: 4 of 12
+  // marks are ceilings, not measurements — their numerator was suppressed
+  // and they cannot be ranked against the measured marks"). It was being
+  // handed to a `ReferenceLine` as an x value, where it matched no category
+  // and drew nothing, so a census the engine wrote reached no reader. One
+  // that DOES name a drawn category is a highlight and still draws as one.
+  const annotation = asArray(raw.annotations)[0];
+  const annotationText = typeof annotation === "string" ? annotation : undefined;
+  const annotationIsCategory =
+    annotationText !== undefined && labels.includes(annotationText);
 
   return {
     id: asString(raw.id),
@@ -1114,7 +1392,7 @@ export function mapChartSpec(
       metricDisplay?.[valueColumn] !== undefined,
     ),
     wireTitle: asString(raw.title) || undefined,
-    unit: CHART_UNIT_BY_WIRE[wireUnit] ?? "count",
+    unit,
     xLabel: xColumn || undefined,
     series: seriesKeys.map((key, index) => ({
       key,
@@ -1122,9 +1400,12 @@ export function mapChartSpec(
       role: index === 0 ? "current" : "baseline",
     })),
     rows: ordered,
-    ...(asArray(raw.annotations).length > 0
-      ? { highlightLabel: String(asArray(raw.annotations)[0]) }
+    ...(boundedRows > 0 ? { boundedRows } : {}),
+    ...(keying !== undefined ? { keying } : {}),
+    ...(annotationText !== undefined && annotationIsCategory
+      ? { highlightLabel: annotationText }
       : {}),
+    ...(annotationText !== undefined && !annotationIsCategory ? { note: annotationText } : {}),
   };
 }
 
@@ -2349,9 +2630,16 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
     findings.push(finding);
   });
 
+  // The turn's own codes reach the chart mapper, so a figure cannot rank
+  // what the answer refused to rank. `readTurnWarnings` is used rather than
+  // `warnings_v2` directly, because a turn stored before the classifier
+  // existed carries the same facts as prose and deserves the same restraint.
+  const turnWarnings = readTurnWarnings(raw.warnings_v2, warningSentences);
+  const warningCodes = turnWarnings.map((w) => w.code);
+
   const charts: ChartSpec[] = [];
   asArray(raw.chart_specs).forEach((entry, index) => {
-    const spec = mapChartSpec(entry, displayIndex);
+    const spec = mapChartSpec(entry, displayIndex, { warningCodes });
     if (spec === null || spec.id === "") {
       drift.push(`chart_specs[${index}].id`);
       return;
@@ -2385,7 +2673,7 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
       ...(typeof raw.narrative === "string" && raw.narrative !== ""
         ? { narrative: raw.narrative }
         : {}),
-      warnings: readTurnWarnings(raw.warnings_v2, warningSentences),
+      warnings: turnWarnings,
       ...(definition !== null ? { definition } : {}),
       ...(typeof raw.reconciliation === "string" ? { reconciliation: raw.reconciliation } : {}),
       ...(typeof raw.plan_hash === "string" ? { planHash: raw.plan_hash } : {}),
@@ -2489,9 +2777,15 @@ export function parseInvestigationResponse(
   // its recorded trace, so both are the same objects the live answer
   // published. The narrative is not among them — nothing stores the
   // composed prose — and a restored turn says so rather than filling in.
+  const restoredTurnWarnings = readTurnWarnings(raw.warnings_v2, restoredWarnings);
   const charts: ChartSpec[] = [];
   asArray(raw.chart_specs).forEach((entry, index) => {
-    const spec = mapChartSpec(entry);
+    // A restored turn gets the same restraint the live one got: the stored
+    // record carries the codes, so a rebuilt chart cannot re-create a
+    // ranking the original answer refused.
+    const spec = mapChartSpec(entry, undefined, {
+      warningCodes: restoredTurnWarnings.map((w) => w.code),
+    });
     if (spec === null || spec.id === "") {
       drift.push(`chart_specs[${index}].id`);
       return;
@@ -2564,7 +2858,7 @@ export function parseInvestigationResponse(
       // strings when it does not — which is exactly the case this
       // fallback exists for, since investigations stored before
       // `warnings_v2` shipped carry only sentences.
-      warnings: readTurnWarnings(raw.warnings_v2, restoredWarnings),
+      warnings: restoredTurnWarnings,
       ...(typeof raw.plan_hash === "string" ? { planHash: raw.plan_hash } : {}),
       ...(evidence !== undefined ? { evidence } : {}),
       ...(metric !== undefined ? { metric } : {}),

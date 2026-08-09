@@ -4,7 +4,13 @@ import { GradeBadge } from "@/components/answer/GradeBadge";
 import { ReferentChip } from "@/components/answer/ReferentChip";
 import { BenchmarkStrip } from "@/components/findings/BenchmarkStrip";
 import { Button } from "@/components/ui/button";
-import { deltaTone, formatCents, formatSignedCents, formatSignedPct } from "@/lib/format";
+import {
+  deltaTone,
+  formatCents,
+  formatCount,
+  formatSignedCents,
+  formatSignedPct,
+} from "@/lib/format";
 import { useSessionStore } from "@/lib/store";
 import type { Finding } from "@/lib/types";
 import { useCountUp } from "@/lib/useCountUp";
@@ -24,6 +30,13 @@ const TONE_TEXT = {
 export function FindingCard({ finding, turnId }: { finding: Finding; turnId: string }) {
   const emitRefinement = useSessionStore((s) => s.emitRefinement);
   const focused = useSessionStore((s) => s.focusedReferent === finding.referent.value);
+
+  // A CEILING, not a measurement. The wire has said so since wave B
+  // (`denial_rate__is_bound`) and this card printed "76.9%" in the same
+  // 1.55rem numeral as the measured card three above it, under a title
+  // that read "≤ 76.9% … (upper bound)". Two surfaces of one card
+  // disagreeing about what kind of number it is.
+  const bound = finding.measured?.isBound === true ? finding.measured : undefined;
 
   const tone =
     finding.impactKind === "delta" && finding.impactCents !== undefined
@@ -78,7 +91,15 @@ export function FindingCard({ finding, turnId }: { finding: Finding; turnId: str
       <div className="flex items-end justify-between gap-3">
         <div>
           {impact ? (
-            <p className={cn("numeral text-[1.55rem] font-medium leading-none", TONE_TEXT[tone])}>
+            <p
+              className={cn(
+                "numeral text-[1.55rem] font-medium leading-none",
+                // A ceiling wears the qualified tint, not the measured
+                // ink: the treatment is the second signal (after the "≤")
+                // that says this number is an edge and not a reading.
+                bound ? "text-muted-foreground" : TONE_TEXT[tone],
+              )}
+            >
               {impact}
             </p>
           ) : (
@@ -93,6 +114,23 @@ export function FindingCard({ finding, turnId }: { finding: Finding; turnId: str
                 <span className="ml-1 font-normal">— {finding.impactWithheldReason}</span>
               </p>
             )
+          )}
+          {/* What the ceiling is a ceiling OVER. A bound without its
+              population is unreadable: "at most 76.9%" over thirteen
+              claims and over thirteen thousand are different facts, and
+              only one of them is worth a payer meeting. The population is
+              the engine's own (`__bound_population`) and is stated in the
+              same words the finding's statement uses. */}
+          {bound && (
+            <p className="mt-1 text-[0.62rem] font-medium leading-snug text-warning">
+              upper bound
+              {bound.boundPopulation !== undefined
+                ? ` over a population of ${formatCount(bound.boundPopulation)}`
+                : ""}
+              <span className="ml-1 font-normal text-muted-foreground">
+                — a ceiling, not a measurement
+              </span>
+            </p>
           )}
           <p className="mt-1.5 flex items-center gap-1.5 text-[0.65rem] text-muted-foreground">
             {finding.impactLabel}

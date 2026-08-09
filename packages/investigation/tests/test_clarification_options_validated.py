@@ -107,7 +107,15 @@ class TestPhantomValuesAreDroppedBeforeTheyAreOffered:
         """The exact vc-investor T11 shape: a real metric, a real dimension,
         and a facility that does not exist. ``facility`` is an OPEN
         dimension — no declared ``value_domain`` — which is precisely the
-        case the old guard skipped."""
+        case the old guard skipped.
+
+        Round-4 R4-12 defect 5 changed what happens NEXT. Dropping the
+        phantom leaves exactly one option, and asking "which facility did
+        you mean?" over a list of one is not a question — it cost $0.146 and
+        a turn to be told the platform's own remaining answer. The survivor
+        is applied and disclosed, so the phantom's removal is still visible
+        (it is named nowhere in the turn) and the analyst gets an answer.
+        """
         outcome = await _turn(
             _engine(
                 _facility_option(
@@ -119,10 +127,11 @@ class TestPhantomValuesAreDroppedBeforeTheyAreOffered:
                 ),
             )
         )
-        assert outcome.clarification is not None
-        offered = outcome.clarification.options
-        assert not any(PHANTOM_FACILITY in option for option in offered)
-        assert any(REAL_FACILITY in option for option in offered)
+        assert outcome.clarification is None
+        applied = [w for w in outcome.warnings if w.startswith("clarification_answer_applied:")]
+        assert applied, outcome.warnings
+        assert REAL_FACILITY in applied[0]
+        assert PHANTOM_FACILITY not in applied[0]
 
     async def test_a_real_value_survives_untouched(self) -> None:
         """The check must not cost the analyst the options that are right:
@@ -178,6 +187,8 @@ class TestPhantomValuesAreDroppedBeforeTheyAreOffered:
                 ),
             )
         )
-        assert outcome.clarification is not None
-        assert not any("CARC code" in o for o in outcome.clarification.options)
-        assert any(REAL_FACILITY in o for o in outcome.clarification.options)
+        assert outcome.clarification is None
+        applied = [w for w in outcome.warnings if w.startswith("clarification_answer_applied:")]
+        assert applied, outcome.warnings
+        assert "CARC code" not in applied[0]
+        assert REAL_FACILITY in applied[0]

@@ -19,7 +19,7 @@ failed reconciliation raises ``RECONCILIATION_FAILED`` — never silent.
 
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from decimal import Decimal
 from enum import StrEnum
 
@@ -27,10 +27,10 @@ from revi_investigation.application.capability_ports import PackPort, TransformP
 from revi_investigation.application.execution import ExecutedProbe
 from revi_investigation.application.planning import InvestigationPlan, TransformPlanStep
 from revi_kernel.errors import ReconciliationFailedError, UnsupportedConceptError
-from revi_kernel.filters import Predicate, iter_predicates
-from revi_kernel.frame import EvidenceFrame, TransformProvenance
+from revi_kernel.filters import Predicate, Scalar, iter_predicates
+from revi_kernel.frame import EvidenceFrame, FrameRow, TransformProvenance
 from revi_kernel.probes import AggregationProbe, SnapshotProbe
-from revi_kernel.refs import MetricRef
+from revi_kernel.refs import DimensionRef, MetricRef
 
 
 @dataclass(frozen=True, slots=True)
@@ -105,12 +105,117 @@ class CalculationResult:
     #: Set when every probe in the plan returned zero rows — see
     #: :class:`EmptinessFact`. ``None`` means at least one probe had data.
     emptiness: EmptinessFact | None = None
+    #: Turn warnings this stage produced — today, the comparison cells whose
+    #: prior side was never retrieved (see :func:`_mark_unmatched_unknown`).
+    #: Carried rather than logged because a fabricated zero that is silently
+    #: repaired is still an answer the reader cannot check.
+    warnings: tuple[str, ...] = ()
 
     def frame(self, frame_id: str) -> EvidenceFrame:
         for name, frame in self.frames:
             if name == frame_id:
                 return frame
         raise KeyError(f"no frame {frame_id!r} in calculation result")
+
+
+#: Suffixes the ``compare`` operator appends per measure. ``__prior`` is the
+#: baseline value, the other two are derived from it — so when the baseline
+#: is unknown, all three are.
+_COMPARE_SUFFIXES = ("__prior", "__delta", "__pct_change")
+
+
+def _dimension_columns(frame: EvidenceFrame) -> tuple[str, ...]:
+    return tuple(c.name for c in frame.schema.columns if isinstance(c.ref, DimensionRef))
+
+
+def _key_set(frame: EvidenceFrame, columns: tuple[str, ...]) -> set[tuple[Scalar, ...]]:
+    indices = tuple(frame.schema.index_of(name) for name in columns)
+    return {tuple(row[i] for i in indices) for row in frame.rows}
+
+
+def _mark_unmatched_unknown(
+    step_id: str, current: EvidenceFrame, prior: EvidenceFrame, out: EvidenceFrame
+) -> tuple[EvidenceFrame, str | None]:
+    """A cell missing from a TRUNCATED side is UNKNOWN, never zero (R4-08).
+
+    ``compare`` fills a missing side with 0 for additive units, which is
+    correct when the side was read whole: a denial code with no denied
+    dollars last quarter really did have none. It is a fabrication when the
+    side was top-N limited, because the cell was not absent — it was not
+    retrieved. Live, that published "CO / 16 — Missing or invalid
+    information: denied dollars moved from $0.00 to $41,918.23" at
+    direct/high with an impact figure, against a warehouse in which CO/16
+    had FALLEN $15,780 over the same window: the sign inverted, the
+    movement invented, and the number ranked.
+
+    The planner now reads the prior side whole wherever the catalog says it
+    can (see ``_pair_comparisons``), so this is the backstop for the cuts it
+    cannot. Nothing is repaired quietly: the affected cells lose their
+    prior, delta and pct_change — a NULL delta is excluded from every
+    movement ranking downstream by construction — and the turn says how
+    many and why.
+    """
+    keys = _dimension_columns(out)
+    if not keys:
+        return out, None
+    unknown_prior = prior.truncated
+    unknown_current = current.truncated
+    if not (unknown_prior or unknown_current):
+        return out, None
+    prior_keys = _key_set(prior, keys) if unknown_prior else None
+    current_keys = _key_set(current, keys) if unknown_current else None
+    names = out.schema.names
+    key_idx = tuple(out.schema.index_of(name) for name in keys)
+    measures = tuple(
+        name
+        for name in names
+        if isinstance(out.schema.columns[out.schema.index_of(name)].ref, MetricRef)
+        and not name.endswith(_COMPARE_SUFFIXES)
+    )
+    derived = tuple(
+        out.schema.index_of(f"{m}{suffix}")
+        for m in measures
+        for suffix in _COMPARE_SUFFIXES
+        if f"{m}{suffix}" in names
+    )
+    current_cols = tuple(out.schema.index_of(m) for m in measures)
+    rows: list[FrameRow] = []
+    missing_prior = 0
+    missing_current = 0
+    for row in out.rows:
+        key = tuple(row[i] for i in key_idx)
+        values = list(row)
+        blank: set[int] = set()
+        if prior_keys is not None and key not in prior_keys:
+            missing_prior += 1
+            blank.update(derived)
+        if current_keys is not None and key not in current_keys:
+            missing_current += 1
+            blank.update(derived)
+            blank.update(current_cols)
+        for i in blank:
+            values[i] = None
+        rows.append(tuple(values))
+    if not (missing_prior or missing_current):
+        return out, None
+    parts: list[str] = []
+    if missing_prior:
+        parts.append(
+            f"{missing_prior} cell(s) present now were outside the prior window's top-N and "
+            "their prior value was never retrieved"
+        )
+    if missing_current:
+        parts.append(
+            f"{missing_current} cell(s) in the prior window were outside this window's top-N "
+            "and their current value was never retrieved"
+        )
+    warning = (
+        f"comparison_prior_unknown: on {step_id}, " + "; ".join(parts) + ". Those cells publish "
+        "no prior figure, no movement and no impact — a value this plan did not read is "
+        "UNKNOWN, not zero — and they are excluded from every movement ranking on this turn. "
+        "Ask for the full breakdown to compare them."
+    )
+    return replace(out, rows=tuple(rows)), warning
 
 
 def _operator_version(frame: EvidenceFrame, fallback: str) -> str:
@@ -167,6 +272,7 @@ class CalculateMetricsService:
         frames: dict[str, EvidenceFrame] = {}
         order: list[str] = []
         operations: list[OperatorApplication] = []
+        warnings: list[str] = []
 
         for item in executed:
             frame = self._evaluate_ratios(plan, item, operations)
@@ -174,7 +280,7 @@ class CalculateMetricsService:
             order.append(item.node_id)
 
         for step in plan.transforms.steps:
-            derived = self._apply_step(step, frames, operations)
+            derived = self._apply_step(step, frames, operations, warnings)
             if derived is not None:
                 frames[step.id] = derived
                 order.append(step.id)
@@ -183,6 +289,7 @@ class CalculateMetricsService:
             frames=tuple((name, frames[name]) for name in order),
             operations=tuple(operations),
             emptiness=self._emptiness(plan, executed),
+            warnings=tuple(dict.fromkeys(warnings)),
         )
 
     @staticmethod
@@ -281,6 +388,7 @@ class CalculateMetricsService:
         step: TransformPlanStep,
         frames: dict[str, EvidenceFrame],
         operations: list[OperatorApplication],
+        warnings: list[str],
     ) -> EvidenceFrame | None:
         transforms = self._transforms
         operator = step.operator
@@ -288,6 +396,9 @@ class CalculateMetricsService:
         if operator == "compare":
             current, prior = self._input_frames(step, frames, 2)
             out = transforms.compare(current, prior)
+            out, unknown = _mark_unmatched_unknown(step.id, current, prior, out)
+            if unknown is not None:
+                warnings.append(unknown)
         elif operator == "share_of_total":
             (frame,) = self._input_frames(step, frames, 1)
             out = transforms.share_of_total(

@@ -6,6 +6,7 @@ import {
   Bar,
   BarChart,
   CartesianGrid,
+  Cell,
   Line,
   LineChart,
   ReferenceLine,
@@ -72,8 +73,29 @@ function seriesColors(series: readonly ChartSeries[]): Record<string, string> {
 interface RowDatum {
   label: string;
   referent?: string;
-  [key: string]: string | number | undefined;
+  /** This row is a CEILING, not a measurement (see `ChartRow.bounded`). */
+  bounded?: boolean;
+  /** The population the ceiling was taken over. */
+  denominator?: number;
+  /** The bucket is calendar-partial or still adjudicating. */
+  provisional?: boolean;
+  [key: string]: string | number | boolean | undefined;
 }
+
+/**
+ * The mark treatment for a cell the engine published as a ceiling.
+ *
+ * Desaturated fill plus a dashed outline: the bar reads as an EDGE rather
+ * than a quantity, and the difference survives a screenshot, a projector
+ * and colour-vision deficiency, because none of it is carried by hue. The
+ * "≤" on the axis tick and in the tooltip is the text half of the same
+ * signal — relief, never colour alone.
+ */
+const BOUNDED_MARK = {
+  fillOpacity: 0.2,
+  strokeWidth: 1.5,
+  strokeDasharray: "3 2",
+} as const;
 
 /**
  * Charts are live objects: clicking a bar emits a typed
@@ -133,11 +155,44 @@ export function InvestigationChart({
     animationId: spec.id,
   } as const;
 
-  const data: RowDatum[] = spec.rows.map((row) => ({
-    label: row.label,
-    referent: row.referent,
-    ...row.values,
-  }));
+  const hasBounded = spec.rows.some((row) => row.bounded === true);
+  const hasProvisional = spec.rows.some((row) => row.provisional === true);
+
+  /**
+   * A provisional point is not the terminus of a solid line.
+   *
+   * The engine publishes the sentence ("the week of 2026-07-20 point is
+   * PROVISIONAL and is excluded from that movement") and the wire carries
+   * the flag; the path drew straight through to it anyway, so the strongest
+   * honesty feature in the build was invisible everywhere except the prose.
+   *
+   * Each series is drawn TWICE from the same rows: the settled key, whose
+   * values are blank on provisional buckets so the solid path terminates at
+   * the last settled one, and a `…__provisional` key carrying the
+   * provisional points plus the settled point before them, so the dashed
+   * segment joins up without asserting its endpoint has stopped moving.
+   *
+   * Written for the general case (a provisional bucket anywhere in the
+   * series), not only the terminal one: a censored middle bucket is exactly
+   * as unfinished as a censored last one.
+   */
+  const provisionalKey = (key: string): string => `${key}__provisional`;
+  const data: RowDatum[] = spec.rows.map((row, index) => {
+    const datum: RowDatum = {
+      label: row.label,
+      referent: row.referent,
+      ...(row.bounded === true ? { bounded: true } : {}),
+      ...(row.denominator !== undefined ? { denominator: row.denominator } : {}),
+      ...(row.provisional === true ? { provisional: true } : {}),
+    };
+    const pending = row.provisional === true;
+    const joins = pending || spec.rows[index + 1]?.provisional === true;
+    for (const [key, value] of Object.entries(row.values)) {
+      if (!pending) datum[key] = value;
+      if (hasProvisional && joins) datum[provisionalKey(key)] = value;
+    }
+    return datum;
+  });
 
   const handleBarClick = (entry: unknown) => {
     const payload = (entry as { payload?: RowDatum }).payload;
@@ -160,6 +215,22 @@ export function InvestigationChart({
     axisLine: false,
     tick: { fontSize: 10, fill: "var(--chart-axis)" },
   } as const;
+
+  // The axis says which categories are ceilings, in text. Colour and
+  // outline carry it on the mark; the tick carries it for anyone reading
+  // the labels, printing in greyscale, or looking at a screenshot.
+  const boundedLabels = new Set(
+    spec.rows.filter((row) => row.bounded === true).map((row) => row.label),
+  );
+  const provisionalLabels = new Set(
+    spec.rows.filter((row) => row.provisional === true).map((row) => row.label),
+  );
+  const categoryTick = (v: string): string => {
+    const short = v.length > 11 ? `${v.slice(0, 10)}…` : v;
+    if (boundedLabels.has(v)) return `≤ ${short}`;
+    if (provisionalLabels.has(v)) return `${short}*`;
+    return short;
+  };
 
   const tooltipContent = (props: unknown) => (
     <ChartTooltipContent {...(props as TooltipRenderProps)} formatValue={formatValue} />
@@ -205,6 +276,38 @@ export function InvestigationChart({
         <p className="mb-1.5 text-[0.62rem] leading-snug text-muted-foreground">{capNote}</p>
       )}
 
+      {/* The engine's own census of this figure. It rides on the wire as
+          `annotations[0]` ("upper bounds: 4 of 12 marks are ceilings, not
+          measurements…") and was being fed to a `ReferenceLine` as an x
+          value, where it matched no category and drew nothing at all. */}
+      {spec.note && (
+        <p className="mb-1.5 text-[0.62rem] leading-snug text-warning">{spec.note}</p>
+      )}
+
+      {/* THE RANKING WAS REFUSED. Said above the picture, at full width,
+          because the alternative is what shipped: a bar chart sorted by
+          value 400px below a banner explaining that ordering ceilings
+          against measurements sorts by population size. */}
+      {spec.order?.refused && (
+        <p className="mb-1.5 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-[0.65rem] leading-snug">
+          <span className="font-medium">No ranking is published on this answer.</span>{" "}
+          <span className="text-muted-foreground">
+            These marks are in the order the engine emitted them — read them as a set, not as a
+            league table.
+          </span>
+        </p>
+      )}
+
+      {/* The rows the wire sent are not uniquely keyed by the axes this
+          chart declares, and this measure cannot be added up — so there is
+          no figure to draw and none is drawn. The rows are still in the
+          CSV, exactly as they arrived. */}
+      {spec.keying?.mode === "unkeyable" ? (
+        <div className="rounded-md border border-dashed bg-surface-sunken/60 px-3 py-4 text-[0.7rem] leading-snug text-muted-foreground">
+          <p className="font-medium text-foreground">This chart is not drawn</p>
+          <p className="mt-1">{spec.keying.note}</p>
+        </div>
+      ) : (
       <div className="h-52 w-full">
         <ResponsiveContainer width="100%" height="100%">
           {spec.kind === "line" ? (
@@ -236,6 +339,25 @@ export function InvestigationChart({
                   {...drawIn}
                 />
               ))}
+              {/* The unsettled tail. Dashed, hollow-dotted, and drawn from
+                  the last SETTLED point so the segment joins up without
+                  claiming its endpoint is final. `legendType: none` — it is
+                  the same series in a different state, not a second one. */}
+              {hasProvisional &&
+                spec.series.map((s) => (
+                  <Line
+                    key={provisionalKey(s.key)}
+                    dataKey={provisionalKey(s.key)}
+                    name={`${s.label} (provisional)`}
+                    stroke={colors[s.key]}
+                    strokeWidth={2}
+                    strokeDasharray="4 3"
+                    legendType="none"
+                    dot={{ r: 3, strokeWidth: 1.5, fill: "var(--card)", stroke: colors[s.key] }}
+                    activeDot={{ r: 4, strokeWidth: 0 }}
+                    {...drawIn}
+                  />
+                ))}
             </LineChart>
           ) : (
             <BarChart
@@ -249,7 +371,7 @@ export function InvestigationChart({
                 dataKey="label"
                 {...axisProps}
                 interval={0}
-                tickFormatter={(v: string) => (v.length > 11 ? `${v.slice(0, 10)}…` : v)}
+                tickFormatter={categoryTick}
               />
               <YAxis {...axisProps} tickFormatter={formatTick} width={48} />
               <Tooltip content={tooltipContent} cursor={{ fill: "var(--chart-grid)" }} />
@@ -277,12 +399,53 @@ export function InvestigationChart({
                   className="cursor-pointer"
                   onClick={handleBarClick}
                   {...drawIn}
-                />
+                >
+                  {/* A ceiling does not draw as a quantity. Per-cell, so a
+                      bounded category is visibly a different KIND of mark
+                      from the measured ones beside it — the defect a buyer
+                      would have screenshotted was twelve identical bars,
+                      four of which were suppression bounds. */}
+                  {(hasBounded || hasProvisional) &&
+                    data.map((row) => (
+                      <Cell
+                        key={`${s.key}:${row.label}`}
+                        fill={colors[s.key]}
+                        {...(row.bounded === true || row.provisional === true
+                          ? { ...BOUNDED_MARK, stroke: colors[s.key] }
+                          : {})}
+                      />
+                    ))}
+                </Bar>
               ))}
             </BarChart>
           )}
         </ResponsiveContainer>
       </div>
+      )}
+
+      {/* The keying census, under the picture it explains. Live, a chart
+          declaring `x=month, series=payer` sent thirty rows over three
+          distinct keys; the old mapper kept whichever arrived last and drew
+          $3,468 of $441,808. */}
+      {spec.keying?.mode === "summed" && (
+        <p className="mt-1.5 text-[0.62rem] leading-snug text-warning">{spec.keying.note}</p>
+      )}
+
+      {/* What the marks mean when some of them are not measurements.
+          Composed as ONE string per fact rather than interpolated across
+          spans: this sentence is read aloud, copied out of a screenshot
+          and searched for, and a phrase split across three text nodes is
+          none of those things. */}
+      {(hasBounded || hasProvisional) && (
+        <p className="mt-1.5 text-[0.62rem] leading-snug text-muted-foreground">
+          {hasBounded && <span className="block">{boundedLegend(spec)}</span>}
+          {hasProvisional && (
+            <span className="block">
+              * marks a provisional bucket: still settling, so its value will move.
+            </span>
+          )}
+        </p>
+      )}
 
       <div className="mt-1.5 flex items-center justify-between gap-2">
         <span className="text-[0.62rem] text-muted-foreground">
@@ -342,16 +505,57 @@ export function InvestigationChart({
 }
 
 /**
+ * What "≤" means on this figure, as one sentence with the census in it.
+ *
+ * Exported so the wording is pinned in one place: the same census reaches
+ * the CSV preamble and the copied text, and three surfaces of one answer
+ * counting its ceilings differently is how this class of defect starts.
+ */
+export function boundedLegend(spec: ChartSpec): string {
+  const bounded = spec.boundedRows ?? spec.rows.filter((row) => row.bounded === true).length;
+  const one = bounded === 1;
+  const total = spec.rows.length;
+  return (
+    `≤ marks an upper bound — ${bounded} of ${total} ${total === 1 ? "mark" : "marks"} ` +
+    `${one ? "is a ceiling" : "are ceilings"} over a suppressed numerator, ` +
+    `not ${one ? "a measurement" : "measurements"}, and ${one ? "it is" : "they are"} ` +
+    "not ranked against the measured ones."
+  );
+}
+
+/**
  * "ordered by denied_dollars, high to low" — or nothing at all when the
  * rows are simply in the order the engine emitted them, which is a fact
  * this figure should not dress up as a ranking.
+ *
+ * Two facts it now also states. A REFUSED ranking is not the same as an
+ * unstated one, and saying "unranked" out loud is the difference between a
+ * reader treating the leftmost bar as the worst offender and treating it as
+ * the first row the engine happened to emit. And an order that HELD BOUNDED
+ * CELLS OUT of itself says so, because those marks sit at the end of the
+ * axis and would otherwise read as the smallest values on it.
  */
 export function orderNote(spec: ChartSpec): string | undefined {
   const order = spec.order;
-  if (order === undefined || order.basis === "wire") return undefined;
-  if (order.basis === "ordinal-bucket") return "ordered by bucket";
+  if (order === undefined) return undefined;
+  if (order.refused === true) return "unranked — no ranking was published for this answer";
+  if (order.basis === "wire") return undefined;
+  const held =
+    order.boundedExcluded !== undefined
+      ? `; ${order.boundedExcluded} bounded cell${order.boundedExcluded === 1 ? "" : "s"} held out of it, at the end`
+      : "";
+  // The catalog SAID so, and the difference from the line below it is
+  // worth the extra words: one is a published fact about the dimension,
+  // the other is this client reading numbers out of label text.
+  if (order.basis === "axis-order")
+    return order.by
+      ? `in the catalog's declared order for ${order.by}${held}`
+      : `in the catalog's declared bucket order${held}`;
+  if (order.basis === "ordinal-bucket") return `ordered by bucket${held}`;
   const direction = order.descending === false ? "low to high" : "high to low";
-  return order.by ? `ordered by ${order.by}, ${direction}` : `ordered ${direction}`;
+  return order.by
+    ? `ordered by ${order.by}, ${direction}${held}`
+    : `ordered ${direction}${held}`;
 }
 
 interface TooltipEntry {
@@ -377,9 +581,23 @@ function ChartTooltipContent({
   formatValue: (value: number) => string;
 }) {
   if (!active || !payload || payload.length === 0) return null;
-  const referent = payload[0]?.payload?.referent;
+  const row = payload[0]?.payload;
+  const referent = row?.referent;
+  // The hover is where a reader goes to read one number exactly. A ceiling
+  // read there as a measurement is the same lie the bar told, at higher
+  // precision.
+  const bounded = row?.bounded === true;
+  const provisional = row?.provisional === true;
+  const denominator = typeof row?.denominator === "number" ? row.denominator : undefined;
   return (
-    <div className="rounded-md border bg-popover px-3 py-2 text-xs shadow-md">
+    // BOUNDED. A series key is not always a short name: the server folds an
+    // undeclared grouping column into `series` as a `" / "`-joined
+    // composite ("Orthopedic Surgery / CO"), so eight rows of an unbounded
+    // popover grew wider than the figure it belongs to. The names wrap
+    // inside the cap instead of being truncated — a half-read identity on
+    // the one surface an analyst goes to for an exact number is worse than
+    // two lines — and the number itself never wraps away from its label.
+    <div className="max-w-72 rounded-md border bg-popover px-3 py-2 text-xs shadow-md">
       <p className="mb-1 flex items-center gap-1.5 font-medium">
         {String(label)}
         {referent && (
@@ -390,17 +608,37 @@ function ChartTooltipContent({
       </p>
       <ul className="space-y-0.5">
         {payload.map((entry) => (
-          <li key={String(entry.dataKey)} className="flex items-center justify-between gap-4">
-            <span className="flex items-center gap-1.5 text-muted-foreground">
-              <span className="size-2 rounded-[2px]" style={{ background: entry.color }} />
+          <li
+            key={String(entry.dataKey)}
+            className="flex items-start justify-between gap-4 leading-snug"
+          >
+            <span className="flex min-w-0 items-start gap-1.5 text-muted-foreground">
+              <span
+                className="mt-[0.28rem] size-2 shrink-0 rounded-[2px]"
+                style={{ background: entry.color }}
+              />
               {String(entry.name)}
             </span>
-            <span className="num font-medium">
-              {typeof entry.value === "number" ? formatValue(entry.value) : entry.value}
+            <span className="num shrink-0 font-medium">
+              {typeof entry.value === "number"
+                ? `${bounded ? "≤ " : ""}${formatValue(entry.value)}`
+                : entry.value}
             </span>
           </li>
         ))}
       </ul>
+      {bounded && (
+        <p className="mt-1 max-w-56 border-t pt-1 text-[0.65rem] leading-snug text-warning">
+          Upper bound{denominator !== undefined ? ` over n = ${denominator}` : ""} — a ceiling, not
+          a measurement. It has no position in a ranking.
+        </p>
+      )}
+      {provisional && (
+        <p className="mt-1 max-w-56 border-t pt-1 text-[0.65rem] leading-snug text-warning">
+          Provisional — this bucket is calendar-partial or still adjudicating, so the value will
+          move.
+        </p>
+      )}
     </div>
   );
 }

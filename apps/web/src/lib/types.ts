@@ -402,6 +402,21 @@ export interface MeasuredValue {
   metricId: string;
   value: number;
   unit: "cents" | "percent" | "count" | "days";
+  /**
+   * The figure is a CEILING, not a measurement: the engine withheld a
+   * small numerator and published an upper bound over a publishable
+   * population instead (`<metric>__is_bound` on `FindingPayload.values`).
+   *
+   * This flag is the difference between "Veritas denies 76.9% of claims"
+   * and "Veritas denies at most 76.9% of claims, over thirteen of them" —
+   * two sentences a payer meeting would act on very differently. The wire
+   * has carried it since wave B; the client dropped it at the first
+   * mapper, so the hero stat printed a ceiling in the same treatment as a
+   * measurement three cards above it.
+   */
+  isBound?: boolean;
+  /** The population the ceiling was taken over (`<metric>__bound_population`). */
+  boundPopulation?: number;
 }
 
 export interface Finding {
@@ -409,8 +424,15 @@ export interface Finding {
   title: string;
   statement: string;
   metricRefs: string[];
-  /** Named scalar values backing the statement (kernel-certified). */
-  values: Record<string, number | string>;
+  /**
+   * Named scalar values backing the statement (kernel-certified).
+   *
+   * BOOLEANS ARE CARRIED. They used to be filtered out one line into the
+   * mapper — the docstring said so outright — and `denial_rate__is_bound`
+   * is a boolean, so the client could not learn that a finding was a
+   * ceiling even though the wire had said so since wave B.
+   */
+  values: Record<string, number | string | boolean>;
   grade: EvidenceGrade;
   impactCents?: number;
   /** "delta" impacts are signed and tone-colored; "level" impacts are neutral. */
@@ -499,6 +521,66 @@ export interface ChartRow {
   provisional?: boolean;
 }
 
+/**
+ * One row exactly as the wire sent it, in the chart's display unit.
+ *
+ * Kept ONLY when the wire's rows collided under the axes the spec declares
+ * — the export has to be able to carry what actually arrived, and a CSV
+ * built from the collapsed cells would be the same understatement the
+ * picture is, with a provenance block on top of it.
+ */
+export interface ChartWireRow {
+  x: string;
+  /** The series key this row was written to (the measure when `series` is null). */
+  series: string;
+  value?: number;
+  referent?: string;
+  bounded?: boolean;
+  bound?: number;
+  denominator?: number;
+  provisional?: boolean;
+}
+
+/**
+ * The wire sent more rows than its declared axes can tell apart.
+ *
+ * Live: a chart declaring `x=month, series=payer` published 30 rows over
+ * 3 months × 1 payer. Keyed by `x` alone and written with `values[series]`,
+ * 27 of them overwrote the other three and the figure drew $3,468 of
+ * $441,808 — under a caveat block that said nothing about it.
+ *
+ * Two honest outcomes, and the unit decides which:
+ *
+ *   `summed` — dollars and counts add up, so the colliding rows are added
+ *     and the census is stated. Nothing is lost and the total is checkable.
+ *   `unkeyable` — percentages and day counts do not add up. There is no
+ *     figure to draw, so none is drawn: the chart states what arrived and
+ *     hands over the rows.
+ */
+export interface ChartKeying {
+  /** The x column the spec declared. */
+  xColumn: string;
+  /** The series column the spec declared, or null for a single measure. */
+  seriesColumn: string | null;
+  /** Rows the wire sent. */
+  wireRows: number;
+  /** Distinct `(x, series)` keys among them. */
+  keys: number;
+  mode: "summed" | "unkeyable";
+  /** Total of every wire value, in display unit. */
+  wireTotal: number;
+  /**
+   * Total the DRAWN cells carry. Equal to `wireTotal` under `summed`; under
+   * `unkeyable` this is what last-write-wins would have kept, and the gap
+   * between the two is the money the old mapper dropped in silence.
+   */
+  drawnTotal: number;
+  /** The sentence the figure and the CSV both print. */
+  note: string;
+  /** The wire's own rows, long format. */
+  rows: ChartWireRow[];
+}
+
 export interface ChartSeries {
   key: string;
   label: string;
@@ -528,13 +610,52 @@ export interface ChartSpec {
    * How the rows were ordered, and by what. `wire` means "the order the
    * engine emitted", which is what a chart falls back to when nothing on
    * the payload resolves an order — never a silent alphabetical sort.
+   *
+   * `axis-order` is the one basis this client did not decide: the payload
+   * published `axis_order`, the catalog's own declared order for an ordinal
+   * dimension, and it outranks everything else including the shape
+   * recognizer below it. `ordinal-bucket` is that recognizer — a fallback
+   * for payloads that carry no declared order, and an INFERENCE, which is
+   * why the two are named apart rather than collapsed into one caption.
    */
   order?: {
-    basis: "wire" | "ordinal-bucket" | "value" | "label";
+    basis: "wire" | "axis-order" | "ordinal-bucket" | "value" | "label";
     /** The column the order was taken on, when the wire named one. */
     by?: string;
     descending?: boolean;
+    /**
+     * How many bounded cells were held OUT of this order and seated after
+     * it. A ceiling has no position in an order it was never measured
+     * for — sorting the two together ranks by population size, which is
+     * the sentence the engine's own refusal warning uses.
+     */
+    boundedExcluded?: number;
+    /**
+     * The turn REFUSED to publish a ranking (`RANKING_REFUSED`), so these
+     * rows are the engine's emission order and the figure must not
+     * present them as a rank. Set even though `basis` is `wire`, because
+     * "nothing published an order" and "an order was refused on purpose"
+     * are different facts and the caption says which.
+     */
+    refused?: boolean;
   };
+  /**
+   * How many of these rows are ceilings rather than measurements, when any
+   * are. The figure draws them apart and says so under the picture.
+   */
+  boundedRows?: number;
+  /**
+   * A sentence the wire published ABOUT the figure rather than a category
+   * on it ("upper bounds: 4 of 12 marks are ceilings, not measurements…").
+   * `annotations[0]` was being fed to a `ReferenceLine` as an x value, so
+   * a census the engine wrote reached no reader at all.
+   */
+  note?: string;
+  /**
+   * The rows the wire sent were NOT uniquely keyed by the axes this spec
+   * declares. Present only when that happened — see `ChartKeying`.
+   */
+  keying?: ChartKeying;
   /** The published `ChartSpec.chart_type`, kept verbatim so the reduction
    *  is visible and reversible rather than lossy. */
   wireChartType?: string;

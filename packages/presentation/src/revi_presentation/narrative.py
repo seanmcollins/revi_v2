@@ -234,6 +234,70 @@ _PROPER_NAME = re.compile(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b")
 _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _DATE_LIKE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
+#: Abbreviations whose full stop is not a sentence end. Every provider in
+#: this warehouse is named "Dr. <name>", so round-4 R4-15 shipped shredded
+#: prose on every provider answer that triggered a redaction: "…has a
+#: denial rate of at most 90.9% over a population of 11 entities (F1), Dr."
+#: was published as a sentence, and "Casey Quarry (143) …" as the next one,
+#: which then failed grounding on its own and left the orphan behind.
+#:
+#: Kept deliberately short and closed: an over-eager list would glue two
+#: real sentences together, which is the same defect pointed the other way.
+_ABBREVIATIONS: frozenset[str] = frozenset(
+    {
+        "Dr", "Drs", "Mr", "Mrs", "Ms", "Mx", "Prof", "Rev", "Hon",
+        "Sr", "Jr", "St", "Mt", "Ft",
+        "Inc", "Ltd", "Co", "Corp", "Dept", "Univ", "Assn",
+        "No", "Nos", "vs", "approx", "est", "cf", "al",
+        "Jan", "Feb", "Mar", "Apr", "Jun", "Jul", "Aug", "Sep", "Sept",
+        "Oct", "Nov", "Dec",
+    }
+)
+
+#: The tail of a fragment that is not a sentence end: a known abbreviation,
+#: a single capital initial ("Casey Q. Quarry"), or a lettered enumeration
+#: ("e.g.", "i.e.").
+_ABBREVIATION_TAIL = re.compile(
+    r"(?:^|[\s(\[\"'])(?:"
+    + "|".join(sorted(_ABBREVIATIONS, key=len, reverse=True))
+    + r"|[A-Z]|[a-z]\.[a-z])\.$"
+)
+
+
+def split_sentences(text: str) -> list[str]:
+    """Split prose into sentences without shredding it at an abbreviation.
+
+    The naive ``(?<=[.!?])\\s+`` split is applied first and its fragments
+    are then re-joined wherever the left-hand side ends on something that
+    is not a sentence terminator. Written as a rejoin rather than as one
+    regex because Python's ``re`` requires fixed-width lookbehind, and the
+    abbreviation set is not fixed width.
+
+    Whitespace between rejoined fragments is normalised to a single space —
+    the validator emits ``" ".join(kept)`` anyway, so no published text
+    changes shape because of it.
+    """
+    stripped = text.strip()
+    if not stripped:
+        return []
+    parts: list[str] = []
+    for part in _SENTENCE_SPLIT.split(stripped):
+        if parts and _ABBREVIATION_TAIL.search(parts[-1]):
+            parts[-1] = f"{parts[-1]} {part}"
+        else:
+            parts.append(part)
+    return parts
+
+
+def ends_on_abbreviation(sentence: str) -> bool:
+    """Does this sentence terminate on a known abbreviation?
+
+    Exported so callers and tests can assert the thing R4-15 is about:
+    no sentence this module emits may end on "Dr." — that is a fragment,
+    and a fragment published as prose is how "…(F1), Dr." reached a buyer.
+    """
+    return bool(_ABBREVIATION_TAIL.search(sentence.strip()))
+
 #: Month and weekday names. ``_PROPER_NAME`` cannot tell "July" from a payer,
 #: so a run made only of these is a date phrase, not an entity claim.
 _DATE_WORDS = frozenset(
@@ -481,7 +545,34 @@ def build_narrative_facts(
         # The ranked list's first item, when this question routed to the
         # worklist: no prose instruction may name a different one (R3-10).
         worklist_first_action=worklist_first_action,
+        # Size words the premise verdict already ruled out (R4-05).
+        forbidden_magnitude_claims=_forbidden_magnitude_claims(findings),
     )
+
+
+#: The premise verdict as the findings publish it: the arm the movement
+#: landed in, and the question's own verb for the size it asserted.
+_PREMISE_MAGNITUDE_VALUE = "premise_magnitude"
+_PREMISE_VERB_VALUE = "premise_asserted_verb"
+_PREMISE_SHORT = "short"
+
+
+def _forbidden_magnitude_claims(findings: Sequence[FindingPayload]) -> list[str]:
+    """Size words this answer's own premise verdict has ruled out.
+
+    Read off the certified finding rather than the prose around it: the
+    verdict is data (``premise_magnitude: "short"``) precisely so that no
+    downstream stage has to parse the sentence that states it.
+    """
+    out: list[str] = []
+    for finding in findings:
+        values = {value.name: value.value for value in finding.values}
+        if str(values.get(_PREMISE_MAGNITUDE_VALUE, "")) != _PREMISE_SHORT:
+            continue
+        verb = values.get(_PREMISE_VERB_VALUE)
+        if isinstance(verb, str) and verb.strip():
+            out.append(verb.strip())
+    return list(dict.fromkeys(out))
 
 
 #: Recognises the FINDINGS_TRUNCATED disclosure without re-classifying it.
@@ -560,6 +651,11 @@ LEAD_DISCLOSURE_CODES: tuple[str, ...] = (
     # It leads, because the question asked for it.
     "WORKLIST_LEADS",
     "PREMISE_FALSE",
+    # The third verdict (round-4 R4-05). A movement in the asserted
+    # direction that fell short of the asserted SIZE leads for the same
+    # reason a refutation does: everything below it is the composition of a
+    # movement the question named wrongly.
+    "PREMISE_PARTIAL",
     # The other half of the premise family (round-3 R3-03). A verdict that
     # CONFIRMS the question is still the answer's first claim: publishing it
     # only on failure is what let "why did denials double?" — a real +4.2%
@@ -992,6 +1088,39 @@ _FIRST_ACTION = re.compile(
 )
 
 
+#: Wording that turns a size word into a report of what did NOT happen.
+#: A sentence quoting the verdict ("denials did not double") is the
+#: sentence this rule wants; only the affirmative claim is dropped.
+_MAGNITUDE_NEGATION = re.compile(
+    r"\b(?:did not|didn'?t|does not|doesn'?t|was not|wasn'?t|were not|weren'?t|never|not|"
+    r"short of|fell short|falls short|far from|rather than|instead of|without|no)\b",
+    re.IGNORECASE,
+)
+
+
+def _magnitude_claim(sentence: str, verbs: Sequence[str]) -> str | None:
+    """Reason this sentence asserts a size the verdict already refused.
+
+    Round-4 R4-05. The premise finding said "It did not double — denial
+    rate rose 72.6%, short of the 100.0% a doubling assumes", and nothing
+    stopped the composer writing "denials roughly doubled" two sentences
+    later over the same figure. A narrative may report the verdict; it may
+    not restate the claim the verdict declined.
+    """
+    for verb in verbs:
+        stem = re.escape(verb)
+        pattern = re.compile(rf"\b{stem}(?:d|s|ed|ing)?\b", re.IGNORECASE)
+        if not pattern.search(sentence):
+            continue
+        if _MAGNITUDE_NEGATION.search(sentence):
+            continue
+        return (
+            f"asserts a {verb!r} on an answer whose premise verdict states the movement fell "
+            "short of it"
+        )
+    return None
+
+
 def _first_action_conflict(sentence: str, first_action: str) -> str | None:
     """Does this sentence recommend a first action other than rank 1?
 
@@ -1044,7 +1173,7 @@ def validate_narrative(text: str, facts: NarrativeFacts) -> NarrativeValidation:
     kept: list[str] = []
     redactions: list[NarrativeRedaction] = []
 
-    for sentence in _SENTENCE_SPLIT.split(text.strip()):
+    for sentence in split_sentences(text):
         if not sentence.strip():
             continue
         reason: str | None = None
@@ -1090,6 +1219,10 @@ def validate_narrative(text: str, facts: NarrativeFacts) -> NarrativeValidation:
             claim = _population_claim_allowed(sentence, certified_counts)
             if claim is not None:
                 reason = claim
+        if reason is None and facts.forbidden_magnitude_claims:
+            claimed = _magnitude_claim(sentence, facts.forbidden_magnitude_claims)
+            if claimed is not None:
+                reason = claimed
         if reason is None and facts.worklist_first_action:
             first = _first_action_conflict(sentence, facts.worklist_first_action)
             if first is not None:
@@ -1110,7 +1243,7 @@ def validate_narrative(text: str, facts: NarrativeFacts) -> NarrativeValidation:
         and facts.topic_sentence
         and _STRANDED_OPENING.match(kept[0])
         and text.strip()
-        and _SENTENCE_SPLIT.split(text.strip())[0].strip() != kept[0]
+        and split_sentences(text)[0].strip() != kept[0]
     ):
         kept.insert(0, facts.topic_sentence)
 

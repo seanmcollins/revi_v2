@@ -358,6 +358,65 @@ def requested_finding_limit(question: str) -> int | None:
     return None
 
 
+#: Reason fragment stating how many proposed options this platform removed
+#: before the analyst ever saw them. Read by the turn engine's clarification
+#: funnel, which treats a lone SURVIVOR differently from a lone proposal.
+OPTIONS_DROPPED_MARKER = "options_dropped="
+
+
+def _dropped_marker(offered: int, kept: int) -> str:
+    return f"; {OPTIONS_DROPPED_MARKER}{offered - kept}" if offered > kept else ""
+
+
+#: Every word an utterance may contain and still be *only* a statement
+#: about how many rows to show. Deliberately a closed list: the moment a
+#: sentence names a metric, a dimension, a payer or a period it is asking
+#: for something new, and "show me the top 5 payers by denial rate" must
+#: not be mistaken for "show me all twelve".
+_DISPLAY_SCOPE_WORDS = frozenset(
+    [
+        "a", "all", "also", "and", "another", "any", "as", "be", "but", "can",
+        "could", "display", "do", "entire", "entirely", "entries", "every",
+        "everything", "expand", "full", "get", "give", "i", "just", "let",
+        "list", "listed", "lot", "me", "more", "much", "next", "not", "now",
+        "of", "ok", "okay", "only", "open", "other", "others", "out", "please",
+        "pull", "rank", "ranked", "remaining", "rest", "results", "return",
+        "rows", "same", "see", "set", "show", "showing", "shown", "some",
+        "the", "them", "then", "there", "these", "they", "this", "those",
+        "to", "top", "up", "us", "view", "want", "was", "way", "we", "were",
+        "what", "whole", "would", "you", "your",
+        "zero", "one", "two", "three", "four", "five", "six", "seven",
+        "eight", "nine", "ten", "eleven", "twelve", "thirteen", "fourteen",
+        "fifteen", "twenty", "thirty", "forty", "fifty", "hundred",
+    ]
+)
+
+
+def display_scope_limit(question: str) -> int | None:
+    """A request that changes ONLY how many rows are shown, and how many.
+
+    Round-4 R4-11, 6 of 6 personas, zero successes: "show me all twelve"
+    reached the classifier, came back at confidence 0.45-0.50, and was
+    answered with a clarification asking whether the twelve had already
+    been computed — a question the platform could answer itself from the
+    frame it was holding. The limit lift then sat on the one path a
+    follow-up can never reach.
+
+    A display-scope request is decidable without a model, so it is decided
+    without one: the utterance must name a count, and every word in it must
+    be a word that says nothing about WHAT to measure. Anything naming a
+    metric, a cut, a value or a period falls straight through to normal
+    interpretation, where it belongs.
+    """
+    limit = requested_finding_limit(question)
+    if limit is None:
+        return None
+    for token in re.findall(r"[A-Za-z']+", question):
+        if token.casefold() not in _DISPLAY_SCOPE_WORDS:
+            return None
+    return limit
+
+
 def out_of_range_question(period_label: str, watermark: DataWatermark) -> str:
     """Say which period was asked for and which one exists.
 
@@ -794,7 +853,12 @@ class InterpretQuestionService:
                 )
             return self._clarify(
                 parsed.clarification,
-                "model requested clarification",
+                "model requested clarification"
+                # How many ways forward this platform removed before the
+                # analyst saw the question. The turn engine reads it to
+                # decide whether a lone survivor is a real choice or the
+                # last thing left standing (round-4 R4-12 defect 5).
+                + _dropped_marker(len(parsed.clarification_options), len(options)),
                 result.usage,
                 template_hash,
                 options=options,
@@ -841,7 +905,8 @@ class InterpretQuestionService:
         if not governing:
             return self._clarify(
                 "Which metric or investigation should I use for that?",
-                "no governing metric or playbook resolved",
+                "no governing metric or playbook resolved"
+                + _dropped_marker(len(parsed.clarification_options), len(options)),
                 result.usage,
                 template_hash,
                 options=options,

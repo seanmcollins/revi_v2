@@ -28,9 +28,15 @@ from decimal import Decimal
 from revi_investigation_contracts.api import ChartRow, ChartSort, ChartSpec, ChartType
 from revi_kernel.filters import Scalar
 from revi_kernel.frame import EvidenceFrame
+from revi_kernel.maturity import terminal_bucket_verdict
 from revi_kernel.refs import DimensionRef, MetricRef
 
 _TIME_BUCKET_PREFIX = "time_bucket:"
+
+#: Share of a chart's publishable marks that may be ceilings before an
+#: ordering over them means nothing (mirrors the findings evaluator's
+#: ``MAX_BOUNDED_SHARE_FOR_RANKING`` — one threshold, two surfaces).
+_MAX_BOUNDED_SHARE_FOR_RANKING = 0.5
 _NUMERATOR_SUFFIX = "__num"
 _DENOMINATOR_SUFFIX = "__den"
 _ALLOWED_TYPES: frozenset[str] = frozenset(
@@ -135,6 +141,31 @@ def bounded_rows(frame: EvidenceFrame, measure: str, threshold: int | None) -> d
     return out
 
 
+def provisional_bucket(frame: EvidenceFrame, measure: str) -> str | None:
+    """The x value of a terminal bucket that has not settled, or ``None``.
+
+    Structural, from the frame's own time axis, denominator and watermark —
+    the same rule the findings evaluator states in prose, applied where the
+    mark is drawn. Round-4 R4-03: ``provisional_x`` existed as a parameter
+    with no production call site, so ``provisional`` was ``false`` on all
+    1,046 chart rows a review scanned across fifteen turns. The finding
+    title said "the week of 2026-07-20 point (66.7%) is PROVISIONAL and is
+    excluded from that movement" and the SVG drew an unbroken solid line
+    straight up to 66.7% as its terminus — the strongest thing in the build,
+    invisible everywhere except the prose.
+
+    Deriving it here rather than threading it in also fixes the *restored*
+    turn: a re-opened answer rebuilds its charts from persisted frames with
+    no findings in hand, and a provisional point that disappeared on reload
+    would be a second way for the line and the sentence to disagree.
+    """
+    bucket = _time_column(frame)
+    if bucket is None:
+        return None
+    verdict = terminal_bucket_verdict(frame, bucket_column=bucket, measure=measure)
+    return None if verdict is None else str(verdict.bucket)
+
+
 def _pick_recipe(
     frame: EvidenceFrame, recipes: Sequence[RecipeSpec], playbook_id: str | None
 ) -> RecipeSpec | None:
@@ -214,6 +245,9 @@ def build_chart_spec(
     referents = row_referents or {}
     x_is_dim = x in dims
     bounds = bounded_rows(frame, value, suppression_threshold)
+    # Derived when the caller did not name one. A caller that DID name a
+    # bucket wins: it knows which finding it is drawing under.
+    censored_x = provisional_x if provisional_x is not None else provisional_bucket(frame, value)
     rows: list[ChartRow] = []
     for row_index, row in enumerate(frame.rows):
         x_value = row[frame.schema.index_of(x)] if x in frame.schema.names else None
@@ -231,7 +265,7 @@ def build_chart_spec(
                 referent_id=referent_id,
                 is_bound=row_index in bounds,
                 bound_population=bounds.get(row_index),
-                provisional=provisional_x is not None and str(x_value) == provisional_x,
+                provisional=censored_x is not None and str(x_value) == censored_x,
             )
         )
 
@@ -252,6 +286,19 @@ def build_chart_spec(
         for row in frame.rows
         if row[frame.schema.index_of(value)] is None
     )
+    # Round-4 R4-02: the answer refused to rank these cells and the chart
+    # 400px below it sorted them by value anyway — "ordered by denial_rate,
+    # high to low" over a column that is mostly ceilings, which orders by
+    # panel size. The refusal is restated on the figure so a renderer can
+    # suppress the ordering, and a reader who only sees the chart is told.
+    publishable = len(frame.rows) - withheld
+    if bounds and publishable and len(bounds) / publishable > _MAX_BOUNDED_SHARE_FOR_RANKING:
+        annotations.append(
+            f"ranking_refused: {len(bounds)} of the {publishable} publishable marks are upper "
+            f"bounds, leaving {publishable - len(bounds)} measured — too few for an order to "
+            "mean anything. These marks are NOT ranked, whatever order they are drawn in; "
+            "sorting ceilings against measurements sorts by population size."
+        )
     if withheld:
         annotations.append(
             f"withheld: {withheld} of {len(frame.rows)} cells were withheld outright per the "

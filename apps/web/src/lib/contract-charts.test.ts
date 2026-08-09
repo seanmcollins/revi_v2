@@ -111,6 +111,140 @@ describe("ordinal buckets — a shape, not a list of known buckets", () => {
   });
 });
 
+/**
+ * `ChartSpec.axis_order` — the catalog's own declared order for an ordinal
+ * dimension, added late in the engine's wave-C batch (`chart_integrity.
+ * apply_axis_order`). It outranks everything: the server emits its rows in
+ * it and clears `sort` when it applies, and it outranks the recognizer
+ * above because that recognizer is an inference and this is a published
+ * fact. The recognizer stays as the fallback for payloads without one.
+ *
+ * The shapes here are the live ones, off :8000 —
+ * `inv_6455d1b5dbd7/chart_main` carries
+ * `["0-30","31-60","61-90","91-120","120+"]` and
+ * `inv_e2cb50f44361/chart_filing_runway_profile` carries
+ * `["expired","0-30","31-60","61-90","90+","filed"]`, which is the one that
+ * matters: `expired` and `filed` carry no number, so the recognizer
+ * explicitly declines to place them and the pack knows exactly where they
+ * go.
+ */
+describe("a DECLARED axis order outranks every order this client could infer", () => {
+  const RUNWAY_ORDER = ["expired", "0-30", "31-60", "61-90", "90+", "filed"];
+
+  it("seats the live aging axis in the catalog's order and says the catalog said so", () => {
+    const spec = mapChartSpec({
+      ...AGING_CHART,
+      x: "ar_age_bucket",
+      axis_order: ["0-30", "31-60", "61-90", "91-120", "120+"],
+    });
+    expect(spec?.rows.map((r) => r.label)).toEqual([
+      "0-30",
+      "31-60",
+      "61-90",
+      "91-120",
+      "120+",
+    ]);
+    // Not `ordinal-bucket`: the caption must not credit a shape recognizer
+    // for an order the pack published.
+    expect(spec?.order).toEqual({ basis: "axis-order", by: "ar_age_bucket" });
+  });
+
+  it("places the labels the recognizer refuses to place, because the pack declared them", () => {
+    // Emitted alphabetically, which is what the recognizer alone cannot
+    // repair: it has no position for `expired` or `filed` and leaves both
+    // in the slots they arrived in — `expired` fourth, `filed` sixth.
+    const rows = ["0-30", "31-60", "61-90", "90+", "expired", "filed"].map((x) => ({
+      x,
+      series: null,
+      value: 1000,
+    }));
+    const inferred = mapChartSpec({
+      ...AGING_CHART,
+      id: "chart_filing_runway_profile",
+      x: "filing_runway_bucket",
+      rows,
+    });
+    expect(inferred?.rows.map((r) => r.label)).toEqual([
+      "0-30",
+      "31-60",
+      "61-90",
+      "90+",
+      "expired",
+      "filed",
+    ]);
+    expect(inferred?.order?.basis).toBe("ordinal-bucket");
+
+    const declared = mapChartSpec({
+      ...AGING_CHART,
+      id: "chart_filing_runway_profile",
+      x: "filing_runway_bucket",
+      rows,
+      axis_order: RUNWAY_ORDER,
+    });
+    expect(declared?.rows.map((r) => r.label)).toEqual(RUNWAY_ORDER);
+    expect(declared?.order?.basis).toBe("axis-order");
+  });
+
+  it("outranks a value sort published on the same payload", () => {
+    const spec = mapChartSpec({
+      ...AGING_CHART,
+      x: "ar_age_bucket",
+      axis_order: ["0-30", "31-60", "61-90", "91-120", "120+"],
+      sort: { by: "unbilled_dollars", descending: true },
+    });
+    // By value this is 120+ first ($14.1M). The axis is a scale, not a
+    // ranking basis, and the declared scale wins.
+    expect(spec?.rows.map((r) => r.label)).toEqual([
+      "0-30",
+      "31-60",
+      "61-90",
+      "91-120",
+      "120+",
+    ]);
+    expect(spec?.order?.basis).toBe("axis-order");
+  });
+
+  it("seats a bucket the catalog does not declare after the declared ones, in wire order", () => {
+    const spec = mapChartSpec({
+      ...AGING_CHART,
+      x: "ar_age_bucket",
+      rows: [
+        { x: "unknown", series: null, value: 5 },
+        { x: "31-60", series: null, value: 3 },
+        { x: "0-30", series: null, value: 1 },
+        { x: "no deadline", series: null, value: 7 },
+      ],
+      axis_order: ["0-30", "31-60", "61-90"],
+    });
+    // A bucket the pack has not heard of is a fact about the data, not a
+    // licence to reorder the ones it has — and the two undeclared labels
+    // keep the order they arrived in relative to each other.
+    expect(spec?.rows.map((r) => r.label)).toEqual(["0-30", "31-60", "unknown", "no deadline"]);
+  });
+
+  it("keeps a refused ranking refused — a declared scale is not a league table", () => {
+    const spec = mapChartSpec(
+      {
+        ...AGING_CHART,
+        x: "ar_age_bucket",
+        axis_order: ["0-30", "31-60", "61-90", "91-120", "120+"],
+      },
+      undefined,
+      { warningCodes: ["RANKING_REFUSED"] },
+    );
+    expect(spec?.order).toEqual({ basis: "axis-order", by: "ar_age_bucket", refused: true });
+  });
+
+  it("falls back to the recognizer when the payload declares nothing", () => {
+    expect(mapChartSpec({ ...AGING_CHART, axis_order: null })?.order?.basis).toBe(
+      "ordinal-bucket",
+    );
+    expect(mapChartSpec({ ...AGING_CHART, axis_order: [] })?.order?.basis).toBe(
+      "ordinal-bucket",
+    );
+  });
+});
+
 describe("a published ordering is honoured; an absent one is not invented", () => {
   it("reads the orderings the wire could plausibly spell", () => {
     expect(readChartSort({ sort: { by: "denied_dollars", descending: true } })).toEqual({
@@ -256,6 +390,80 @@ describe("a declared composition stays a composition", () => {
     });
     expect(spec?.kind).toBe("line");
     expect(spec?.stacked).toBeUndefined();
+  });
+});
+
+/**
+ * COMPOSITE series keys. The server's answer to rows its own axes cannot
+ * tell apart is to fold the undeclared grouping column into `series` as a
+ * `" / "`-joined key (`chart_integrity.enforce_row_keys`) — so a live
+ * `chart_main` now declares `series: "service_line / group_code"` over
+ * `"Orthopedic Surgery / CO"`, and `chart_breach_confirmation` declares
+ * `"carc / plan"` over 429 keys and 492 rows.
+ *
+ * The client's job is to leave them alone. A composite is a NAME: nothing
+ * splits it, and — the part with teeth — the collision census must not fire
+ * on a payload the server re-keyed precisely so it would not.
+ */
+describe("composite series keys are names, not structures", () => {
+  const composite = {
+    id: "chart_main",
+    chart_type: "stacked_bar",
+    title: "denied dollars — main",
+    frame_id: "main",
+    x: "payer",
+    series: "service_line / group_code",
+    value: "denied_dollars",
+    unit: "money_cents",
+    rows: [
+      { x: "Federal Medicare", series: "Orthopedic Surgery / CO", value: 300 },
+      { x: "Federal Medicare", series: "Cardiology / CO", value: 200 },
+      { x: "State Medicaid", series: "Orthopedic Surgery / CO", value: 150 },
+      { x: "State Medicaid", series: "Cardiology / CO", value: 50 },
+    ],
+    annotations: [],
+  };
+
+  it("keeps the joined key whole as the series key and its label", () => {
+    const spec = mapChartSpec(composite);
+    expect(spec?.series.map((s) => s.key)).toEqual([
+      "Orthopedic Surgery / CO",
+      "Cardiology / CO",
+    ]);
+    expect(spec?.series.map((s) => s.label)).toEqual([
+      "Orthopedic Surgery / CO",
+      "Cardiology / CO",
+    ]);
+  });
+
+  it("does not report a collision on rows the server re-keyed to be distinct", () => {
+    const spec = mapChartSpec(composite);
+    // This is the whole point of the server-side re-key: 4 rows, 4 keys.
+    // A census firing here would print "more rows than these axes can tell
+    // apart" over a chart whose axes tell them apart exactly.
+    expect(spec?.keying).toBeUndefined();
+    expect(spec?.rows.map((r) => r.values["Orthopedic Surgery / CO"])).toEqual([300, 150]);
+  });
+
+  it("still reports a collision when composites really do collide", () => {
+    const spec = mapChartSpec({
+      ...composite,
+      rows: [
+        ...composite.rows,
+        { x: "Federal Medicare", series: "Cardiology / CO", value: 25 },
+      ],
+    });
+    expect(spec?.keying?.mode).toBe("summed");
+    expect(spec?.rows[0].values["Cardiology / CO"]).toBe(225);
+  });
+
+  it("does not sort by a measure that names no drawn composite column", () => {
+    // `sort.by` is the measure; the drawn columns are entities. Guessing
+    // `seriesKeys[0]` here is how an axis came to be captioned "ordered by
+    // Central Physicians Plaza".
+    const spec = mapChartSpec({ ...composite, sort: { by: "denied_dollars", descending: true } });
+    expect(spec?.order).toEqual({ basis: "wire" });
+    expect(spec?.rows.map((r) => r.label)).toEqual(["Federal Medicare", "State Medicaid"]);
   });
 });
 

@@ -43,7 +43,13 @@ export function WarningBanner({
 }) {
   const caution = warning.severity === "caution";
   const title = warningTitle(warning.code);
-  const body = title ? warningBody(warning.code, warning.message) : warning.message;
+  // Stripped UNCONDITIONALLY, not only when a title exists. The prefix is
+  // machine vocabulary either way, and gating the strip on the title meant
+  // that the moment the server published a code this file had no entry for,
+  // the analyst read "ranking_refused: 52 of the 52 publishable denial rate
+  // cells…" — the flagship refusal of the release, wearing a log line. The
+  // title is what a missing entry costs; the raw code is not.
+  const body = warningBody(warning.code, warning.message);
   const count = warning.count ?? 1;
 
   return (

@@ -373,3 +373,110 @@ class TestProjection:
                 horizon_weeks=4,
             )
         assert "Atlas" in str(exc.value.details["uncovered_share_by_payer"])
+
+
+# ---------------------------------------------------------------------------
+# unit propagation (round-4 R4-06)
+
+
+def _days_components(rows: list[tuple[str, int, int]]) -> EvidenceFrame:
+    """A days-unit contract's components: ``days_in_ar`` is billed-weighted
+    age cents over billed cents — money over money, declared as DAYS."""
+    return make_frame(
+        [
+            ("payer", PAYER, None),
+            ("days_in_ar__num", MetricRef("days_in_ar"), "money_cents"),
+            ("days_in_ar__den", MetricRef("days_in_ar"), "money_cents"),
+        ],
+        list(rows),
+    )
+
+
+def _unit_of(frame: EvidenceFrame, name: str) -> str | None:
+    return frame.schema.columns[frame.schema.index_of(name)].unit
+
+
+class TestUnitPropagation:
+    """The CONTRACT's declared unit survives every operator (R4-06).
+
+    ``ratio()`` hardcoded ``unit="ratio"`` on its output, so ``days_in_ar``
+    — ``unit: days`` in the pack, numerator/denominator shaped like every
+    other ratio — was published as "days in ar: 15,941.2%". A ratio is a
+    shape; the unit is a declaration.
+    """
+
+    def test_ratio_publishes_the_declared_unit(self) -> None:
+        out = ratio(
+            _days_components([("Atlas", 1_594_118, 10_000)]),
+            numerator="days_in_ar__num",
+            denominator="days_in_ar__den",
+            out="days_in_ar",
+            out_ref=MetricRef("days_in_ar"),
+            unit="days",
+        )
+        assert _unit_of(out, "days_in_ar") == "days"
+        assert out.column("days_in_ar")[0] == Decimal("159.411800")
+
+    def test_ratio_without_a_declaration_falls_back_to_ratio(self) -> None:
+        out = ratio(
+            denial_components([("Atlas", 5, 10)]),
+            numerator="denial_rate__num",
+            denominator="denial_rate__den",
+            out="denial_rate",
+            out_ref=MetricRef("denial_rate"),
+        )
+        assert _unit_of(out, "denial_rate") == "ratio"
+
+    @pytest.mark.parametrize("unit", ["days", "money_cents", "count", "ratio"])
+    def test_every_operator_carries_the_unit_forward(self, unit: str) -> None:
+        """Whatever a metric column declares, the operators that derive
+        columns from it declare the same thing — except the two that
+        deliberately change dimension (``__pct_change`` and ``__share``
+        are dimensionless; a rank ordinal is a count)."""
+        frame = make_frame(
+            [("payer", PAYER, None), ("m", MetricRef("m"), unit)],
+            [("Atlas", Decimal(10)), ("Bluestone", Decimal(30))],
+        )
+        prior = make_frame(
+            [("payer", PAYER, None), ("m", MetricRef("m"), unit)],
+            [("Atlas", Decimal(5)), ("Bluestone", Decimal(20))],
+        )
+
+        compared = compare(frame, prior)
+        assert _unit_of(compared, "m") == unit
+        assert _unit_of(compared, "m__prior") == unit
+        assert _unit_of(compared, "m__delta") == unit
+        # A relative change is dimensionless whatever the base unit is.
+        assert _unit_of(compared, "m__pct_change") == "ratio"
+
+        ranked = rank(frame, by="m")
+        assert _unit_of(ranked, "m") == unit
+        assert _unit_of(ranked, "m__rank") == "count"
+
+        assert _unit_of(top_k(frame, by="m", k=1), "m") == unit
+
+        shared = share_of_total(frame, measure="m")
+        assert _unit_of(shared, "m") == unit
+        assert _unit_of(shared, "m__share") == "ratio"
+
+        pivoted = pivot(frame, index=(), column="payer", measure="m")
+        assert all(
+            col.unit == unit
+            for col in pivoted.schema.columns
+            if col.name.startswith("m[")
+        )
+
+    def test_decompose_contributions_keep_the_value_unit(self) -> None:
+        current = make_frame(
+            [("payer", PAYER, None), ("vol", MetricRef("vol"), "count"),
+             ("val", MetricRef("val"), "money_cents")],
+            [("Atlas", 10, 1_000)],
+        )
+        prior = make_frame(
+            [("payer", PAYER, None), ("vol", MetricRef("vol"), "count"),
+             ("val", MetricRef("val"), "money_cents")],
+            [("Atlas", 8, 800)],
+        )
+        out = decompose(current, prior, volume="vol", value="val")
+        assert _unit_of(out, "contribution") == "money_cents"
+        assert _unit_of(out, "delta_total") == "money_cents"

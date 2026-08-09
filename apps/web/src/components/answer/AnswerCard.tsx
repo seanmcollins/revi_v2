@@ -111,6 +111,26 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
   const csvCaveats = useMemo(() => caveatLines(a.warnings), [a.warnings]);
 
   /**
+   * Ceilings are separated from measurements, and the separation is stated.
+   *
+   * `measured.isBound` is the engine's own flag (`<metric>__is_bound`),
+   * carried onto the finding at the wire seam. A bounded card sitting in
+   * the same grid as a measured one, in engine order, is how a suppression
+   * ceiling became the second thing on screen — above two measured cells
+   * with real movements — on the very answer whose warning said ceilings
+   * cannot be ordered against measurements. A stable partition: within
+   * each block the engine's order stands.
+   */
+  const measuredFindings = useMemo(
+    () => a.findings.filter((f) => f.measured?.isBound !== true),
+    [a.findings],
+  );
+  const boundedFindings = useMemo(
+    () => a.findings.filter((f) => f.measured?.isBound === true),
+    [a.findings],
+  );
+
+  /**
    * What a screen reader is told, and when (WCAG 2.2 SC 4.1.3).
    *
    * A turn takes 26–60 seconds: stages stream, prose types itself out
@@ -322,9 +342,16 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
 
       {a.definition && <DefinitionCard definition={a.definition} />}
 
-      {a.findings.length > 0 && (
+      {/* MEASURED findings, then CEILINGS, in two blocks.
+
+          They used to share one grid in engine order, which put a bound at
+          F2 — above two measured cells with real movements — so the second
+          thing a reader met was a number the engine had refused to rank.
+          The referent chips keep identity, so re-seating the cards changes
+          nothing a narrative sentence points at. */}
+      {measuredFindings.length > 0 && (
         <div className="grid gap-2.5 min-[1450px]:grid-cols-2">
-          {a.findings.map((finding, i) => (
+          {measuredFindings.map((finding, i) => (
             <div
               key={finding.referent.value}
               className="fade-up h-full"
@@ -334,6 +361,35 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
             </div>
           ))}
         </div>
+      )}
+
+      {boundedFindings.length > 0 && (
+        <section aria-label="Upper bounds" className="space-y-2">
+          <p className="text-[0.68rem] leading-snug text-muted-foreground">
+            <span className="font-medium text-foreground">
+              Upper bounds — not ranked
+              {measuredFindings.length > 0
+                ? ` (${boundedFindings.length} of ${a.findings.length})`
+                : ""}
+            </span>
+            <span className="ml-1">
+              — the numerator was suppressed on {boundedFindings.length === 1 ? "this cell" : "these cells"} and a ceiling
+              over the publishable population was published instead. A ceiling has no position in an
+              order it was never measured for.
+            </span>
+          </p>
+          <div className="grid gap-2.5 min-[1450px]:grid-cols-2">
+            {boundedFindings.map((finding, i) => (
+              <div
+                key={finding.referent.value}
+                className="fade-up h-full"
+                style={{ animationDelay: `${Math.min(i, 6) * 45}ms` }}
+              >
+                <FindingCard finding={finding} turnId={turn.id} />
+              </div>
+            ))}
+          </div>
+        </section>
       )}
 
       {emptyResult && <EmptyResult answer={a} chartCount={charts.length} />}

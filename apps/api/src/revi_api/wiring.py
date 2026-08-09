@@ -292,7 +292,9 @@ def build_components(
     # port it wraps, and attribute access falls through to the adapter.
     llm = MeteredLanguageModel(llm)
     event_bus = ContextTurnEventBus()
-    transforms = CalculationTransforms()
+    # The pack's own metric declarations reach the operators: a ratio
+    # over a days-unit contract publishes days, not a percentage (R4-06).
+    transforms = CalculationTransforms(pack_snapshot.metric)
 
     open_session = OpenSessionService(stores.sessions, repository, pack_port)
     interpreter = InterpretQuestionService(llm, pack_port, catalog)

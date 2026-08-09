@@ -16,6 +16,10 @@
  * parser and disagree with the server.
  */
 
+import { readFileSync } from "node:fs";
+import { dirname, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
+
 import { describe, expect, it } from "vitest";
 
 import RAW_SAMPLES from "@/lib/__fixtures__/wire-samples.json";
@@ -37,10 +41,35 @@ import {
   turnResponseToEvents,
   type WirePin,
 } from "@/lib/contract";
-import { warningBody, warningTitle, WARNING_TITLES } from "@/lib/warnings";
+import { UNCLASSIFIED, warningBody, warningTitle, WARNING_TITLES } from "@/lib/warnings";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
 const SAMPLES = RAW_SAMPLES as any;
+
+/**
+ * Every warning code the API can publish, read out of the API's own source.
+ *
+ * `revi_api.warning_codes` is the single definition: a tuple of `_rule(...)`
+ * declarations plus `UNCLASSIFIED`, and `WARNING_CODES` is derived from it
+ * in one line. There is no JSON artifact of that list on the wire and no
+ * generated type carries it, so this test reads the module and takes the
+ * codes out of it rather than keeping a second copy that can silently fall
+ * behind — which is exactly what happened through the whole of wave B.
+ *
+ * A missing or unreadable module FAILS. "The server's list could not be
+ * read, so nothing was checked" is the failure mode this replaced.
+ */
+function publishedWarningCodes(): string[] {
+  const here = dirname(fileURLToPath(import.meta.url));
+  const source = readFileSync(
+    resolve(here, "../../../../apps/api/src/revi_api/warning_codes.py"),
+    "utf8",
+  );
+  const codes = [...source.matchAll(/_rule\(\s*"([A-Z][A-Z0-9_]*)"/g)].map((m) => m[1]);
+  const unclassified = /^UNCLASSIFIED\s*=\s*"([A-Z_]+)"/m.exec(source);
+  if (unclassified) codes.push(unclassified[1]);
+  return [...new Set(codes)];
+}
 
 const PIN: WirePin = {
   watermark: { id: "wm_003", loadedAt: "2026-08-03 04:10", newestDataDate: "2026-08-02" },
@@ -149,53 +178,37 @@ describe("structured warnings", () => {
   });
 
   it("titles every code the API's warning_codes module publishes", () => {
-    // Kept in step with revi_api.warning_codes by hand; this list IS the
-    // client half of that contract, so a new family added server-side
-    // fails here rather than reaching an analyst as a bare code.
-    const published = [
-      "EMPTY_RESULT",
-      "PREMISE_FALSE",
-      "SUPPRESSION_BOUNDED",
-      "WINDOW_OUT_OF_RANGE",
-      "COMPARISON_ASSUMED",
-      "VALUE_CORRECTED",
-      "DIRECTION_UNMATCHED",
-      "WINDOW_ASSUMED",
-      "SNAPSHOT_AS_OF",
-      "DROPPED_GRAIN",
-      "FILTER_REDUNDANT",
-      "COMPARISON_WINDOW_LENGTH",
-      "POPULATION_CAVEAT",
-      "ALTERNATE_BASIS_USED",
-      "COMPARISON_WINDOW_MISMATCH",
-      "RECONCILIATION_FAILED",
-      "SCOPE_INTERACTS_WITH_CONTRACT",
-      "PROBE_OMITTED",
-      "RESULT_TRUNCATED",
-      "COHORT_WINDOW_DROPPED",
-      "ASSUMPTION_COMMITTED",
-      "CLARIFICATION_ANSWER_APPLIED",
-      "SUPPRESSION_APPLIED",
-      "NARRATIVE_REDACTED",
-      "NARRATIVE_NOT_COMPOSED",
-      "PROBE_TEMPLATE_SKIPPED",
-      "TRANSFORM_NOT_EXECUTABLE",
-      "TRANSFORM_SKIPPED",
-      "PROBE_FAMILIES_EMPTY",
-      "PORTFOLIO_CARDS_NOT_INVESTIGABLE",
-      "PORTFOLIO_FEED_EMPTY",
-      "PORTFOLIO_IMPACT_UNRECONCILED",
-      "PORTFOLIO_IMPACT_DIVERGED",
-      "PORTFOLIO_IMPACT_NOT_COMPARABLE",
-      "PORTFOLIO_RANKED_ON_PLATFORM",
-      "PORTFOLIO_RANKED_ON_DETECTOR",
-      "WORKLIST_ATTACHED",
-      "WORKLIST_UNAVAILABLE",
-    ];
+    // READ FROM THE SERVER'S OWN MODULE, never re-typed here.
+    //
+    // This pin used to be a hand-maintained list of 38 codes. Wave B added
+    // ten — the entire bounds/premise/window vocabulary, including the
+    // flagship RANKING_REFUSED — and did not update it, so the assertion
+    // below (an exact-equality check that reads like the strictest guard in
+    // the suite) compared a stale list against a client that matched it and
+    // passed green for the whole time it was drifting. An analyst read
+    // "ranking_refused: 52 of the 52 publishable denial rate cells…".
+    //
+    // A list that has to be kept in step by hand is not a pin, it is a
+    // second copy of the contract. `publishedWarningCodes()` parses
+    // `revi_api/warning_codes.py` itself, so ANY code the server can emit
+    // fails here the moment it exists and before it can reach a reader.
+    const published = publishedWarningCodes();
+    // A parse that found nothing would make this whole test vacuous.
+    expect(published.length).toBeGreaterThan(40);
+    expect(published).toContain("RANKING_REFUSED");
+
     for (const code of published) {
+      // UNCLASSIFIED is published and deliberately untitled: the server is
+      // saying it has no handle for the sentence, and a confident heading
+      // over it would be this client making the call the server declined.
+      if (code === UNCLASSIFIED) continue;
       expect(warningTitle(code), `${code} needs a plain-language title`).toBeTruthy();
     }
-    expect(Object.keys(WARNING_TITLES).sort()).toEqual([...published].sort());
+    // And nothing is titled that the server cannot emit — a title for a
+    // code that does not exist is a sentence nobody will ever read, kept
+    // alive by a test.
+    const titleable = published.filter((code) => code !== UNCLASSIFIED);
+    expect(Object.keys(WARNING_TITLES).sort()).toEqual([...titleable].sort());
   });
 
   it("gives UNCLASSIFIED no title — the server said it has no handle", () => {

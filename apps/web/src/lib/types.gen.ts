@@ -666,6 +666,8 @@ export interface components {
         ChartSpec: {
             /** Annotations */
             annotations?: string[];
+            /** Axis Order */
+            axis_order?: string[] | null;
             /**
              * Chart Type
              * @enum {string}

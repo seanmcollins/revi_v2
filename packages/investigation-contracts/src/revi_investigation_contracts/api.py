@@ -346,6 +346,19 @@ class ChartSpec(ClosedModel):
     #: one. ``None`` means nothing was ranked and the wire order is the
     #: frame's own — which a renderer must not silently re-sort.
     sort: ChartSort | None = None
+    #: The catalog's DECLARED order for the x axis's values, when x is an
+    #: ordinal bucket dimension (round-4 R4-14). Present ⇒ ``rows`` are
+    #: already in this order and it OUTRANKS ``sort`` for the axis: an
+    #: aging chart reads 0-30, 31-60, 61-90, 91-120, 120+ regardless of
+    #: which bucket holds the most money.
+    #:
+    #: ``ar_age_bucket`` came off this API alphabetically — ``['0-30',
+    #: '120+', '31-60', '61-90', '91-120']``, ``sort: null`` — while its
+    #: sibling ``filing_runway_bucket`` on the same answer was ordinal,
+    #: because the order the catalog declares reached the findings path and
+    #: stopped there. The browser repaired it client-side, so every CSV
+    #: export and every non-browser consumer got 120+ in slot two.
+    axis_order: list[str] | None = None
 
 
 class ReferentPayload(ClosedModel):

@@ -54,9 +54,17 @@ hiding it.
 from __future__ import annotations
 
 from dataclasses import dataclass
+from decimal import Decimal
 
 from revi_investigation.domain.context import AnalysisSpec
-from revi_kernel.scope import Comparison, ComparisonKind, TimeWindow
+from revi_kernel.frame import EvidenceFrame
+from revi_kernel.scope import (
+    AbsoluteRange,
+    Comparison,
+    ComparisonKind,
+    TimeWindow,
+    whole_month_span,
+)
 
 #: How far two window lengths may differ before the difference is worth
 #: caveating an additive measure for.
@@ -72,6 +80,38 @@ from revi_kernel.scope import Comparison, ComparisonKind, TimeWindow
 LENGTH_TOLERANCE = 0.03
 
 
+def same_calendar_kind(current: AbsoluteRange, prior: AbsoluteRange) -> int | None:
+    """Whole calendar periods of equal span on both sides, as a month count.
+
+    Round-4 R4-16. A calendar month against the calendar month before it is
+    the standard revenue-cycle comparison unit and is *never* length-
+    normalized in practice: nobody rebases June onto 31 days to compare it
+    with July, and no month-end close would accept a system that refused to
+    publish an impact figure because February is short. The length-mismatch
+    machinery nonetheless fired on every one of them — 30 vs 31 days is a
+    3.2% ratio, above :data:`LENGTH_TOLERANCE` — so every month-over-month
+    turn came back with ``COMPARISON_WINDOW_MISMATCH``, ``impact_cents``
+    null and every finding title carrying "(30d vs 31d, not
+    length-normalized)".
+
+    The test is structural rather than declared, exactly like
+    :func:`~revi_kernel.scope.whole_month_span`: two ranges that each start
+    on the 1st, each end on a month's last day, and each cover the same
+    number of months ARE the same kind of period — month vs month, quarter
+    vs quarter, year vs year — whoever built them and whether or not a
+    relative spec survives on the window. One month against two is not, and
+    keeps the guard.
+
+    Returns the shared month span, or ``None`` when the two ranges are not
+    like-for-like calendar periods.
+    """
+    left = whole_month_span(current)
+    right = whole_month_span(prior)
+    if left is None or right is None or left != right:
+        return None
+    return left
+
+
 @dataclass(frozen=True, slots=True)
 class ComparisonRendering:
     """Everything the presentation layer needs to talk about a comparison."""
@@ -82,6 +122,10 @@ class ComparisonRendering:
     range_text: str
     current_days: int
     comparison_days: int
+    #: The shared whole-month span when both windows are the same kind of
+    #: calendar period (1 = month vs month, 3 = quarter vs quarter, 12 =
+    #: year vs year), else ``None``. See :func:`same_calendar_kind`.
+    calendar_span: int | None = None
 
     @property
     def length_mismatch(self) -> bool:
@@ -97,6 +141,11 @@ class ComparisonRendering:
         return abs(self.current_days - self.comparison_days) / longer
 
     @property
+    def same_kind(self) -> bool:
+        """Are both sides whole calendar periods of the same span?"""
+        return self.calendar_span is not None
+
+    @property
     def material_length_mismatch(self) -> bool:
         """A difference big enough to distort an additive measure.
 
@@ -106,8 +155,19 @@ class ComparisonRendering:
         comparison for a one-day calendar difference states a caution that
         is not true. The unit test lives at the call site (findings);
         the size test lives here.
+
+        A SAME-KIND calendar comparison is exempt outright rather than by
+        tolerance (R4-16): February against January is a 10% day-count
+        ratio and still the comparison every close performs. The day count
+        is disclosed as an informational note; nothing is withheld for it.
         """
+        if self.same_kind:
+            return False
         return self.length_ratio > LENGTH_TOLERANCE
+
+
+#: How a whole-month span is said out loud in the same-kind note.
+_CALENDAR_NOUN = {1: "calendar month", 3: "calendar quarter", 12: "calendar year"}
 
 
 def _base_label(comparison: Comparison, window: TimeWindow) -> str | None:
@@ -135,9 +195,15 @@ def render_comparison(spec: AnalysisSpec) -> ComparisonRendering | None:
     current_days = window.range.day_length
     comparison_days = cmp_range.day_length
 
+    # Same-kind calendar periods carry no mismatch clause: a month against
+    # the month before it IS like-for-like, and stamping "(30d vs 31d, not
+    # length-normalized)" onto every finding title of every month-end close
+    # taught analysts to read past the words (R4-16). The day count is
+    # still disclosed, once, as an informational turn note below.
+    calendar_span = same_calendar_kind(window.range, cmp_range)
     mismatch = (
         f"{comparison_days}d vs {current_days}d, not length-normalized"
-        if current_days != comparison_days
+        if current_days != comparison_days and calendar_span is None
         else ""
     )
     label = _base_label(comparison, window)
@@ -151,7 +217,125 @@ def render_comparison(spec: AnalysisSpec) -> ComparisonRendering | None:
         range_text=range_text,
         current_days=current_days,
         comparison_days=comparison_days,
+        calendar_span=calendar_span,
     )
+
+
+#: How far the two sides of a comparison's adjudicated panels may diverge
+#: before the difference between them is a data-maturity artifact rather
+#: than a business movement.
+#:
+#: The same 0.6 the trend guard uses for a terminal bucket
+#: (``TERMINAL_BUCKET_MIN_SHARE``), applied to the axis that guard cannot
+#: see. Round-4 R4-07: ``terminal_bucket_censoring`` needs a
+#: :class:`TrendShape` of at least three rows and has one call site, inside
+#: the trend loop, so a two-window comparison never reached it. Live, July
+#: at 23% adjudicated was published against June at 91% as "+73%" at
+#: direct/high, with ``COMPARISON_WINDOW_MISMATCH`` firing loudly about the
+#: 30-vs-31-day calendar difference — a ~3% effect — and nothing at all
+#: about the three-quarters of July that had not settled.
+COMPARISON_MIN_PANEL_SHARE = Decimal("0.6")
+
+_DENOMINATOR_SUFFIX = "__den"
+_PRIOR_SUFFIX = "__prior"
+
+
+@dataclass(frozen=True, slots=True)
+class ComparisonMaturity:
+    """One comparison whose two sides rest on differently-settled panels."""
+
+    frame_id: str
+    measure: str
+    current_panel: int
+    prior_panel: int
+    warning: str
+
+    @property
+    def share(self) -> Decimal:
+        """The smaller panel as a fraction of the larger."""
+        larger = max(self.current_panel, self.prior_panel)
+        if larger <= 0:  # pragma: no cover - guarded at construction
+            return Decimal(1)
+        return Decimal(min(self.current_panel, self.prior_panel)) / Decimal(larger)
+
+
+def _panel_total(frame: EvidenceFrame, column: str) -> int | None:
+    if column not in frame.schema.names:
+        return None
+    index = frame.schema.index_of(column)
+    total = 0
+    seen = False
+    for row in frame.rows:
+        value = row[index]
+        if isinstance(value, bool) or not isinstance(value, int):
+            continue
+        seen = True
+        total += value
+    return total if seen else None
+
+
+def comparison_maturity(
+    frames: tuple[tuple[str, EvidenceFrame], ...],
+) -> tuple[ComparisonMaturity, ...]:
+    """Data-maturity asymmetry between the two sides of every comparison.
+
+    Read off the compare frames themselves: a ratio contract carries its
+    adjudicated denominator as ``<metric>__den``, and the compare operator
+    carries the baseline's as ``<metric>__den__prior``. Summed across the
+    frame, those two integers are the panels the two halves of the
+    published movement were measured over — and when one is a fraction of
+    the other, the movement between them is a settlement curve, not a
+    business change.
+
+    Nothing is inferred where the numbers do not exist: a frame carrying no
+    denominator yields no verdict, which is the honest outcome for an
+    additive money measure that has no panel to speak of.
+    """
+    out: list[ComparisonMaturity] = []
+    for frame_id, frame in frames:
+        if "__compare" not in frame_id:
+            continue
+        names = frame.schema.names
+        for name in names:
+            if not name.endswith(_DENOMINATOR_SUFFIX):
+                continue
+            prior_name = f"{name}{_PRIOR_SUFFIX}"
+            if prior_name not in names:
+                continue
+            current = _panel_total(frame, name)
+            prior = _panel_total(frame, prior_name)
+            if current is None or prior is None or current <= 0 or prior <= 0:
+                continue
+            larger, smaller = max(current, prior), min(current, prior)
+            if Decimal(smaller) >= COMPARISON_MIN_PANEL_SHARE * Decimal(larger):
+                continue
+            measure = name[: -len(_DENOMINATOR_SUFFIX)]
+            thin, thick = (
+                ("this window", "the comparison window")
+                if current < prior
+                else ("the comparison window", "this window")
+            )
+            share = Decimal(smaller) / Decimal(larger)
+            out.append(
+                ComparisonMaturity(
+                    frame_id=frame_id,
+                    measure=measure,
+                    current_panel=current,
+                    prior_panel=prior,
+                    warning=(
+                        f"adjudication_incomplete: the two sides of this comparison are not "
+                        f"equally settled. {measure} was measured over {current:,} adjudicated "
+                        f"record(s) on this window and {prior:,} on the comparison window — "
+                        f"{thin} holds {share:.1%} of the panel {thick} does. Claims still "
+                        "awaiting their first remittance are excluded from both sides, and they "
+                        "are not excluded evenly, so the difference between the two figures is "
+                        "a settlement artifact until the thinner side matures. The movement is "
+                        "published as provisional and this turn cannot be read at high "
+                        "confidence."
+                    ),
+                )
+            )
+    return tuple(out)
 
 
 def comparison_phrase(spec: AnalysisSpec) -> str:
@@ -173,6 +357,20 @@ def window_mismatch_warning(spec: AnalysisSpec) -> str | None:
     rendering = render_comparison(spec)
     if rendering is None or not rendering.length_mismatch:
         return None
+    if rendering.calendar_span is not None:
+        noun = _CALENDAR_NOUN.get(rendering.calendar_span, f"{rendering.calendar_span}-month period")
+        share = abs(rendering.current_days - rendering.comparison_days) / max(
+            rendering.current_days, rendering.comparison_days
+        )
+        return (
+            f"comparison_window_length: this is a whole {noun} against the whole {noun} before "
+            f"it ({rendering.range_text}) — the same kind of period on both sides, which is how "
+            f"a close is read. The calendar makes them "
+            f"{abs(rendering.current_days - rendering.comparison_days)} day(s) different in "
+            f"length ({rendering.comparison_days}d vs {rendering.current_days}d), a mechanical "
+            f"share of at most {share:.1%} of any additive total; nothing is normalized for it "
+            "and nothing is withheld for it."
+        )
     if not rendering.material_length_mismatch:
         return (
             "comparison_window_length: the comparison window "

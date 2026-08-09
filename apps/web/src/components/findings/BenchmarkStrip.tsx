@@ -262,6 +262,27 @@ export function compareToRange(
   const top = Math.max(...usable);
   const value = measured.value;
   const points = (n: number): string => `${Math.abs(n).toFixed(1)} ${Math.abs(n) === 1 ? "point" : "points"}`;
+
+  // A CEILING cannot be placed against a range. The strip used to print
+  // "F4's 76.9% is 56.9 points above the top of this range" over a
+  // suppression bound taken across thirteen claims — a figure equally
+  // consistent with 0%, stated as a 56.9-point overshoot of a peer band.
+  //
+  // Exactly one comparison survives the arithmetic: a ceiling BELOW the
+  // bottom of the range proves the true value is below it too. Everything
+  // else is unknown, and the sentence says unknown rather than nothing —
+  // a silent absence reads as "no comparison was needed".
+  if (measured.isBound === true) {
+    const over =
+      measured.boundPopulation !== undefined
+        ? `, taken over a population of ${measured.boundPopulation}`
+        : "";
+    if (value < bottom) {
+      return `'s ceiling of ≤ ${value.toFixed(1)}%${over} is below the bottom of this range — the measured value is lower still`;
+    }
+    return `'s figure is an upper bound of ≤ ${value.toFixed(1)}%${over}, so it cannot be placed against this range — the measured value is somewhere at or below it`;
+  }
+
   if (value > top) return `'s ${value.toFixed(1)}% is ${points(value - top)} above the top of this range`;
   if (value < bottom) {
     return `'s ${value.toFixed(1)}% is ${points(bottom - value)} below the bottom of this range`;

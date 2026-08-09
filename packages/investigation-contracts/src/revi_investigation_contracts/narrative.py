@@ -52,6 +52,16 @@ class NarrativeFacts(BaseModel):
     #: while worklist rank 1 was a card at $178,216.82. ``None`` means no
     #: worklist routed and the prose owns the recommendation as before.
     worklist_first_action: str | None = None
+    #: Size words the premise verdict has already ruled out (round-4
+    #: R4-05). When the aggregate rose 72.6% against a question that
+    #: assumed a doubling, the verdict published above the prose says "it
+    #: did not double" — and a composer that then writes "denials roughly
+    #: doubled" has contradicted the answer's own first claim in its second
+    #: paragraph. Each entry is the question's own verb ("double",
+    #: "triple", "halve"); a sentence asserting one is dropped unless it
+    #: negates it. Empty on every turn that asserts no size, which is
+    #: almost all of them.
+    forbidden_magnitude_claims: list[str] = Field(default_factory=list)
 
 
 class NarrativeRedaction(BaseModel):

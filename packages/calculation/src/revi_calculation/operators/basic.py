@@ -32,6 +32,11 @@ PIVOT_OP = OperatorVersion("pivot", "1.0.0")
 _ZERO_FILL_UNITS = {"money_cents", "count"}
 
 
+#: What a ratio-of-sums measures when the metric contract declares nothing
+#: else. It is a fallback, never an assertion about the metric.
+DEFAULT_RATIO_UNIT = "ratio"
+
+
 def ratio(
     frame: EvidenceFrame,
     *,
@@ -40,11 +45,31 @@ def ratio(
     out: str,
     out_ref: MetricRef,
     contract_version: int | None = None,
+    unit: str | None = None,
 ) -> EvidenceFrame:
-    """Per-cell ratio-of-sums. Denominator 0 (or NULL) yields NULL, never ∞."""
+    """Per-cell ratio-of-sums. Denominator 0 (or NULL) yields NULL, never ∞.
+
+    ``unit`` is the metric CONTRACT's declared unit, threaded in by the
+    caller that resolved the contract. Round-4 R4-06: this operator used to
+    hardcode ``unit="ratio"`` on its output column for every ratio-shaped
+    contract, so the pack's own declaration never left the pack. Days in
+    A/R — ``unit: days`` in ``days_in_ar.yaml``, numerator/denominator
+    shaped like every other ratio — was published as **"15,941.2%"**: the
+    single most-quoted KPI in revenue cycle, rendered by the percentage
+    path because the only thing the frame knew about it was the shape of
+    its arithmetic. All four days-unit metrics (``days_in_ar``,
+    ``avg_days_to_pay``, ``charge_lag_days``, ``bill_lag_days``) are
+    numerator/denominator shaped and were all affected.
+
+    A ratio is a shape, not a unit. What the quotient MEANS is a contract
+    declaration, and it is carried here so every downstream operator,
+    finding, chart and export reads it off the frame column instead of
+    re-deriving it — the same rule the additive path has always followed.
+    """
     n_idx = frame.schema.index_of(numerator)
     d_idx = frame.schema.index_of(denominator)
-    columns = (*frame.schema.columns, FrameColumn(out, out_ref, contract_version, unit="ratio"))
+    declared = unit or DEFAULT_RATIO_UNIT
+    columns = (*frame.schema.columns, FrameColumn(out, out_ref, contract_version, unit=declared))
     rows: list[FrameRow] = []
     for row in frame.rows:
         num, den = row[n_idx], row[d_idx]

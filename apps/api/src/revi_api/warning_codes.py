@@ -73,6 +73,11 @@ _RULES: tuple[_Rule, ...] = (
     # -- how the number was scoped or qualified (changes the reading) -----
     _rule("EMPTY_RESULT", CAUTION, r"^empty_result:"),
     _rule("PREMISE_FALSE", CAUTION, r"^premise_false:"),
+    # Round-4 R4-05: the third verdict. A movement in the direction the
+    # question asserts but short of the SIZE it asserts is neither
+    # confirmed nor refuted — "denials did not rise" would be as false as
+    # "denials doubled" over a real +72.6%.
+    _rule("PREMISE_PARTIAL", CAUTION, r"^premise_partial:"),
     _rule("PREMISE_VERIFIED", INFO, r"^premise_verified:"),
     _rule("RANKING_REFUSED", CAUTION, r"^ranking_refused:"),
     _rule("BOUNDED_CELLS_UNRANKED", CAUTION, r"^bounded_cells_unranked:"),
@@ -84,6 +89,18 @@ _RULES: tuple[_Rule, ...] = (
     _rule("SUPPRESSION_BOUNDED", CAUTION, r"^suppression_bounded:"),
     _rule("WINDOW_OUT_OF_RANGE", CAUTION, r"^window_out_of_range:"),
     _rule("COMPARISON_ASSUMED", INFO, r"^comparison_assumed:"),
+    # Round-4 R4-08: a comparison cell whose prior side was never retrieved
+    # (it fell outside a top-N). UNKNOWN is published; $0.00 never is.
+    _rule("COMPARISON_PRIOR_UNKNOWN", CAUTION, r"^comparison_prior_unknown:"),
+    # Round-4 R4-04: a refinement that re-served an existing plan, and the
+    # governed caveats that plan carried, verbatim.
+    _rule("REFINEMENT_REUSED_PLAN", INFO, r"^refinement_reused_plan:"),
+    # Round-4 R4-04: the operators the analyst asked for that the served
+    # answer does not reflect, named rather than silently dropped.
+    _rule("REFINEMENT_NOT_APPLIED", CAUTION, r"^refinement_not_applied:"),
+    # Round-4 R4-09: a chart whose rows were not uniquely keyed by the axes
+    # it declared, and what the server did about it.
+    _rule("CHART_ROWS_COLLAPSED", CAUTION, r"^chart_rows_collapsed:"),
     _rule("VALUE_CORRECTED", CAUTION, r"^value_corrected:"),
     _rule("DIRECTION_UNMATCHED", CAUTION, r"^direction_unmatched:"),
     _rule("WINDOW_ASSUMED", CAUTION, r"^window_assumed:"),

@@ -95,8 +95,8 @@ Every compare row is also registered as a dimension-value referent
 from __future__ import annotations
 
 from dataclasses import dataclass
-from datetime import date, timedelta
 from decimal import Decimal
+from enum import StrEnum
 
 from revi_calculation_contracts.contract import SignConvention
 from revi_investigation.application.calculation_glue import (
@@ -141,6 +141,13 @@ from revi_kernel.cohort import CohortDefinition
 from revi_kernel.filters import Predicate, PredicateOp, Scalar, and_merge
 from revi_kernel.frame import EvidenceFrame
 from revi_kernel.grades import EvidenceGrade
+from revi_kernel.maturity import (
+    TERMINAL_BUCKET_MIN_SHARE as _TERMINAL_BUCKET_MIN_SHARE,
+)
+from revi_kernel.maturity import (
+    CensoringKind,
+    terminal_bucket_verdict,
+)
 from revi_kernel.refs import (
     DimensionRef,
     EntityGrain,
@@ -209,15 +216,34 @@ _QUALIFIED_GRADES = (EvidenceGrade.PROXY, EvidenceGrade.DISCOVERY, EvidenceGrade
 #: answer is the population arithmetic rather than an order.
 MAX_BOUNDED_SHARE_FOR_RANKING = 0.5
 
-#: How far the movement a question ASSERTS may fall short of the movement
-#: that happened before the premise is refuted (round-3 R3-03).
+#: How far a movement may sit either side of the size a question ASSERTS
+#: and still count as that size, as a fraction of the asserted change.
 #:
-#: ``holds`` tested direction alone, so "why did denials double?" over a
-#: +4.2% move was scored TRUE, the verdict was discarded, and the narrative
-#: opened on a 243% sub-cell. A doubling is a claim about size: an actual
-#: change smaller than this fraction of the asserted one did not happen,
-#: whatever its sign.
-PREMISE_MAGNITUDE_TOLERANCE = Decimal("0.5")
+#: Round-3 R3-03 made the magnitude test exist; round-4 R4-05 found it was
+#: **one-sided**. ``PREMISE_MAGNITUDE_TOLERANCE`` was a floor at half the
+#: asserted change, so anything from +50% upward confirmed "doubled" — and
+#: live, a denial rate that went 7.4% → 12.8% was published as
+#: "Premise confirmed … It happened", at high confidence, with
+#: ``asserted_multiple: 2.0`` and ``pct_change: 0.726`` sitting in the same
+#: values array. A 10x move would have confirmed a doubling too.
+#:
+#: A doubling is +100%. At a quarter-band, +75%..+125% is a doubling and
+#: +72.6% is not — it is a sharp rise that fell short of the claim, which
+#: is a third verdict and reads as one.
+PREMISE_MAGNITUDE_BAND = Decimal("0.25")
+
+
+class MagnitudeVerdict(StrEnum):
+    """Where the movement landed against the size the question asserted."""
+
+    #: Inside the band: the question's own word for it is accurate.
+    WITHIN = "within"
+    #: The right direction, short of the claimed size.
+    SHORT = "short"
+    #: The right direction, past the claimed size.
+    BEYOND = "beyond"
+    #: No base to measure a multiple against (zero or suppressed prior).
+    UNVERIFIABLE = "unverifiable"
 
 
 def _bound_values(measure: str, bound: BoundedCell | None) -> list[tuple[str, Scalar]]:
@@ -307,11 +333,62 @@ def _declared_bucket_order(
     return plan.bucket_order(shape.dimension_columns[0])
 
 
+@dataclass(frozen=True, slots=True)
+class SelectionCensus:
+    """Every cell of a ranking frame, counted once and accounted for.
+
+    Round-4 R4-10: one card carried two censuses of one frame and they
+    contradicted — "52 of the 52 publishable denial rate cells … leaving 0
+    measured, so no ranking is published" and, 1,900 characters later, "Of
+    150 cell(s) on this answer, 52 carry an upper bound, 85 were withheld
+    outright and 13 are measured". The refusal was manufactured by
+    discarding those 13 measured cells as padding: they were providers with
+    a **0% denial rate** — the perfect performers — dropped by a rule
+    written for counts ("Payer X: 0 mismatched claims") and applied to
+    rates. Zero is a measurement, and in a denial-rate ranking it is the
+    most informative one there is.
+
+    The four buckets partition the frame by construction
+    (``total == bounded + measured + empty + withheld``), so no two
+    sentences on one answer can state different arithmetic about it.
+    """
+
+    #: Rows in the ranking frame.
+    total: int
+    #: Publishable rows whose value is a ceiling, not a measurement.
+    bounded: int
+    #: Publishable rows carrying a measurement — zeros included.
+    measured: int
+    #: Rows dropped as empty. Only ever additive units: a 0 in a count or a
+    #: dollar column is a ranking's tail, a 0 in a rate column is a result.
+    empty: int
+
+    @property
+    def publishable(self) -> int:
+        return self.bounded + self.measured
+
+    @property
+    def withheld(self) -> int:
+        """Rows the small-cell policy nulled outright — the remainder."""
+        return max(self.total - self.publishable - self.empty, 0)
+
+    @property
+    def bounded_share(self) -> float:
+        return self.bounded / self.publishable if self.publishable else 0.0
+
+    def arithmetic(self) -> str:
+        """The frame's own census, worded as the suppression disclosure
+        words it, so the two sentences on the card cannot disagree."""
+        empty = f", {self.empty} were empty" if self.empty else ""
+        return (
+            f" Of {self.total} cell(s) on this answer, {self.bounded} carry an upper bound, "
+            f"{self.withheld} were withheld outright{empty} and {self.measured} are measured."
+        )
+
+
 def _unranked_bounds_warning(
     *,
-    bounded_count: int,
-    measured_count: int,
-    total: int,
+    census: SelectionCensus,
     measure: str,
     unrankable: bool,
     order: object | None,
@@ -319,26 +396,30 @@ def _unranked_bounds_warning(
     """What a ranking owes a reader once some of its cells are ceilings.
 
     Round-3 R3-02, and the population arithmetic R3-18 asked for in the
-    same breath: the counts are computed once, here, from the frame the
-    findings were selected from, so the narrative cannot invent a different
+    same breath: the counts are computed once, in :class:`SelectionCensus`,
+    from the frame the findings were selected from, so neither the
+    narrative nor the suppression disclosure can invent a different
     denominator for them.
     """
     label = metric_label(measure)
-    noun = "cell" if bounded_count == 1 else "cells"
+    noun = "cell" if census.bounded == 1 else "cells"
     if unrankable:
         return (
-            f"ranking_refused: {bounded_count} of the {total} publishable {label} {noun} on this "
-            f"answer carry an upper bound rather than a measurement, leaving {measured_count} "
-            "measured, so no ranking is published. Ordering ceilings against measurements sorts "
-            "by population size, not by the measure that was asked about. The bounded cells are "
-            "listed separately, each with the population its bound was taken over."
+            f"ranking_refused: {census.bounded} of the {census.publishable} publishable {label} "
+            f"{noun} on this answer carry an upper bound rather than a measurement, leaving "
+            f"{census.measured} measured, so no ranking is published. Ordering ceilings against "
+            "measurements sorts by population size, not by the measure that was asked about. The "
+            "bounded cells are listed separately, each with the population its bound was taken "
+            f"over.{census.arithmetic()}"
         )
     asked = " (the order you asked for applies to the measured cells only)" if order else ""
+    measured_noun = "cell" if census.measured == 1 else "cells"
     return (
-        f"bounded_cells_unranked: {bounded_count} of {total} {label} {noun} had a suppressed "
-        f"numerator and are published as upper bounds in their own block, unranked{asked}. The "
-        f"ranking above covers the {measured_count} measured {'cell' if measured_count == 1 else 'cells'} "
-        "only — a ceiling has no position in an order it was never measured for."
+        f"bounded_cells_unranked: {census.bounded} of {census.publishable} {label} {noun} had a "
+        f"suppressed numerator and are published as upper bounds in their own block, "
+        f"unranked{asked}. The ranking above covers the {census.measured} measured "
+        f"{measured_noun} only — a ceiling has no position in an order it was never measured "
+        f"for.{census.arithmetic()}"
     )
 
 
@@ -658,17 +739,9 @@ class TrendShape:
         return self.unit == _MONEY_UNIT
 
 
-#: How small a terminal bucket's own denominator may be, as a fraction of
-#: the series median, before the point it produces is a data-maturity
-#: artifact rather than a measurement (round-3 R3-06).
-#:
-#: Live: adjudicated denominators 6,049 / 6,133 / 5,723 / 1,544 across
-#: 2026-01..2026-07. The July point was computed on 25% of the median panel
-#: — the fastest-adjudicating quarter of the month, which skews heavily to
-#: denials — and published as "up 5.5 points", ``direct``, ``high``, with an
-#: ACA benchmark attached. "Are denials getting worse" answered confidently
-#: backwards.
-TERMINAL_BUCKET_MIN_SHARE = Decimal("0.6")
+#: See :data:`revi_kernel.maturity.TERMINAL_BUCKET_MIN_SHARE` — re-exported
+#: here because this module's callers have always read it from here.
+TERMINAL_BUCKET_MIN_SHARE = _TERMINAL_BUCKET_MIN_SHARE
 
 
 @dataclass(frozen=True, slots=True)
@@ -682,41 +755,13 @@ class TerminalCensoring:
     median_population: int | None
     reason: str
     warning: str
-
-
-def _median(values: list[int]) -> int:
-    ordered = sorted(values)
-    middle = len(ordered) // 2
-    if len(ordered) % 2:
-        return ordered[middle]
-    return (ordered[middle - 1] + ordered[middle]) // 2
-
-
-def _bucket_end(bucket: Scalar, noun: str) -> date | None:
-    """The last calendar day the bucket covers, when it can be derived."""
-    text = str(bucket)
-    try:
-        start = date.fromisoformat(text[:10]) if len(text) >= 10 else None
-        if start is None and noun == "month" and len(text) >= 7:
-            start = date(int(text[:4]), int(text[5:7]), 1)
-    except ValueError:
-        return None
-    if start is None:
-        return None
-    if noun == "day":
-        return start
-    if noun == "week":
-        return start + timedelta(days=6)
-    if noun == "month":
-        return date(start.year + start.month // 12, start.month % 12 + 1, 1) - timedelta(days=1)
-    if noun == "quarter":
-        end_month = ((start.month - 1) // 3 + 1) * 3
-        return date(
-            start.year + end_month // 12, end_month % 12 + 1, 1
-        ) - timedelta(days=1)
-    if noun == "year":
-        return date(start.year, 12, 31)
-    return None
+    #: The bucket key exactly as the frame holds it (``"2026-07-20"``,
+    #: not ``"week of 2026-07-20"``). Round-4 R4-03: the prose named the
+    #: provisional point and the chart drew a solid line straight through
+    #: it, because the only form of the bucket that left this module was
+    #: the human label. The raw key is what a chart row's ``x`` is built
+    #: from, so the mark and the sentence can be made to agree.
+    bucket_key: str = ""
 
 
 def terminal_bucket_censoring(
@@ -724,38 +769,25 @@ def terminal_bucket_censoring(
 ) -> TerminalCensoring | None:
     """Is this series' last point a measurement, or an artifact of maturity?
 
-    Two independent tests, both read off material the turn already holds:
-
-    * **Calendar-partial** — the bucket extends past the newest data date,
-      so it covers fewer days than every bucket before it. ``2026-08`` on a
-      load ending ``2026-08-02`` is two days of a month, and it was plotted
-      unannotated beside eleven full ones.
-    * **Right-censored** — the bucket's own adjudicated denominator is a
-      fraction of the series median. The claims exist; they have not
-      settled. The engine holds both counts and said neither.
+    The verdict itself is :func:`revi_kernel.maturity.terminal_bucket_verdict`
+    — one rule, in the kernel, because the chart builder must break its line
+    at exactly the bucket this sentence calls provisional and the two
+    capabilities may not import each other. What is composed here is the
+    prose: the reason and the mandatory disclosure that carry it.
     """
-    frame = shape.frame
-    schema = frame.schema
-    if shape.bucket_column not in schema.names or len(frame.rows) < 3:
-        return None
-    idx_bucket = schema.index_of(shape.bucket_column)
-    idx_value = schema.index_of(shape.measure)
-    rows = sorted(
-        (row for row in frame.rows if _as_number(row[idx_value]) is not None),
-        key=lambda row: str(row[idx_bucket]),
+    verdict = terminal_bucket_verdict(
+        shape.frame, bucket_column=shape.bucket_column, measure=shape.measure
     )
-    if len(rows) < 3:
+    if verdict is None:
         return None
-    noun = _bucket_noun(frame, shape.bucket_column)
-    terminal = rows[-1]
-    bucket_label = _bucket_text(terminal[idx_bucket], noun)
-    newest = frame.watermark.newest_data_date
-
-    covered = _bucket_end(terminal[idx_bucket], noun)
-    if covered is not None and covered > newest:
+    bucket_label = _bucket_text(verdict.bucket, verdict.noun)
+    noun = verdict.noun
+    if verdict.kind is CensoringKind.CALENDAR_PARTIAL:
+        assert verdict.covered_through is not None
         reason = (
-            f"the {noun} runs to {covered.isoformat()} and this load ends "
-            f"{newest.isoformat()}, so the bucket holds only part of its own period."
+            f"the {noun} runs to {verdict.covered_through.isoformat()} and this load ends "
+            f"{verdict.newest_data_date.isoformat()}, so the bucket holds only part of its "
+            "own period."
         )
         return TerminalCensoring(
             bucket=bucket_label,
@@ -768,33 +800,20 @@ def terminal_bucket_censoring(
                 "first-to-last movement, the high and the low; a series that terminates on a "
                 "partial bucket reports the calendar, not the business."
             ),
+            bucket_key=str(verdict.bucket),
         )
 
-    denominator = f"{shape.measure}{_DENOMINATOR_SUFFIX}"
-    if denominator not in schema.names:
-        return None
-    idx_den = schema.index_of(denominator)
-    populations = [
-        value for row in rows if (value := _as_int(row[idx_den])) is not None and value > 0
-    ]
-    if len(populations) < 3:
-        return None
-    terminal_population = _as_int(terminal[idx_den])
-    if terminal_population is None or terminal_population <= 0:
-        return None
-    median = _median(populations[:-1])
-    if median <= 0 or Decimal(terminal_population) >= TERMINAL_BUCKET_MIN_SHARE * Decimal(median):
-        return None
-    share = Decimal(terminal_population) / Decimal(median)
+    assert verdict.population is not None and verdict.median_population is not None
+    share = Decimal(verdict.population) / Decimal(verdict.median_population)
     reason = (
-        f"it was computed over {terminal_population:,} adjudicated records against a series "
-        f"median of {median:,} ({ratio_pct(share)} of it), so the {noun} is still settling and "
-        "the records that have settled are not a random sample of it."
+        f"it was computed over {verdict.population:,} adjudicated records against a series "
+        f"median of {verdict.median_population:,} ({ratio_pct(share)} of it), so the {noun} is "
+        "still settling and the records that have settled are not a random sample of it."
     )
     return TerminalCensoring(
         bucket=bucket_label,
-        population=terminal_population,
-        median_population=median,
+        population=verdict.population,
+        median_population=verdict.median_population,
         reason=reason,
         warning=(
             f"adjudication_incomplete: the last point of this series ({bucket_label}) is "
@@ -803,6 +822,7 @@ def terminal_bucket_censoring(
             "incompletely adjudicated bucket is a data-maturity artifact until that bucket "
             "matures."
         ),
+        bucket_key=str(verdict.bucket),
     )
 
 
@@ -928,13 +948,98 @@ class PremiseCheck:
     #: "doubled"). Carried so the verdict sentence can say what was claimed
     #: as well as what happened.
     asserted_multiple: Decimal | None = None
-    #: Set when the direction matched and the SIZE did not — the case that
-    #: used to score as holding and publish nothing (R3-03).
-    magnitude_short: bool = False
+    #: Where the movement landed against that size.
+    magnitude: MagnitudeVerdict = MagnitudeVerdict.UNVERIFIABLE
+    #: The multiple that actually happened (``current / prior``), when
+    #: there was a base to divide by. Published on the finding so a reader
+    #: never has to take "it did not double" on trust.
+    actual_multiple: Decimal | None = None
+
+    @property
+    def magnitude_short(self) -> bool:
+        """The direction matched and the SIZE did not (R3-03, R4-05)."""
+        return self.magnitude is MagnitudeVerdict.SHORT
+
+    @property
+    def magnitude_beyond(self) -> bool:
+        """It happened, and by more than the question claimed."""
+        return self.magnitude is MagnitudeVerdict.BEYOND
 
     @property
     def is_money(self) -> bool:
         return self.unit == _MONEY_UNIT
+
+
+def _premise_measure(spec: AnalysisSpec, compared: tuple[str, ...]) -> str | None:
+    """The metric the PREMISE names, out of the ones this frame compared.
+
+    Round-4 R4-05(b): the old rule preferred whichever compared column was
+    money. An analyst asked about denial RATE and got, as bolded F1 at high
+    confidence, "You asked about a doubling in denied dollars. It did not
+    happen — denied dollars fell $829,506.94, -72.7%" — a true sentence
+    about a metric nobody asked about, published as the verdict on a
+    question about a rate that had risen. The same turn's next answer put
+    denial rate at 9.1% → 12.8%.
+
+    A premise is a claim about a named quantity. The metric the analyst's
+    own spec names wins; when the spec names none of the compared columns,
+    this frame cannot answer the question that was asked and the caller
+    looks further rather than substituting a different metric.
+    """
+    if not compared:
+        return None
+    named: list[str] = []
+    if spec.rank_by is not None:
+        named.append(spec.rank_by.id)
+    named.extend(ref.id for ref in spec.measures)
+    for metric_id in named:
+        if metric_id in compared:
+            return metric_id
+    # A spec that named nothing measurable here asserts nothing about which
+    # column to read; the frame's first compared metric is all there is.
+    return None if named else compared[0]
+
+
+def _premise_frames(
+    plan: InvestigationPlan,
+    calculation: CalculationResult,
+    premise_prefix: str,
+) -> list[tuple[str, EvidenceFrame]]:
+    """Every ungrouped single-row compare frame a premise could be read off,
+    the dedicated premise probe first.
+
+    Round-4 R4-05(a): the verdict fired on 0 of 5 live probes across two
+    reviewers because this function's ancestor accepted **only** a compare
+    step whose first input started with ``premise``, and the plans actually
+    produced were ``['main', 'main__prior']`` — an undimensioned comparison
+    that measures exactly the aggregate the premise is about. A question
+    that states a movement and plans no dimensions still has its premise
+    sitting right there in the frame; refusing to look at it published a
+    300-word narrative about cells while denials had FALLEN 4.2%, with no
+    contradiction anywhere in it.
+
+    A scalar frame is a scalar frame whatever the step that made it is
+    called. The dedicated probe still sorts first, so a plan that carries
+    one is read exactly as before.
+    """
+    dedicated: list[tuple[str, EvidenceFrame]] = []
+    scalar: list[tuple[str, EvidenceFrame]] = []
+    for step in plan.transforms.steps:
+        if step.operator != "compare" or not step.inputs:
+            continue
+        try:
+            frame = calculation.frame(step.id)
+        except KeyError:  # pragma: no cover - pruned steps never execute
+            continue
+        if _dimension_columns(frame) or len(frame.rows) != 1:
+            continue
+        target = (
+            dedicated
+            if step.inputs[0].startswith(premise_prefix) or step.id.startswith(premise_prefix)
+            else scalar
+        )
+        target.append((step.id, frame))
+    return [*dedicated, *scalar]
 
 
 def verify_premise(
@@ -948,29 +1053,17 @@ def verify_premise(
     """Check the asserted aggregate movement, before anything explains it.
 
     Returns ``None`` when the question asserted nothing (the overwhelming
-    majority of turns), or when the premise probe produced no comparable
-    aggregate — an unverifiable premise is not a refuted one, and claiming
+    majority of turns), or when no frame measured the metric the premise
+    names — an unverifiable premise is not a refuted one, and claiming
     otherwise would be the same failure in the opposite direction.
     """
     if not spec.direction_asserted or spec.direction is None:
         return None
-    for step in plan.transforms.steps:
-        if step.operator != "compare" or not step.inputs:
-            continue
-        if not step.inputs[0].startswith(premise_prefix):
-            continue
-        try:
-            frame = calculation.frame(step.id)
-        except KeyError:  # pragma: no cover - pruned steps never execute
-            continue
-        if _dimension_columns(frame) or len(frame.rows) != 1:
-            continue
+    for frame_id, frame in _premise_frames(plan, calculation, premise_prefix):
         compared = _compared_measures(frame)
-        if not compared:
+        measure = _premise_measure(spec, compared)
+        if measure is None:
             continue
-        measure = next(
-            (name for name in compared if _unit_of(frame, name) == _MONEY_UNIT), compared[0]
-        )
         row = frame.rows[0]
         delta = _as_number(row[frame.schema.index_of(f"{measure}__delta")])
         if delta is None:
@@ -985,13 +1078,16 @@ def verify_premise(
         prior = row[frame.schema.index_of(f"{measure}__prior")]
         directional = (delta > 0) if wanted > 0 else (delta < 0)
         # Direction is necessary and not sufficient. "Doubled" asserts a
-        # SIZE, and +4.2% is not it: the movement has to reach a governed
-        # fraction of what was claimed before the claim is confirmed.
-        short = False
+        # SIZE, and the movement has to land inside a band around what was
+        # claimed — on either side of it — before the claim is confirmed.
+        magnitude = MagnitudeVerdict.UNVERIFIABLE
+        actual_multiple: Decimal | None = None
         if directional and spec.asserted_multiple is not None:
-            short = _magnitude_short(prior, current, spec.asserted_multiple)
+            magnitude, actual_multiple = _magnitude_verdict(
+                prior, current, spec.asserted_multiple
+            )
         return PremiseCheck(
-            frame_id=step.id,
+            frame_id=frame_id,
             frame=frame,
             measure=measure,
             unit=_unit_of(frame, measure),
@@ -999,30 +1095,43 @@ def verify_premise(
             prior=prior,
             delta=delta,
             pct=row[frame.schema.index_of(pct_col)] if pct_col in frame.schema.names else None,
-            holds=directional and not short,
+            holds=directional and magnitude is not MagnitudeVerdict.SHORT,
             asserted_multiple=spec.asserted_multiple,
-            magnitude_short=short,
+            magnitude=magnitude,
+            actual_multiple=actual_multiple,
         )
     return None
 
 
-def _magnitude_short(prior: Scalar, current: Scalar, asserted: Decimal) -> bool:
-    """Did the movement fall short of the size the question asserted?
+def _magnitude_verdict(
+    prior: Scalar, current: Scalar, asserted: Decimal
+) -> tuple[MagnitudeVerdict, Decimal | None]:
+    """Where the movement landed against the size the question asserted.
 
-    Compared as *changes* rather than as levels, so the same rule reads
-    "doubled" (asserted change +1.0) and "halved" (asserted change -0.5).
-    An unmeasurable base (a zero or suppressed prior) refutes nothing: an
-    unverifiable premise is not a false one.
+    Measured as *changes* rather than as levels, so one rule reads
+    "doubled" (asserted change +1.0) and "halved" (asserted change -0.5),
+    and the fraction of the claim that was achieved is signed the same way
+    for both. An unmeasurable base (a zero or suppressed prior) refutes
+    nothing: an unverifiable premise is not a false one.
+
+    Two-sided by construction (R4-05c). The predecessor asked only whether
+    the movement was at least half the claim, which made "it doubled" true
+    of +72.6% and of +900% alike.
     """
     prior_value = _as_number(prior)
     current_value = _as_number(current)
     if prior_value is None or current_value is None or prior_value == 0:
-        return False
+        return MagnitudeVerdict.UNVERIFIABLE, None
     actual = Decimal(current_value) / Decimal(prior_value)
-    asserted_change = abs(asserted - Decimal(1))
+    asserted_change = asserted - Decimal(1)
     if asserted_change == 0:
-        return False
-    return abs(actual - Decimal(1)) < PREMISE_MAGNITUDE_TOLERANCE * asserted_change
+        return MagnitudeVerdict.UNVERIFIABLE, actual
+    achieved = (actual - Decimal(1)) / asserted_change
+    if achieved < Decimal(1) - PREMISE_MAGNITUDE_BAND:
+        return MagnitudeVerdict.SHORT, actual
+    if achieved > Decimal(1) + PREMISE_MAGNITUDE_BAND:
+        return MagnitudeVerdict.BEYOND, actual
+    return MagnitudeVerdict.WITHIN, actual
 
 
 def _bucket_noun(frame: EvidenceFrame, column: str) -> str:
@@ -1107,19 +1216,53 @@ def premise_verdict_sentence(
         f"{format_value(premise.current, premise.unit)}"
     )
     pct = f", {ratio_pct(premise.pct)}" if isinstance(premise.pct, Decimal) else ""
+    moved = "fell" if premise.delta < 0 else ("rose" if premise.delta > 0 else "did not move")
+    if premise.magnitude_short:
+        # Neither confirmation nor refutation-of-direction: the movement is
+        # real and it is not the movement the question named. Both facts in
+        # one sentence, with the shortfall stated as arithmetic (R4-05c) —
+        # "Premise confirmed … It happened: 7.4% → 12.8%, 72.6%" was
+        # published against ``asserted_multiple: 2.0`` on the same card.
+        return (
+            f"You asked about {noun} in {label}. It did not {verb} — {label} {moved} "
+            f"{_movement_text(premise)}, short of the {_asserted_change_text(spec)} "
+            f"{noun} assumes: {figures} {phrase}"
+        )
+    if premise.magnitude_beyond:
+        return (
+            f"You asked about {noun} in {label}. It happened, and by more than that — {label} "
+            f"{moved} {_movement_text(premise)}, past the {_asserted_change_text(spec)} "
+            f"{noun} assumes: {figures} {phrase}"
+        )
     if premise.holds:
         return (
             f"You asked about {noun} in {label}. It happened: {figures}{pct} {phrase}"
         )
-    if premise.magnitude_short:
-        return (
-            f"You asked about {noun} in {label}. It did not {verb}: {figures}{pct} {phrase}"
-        )
-    moved = "fell" if premise.delta < 0 else ("rose" if premise.delta > 0 else "did not move")
     return (
         f"You asked about {noun} in {label}. It did not happen — {label} {moved} "
         f"{magnitude(premise.delta, premise.unit)}{pct} {phrase}: {figures}"
     )
+
+
+def _movement_text(premise: PremiseCheck) -> str:
+    """The movement that happened, as a percentage when there is a base for
+    one and in the contract's own unit when there is not."""
+    if isinstance(premise.pct, Decimal):
+        return ratio_pct(abs(premise.pct))
+    return magnitude(premise.delta, premise.unit)
+
+
+def _asserted_change_text(spec: AnalysisSpec) -> str:
+    """The movement the question assumes, as a percentage of the base.
+
+    "a doubling" assumes +100%; "a halving" assumes -50%. Stating it beside
+    what happened is what turns "it did not double" from an assertion into
+    an arithmetic the reader can check.
+    """
+    multiple = spec.asserted_multiple
+    if multiple is None:  # pragma: no cover - only reached with a multiple
+        return "movement"
+    return ratio_pct(abs(multiple - Decimal(1)))
 
 
 def _premise_warning(
@@ -1131,18 +1274,26 @@ def _premise_warning(
     interpretation's closed ``direction`` set, and what actually happened
     comes from the aggregate the premise probe measured. No phrasing of the
     original question appears here, because none of it was parsed.
+
+    Two families, because they are two different corrections. A premise
+    whose DIRECTION is wrong is refuted (``premise_false``). A premise
+    whose direction is right and whose SIZE is not is *partly* supported
+    (``premise_partial``) — telling an analyst "denials did not rise" when
+    they rose 72.6% would be its own false statement.
     """
     assert spec.direction is not None
     sentence = premise_verdict_sentence(premise, spec, comparison=comparison)
-    tail = (
-        "The question takes that size as given and the aggregate did not reach it."
-        if premise.magnitude_short
-        else "The question takes that movement as given, and over this window there was none."
-    )
+    if premise.magnitude_short:
+        return (
+            f"premise_partial: {sentence}. The direction the question assumes is right and the "
+            "size is not, so nothing below may be described in the question's own words for it. "
+            "What follows is the composition of the movement that did happen."
+        )
     return (
-        f"premise_false: {sentence}. {tail} What follows describes the cells that did move that "
-        "way; it is context for a movement that did not happen at the level asked about, not "
-        "confirmation of it."
+        f"premise_false: {sentence}. The question takes that movement as given, and over this "
+        "window there was none. What follows describes the cells that did move that way; it is "
+        "context for a movement that did not happen at the level asked about, not confirmation "
+        "of it."
     )
 
 
@@ -1522,7 +1673,19 @@ class EvaluateFindingsService:
         """
         assert spec.direction is not None
         sentence = premise_verdict_sentence(premise, spec, comparison=comparison)
-        if premise.holds:
+        claim_noun, _ = _asserted_claim(spec)
+        if premise.magnitude_short:
+            # A third title, because there are three outcomes. "Premise
+            # confirmed" over a movement 27% short of the claim is the
+            # sentence R4-05 was raised about; "Premise not supported" over
+            # a real 72.6% rise would be the opposite error.
+            title = f"Premise partly supported: {sentence}"
+            statement = (
+                f"{sentence}. The movement is real and it is not the movement the question "
+                f"names, so nothing here or below may be called {claim_noun}: the cells that "
+                "follow compose a movement that fell short of the claim."
+            )
+        elif premise.holds:
             title = f"Premise confirmed: {sentence}"
             statement = (
                 f"{sentence}. That is the movement the question takes as given, measured on the "
@@ -1547,9 +1710,21 @@ class EvaluateFindingsService:
             # The verdict as data, so a client never has to read the title
             # to know whether the question's own assumption survived.
             ("premise_holds", premise.holds),
+            # …and how it landed against the SIZE that was asserted, so
+            # "confirmed" can never again sit beside an asserted_multiple
+            # of 2.0 and a pct_change of 0.726 (R4-05c).
+            ("premise_magnitude", premise.magnitude.value),
         ]
         if premise.asserted_multiple is not None:
             values.append(("asserted_multiple", premise.asserted_multiple))
+            # The question's own word for the size it asserted, published as
+            # data so the narrative validator can forbid it when the verdict
+            # is short-of. "Roughly doubled" written under a finding that
+            # says the movement fell 27 points short of doubling is the
+            # contradiction R4-05 is about, and prose is where it surfaces.
+            values.append(("premise_asserted_verb", _asserted_claim(spec)[1]))
+        if premise.actual_multiple is not None:
+            values.append(("actual_multiple", premise.actual_multiple))
         referent = ReferentId(value=referent_value, kind=ReferentKind.FINDING)
         finding = Finding(
             referent=referent,
@@ -2108,14 +2283,29 @@ class EvaluateFindingsService:
         bounds = self._bounds(shape.frame)
         positions = {id(row): i for i, row in enumerate(shape.frame.rows)}
 
-        def publishable(row: tuple[Scalar, ...]) -> bool:
-            # Suppressed (NULL) and empty (zero) rows are not findings. A
-            # ranked list always has a tail; "Payer X: 0 mismatched claims"
-            # is padding that dilutes the one row that matters.
+        def is_empty(row: tuple[Scalar, ...]) -> bool:
+            """A zero that is padding rather than a result.
+
+            Only for additive units. "Payer X: 0 mismatched claims" is the
+            tail every ranked list has, and it dilutes the one row that
+            matters. "Dr. X: 0% denial rate" is the opposite — it is the
+            best cell in the population, and dropping thirteen of them
+            (round-4 R4-10) drove the measured count to zero and
+            manufactured a refusal to rank over a frame that had thirteen
+            perfect performers in it.
+            """
             value = row[idx_measure]
-            return value is not None and not (
-                isinstance(value, int | Decimal) and value == 0
+            return (
+                _is_additive(shape.unit)
+                and isinstance(value, (int, Decimal))
+                and not isinstance(value, bool)
+                and value == 0
             )
+
+        def publishable(row: tuple[Scalar, ...]) -> bool:
+            # A suppressed (NULL) cell has no value to publish; an empty
+            # one is padding only where zero means "nothing happened".
+            return row[idx_measure] is not None and not is_empty(row)
 
         def bound_of(row: tuple[Scalar, ...]) -> BoundedCell | None:
             return bounds.get(positions.get(id(row), -1), {}).get(shape.measure)
@@ -2142,12 +2332,30 @@ class EvaluateFindingsService:
             )
         measured = [row for row in candidates if bound_of(row) is None]
         bounded = [row for row in candidates if bound_of(row) is not None]
+        # A bound's ceiling is (threshold - 1) / population, so ordering
+        # bounded cells by VALUE orders them by inverse panel size and the
+        # three published are always the three smallest populations — the
+        # loosest, least useful ceilings in the frame. Order them by the
+        # population the bound was taken over instead: the tightest ceiling
+        # is the one a reader can do something with (R4-10).
+        bounded.sort(
+            key=lambda row: (
+                -(bound.population if (bound := bound_of(row)) is not None else 0),
+                self._row_label(row, shape.frame, shape.dimension_columns, pack),
+            )
+        )
+        census = SelectionCensus(
+            total=len(shape.frame.rows),
+            bounded=len(bounded),
+            measured=len(measured),
+            empty=sum(1 for row in ordered if is_empty(row)),
+        )
         # Past a governed share of bounds there is no measured population
         # left to order, and an ordinal claim over it is arithmetic about
-        # panel size. The answer is then the population arithmetic.
-        unrankable = bool(candidates) and (
-            len(bounded) / len(candidates) > MAX_BOUNDED_SHARE_FOR_RANKING
-        )
+        # panel size. The answer is then the population arithmetic. Measured
+        # ZEROS count toward the measured side of that share: they are the
+        # cells the ranking is most about.
+        unrankable = census.bounded_share > MAX_BOUNDED_SHARE_FOR_RANKING
         qualified = self._requires_qualification(shape.frame.evidence_grade, pack, playbook)
 
         existing = await self._registry.list_for_session(session_id)
@@ -2198,9 +2406,7 @@ class EvaluateFindingsService:
         if bounded:
             warnings.append(
                 _unranked_bounds_warning(
-                    bounded_count=len(bounded),
-                    measured_count=len(measured),
-                    total=len(candidates),
+                    census=census,
                     measure=shape.measure,
                     unrankable=unrankable,
                     order=spec.order,

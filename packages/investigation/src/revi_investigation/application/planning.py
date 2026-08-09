@@ -134,6 +134,19 @@ _PRIOR_SUFFIX = "__prior"
 #: gesture) is never rescaled — "show me the top 5" means five.
 DEEP_TOP_N_MULTIPLIER = 4
 
+#: How many cells a comparison's PRIOR side may be read whole at, before
+#: the plan keeps its top-N and lets the honesty guard handle the rest.
+#:
+#: Round-4 R4-08. Every cut in this catalog is far under it — the widest is
+#: ``rendering_provider`` at ~150 — so in practice the prior side of every
+#: comparison is retrieved complete and a key missing from it is a real
+#: absence rather than a retrieval decision. The cap exists so that a
+#: future high-cardinality dimension cannot silently plan an unbounded
+#: probe: past it the limit stands, the frame comes back ``truncated``, and
+#: :func:`revi_investigation.application.calculation_glue` publishes the
+#: unmatched cells as UNKNOWN instead of zero.
+UNTRUNCATED_PRIOR_CELL_CAP = 2_000
+
 _NORMALIZED_ORIGIN = ReferentId(value="__cohort__", kind=ReferentKind.COHORT)
 
 
@@ -693,7 +706,7 @@ class BuildInvestigationPlanService:
         # findings path reads first (R3-08).
         nodes[:0] = named
         nodes.extend(self._premise_nodes(spec, nodes))
-        prior_steps = self._pair_comparisons(nodes, spec)
+        prior_steps = self._pair_comparisons(nodes, spec, node_contracts)
         steps, transform_notes = self._playbook_transforms(
             playbook, nodes, node_contracts, prior_steps, spec
         )
@@ -890,9 +903,39 @@ class BuildInvestigationPlanService:
     # ---------------------------------------------------------- comparisons
 
     def _pair_comparisons(
-        self, nodes: list[ProbeNode], spec: AnalysisSpec
+        self,
+        nodes: list[ProbeNode],
+        spec: AnalysisSpec,
+        node_contracts: dict[str, tuple[MetricContract, ...]] | None = None,
     ) -> list[TransformPlanStep]:
-        """Give every flow probe a prior-window twin and a compare step."""
+        """Give every flow probe a prior-window twin and a compare step.
+
+        Two invariants this pairing exists to hold, both round-4 R4-08 —
+        the defect class the review found alive after three fix waves.
+
+        **The join may not key on a time bucket.** A comparison is movement
+        between two WINDOWS. A monthly-bucketed probe over 2026-04..06
+        joined against its prior twin over 2026-01..03 shares *no* key at
+        all: every current cell reads as "absent from prior", and for an
+        additive unit absent fills as zero. Live, that published "CO / 16 —
+        denied dollars moved from $0.00 to $41,918.23" at direct/high with
+        an impact figure, when CO/16 had actually FALLEN $15,780; and the
+        $41,918 was one month's figure published as the quarter's, three
+        times over, once per bucket, each claiming a different rank over
+        one window. So a bucketed probe is compared through a de-bucketed
+        twin — the aggregate over the stated window, which is the thing the
+        question asked about — and the bucketed frame keeps its trend.
+
+        **The prior side may not be top-N truncated.** A key that survives
+        the current top-N but falls outside the prior top-N is not a zero;
+        it is a value this plan chose not to retrieve. The prior twin
+        therefore drops the ``limit``/``ORDER BY`` its current side carries
+        whenever the cut is small enough to read whole
+        (:data:`UNTRUNCATED_PRIOR_CELL_CAP`), which for every cut in this
+        catalog it is. When it is not, the limit stands and
+        :mod:`calculation_glue` marks the unmatched cells UNKNOWN rather
+        than zero — never silently either way.
+        """
         comparison = spec.context.comparison
         if comparison is None:
             return []
@@ -901,27 +944,67 @@ class BuildInvestigationPlanService:
             probe = node.probe
             if not isinstance(probe, AggregationProbe):
                 continue
-            prior_range = self._prior_range(probe.window, spec.context.window, comparison)
+            current_id, current_probe = node.id, probe
+            if probe.grain.time_bucket is not None:
+                current_id = f"{node.id}__window"
+                current_probe = replace(
+                    probe, grain=replace(probe.grain, time_bucket=None)
+                )
+                nodes.append(
+                    ProbeNode(
+                        id=current_id,
+                        probe=current_probe,
+                        purpose="comparison current window (aggregated over the time bucket)",
+                    )
+                )
+                if node_contracts is not None and node.id in node_contracts:
+                    # the twin measures exactly what its source did, so a
+                    # playbook rank on ``impact_cents`` still binds to it
+                    node_contracts[current_id] = node_contracts[node.id]
+            prior_range = self._prior_range(
+                current_probe.window, spec.context.window, comparison
+            )
             prior_probe = replace(
-                probe,
+                current_probe,
                 window=TimeWindow(
-                    basis=probe.window.basis,
+                    basis=current_probe.window.basis,
                     range=prior_range,
                     requested=None,
-                    calendar=probe.window.calendar,
+                    calendar=current_probe.window.calendar,
                 ),
             )
-            prior_id = f"{node.id}{_PRIOR_SUFFIX}"
+            if current_probe.limit is not None and self._readable_whole(current_probe):
+                prior_probe = replace(prior_probe, limit=None, order_by=())
+            prior_id = f"{current_id}{_PRIOR_SUFFIX}"
             nodes.append(ProbeNode(id=prior_id, probe=prior_probe, purpose="comparison baseline"))
             steps.append(
                 TransformPlanStep(
-                    id=f"{node.id}__compare",
+                    id=f"{current_id}__compare",
                     operator="compare",
-                    inputs=(node.id, prior_id),
+                    inputs=(current_id, prior_id),
                     args=(("kind", comparison.kind.value),),
                 )
             )
         return steps
+
+    def _readable_whole(self, probe: AggregationProbe) -> bool:
+        """Can this cut be retrieved un-truncated without an unbounded probe?
+
+        The catalog declares a ``cardinality_estimate`` per dimension; the
+        product of the cut's estimates is how many cells the un-limited
+        probe would return. An undeclared dimension is treated as
+        unbounded, because a guess in the permissive direction is how an
+        unbounded probe gets planned.
+        """
+        cells = 1
+        for ref in probe.dimensions:
+            declared = self._catalog.dimension(ref.id)
+            if declared is None:
+                return False
+            cells *= max(1, declared.cardinality_estimate)
+            if cells > UNTRUNCATED_PRIOR_CELL_CAP:
+                return False
+        return True
 
     @staticmethod
     def _prior_range(

@@ -61,7 +61,10 @@ from revi_investigation.application.calculation_glue import (
 )
 from revi_investigation.application.capability_ports import BenchmarkSpec, PackPort, TransformPort
 from revi_investigation.application.cohorts import PinCohortService
-from revi_investigation.application.comparison import window_mismatch_warning
+from revi_investigation.application.comparison import (
+    comparison_maturity,
+    window_mismatch_warning,
+)
 from revi_investigation.application.execution import (
     ExecutedProbe,
     ExecuteInvestigationService,
@@ -76,6 +79,7 @@ from revi_investigation.application.findings import (
 )
 from revi_investigation.application.gestures import drill_suggestion, parse_gesture
 from revi_investigation.application.interpretation import (
+    OPTIONS_DROPPED_MARKER,
     ClassificationOutcome,
     ClassifyTurnService,
     DefinitionalAnswer,
@@ -83,6 +87,8 @@ from revi_investigation.application.interpretation import (
     InterpretedInvestigation,
     InterpretQuestionService,
     PendingClarification,
+    display_scope_limit,
+    requested_finding_limit,
 )
 from revi_investigation.application.llm.schemas import AnyRefinementOperator
 from revi_investigation.application.planning import (
@@ -154,7 +160,11 @@ from revi_investigation.domain.turns import (
 )
 from revi_investigation_contracts.api import TypedInvestigationSpec
 from revi_investigation_contracts.header import ContextHeaderPayload, build_header_payload
-from revi_investigation_contracts.refinements import AbsoluteWindowModel, AddFilterModel
+from revi_investigation_contracts.refinements import (
+    AbsoluteWindowModel,
+    AddFilterModel,
+    ExpandModel,
+)
 from revi_investigation_contracts.settings import EvidenceDepth
 from revi_kernel.capabilities import AnalyticalRepository
 from revi_kernel.cohort import CohortRef
@@ -308,6 +318,11 @@ class _PlanContext:
     playbook_id: str | None = None
     window_explicit: bool = True
     evidence_depth: EvidenceDepth = EvidenceDepth.STANDARD
+    #: ``(frame id, column, descending)`` the parent plan resolved. Carried
+    #: so a turn that RE-SERVES the parent's plan re-serves its chart
+    #: ordering too: round-4 R4-04 found ``chart sort → null`` on exactly
+    #: the turns whose rows had not changed at all.
+    chart_sorts: tuple[tuple[str, str, bool], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -739,6 +754,20 @@ def _with_chosen_values(
     return spec.with_context(replace(spec.context, scope=scope))
 
 
+def _chart_sorts_from_trace(raw: Any) -> tuple[tuple[str, str, bool], ...]:
+    """The orderings a recorded plan resolved, read back off its trace."""
+    if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)):
+        return ()
+    out: list[tuple[str, str, bool]] = []
+    for entry in raw:
+        if not isinstance(entry, Mapping):
+            continue
+        frame_id, by = entry.get("frame_id"), entry.get("by")
+        if isinstance(frame_id, str) and isinstance(by, str):
+            out.append((frame_id, by, bool(entry.get("descending", True))))
+    return tuple(out)
+
+
 def _bindings_from_trace(payload: Mapping[str, Any]) -> tuple[ClarificationBinding, ...]:
     """Rebuild the option bindings a clarification turn recorded.
 
@@ -798,6 +827,90 @@ def _turn_census(
         if best is None or census.total > best.total:
             best = census
     return best
+
+
+#: A reply that opens like this and matches no offered option is a new
+#: question, not an answer to the one on screen. Deliberately narrow —
+#: fragments ("just imaging", "the last full month", "denied dollars") do
+#: not match, and those are what a real clarification answer looks like.
+_FRESH_QUESTION = re.compile(
+    r"^\s*(?:what|which|who|why|how|when|where|show me|give me|list|compare|break\s+down|"
+    r"tell me)\b",
+    re.IGNORECASE,
+)
+
+
+def _answers_pending(reply: str, pending: PendingClarification) -> bool:
+    """Does this utterance answer the question that is on screen?
+
+    True whenever it matches an option (verbatim or by binding), or when it
+    reads as a fragment — the shape of every genuine clarification answer.
+    False only for a self-contained question that matches nothing offered,
+    which is the case that used to be swallowed under a false disclosure.
+    """
+    text = reply.strip()
+    if not text:
+        return True
+    if pending.binding_for(text) is not None:
+        return True
+    folded = " ".join(text.split()).casefold().rstrip(".")
+    for option in pending.options:
+        candidate = " ".join(option.split()).casefold().rstrip(".")
+        if folded == candidate or folded in candidate or candidate in folded:
+            return True
+    return _FRESH_QUESTION.match(text) is None
+
+
+#: Marks a clarification the analyst cannot tap their way out of, so the
+#: client renders it as a statement of what the platform needs rather than
+#: as a question above an empty row of buttons (round-4 R4-12 defect 1).
+NO_OPTIONS_REASON = "CLARIFICATION_NO_OPTIONS"
+
+
+def _subject_option(parent: Investigation | None) -> ClarificationBinding | None:
+    """The thread's own subject, as an option that can be applied.
+
+    A ``metric_cut`` over ids this platform published a moment ago:
+    deterministic, dry-runnable, and the one recovery that is guaranteed
+    to be on-subject. ``None`` when the session has no analytical answer to
+    point at — there is nothing to commit to, and §2.8 forbids guessing one.
+    """
+    if parent is None or not parent.spec.measures:
+        return None
+    metrics = tuple(ref.id for ref in parent.spec.measures)
+    cuts = tuple(ref.id for ref in parent.spec.dimensions)
+    label = (
+        "Answer it for "
+        + ", ".join(metrics)
+        + (" by " + ", ".join(cuts) if cuts else "")
+        + " — the answer already on screen"
+    )
+    return ClarificationBinding(
+        option=label, kind="metric_cut", metric_ids=metrics, dimension_ids=cuts
+    )
+
+
+def _no_options_card(clarification: ClarificationRequest) -> ClarificationRequest:
+    """Label a clarification that offers nothing to choose from.
+
+    A one-option clarification never reaches here — it is applied, not
+    asked (see ``_lone_binding``) — so "fewer than two" means zero, and
+    zero is an error card: the question keeps its text, and the reason
+    carries the marker a renderer keys the card shape off. Two independent
+    sessions reached the page with ``options: []`` and no buttons at all,
+    one of them after $0.10 spent to deny a capability.
+    """
+    if clarification.options:
+        return clarification
+    reason = clarification.reason or ""
+    if NO_OPTIONS_REASON in reason:
+        return clarification
+    # Appended, never prefixed: the reason's own opening code is what every
+    # other reader keys off, and moving it would break them to label this.
+    return replace(
+        clarification,
+        reason=f"{reason}; {NO_OPTIONS_REASON}" if reason else NO_OPTIONS_REASON,
+    )
 
 
 def _predicate_label(predicate: Predicate) -> str:
@@ -1058,6 +1171,26 @@ class SubmitTurnService:
                 session, state, None, dto_ops=gesture.operators
             )
 
+        # "Show me all twelve" is a statement about DISPLAY SCOPE over a
+        # frame this platform is already holding, and it is decidable
+        # without a model (round-4 R4-11: 6 of 6 personas, four distinct
+        # failure modes, zero successes — the classifier returned 0.45-0.50
+        # and the turn ended in a clarification asking whether the twelve
+        # had already been computed, which the engine could answer itself).
+        # Read here, before classification, so the expansion costs nothing
+        # and cannot be lost to a confidence threshold.
+        widened = display_scope_limit(state.question)
+        if widened is not None:
+            parent = await self._latest_investigation(session, analytical=True)
+            if parent is not None and widened > len(parent.findings):
+                state.time_stage("classify")
+                return await self._refinement_turn(
+                    session,
+                    state,
+                    None,
+                    dto_ops=(ExpandModel(op="expand", limit=widened),),
+                )
+
         exhausted = self._budget_stop(state, "reading your question")
         if exhausted is not None:
             return await self._clarification_outcome(session, state, None, exhausted)
@@ -1065,7 +1198,7 @@ class SubmitTurnService:
         # What (if anything) this session already asked and has not had
         # answered. Classification without it cannot tell an answer from a
         # fresh question — see PendingClarification.
-        pending = await self._pending_clarification(session)
+        pending = await self._pending_clarification(session, state.question)
         state.pending = pending
 
         if request.clarification_response and pending is not None:
@@ -1286,6 +1419,21 @@ class SubmitTurnService:
                 "applied; this answer is recorded as a child of the turn that asked."
             )
             return await self._apply_binding(session, state, classified, binding)
+        # A reply that answers nothing is not an answer (round-4 R4-12
+        # defect 6b): rcm-analyst's genuinely new question was swallowed as
+        # a clarification response and spliced onto the abandoned one under
+        # a CLARIFICATION_ANSWER_APPLIED disclosure that was simply false.
+        # A self-contained question that matches no option we offered is
+        # run as itself, and the dropped clarification is disclosed as
+        # dropped rather than as applied.
+        if not _answers_pending(state.question, pending):
+            state.assumptions.append(
+                f"Assumed: this is a new question, not an answer to {pending.question!r} — it "
+                "matches none of the options that question offered and stands on its own. "
+                "That question is left unanswered; ask it again if you still want it."
+            )
+            state.lineage_parent = pending.investigation_id
+            return await self._new_investigation_turn(session, state, classified)
         resolved = _join_question_and_answer(pending.original_question, state.question)
         if resolved != state.question:
             state.assumptions.append(
@@ -1533,7 +1681,7 @@ class SubmitTurnService:
         return refuted_values(reasons)
 
     async def _pending_clarification(
-        self, session: Session
+        self, session: Session, reply: str | None = None
     ) -> PendingClarification | None:
         """The clarification this session is still waiting on, if any.
 
@@ -1541,6 +1689,10 @@ class SubmitTurnService:
         stateless request, and the session may be resumed in another
         process. The streak counts *consecutive* clarification turns at the
         tail, which is what §2.8 convergence is measured in.
+
+        ``reply`` is the analyst's current utterance, used only to pick
+        BETWEEN outstanding clarifications when more than one is open —
+        never to decide whether one is open at all.
         """
         lineage = await self._investigations.lineage(session.id)
         if lineage is None or not lineage.investigations:
@@ -1553,21 +1705,43 @@ class SubmitTurnService:
             streak.append(investigation)
         if not streak:
             return None
-        latest = streak[0]
         # The oldest turn in the run is the analyst's actual question; the
         # ones after it are their replies to us.
         oldest = streak[-1]
-        question, options, bindings = await self._recorded_clarification(latest.id)
-        if question is None:
+        # With more than one clarification outstanding, "which question is
+        # this answering" is decided by the OPTIONS, not by recency: round-4
+        # R4-12 defect 6 found a reply spliced onto the question of the
+        # OLDEST and parented to the NEWEST, in one self-contradicting
+        # disclosure sentence. The question text, the option set, the
+        # bindings and the parent pointer must all come from a single
+        # clarification id — and when the reply is one of the options this
+        # platform offered, that id is the one that offered it.
+        candidates: list[PendingClarification] = []
+        for investigation in streak:
+            question, options, bindings = await self._recorded_clarification(investigation.id)
+            if question is None:
+                continue
+            candidates.append(
+                PendingClarification(
+                    question=question,
+                    options=options,
+                    original_question=oldest.question,
+                    streak=len(streak),
+                    investigation_id=investigation.id,
+                    bindings=bindings,
+                )
+            )
+        if not candidates:
             return None
-        return PendingClarification(
-            question=question,
-            options=options,
-            original_question=oldest.question,
-            streak=len(streak),
-            investigation_id=latest.id,
-            bindings=bindings,
-        )
+        if reply is not None:
+            matched = next(
+                (c for c in candidates if c.binding_for(reply) is not None), None
+            ) or next(
+                (c for c in candidates if reply.strip() in c.options), None
+            )
+            if matched is not None:
+                return matched
+        return candidates[0]
 
     async def _recorded_clarification(
         self, investigation_id: str
@@ -1837,6 +2011,25 @@ class SubmitTurnService:
         resolutions: tuple[ReferentResolution, ...] = ()
         rationale = ""
 
+        # "Show me all twelve" is a COUNT the analyst named, and a count the
+        # analyst names is an instruction — on every path, not only on the
+        # one that opens an investigation (round-4 R4-11: 6 of 6 personas,
+        # four distinct failure modes, zero successes).
+        # ``requested_finding_limit`` had exactly one production call site,
+        # inside the new-investigation spec build, so a follow-up asking for
+        # the rest of a truncated list could not reach it: the model was
+        # left to emit an Expand operator, and when it did the kernel path
+        # handed back the parent's own three findings. Resolving it here is
+        # deterministic and free — no model call decides how many rows the
+        # analyst asked to see.
+        typed_limit = requested_finding_limit(state.question)
+        if dto_ops is None and typed_limit is not None and typed_limit > len(parent.findings):
+            dto_ops = (ExpandModel(op="expand", limit=typed_limit),)
+            rationale = (
+                f"the question asks for {typed_limit} rows and the previous answer published "
+                f"{len(parent.findings)}"
+            )
+
         if dto_ops is None:
             # Handles the analyst typed are resolved against the registry
             # BEFORE any model call — they are identifiers this platform
@@ -1933,7 +2126,14 @@ class SubmitTurnService:
 
         if domain_ops and all(isinstance(op, _KERNEL_ONLY) for op in domain_ops):
             kernel_outcome = await self._kernel_only_turn(
-                session, state, classified, parent, new_spec, domain_ops, ops_json
+                session,
+                state,
+                classified,
+                parent,
+                new_spec,
+                domain_ops,
+                ops_json,
+                parent_plan_context,
             )
             if kernel_outcome is not None:
                 return kernel_outcome
@@ -2120,6 +2320,21 @@ class SubmitTurnService:
         state.time_stage("findings")
 
         extra_warnings: list[str] = list(prelude_warnings)
+        # A refinement that produced the parent's own plan changed nothing
+        # the evidence can see (round-4 R4-04): product-designer's a3
+        # published an identical ``plan_hash`` as a NEW investigation, with
+        # a new referent and 1,500 fresh words of narrative, and no
+        # disclosure that the grain the question asked for had been dropped.
+        # The answer is legitimate; presenting it as a different one is not.
+        if parent is not None and operators and validated.plan.plan_hash == parent.plan_hash:
+            extra_warnings.append(
+                "refinement_not_applied: what you asked to change does not alter this plan "
+                f"({parent.plan_hash}) — the operator(s) "
+                + ", ".join(sorted({type(op).__name__ for op in operators}))
+                + " left the evidence identical to the previous answer, so these are the same "
+                "numbers re-measured, not a new result. Say what to change about the metric, "
+                "the cut or the window and I will re-run it."
+            )
         # A comparison against a different-length window is answerable but
         # not a delta anyone should act on; the warning rides with the
         # answer and the findings withhold impact (see comparison.py).
@@ -2165,6 +2380,23 @@ class SubmitTurnService:
                     kind="warning",
                     turn_id=state.turn_id,
                     payload={"code": "COMPARISON_WINDOW_MISMATCH", "detail": mismatch},
+                )
+            )
+        # A cell whose prior side was never retrieved publishes UNKNOWN
+        # rather than $0.00, and says so (R4-08).
+        extra_warnings.extend(calculation.warnings)
+        # …and the data-maturity guard the trend path has always had,
+        # applied to the axis it could not see: two windows settled to
+        # different degrees are not comparable at high confidence (R4-07).
+        findings_result = self._guard_comparison_maturity(
+            findings_result, calculation, extra_warnings
+        )
+        for detail in calculation.warnings:
+            await self._events.publish(
+                TurnEvent(
+                    kind="warning",
+                    turn_id=state.turn_id,
+                    payload={"code": "COMPARISON_PRIOR_UNKNOWN", "detail": detail},
                 )
             )
         reconciliation = (
@@ -2360,18 +2592,195 @@ class SubmitTurnService:
 
     @staticmethod
     def _lone_binding(
-        clarification: ClarificationRequest,
+        clarification: ClarificationRequest, *, reduced: bool = False
     ) -> ClarificationBinding | None:
         """The single unambiguous choice a clarification leaves, if any.
 
-        Deliberately narrow: exactly one option, exactly one binding, and a
-        binding this platform derived from governed content rather than one
-        a model proposed. Anything else is a real choice and is asked.
+        Exactly one option and exactly one binding, and one of two origins:
+
+        * a binding this platform DERIVED from governed content — the
+          original rule, and the ``timely_filing_at_risk_dollars`` basis
+          case it was written for;
+        * a set this platform REDUCED to one — round-4 R4-12 defect 5, where
+          a dry-run dropped two of three model-authored options and the
+          engine asked about the survivor anyway, at $0.146 and a turn. By
+          then the survivor is not a model's suggestion: it is the option
+          that came through value existence, plan validation and the
+          subject check, i.e. content this platform has verified it can
+          answer, and the alternatives are gone because this platform
+          removed them.
+
+        A model that authors a single option on its own is still asking a
+        real question, and it is still asked.
         """
         if len(clarification.options) != 1 or len(clarification.bindings) != 1:
             return None
         binding = clarification.bindings[0]
-        return binding if binding.deterministic else None
+        if binding.option not in clarification.options:
+            return None
+        return binding if (binding.deterministic or reduced) else None
+
+    async def _converge_on_subject(
+        self,
+        session: Session,
+        state: _TurnState,
+        clarification: ClarificationRequest,
+    ) -> ClarificationRequest:
+        """Give a second consecutive optionless clarification a way out.
+
+        Round-4 R4-12 defect 4: the documented "after two consecutive
+        clarifications the engine commits" rule never fired, and a thread
+        that had already spent $0.163 on two questions ended on a third
+        with an empty options array. The §2.8 objection to committing —
+        that it would mean inventing a metric — does not apply once a
+        session HAS an answer on screen: its metric and its cut are
+        governed content this platform published a moment ago, so
+        committing to them invents nothing.
+
+        The commitment is expressed as the one thing the funnel already
+        knows how to apply: a single deterministic ``metric_cut`` binding
+        over the subject's own ids, which the lone-option rule below then
+        applies with the disclosure sentence that already exists.
+        """
+        if clarification.options or state.pending is None or state.pending.streak < 1:
+            return clarification
+        parent = await self._latest_investigation(session, analytical=True)
+        option = _subject_option(parent)
+        if option is None:
+            return clarification
+        return replace(
+            clarification,
+            options=(option.option,),
+            bindings=(option,),
+            reason=(
+                f"{clarification.reason}; CLARIFICATION_CONVERGED: "
+                f"{state.pending.streak + 1} consecutive clarifications with nothing to "
+                "choose from, so this turn commits to the subject already on screen"
+            ),
+        )
+
+    async def _on_subject(
+        self, session: Session, clarification: ClarificationRequest, question: str
+    ) -> ClarificationRequest:
+        """Drop options that walk away from what the session is about.
+
+        Round-4 R4-12 defect 3, the one an analyst quits over: rcm-exec
+        tapped this platform's own "Re-rank by value and show the top five"
+        on a providers/denial-rate answer and got a THIRD clarification
+        whose four options were about payers, denied dollars, underpayment
+        variance and A/R balance — a different subject entirely, three
+        turns into one question.
+
+        The test is deliberately one-sided and cheap. It only ever removes,
+        and only when the session HAS an established subject (a completed
+        analytical turn). Two ways to be off it:
+
+        * the option's governed METRICS are all different from the ones the
+          subject measures — a denial-rate thread offered underpayment
+          variance;
+        * the option's governed CUT is all different from the subject's,
+          and the analyst's own utterance never named it — the providers →
+          payers swap, where the question said "re-rank by value" and the
+          option answered about a dimension nobody mentioned.
+
+        An option that names no governed content, or that re-cuts along
+        something the analyst just asked for, is a legitimate narrowing and
+        survives. Where every option is off-subject the whole set is kept
+        rather than emptied: an off-subject suggestion beats a blank row of
+        buttons only when there is nothing better to show.
+        """
+        if not clarification.bindings:
+            return clarification
+        parent = await self._latest_investigation(session, analytical=True)
+        if parent is None:
+            return clarification
+        metrics = {ref.id for ref in parent.spec.measures}
+        metrics.update(ref.id for finding in parent.findings for ref in finding.metric_refs)
+        cuts = {ref.id for ref in parent.spec.dimensions}
+        if not metrics and not cuts:
+            return clarification
+        asked = question.casefold()
+
+        def on_subject(option: str) -> bool:
+            binding = clarification.binding_for(option)
+            if binding is None:
+                return True
+            if binding.metric_ids and metrics and not (set(binding.metric_ids) & metrics):
+                return False
+            if binding.dimension_ids and cuts and not (set(binding.dimension_ids) & cuts):
+                # …unless the analyst named that cut themselves, in which
+                # case changing subject is exactly what they asked for.
+                return any(
+                    part in asked
+                    for dim in binding.dimension_ids
+                    for part in (dim.replace("_", " "), dim.split("_")[-1])
+                )
+            return True
+
+        kept = [option for option in clarification.options if on_subject(option)]
+        if len(kept) == len(clarification.options):
+            return clarification
+        if not kept:
+            # Every way forward walked away from the thread. Offering them
+            # anyway is how rcm-exec got four payer options on a provider
+            # question; offering nothing is a dead end. The subject itself
+            # is the honest third answer.
+            fallback = _subject_option(parent)
+            if fallback is None:
+                return clarification
+            return replace(
+                clarification,
+                options=(fallback.option,),
+                bindings=(fallback,),
+                reason=(
+                    f"{clarification.reason}; all {len(clarification.options)} option(s) "
+                    "dropped: every one measured or cut by something this thread is not "
+                    "about"
+                ),
+            )
+        surviving = tuple(kept)
+        return replace(
+            clarification,
+            options=surviving,
+            bindings=_bindings_for(clarification, surviving),
+            reason=(
+                f"{clarification.reason}; "
+                f"{len(clarification.options) - len(kept)} option(s) dropped: they measure "
+                "something this thread is not about"
+            ),
+        )
+
+    @staticmethod
+    def _guard_comparison_maturity(
+        findings: FindingsResult,
+        calculation: CalculationResult,
+        warnings: list[str],
+    ) -> FindingsResult:
+        """Apply the adjudication guard to COMPARISONS (round-4 R4-07).
+
+        ``terminal_bucket_censoring`` needs a trend of three-plus buckets
+        and runs inside the trend loop, so a two-window prior-period
+        comparison — the shape a month-end close actually asks for — was
+        never tested for data maturity at all. adonis compared a July that
+        was 23% adjudicated against a June that was 91% and got a
+        confident, un-caveated percentage; the only warning on the turn was
+        about a one-day calendar difference.
+
+        Two effects, both stated: ``ADJUDICATION_INCOMPLETE`` naming both
+        panels and the share between them, and every finding on the turn
+        dropped out of ``high`` confidence. Confidence is lowered, never
+        raised — a finding already ``qualified`` for another reason keeps
+        the stronger caveat.
+        """
+        verdicts = comparison_maturity(calculation.frames)
+        if not verdicts:
+            return findings
+        warnings.extend(v.warning for v in verdicts)
+        qualified = tuple(
+            finding if finding.confidence != "high" else replace(finding, confidence="qualified")
+            for finding in findings.findings
+        )
+        return replace(findings, findings=qualified)
 
     def _benchmarks_for(self, findings: FindingsResult) -> tuple[BenchmarkSpec, ...]:
         """Benchmark ranges for every metric the turn's findings cite, in
@@ -2496,20 +2905,58 @@ class SubmitTurnService:
                     reason="presentation turn without a prior answer",
                 ),
             )
+        # "Show me all twelve" classifies as PRESENTATION_ONLY about as often
+        # as it classifies as REFINEMENT — it IS a statement about display
+        # scope. When the count named exceeds what the parent published,
+        # re-presenting the same three rows is the no-op R4-11 measured, so
+        # the turn is routed to the expansion it asked for. Deterministic and
+        # zero-LLM: the number is read out of the analyst's own sentence.
+        typed_limit = requested_finding_limit(state.question)
+        if typed_limit is not None and typed_limit > len(parent.findings):
+            return await self._refinement_turn(
+                session,
+                state,
+                classified,
+                dto_ops=(ExpandModel(op="expand", limit=typed_limit),),
+            )
         frames = await self._load_frames(parent)
+        plan_context = await self._plan_context_of(parent.id)
+        # The parent's answer, re-presented — and therefore the parent's
+        # caveats, re-presented (R4-04). A re-presentation that drops them
+        # is a second, cleaner-looking answer over identical numbers.
+        warnings = parent.warnings
         investigation = replace(
             self._minimal_investigation(session, state, InvestigationStatus.COMPLETE, classified),
             spec=parent.spec,
             parent_id=parent.id,
             findings=parent.findings,
             frame_refs=parent.frame_refs,
+            plan_hash=parent.plan_hash,
+            warnings=warnings,
         )
         edge = RefinementEdge(
             parent_id=parent.id, child_id=investigation.id, turn_id=state.turn_id, operators=()
         )
         await self._investigations.save(investigation, edge)
         await self._traces.save(
-            self._trace_record(session, state, classified, extra={"presentation_of": parent.id})
+            self._trace_record(
+                session,
+                state,
+                classified,
+                warnings=warnings,
+                extra={
+                    "presentation_of": parent.id,
+                    "plan_context": {
+                        "playbook_id": plan_context.playbook_id,
+                        "window_explicit": plan_context.window_explicit,
+                        "evidence_depth": plan_context.evidence_depth.value,
+                        "chart_sorts": [
+                            {"frame_id": frame_id, "by": by, "descending": descending}
+                            for frame_id, by, descending in plan_context.chart_sorts
+                        ],
+                    },
+                },
+            )
         )
         await self._turn_complete(state, investigation)
         return TurnOutcome(
@@ -2518,12 +2965,17 @@ class SubmitTurnService:
             findings=parent.findings,
             header=build_context_header(parent.spec, session, pack=self._pack),
             frames=frames,
-            warnings=(),
+            warnings=warnings,
             clarification=None,
             definitional=None,
             trace_id=state.trace_id,
+            referents=await self._referents_of(session, parent.id),
             watermark_stale=state.watermark_stale,
+            benchmarks=self._benchmarks_for(
+                FindingsResult(findings=parent.findings, referents=())
+            ),
             settings=state.settings,
+            chart_sorts=plan_context.chart_sorts,
         )
 
     async def _meta_turn(
@@ -2730,10 +3182,25 @@ class SubmitTurnService:
         new_spec: AnalysisSpec,
         domain_ops: tuple[Refinement, ...],
         ops_json: tuple[Mapping[str, Any], ...],
+        plan_context: _PlanContext,
     ) -> TurnOutcome | None:
         """RankBy/Expand within cached, untruncated frames: zero probes
         (§7.9). Returns None to fall back to the full path when the cached
-        frames cannot honestly answer (missing column, truncated frame)."""
+        frames cannot honestly answer (missing column, truncated frame).
+
+        **Warnings are a property of the answer, never of the turn class**
+        (round-4 R4-04, the round's most dangerous defect because it is
+        silent and it lands on the second turn of every demo). This path
+        re-serves the parent's plan, the parent's frames and the parent's
+        findings byte-for-byte, and it used to publish them under
+        ``warnings=()``: three sessions saw 11 warnings become 0 and 7
+        become 1 across an IDENTICAL ``plan_hash``, and the CSV export then
+        printed "The platform attached no caveats to this answer." over the
+        same numbers that had carried a suppression bound, a truncation
+        disclosure and an alternate-basis note one turn earlier. Re-serving
+        an answer re-serves everything that qualified it: the same
+        warnings, the same referents, the same chart ordering.
+        """
         frames = await self._load_frames(parent)
         if not frames:
             return None
@@ -2762,12 +3229,33 @@ class SubmitTurnService:
                 assert isinstance(op, Expand)
                 if any(frame.truncated for frame in working.values()):
                     return None  # expanding a truncated frame needs the source
+                # "Show me all twelve" over a frame that holds twelve is a
+                # display-scope request; over an answer that PUBLISHED three
+                # it is a re-selection, and re-selection is the findings
+                # builder's job. This branch could only ever hand back the
+                # parent's own finding list, so a request to widen it was a
+                # no-op that cost a model call and changed nothing (R4-11).
+                if op.limit > len(parent.findings):
+                    return None
+        # A parent's warnings were computed for the plan this turn re-serves,
+        # so they ride with it verbatim — plus one line saying that is what
+        # happened, so the reuse is legible rather than inferred from a
+        # matching hash.
+        warnings = (
+            *parent.warnings,
+            "refinement_reused_plan: this answer re-serves the previous turn's plan "
+            f"({parent.plan_hash}) — the same evidence, the same findings and every caveat "
+            "that came with them. What changed is the presentation only: "
+            + ", ".join(str(op.get("op", "?")) for op in ops_json)
+            + ".",
+        )
         investigation = replace(
             self._minimal_investigation(session, state, InvestigationStatus.COMPLETE, classified),
             spec=new_spec,
             parent_id=parent.id,
             findings=parent.findings,
             plan_hash=parent.plan_hash,
+            warnings=warnings,
         )
         frame_pairs = tuple((fid, working[fid]) for fid in order)
         refs: list[str] = []
@@ -2788,9 +3276,22 @@ class SubmitTurnService:
                 session,
                 state,
                 classified,
+                warnings=warnings,
                 extra={
                     "refinement": {"operators": list(ops_json), "kernel_only": True},
-                    "plan_context": {"playbook_id": None, "window_explicit": True},
+                    # The parent's plan context, because this IS the parent's
+                    # plan: publishing ``playbook_id: None`` here made a
+                    # re-served answer look like a different, playbook-less
+                    # one to every reader of the trace.
+                    "plan_context": {
+                        "playbook_id": plan_context.playbook_id,
+                        "window_explicit": plan_context.window_explicit,
+                        "evidence_depth": plan_context.evidence_depth.value,
+                        "chart_sorts": [
+                            {"frame_id": frame_id, "by": by, "descending": descending}
+                            for frame_id, by, descending in plan_context.chart_sorts
+                        ],
+                    },
                 },
             )
         )
@@ -2801,13 +3302,31 @@ class SubmitTurnService:
             findings=parent.findings,
             header=build_context_header(new_spec, session, pack=self._pack),
             frames=frame_pairs,
-            warnings=(),
+            warnings=warnings,
             clarification=None,
             definitional=None,
             trace_id=state.trace_id,
+            referents=await self._referents_of(session, parent.id),
             watermark_stale=state.watermark_stale,
+            benchmarks=self._benchmarks_for(
+                FindingsResult(findings=parent.findings, referents=())
+            ),
             settings=state.settings,
+            chart_sorts=plan_context.chart_sorts,
         )
+
+    async def _referents_of(
+        self, session: Session, investigation_id: str
+    ) -> tuple[RegisteredReferent, ...]:
+        """The handles one investigation published, for a turn re-serving it.
+
+        A re-served answer that publishes no referents is an answer whose
+        rows cannot be drilled and whose findings cannot be cited by handle
+        — live, ``referents 15 → 0`` on a turn whose findings were
+        byte-identical to the one before it (R4-04).
+        """
+        entries = await self._referents.list_for_session(session.id)
+        return tuple(e for e in entries if e.investigation_id == investigation_id)
 
     # ------------------------------------------------------- outcome shapes
 
@@ -2821,13 +3340,43 @@ class SubmitTurnService:
         extra: Mapping[str, Any] | None = None,
     ) -> TurnOutcome:
         del interpretation  # usage already tracked on state
-        # Every option this platform offers goes through the same value
-        # existence check that produced its refusals (round-2 FN-6)…
+        # ONE funnel, in one order, for every clarification this engine can
+        # emit (round-4 R4-12: five personas, six defects, all of them in
+        # paths that skipped one of these steps).
+        #
+        offered = len(clarification.options)
+        # 1. Values this session has already proved do not exist (FN-6)…
         clarification = drop_refuted_options(
             clarification, await self._refuted_in_session(session)
         )
-        # …and then through the warehouse and the planner (round-3 R3-17).
+        # 2. …then the warehouse and the planner (R3-17)…
         clarification = await self._validated_options(session, clarification)
+        # 3. …then the subject: a clarification about rendering-provider
+        #    denial rates must not offer payer options (R4-12 defect 3).
+        clarification = await self._on_subject(session, clarification, state.question)
+        # 4. …then convergence, counted across EVERY clarification the
+        #    engine issues rather than only the interpreter's (defect 4).
+        clarification = await self._converge_on_subject(session, state, clarification)
+        clarification = self._bounded_clarification(state, clarification)
+        # 5. …and finally: a question with one answer is not a question.
+        #    ``_lone_binding`` was reachable only from the validator-derived
+        #    refusal path, so a model-requested clarification whose options
+        #    validation had reduced to exactly one still charged a turn to
+        #    ask it (defect 5, measured at $0.146).
+        reduced = offered > len(clarification.options) or (
+            OPTIONS_DROPPED_MARKER in (clarification.reason or "")
+        )
+        lone = self._lone_binding(clarification, reduced=reduced)
+        if lone is not None and not state.applied_bindings:
+            state.applied_bindings.append(lone.option)
+            state.assumptions.append(
+                f"clarification_answer_applied: {lone.option} — this was the only answer left "
+                f"to '{clarification.question}' once the ones this data cannot support were "
+                "dropped, so it was applied rather than asked about, and your question was run "
+                "with it. Say so if you wanted something else and I will re-run it."
+            )
+            return await self._apply_binding(session, state, classified, lone)
+        clarification = _no_options_card(clarification)
         investigation = self._minimal_investigation(
             session, state, InvestigationStatus.CLARIFICATION_REQUIRED, classified
         )
@@ -2952,6 +3501,7 @@ class SubmitTurnService:
                         if isinstance(raw_depth, str) and raw_depth in _EVIDENCE_DEPTHS
                         else EvidenceDepth.STANDARD
                     ),
+                    chart_sorts=_chart_sorts_from_trace(plan_context.get("chart_sorts")),
                 )
         return _PlanContext()
 
