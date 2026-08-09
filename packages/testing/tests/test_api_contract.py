@@ -334,10 +334,20 @@ class TestApiContract:
         # And every card states its relationship to this platform's own
         # re-derivation of the same cell — never silence (review F1).
         for item in portfolio.items:
-            assert item.impact_agreement in ("agreed", "diverged", "unavailable")
+            assert item.impact_agreement in (
+                "agreed",
+                "diverged",
+                # A snapshot contract against a windowed detector figure:
+                # both honest, not two measurements of one thing, so no
+                # percentage delta is published (round-2 FN-2).
+                "not_comparable",
+                "unavailable",
+            )
             assert item.impact_reconciliation_note
             if item.impact_agreement != "unavailable":
                 assert item.reconciled_impact_cents is not None
+            if item.impact_agreement == "not_comparable":
+                assert item.impact_delta_fraction is None
 
     async def test_get_investigation_roundtrip(self, client: Client) -> None:
         session = await client.open_session(OpenSessionRequest(tenant="demo"))

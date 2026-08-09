@@ -15,7 +15,7 @@ import {
   SunMoon,
 } from "lucide-react";
 import { useTheme } from "next-themes";
-import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
+import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 
 import { resolveDriverKind } from "@/lib/apiDriver";
@@ -345,13 +345,31 @@ export function CommandPalette({
               }}
               onKeyDown={onInputKeyDown}
               placeholder="Ask, navigate, or act…"
+              // The selection lives on a row two elements away and is
+              // moved with the arrow keys while focus stays here, so the
+              // state has to be ANNOUNCED as well as drawn.
+              role="combobox"
+              aria-expanded
+              aria-controls="palette-list"
+              aria-autocomplete="list"
+              aria-activedescendant={
+                filtered[clampedSelected] && !filtered[clampedSelected].disabled
+                  ? `palette-option-${clampedSelected}`
+                  : undefined
+              }
               className="h-11 w-full bg-transparent text-[0.85rem] outline-none placeholder:text-muted-foreground"
             />
             <kbd className="rounded border bg-surface-sunken px-1.5 py-0.5 font-mono text-[0.6rem] text-muted-foreground">
               esc
             </kbd>
           </div>
-          <div ref={listRef} className="max-h-[19rem] overflow-y-auto p-1.5">
+          <div
+            ref={listRef}
+            id="palette-list"
+            role="listbox"
+            aria-label="Commands"
+            className="max-h-[19rem] overflow-y-auto p-1.5"
+          >
             {filtered.length === 0 && (
               <p className="px-3 py-6 text-center text-[0.72rem] text-muted-foreground">
                 Nothing matches “{query}”.
@@ -361,22 +379,38 @@ export function CommandPalette({
               const showGroup = action.group !== lastGroup;
               lastGroup = action.group;
               return (
-                <div key={action.id}>
+                <Fragment key={action.id}>
                   {showGroup && (
-                    <p className="px-2.5 pb-1 pt-2.5 text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+                    <p
+                      role="presentation"
+                      className="px-2.5 pb-1 pt-2.5 text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground"
+                    >
                       {action.group}
                     </p>
                   )}
                   <button
                     type="button"
                     data-index={i}
+                    id={`palette-option-${i}`}
+                    role="option"
+                    aria-selected={i === clampedSelected && !action.disabled}
                     disabled={action.disabled}
                     onMouseEnter={() => setSelected(i)}
                     onClick={() => runAction(action)}
                     className={cn(
-                      "flex w-full items-center gap-2.5 rounded-md px-2.5 py-2 text-left text-[0.76rem] transition-colors duration-150",
+                      // The row Enter will fire needs a real indicator, not
+                      // a tint: `bg-accent` measures 1.05:1 against the
+                      // overlay in dark and 1.19:1 in light, and the hover
+                      // variant 1.06:1 — so "selected" and "hovered" were
+                      // the same pixel on a menu holding "Reset session"
+                      // and "New chat", both of which discard an open
+                      // investigation with no undo. The 2px `--ring` rail
+                      // is 9.34:1 dark / 3.74:1 light against that same
+                      // overlay. Every row reserves the 2px so arrowing
+                      // never shifts the labels.
+                      "flex w-full items-center gap-2.5 rounded-md border-l-2 border-l-transparent px-2.5 py-2 text-left text-[0.76rem] transition-colors duration-150",
                       i === clampedSelected && !action.disabled
-                        ? "bg-accent text-foreground"
+                        ? "border-l-ring bg-accent font-medium text-foreground"
                         : "text-secondary-foreground",
                       action.disabled && "opacity-40",
                     )}
@@ -389,7 +423,7 @@ export function CommandPalette({
                       </span>
                     )}
                   </button>
-                </div>
+                </Fragment>
               );
             })}
           </div>

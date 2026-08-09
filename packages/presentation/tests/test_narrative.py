@@ -15,6 +15,9 @@ from revi_presentation import (
     REDACTION_WARNING_PREFIX,
     build_narrative_facts,
     build_narrative_prompt,
+    empty_narrative,
+    mandatory_disclosures,
+    reconciliation_disclosure,
     validate_narrative,
 )
 
@@ -345,3 +348,55 @@ class TestCertifiedContentIsAdmitted:
         )
         assert not validation.clean
         assert "Beacon Health" in validation.redactions[0].reason
+
+
+# ---------------------------------------------------------------------------
+# round-2 FN-3: the narrative consumes the warnings the same answer carries
+
+
+def test_the_refusal_leads_and_the_caveats_trail() -> None:
+    """DIRECTION_UNMATCHED fired correctly and the prose opened "three
+    payers show denial rates rising" and never said nothing improved. A
+    refusal cannot sit beneath the movement that was found instead."""
+    lead, trail = mandatory_disclosures(
+        [
+            ("SUPPRESSION_APPLIED", "suppression: cells counting fewer than 11 are suppressed"),
+            (
+                "DIRECTION_UNMATCHED",
+                "direction_unmatched: nothing fell — no cell's denial rate moved the way "
+                "'improved' asks about over this window",
+            ),
+            ("POPULATION_CAVEAT", "population_caveat: something that is not mandatory here"),
+        ],
+        suppressed_cells=4,
+        total_cells=12,
+    )
+    assert len(lead) == 1
+    assert lead[0].startswith("Nothing fell")
+    assert any("4 of 12 cells" in sentence for sentence in trail)
+    # Not every caution is a mandatory disclosure — only the ones that say
+    # whether the answer answers the question or bound how it may be read.
+    assert not any("not mandatory" in sentence for sentence in (*lead, *trail))
+
+
+def test_a_reconciliation_strip_is_stated_in_words() -> None:
+    """The strip read "diverged; card=$178,216.82; answer=$195,873.92" while
+    the prose beneath it said reconciliation was not performed."""
+    sentence = reconciliation_disclosure(
+        status="diverged",
+        card_cents=17_821_682,
+        answer_cents=19_587_392,
+        delta_cents=1_765_710,
+        delta_fraction=0.0991,
+    )
+    assert "$178,216.82" in sentence and "$195,873.92" in sentence
+    assert "$17,657.10" in sentence and "+9.9%" in sentence
+
+
+def test_an_empty_turn_says_why_instead_of_publishing_null() -> None:
+    text = empty_narrative(
+        [("EMPTY_RESULT", "empty_result: every probe returned zero rows")]
+    )
+    assert text is not None
+    assert "no finding" in text and "every probe returned zero rows" in text.lower()
+    assert empty_narrative([("POPULATION_CAVEAT", "population_caveat: unrelated")]) is None

@@ -243,6 +243,13 @@ class FindingPayload(ClosedModel):
     #: field is never omitted, so a client can tell "no benchmark exists"
     #: from "benchmarks were not plumbed".
     benchmarks: list[BenchmarkPayload] = Field(default_factory=list)
+    #: The governed caveats attached to this finding's metric ids, in the
+    #: pack's own words (round-2 FN-5). Published ON the finding so a card
+    #: can render the correction as visible text under the title instead of
+    #: behind a hover — a screenshotted card that ships the label and
+    #: leaves the correction behind is the defect this closes. Empty when
+    #: every metric on the finding says what it measures.
+    metric_caveats: list[str] = Field(default_factory=list)
 
 
 ChartType = Literal["bar", "grouped_bar", "stacked_bar", "line", "waterfall", "table", "range_band"]
@@ -486,7 +493,11 @@ class AnomalyReconciliationPayload(ClosedModel):
     #: ``diverged`` — they do not, and ``detail`` says what differs;
     #: ``unavailable`` — the platform could not re-derive its own figure,
     #: and ``detail`` says why. Never silence.
-    status: Literal["agreed", "diverged", "unavailable"]
+    #: ``not_comparable`` — both figures exist and are honest, and they
+    #: measure different kinds of thing (an as-of snapshot balance against
+    #: a windowed flow), so no percentage delta is published and the gap is
+    #: not attributed to the detector.
+    status: Literal["agreed", "diverged", "not_comparable", "unavailable"]
     card_impact_cents: int
     answer_impact_cents: int | None = None
     delta_cents: int | None = None
@@ -644,6 +655,11 @@ class InvestigationResponse(ClosedModel):
     #: no ``narrative`` here: the composed prose is not stored anywhere,
     #: and a restored turn says what it kept instead of inventing it.
     chart_specs: list[ChartSpec] = Field(default_factory=list)
+    #: Governed display names for the metric ids this turn's findings cite
+    #: (round-2 FN-5). Published here as well as on :class:`TurnAnswer`:
+    #: without it, replay and export carried a title the reader had no way
+    #: to correct, and the correction lived only in one client.
+    metric_display: list[MetricDisplayPayload] = Field(default_factory=list)
     created_at: datetime
 
 
@@ -790,8 +806,12 @@ class AnomalyCard(ClosedModel):
     #: Which governed contract produced it (not always ``metric_id`` —
     #: see ``drill_repointed_from``).
     reconciled_impact_metric_id: str | None = None
-    #: ``agreed`` (within tolerance) | ``diverged`` | ``unavailable``.
-    impact_agreement: Literal["agreed", "diverged", "unavailable"] = "unavailable"
+    #: ``agreed`` (within tolerance) | ``diverged`` | ``not_comparable``
+    #: (the contract is an as-of snapshot and the card a windowed flow, so
+    #: the two do not measure the same kind of quantity) | ``unavailable``.
+    impact_agreement: Literal["agreed", "diverged", "not_comparable", "unavailable"] = (
+        "unavailable"
+    )
     #: ``reconciled - detector``, and that difference as a signed fraction
     #: of the detector's figure. ``None`` when nothing was re-derived.
     impact_delta_cents: int | None = None

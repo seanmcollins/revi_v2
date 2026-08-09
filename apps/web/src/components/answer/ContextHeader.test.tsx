@@ -105,3 +105,51 @@ describe("ContextHeader — the cohort chip", () => {
     expect(screen.queryByRole("button", { name: /Cohort/ })).not.toBeInTheDocument();
   });
 });
+
+/**
+ * The scope chip after the auto-correction fix (FN-9).
+ *
+ * A turn asking for "lakewood medicaid mco" runs against the payer that
+ * exists, `Lakewood Medicaid MCO`, and says so in a VALUE_CORRECTED
+ * caution. The chip used to render the string the user typed — so the one
+ * surface whose entire job is to state which population ran named a payer
+ * this warehouse has never held, two rows above the caution saying so.
+ */
+describe("ContextHeader — the scope chip states the predicate that ran", () => {
+  const CORRECTED = {
+    dimension: "payer",
+    dimensionLabel: "payer",
+    op: "eq" as const,
+    values: ["Lakewood Medicaid MCO"],
+    requestedValues: ["lakewood medicaid mco"],
+    originTurn: "turn_b5dbdb9ad05e",
+  };
+
+  it("shows the corrected value on the chip, never the uncorrected one", () => {
+    render(<ContextHeader header={{ ...BASE, filters: [CORRECTED] }} />);
+    expect(screen.getByText("payer: Lakewood Medicaid MCO")).toBeInTheDocument();
+    expect(screen.queryByText(/payer: lakewood medicaid mco/)).not.toBeInTheDocument();
+  });
+
+  it("keeps what the user typed, one level in, as history", async () => {
+    render(<ContextHeader header={{ ...BASE, filters: [CORRECTED] }} />);
+    await userEvent.click(screen.getByRole("button", { name: /Scope/ }));
+    expect(await screen.findByText(/you typed “lakewood medicaid mco”/)).toBeInTheDocument();
+  });
+
+  it("says nothing about typing when nothing was corrected", async () => {
+    render(
+      <ContextHeader
+        header={{
+          ...BASE,
+          // The older payload generation: values only, no requested_values.
+          filters: [{ ...CORRECTED, requestedValues: undefined }],
+        }}
+      />,
+    );
+    expect(screen.getByText("payer: Lakewood Medicaid MCO")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Scope/ }));
+    expect(await screen.findByText(/from turn_b5dbdb9ad05e/)).toBeInTheDocument();
+    expect(screen.queryByText(/you typed/)).not.toBeInTheDocument();
+  });
+});

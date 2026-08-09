@@ -37,8 +37,18 @@ from revi_api.auth import AuthorizationError, Principal
 from revi_api.cohort_payload import cohort_id_from_trace, cohort_payload_for
 from revi_api.debug_trace import build_debug_trace
 from revi_api.error_copy import budget_subcode, plain_message
-from revi_api.portfolio import build_portfolio, drill_spec_for, is_active
-from revi_api.rederive import ReDerivedImpact, compare_impact, money_total
+from revi_api.portfolio import (
+    SNAPSHOT_NOT_COMPARABLE,
+    build_portfolio,
+    drill_spec_for,
+    is_active,
+)
+from revi_api.rederive import (
+    ReDerivedImpact,
+    compare_impact,
+    money_total,
+    non_money_reason,
+)
 from revi_api.settings_policy import DEBUG_TRACE_ENV
 from revi_api.usage_ledger import bind_ledger, unbind_ledger
 from revi_api.wiring import ApiComponents
@@ -396,7 +406,15 @@ class ApiService:
                 ),
                 None,
             )
-        cents, measure, rows = money_total(outcome.frames)
+        # The same declared-unit gate the portfolio's re-derivation applies
+        # (FN-1): a ratio contract's frame may carry a money numerator, and
+        # summing it publishes a dollar figure the metric does not measure.
+        refusal = non_money_reason(tuple(request.spec.metric_ids), self._components.pack_port)
+        if refusal is None:
+            cents, measure, rows = money_total(outcome.frames)
+        else:
+            cents, measure, rows = None, None, 0
+        snapshots = self._snapshot_metric_ids()
         comparison = compare_impact(
             detector_cents=record.impact_cents,
             window_start=record.window_start,
@@ -408,11 +426,17 @@ class ApiService:
                 unavailable_reason=(
                     None
                     if cents is not None
-                    else "this answer produces no money column, so there is no figure to "
+                    else refusal
+                    or "this answer produces no money column, so there is no figure to "
                     "compare against the card's dollar impact"
                 ),
             ),
             unattempted_note="",
+            not_comparable_reason=(
+                SNAPSHOT_NOT_COMPARABLE
+                if any(mid in snapshots for mid in request.spec.metric_ids)
+                else None
+            ),
         )
         strip = AnomalyReconciliationPayload(
             anomaly_id=record.anomaly_id,
@@ -496,6 +520,7 @@ class ApiService:
                 referents=self._components.referents,
                 investigations=self._components.investigations,
             ),
+            metric_display=self._components.metric_display,
         )
 
     async def _primary_trace(self, investigation_id: str) -> TraceRecord | None:
@@ -552,7 +577,10 @@ class ApiService:
             )
         return SessionLineageResponse(
             session=_session_response(lineage.session),
-            investigations=[investigation_response(inv) for inv in lineage.investigations],
+            investigations=[
+                investigation_response(inv, metric_display=self._components.metric_display)
+                for inv in lineage.investigations
+            ],
             edges=[
                 LineageEdgePayload(
                     parent_id=edge.parent_id,
@@ -615,7 +643,27 @@ class ApiService:
             drillability=components.drillability,
             rederived=await self._rederived_impacts(records, newest),
             metric_display=components.metric_display,
+            # FN-2: a snapshot contract is an as-of balance and applies no
+            # window, so the gap between it and a card's windowed figure is
+            # not a divergence anybody can lay at the detector's door.
+            snapshot_metric_ids=self._snapshot_metric_ids(),
         )
+
+    def _snapshot_metric_ids(self) -> frozenset[str]:
+        """Pack metrics whose contract ``kind`` is ``snapshot``.
+
+        Read from the pinned pack rather than listed here: the eight A/R
+        and inventory contracts that are snapshots today are a fact about
+        the pack, and a hardcoded list would go stale the first time one is
+        added.
+        """
+        pack = self._components.pack_port
+        out: set[str] = set()
+        for metric_id, _ in pack.metric_summaries():
+            contract = pack.metric(metric_id)
+            if contract is not None and str(contract.kind) == "snapshot":
+                out.add(metric_id)
+        return frozenset(out)
 
     async def _rederived_impacts(
         self, records: tuple[AnomalyRecord, ...], watermark: DataWatermark

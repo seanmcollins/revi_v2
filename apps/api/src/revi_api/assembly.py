@@ -24,6 +24,7 @@ from typing import Any
 from revi_api.cohort_payload import cohort_payload_for
 from revi_api.debug_trace import build_debug_trace
 from revi_api.evidence import build_evidence
+from revi_api.metric_display import MetricDisplayRules
 from revi_api.metric_provenance import build_metric_provenance
 from revi_api.warning_codes import structured_warnings
 from revi_api.wiring import ApiComponents
@@ -60,9 +61,13 @@ from revi_kernel.frame import EvidenceFrame
 from revi_presentation import (
     NARRATIVE_TEMPLATE_ID,
     NARRATIVE_TEMPLATE_VERSION,
+    apply_metric_display,
     build_chart_specs,
     build_narrative_facts,
     build_narrative_prompt,
+    empty_narrative,
+    mandatory_disclosures,
+    reconciliation_disclosure,
     template_hash,
     validate_narrative,
 )
@@ -122,13 +127,38 @@ def benchmark_payload(benchmark: BenchmarkSpec) -> BenchmarkPayload:
 
 
 def finding_payload(
-    finding: Finding, benchmarks: Sequence[BenchmarkSpec] = ()
+    finding: Finding,
+    benchmarks: Sequence[BenchmarkSpec] = (),
+    metric_display: MetricDisplayRules | None = None,
 ) -> FindingPayload:
+    """One finding on the wire, with governed display names applied.
+
+    Round-2 FN-5: the display name reached ``metric_display`` and the
+    narrative body and *not* the title — the field a reader scans and a
+    screenshot carries. The rewrite is done here, at the rendering
+    boundary, because the engine may not read pack-adjacent display
+    content and a client-side rewrite is not a correction (replay, export
+    and any second client keep the mislabel). The metric's governed caveat
+    rides along on the payload so it can be rendered as visible text under
+    the title rather than behind a hover.
+    """
     metric_ids = [ref.id for ref in finding.metric_refs]
+    names = (
+        {mid: entry.display_name for mid, entry in metric_display.by_metric.items()}
+        if metric_display is not None
+        else None
+    )
+    caveats = [
+        entry.caveat
+        for mid in metric_ids
+        if (entry := (metric_display.by_metric.get(mid) if metric_display else None))
+        is not None
+        and entry.caveat
+    ]
     return FindingPayload(
         referent=finding.referent.value,
-        title=finding.title,
-        statement=finding.statement,
+        title=apply_metric_display(finding.title, names),
+        statement=apply_metric_display(finding.statement, names),
         metric_ids=metric_ids,
         values=[_finding_value(name, value) for name, value in finding.values],
         grade=finding.grade.value,
@@ -138,6 +168,7 @@ def finding_payload(
         benchmarks=[
             benchmark_payload(b) for b in benchmarks if b.metric_id in metric_ids
         ],
+        metric_caveats=caveats,
     )
 
 
@@ -146,6 +177,7 @@ def investigation_response(
     trace: TraceRecord | None = None,
     chart_specs: Sequence[ChartSpec] = (),
     cohort: CohortPayload | None = None,
+    metric_display: MetricDisplayRules | None = None,
 ) -> InvestigationResponse:
     """A stored investigation on the wire.
 
@@ -177,10 +209,22 @@ def investigation_response(
         status=investigation.status.value,
         question=investigation.question,
         plan_hash=investigation.plan_hash,
-        findings=[finding_payload(f) for f in investigation.findings],
+        findings=[
+            finding_payload(f, (), metric_display) for f in investigation.findings
+        ],
         warnings=list(investigation.warnings),
         warnings_v2=structured_warnings(investigation.warnings),
         cohort=cohort,
+        # Round-2 FN-5: the stored turn publishes the same governed display
+        # block the live answer does. Without it a restored or exported
+        # investigation carries titles the reader has no way to correct.
+        metric_display=(
+            metric_display.payloads_for(
+                [ref.id for f in investigation.findings for ref in f.metric_refs]
+            )
+            if metric_display is not None
+            else []
+        ),
         evidence=build_evidence(trace) if trace is not None else None,
         metric=build_metric_provenance(trace) if trace is not None else None,
         chart_specs=list(chart_specs),
@@ -303,6 +347,53 @@ def _narrative_budget(outcome: TurnOutcome, spent: Decimal) -> Decimal | None:
     return None if ceiling is None else ceiling - spent
 
 
+def _suppression_counts(outcome: TurnOutcome) -> tuple[int, int]:
+    """(suppressed cells, cells the frame would have had) for this turn.
+
+    Read off the frame that lost the most, because that is the frame the
+    published figures came from. The probe knows this number; the warning
+    never carried it, so the narrative could say "three payers were
+    measured" on a turn where nine were computable and four were censored.
+    """
+    worst = 0
+    visible = 0
+    for _, frame in outcome.frames:
+        if frame.suppressed_cells > worst:
+            worst = frame.suppressed_cells
+            visible = len(frame.rows)
+    return worst, (visible + worst if worst else 0)
+
+
+def _narrative_disclosures(
+    outcome: TurnOutcome,
+    warnings: Sequence[str],
+    anomaly_reconciliation: AnomalyReconciliationPayload | None,
+) -> tuple[list[str], list[str]]:
+    """The sentences this turn's prose may not be published without.
+
+    Composed from the SAME structured facts the response already carries —
+    ``warnings_v2`` and the card/answer reconciliation strip — because the
+    defect was never that the facts were missing (round-2 FN-3).
+    """
+    classified = [(w.code, w.message) for w in structured_warnings(warnings)]
+    suppressed, total = _suppression_counts(outcome)
+    sentence: str | None = None
+    if anomaly_reconciliation is not None:
+        sentence = reconciliation_disclosure(
+            status=anomaly_reconciliation.status,
+            card_cents=anomaly_reconciliation.card_impact_cents,
+            answer_cents=anomaly_reconciliation.answer_impact_cents,
+            delta_cents=anomaly_reconciliation.delta_cents,
+            delta_fraction=anomaly_reconciliation.delta_fraction,
+        )
+    return mandatory_disclosures(
+        classified,
+        reconciliation_sentence=sentence,
+        suppressed_cells=suppressed,
+        total_cells=total,
+    )
+
+
 async def _compose_narrative(
     components: ApiComponents,
     outcome: TurnOutcome,
@@ -311,6 +402,7 @@ async def _compose_narrative(
     on_event: OnEvent | None,
     spent: Decimal = Decimal(0),
     usage_out: list[LlmUsage] | None = None,
+    anomaly_reconciliation: AnomalyReconciliationPayload | None = None,
 ) -> str | None:
     """Compose the answer's prose, and report what it cost.
 
@@ -323,14 +415,28 @@ async def _compose_narrative(
     ``last_usage()``, which two concurrent turns would race on.
     """
     header = outcome.header
+    lead, trail = _narrative_disclosures(outcome, warnings, anomaly_reconciliation)
+    disclosures = [*lead, *trail]
     if header is None or not findings:
-        return None
+        # A turn with nothing to publish is exactly the turn whose reader
+        # most needs a sentence. ``narrative: null`` shipped beside
+        # ``EMPTY_RESULT`` on four personas' turns and the client rendered
+        # "No findings for this question" over a population that has one
+        # (round-2 FN-3). No model call: the cause is already structured.
+        stated = empty_narrative(
+            [(w.code, w.message) for w in structured_warnings(warnings)]
+        )
+        if stated is not None and on_event is not None:
+            await on_event("narrative_delta", {"delta": stated})
+        return stated
     remaining = _narrative_budget(outcome, spent)
     if remaining is not None and remaining < _MIN_NARRATIVE_BUDGET_USD:
         # Never a silent omission: the evidence stands, the prose does not,
-        # and the warning says which and why.
+        # and the warning says which and why. The mandatory disclosures
+        # still ship — they cost nothing and are the part a reader cannot
+        # be left without.
         warnings.append(NARRATIVE_BUDGET_WARNING)
-        return None
+        return " ".join(disclosures) or None
     depth = outcome.settings.narrative_depth
     # Population caveats govern how the prose may characterize the figures;
     # display names stop a raw metric id from promising more than its
@@ -345,10 +451,21 @@ async def _compose_narrative(
         metric_id: entry.display_name
         for metric_id, entry in components.metric_display.by_metric.items()
     }
+    # When a card-to-drill strip is on this answer, THAT is the
+    # reconciliation the reader compared — the lineage verdict is about
+    # something else and reading it out as "reconciliation was not
+    # performed" beside a divergence strip is the sentence the strip exists
+    # to eliminate (round-2 FN-3).
+    reconciliation_line = outcome.reconciliation
+    if anomaly_reconciliation is not None:
+        reconciliation_line = (
+            f"{anomaly_reconciliation.summary} (card-to-answer). Investigation lineage: "
+            f"{outcome.reconciliation or 'not applicable on this turn'}"
+        )
     prompt = build_narrative_prompt(
         findings=findings,
         header=header,
-        reconciliation=outcome.reconciliation,
+        reconciliation=reconciliation_line,
         # The governed ranges, at last: authored with cohort labels,
         # cautions and sources since KB wave 1, and passed here as a
         # literal empty tuple until the round-1 review counted them.
@@ -359,6 +476,9 @@ async def _compose_narrative(
         # rendered, so the model writes a different piece rather than the
         # same one cut short.
         depth=depth,
+        # Shown to the composer so it writes AROUND them rather than
+        # against them — they are published either way.
+        disclosures=disclosures,
     )
     assert_safe_payload(prompt)
     chunks: list[str] = []
@@ -379,7 +499,7 @@ async def _compose_narrative(
             await on_event("narrative_delta", {"delta": delta})
     provisional = "".join(chunks).strip()
     if not provisional:
-        return None
+        return " ".join(disclosures) or None
     facts = build_narrative_facts(
         findings=findings,
         header=header,
@@ -394,6 +514,9 @@ async def _compose_narrative(
         # must be willing to admit — caveat figures and display names both.
         caveats=caveats,
         metric_display=display_names,
+        # Published verbatim above the composer's text, so if the composer
+        # restates one it must validate rather than be cut.
+        disclosures=disclosures,
     )
     validation = validate_narrative(provisional, facts)
     warnings.extend(validation.warnings)
@@ -428,10 +551,14 @@ async def _compose_narrative(
         # empty string on the wire renders as a narrative that exists and
         # says nothing, which reads as a bug in the composer rather than
         # as what happened; the answer says the prose was withheld and the
-        # findings, charts and grades stand untouched.
+        # findings, charts and grades stand untouched. The mandatory
+        # disclosures are not the composer's sentences and survive.
         warnings.append(NARRATIVE_FULLY_REDACTED_WARNING)
-        return None
-    return validation.text
+        return " ".join(disclosures) or None
+    # The refusal LEADS: a statement that the question was not answered
+    # cannot sit beneath two paragraphs about what was found instead. The
+    # bounding disclosures follow the prose, where a caveat belongs.
+    return " ".join([*lead, validation.text, *trail])
 
 
 def _debug_payload(outcome: TurnOutcome, trace: TraceRecord | None) -> DebugTracePayload | None:
@@ -487,7 +614,10 @@ async def assemble_turn_response(
             debug=debug,
         )
 
-    findings = [finding_payload(f, outcome.benchmarks) for f in outcome.findings]
+    findings = [
+        finding_payload(f, outcome.benchmarks, components.metric_display)
+        for f in outcome.findings
+    ]
     if outcome.header is not None and on_event is not None:
         await on_event("context_header", outcome.header.model_dump(mode="json"))
     if on_event is not None:
@@ -536,6 +666,7 @@ async def assemble_turn_response(
         on_event,
         spent=Decimal(usage.cost_usd),
         usage_out=narrative_usage,
+        anomaly_reconciliation=anomaly_reconciliation,
     )
     # The last model call of the turn, folded in after it ran. Everything
     # else was summed from the trace the engine wrote before this stage

@@ -116,6 +116,10 @@ from revi_kernel.scope import (
 
 _MIN_CLASSIFICATION_CONFIDENCE = 0.5
 _DEFAULT_WINDOW = RelativeRange(Decimal(1), TimeUnit.MONTH, RangeMode.FULL_PERIODS)
+
+#: The contract ``kind`` that reports a balance at a moment rather than a
+#: quantity accumulated over a window (round-2 FN-2).
+_SNAPSHOT_KIND = "snapshot"
 _DESCRIPTION_CLIP = 160
 
 # Deterministic definitional lead-ins, longest first.
@@ -604,7 +608,22 @@ class InterpretQuestionService:
             direction=AskedDirection(parsed.direction) if parsed.direction else None,
             magnitude=AskedMagnitude(parsed.magnitude) if parsed.magnitude else None,
         )
-        if not window_explicit:
+        # An as-of contract applies no start..end predicate at all, so
+        # announcing an assumed window over one is a confident statement
+        # about a scoping that did not happen (round-2 FN-2). The turn
+        # still carries a window — the cohort and charts are scoped by it
+        # — and what the analyst is owed is the fact that the number is not.
+        as_of_only = bool(governing) and all(
+            str(contract.kind) == _SNAPSHOT_KIND for contract in governing
+        )
+        if as_of_only:
+            names = ", ".join(repr(contract.id) for contract in governing)
+            notes.append(
+                f"snapshot_as_of: {names} reports the balance standing at the watermark "
+                f"(as of {session.watermark.newest_data_date.isoformat()}) and applies no "
+                "start..end window, so naming a period does not narrow this number."
+            )
+        elif not window_explicit:
             # An assumed period is a decision the analyst did not make. It
             # used to live in the debug intent_summary; it belongs beside
             # the number it scoped.

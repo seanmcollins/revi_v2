@@ -167,7 +167,7 @@ from revi_kernel.filters import (
 )
 from revi_kernel.grades import EvidenceGrade, min_grade
 from revi_kernel.probes import AggregationProbe, ProbeShape, SnapshotProbe, probe_shape
-from revi_kernel.refs import SERVICE, DateBasisRef, DimensionRef, Grain
+from revi_kernel.refs import SERVICE, DateBasisRef, DimensionRef, EntityGrain, Grain
 from revi_kernel.watermark import DataWatermark
 
 _TIME_BUCKET_PREFIX = "time_bucket:"
@@ -182,6 +182,33 @@ _CAVEAT_TERMINATORS = re.compile(
     r"(?:^|(?<=\s))(?:Primary basis is|Point of clarification:|Benchmark context:|"
     r"Denominator note|Valuation caveat:)",
 )
+
+
+#: Entity grains from coarsest to finest. A candidate metric at a FINER
+#: grain than the refused one can still be cut by the requested dimension
+#: and still rolls up to the population that was asked about; a coarser one
+#: cannot, because the rows it counts span several of the asked-for
+#: entities. Equality was the old test and it filtered out the only metric
+#: that answered the question (round-2 FN-7).
+_GRAIN_ORDER: tuple[EntityGrain, ...] = (
+    EntityGrain.ENCOUNTER,
+    EntityGrain.CLAIM,
+    EntityGrain.REMIT,
+    EntityGrain.LINE,
+    EntityGrain.DENIAL,
+    EntityGrain.TRANSACTION,
+)
+
+#: The contract unit that answers a "how much revenue" question.
+_MONEY_UNIT = "money_cents"
+
+
+def _grain_at_most(candidate: EntityGrain, refused: EntityGrain) -> bool:
+    """Is ``candidate`` the same grain as ``refused``, or finer?"""
+    try:
+        return _GRAIN_ORDER.index(candidate) >= _GRAIN_ORDER.index(refused)
+    except ValueError:  # pragma: no cover - a grain outside the ladder
+        return candidate is refused
 
 
 def population_caveat(description: str) -> str | None:
@@ -233,6 +260,18 @@ class ValidatedPlan:
     plan: InvestigationPlan
     grades: tuple[tuple[str, EvidenceGrade], ...]
     warnings: tuple[str, ...]
+    #: §6.6 step 4b value resolutions, as ``dimension -> {as typed: as
+    #: queried}``. Round-2 FN-9: the corrected value was applied to the
+    #: PLAN and nowhere else, so the context header — the one field whose
+    #: job is to state which population ran — kept publishing the user's
+    #: spelling, contradicting the ``value_corrected`` caution beside it.
+    #: Carried out of validation so the header can state the predicate the
+    #: engine actually executed.
+    value_corrections: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = ()
+
+    @property
+    def corrections_map(self) -> dict[str, dict[str, str]]:
+        return {dim: dict(pairs) for dim, pairs in self.value_corrections}
 
     def grade_of(self, node_id: str) -> EvidenceGrade:
         for name, grade in self.grades:
@@ -336,6 +375,14 @@ class PlanClarificationNeeded(Exception):
 #: sentence carries the total so the analyst knows what they are choosing
 #: from.
 MAX_SUGGESTED_VALUES = 4
+
+#: A domain no larger than this is offered IN FULL rather than sampled. The
+#: payer domain here is twelve; offering four of them under the heading
+#: "Closest:" — when they were the first four alphabetically — left eight
+#: values the analyst had no way to reach and no way to know existed
+#: (round-2 FN-6). Above this, a list stops being a choice and becomes a
+#: wall of text, and the sample is labelled a sample.
+MAX_ENUMERATED_VALUES = 16
 #: Values below this similarity are not near misses, they are different
 #: words; suggesting them teaches the analyst the matcher is guessing.
 _VALUE_SIMILARITY_CUTOFF = 0.6
@@ -387,7 +434,9 @@ class PlanValidationService:
 
     # -------------------------------------------- refusals with a way out
 
-    def clarification_for(self, error: ReviError) -> ClarificationRequest | None:
+    def clarification_for(
+        self, error: ReviError, spec: AnalysisSpec | None = None
+    ) -> ClarificationRequest | None:
         """Turn a §6.6 refusal into a question the analyst can answer.
 
         ``GRAIN_INCOMPATIBLE`` and ``UNSUPPORTED_CONCEPT`` are honest: this
@@ -397,9 +446,13 @@ class PlanValidationService:
         right there could often answer the same question with a different
         metric. The near miss is derivable, so it is derived: metrics whose
         ``scope_dimensions`` include the dimension that was refused, at the
-        same kind and grain, become clarification options. Nothing is
-        invented — an option that appears is a metric that exists and a cut
-        it declares.
+        same kind and at a grain no coarser than the refused metric's,
+        become clarification options. Nothing is invented — an option that
+        appears is a metric that exists and a cut it declares.
+
+        ``spec`` is the ask itself, when the caller has it: it carries the
+        other dimensions the analyst named, which every generated option
+        used to drop (round-2 FN-7).
 
         Returns ``None`` when the pack offers nothing, in which case the
         refusal stands as it was: a clarification with no way forward is
@@ -408,7 +461,7 @@ class PlanValidationService:
         dimension_id = error.details.get("dimension")
         metric_id = error.details.get("metric")
         if isinstance(dimension_id, str) and self._catalog.dimension(dimension_id) is not None:
-            return self._grain_alternative(dimension_id, metric_id)
+            return self._grain_alternative(dimension_id, metric_id, spec)
         if isinstance(dimension_id, str):
             return self._near_miss_dimension(dimension_id)
         if isinstance(metric_id, str) and self._pack.metric(metric_id) is None:
@@ -416,41 +469,101 @@ class PlanValidationService:
         return None
 
     def _grain_alternative(
-        self, dimension_id: str, metric_id: object
+        self, dimension_id: str, metric_id: object, spec: AnalysisSpec | None = None
     ) -> ClarificationRequest | None:
-        """Metrics that declare ``dimension_id`` as a legal cut."""
+        """Metrics that declare ``dimension_id`` as a legal cut.
+
+        Three round-2 fixes (FN-7), all of which this loop got wrong at
+        once on the canonical CARC demo — "how much revenue did we lose to
+        prior authorization denials, broken out by payer?":
+
+        * **The count was the sample size.** The loop broke at
+          ``MAX_SUGGESTED_VALUES`` and the reason string then interpolated
+          ``len(options)``, so a pack where ten metrics declare
+          ``denial_category`` reported "4 pack metrics declare it". The
+          candidates are counted in full first and the offered set is
+          labelled a sample, matching the copy ``PREDICATE_VALUE_UNMATCHED``
+          already gets right.
+        * **Equal-grain was too strict.** ``denied_dollars`` is (flow,
+          denial) and ``initial_denial_rate`` is (flow, claim), so the one
+          metric that answers the money half of the question was filtered
+          out and ``options`` came back empty — which turns a recoverable
+          refusal back into a hard ``GRAIN_INCOMPATIBLE`` with no way
+          onward. A candidate at a FINER grain can still be cut by the
+          dimension and still aggregates to the population that was asked
+          about; a coarser one cannot.
+        * **Alphabetical order buried the answer.** ``metric_summaries()``
+          is alphabetical, so the two money metrics sorted last and were
+          unreachable behind the cap on a question that asked "how much
+          revenue". Money-unit candidates lead now, and the other
+          dimensions the analyst asked for are preserved in the option text
+          instead of being silently dropped from every one.
+        """
         refused = self._pack.metric(metric_id) if isinstance(metric_id, str) else None
         dim = self._catalog.dimension(dimension_id)
         assert dim is not None
-        options: list[str] = []
+        candidates: list[MetricContract] = []
         for candidate_id, _ in self._pack.metric_summaries():
             contract = self._pack.metric(candidate_id)
             if contract is None or contract.id == (refused.id if refused else None):
                 continue
             if not contract.allows_dimension(DimensionRef(dimension_id)):
                 continue
-            if refused is not None and (
-                contract.kind is not refused.kind
-                or contract.entity_grain is not refused.entity_grain
+            if refused is not None and contract.kind is not refused.kind:
+                continue
+            if refused is not None and not _grain_at_most(
+                contract.entity_grain, refused.entity_grain
             ):
                 continue
-            options.append(f"Break {candidate_id} down by {dimension_id}")
-            if len(options) == MAX_SUGGESTED_VALUES:
-                break
-        if not options:
+            candidates.append(contract)
+        if not candidates:
             return None
+        # Money first: a "how much" question is answered by a contract that
+        # produces dollars, and the ratio the question named has already
+        # been refused for this cut. Then the refused metric's own unit (the
+        # nearest like-for-like), then everything else, alphabetically
+        # inside each tier so the order is stable and explainable.
+        refused_unit = str(refused.unit) if refused is not None else None
+
+        def rank(contract: MetricContract) -> tuple[int, str]:
+            unit = str(contract.unit)
+            if unit == _MONEY_UNIT:
+                return (0, contract.id)
+            if refused_unit is not None and unit == refused_unit:
+                return (1, contract.id)
+            return (2, contract.id)
+
+        ranked = sorted(candidates, key=rank)
+        offered = ranked[:MAX_SUGGESTED_VALUES]
+        # The other cuts the analyst asked for are part of the ask, and
+        # dropping them from every option offered a different question back.
+        also = [
+            ref.id
+            for ref in (spec.dimensions if spec is not None else ())
+            if ref.id != dimension_id
+        ]
+        extra = f" and {', '.join(also)}" if also else ""
+        options = tuple(
+            f"Break {contract.id} down by {dimension_id}{extra}" for contract in offered
+        )
+        total = len(candidates)
+        sample = (
+            ""
+            if total <= len(offered)
+            else f" Showing {len(offered)} of {total} — say the metric you want if it is not here."
+        )
         refused_label = f"{refused.id!r}" if refused is not None else "that metric"
         return ClarificationRequest(
             question=(
                 f"{refused_label} cannot be cut by {dim.label.lower()} — its contract does not "
                 f"declare {dimension_id!r} as a legal scope dimension at the "
-                f"{'claim' if refused is None else refused.entity_grain.value} grain. These "
-                "metrics can be, over the same population:"
+                f"{'claim' if refused is None else refused.entity_grain.value} grain. "
+                f"{total} pack metric(s) can be, over the same population:{sample}"
             ),
-            options=tuple(options),
+            options=options,
             reason=(
                 f"GRAIN_INCOMPATIBLE_RECOVERABLE: {dimension_id} is not a scope dimension of "
-                f"{refused_label}; {len(options)} pack metrics declare it"
+                f"{refused_label}; {total} pack metrics declare it, {len(offered)} offered"
             ),
         )
 
@@ -542,12 +655,17 @@ class PlanValidationService:
                     changed = True
                     continue
             nodes.append(node)
-        if not changed and len(warnings) == len(validated.warnings):
+        resolved = tuple(
+            (dimension, tuple((typed, str(queried)) for typed, queried in sorted(mapping.items())))
+            for dimension, mapping in sorted(corrections.items())
+        )
+        if not changed and len(warnings) == len(validated.warnings) and not resolved:
             return validated
         return ValidatedPlan(
             plan=replace(plan, nodes=tuple(nodes)) if changed else plan,
             grades=validated.grades,
             warnings=tuple(warnings),
+            value_corrections=resolved,
         )
 
     async def _resolve_predicate(
@@ -595,10 +713,28 @@ class PlanValidationService:
         unmatched: list[Scalar],
         domain: tuple[str, ...],
     ) -> ClarificationRequest:
-        """Name what did not match, what is closest, and how much exists."""
+        """Name what did not match, what exists, and how to get there.
+
+        Three round-2 copy fixes (FN-6), all six personas flagged them:
+
+        * the plural agreed with the count of UNMATCHED values, so a domain
+          of twelve payers read "12 payer value exist here";
+        * four of twelve were offered under the heading "Closest:" when
+          they were simply the first four alphabetically — a false claim of
+          similarity, and no route to the other eight;
+        * a domain small enough to state in full was never stated in full,
+          which is the difference between a dead end and an answerable
+          question.
+
+        So: when the whole domain fits, the whole domain is offered and
+        nothing is called "closest". When it does not, the near matches are
+        labelled as such, the sample is labelled a sample, and the true
+        total is stated.
+        """
         label = dim.label.lower()
         named = ", ".join(repr(str(value)) for value in unmatched)
-        plural = "values" if len(unmatched) > 1 else "value"
+        # Agrees with the number it describes, not with a different one.
+        plural = "value" if len(domain) == 1 else "values"
         close: list[str] = []
         for value in unmatched:
             for match in difflib.get_close_matches(
@@ -606,15 +742,30 @@ class PlanValidationService:
             ):
                 if match not in close:
                     close.append(match)
-        options = tuple(close[:MAX_SUGGESTED_VALUES]) or tuple(
-            sorted(domain)[:MAX_SUGGESTED_VALUES]
-        )
-        closest = "Closest: " + ", ".join(repr(option) for option in options) + ". "
-        question = (
+        opening = (
             f"There is no {label} named {named} in this data — so I stopped rather than "
-            f"answer over an empty population. {closest}"
-            f"{len(domain)} {label} {plural} exist here; which did you mean?"
+            "answer over an empty population."
         )
+        if len(domain) <= MAX_ENUMERATED_VALUES:
+            options = tuple(sorted(domain))
+            question = (
+                f"{opening} Here are all {len(domain)} {label} {plural} this watermark "
+                f"holds: {', '.join(repr(option) for option in options)}. Which did you mean?"
+            )
+        else:
+            offered = tuple(close[:MAX_SUGGESTED_VALUES]) or tuple(
+                sorted(domain)[:MAX_SUGGESTED_VALUES]
+            )
+            options = offered
+            heading = (
+                "Closest matches: " if close else f"A sample of the {len(domain)}: "
+            )
+            question = (
+                f"{opening} {heading}"
+                + ", ".join(repr(option) for option in offered)
+                + f". {len(domain)} {label} {plural} exist here — name the one you mean if "
+                "it is not among these."
+            )
         return ClarificationRequest(
             question=question,
             options=options,

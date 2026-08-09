@@ -75,6 +75,7 @@ _RULES: tuple[_Rule, ...] = (
     _rule("VALUE_CORRECTED", CAUTION, r"^value_corrected:"),
     _rule("DIRECTION_UNMATCHED", CAUTION, r"^direction_unmatched:"),
     _rule("WINDOW_ASSUMED", CAUTION, r"^window_assumed:"),
+    _rule("SNAPSHOT_AS_OF", CAUTION, r"^snapshot_as_of:"),
     _rule("DROPPED_GRAIN", CAUTION, r"^dropped_grain:"),
     _rule("FILTER_REDUNDANT", INFO, r"^filter_redundant:"),
     _rule("COMPARISON_WINDOW_LENGTH", INFO, r"^comparison_window_length:"),
@@ -100,6 +101,13 @@ _RULES: tuple[_Rule, ...] = (
     _rule("PORTFOLIO_FEED_EMPTY", INFO, r"^no detected anomalies at this watermark"),
     _rule("PORTFOLIO_IMPACT_UNRECONCILED", CAUTION, r"^\d+ of \d+ ranked cards could not be re-derived"),
     _rule("PORTFOLIO_IMPACT_DIVERGED", CAUTION, r"^\d+ ranked cards? diverge"),
+    _rule(
+        "PORTFOLIO_IMPACT_NOT_COMPARABLE",
+        CAUTION,
+        r"^\d+ of \d+ ranked cards name a governed contract that is not comparable",
+    ),
+    # -- coverage the pipeline measured and did not publish ---------------
+    _rule("PROBE_FAMILIES_EMPTY", CAUTION, r"^probe_families_empty:"),
 )
 
 #: Every code this module can emit, for the client that wants to enumerate

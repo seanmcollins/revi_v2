@@ -586,7 +586,7 @@ describe("session list + switching", () => {
     expect(useSessionStore.getState().switchingSessionId).toBeNull();
   });
 
-  it("is a no-op mid-stream, mid-replay, and for the session already open", async () => {
+  it("is a no-op mid-stream, mid-replay, and for the session already on screen", async () => {
     const resumeSession = vi.fn();
     useSessionStore.getState().setDriver({
       submit: vi.fn(),
@@ -599,10 +599,49 @@ describe("session list + switching", () => {
     await useSessionStore.getState().switchSession("sess_other");
     useSessionStore.setState({ streamingTurnId: null, replaying: true });
     await useSessionStore.getState().switchSession("sess_other");
-    useSessionStore.setState({ replaying: false });
-    await useSessionStore.getState().switchSession("sess_current"); // already open
+    useSessionStore.setState({
+      replaying: false,
+      // Already open AND its thread is rebuilt — the only case where a
+      // click on the current row has nothing left to do.
+      turns: [{ id: "turn_1", index: 0, submission: {}, answer: emptyAnswer() }],
+    });
+    await useSessionStore.getState().switchSession("sess_current");
 
     expect(resumeSession).not.toHaveBeenCalled();
+  });
+
+  it("re-opens the current session when the page holds its id but none of its turns", async () => {
+    // The first rail click after a page load: the store can hold a session
+    // id with an empty thread (a reload, a drill-through, a turn submitted
+    // before the rail was read), and the old guard compared ids only — so
+    // the click no-oped into the cold-start hero with its guide chips live
+    // over a session the analyst believed they had opened.
+    const resumeSession = vi.fn().mockResolvedValue({
+      sessionId: "sess_current",
+      watermark: { id: "wm_9", loadedAt: "2026-08-08 04:00", newestDataDate: "2026-08-07" },
+      pack: { packId: "base-rcm", version: "1.0.0" },
+      turns: [
+        {
+          investigationId: "inv_1",
+          question: "Why did cash decline last week?",
+          events: [
+            { type: "turn_complete", investigationId: "inv_1", status: "complete" },
+          ] satisfies TurnEvent[],
+        },
+      ],
+    });
+    useSessionStore.getState().setDriver({
+      submit: vi.fn(),
+      newSession: vi.fn(),
+      listSessions: vi.fn().mockResolvedValue({ sessions: [], total: 0 }),
+      resumeSession,
+    });
+    useSessionStore.setState({ sessionId: "sess_current", turns: [] });
+
+    await useSessionStore.getState().switchSession("sess_current");
+
+    expect(resumeSession).toHaveBeenCalledWith("sess_current");
+    expect(useSessionStore.getState().turns).toHaveLength(1);
   });
 
   it("refuses to switch through a driver that cannot re-open sessions", async () => {

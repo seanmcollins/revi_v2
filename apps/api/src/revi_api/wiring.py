@@ -340,6 +340,9 @@ def build_components(
         validator=validator,
         executor=executor,
         calculator=calculator,
+        # FN-1: the drill metric's DECLARED unit decides whether a dollar
+        # figure exists at all, before any frame is summed.
+        pack=pack_port,
         pack_snapshot_id=pack_port.snapshot_id,
         pack_id=pack_port.pack_id,
         pack_version=pack_port.pack_version,

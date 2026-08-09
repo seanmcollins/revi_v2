@@ -25,5 +25,7 @@ description: >-
   over this contract and charges, computed at presentation time. Benchmark
   context: five to seven days of revenue is commonly cited as acceptable,
   with some guidance flagging sustained levels above three to five —
-  treat as a range. Professional claims (no discharge date) are outside
-  this population by construction.
+  treat as a range. Population caveat: professional claims (no discharge
+  date) are outside this population by construction, and this is inventory
+  standing as of the snapshot rather than a flow accumulated over a window,
+  so narrowing the window does not narrow the figure.

@@ -191,7 +191,14 @@ class TestReferenceFirstTurn:
         operators = {op["operator"] for op in payload["operators"]}
         assert "compare" in operators and "rank" in operators
         assert payload["findings"] == ["F1", "F2", "F3"]
-        assert not any("lag_distribution_compare" in w for w in payload["warnings"])
+        # It RAN: no omission or skip warning names it. (It publishes no
+        # finding, which the coverage disclosure states separately — see
+        # ``probe_families_empty`` — and that is a different claim.)
+        assert not any(
+            "lag_distribution_compare" in w
+            and ("omitted" in w or "skipped" in w or "not executable" in w)
+            for w in payload["warnings"]
+        )
         llm_entries = payload["llm"]
         # The ledger lists calls that HAPPENED. A first turn's class is
         # decided by construction, so no classification call appears — a

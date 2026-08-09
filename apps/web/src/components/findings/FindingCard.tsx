@@ -3,7 +3,6 @@
 import { GradeBadge } from "@/components/answer/GradeBadge";
 import { ReferentChip } from "@/components/answer/ReferentChip";
 import { Button } from "@/components/ui/button";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { deltaTone, formatCents, formatSignedCents, formatSignedPct } from "@/lib/format";
 import { useSessionStore } from "@/lib/store";
 import type { Finding } from "@/lib/types";
@@ -45,30 +44,33 @@ export function FindingCard({ finding, turnId }: { finding: Finding; turnId: str
       id={`referent-${finding.referent.value}`}
       className={cn(
         "flex h-full flex-col gap-2.5 rounded-lg border bg-card p-3.5 transition-all duration-150 hover:-translate-y-px hover:border-ring/30",
-        focused && "ring-2 ring-ring/60",
+        // Solid `--ring`, not `/60`: this ring is the ONLY signal that
+        // says which card a referent chip just pointed at, and at 60% it
+        // measured 2.15:1 against the card — under the 3:1 SC 1.4.11
+        // floor for a non-text indicator. Solid is 3.74:1 / 10.05:1.
+        focused && "ring-2 ring-ring",
       )}
     >
       <header className="flex items-start justify-between gap-2">
-        {/* The title already carries the pack's governed display name in
-            place of the raw metric id (applied at the wire seam). The
-            caveat that was authored WITH that name belongs to it: a
-            correction shipped without its bound is the flattering half of
-            a governed entry, which is worse than shipping neither. */}
-        {finding.metricDisplay?.caveat ? (
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <h3 className="cursor-help text-left text-[0.78rem] font-semibold leading-snug underline decoration-dotted underline-offset-[3px] decoration-muted-foreground/50">
-                {finding.title}
-              </h3>
-            </TooltipTrigger>
-            <TooltipContent side="top" className="max-w-80 text-[0.68rem] leading-snug">
-              <p className="mb-1 font-medium">{finding.metricDisplay.displayName}</p>
-              <p className="opacity-90">{finding.metricDisplay.caveat}</p>
-            </TooltipContent>
-          </Tooltip>
-        ) : (
+        {/* The title carries the pack's governed display name in place of
+            the raw metric id — composed that way by the server when it
+            publishes `metric_display`, and corrected at the wire seam when
+            it does not.
+
+            The caveat that was authored WITH that name is printed under
+            it, as text. It used to live in a hover tooltip, which meant a
+            screenshotted card — the form these cards actually travel in —
+            shipped the label and left its bound behind. A correction
+            published without its bound is the flattering half of a
+            governed entry, which is worse than shipping neither. */}
+        <div className="min-w-0 space-y-1">
           <h3 className="text-[0.78rem] font-semibold leading-snug">{finding.title}</h3>
-        )}
+          {finding.metricDisplay?.caveat && (
+            <p className="text-[0.66rem] leading-snug text-muted-foreground">
+              {finding.metricDisplay.caveat}
+            </p>
+          )}
+        </div>
         <ReferentChip value={finding.referent.value} className="mt-0.5 shrink-0" />
       </header>
 

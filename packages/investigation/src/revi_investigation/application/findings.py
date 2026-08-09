@@ -118,6 +118,42 @@ from revi_kernel.refs import (
 )
 
 _TIME_BUCKET_PREFIX = "time_bucket:"
+
+#: The contract ``kind`` that reports a balance standing at a moment rather
+#: than a quantity accumulated over a window (round-2 FN-2). Compared as a
+#: string so this module keeps its existing import surface.
+_SNAPSHOT_KIND = "snapshot"
+
+
+def _is_snapshot(pack: PackPort, measure: str) -> bool:
+    contract = pack.metric(measure)
+    return contract is not None and str(contract.kind) == _SNAPSHOT_KIND
+
+
+def _period_phrase(spec: AnalysisSpec, pack: PackPort, measure: str, frame: EvidenceFrame) -> str:
+    """"over 2026-07-01..2026-07-31" — or "as of 2026-08-02" for a snapshot.
+
+    Eight contracts here are ``kind: snapshot``: they read the balance at
+    the watermark and apply no start..end predicate. Published titles and
+    statements nonetheless carried the turn's window, so a finding read
+    ``timely filing at risk dollars: $22,426,000.28 (2026-07-01..2026-07-31)``
+    over a figure that is the ALL-TIME total — the July number is
+    $5,565,290.35, and the two are not the same claim. The window is not
+    removed from the answer (the cohort and charts are scoped by it); it is
+    removed from the sentence that says what the number measures.
+    """
+    if _is_snapshot(pack, measure):
+        return f"as of {frame.watermark.newest_data_date.isoformat()}"
+    window = spec.context.window.range
+    return f"over {window.start.isoformat()}..{window.end.isoformat()}"
+
+
+def _period_paren(spec: AnalysisSpec, pack: PackPort, measure: str, frame: EvidenceFrame) -> str:
+    """The same period, parenthesized for a title."""
+    if _is_snapshot(pack, measure):
+        return f"(as of {frame.watermark.newest_data_date.isoformat()})"
+    window = spec.context.window.range
+    return f"({window.start.isoformat()}..{window.end.isoformat()})"
 _PRIOR_SUFFIX = "__prior"
 _QUALIFIED_GRADES = (EvidenceGrade.PROXY, EvidenceGrade.DISCOVERY, EvidenceGrade.UNAVAILABLE)
 
@@ -886,7 +922,15 @@ class EvaluateFindingsService:
             qualified = self._requires_qualification(shape.frame.evidence_grade, pack, playbook)
             n = finding_offset + len(findings) + 1
             finding, referent = self._build_scalar_finding(
-                f"F{n}", shape, value, spec, comparison, qualified, session_id, investigation_id
+                f"F{n}",
+                shape,
+                value,
+                spec,
+                comparison,
+                qualified,
+                pack,
+                session_id,
+                investigation_id,
             )
             findings.append(finding)
             referents.append(referent)
@@ -914,6 +958,7 @@ class EvaluateFindingsService:
         spec: AnalysisSpec,
         comparison: ComparisonRendering | None,
         qualified: bool,
+        pack: PackPort,
         session_id: str,
         investigation_id: str,
     ) -> tuple[Finding, RegisteredReferent]:
@@ -921,8 +966,8 @@ class EvaluateFindingsService:
         row = shape.frame.rows[0]
         label = metric_label(shape.measure)
         current_text = format_value(value, shape.unit)
-        window = spec.context.window.range
-        window_text = f"{window.start.isoformat()}..{window.end.isoformat()}"
+        period_text = _period_phrase(spec, pack, shape.measure, shape.frame)
+        period_paren = _period_paren(spec, pack, shape.measure, shape.frame)
 
         values: list[tuple[str, Scalar]] = [(shape.measure, value)]
         prior: Scalar = None
@@ -959,12 +1004,12 @@ class EvaluateFindingsService:
             title = f"{label}: {current_text}, {movement} {prior_text} {period_phrase}"
             pct_text = f" ({ratio_pct(pct)} change)" if isinstance(pct, Decimal) else ""
             statement = (
-                f"{label} is {current_text} over {window_text}, {movement} {prior_text} "
+                f"{label} is {current_text} {period_text}, {movement} {prior_text} "
                 f"{period_phrase}{pct_text}."
             )
         else:
-            title = f"{label}: {current_text} ({window_text})"
-            statement = f"{label} is {current_text} over {window_text}."
+            title = f"{label}: {current_text} {period_paren}"
+            statement = f"{label} is {current_text} {period_text}."
 
         referent = ReferentId(value=referent_value, kind=ReferentKind.FINDING)
         finding = Finding(
@@ -1087,7 +1132,7 @@ class EvaluateFindingsService:
         share = row[schema.index_of(shape.share_column)] if shape.share_column else None
         label = self._row_label(row, shape.frame, shape.dimension_columns, pack)
         measure_label = metric_label(shape.measure)
-        window = spec.context.window.range
+        period_text = _period_phrase(spec, pack, shape.measure, shape.frame)
 
         amount = _as_int(value)
         # The unit is the metric contract's, carried on the frame column —
@@ -1107,8 +1152,8 @@ class EvaluateFindingsService:
         )
         title = f"{label}: {magnitude} {measure_label}{share_text}"
         statement = (
-            f"{label} ranks #{rank} by {measure_label} over "
-            f"{window.start.isoformat()}..{window.end.isoformat()}: {magnitude}{share_text}."
+            f"{label} ranks #{rank} by {measure_label} "
+            f"{period_text}: {magnitude}{share_text}."
         )
 
         values: list[tuple[str, Scalar]] = [(shape.measure, value), ("rank", rank)]

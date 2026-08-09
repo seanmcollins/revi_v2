@@ -13,6 +13,9 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { readFileSync, readdirSync } from "node:fs";
+import path from "node:path";
+
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PortfolioPanel } from "@/components/portfolio/PortfolioPanel";
@@ -298,5 +301,47 @@ describe("PortfolioPanel — lanes and impact agreement", () => {
     expect(
       screen.getByText("Some figures disagree with this platform's own"),
     ).toBeInTheDocument();
+  });
+});
+
+/**
+ * One focus ring, in one place.
+ *
+ * The round-1 fix pass hand-rolled `focus-visible:outline-none
+ * focus-visible:ring-2 focus-visible:ring-ring/60` onto six bare buttons
+ * — five of them in this panel. `--ring` at 60% measures 2.15:1 over card
+ * and 2.06:1 over page in light, under the 3:1 SC 1.4.11 floor, and every
+ * one of those elements had a COMPLIANT user-agent outline before
+ * `outline-none` removed it: the fix made them worse than the bug.
+ *
+ * `.focus-ring` in globals.css is the one implementation (solid `--ring`,
+ * 3.74:1 / 3.43:1 / 3.61:1 / 3.26:1 light against card, page, the
+ * translucent rail and sunken; 10.05:1 dark). This sweep is what stops a
+ * seventh hand-rolled ring from landing next to it.
+ */
+describe("focus rings do not drift back into components", () => {
+  const SRC = path.resolve(import.meta.dirname, "../..");
+
+  function sources(dir: string): string[] {
+    return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+      const full = path.join(dir, entry.name);
+      if (entry.isDirectory()) return sources(full);
+      return /\.tsx?$/.test(entry.name) && !entry.name.includes(".test.") ? [full] : [];
+    });
+  }
+
+  it("suppresses no UA outline and dilutes no ring in any app component", () => {
+    // `components/ui/*` are the vendored primitives, and they implement
+    // the compliant pattern already: they pair the soft `ring-ring/50`
+    // halo with a SOLID `focus-visible:border-ring`, which is the part
+    // that carries the 3:1. Everything else belongs to this app and uses
+    // the shared utility.
+    const offenders = sources(SRC)
+      .filter((file) => !file.includes(`${path.sep}components${path.sep}ui${path.sep}`))
+      .map((file) => [file, readFileSync(file, "utf8")] as const)
+      .filter(([, text]) => /focus-visible:outline-none|ring-ring\/\d/.test(text))
+      .map(([file]) => path.relative(SRC, file));
+
+    expect(offenders).toEqual([]);
   });
 });

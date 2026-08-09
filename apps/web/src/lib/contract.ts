@@ -907,6 +907,17 @@ export function mapContextHeader(raw: unknown, pin: WirePin): ContextHeaderData 
   const filters: FilterClause[] = [];
   for (const chip of asArray(raw.filter_chips)) {
     if (!isRecord(chip)) continue;
+    const values = asArray(chip.values).map((v) => String(v));
+    // `requested_values` is what the user typed before the engine matched
+    // it to a value this warehouse holds. Two payload generations are in
+    // flight: one that publishes it and one that does not, so the field is
+    // read defensively and kept only when it actually says something the
+    // corrected values do not. Identical lists carry no information — a
+    // "you typed" line under a value nobody corrected is noise.
+    const requested = asArray(chip.requested_values).map((v) => String(v));
+    const corrected =
+      requested.length > 0 &&
+      (requested.length !== values.length || requested.some((v, i) => v !== values[i]));
     filters.push({
       dimension: asString(chip.dimension),
       // The wire publishes ids, not display labels; the id IS the label
@@ -914,7 +925,8 @@ export function mapContextHeader(raw: unknown, pin: WirePin): ContextHeaderData 
       // second vocabulary nobody governs.
       dimensionLabel: asString(chip.dimension),
       op: asString(chip.op, "eq") as FilterClause["op"],
-      values: asArray(chip.values).map((v) => String(v)),
+      values,
+      ...(corrected ? { requestedValues: requested } : {}),
       originTurn: asString(chip.origin_turn),
       ...(chip.pinned === true ? { pinned: true } : {}),
     });
@@ -1556,10 +1568,21 @@ export function applyMetricDisplayNames(
   display: Record<string, MetricDisplay>,
 ): string {
   if (text === "") return text;
+  const haystack = text.toLowerCase();
   // Both spellings a server-composed string can carry: the prose form the
   // engine writes (`metric_label()` → "dnfb dollars") and the raw id.
   const alternatives: { spelling: string; displayName: string }[] = [];
   for (const entry of Object.values(display)) {
+    // IDEMPOTENCE, and the third property this function had to learn.
+    // Title composition is moving server-side, so the same string now
+    // arrives already carrying its governed name — and governed names
+    // routinely CONTAIN the phrase they replace ("First-pass denial rate
+    // (all payers)" contains "denial rate"), which is exactly the shape
+    // that makes a second pass splice a name into the middle of itself.
+    // A text that already says the display name has nothing left to
+    // correct for that metric, in either payload generation: f(f(x)) is
+    // f(x), and a server-composed title is left byte-identical.
+    if (haystack.includes(entry.displayName.toLowerCase())) continue;
     alternatives.push({ spelling: metricPhrase(entry.metricId), displayName: entry.displayName });
     if (entry.metricId !== metricPhrase(entry.metricId)) {
       alternatives.push({ spelling: entry.metricId, displayName: entry.displayName });

@@ -29,6 +29,6 @@ description: >-
   different units and are meant to be read side by side. Denied dollars are
   the payer's asserted amount, NOT a recovery estimate: appeal_overturn_rate
   is well under one, so the recoverable share of this figure is a fraction of
-  it and any dollar claim built on it must say so. Watermark caveat: recent
-  denials legitimately show no appeal yet, so trailing windows overstate
-  abandonment near the data edge.
+  it and any dollar claim built on it must say so. Population caveat: recent
+  denials legitimately show no appeal yet, so a window near the data edge
+  overstates abandonment.

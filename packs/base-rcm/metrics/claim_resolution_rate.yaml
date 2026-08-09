@@ -21,8 +21,8 @@ sign: higher_is_good
 unit: ratio
 description: >-
   Claims that have reached a resolved standing — PAID or CLOSED — as a share
-  of all claims in the window, service-date basis. Population caveat, and it
-  is the whole reading: this is a flow cohort measured against a snapshot
+  of all claims in the window, service-date basis. Population caveat: it is
+  the whole reading — this is a flow cohort measured against a snapshot
   watermark, so a claim's status is "as of today" while its cohort is "as of
   service", and recent cohorts read low purely because they have not had time
   to resolve. The number is only interpretable as a curve across cohort age

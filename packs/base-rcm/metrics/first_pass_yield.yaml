@@ -29,9 +29,10 @@ description: >-
   that were never submitted, whose yield is zero by construction, so a
   service-basis reading is a yield-per-service-volume view and sits below the
   submission-basis rate; the alternate-basis label on the answer says which
-  one produced the number. Recently submitted claims sit in the denominator
-  until adjudication is visible, so trailing windows read conservatively at
-  fresh watermarks. Distinct from clean_claim_rate: yield is measured at the
-  payer's first-pass outcome; the clean rate reads the outcome-derived clean
-  flag. Benchmark context: 90-95 percent or better is the commonly cited
+  one produced the number. Distinct from clean_claim_rate: yield is measured
+  at the payer's first-pass outcome; the clean rate reads the outcome-derived
+  clean flag. Population caveat: recently submitted claims sit in the
+  denominator until adjudication is visible, so a window near the data edge
+  reads conservatively and two windows of unequal adjudication maturity are
+  not comparable as levels. Benchmark context: 90-95 percent or better is the commonly cited
   range for first-pass resolution.

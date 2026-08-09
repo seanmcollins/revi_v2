@@ -25,8 +25,8 @@ description: >-
   (pending plus decided) for denials in the window, remittance-date basis.
   Denials never appealed at all are excluded from both sides — that
   population is denials_unworked_pct, and mixing the two turns "we have not
-  started" into "the payer has not answered". Watermark caveat, and it is the
-  whole story near the data edge: a recently filed appeal is legitimately
+  started" into "the payer has not answered". Population caveat: it is the whole
+  story near the data edge — a recently filed appeal is legitimately
   pending, so trailing windows read high by construction; the signal is a
   rising pending share on OLDER denial cohorts, which is payer stalling or an
   appeal backlog rather than normal turnaround. This warehouse records no

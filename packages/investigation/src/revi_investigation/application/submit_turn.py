@@ -44,11 +44,12 @@ on the :class:`TurnOutcome`, never as exceptions.
 
 from __future__ import annotations
 
+import re
 import time
 import uuid
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from dataclasses import dataclass, field, replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -105,6 +106,8 @@ from revi_investigation.application.refinement_llm import (
     resolve_referent_tokens,
     to_domain_operators,
 )
+from revi_investigation.application.rendering import MONEY_UNIT as _MONEY_UNIT_NAME
+from revi_investigation.application.rendering import money
 from revi_investigation.application.validation import (
     PlanClarificationNeeded,
     PlanValidationService,
@@ -326,7 +329,41 @@ class TurnOutcome:
     emptiness: EmptinessFact | None = None
 
 
-def build_context_header(spec: AnalysisSpec, session: Session) -> ContextHeaderPayload:
+#: The contract ``kind`` that reports a balance at a moment rather than a
+#: quantity accumulated over a window. Compared as a string so this module
+#: does not import the calculation contracts package (import-linter).
+_SNAPSHOT_KIND = "snapshot"
+
+
+def snapshot_as_of(
+    spec: AnalysisSpec, session: Session, pack: PackPort | None
+) -> date | None:
+    """The as-of date for a turn measured entirely by snapshot contracts.
+
+    ``None`` — i.e. "render the window" — unless EVERY measure this turn
+    names is ``kind: snapshot``. Eight contracts are (the whole A/R and
+    inventory family), and they read a balance standing at the watermark:
+    they apply no start..end predicate, so a header, a title or a sentence
+    that names one is asserting a scoping that did not happen (round-2
+    FN-2). A turn mixing a snapshot with a flow keeps the window, because
+    the window governs the flow half and is real.
+    """
+    if pack is None or not spec.measures:
+        return None
+    for ref in spec.measures:
+        contract = pack.metric(ref.id)
+        if contract is None or str(contract.kind) != _SNAPSHOT_KIND:
+            return None
+    return session.watermark.newest_data_date
+
+
+def build_context_header(
+    spec: AnalysisSpec,
+    session: Session,
+    *,
+    pack: PackPort | None = None,
+    corrections: Mapping[str, Mapping[str, str]] | None = None,
+) -> ContextHeaderPayload:
     """Delegate to the canonical contracts builder (§7.2 single source)."""
     context = spec.context
     return build_header_payload(
@@ -336,6 +373,229 @@ def build_context_header(spec: AnalysisSpec, session: Session) -> ContextHeaderP
         pinned_predicates=tuple(pin.predicate for pin in context.pins),
         cohort=context.cohort,
         watermark_id=session.watermark.id,
+        as_of=snapshot_as_of(spec, session, pack),
+        corrections=corrections,
+    )
+
+
+def probe_families_empty_warning(
+    validated: ValidatedPlan,
+    executed: tuple[ExecutedProbe, ...],
+    findings: tuple[Finding, ...],
+) -> str | None:
+    """Name every probe family that ran and published nothing (round-2 FN-10).
+
+    A nine-family portfolio playbook read ~98 rows across nine probes —
+    denial trend, denied dollars, cash trend, underpayment, filing risk,
+    A/R health, unbilled, credits, posting lag — and published three
+    findings, all from one of them. AR>90, DNFB, credit-balance liability,
+    underpayment variance, cash trend and posting lag were all measured
+    and all discarded, and nothing on the answer said so: the reply to
+    "what are the three biggest problems in my revenue cycle" was a claim
+    of coverage the pipeline had not kept.
+
+    Cross-probe harvesting and comparable cross-metric ranking are the real
+    fix and are a redesign. This is the disclosure that must ship first: a
+    coded warning naming each probe, its metric ids and the rows it
+    returned, so a reader can see what was looked at and dropped.
+
+    Silent on a turn that published nothing at all — that is the emptiness
+    fact's job, and two statements of the same nothing is one too many.
+    """
+    if not findings:
+        return None
+    published = {ref.id for finding in findings for ref in finding.metric_refs}
+    if not published:
+        return None
+    by_node = {item.node_id: item for item in executed}
+    # Grouped by metric family, not by node: a comparison twin and its
+    # current-window probe are one family measured once, and reporting them
+    # as two dropped probes would inflate the very count this warning
+    # exists to state honestly.
+    families: dict[tuple[str, ...], list[str]] = {}
+    rows_by_family: dict[tuple[str, ...], int] = {}
+    for node in validated.plan.nodes:
+        item = by_node.get(node.id)
+        metrics = tuple(
+            sorted(
+                {
+                    entry["id"]
+                    for entry in _probe_metrics(
+                        node.probe, item.frame if item is not None else None
+                    )
+                }
+            )
+        )
+        if not metrics or published.intersection(metrics):
+            continue
+        families.setdefault(metrics, []).append(node.id)
+        rows_by_family[metrics] = rows_by_family.get(metrics, 0) + (
+            len(item.frame.rows) if item is not None else 0
+        )
+    if not families:
+        return None
+    named = "; ".join(
+        f"{', '.join(metrics)} ({', '.join(nodes)}, {rows_by_family[metrics]} row(s))"
+        for metrics, nodes in families.items()
+    )
+    return (
+        f"probe_families_empty: {len(families)} metric famil(ies) on this plan were read and "
+        f"produced no published finding, so nothing above speaks for them: {named}. The "
+        "findings rank within the families that did publish — they are not a cross-family "
+        "comparison, and a family's absence is not evidence that it is fine."
+    )
+
+
+#: How close a child's total must land to the parent finding it drilled to
+#: be called agreed. The same half-percent the card/answer reconciliation
+#: uses, for the same reason: below it the difference is rounding, above it
+#: two published figures for one cell disagree and a reader must be told.
+_CONTAINMENT_TOLERANCE = Decimal("0.005")
+
+
+def _frame_money_total(
+    frames: tuple[tuple[str, EvidenceFrame], ...],
+) -> tuple[int | None, str | None]:
+    """Sum the money column of the last frame that has one.
+
+    "Last" because frames are listed in creation order, so the final
+    money-bearing frame is the one after every transform — the frame the
+    findings stage read.
+    """
+    for _, frame in reversed(frames):
+        for index, column in enumerate(frame.schema.columns):
+            if column.unit != _MONEY_UNIT_NAME:
+                continue
+            total = 0
+            for row in frame.rows:
+                value = row[index]
+                if value is not None:
+                    total += int(value)
+            measure = column.ref.id if isinstance(column.ref, MetricRef) else column.name
+            return total, measure
+    return None, None
+
+
+def containment_reconciliation(
+    parent: Investigation,
+    calculation: CalculationResult,
+    operators: tuple[Refinement, ...],
+) -> tuple[str, bool] | None:
+    """Reconcile a drill against the PARENT FINDING it was launched from.
+
+    Round-2 FN-4. Clicking "drill into DNFB accumulation: Northgate
+    general-surgery discharges" published ``dnfb_dollars = $195,873.92``;
+    clicking the platform's own "drill into F1" chip on that same answer
+    published ``$178,216.82`` — same metric id, same contract version, same
+    pack, same window, same scope, both graded direct, neither warning —
+    and the child's reconciliation read ``not_applicable; this turn
+    produced no compared money frame to reconcile against the parent``.
+    The predicate was true and beside the point: it asked whether there was
+    a *compare* frame and an *undimensioned parent total*, when what the
+    reader had in front of them was one finding's figure and one drill's.
+
+    The mirror-image symptom, same predicate: a drill decomposing a
+    parent's $410,166.15 into nine categories that sum to $410,166.15
+    exactly reported ``not_applicable; the parent investigation holds no
+    undimensioned 'denied_dollars' total`` — a perfect tie-out available
+    and withheld.
+
+    So a child scoped to a parent finding's cell reconciles against that
+    finding's own published figure, and publishes both numbers, the delta
+    and the percentage **even when they agree**: "we checked and it agreed"
+    is the verdict this whole grammar exists to be able to say.
+
+    Returns ``(summary, passed)``, or ``None`` when this turn drilled no
+    parent finding that published a money figure — in which case the
+    caller's existing verdicts stand.
+    """
+    targets = {op.target.value for op in operators if isinstance(op, DrillInto)}
+    if not targets:
+        return None
+    finding = next((f for f in parent.findings if f.referent.value in targets), None)
+    if finding is None or finding.impact_cents is None:
+        return None
+    child_cents, measure = _frame_money_total(calculation.frames)
+    if child_cents is None:
+        return None
+    parent_cents = finding.impact_cents
+    delta = child_cents - parent_cents
+    fraction = Decimal(delta) / Decimal(abs(parent_cents) or 1)
+    passed = abs(fraction) <= _CONTAINMENT_TOLERANCE
+    same_measure = measure is not None and measure in {ref.id for ref in finding.metric_refs}
+    scope = (
+        f"the same metric ({measure}) over the cell {finding.referent.value} names"
+        if same_measure
+        else f"{measure or 'this turn'} against {finding.referent.value}"
+    )
+    summary = (
+        f"status={'passed' if passed else 'failed'}; scope=containment; "
+        f"parent {finding.referent.value}={money(parent_cents)}; child={money(child_cents)}; "
+        f"delta={money(delta)} ({float(fraction):+.1%}); basis={scope}"
+    )
+    return summary, passed
+
+
+#: How a refuted value is recorded on the turn that refuted it. Parsed back
+#: so a LATER clarification cannot re-offer the value the engine has already
+#: proved does not exist (round-2 FN-6).
+_REFUTED_VALUES = re.compile(r"^PREDICATE_VALUE_UNMATCHED: \S+ \[(?P<values>.*?)\]")
+_QUOTED = re.compile(r"'([^']+)'|\"([^\"]+)\"")
+
+
+def refuted_values(reasons: Iterable[str]) -> frozenset[str]:
+    """Every dimension value this session has already proved does not exist."""
+    out: set[str] = set()
+    for reason in reasons:
+        match = _REFUTED_VALUES.match(reason.strip())
+        if match is None:
+            continue
+        for single, double in _QUOTED.findall(match.group("values")):
+            value = (single or double).strip()
+            if value:
+                out.add(value.casefold())
+    return frozenset(out)
+
+
+def drop_refuted_options(
+    clarification: ClarificationRequest, refuted: frozenset[str]
+) -> ClarificationRequest:
+    """The same question, minus every option naming a refuted value.
+
+    Round-2 FN-6, and the single most-reported defect of the review: a
+    reply of ``"Federal Medicare"`` — typed verbatim from the options the
+    platform had just offered — came back with three new options, two of
+    which re-proposed the hallucinated payer the platform had CORRECTLY
+    refused one turn earlier ("UnitedHealthcare, limited to the Federal
+    Medicare financial class"; "The Federal Medicare payer instead of
+    UnitedHealthcare"). Three turns, $0.3583, zero answers, and the loop
+    was closed by the platform's own suggestions.
+
+    The existence check that produced the refusal is the check every option
+    must pass. Nothing is rewritten: an option naming a value this session
+    has proved absent is dropped, and if that empties the list the question
+    says so rather than shipping a choice with nothing in it.
+    """
+    if not refuted or not clarification.options:
+        return clarification
+    kept = tuple(
+        option
+        for option in clarification.options
+        if not any(value in option.casefold() for value in refuted)
+    )
+    if len(kept) == len(clarification.options):
+        return clarification
+    if kept:
+        return replace(clarification, options=kept)
+    return replace(
+        clarification,
+        question=(
+            f"{clarification.question} (I had suggestions here and dropped them: each one "
+            "named a value this data does not hold, which is the thing I already refused. "
+            "Name a different one, or ask me what exists.)"
+        ),
+        options=(),
+        reason=f"{clarification.reason}; all generated options named a refuted value",
     )
 
 
@@ -717,6 +977,27 @@ class SubmitTurnService:
             )
             state.question = resolved
         return await self._new_investigation_turn(session, state, classified)
+
+    async def _refuted_in_session(self, session: Session) -> frozenset[str]:
+        """Dimension values this session has already proved do not exist.
+
+        Read back off the recorded clarification reasons rather than held
+        in memory: a turn is a stateless request and the session may resume
+        in another process — the same reason ``_pending_clarification``
+        reads the lineage.
+        """
+        lineage = await self._investigations.lineage(session.id)
+        if lineage is None:
+            return frozenset()
+        reasons: list[str] = []
+        for investigation in lineage.investigations:
+            if investigation.status is not InvestigationStatus.CLARIFICATION_REQUIRED:
+                continue
+            for record in await self._traces.for_investigation(investigation.id):
+                reason = record.payload.get("clarification_reason")
+                if isinstance(reason, str) and reason:
+                    reasons.append(reason)
+        return refuted_values(reasons)
 
     async def _pending_clarification(
         self, session: Session
@@ -1205,7 +1486,9 @@ class SubmitTurnService:
                 evidence_depth=evidence_depth,
             )
         except (GrainIncompatibleError, UnsupportedConceptError) as refusal:
-            recovered = await self._recoverable_refusal(session, state, classified, refusal)
+            recovered = await self._recoverable_refusal(
+                session, state, classified, refusal, spec
+            )
             if recovered is not None:
                 return recovered
             raise
@@ -1240,7 +1523,9 @@ class SubmitTurnService:
                 session, state, classified, needed.clarification
             )
         except (GrainIncompatibleError, UnsupportedConceptError) as refusal:
-            recovered = await self._recoverable_refusal(session, state, classified, refusal)
+            recovered = await self._recoverable_refusal(
+                session, state, classified, refusal, spec
+            )
             if recovered is not None:
                 return recovered
             raise
@@ -1282,6 +1567,18 @@ class SubmitTurnService:
         # A comparison against a different-length window is answerable but
         # not a delta anyone should act on; the warning rides with the
         # answer and the findings withhold impact (see comparison.py).
+        families = probe_families_empty_warning(
+            validated, executed, findings_result.findings
+        )
+        if families is not None:
+            extra_warnings.append(families)
+            await self._events.publish(
+                TurnEvent(
+                    kind="warning",
+                    turn_id=state.turn_id,
+                    payload={"code": "PROBE_FAMILIES_EMPTY", "detail": families},
+                )
+            )
         mismatch = window_mismatch_warning(spec)
         if mismatch is not None:
             extra_warnings.append(mismatch)
@@ -1323,7 +1620,9 @@ class SubmitTurnService:
         # explanation.
         emptiness = calculation.emptiness or findings_result.emptiness
         benchmarks = self._benchmarks_for(findings_result)
-        header = build_context_header(spec, session)
+        header = build_context_header(
+            spec, session, pack=self._pack, corrections=validated.corrections_map
+        )
         frame_refs = await self._persist_frames(state, calculation)
         investigation = Investigation(
             id=state.investigation_id,
@@ -1422,6 +1721,7 @@ class SubmitTurnService:
         state: _TurnState,
         classified: ClassificationOutcome | None,
         refusal: ReviError,
+        spec: AnalysisSpec | None = None,
     ) -> TurnOutcome | None:
         """A §6.6 refusal the pack can offer a way out of (design §2.8).
 
@@ -1434,7 +1734,7 @@ class SubmitTurnService:
         refusal stands: a clarification with no way forward is worse than
         an error that says what happened.
         """
-        clarification = self._validator.clarification_for(refusal)
+        clarification = self._validator.clarification_for(refusal, spec)
         if clarification is None:
             return None
         return await self._clarification_outcome(session, state, classified, clarification)
@@ -1479,6 +1779,19 @@ class SubmitTurnService:
         """
         if not any(isinstance(op, (SetDimensions, DrillInto)) for op in operators):
             return _not_applicable("this turn neither split nor drilled the parent's population")
+        # A drill of a named parent finding reconciles against THAT
+        # finding's published figure, whether or not this turn produced a
+        # compared money frame and whether or not the parent kept an
+        # undimensioned total (round-2 FN-4). Tried first because it is the
+        # comparison the reader actually made — two figures on two
+        # consecutive screens — and the sum-of-cells check below is the
+        # comparison the lineage makes.
+        containment = containment_reconciliation(parent, calculation, operators)
+        if containment is not None:
+            summary, passed = containment
+            if not passed:
+                await self._fail_reconciliation(summary, warnings, state)
+            return summary
         shape = find_primary_compare(plan, calculation)
         if shape is None:
             return _not_applicable(
@@ -1513,15 +1826,25 @@ class SubmitTurnService:
             measures = (measure, f"{measure}__prior")
         verdict = self._transforms.reconcile(parent_totals, shape.frame, measures=measures)
         if not verdict.passed:
-            warnings.append(f"RECONCILIATION_FAILED: {verdict.summary}")
-            await self._events.publish(
-                TurnEvent(
-                    kind="warning",
-                    turn_id=state.turn_id,
-                    payload={"code": "RECONCILIATION_FAILED", "detail": verdict.summary},
-                )
-            )
+            await self._fail_reconciliation(verdict.summary, warnings, state)
         return verdict.summary
+
+    async def _fail_reconciliation(
+        self, summary: str, warnings: list[str], state: _TurnState
+    ) -> None:
+        """One coded warning + one event for every failed reconciliation.
+
+        Shared so the containment check and the sum-of-cells check cannot
+        report the same class of disagreement two different ways.
+        """
+        warnings.append(f"RECONCILIATION_FAILED: {summary}")
+        await self._events.publish(
+            TurnEvent(
+                kind="warning",
+                turn_id=state.turn_id,
+                payload={"code": "RECONCILIATION_FAILED", "detail": summary},
+            )
+        )
 
     # ------------------------------------------------- zero-probe turn paths
 
@@ -1559,7 +1882,7 @@ class SubmitTurnService:
             session=session,
             investigation=investigation,
             findings=parent.findings,
-            header=build_context_header(parent.spec, session),
+            header=build_context_header(parent.spec, session, pack=self._pack),
             frames=frames,
             warnings=(),
             clarification=None,
@@ -1634,7 +1957,11 @@ class SubmitTurnService:
             )
         )
         await self._turn_complete(state, investigation)
-        header = build_context_header(cited.spec, session) if cited is not None else None
+        header = (
+            build_context_header(cited.spec, session, pack=self._pack)
+            if cited is not None
+            else None
+        )
         return TurnOutcome(
             session=session,
             investigation=investigation,
@@ -1750,7 +2077,7 @@ class SubmitTurnService:
             session=session,
             investigation=investigation,
             findings=(),
-            header=build_context_header(spec, session),
+            header=build_context_header(spec, session, pack=self._pack),
             frames=(),
             warnings=(),
             clarification=None,
@@ -1838,7 +2165,7 @@ class SubmitTurnService:
             session=session,
             investigation=investigation,
             findings=parent.findings,
-            header=build_context_header(new_spec, session),
+            header=build_context_header(new_spec, session, pack=self._pack),
             frames=frame_pairs,
             warnings=(),
             clarification=None,
@@ -1860,6 +2187,11 @@ class SubmitTurnService:
         extra: Mapping[str, Any] | None = None,
     ) -> TurnOutcome:
         del interpretation  # usage already tracked on state
+        # Every option this platform offers goes through the same value
+        # existence check that produced its refusals (round-2 FN-6).
+        clarification = drop_refuted_options(
+            clarification, await self._refuted_in_session(session)
+        )
         investigation = self._minimal_investigation(
             session, state, InvestigationStatus.CLARIFICATION_REQUIRED, classified
         )

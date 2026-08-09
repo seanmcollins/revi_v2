@@ -23,6 +23,7 @@ description: >-
   upper bound on the recovery. Sign is higher_is_good because it measures
   appeal effectiveness, but read it against denied_dollars: the figure rises
   with denial volume as well as with appeal skill, and a large number over a
-  larger denial base is not a win. Appeal state reflects the snapshot
-  watermark, so recent denials show little overturn activity simply because
+  larger denial base is not a win. Population caveat: these are dollars put
+  back in play, never recovered cash, and appeal state reflects the snapshot
+  watermark — recent denials show little overturn activity simply because
   their appeals have not been decided yet.

@@ -177,6 +177,7 @@
             "enum": [
               "agreed",
               "diverged",
+              "not_comparable",
               "unavailable"
             ],
             "title": "Impact Agreement",
@@ -442,6 +443,7 @@
             "enum": [
               "agreed",
               "diverged",
+              "not_comparable",
               "unavailable"
             ],
             "title": "Status",
@@ -838,6 +840,18 @@
         "additionalProperties": false,
         "description": "Structured chips plus the canonical one-line display string.",
         "properties": {
+          "as_of": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "As Of"
+          },
           "basis": {
             "title": "Basis",
             "type": "string"
@@ -1795,6 +1809,13 @@
             "title": "Pinned",
             "type": "boolean"
           },
+          "requested_values": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Requested Values",
+            "type": "array"
+          },
           "values": {
             "items": {
               "type": "string"
@@ -1841,6 +1862,13 @@
               }
             ],
             "title": "Impact Cents"
+          },
+          "metric_caveats": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Metric Caveats",
+            "type": "array"
           },
           "metric_ids": {
             "items": {
@@ -1986,6 +2014,13 @@
                 "type": "null"
               }
             ]
+          },
+          "metric_display": {
+            "items": {
+              "$ref": "#/components/schemas/MetricDisplayPayload"
+            },
+            "title": "Metric Display",
+            "type": "array"
           },
           "parent_id": {
             "anyOf": [

@@ -246,7 +246,7 @@ function LaneHeader({ lane, count }: { lane?: PortfolioLane; count: number }) {
         <TooltipTrigger asChild>
           <button
             type="button"
-            className="rounded text-left text-[0.6rem] font-semibold uppercase tracking-wide text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+            className="rounded text-left text-[0.6rem] font-semibold uppercase tracking-wide text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground focus-ring"
           >
             {lane.label}
           </button>
@@ -364,7 +364,7 @@ function PortfolioCard({ item, onDrill }: { item: PortfolioItem; onDrill: () => 
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  className="mt-1 flex items-center gap-1 rounded text-left text-[0.58rem] leading-snug text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+                  className="mt-1 flex items-center gap-1 rounded text-left text-[0.58rem] leading-snug text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground focus-ring"
                 >
                   <Info className="size-2.5 shrink-0" />
                   Drills {item.drillMetricId ?? "a different measure"}, not{" "}
@@ -399,7 +399,7 @@ function PortfolioCard({ item, onDrill }: { item: PortfolioItem; onDrill: () => 
             ) : (
               <Tooltip>
                 <TooltipTrigger asChild>
-                  <span tabIndex={0} className="rounded-full focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60">
+                  <span tabIndex={0} className="rounded-full focus-ring">
                     <Button
                       variant="ghost"
                       size="xs"
@@ -470,7 +470,7 @@ function ImpactAgreement({ item }: { item: PortfolioItem }) {
         <button
           type="button"
           className={cn(
-            "num mt-0.5 flex items-center gap-1 rounded text-left text-[0.6rem] leading-snug underline decoration-dotted underline-offset-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60",
+            "num mt-0.5 flex items-center gap-1 rounded text-left text-[0.6rem] leading-snug underline decoration-dotted underline-offset-2 focus-ring",
             agreement === "diverged" ? "text-warning" : "text-muted-foreground",
           )}
         >
@@ -507,7 +507,7 @@ function ActionabilityLabel({ item }: { item: PortfolioItem }) {
       <TooltipTrigger asChild>
         <button
           type="button"
-          className="rounded font-medium underline decoration-dotted underline-offset-2 hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring/60"
+          className="rounded font-medium underline decoration-dotted underline-offset-2 hover:text-foreground focus-ring"
         >
           {item.actionabilityLabel}
         </button>

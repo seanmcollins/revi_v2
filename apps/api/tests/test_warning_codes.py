@@ -134,6 +134,26 @@ FAMILIES: list[tuple[str, str, str]] = [
         "(largest gap 9.9%)",
     ),
     (
+        "PORTFOLIO_IMPACT_NOT_COMPARABLE",
+        "caution",
+        "5 of 29 ranked cards name a governed contract that is not comparable to the "
+        "detector's dollar figure (a snapshot balance against a windowed flow)",
+    ),
+    (
+        "PROBE_FAMILIES_EMPTY",
+        "caution",
+        "probe_families_empty: 8 metric famil(ies) on this plan were read and produced no "
+        "published finding, so nothing above speaks for them: ar_over_90_pct "
+        "(portfolio_ar_health, 12 row(s))",
+    ),
+    (
+        "SNAPSHOT_AS_OF",
+        "caution",
+        "snapshot_as_of: 'ar_over_90_pct' reports the balance standing at the watermark "
+        "(as of 2026-08-02) and applies no start..end window, so naming a period does not "
+        "narrow this number.",
+    ),
+    (
         "EMPTY_RESULT",
         "caution",
         "empty_result: every probe returned zero rows — predicates in play: "

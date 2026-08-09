@@ -514,6 +514,130 @@ describe("AnswerCard — budget refusals (F19 residual)", () => {
   });
 });
 
+describe("AnswerCard — a governed name's caveat travels with it (FN-5)", () => {
+  // jsdom has no matchMedia; the impact stat's count-up asks it whether
+  // motion is reduced. Answering "yes" also skips the animation, so the
+  // assertions below read the final figure rather than a frame of it.
+  beforeEach(() => {
+    Object.defineProperty(window, "matchMedia", {
+      configurable: true,
+      writable: true,
+      value: (query: string) => ({
+        matches: true,
+        media: query,
+        onchange: null,
+        addEventListener: () => {},
+        removeEventListener: () => {},
+        addListener: () => {},
+        removeListener: () => {},
+        dispatchEvent: () => false,
+      }),
+    });
+  });
+
+  const FINDING = {
+    referent: { value: "F1", kind: "finding" as const },
+    title: "Unbilled open inventory (timely-filing watch proxy): $22,426,000.28",
+    statement: "Unbilled open inventory is $22,426,000.28 over the window.",
+    metricRefs: ["timely_filing_at_risk_dollars"],
+    values: {},
+    grade: "direct" as const,
+    directionOfGood: "down_is_good" as const,
+    confidence: "high" as const,
+    suggestedRefinements: [],
+    impactCents: 2_242_600_028,
+    impactLabel: "at this data load",
+    metricDisplay: {
+      metricId: "timely_filing_at_risk_dollars",
+      displayName: "Unbilled open inventory (timely-filing watch proxy)",
+      caveat:
+        "No deadline predicate is applied — never read this as dollars at risk of a timely-filing denial.",
+    },
+  };
+
+  it("prints the caveat under the title, with nothing to hover", () => {
+    // These cards travel as screenshots. A caveat behind a tooltip ships
+    // the label and leaves its bound behind.
+    renderCard(bareTurn({ findings: [FINDING] }));
+
+    expect(screen.getByText(/No deadline predicate is applied/)).toBeVisible();
+  });
+
+  it("does not re-substitute a title the server already composed", () => {
+    renderCard(bareTurn({ findings: [FINDING] }));
+
+    // The governed name contains no raw id and appears exactly once — the
+    // double-substitution shape is "…(timely-filing watch proxy) (timely-…".
+    expect(
+      screen.getByText("Unbilled open inventory (timely-filing watch proxy): $22,426,000.28"),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/timely filing at risk dollars/)).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * The live DATE_BASIS_INVALID envelope, verbatim. Two halves in one
+ * string: a sentence for the reader and a bracketed tail for whoever has
+ * to fix it — and the card was printing both, under a code chip carrying
+ * the code a third time.
+ */
+const DATE_BASIS_MESSAGE =
+  "That metric can't be dated the way this question needs in this warehouse. " +
+  "Asking on a different date basis will answer it. " +
+  "[DATE_BASIS_INVALID: date basis 'remit' is not allowed for metric 'ar_balance' " +
+  "(allowed: ['service', 'submission'])]";
+
+describe("AnswerCard — error copy is the server's, and only the server's", () => {
+  it("prints the sentence once and keeps the machine tail off the card", () => {
+    renderCard(
+      bareTurn({
+        status: "error",
+        error: { code: "DATE_BASIS_INVALID", message: DATE_BASIS_MESSAGE },
+      }),
+    );
+
+    expect(
+      screen.getByText(/That metric can't be dated the way this question needs/),
+    ).toBeInTheDocument();
+    // The code chip carries the code; the tail repeated it beside a raw
+    // metric id and a Python list literal.
+    expect(screen.getAllByText("DATE_BASIS_INVALID")).toHaveLength(1);
+    expect(screen.queryByText(/ar_balance/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\['service', 'submission'\]/)).not.toBeInTheDocument();
+  });
+
+  it("recommends nothing of its own", () => {
+    renderCard(
+      bareTurn({
+        status: "error",
+        error: { code: "DATE_BASIS_INVALID", message: DATE_BASIS_MESSAGE },
+      }),
+    );
+
+    // The client composes no recovery sentence: naming bases here is how a
+    // card came to recommend one the same message declares illegal. Only
+    // what the server wrote is on screen.
+    expect(screen.queryByText(/posting date/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/service, submission/i)).not.toBeInTheDocument();
+  });
+
+  it("keeps a tail whose code is not this error's own", () => {
+    renderCard(
+      bareTurn({
+        status: "error",
+        error: {
+          code: "PLAN_INVALID",
+          message: "That plan could not be built. [DATE_BASIS_INVALID: from the inner failure]",
+        },
+      }),
+    );
+
+    // Not provably a duplicate of the chip, so it is not removed — this
+    // function does not guess about content it did not put there.
+    expect(screen.getByText(/from the inner failure/)).toBeInTheDocument();
+  });
+});
+
 describe("AnswerCard — debug mode", () => {
   beforeEach(() => {
     useSessionStore.setState({ settings: { ...DEFAULT_SETTINGS, debug: true } });

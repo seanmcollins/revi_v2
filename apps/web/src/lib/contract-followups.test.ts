@@ -23,6 +23,7 @@ import {
   applyMetricDisplayNames,
   mapAnomalyReconciliation,
   mapCohort,
+  mapContextHeader,
   mapMetricDisplay,
   mapStructuredWarning,
   mapUsage,
@@ -418,6 +419,26 @@ describe("metric display names", () => {
     expect(applyMetricDisplayNames("dnfb_dollars_ratio", display)).toBe("dnfb_dollars_ratio");
   });
 
+  it("is idempotent — a title composed server-side comes back byte-identical", () => {
+    // The failure this guards: governed names routinely CONTAIN the phrase
+    // they replace, so a second pass over an already-corrected title
+    // splices the name into the middle of itself ("First-pass First-pass
+    // denial rate (all payers) (all payers)"). Both payload generations
+    // are in flight — one composes titles server-side, one does not — so
+    // the client half has to survive being right twice.
+    const display = metricDisplayIndex(
+      mapMetricDisplay([
+        { metric_id: "denial_rate", display_name: "First-pass denial rate (all payers)" },
+      ]),
+    );
+    const once = applyMetricDisplayNames("denial rate rose to 12%", display);
+    expect(once).toBe("First-pass denial rate (all payers) rose to 12%");
+    expect(applyMetricDisplayNames(once, display)).toBe(once);
+    // The server-composed title, which never held a raw id: untouched.
+    const composed = "First-pass denial rate (all payers): 12.4% (2026-07-01..2026-07-31)";
+    expect(applyMetricDisplayNames(composed, display)).toBe(composed);
+  });
+
   it("prefers the longest metric id so a prefix cannot claim a suffix's phrase", () => {
     const display = metricDisplayIndex(
       mapMetricDisplay([
@@ -616,5 +637,44 @@ describe("budget error subcode and failed-turn usage", () => {
     expect(mapUsage(undefined)).toBeUndefined();
     expect(mapUsage({ llm_calls: 0, cost_usd: "0" })).toBeUndefined();
     expect(mapUsage({ llm_calls: 1, cost_usd: "0.0004" })).toMatchObject({ llmCalls: 1 });
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 8. Filter chips carry the predicate that RAN (FN-9)                 */
+/* ------------------------------------------------------------------ */
+
+describe("filter chips", () => {
+  const chip = (extra: Record<string, unknown>) =>
+    mapContextHeader(
+      {
+        window_start: "2026-07-01",
+        window_end: "2026-07-31",
+        basis: "service",
+        filter_chips: [
+          { dimension: "payer", op: "eq", origin_turn: "turn_b5dbdb9ad05e", ...extra },
+        ],
+      },
+      PIN,
+    )?.filters[0];
+
+  it("carries the user's original phrasing beside the corrected value", () => {
+    expect(
+      chip({ values: ["Lakewood Medicaid MCO"], requested_values: ["lakewood medicaid mco"] }),
+    ).toMatchObject({
+      values: ["Lakewood Medicaid MCO"],
+      requestedValues: ["lakewood medicaid mco"],
+    });
+  });
+
+  it("keeps nothing when the two agree — an uncorrected value has no history", () => {
+    // Both payload generations land here: one publishes requested_values
+    // identical to values, the older one publishes none at all. Neither
+    // says anything worth a line under the chip.
+    expect(
+      chip({ values: ["Lakewood Medicaid MCO"], requested_values: ["Lakewood Medicaid MCO"] })
+        ?.requestedValues,
+    ).toBeUndefined();
+    expect(chip({ values: ["Lakewood Medicaid MCO"] })?.requestedValues).toBeUndefined();
   });
 });

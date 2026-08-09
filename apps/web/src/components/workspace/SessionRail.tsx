@@ -51,7 +51,11 @@ export function SessionRail() {
     <aside className="panel flex h-full min-h-0 flex-col border-r">
       <div className="flex items-center justify-between px-4 py-3.5">
         <div className="flex items-center gap-2">
-          <span className="accent-gradient flex size-6 items-center justify-center rounded-md font-mono text-sm font-bold text-white">
+          {/* The mark carries a letter, so it takes the text-safe stops —
+              a logotype is exempt from AA, but it sits 40px above a CTA
+              painted from the same pair and two different teals there
+              read as a rendering bug. */}
+          <span className="accent-gradient-cta flex size-6 items-center justify-center rounded-md font-mono text-sm font-bold text-white">
             R
           </span>
           <span className="text-[0.9rem] font-semibold tracking-tight">Revi</span>
@@ -67,7 +71,11 @@ export function SessionRail() {
           onClick={() => void newChat()}
           disabled={newChatBusy}
           size="sm"
-          className="accent-gradient w-full gap-1.5 text-[0.72rem] font-medium text-white shadow-sm transition-all duration-150 hover:brightness-110 hover:shadow-md"
+          // The app's most prominent button, and the one whose label was
+          // hardest to read: white on the display gradient measured
+          // 3.74:1 light and 2.49:1 dark. The CTA stops carry the same
+          // white at 5.21:1 → 5.48:1 across the sweep, in both themes.
+          className="accent-gradient-cta w-full gap-1.5 text-[0.72rem] font-medium text-white shadow-sm transition-all duration-150 hover:brightness-110 hover:shadow-md"
         >
           <MessageSquarePlus className="size-3" />
           New chat
@@ -307,9 +315,16 @@ function SessionList() {
                   } · last activity ${session.lastActivity}`}
                   onClick={() => void switchSession(session.sessionId)}
                   className={cn(
-                    "flex w-full items-baseline justify-between gap-2 rounded-md px-2 py-1.5 text-left text-[0.7rem] transition-colors duration-150",
+                    // The 2px rail is the SELECTED indicator; the tint is
+                    // only its backing. `bg-accent` alone measured 1.15:1
+                    // against the translucent rail and `hover:bg-accent/50`
+                    // 1.06:1 — hover and selected were the same pixel.
+                    // `--ring` on the same surface is 3.61:1 light /
+                    // 10.22:1 dark. Every row reserves the 2px so
+                    // selecting one never nudges the text.
+                    "flex w-full items-baseline justify-between gap-2 rounded-md border-l-2 border-l-transparent px-2 py-1.5 text-left text-[0.7rem] transition-colors duration-150 focus-ring",
                     active
-                      ? "bg-accent font-medium"
+                      ? "border-l-ring bg-accent font-medium"
                       : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
                     busy && !pending && "cursor-not-allowed opacity-50",
                   )}

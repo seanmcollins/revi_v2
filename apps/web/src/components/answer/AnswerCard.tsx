@@ -26,6 +26,7 @@ import { humanizeColumn, selectRenderableCharts } from "@/lib/contract";
 import { chartWindowLabel, formatWindow } from "@/lib/format";
 import { useSessionStore, type TurnRecord } from "@/lib/store";
 import { cn } from "@/lib/utils";
+import { splitErrorMessage } from "@/lib/warnings";
 
 /**
  * The composed answer: stage rail → context header (always) →
@@ -243,6 +244,7 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
  */
 function TurnErrorCard({ error }: { error: NonNullable<TurnRecord["answer"]["error"]> }) {
   const openSettings = useSessionStore((s) => s.openSettings);
+  const debug = useSessionStore((s) => s.settings.debug);
   const spendStop = error.subcode === "MODEL_SPEND_BUDGET";
   const readStop = error.subcode === "WAREHOUSE_READ_BUDGET";
   const heading = spendStop
@@ -250,6 +252,11 @@ function TurnErrorCard({ error }: { error: NonNullable<TurnRecord["answer"]["err
     : readStop
       ? "This question reads more of the warehouse than one turn allows"
       : undefined;
+  // The server's sentence, and only the server's sentence. The bracketed
+  // machine tail repeats the code chip beside it and prints raw ids and
+  // list literals into the one place a reader looks for what to do next;
+  // it goes where the rest of the operator material already lives.
+  const { sentence, machine } = splitErrorMessage(error.code, error.message);
 
   return (
     <div className="flex items-start gap-2 rounded-md border border-negative/50 bg-negative/10 px-3 py-2 text-[0.75rem]">
@@ -258,8 +265,13 @@ function TurnErrorCard({ error }: { error: NonNullable<TurnRecord["answer"]["err
         {heading && <p className="font-semibold">{heading}</p>}
         <p className={cn(heading && "mt-0.5")}>
           <code className="mr-1.5 font-mono text-[0.65rem]">{error.code}</code>
-          {error.message}
+          {sentence}
         </p>
+        {debug && machine && (
+          <p className="mt-1 break-words font-mono text-[0.62rem] text-muted-foreground">
+            {machine}
+          </p>
+        )}
         {(spendStop || error.usage) && (
           <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1 text-[0.68rem] text-muted-foreground">
             {error.usage && (

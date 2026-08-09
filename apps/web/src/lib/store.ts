@@ -620,7 +620,18 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   switchSession: async (sessionId) => {
     const { driver, streamingTurnId, replaying, newChatPending, switchingSessionId } = get();
     if (!driver || streamingTurnId || replaying || newChatPending || switchingSessionId) return;
-    if (sessionId === get().sessionId) return;
+    // "Already open" means the thread is ON SCREEN, not merely that the
+    // store holds the id. Those came apart on the first click after a page
+    // load: a workspace can hold a session id with none of its turns
+    // rebuilt (a reload, a portfolio drill-through, a turn submitted
+    // before the rail was read), and the click that would have hydrated it
+    // returned here in silence — leaving the cold-start hero, with its
+    // eight live guide chips, over a session the analyst believes they
+    // just opened. The next chip click then starts an unrelated question
+    // inside it. Gating on the thread instead of on the id makes the click
+    // do the thing it looks like it does; a session already rebuilt on
+    // screen still costs nothing.
+    if (sessionId === get().sessionId && get().turns.length > 0) return;
     if (!driver.resumeSession) {
       set({
         switchError: "This driver cannot re-open a session — the live API can.",

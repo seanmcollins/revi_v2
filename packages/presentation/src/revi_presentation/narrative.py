@@ -120,6 +120,14 @@ Rules:
   its own cites nothing, so it cannot be published — and dropping it
   strands whatever sentence referred back to it.
 - Two short paragraphs at most. No headings, no bullet lists.
+- The mandatory disclosures below are ALREADY published, verbatim, ahead of
+  whatever you write. Do not repeat them and do not contradict them: if a
+  disclosure says nothing moved the way the question asked, the movements
+  in the findings are context and must be named as context.
+
+Mandatory disclosures (already published above your text):
+
+{disclosures}
 
 Effective context:
 
@@ -183,6 +191,15 @@ Rules:
   on its own cites nothing, so it cannot be published, and dropping it
   strands whatever sentence referred back to it.
 - Four short paragraphs at most. No headings, no bullet lists.
+- The mandatory disclosures below are ALREADY published, verbatim, ahead of
+  whatever you write. Do not repeat them and do not contradict them: if a
+  disclosure says nothing moved the way the question asked, the movements
+  in the findings are context and must be named as context; if one states a
+  suppressed-cell count, no count you give may exclude those cells.
+
+Mandatory disclosures (already published above your text):
+
+{disclosures}
 
 Effective context:
 
@@ -305,6 +322,22 @@ def _apply_display_names(
     return text
 
 
+def apply_metric_display(text: str, metric_display: Mapping[str, str] | None) -> str:
+    """Rewrite every metric id in ``text`` to its governed display name.
+
+    Round-2 FN-5. This rewrite existed only inside the narrative prompt and
+    inside one TypeScript file at the wire seam
+    (``apps/web/src/lib/contract.ts``), so the *title* — the most-scanned
+    field on the card, the one that gets screenshotted — still read
+    ``timely filing at risk dollars: $22,426,000.28`` about a number the
+    platform's own caveat says is unbilled inventory. A correction applied
+    by one client is not a correction: replay, export and any second client
+    keep the mislabel. So the same substitution runs server-side, on the
+    payload, before anything is published.
+    """
+    return _apply_display_names(text, _display_substitutions(metric_display))
+
+
 def _finding_line(
     finding: FindingPayload, substitutions: Sequence[tuple[re.Pattern[str], str]] = ()
 ) -> str:
@@ -325,6 +358,7 @@ def build_narrative_prompt(
     caveats: Sequence[str] = (),
     metric_display: Mapping[str, str] | None = None,
     depth: NarrativeDepth = NarrativeDepth.SUMMARY,
+    disclosures: Sequence[str] = (),
 ) -> str:
     """Render the composition prompt from certified material only.
 
@@ -348,10 +382,12 @@ def build_narrative_prompt(
         "\n".join(f"- {_apply_display_names(line, substitutions)}" for line in caveats)
         or "- (none on this turn)"
     )
+    disclosure_lines = "\n".join(f"- {line}" for line in disclosures) or "- (none)"
     return NARRATIVE_TEMPLATES[depth].format(
         header=header.display,
         findings=finding_lines,
         caveats=caveat_lines,
+        disclosures=disclosure_lines,
         reconciliation=reconciliation or "not applicable on this turn",
         benchmarks=benchmark_lines,
     )
@@ -365,6 +401,7 @@ def build_narrative_facts(
     benchmarks: Sequence[str] = (),
     caveats: Sequence[str] = (),
     metric_display: Mapping[str, str] | None = None,
+    disclosures: Sequence[str] = (),
 ) -> NarrativeFacts:
     """The closed fact set the validator trusts.
 
@@ -397,7 +434,7 @@ def build_narrative_facts(
             names.add(match.group(1))
         for match in _PROPER_NAME.finditer(finding.statement):
             names.add(match.group(1))
-    for line in (*benchmarks, *caveats, *(metric_display or {}).values()):
+    for line in (*benchmarks, *caveats, *disclosures, *(metric_display or {}).values()):
         for token in _NUMBER_TOKEN.findall(line):
             value = _token_value(token)
             if value is not None:
@@ -418,6 +455,203 @@ def build_narrative_facts(
         numeric_values=numbers,
         allowed_names=sorted(names),
         date_tokens=dates,
+    )
+
+
+
+# ---------------------------------------------------------------------------
+# mandatory disclosures
+
+
+#: Codes that must be said BEFORE anything else. A refusal — "nothing moved
+#: the way the question asked about; what follows is context, not an
+#: answer" — cannot sit beneath two paragraphs about the movement that was
+#: found instead. There is deliberately only one family here: leading with
+#: everything is the same as leading with nothing.
+LEAD_DISCLOSURE_CODES: tuple[str, ...] = ("DIRECTION_UNMATCHED", "EMPTY_RESULT")
+
+#: Codes that must be said, after the prose, in this order. These bound how
+#: the figures may be read rather than whether they answer the question.
+TRAILING_DISCLOSURE_CODES: tuple[str, ...] = (
+    "SUPPRESSION_APPLIED",
+    "RECONCILIATION_FAILED",
+    "SNAPSHOT_AS_OF",
+    "PROBE_FAMILIES_EMPTY",
+)
+
+#: Every code the narrative may not leave unsaid.
+MANDATORY_DISCLOSURE_CODES: tuple[str, ...] = (
+    *LEAD_DISCLOSURE_CODES,
+    *TRAILING_DISCLOSURE_CODES,
+)
+
+#: Codes whose sentence is composed here rather than lifted from the
+#: engine's prose, because the engine's sentence omits a number the reader
+#: needs (the suppressed-cell count) or does not exist as prose at all (the
+#: card/answer reconciliation).
+_COMPOSED_CODES = frozenset({"SUPPRESSION_APPLIED", "RECONCILIATION_FAILED"})
+
+
+def _sentence(text: str) -> str:
+    body = text.strip()
+    if not body:
+        return ""
+    body = body[0].upper() + body[1:]
+    return body if body.endswith((".", "!", "?")) else body + "."
+
+
+def _strip_code_prefix(message: str) -> str:
+    head, sep, tail = message.partition(": ")
+    if sep and " " not in head and head.lower() == head:
+        return tail
+    return message
+
+
+def reconciliation_disclosure(
+    *,
+    status: str,
+    card_cents: int | None,
+    answer_cents: int | None,
+    delta_cents: int | None,
+    delta_fraction: float | None,
+) -> str:
+    """The sentence a card-to-drill reconciliation owes the reader.
+
+    The strip on the wire read ``diverged; card=$178,216.82;
+    answer=$195,873.92; +9.9%`` while the prose directly beneath it read
+    "Reconciliation was not performed on this turn because this is a first
+    turn" — the exact sentence the strip exists to eliminate. The lineage
+    verdict was true and was about something else; the two figures the
+    reader had just compared went unmentioned.
+    """
+    card = f"${card_cents / 100:,.2f}" if card_cents is not None else "no figure"
+    answer = f"${answer_cents / 100:,.2f}" if answer_cents is not None else "no figure"
+    if answer_cents is None:
+        return _sentence(
+            f"The detection card this drill was opened from published {card}; this answer "
+            "produces no comparable dollar figure, so the two are not reconciled here"
+        )
+    gap = ""
+    if delta_cents is not None:
+        pct = f" ({delta_fraction:+.1%})" if delta_fraction is not None else ""
+        gap = f", a difference of ${delta_cents / 100:,.2f}{pct}"
+    if status == "agreed":
+        return _sentence(
+            f"This answer reconciles against the detection card it was opened from: the card "
+            f"published {card} and this answer publishes {answer}{gap}"
+        )
+    if status == "not_comparable":
+        return _sentence(
+            f"The detection card published {card} and this answer publishes {answer}{gap}, but "
+            "the two are not comparable — the governed contract is an as-of balance and the "
+            "card's figure was computed over a window, so the gap is a difference of "
+            "measurement kind rather than a disagreement"
+        )
+    return _sentence(
+        f"The detection card this drill was opened from published {card} and this answer "
+        f"publishes {answer}{gap}: the detector's window, population or valuation basis is "
+        "not the contract's, and both figures stand as what each system measured"
+    )
+
+
+def mandatory_disclosures(
+    classified_warnings: Sequence[tuple[str, str]],
+    *,
+    reconciliation_sentence: str | None = None,
+    suppressed_cells: int = 0,
+    total_cells: int = 0,
+) -> tuple[list[str], list[str]]:
+    """The sentences this answer may not be published without.
+
+    Round-2 FN-3, which five of six review personas hit as four separate
+    symptoms of one defect. ``DIRECTION_UNMATCHED`` fired correctly —
+    "nothing fell; the movements below are the opposite direction, shown as
+    context, not as an answer to what was asked" — and the narrative opened
+    "three payers show denial rates rising" and never said nothing
+    improved. ``SUPPRESSION_APPLIED`` shipped while the narrative wrote
+    "three payers were measured" with nine computable and four censored.
+    ``anomaly_reconciliation`` shipped a divergence strip while the prose
+    beneath it said reconciliation was not performed. In every case the
+    structured fact was ON THE SAME RESPONSE the prose ignored.
+
+    These sentences are therefore composed HERE, from the payload, and
+    prepended to the validated prose rather than requested from the model:
+    a mandatory disclosure that a composer may decline to write, or that
+    grounding validation may drop, is not mandatory. They carry no figure
+    that is not already certified on the answer — the suppressed-cell count
+    off the frame, the two impact figures off the reconciliation strip —
+    which is why they are exempt from the grounding pass that guards
+    *generated* prose.
+
+    ``classified_warnings`` is ``(code, message)`` in the order the engine
+    emitted them; classification stays in one place (the API's warning
+    table) rather than being re-derived from substrings here.
+
+    Returns ``(lead, trail)``: sentences that must precede the composed
+    prose and sentences that must follow it. Only a refusal leads —
+    everything leading is the same as nothing leading.
+    """
+    by_code: dict[str, str] = {}
+    for code, message in classified_warnings:
+        by_code.setdefault(code, message)
+
+    def stated(codes: Sequence[str]) -> list[str]:
+        out: list[str] = []
+        for code in codes:
+            message = by_code.get(code)
+            if message is None or code in _COMPOSED_CODES:
+                continue
+            out.append(_sentence(_strip_code_prefix(message)))
+        return out
+
+    lead = stated(LEAD_DISCLOSURE_CODES)
+    trail: list[str] = []
+    if "SUPPRESSION_APPLIED" in by_code and suppressed_cells > 0:
+        scope = f" of {total_cells}" if total_cells else ""
+        noun = "cell" if suppressed_cells == 1 else "cells"
+        trail.append(
+            _sentence(
+                f"Small-cell suppression withheld {suppressed_cells}{scope} {noun} on this "
+                "answer, so every figure and count here describes only the cells that "
+                "survived it — never the whole population"
+            )
+        )
+    failed = by_code.get("RECONCILIATION_FAILED")
+    if failed is not None:
+        _, _, detail = failed.partition("RECONCILIATION_FAILED: ")
+        trail.append(
+            _sentence(
+                "This answer does not reconcile against the answer it was drilled from, and "
+                f"both figures stand published until it does — {detail or failed}"
+            )
+        )
+    trail.extend(stated(TRAILING_DISCLOSURE_CODES))
+    if reconciliation_sentence:
+        trail.append(_sentence(reconciliation_sentence))
+    return lead, trail
+
+
+def empty_narrative(classified_warnings: Sequence[tuple[str, str]]) -> str | None:
+    """Prose for a turn that published no finding.
+
+    ``EMPTY_RESULT`` returned ``outcome: "answer"``, ``findings: []`` and
+    ``narrative: null`` on the wire — four personas, three separate
+    questions — and the client then rendered "No findings for this
+    question" over a population where a value exists (9/214 = 4.21% for
+    Federal Medicare). A null narrative is not an absence of prose; it is
+    an absence of the explanation the analyst most needs, on exactly the
+    turn that most needs it. The cause is already structured on the
+    response, so it is stated.
+    """
+    sentences = [
+        _sentence(_strip_code_prefix(message))
+        for code, message in classified_warnings
+        if code in ("EMPTY_RESULT", "DIRECTION_UNMATCHED", "PROBE_FAMILIES_EMPTY")
+    ]
+    if not sentences:
+        return None
+    return " ".join(
+        ["This turn published no finding, and here is why.", *dict.fromkeys(sentences)]
     )
 
 

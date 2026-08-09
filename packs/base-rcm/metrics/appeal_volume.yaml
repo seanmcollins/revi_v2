@@ -24,7 +24,8 @@ description: >-
   work is actually staffed. Sign is neutral on purpose: more appeals is not
   better or worse on its own, it is capacity spent, and whether it was spent
   well is appeal_overturn_rate (did we win) read against denied_dollars (was
-  it worth pursuing). Watermark caveat: appeals on recent denials have not
-  been filed yet, so trailing windows understate the pipeline. This
+  it worth pursuing). Population caveat: appeals on recent denials have
+  not been filed yet, so a window near the data edge understates the
+  pipeline. This
   warehouse records no appeal filing date, so an appeal is dated by the
   denial it answers, never by when the work happened.

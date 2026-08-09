@@ -323,7 +323,7 @@ export interface components {
              * @default unavailable
              * @enum {string}
              */
-            impact_agreement: "agreed" | "diverged" | "unavailable";
+            impact_agreement: "agreed" | "diverged" | "not_comparable" | "unavailable";
             /**
              * Impact Cents
              * @default 0
@@ -457,7 +457,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "agreed" | "diverged" | "unavailable";
+            status: "agreed" | "diverged" | "not_comparable" | "unavailable";
             /**
              * Summary
              * @default
@@ -633,6 +633,8 @@ export interface components {
          * @description Structured chips plus the canonical one-line display string.
          */
         ContextHeaderPayload: {
+            /** As Of */
+            as_of?: string | null;
             /** Basis */
             basis: string;
             /** Cohort */
@@ -1079,6 +1081,8 @@ export interface components {
              * @default false
              */
             pinned: boolean;
+            /** Requested Values */
+            requested_values?: string[];
             /** Values */
             values: string[];
         };
@@ -1098,6 +1102,8 @@ export interface components {
             grade: string;
             /** Impact Cents */
             impact_cents?: number | null;
+            /** Metric Caveats */
+            metric_caveats?: string[];
             /** Metric Ids */
             metric_ids?: string[];
             /** Referent */
@@ -1139,6 +1145,8 @@ export interface components {
             /** Investigation Id */
             investigation_id: string;
             metric?: components["schemas"]["MetricProvenancePayload"] | null;
+            /** Metric Display */
+            metric_display?: components["schemas"]["MetricDisplayPayload"][];
             /** Parent Id */
             parent_id?: string | null;
             /** Plan Hash */

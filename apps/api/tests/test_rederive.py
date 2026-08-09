@@ -12,7 +12,12 @@ from __future__ import annotations
 
 from datetime import date, datetime
 
-from revi_api.rederive import ReDerivedImpact, compare_impact, money_total
+from revi_api.rederive import (
+    ReDerivedImpact,
+    compare_impact,
+    money_total,
+    non_money_reason,
+)
 from revi_kernel.frame import EvidenceFrame, FrameColumn, FrameSchema, ProbeProvenance
 from revi_kernel.grades import EvidenceGrade
 from revi_kernel.refs import DimensionRef, MetricRef
@@ -142,3 +147,72 @@ class TestComparison:
             unattempted_note="",
         )
         assert comparison.status == "diverged" and comparison.delta_cents == 500
+
+
+# ---------------------------------------------------------------------------
+# round-2 FN-1: a non-money contract has no dollar figure to reconcile
+
+
+class _FakeContract:
+    def __init__(self, metric_id: str, unit: str) -> None:
+        self.id = metric_id
+        self.unit = unit
+
+
+class _FakePack:
+    def __init__(self, units: dict[str, str]) -> None:
+        self._units = units
+
+    def metric(self, metric_id: str) -> _FakeContract | None:
+        unit = self._units.get(metric_id)
+        return None if unit is None else _FakeContract(metric_id, unit)
+
+
+def test_ratio_contract_has_no_comparable_dollar_figure() -> None:
+    """The defect: ``late_charge_pct`` is ``unit: ratio`` over a money
+    numerator, so summing its frame published ``$150.92`` beside a
+    detector's ``$37,504`` and called it a -99.6% divergence. The declared
+    unit decides, not whatever money column the frame happens to carry."""
+    pack = _FakePack({"late_charge_pct": "ratio", "dnfb_dollars": "money_cents"})
+    reason = non_money_reason(("late_charge_pct",), pack)
+    assert reason is not None
+    assert "late_charge_pct" in reason and "ratio" in reason
+    # A money contract is not gated, and a mixed drill keeps the money half.
+    assert non_money_reason(("dnfb_dollars",), pack) is None
+    assert non_money_reason(("late_charge_pct", "dnfb_dollars"), pack) is None
+    # A metric the pack cannot resolve is not evidence of anything.
+    assert non_money_reason(("not_in_this_pack",), pack) is None
+
+
+def test_a_refused_rederivation_is_unavailable_never_zero() -> None:
+    comparison = compare_impact(
+        detector_cents=3_750_442,
+        window_start=date(2026, 7, 1),
+        window_end=date(2026, 7, 31),
+        rederived=ReDerivedImpact(unavailable_reason="'late_charge_pct' declares unit 'ratio'"),
+        unattempted_note="",
+    )
+    assert comparison.status == "unavailable"
+    assert comparison.platform_cents is None
+    assert comparison.delta_fraction is None
+    assert "ratio" in comparison.note
+
+
+def test_a_snapshot_gap_is_not_attributed_to_the_detector() -> None:
+    """FN-2: an as-of balance against a windowed flow is a difference of
+    KIND. Both figures publish; the percentage does not, because a
+    percentage there reads as a disagreement between two measurements of
+    one thing."""
+    comparison = compare_impact(
+        detector_cents=17_821_682,
+        window_start=date(2026, 7, 3),
+        window_end=date(2026, 7, 29),
+        rederived=ReDerivedImpact(cents=19_587_392, measure_id="dnfb_dollars", rows=1),
+        unattempted_note="",
+        not_comparable_reason="the governed contract is a snapshot.",
+    )
+    assert comparison.status == "not_comparable"
+    assert comparison.platform_cents == 19_587_392
+    assert comparison.delta_cents == 1_765_710
+    assert comparison.delta_fraction is None
+    assert "not comparable" in comparison.note

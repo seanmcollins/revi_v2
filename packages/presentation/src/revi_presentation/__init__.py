@@ -10,6 +10,8 @@ from revi_presentation.charts import (
     build_chart_specs,
 )
 from revi_presentation.narrative import (
+    LEAD_DISCLOSURE_CODES,
+    MANDATORY_DISCLOSURE_CODES,
     NARRATIVE_TEMPLATE,
     NARRATIVE_TEMPLATE_ANALYST,
     NARRATIVE_TEMPLATE_ID,
@@ -17,13 +19,19 @@ from revi_presentation.narrative import (
     NARRATIVE_TEMPLATES,
     REDACTION_NOTE,
     REDACTION_WARNING_PREFIX,
+    apply_metric_display,
     build_narrative_facts,
     build_narrative_prompt,
+    empty_narrative,
+    mandatory_disclosures,
+    reconciliation_disclosure,
     template_hash,
     validate_narrative,
 )
 
 __all__ = [
+    "LEAD_DISCLOSURE_CODES",
+    "MANDATORY_DISCLOSURE_CODES",
     "NARRATIVE_TEMPLATE",
     "NARRATIVE_TEMPLATES",
     "NARRATIVE_TEMPLATE_ANALYST",
@@ -33,11 +41,15 @@ __all__ = [
     "REDACTION_WARNING_PREFIX",
     "ChartSuggestion",
     "RecipeSpec",
+    "apply_metric_display",
     "build_chart_spec",
     "build_chart_specs",
     "build_header_payload",
     "build_narrative_facts",
     "build_narrative_prompt",
+    "empty_narrative",
+    "mandatory_disclosures",
+    "reconciliation_disclosure",
     "template_hash",
     "validate_narrative",
 ]

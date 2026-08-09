@@ -110,6 +110,16 @@ export function ContextHeader({
                   <span className="font-medium">{f.dimensionLabel}</span>{" "}
                   {f.op === "not_in" ? "excludes" : "="} {f.values.join(", ")}
                   <span className="text-muted-foreground"> — from {f.originTurn}</span>
+                  {/* The chip states the predicate that RAN. What was typed
+                      is worth keeping and belongs here, one level in, said
+                      as history rather than as scope — never the other way
+                      round, which is how the header came to name a payer
+                      this warehouse has never held. */}
+                  {f.requestedValues && (
+                    <span className="block text-muted-foreground">
+                      you typed “{f.requestedValues.join(", ")}” — matched to the value above
+                    </span>
+                  )}
                 </li>
               ))}
             </ul>

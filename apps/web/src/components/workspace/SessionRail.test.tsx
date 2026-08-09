@@ -128,6 +128,42 @@ describe("SessionRail — the session list is the server's, or nothing", () => {
     expect(useSessionStore.getState().sessionId).toBe("sess_b");
   });
 
+  it("draws the current row with a real indicator, not a 1.15:1 tint", async () => {
+    useSessionStore.getState().setDriver(
+      listingDriver({
+        sessions: [row(), row({ sessionId: "sess_b", title: "COB investigation" })],
+        total: 2,
+      }),
+    );
+    useSessionStore.setState({ sessionId: "sess_a" });
+
+    renderRail();
+    const current = await screen.findByRole("button", {
+      name: /Why did cash decline last week\?/,
+    });
+    const other = screen.getByRole("button", { name: /COB investigation/ });
+
+    // `bg-accent` measures 1.15:1 against the translucent rail and its
+    // hover variant 1.06:1 — the tint could not tell selected from hovered.
+    // `--ring` on that surface is 3.61:1 light / 10.22:1 dark.
+    expect(current.className).toContain("border-l-ring");
+    expect(other.className).toContain("border-l-transparent");
+    expect(other.className).not.toContain("border-l-ring");
+  });
+
+  it("paints the primary CTA from the stops white is legible on", async () => {
+    useSessionStore.getState().setDriver(listingDriver({ sessions: [], total: 0 }));
+
+    renderRail();
+
+    // White measured 3.74:1 light / 2.49:1 dark on the display stops — the
+    // most prominent button in the product, below AA in both themes. The
+    // CTA stops carry it at 5.21:1 → 5.48:1.
+    const cta = await screen.findByRole("button", { name: /New chat/ });
+    expect(cta.className).toContain("accent-gradient-cta");
+    expect(cta.className).not.toMatch(/(^|\s)accent-gradient(\s|$)/);
+  });
+
   it("does not switch while a turn is streaming", async () => {
     const resumeSession = vi.fn();
     useSessionStore

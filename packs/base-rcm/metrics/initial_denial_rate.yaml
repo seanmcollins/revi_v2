@@ -35,8 +35,11 @@ description: >-
   claims. The published 3-month-average smoothing is a comparison-window
   choice made at probe time, not baked into the contract). Differs from
   denial_rate in
-  denominator and basis: submitted-but-not-yet-adjudicated claims sit in the
-  denominator only, so recent windows read low until adjudication catches up
-  — the watermark context header discloses this. Benchmark context: Kodiak
+  denominator and basis. Population caveat: submitted-but-not-yet-adjudicated
+  claims sit in the denominator only, so a window read close to the data edge
+  reads low until adjudication catches up, and a period-over-period delta
+  whose two windows differ in adjudication maturity can carry the wrong sign
+  for that reason alone — the maturity is disclosed, the sign is not
+  corrected for it. Benchmark context: Kodiak
   reports 11.4-11.6 percent averages (2024-2025); pair with the final-denial
   view (denial_write_off_dollars) and never conflate the two.

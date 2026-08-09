@@ -102,3 +102,39 @@ export function warningBody(code: string, message: string): string {
   if (normalized !== code) return message;
   return message.slice(separator + 2).trim() || message;
 }
+
+/**
+ * An error message split into the sentence written for the reader and the
+ * machine tail written for whoever has to fix it.
+ *
+ * The envelope carries both in one string:
+ *
+ *   "That metric can't be dated the way this question needs in this
+ *    warehouse. … [DATE_BASIS_INVALID: date basis 'remit' is not allowed
+ *    for metric 'ar_balance' (allowed: ['service', 'submission'])]"
+ *
+ * and the card was printing the whole thing under a `<code>` chip carrying
+ * the same code — so the code appeared twice, next to a raw metric id and
+ * a Python list literal, in the place a reader looks to find out what to
+ * do next. The tail is operator material: it belongs in debug mode, where
+ * the trace already lives.
+ *
+ * Split ONLY when the bracketed token IS this error's own code, so nothing
+ * that carries information the envelope has not already stated is removed.
+ * A tail naming some other code stays on screen, because this function
+ * cannot prove it is a duplicate and will not guess.
+ *
+ * The client composes NOTHING here. Whatever recovery an error offers is
+ * the server's sentence to write — a recovery derived on this side is how
+ * a card came to recommend a date basis the same message declares illegal.
+ */
+export function splitErrorMessage(
+  code: string,
+  message: string,
+): { sentence: string; machine?: string } {
+  const match = /\s*\[([A-Z][A-Z0-9_]*):[\s\S]*\]\s*$/.exec(message);
+  if (!match || match[1] !== code) return { sentence: message };
+  const sentence = message.slice(0, match.index).trim();
+  if (sentence === "") return { sentence: message };
+  return { sentence, machine: match[0].trim() };
+}

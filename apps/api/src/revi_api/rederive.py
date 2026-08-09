@@ -39,7 +39,7 @@ them; and a card whose spec will not plan is skipped before any query.
 from __future__ import annotations
 
 import logging
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -101,13 +101,50 @@ AGREEMENT_TOLERANCE_FRACTION = Decimal("0.005")
 class ImpactComparison:
     """Detector figure vs platform figure, with the sentence that explains it."""
 
-    status: str  # agreed | diverged | unavailable
+    status: str  # agreed | diverged | not_comparable | unavailable
     detector_cents: int
     platform_cents: int | None = None
     delta_cents: int | None = None
     delta_fraction: float | None = None
     measure_id: str | None = None
     note: str = ""
+
+
+def non_money_reason(metric_ids: Sequence[str], pack: object) -> str | None:
+    """Why this drill's contracts cannot produce a dollar figure — or ``None``.
+
+    Round-2 FN-1. :func:`money_total` reads the *frame*: it sums the first
+    column stamped ``money_cents`` in the last money-bearing frame. That is
+    blind to what the drill's metric contract actually declares, and a
+    ratio contract whose numerator happens to be money — ``late_charge_pct``
+    is ``unit: ratio`` over ``{sum: late_charge_cents}`` — leaks its
+    internal numerator out as the platform's headline re-derivation. Live,
+    card ANM-026 published ``$37,504 detected / $151 re-derived / -99.6%``
+    while the drill of that same card answered ``0.023362`` and its own
+    narrative said the metric "is not a measure of dollars at risk".
+
+    So the *declared* unit decides. A drill that names no money contract
+    has no comparable dollar figure, and the honest answer is that there is
+    nothing to compare — not a coerced number with a fabricated divergence.
+    A metric the pack cannot resolve is not evidence of anything and does
+    not veto the others; the frame gate in :func:`money_total` still
+    applies underneath this one.
+    """
+    declared: list[tuple[str, str]] = []
+    for metric_id in metric_ids:
+        contract = pack.metric(metric_id)  # type: ignore[attr-defined]
+        unit = getattr(contract, "unit", None)
+        if unit is None:
+            continue
+        declared.append((metric_id, str(unit)))
+    if not declared or any(unit == _MONEY_UNIT for _, unit in declared):
+        return None
+    named = "; ".join(f"{metric_id!r} declares unit {unit!r}" for metric_id, unit in declared)
+    return (
+        f"{named} — a non-money contract produces no comparable dollar figure, so there "
+        "is nothing to reconcile against the card's dollar impact (any money column in "
+        "its frame is an internal numerator, not the metric)"
+    )
 
 
 def compare_impact(
@@ -117,11 +154,22 @@ def compare_impact(
     window_end: date,
     rederived: ReDerivedImpact | None,
     unattempted_note: str,
+    not_comparable_reason: str | None = None,
 ) -> ImpactComparison:
     """Reconcile the two figures, in one place, for card and answer alike.
 
     The card's strip and the drill answer's strip must never be able to
     describe the same pair of numbers differently, so both call this.
+
+    ``not_comparable_reason`` is the round-2 FN-2 guard: when the two
+    figures are not measuring over the same kind of period at all — a
+    ``kind: snapshot`` contract is an as-of balance and applies no window,
+    while the detector fired over a start..end range — a percentage delta
+    is not a disagreement between two systems, it is an artifact of
+    comparing a balance to a flow. The platform's figure is still
+    published; only the *verdict* changes, because attributing that gap to
+    the detector's population or valuation basis would be a claim the
+    platform cannot support.
     """
     if rederived is None:
         return ImpactComparison(
@@ -139,6 +187,26 @@ def compare_impact(
     delta = rederived.cents - detector_cents
     fraction = Decimal(delta) / Decimal(abs(detector_cents) or 1)
     agreed = abs(fraction) <= AGREEMENT_TOLERANCE_FRACTION
+    if not_comparable_reason is not None and not agreed:
+        return ImpactComparison(
+            status="not_comparable",
+            detector_cents=detector_cents,
+            platform_cents=rederived.cents,
+            delta_cents=delta,
+            # Deliberately withheld: a percentage here would be read as a
+            # divergence between two measurements of the same thing, and
+            # these are measurements of two different things.
+            delta_fraction=None,
+            measure_id=rederived.measure_id,
+            note=(
+                f"The detection system reported ${detector_cents / 100:,.2f} for this cell "
+                f"over {window_start}..{window_end}. This platform re-derived "
+                f"${rederived.cents / 100:,.2f} from the governed "
+                f"{rederived.measure_id or 'metric'} contract. The two are not comparable: "
+                f"{not_comparable_reason} The difference is not attributed to the "
+                "detector, and this card is excluded from the divergence count."
+            ),
+        )
     basis = (
         f"The detection system reported ${detector_cents / 100:,.2f} for this cell in its "
         f"own window ({window_start}..{window_end}), on its own population and valuation "
@@ -200,6 +268,7 @@ def build_rederiver(
     validator: object,
     executor: object,
     calculator: object,
+    pack: object,
     pack_snapshot_id: str,
     pack_id: str,
     pack_version: str,
@@ -216,6 +285,13 @@ def build_rederiver(
     async def rederive(
         spec: TypedInvestigationSpec, watermark: DataWatermark
     ) -> ReDerivedImpact:
+        # Before any planning or query: does this drill's own contract even
+        # produce dollars? A ratio contract does not, and summing whatever
+        # money column its frame happens to carry publishes a fabricated
+        # headline (FN-1). Cheap, and it fails the same way every time.
+        refusal = non_money_reason(tuple(spec.metric_ids), pack)
+        if refusal is not None:
+            return ReDerivedImpact(unavailable_reason=refusal)
         probe_session = Session(
             id="portfolio-rederivation-probe",
             tenant="portfolio",

@@ -116,7 +116,22 @@ export interface FilterClause {
   dimension: string;
   dimensionLabel: string;
   op: "eq" | "neq" | "in" | "not_in" | "range" | "is_null" | "contains";
+  /**
+   * The values the predicate ACTUALLY ran with — the corrected ones when
+   * the engine matched "lakewood medicaid mco" to the payer that exists.
+   * The chip states this and only this: a header whose entire job is to
+   * say which population ran cannot show a value the warehouse has never
+   * held, two rows above the caution saying so.
+   */
   values: string[];
+  /**
+   * What the user typed, when the engine corrected it (`requested_values`
+   * on the wire). Present ONLY when it differs from `values`, so the
+   * presence of the field is itself the signal that a correction happened;
+   * an older payload that publishes no such field leaves it undefined and
+   * the chip renders exactly as before.
+   */
+  requestedValues?: string[];
   originTurn: string;
   /** A session pin (carryover law 5) rather than a turn-local filter. */
   pinned?: boolean;

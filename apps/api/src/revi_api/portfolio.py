@@ -274,8 +274,25 @@ _NOT_ATTEMPTED = (
 )
 
 
+#: Why a ``kind: snapshot`` contract and a detector's windowed figure are
+#: not two measurements of the same thing (round-2 FN-2). A snapshot is a
+#: balance as of the watermark; it applies no start..end range at all, so
+#: the gap between it and a card fired over a window is a difference of
+#: *kind*, not a disagreement this platform can lay at the detector's door.
+SNAPSHOT_NOT_COMPARABLE = (
+    "the governed contract is a snapshot (an as-of balance at the watermark) and applies "
+    "no start..end window, while the card's figure was computed over one, so the gap "
+    "between them is a difference of measurement kind rather than of population, window "
+    "or valuation basis."
+)
+
+
 def _reconciliation_fields(
-    record: AnomalyRecord, rederived: ReDerivedImpact | None, *, drillable: bool
+    record: AnomalyRecord,
+    rederived: ReDerivedImpact | None,
+    *,
+    drillable: bool,
+    snapshot_drill: bool = False,
 ) -> dict[str, object]:
     """Card fields for "does the platform's own number agree with this?"
 
@@ -296,6 +313,7 @@ def _reconciliation_fields(
             else "this card cannot be investigated at this catalog and pack version, so "
             "there is no governed contract figure to reconcile the detector's against"
         ),
+        not_comparable_reason=SNAPSHOT_NOT_COMPARABLE if snapshot_drill else None,
     )
     return {
         "reconciled_impact_cents": comparison.platform_cents,
@@ -318,6 +336,7 @@ def build_portfolio(
     drillability: DrillabilityProbe | None = None,
     rederived: Mapping[str, ReDerivedImpact] | None = None,
     metric_display: MetricDisplayRules | None = None,
+    snapshot_metric_ids: frozenset[str] = frozenset(),
 ) -> PortfolioResponse:
     """Rank the anomaly population by the governed priority formula, then
     float the cards the platform can actually investigate to the top.
@@ -484,6 +503,9 @@ def build_portfolio(
                     record,
                     (rederived or {}).get(record.anomaly_id),
                     drillable=drillable,
+                    snapshot_drill=any(
+                        mid in snapshot_metric_ids for mid in drill_spec.metric_ids
+                    ),
                 ),
             )
         )
@@ -553,7 +575,20 @@ def _reconciliation_warnings(cards: list[AnomalyCard]) -> list[str]:
     if not drillable:
         return out
     unavailable = [c for c in drillable if c.impact_agreement == "unavailable"]
+    # Counted, and counted apart. A card whose contract is a ratio or a
+    # snapshot never had a comparable dollar figure to diverge FROM, and
+    # folding it into the divergence statistic is how "-99.6% divergence"
+    # got published about a percentage (FN-1) and how a balance-vs-flow gap
+    # got attributed to the detector (FN-2).
     diverged = [c for c in drillable if c.impact_agreement == "diverged"]
+    not_comparable = [c for c in drillable if c.impact_agreement == "not_comparable"]
+    if not_comparable:
+        out.append(
+            f"{len(not_comparable)} of {len(drillable)} ranked cards name a governed "
+            "contract that is not comparable to the detector's dollar figure (a snapshot "
+            "balance against a windowed flow); both figures are published on each card "
+            "and neither is stated as a divergence from the other"
+        )
     if unavailable:
         out.append(
             f"{len(unavailable)} of {len(drillable)} ranked cards could not be re-derived "

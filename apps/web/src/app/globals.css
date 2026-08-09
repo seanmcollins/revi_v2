@@ -58,6 +58,14 @@
 
   --accent-from: #0d9488;
   --accent-to: #2a63d4;
+  /* The same gradient re-stopped for WHITE TEXT on top of it. The display
+     stops are chosen for the surface; these are chosen for the label, and
+     they are identical in both themes because the text is white in both:
+     white on #0b7a70 = 5.21:1, on #2a63d4 = 5.48:1, midpoint 5.53:1.
+     The display stops carry white at 3.74:1 light / 2.49:1 dark, which is
+     below AA for the most prominent button in the product. */
+  --cta-from: #0b7a70;
+  --cta-to: #2a63d4;
   --glow-a: rgba(13, 148, 136, 0.07);
   --glow-b: rgba(42, 99, 212, 0.05);
 
@@ -107,6 +115,10 @@
 
   --accent-from: #14b8a6;
   --accent-to: #3987e5;
+  /* Deliberately NOT lightened for dark mode: the label is white here too,
+     so the stop that makes white legible is the same stop. */
+  --cta-from: #0b7a70;
+  --cta-to: #2a63d4;
   --glow-a: rgba(45, 212, 191, 0.055);
   --glow-b: rgba(57, 135, 229, 0.045);
 
@@ -209,9 +221,17 @@ body {
   -webkit-backdrop-filter: blur(14px);
 }
 
-/* The one gradient accent: primary actions + active states only. */
+/* The one gradient accent: primary actions + active states only.
+   `.accent-gradient` is the DECORATIVE stop pair — it may sit under an
+   icon or a glow, never under a label. Anything that carries text uses
+   `.accent-gradient-cta`, whose stops are picked so white passes AA
+   across the whole sweep. Two classes rather than one because the fix
+   that darkened every gradient in the product also darkened the glow. */
 .accent-gradient {
   background-image: linear-gradient(135deg, var(--accent-from), var(--accent-to));
+}
+.accent-gradient-cta {
+  background-image: linear-gradient(135deg, var(--cta-from), var(--cta-to));
 }
 .accent-gradient-text {
   background-image: linear-gradient(120deg, var(--accent-from), var(--accent-to));
@@ -233,6 +253,27 @@ body {
    analyst is currently reading. Fainter than the hero — atmosphere only. */
 .answer-glow {
   background: radial-gradient(34rem 18rem at 50% 0%, var(--glow-a), transparent 72%);
+}
+
+/* ---------------------------------------------------------------------------
+   ONE focus ring for the bare controls.
+
+   `ui/button.tsx` and the other shadcn primitives carry their own (a
+   `focus-visible:border-ring` + soft `ring-ring/50` pair). Everything else
+   in this app — the underlined text buttons in the portfolio panel, the
+   chip triggers — is a bare `<button>`, and the round-1 fix pass gave each
+   of them `focus-visible:outline-none focus-visible:ring-2 ring-ring/60`
+   by hand. `--ring` at 60% measures 2.15:1 on card and 2.06:1 on page in
+   light, i.e. BELOW the 3:1 SC 1.4.11 floor, and each of those elements
+   had a compliant UA outline before `outline-none` removed it.
+
+   A solid outline at full `--ring` is 3.74:1 vs card, 3.43:1 vs page,
+   3.61:1 vs the translucent rail and 3.26:1 vs sunken in light; 10.05 /
+   10.63 / 10.22 in dark. It lives here, once, so it cannot drift again.
+   Unlayered on purpose: it must win over Tailwind's layered utilities. */
+.focus-ring:focus-visible {
+  outline: 2px solid var(--ring);
+  outline-offset: 2px;
 }
 
 /* Every number the user sees is load-bearing. */

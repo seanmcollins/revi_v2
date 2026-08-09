@@ -20,4 +20,6 @@ description: >-
   arise from duplicate payer payments later refunded — see pack NOTES).
   Credit balances are liabilities with regulatory return deadlines, so
   higher is bad; MAP AR-9's days form is a transform over this contract and
-  a daily-revenue proxy, labeled when used.
+  a daily-revenue proxy, labeled when used. Population caveat: this is a
+  balance standing as of the snapshot, not a flow accumulated over a window,
+  so narrowing the window does not narrow the figure.

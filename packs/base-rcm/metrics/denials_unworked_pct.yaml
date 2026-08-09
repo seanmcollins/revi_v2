@@ -28,8 +28,7 @@ description: >-
   patient-responsibility category records (PR-group deductible, copay and
   coinsurance notices) are removed from both sides — they are billing
   instructions, not workable denials, and would inflate the unworked share.
-  Watermark note: recent denials legitimately show NONE before an appeal is
-  filed, so
-  trailing windows overstate abandonment near the data edge. Benchmark
-  context: industry sweeps put never-worked denials near two-thirds of all
+  Population caveat: recent denials legitimately show NONE before an appeal
+  is filed, so a window near the data edge overstates abandonment.
+  Benchmark context: industry sweeps put never-worked denials near two-thirds of all
   denials.
