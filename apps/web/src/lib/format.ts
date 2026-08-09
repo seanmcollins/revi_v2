@@ -237,6 +237,25 @@ export function formatMeasure(value: number, unit: MeasureUnit, digits = 1): str
   }
 }
 
+/**
+ * A MOVEMENT in a measure's own unit, always signed.
+ *
+ * A rate's movement is in percentage POINTS, and "+2.1%" beside a relative
+ * "+50.0%" on the same tooltip line is two different quantities wearing
+ * one symbol — so a percent measure's delta says `pp` and only the
+ * relative change keeps the `%`.
+ */
+export function formatMeasureDelta(value: number, unit: MeasureUnit, digits = 1): string {
+  if (unit === "cents") return formatSignedCents(value);
+  if (unit === "count") {
+    if (value === 0) return "0";
+    return `${value < 0 ? MINUS : "+"}${formatCount(Math.abs(value))}`;
+  }
+  if (value === 0) return unit === "percent" ? "0.0pp" : "0.0 d";
+  const body = `${Math.abs(value).toFixed(digits)}${unit === "percent" ? "pp" : " d"}`;
+  return `${value < 0 ? MINUS : "+"}${body}`;
+}
+
 /** The axis-tick form: compact money, everything else as-is but terse. */
 export function formatMeasureTick(value: number, unit: MeasureUnit): string {
   switch (unit) {

@@ -38,6 +38,12 @@ export function FindingCard({ finding, turnId }: { finding: Finding; turnId: str
   // disagreeing about what kind of number it is.
   const bound = finding.measured?.isBound === true ? finding.measured : undefined;
 
+  // The endpoints of a stated movement that are ceilings rather than
+  // readings — derived at the wire seam from the turn's own temporal frame
+  // (see `Finding.boundedMovement`), because a shape finding publishes
+  // first/last/delta and no bound anatomy of its own.
+  const movement = finding.boundedMovement;
+
   const tone =
     finding.impactKind === "delta" && finding.impactCents !== undefined
       ? deltaTone(finding.impactCents, finding.directionOfGood)
@@ -132,9 +138,29 @@ export function FindingCard({ finding, turnId }: { finding: Finding; turnId: str
               </span>
             </p>
           )}
+          {/* THE MOVEMENT IS NOT MEASURABLE. A trend finding states a
+              first-to-last change, and live both of its endpoints are
+              suppression ceilings (over 133 records and over 111) — so
+              "up 1.5 points" is a difference between two upper bounds,
+              which has no sign and no size. "≤ 1.5 points" would not be a
+              weaker version of the claim; it would be a different false
+              one. What the card publishes is the absence, above the
+              engine's own sentence rather than instead of it. */}
+          {movement && (
+            <p className="mt-1 text-[0.62rem] font-medium leading-snug text-warning">
+              Movement not measurable
+              <span className="ml-1 font-normal text-muted-foreground">
+                — {movementEndpoints(movement)}. A difference between ceilings is not a measured
+                change.
+              </span>
+            </p>
+          )}
           <p className="mt-1.5 flex items-center gap-1.5 text-[0.65rem] text-muted-foreground">
             {finding.impactLabel}
-            {finding.deltaPct !== undefined && (
+            {/* Suppressed on a movement between ceilings for the same
+                reason the stat is: a percent change computed from two
+                bounds is arithmetic on numbers nobody measured. */}
+            {finding.deltaPct !== undefined && movement === undefined && (
               <span className={cn("num font-medium", TONE_TEXT[tone])}>
                 {formatSignedPct(finding.deltaPct)}
               </span>
@@ -184,6 +210,28 @@ export function FindingCard({ finding, turnId }: { finding: Finding; turnId: str
       </footer>
     </article>
   );
+}
+
+/**
+ * Which end of the movement is a ceiling, and over how many records.
+ *
+ * A bound without its population is unreadable — "at most 9.0%" over
+ * eleven claims and over eleven thousand are different facts — so the
+ * populations are stated wherever the frame published them.
+ */
+function movementEndpoints(movement: NonNullable<Finding["boundedMovement"]>): string {
+  const over = (n: number | undefined): string =>
+    n === undefined ? "" : ` over ${formatCount(n)}`;
+  if (movement.first && movement.last) {
+    const populations =
+      movement.firstPopulation !== undefined || movement.lastPopulation !== undefined
+        ? ` (opening${over(movement.firstPopulation)}, closing${over(movement.lastPopulation)})`
+        : "";
+    return `both endpoints are ceilings${populations}`;
+  }
+  return movement.first
+    ? `the opening endpoint is a ceiling${over(movement.firstPopulation)}`
+    : `the closing endpoint is a ceiling${over(movement.lastPopulation)}`;
 }
 
 /**

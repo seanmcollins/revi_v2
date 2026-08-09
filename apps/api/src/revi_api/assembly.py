@@ -661,6 +661,14 @@ async def _compose_narrative(
     header = outcome.header
     lead, trail = _narrative_disclosures(outcome, warnings, anomaly_reconciliation)
     disclosures = [*lead, *trail]
+    # The ANSWER's own caution census — the same list the banners render
+    # from — so nothing downstream has to infer "this turn has no caveats"
+    # from the emptiness of a prompt slot (round-5 C-01). ``disclosures``
+    # is the MANDATORY subset and is routinely empty on turns carrying
+    # WINDOW_ASSUMED, ALTERNATE_BASIS_USED or POPULATION_CAVEAT.
+    published_cautions = sum(
+        1 for w in structured_warnings(warnings) if w.severity == "caution"
+    )
     if not findings and worklist is not None and worklist.items:
         # The worklist IS the answer and its statement is already composed —
         # deterministically, from the build, naming the formula, the lanes,
@@ -735,6 +743,9 @@ async def _compose_narrative(
         # Shown to the composer so it writes AROUND them rather than
         # against them — they are published either way.
         disclosures=disclosures,
+        # …and how many caveats the ANSWER carries, so an empty slot above
+        # can never be read as "this answer has no caveats" (round-5 C-01).
+        published_cautions=published_cautions,
     )
     assert_safe_payload(prompt)
     chunks: list[str] = []
@@ -777,6 +788,9 @@ async def _compose_narrative(
         # name a first action other than the ranked list's own rank 1
         # (R3-10): two orderings on one card, and only one was asked for.
         worklist_first_action=worklist_first_action(worklist),
+        # The census the "no caveats" affirmation is derived from, and the
+        # one a sentence claiming otherwise is redacted against.
+        published_cautions=published_cautions,
     )
     validation = validate_narrative(provisional, facts)
     warnings.extend(validation.warnings)

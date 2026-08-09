@@ -1364,16 +1364,25 @@ class PlanValidationService:
                 entity is not None
                 and entity.date_basis_column(contract.primary_date_basis) is None
             )
+            # Named by METRIC, never by probe (round-5 C-01). Six probes on
+            # one plan read one contract on one basis and each emitted its
+            # own sentence, so the dedupe below — keyed on (code, message) —
+            # saw six facts and published six amber banners differing only
+            # by `probe 'main'` / `'premise'` / `'main__window'` /
+            # `'main__window__prior'` / `'premise__window'` /
+            # `'premise__window__prior'`. One card carried six, another ten.
+            # They are one fact spelled six ways, and the probe id is
+            # plumbing no exec reader has a use for: it lives on the trace.
             if primary_unbound:
                 assert entity is not None
                 warnings.append(
-                    f"alternate_basis_used: probe '{node.id}' computes {contract.id!r} on the "
+                    f"alternate_basis_used: {contract.id!r} is computed on the "
                     f"{basis.id!r} {label} — its primary {contract.primary_date_basis.id!r} "
                     f"basis is not available at the {entity.name!r} grain in this warehouse"
                 )
             else:
                 warnings.append(
-                    f"alternate_basis_used: probe '{node.id}' reads {contract.id!r} on the "
+                    f"alternate_basis_used: {contract.id!r} is read on the "
                     f"{basis.id!r} {label} (primary is {contract.primary_date_basis.id!r})"
                 )
 

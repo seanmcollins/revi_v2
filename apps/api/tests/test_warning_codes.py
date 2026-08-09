@@ -31,7 +31,12 @@ FAMILIES: list[tuple[str, str, str]] = [
     (
         "ALTERNATE_BASIS_USED",
         "caution",
-        "alternate_basis_used: probe 'main_1' reads 'denial_rate' on the 'service' date basis "
+        # Round-5 C-01: named by METRIC, never by probe. Six probes on one
+        # plan read one contract on one basis and emitted six sentences
+        # differing only by `probe 'main'` / `'premise'` / `'main__window'`
+        # / …, which the (code, message) dedupe below correctly read as six
+        # facts and rendered as six amber banners.
+        "alternate_basis_used: 'denial_rate' is read on the 'service' date basis "
         "(primary is 'remit')",
     ),
     (
@@ -321,6 +326,25 @@ FAMILIES: list[tuple[str, str, str]] = [
         "denied dollars rose 4.2%, short of the 100% the question assumes",
     ),
     (
+        "PREMISE_UNVERIFIABLE",
+        "caution",
+        "premise_unverifiable: You asked about a doubling in denial rate. It cannot be checked "
+        "here — the prior side is at most 13.9% over 72 and the current side is at most 35.7% "
+        "over 28, each a numerator the small-cell policy withheld",
+    ),
+    (
+        "DIRECTION_OMITTED",
+        "caution",
+        "direction_omitted: 2 of 12 cell(s) moved the OTHER way and are therefore not part of "
+        "what 'worsened' asked about: Atlas Commercial, Federal Medicare",
+    ),
+    (
+        "RESUMED_CONTEXT",
+        "info",
+        "resumed_context: this answers a question that interrupted an existing thread, so it is "
+        "measured over that thread's window (2026-07-01..2026-07-31) rather than a default one",
+    ),
+    (
         "COMPARISON_PRIOR_UNKNOWN",
         "caution",
         "comparison_prior_unknown: on denial_code_mix__compare, 6 cell(s) present now were "
@@ -384,6 +408,29 @@ def test_identical_warnings_collapse_with_a_count() -> None:
     caveat = FAMILIES[1][2]
     payload = structured_warnings([caveat, caveat, caveat])
     assert len(payload) == 1 and payload[0].count == 3
+
+
+def test_one_alternate_basis_fact_per_metric_and_basis() -> None:
+    """Round-5 C-01. Six probes reading one contract on one basis is ONE
+    fact, and it used to reach the reader as six amber banners naming
+    ``probe 'main'``, ``'premise'``, ``'main__window'``,
+    ``'main__window__prior'``, ``'premise__window'`` and
+    ``'premise__window__prior'``. Nothing about a probe id is a fact an
+    exec reader has a use for; the metric is.
+    """
+    one_fact = (
+        "alternate_basis_used: 'denial_rate' is read on the 'service' date basis "
+        "(primary is 'remit')"
+    )
+    another = (
+        "alternate_basis_used: 'claim_volume' is read on the 'submission' date basis "
+        "(primary is 'service')"
+    )
+    payload = structured_warnings([one_fact] * 6 + [another])
+
+    alternate = [w for w in payload if w.code == "ALTERNATE_BASIS_USED"]
+    assert [w.count for w in alternate] == [6, 1]
+    assert not any("probe '" in w.message for w in alternate)
 
 
 def test_same_code_different_text_stays_two_entries() -> None:

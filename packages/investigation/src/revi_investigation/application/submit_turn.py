@@ -541,18 +541,106 @@ def _frame_money_total(
     money-bearing frame is the one after every transform — the frame the
     findings stage read.
     """
+    level, _, measure = _frame_money_totals(frames)
+    return level, measure
+
+
+def _frame_money_totals(
+    frames: tuple[tuple[str, EvidenceFrame], ...],
+) -> tuple[int | None, int | None, str | None]:
+    """``(level, movement, measure)`` for the last money-bearing frame.
+
+    Both quantities, because a child answer can be either kind and the
+    reconciliation has to know which it is holding (round-5 A-03). The
+    level is the sum of the measure column — the figure the child card
+    publishes. The movement is the sum of the compare operator's
+    ``<measure>__delta`` column when this turn compared, and ``None`` when
+    it did not: a turn with no prior side has no movement to tie out, and
+    inventing one from a level is precisely the mismatch that made every
+    drill of a comparison finding fail.
+    """
     for _, frame in reversed(frames):
         for index, column in enumerate(frame.schema.columns):
-            if column.unit != _MONEY_UNIT_NAME:
+            if column.unit != _MONEY_UNIT_NAME or column.name.endswith(
+                (_PRIOR_COLUMN_SUFFIX, _DELTA_COLUMN_SUFFIX)
+            ):
                 continue
-            total = 0
-            for row in frame.rows:
-                value = row[index]
-                if value is not None:
-                    total += int(value)
             measure = column.ref.id if isinstance(column.ref, MetricRef) else column.name
-            return total, measure
-    return None, None
+            return (
+                _sum_money_column(frame, index),
+                _sum_named_money_column(frame, f"{column.name}{_DELTA_COLUMN_SUFFIX}"),
+                measure,
+            )
+    return None, None, None
+
+
+def _sum_money_column(frame: EvidenceFrame, index: int) -> int:
+    total = 0
+    for row in frame.rows:
+        value = row[index]
+        if value is not None:
+            total += int(value)
+    return total
+
+
+def _sum_named_money_column(frame: EvidenceFrame, name: str) -> int | None:
+    """Sum one named integer column, or ``None`` when the frame has none.
+
+    ``None`` and ``0`` are different answers here: a frame with no delta
+    column produced no movement, while a frame whose deltas sum to zero
+    produced a movement of nothing.
+    """
+    if name not in frame.schema.names:
+        return None
+    index = frame.schema.index_of(name)
+    total = 0
+    seen = False
+    for row in frame.rows:
+        value = row[index]
+        if value is None or isinstance(value, bool) or not isinstance(value, (int, Decimal)):
+            continue
+        seen = True
+        total += int(value)
+    return total if seen else None
+
+
+#: Column suffixes the compare operator adds beside a measure.
+_PRIOR_COLUMN_SUFFIX = "__prior"
+_DELTA_COLUMN_SUFFIX = "__delta"
+
+
+def _finding_money(finding: Finding) -> tuple[int | None, int | None]:
+    """``(level, movement)`` a parent finding published, in cents.
+
+    ``impact_cents`` alone cannot answer this: on a movement finding it is
+    the DELTA and on a concentration or ranking finding it is the LEVEL,
+    and the reconciliation compared it against a child level either way.
+    The named values disambiguate — a movement finding carries
+    ``current_cents``/``delta_cents``, a compared scalar carries
+    ``<metric>``/``<metric>__delta``, and a level-only finding carries
+    neither delta.
+    """
+    named = dict(finding.values)
+
+    def cents(key: str) -> int | None:
+        value = named.get(key)
+        if value is None or isinstance(value, bool) or not isinstance(value, (int, Decimal)):
+            return None
+        return int(value)
+
+    level = cents("current_cents")
+    delta = cents("delta_cents")
+    for ref in finding.metric_refs:
+        if level is None:
+            level = cents(ref.id)
+        if delta is None:
+            delta = cents(f"{ref.id}{_DELTA_COLUMN_SUFFIX}")
+    if level is None and delta is None:
+        # A finding that published only an impact figure: a level unless a
+        # delta value named it otherwise, which is the pre-comparison case
+        # this check was originally written for.
+        return finding.impact_cents, None
+    return level, delta
 
 
 def containment_reconciliation(
@@ -587,28 +675,59 @@ def containment_reconciliation(
     Returns ``(summary, passed)``, or ``None`` when this turn drilled no
     parent finding that published a money figure — in which case the
     caller's existing verdicts stand.
+
+    **The two sides must be the same KIND of quantity** (round-5 A-03).
+    ``impact_cents`` on a comparison finding is a MOVEMENT and the child
+    frame's total is a LEVEL, so every drill of a top mover — the single
+    most common action in a close — reported ``RECONCILIATION_FAILED``
+    against numbers that agreed perfectly: parent F5 "$82,623.40 vs prior
+    period" against a child of $102,409.87, whose residual $19,786.47 was
+    exactly the prior side the parent had differenced away. So the quantity
+    is chosen before it is compared: movement against movement when both
+    sides compare, level against level otherwise, and ``not_applicable``
+    naming the mismatch when they cannot be matched at all — never
+    ``failed``, which is a claim that two figures for one cell disagree.
     """
     targets = {op.target.value for op in operators if isinstance(op, DrillInto)}
     if not targets:
         return None
     finding = next((f for f in parent.findings if f.referent.value in targets), None)
-    if finding is None or finding.impact_cents is None:
+    if finding is None:
         return None
-    child_cents, measure = _frame_money_total(calculation.frames)
-    if child_cents is None:
+    parent_level, parent_delta = _finding_money(finding)
+    if parent_level is None and parent_delta is None:
         return None
-    parent_cents = finding.impact_cents
-    delta = child_cents - parent_cents
-    fraction = Decimal(delta) / Decimal(abs(parent_cents) or 1)
-    passed = abs(fraction) <= _CONTAINMENT_TOLERANCE
+    child_level, child_delta, measure = _frame_money_totals(calculation.frames)
+    if child_level is None:
+        return None
     same_measure = measure is not None and measure in {ref.id for ref in finding.metric_refs}
     scope = (
         f"the same metric ({measure}) over the cell {finding.referent.value} names"
         if same_measure
         else f"{measure or 'this turn'} against {finding.referent.value}"
     )
+    if parent_delta is not None and child_delta is not None:
+        kind, parent_cents, child_cents = "movement vs movement", parent_delta, child_delta
+    elif parent_level is not None:
+        kind, parent_cents, child_cents = "level vs level", parent_level, child_level
+    else:
+        # The parent published a movement and this turn published only a
+        # level. Nothing disagrees; there is simply nothing to tie out.
+        return (
+            _not_applicable(
+                f"the parent finding {finding.referent.value} published a movement "
+                f"({money(parent_delta or 0)} vs its prior period) and this turn published a "
+                f"level ({money(child_level)}) — two different kinds of quantity, so neither "
+                "contains the other. Compare this turn against the same prior period to tie "
+                "the two out."
+            ),
+            True,
+        )
+    delta = child_cents - parent_cents
+    fraction = Decimal(delta) / Decimal(abs(parent_cents) or 1)
+    passed = abs(fraction) <= _CONTAINMENT_TOLERANCE
     summary = (
-        f"status={'passed' if passed else 'failed'}; scope=containment; "
+        f"status={'passed' if passed else 'failed'}; scope=containment ({kind}); "
         f"parent {finding.referent.value}={money(parent_cents)}; child={money(child_cents)}; "
         f"delta={money(delta)} ({float(fraction):+.1%}); basis={scope}"
     )
@@ -752,6 +871,150 @@ def _with_chosen_values(
     if missing:
         scope = and_merge(scope, *missing)
     return spec.with_context(replace(spec.context, scope=scope))
+
+
+def _with_binding(spec: AnalysisSpec, binding: ClarificationBinding | None) -> AnalysisSpec:
+    """Pin the ids a clarification option stands for onto an interpretation.
+
+    The option is not a suggestion the model may re-litigate: the analyst
+    tapped a thing this platform named, in this platform's own ids, and
+    those ids win over whatever a second reading of the sentence proposes.
+    Everything the option is silent about — window, comparison, cuts it
+    does not name — is left exactly as the sentence was read.
+    """
+    if binding is None:
+        return spec
+    if binding.metric_ids:
+        spec = replace(spec, measures=tuple(MetricRef(m) for m in binding.metric_ids))
+    if binding.dimension_ids:
+        spec = replace(spec, dimensions=tuple(DimensionRef(d) for d in binding.dimension_ids))
+    return _with_chosen_values(spec, binding.scope)
+
+
+def _with_resumed_context(
+    spec: AnalysisSpec, resume: AnalysisSpec | None, window_explicit: bool
+) -> tuple[AnalysisSpec, bool, list[str]]:
+    """Carry the interrupted thread's context onto the resumed answer.
+
+    Round-5 A-01's second symptom. A clarification interrupts a THREAD, and
+    the thread's window, filters, comparison and cohort belong to the
+    analyst: "break that down by CARC code." on a Meridian / imaging / July
+    thread came back with ``filters: []``, ``cohort: null`` and a
+    three-year window, narrated as a first turn.
+
+    Applied only where the resumed sentence states nothing itself, so a
+    resume that names its own period keeps it, and a dimension the analyst
+    re-scoped is never widened back. Every carry is disclosed: an inherited
+    window the analyst did not say out loud is an assumption, and §2.8
+    assumptions are published, not buried.
+    """
+    if resume is None:
+        return spec, window_explicit, []
+    notes: list[str] = []
+    context = spec.context
+    if not window_explicit and resume.context.window.range != context.window.range:
+        carried = resume.context.window.range
+        context = replace(context, window=resume.context.window)
+        window_explicit = True
+        notes.append(
+            "resumed_context: this answers a question that interrupted an existing thread, so "
+            f"it is measured over that thread's window ({carried.start.isoformat()}.."
+            f"{carried.end.isoformat()}) rather than a default one. Say a period if you want a "
+            "different one."
+        )
+    if context.comparison is None and resume.context.comparison is not None:
+        context = replace(context, comparison=resume.context.comparison)
+        notes.append(
+            "resumed_context: the comparison the interrupted thread was reading against "
+            f"({resume.context.comparison.window.range.start.isoformat()}.."
+            f"{resume.context.comparison.window.range.end.isoformat()}) is carried onto this "
+            "answer."
+        )
+    constrained = {p.dimension.id for p in iter_predicates(context.scope)}
+    inherited = [
+        predicate
+        for predicate in iter_predicates(resume.context.scope)
+        if predicate.dimension.id not in constrained
+    ]
+    if inherited:
+        context = replace(context, scope=and_merge(context.scope, *inherited))
+        notes.append(
+            "resumed_context: the filters the interrupted thread was scoped by are carried onto "
+            "this answer — " + "; ".join(_predicate_label(p) for p in inherited) + "."
+        )
+    if context.cohort is None and resume.context.cohort is not None:
+        context = replace(context, cohort=resume.context.cohort)
+        notes.append(
+            f"resumed_context: the pinned cohort ({resume.context.cohort.id}) the interrupted "
+            "thread was scoped to is carried onto this answer."
+        )
+    return spec.with_context(context), window_explicit, notes
+
+
+def _same_findings(served: Sequence[Finding], parent: Sequence[Finding]) -> bool:
+    """Would a reader see the same rows? (round-5 E-01)
+
+    Compared on what is PUBLISHED — titles, statements and values —
+    deliberately not on referents: a reused plan mints new handles, and
+    keying identity off them would say "these are different findings"
+    about two byte-identical lists.
+    """
+    return [(f.title, f.statement, f.values) for f in served] == [
+        (f.title, f.statement, f.values) for f in parent
+    ]
+
+
+#: An utterance that asks for the answer to be RE-ARRANGED rather than
+#: merely re-shown. Deliberately narrow and deliberately deterministic: the
+#: point is not to guess an operator, it is to notice that something was
+#: asked for and refuse to let the turn go out silent about it (round-5
+#: E-01). "Sort them by percent change, largest first" came back as a
+#: presentation_only re-serve, in the parent's original order, with
+#: ``refinement_operators: []`` and no note of any kind.
+_PRESENTATION_CHANGE_REQUEST = re.compile(
+    r"(?<!\w)(?:sort|sorted|sorting|re-?sort|order\s+(?:them|these|it|by)|reorder|re-?order|"
+    r"rank(?:ed|ing)?\s+by|re-?rank|group\s+by|grouped\s+by|filter|filtered|exclude|excluding|"
+    r"alphabetical(?:ly)?|ascending|descending|largest\s+first|smallest\s+first|"
+    r"highest\s+first|lowest\s+first)(?!\w)",
+    re.IGNORECASE,
+)
+
+
+def _unapplied_presentation_request(question: str) -> str | None:
+    """Name what a re-presentation was asked to change and did not do.
+
+    ``REFINEMENT_NOT_APPLIED`` has been registered since round 4 and had no
+    caller on this path, so turn two of a session re-served the parent's
+    rows in the parent's order while reading like a fresh analysis that had
+    honoured the request.
+    """
+    match = _PRESENTATION_CHANGE_REQUEST.search(question)
+    if match is None:
+        return None
+    return (
+        f"refinement_not_applied: you asked to {match.group(0).lower()} — this answer re-serves "
+        "the previous turn's rows in the order they were already in, and that request was not "
+        "applied to them. Name the column to order by (or ask for the cut you want) and I will "
+        "re-run it."
+    )
+
+
+def _option_window_assumed(spec: AnalysisSpec) -> str:
+    """Say out loud that a resumed answer's window is the platform's default.
+
+    The fallback path builds its spec from the option's ids alone, and the
+    only window available there is the widest one the load admits. That is
+    a decision the analyst did not make, so it is disclosed as one — the
+    silence is what let a whole-warehouse total be published under a
+    disclosure claiming a July question had been resumed.
+    """
+    window = spec.context.window.range
+    return (
+        "window_assumed: your question did not resolve to a period on this reading, so the "
+        f"answer covers {window.start.isoformat()}..{window.end.isoformat()} — everything this "
+        "load holds — rather than a period you named. Say the period you want and I will re-run "
+        "it."
+    )
 
 
 def _chart_sorts_from_trace(raw: Any) -> tuple[tuple[str, str, bool], ...]:
@@ -1464,9 +1727,30 @@ class SubmitTurnService:
           so the playbook routing, the window vocabulary and the concepts
           the analyst's sentence carried all survive — the runway question
           comes back as the runway question;
-        * everything else runs as the typed investigation the option's own
-          ids describe, which is the same disposal a portfolio card's drill
-          handle goes through.
+        * everything else re-interprets the same words too, with the
+          option's own ids PINNED over whatever the second reading proposes.
+
+        Round-5 A-01, the highest-conviction finding of the round: two
+        adversaries, four sessions, one line. The third branch used to skip
+        interpretation entirely and run ``_spec_for_binding``'s dry-run
+        spec, whose window is the three-year *value-existence* window and
+        whose scope is the option's alone. So "how many dollars did we lose
+        to denials in July 2026?" → the platform's own clarification → the
+        platform's own offered option came back as **$25,929,558.84 over
+        2023-01-01..2026-08-02** — the whole warehouse, at high confidence,
+        under a disclosure asserting the July question had been resumed.
+        Same line, second symptom: "break that down by CARC code." on a
+        payer/service-line/July thread came back as a ROOT investigation
+        with no filters, no cohort and no parent.
+
+        The two branches beside it were always right, and they are right
+        for the same reason: they re-read the analyst's own sentence. So
+        does this one now — the option contributes IDS (measures, cuts,
+        values), and the sentence contributes everything else. What the
+        sentence does not state is carried from the answer this resume
+        continues rather than defaulted (see ``_with_resumed_context``), and
+        the typed spec survives as the fallback for the case where the
+        second reading cannot resolve the question either.
         """
         if binding.kind == "date_basis" and binding.basis:
             state.basis_override = binding.basis
@@ -1480,33 +1764,32 @@ class SubmitTurnService:
             # is a substitution and is applied as one.
             state.scope_override = binding.scope
             return await self._new_investigation_turn(session, state, classified)
-        spec = self._spec_for_binding(session, binding)
-        if spec is None:
-            # Nothing typed to run: fall back to the analyst's words, which
-            # is what happened before bindings existed and is still honest.
-            state.question = _join_question_and_answer(state.question, binding.option)
-            return await self._new_investigation_turn(session, state, classified)
-        pins = await self._inherited_pins(session)
-        if pins:
-            spec = spec.with_context(replace(spec.context, pins=pins))
-        return await self._run_analysis(
-            session,
-            state,
-            classified,
-            spec=spec,
-            playbook_id=binding.playbook_id,
-            window_explicit=False,
-            turn_class=TurnClass.NEW_INVESTIGATION,
-            parent=None,
-            operators=(),
-            trace_extra={
-                "clarification_binding": {
-                    "option": binding.option,
-                    "kind": binding.kind,
-                    "resumed_investigation_id": state.lineage_parent,
-                }
-            },
+        # The option is the analyst's answer, so it joins their question:
+        # both halves are their own words and the join is the same
+        # deterministic one the typed-reply path uses.
+        state.question = _join_question_and_answer(state.question, binding.option)
+        resumed = await self._resumed_context(session, state)
+        return await self._new_investigation_turn(
+            session, state, classified, binding=binding, resume=resumed
         )
+
+    async def _resumed_context(
+        self, session: Session, state: _TurnState
+    ) -> AnalysisSpec | None:
+        """The context a clarification resume continues, if there is one.
+
+        A clarification interrupts a THREAD, and the thread's window,
+        filters, comparison and cohort are the analyst's, not the
+        platform's. They are read off the session's latest analytical
+        answer — the one on screen when the question was asked — and
+        applied only where the resumed sentence states nothing itself.
+        """
+        parent = await self._latest_investigation(session, analytical=True)
+        if parent is None:
+            return None
+        if state.lineage_parent is None:
+            state.lineage_parent = parent.id
+        return parent.spec
 
     # ------------------------------------------- validating what we offer
 
@@ -1874,8 +2157,23 @@ class SubmitTurnService:
     # ----------------------------------------------------- new investigation
 
     async def _new_investigation_turn(
-        self, session: Session, state: _TurnState, classified: ClassificationOutcome
+        self,
+        session: Session,
+        state: _TurnState,
+        classified: ClassificationOutcome,
+        *,
+        binding: ClarificationBinding | None = None,
+        resume: AnalysisSpec | None = None,
     ) -> TurnOutcome:
+        """Interpret the analyst's sentence and run it (§8.1).
+
+        ``binding`` and ``resume`` are set only on a clarification resume.
+        The binding's ids are pinned over the second reading — the analyst
+        chose a thing this platform named and that choice is not re-decided
+        by a model — and ``resume`` is the context of the answer the
+        clarification interrupted, applied only where the sentence itself
+        states nothing (round-5 A-01).
+        """
         exhausted = self._budget_stop(state, "working out what to measure")
         if exhausted is not None:
             return await self._clarification_outcome(session, state, classified, exhausted)
@@ -1904,24 +2202,54 @@ class SubmitTurnService:
         state.template_hashes["interpret_question@v1"] = interpretation.template_hash
         state.time_stage("interpret")
 
+        interpreted: InterpretedInvestigation | None = None
+        prelude: list[str] = []
         if interpretation.clarification is not None:
-            return await self._clarification_outcome(
-                session,
-                state,
-                classified,
-                self._bounded_clarification(state, interpretation.clarification),
-                interpretation,
+            # A resume that cannot be re-read is still a resume: the option
+            # the analyst tapped carries ids, and running them is better
+            # than asking the same question a second time. Only reachable
+            # on the clarification-resume path, where the alternative is a
+            # loop the analyst has already answered once.
+            typed = (
+                self._spec_for_binding(session, binding) if binding is not None else None
             )
-        if interpretation.definitional is not None:
+            if typed is None:
+                return await self._clarification_outcome(
+                    session,
+                    state,
+                    classified,
+                    self._bounded_clarification(state, interpretation.clarification),
+                    interpretation,
+                )
+            spec = typed
+            playbook_id = binding.playbook_id if binding is not None else None
+            window_explicit = False
+            prelude.append(_option_window_assumed(spec))
+        elif interpretation.definitional is not None:
             return await self._definitional_outcome(
                 session, state, classified, answer=interpretation.definitional
             )
-        assert interpretation.investigation is not None
-        interpreted = interpretation.investigation
+        else:
+            assert interpretation.investigation is not None
+            interpreted = interpretation.investigation
+            # The analyst's choice is ids this platform published; a second
+            # reading of their sentence does not get to overrule it — and
+            # that includes a playbook the option named, which is the only
+            # thing a playbook-only option carries.
+            spec = _with_binding(interpreted.spec, binding)
+            playbook_id = interpreted.playbook_id
+            if binding is not None and binding.playbook_id is not None:
+                playbook_id = binding.playbook_id
+            window_explicit = interpreted.window_explicit
+
+        # What the resumed sentence did not state is carried from the answer
+        # it continues, never defaulted to the widest window the load allows.
+        spec, window_explicit, carried = _with_resumed_context(spec, resume, window_explicit)
+        prelude.extend(carried)
 
         # carryover law 5: session pins persist until explicitly cleared
         pins = await self._inherited_pins(session)
-        spec = _with_chosen_values(interpreted.spec, state.scope_override)
+        spec = _with_chosen_values(spec, state.scope_override)
         if pins:
             spec = spec.with_context(replace(spec.context, pins=pins))
 
@@ -1930,12 +2258,30 @@ class SubmitTurnService:
             state,
             classified,
             spec=spec,
-            playbook_id=interpreted.playbook_id,
-            window_explicit=interpreted.window_explicit,
+            playbook_id=playbook_id,
+            window_explicit=window_explicit,
             turn_class=TurnClass.NEW_INVESTIGATION,
             parent=None,
             operators=(),
             interpreted=interpreted,
+            prelude_warnings=tuple(prelude),
+            trace_extra=(
+                {
+                    "clarification_binding": {
+                        "option": binding.option,
+                        "kind": binding.kind,
+                        "metric_ids": list(binding.metric_ids),
+                        "dimension_ids": list(binding.dimension_ids),
+                        "resumed_investigation_id": state.lineage_parent,
+                        "resumed_window": (
+                            f"{spec.context.window.range.start.isoformat()}.."
+                            f"{spec.context.window.range.end.isoformat()}"
+                        ),
+                    }
+                }
+                if binding is not None
+                else None
+            ),
         )
 
     # -------------------------------------------------- typed first turn
@@ -2326,15 +2672,35 @@ class SubmitTurnService:
         # a new referent and 1,500 fresh words of narrative, and no
         # disclosure that the grain the question asked for had been dropped.
         # The answer is legitimate; presenting it as a different one is not.
+        #
+        # Round-5 E-01: the note is owed to the HASH, not to a branch. The
+        # reuse disclosure lived only in the kernel-only path, which returns
+        # None the moment an Expand asks for more rows than the parent
+        # published — so "show me all twelve" against a three-finding parent
+        # never reached it, and neither string fired on any live session.
+        # Which of the two notes applies is decided by what the reader can
+        # see: a re-served plan whose FINDINGS changed did apply the
+        # operator (the analyst asked for more rows and got them), and one
+        # whose findings are byte-identical did not.
         if parent is not None and operators and validated.plan.plan_hash == parent.plan_hash:
-            extra_warnings.append(
-                "refinement_not_applied: what you asked to change does not alter this plan "
-                f"({parent.plan_hash}) — the operator(s) "
-                + ", ".join(sorted({type(op).__name__ for op in operators}))
-                + " left the evidence identical to the previous answer, so these are the same "
-                "numbers re-measured, not a new result. Say what to change about the metric, "
-                "the cut or the window and I will re-run it."
-            )
+            if _same_findings(findings_result.findings, parent.findings):
+                extra_warnings.append(
+                    "refinement_not_applied: what you asked to change does not alter this plan "
+                    f"({parent.plan_hash}) — the operator(s) "
+                    + ", ".join(sorted({type(op).__name__ for op in operators}))
+                    + " left the evidence identical to the previous answer, so these are the "
+                    "same numbers re-measured, not a new result. Say what to change about the "
+                    "metric, the cut or the window and I will re-run it."
+                )
+            else:
+                extra_warnings.append(
+                    "refinement_reused_plan: this answer re-serves the previous turn's plan "
+                    f"({parent.plan_hash}) — the same evidence and every caveat that came with "
+                    "it. What changed is how much of it is published: "
+                    + ", ".join(sorted({type(op).__name__ for op in operators}))
+                    + f" took the published set from {len(parent.findings)} finding(s) to "
+                    f"{len(findings_result.findings)}."
+                )
         # A comparison against a different-length window is answerable but
         # not a delta anyone should act on; the warning rides with the
         # answer and the findings withhold impact (see comparison.py).
@@ -2924,7 +3290,23 @@ class SubmitTurnService:
         # The parent's answer, re-presented — and therefore the parent's
         # caveats, re-presented (R4-04). A re-presentation that drops them
         # is a second, cleaner-looking answer over identical numbers.
-        warnings = parent.warnings
+        #
+        # …plus the two notes that say so (round-5 E-01). The reuse note was
+        # composed in the kernel-only branch alone and this path never
+        # appended it, so every re-presentation read like a fresh analysis;
+        # and REFINEMENT_NOT_APPLIED was registered, titled in the web, and
+        # never fired anywhere. Turn two of a session asked for a sort,
+        # received the parent's own order, and was told nothing.
+        warnings = (
+            *parent.warnings,
+            "refinement_reused_plan: this answer re-serves the previous turn's plan "
+            f"({parent.plan_hash}) — the same evidence, the same findings and every caveat "
+            "that came with them. Nothing was re-measured and nothing changed but the "
+            "presentation.",
+        )
+        not_applied = _unapplied_presentation_request(state.question)
+        if not_applied is not None:
+            warnings = (*warnings, not_applied)
         investigation = replace(
             self._minimal_investigation(session, state, InvestigationStatus.COMPLETE, classified),
             spec=parent.spec,

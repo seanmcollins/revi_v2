@@ -6,6 +6,7 @@ import {
   formatCents,
   formatCompactCents,
   formatCount,
+  formatMeasureDelta,
   formatPct,
   formatSignedCents,
   formatSignedPct,
@@ -149,5 +150,21 @@ describe("relativeTime", () => {
   });
   it("returns an unparseable timestamp verbatim rather than inventing an age", () => {
     expect(relativeTime("not-a-date", now)).toBe("not-a-date");
+  });
+});
+
+describe("formatMeasureDelta — a movement in the measure's own unit", () => {
+  it("signs money and counts", () => {
+    expect(formatMeasureDelta(8_262_340, "cents")).toBe("+$82,623.40");
+    expect(formatMeasureDelta(-8_262_340, "cents")).toBe(`${MINUS}$82,623.40`);
+    expect(formatMeasureDelta(-12, "count")).toBe(`${MINUS}12`);
+  });
+
+  it("says pp for a rate, because a rate's movement is not a percentage of itself", () => {
+    // "+2.1%" beside a relative "+50.0%" on one tooltip line is two
+    // different quantities wearing one symbol.
+    expect(formatMeasureDelta(35.2564, "percent")).toBe("+35.3pp");
+    expect(formatMeasureDelta(0, "percent")).toBe("0.0pp");
+    expect(formatMeasureDelta(-1.5, "days")).toBe(`${MINUS}1.5 d`);
   });
 });

@@ -1,6 +1,6 @@
 "use client";
 
-import { CircleAlert, MessageCircleQuestion, SlidersHorizontal } from "lucide-react";
+import { CircleAlert, History, MessageCircleQuestion, SlidersHorizontal } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
@@ -42,6 +42,18 @@ const NO_OPTIONS_TAIL = /\s*;?\s*CLARIFICATION_NO_OPTIONS\s*$/;
  * the platform could not do it. That state renders as a statement of what
  * the platform needs instead, with the free-text composer as its only
  * recovery, because that is the only recovery there is.
+ *
+ * AND ONE IS NOT A PROMPT AT ALL. A clarification rebuilt from the stored
+ * investigation is a record of a question that was asked and answered
+ * turns ago, and the store keeps neither its wording nor the options it
+ * offered. Read through the no-options branch — which keys on
+ * `options.length === 0` — every restored clarification on the permalink
+ * announced "There is no answerable option to offer here." over turns that
+ * had each offered four real interpretations live. `restored` separates
+ * "stored without its options" from "the engine offered none": the card
+ * states what it is, shows whatever the store DID keep, and offers no
+ * controls, because the composer at the foot of the thread is where this
+ * conversation actually continues.
  */
 export function ClarificationPrompt({ clarification }: { clarification: ClarificationData }) {
   const submit = useSessionStore((s) => s.submit);
@@ -62,12 +74,22 @@ export function ClarificationPrompt({ clarification }: { clarification: Clarific
     // Re-runs when a NEW clarification lands, not on every render.
   }, [clarification.question]);
 
+  // Rebuilt from history. Checked FIRST, because everything below it is a
+  // statement about what a LIVE interpreter offered, and a restored turn
+  // has not told this card anything about that.
+  const restored = clarification.restored === true;
+
   // There is nothing to choose from. Keyed off the engine's marker, and
   // also off an options list that is simply empty — that is the same defect
   // arriving without its label, and a blank button row is not made honest
   // by the absence of a marker explaining it.
+  //
+  // Not on a RESTORED turn. There the empty list is an unrestored field,
+  // not a claim: the server stores the turn's status and not the question
+  // it asked, so reading emptiness as "the engine had nothing to offer"
+  // invents the one fact the record does not contain.
   const marked = (clarification.reason ?? "").includes(NO_OPTIONS_MARKER);
-  const noOptions = marked || clarification.options.length === 0;
+  const noOptions = !restored && (marked || clarification.options.length === 0);
 
   const declared = (clarification.reason ?? "").replace(NO_OPTIONS_TAIL, "").trim();
   const match = declared ? REASON_CODE.exec(declared) : null;
@@ -82,6 +104,60 @@ export function ClarificationPrompt({ clarification }: { clarification: Clarific
     // receives `clarification_response`, not a fresh utterance.
     if (!streaming) void submit({ clarificationResponse: text });
   };
+
+  // A HISTORICAL question, rendered as one. No amber, because nothing here
+  // changes how a number should be read; no chips and no composer, because
+  // the reply this turn received is already the turn below it, and a Send
+  // button on a question whose options were never stored is an invitation
+  // to answer something the reader cannot see.
+  if (restored) {
+    return (
+      <div
+        role="group"
+        aria-label={
+          clarification.question
+            ? `Restored clarification: ${clarification.question}`
+            : "Restored clarification: its wording was not stored"
+        }
+        className="rounded-lg border border-dashed bg-card/60 p-3.5"
+      >
+        <div className="flex items-start gap-2.5">
+          <History className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+          <div className="min-w-0 flex-1 space-y-2">
+            <p className="text-[0.8rem] font-medium leading-snug">
+              This turn ended with a question
+            </p>
+            {clarification.question !== "" && (
+              <p className="text-[0.75rem] leading-snug text-foreground">
+                {clarification.question}
+              </p>
+            )}
+            {reasonText && (
+              <p className="text-[0.7rem] leading-snug text-muted-foreground">{reasonText}</p>
+            )}
+            {/* Whatever the store DID keep. Listed, not tapped: these are
+                the interpretations that were offered at the time, and the
+                one that was taken is the turn below this card. */}
+            {clarification.options.length > 0 && (
+              <ul className="space-y-0.5 text-[0.7rem] leading-snug text-muted-foreground">
+                {clarification.options.map((option) => (
+                  <li key={option} className="flex gap-1.5">
+                    <span aria-hidden>·</span>
+                    {option}
+                  </li>
+                ))}
+              </ul>
+            )}
+            <p className="text-[0.68rem] leading-snug text-muted-foreground">
+              {clarification.options.length > 0
+                ? "Restored from this session's history — the options above are a record of what was offered, not live choices. Ask again below to continue."
+                : "Restored from this session's history. The wording of the question and the interpretations it offered were not stored with the investigation — ask it again below to see them."}
+            </p>
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div

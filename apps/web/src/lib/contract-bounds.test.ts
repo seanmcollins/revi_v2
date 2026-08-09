@@ -343,3 +343,126 @@ describe("a bucketed axis keeps its own scale", () => {
     expect(spec?.order?.by).toBe("denial_rate");
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* D-01 — a movement between two ceilings is not a measurement         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * `trend_investigation` is CAPTURED: the body of
+ * `GET /v1/investigations/inv_1729c4fe30bd` at wm_003 — "Show me Veritas
+ * Comp Fund monthly denial rate by month for 2026", whose finding reads
+ * "denial rate by month, 2026-01-01..2026-08-02: 7.5% → 9.0% (up 1.5
+ * points); 2026-07 provisional" and whose 2026-01 and 2026-06 endpoints
+ * are both `is_bound: true` on the chart rows, over 133 and 111 records.
+ *
+ * The finding's own `values` are first/last/delta/high/low with no
+ * `denial_rate__is_bound` anywhere in them, so nothing on the card knew.
+ * Only the LLM narrative said it — the surface with the least warranty.
+ */
+describe("a trend whose endpoints are ceilings", () => {
+  function trend() {
+    const parse = parseInvestigationResponse(SAMPLES.trend_investigation);
+    if (parse.value?.outcome !== "answer") throw new Error("not an answer");
+    return parse.value;
+  }
+
+  it("the payload really does state a movement between two suppressed cells", () => {
+    // Pinning the premise of the fix, from the captured body itself.
+    const f1 = trend().findings[0];
+    expect(f1.title).toContain("7.5% → 9.0% (up 1.5 points)");
+    expect(f1.values.denial_rate__is_bound).toBeUndefined();
+    const rows = trend().charts[0].rows;
+    expect(rows[0].bounded).toBe(true);
+    expect(rows.find((r) => r.label === "2026-06-01")?.bounded).toBe(true);
+  });
+
+  it("marks the movement unmeasurable, with the populations the ceilings are over", () => {
+    const f1 = trend().findings[0];
+    expect(f1.boundedMovement).toEqual({
+      first: true,
+      last: true,
+      firstPopulation: 133,
+      lastPopulation: 111,
+    });
+  });
+
+  it("locates the endpoints by FIGURE, not by position", () => {
+    // The series runs to 2026-08 (no value) and the engine's own sentence
+    // ends the movement at 2026-06, excluding the provisional 2026-07
+    // point. `last: 0.09009` is the June cell — the 111-record ceiling —
+    // not the 76.9% spike over thirteen records.
+    expect(trend().findings[0].boundedMovement?.lastPopulation).toBe(111);
+  });
+
+  it("says nothing when both endpoints were measured", () => {
+    const measured = structuredClone(SAMPLES.trend_investigation);
+    for (const row of measured.chart_specs[0].rows) {
+      row.is_bound = false;
+      row.bound_population = null;
+    }
+    const parse = parseInvestigationResponse(measured);
+    if (parse.value?.outcome !== "answer") throw new Error("not an answer");
+    expect(parse.value.findings[0].boundedMovement).toBeUndefined();
+  });
+
+  it("marks a cell the engine published with no value at all", () => {
+    // 2026-08 is a row the frame sent and withheld. A withheld cell and a
+    // measured 0.0% drew as the same nothing.
+    const row = trend().charts[0].rows.find((r) => r.label === "2026-08-01");
+    expect(row?.withheld).toBe(true);
+    expect(row?.values).toEqual({});
+    // And a cell that WAS measured is never marked withheld.
+    expect(trend().charts[0].rows[0].withheld).toBeUndefined();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* B-01 — a restored clarification is not a refusal                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * `restored_clarification` is CAPTURED: the body of
+ * `GET /v1/investigations/inv_3695089af705` — a live turn that asked a
+ * question with four real options on the wire, re-read from the store,
+ * which keeps `status: "clarification_required"` and neither the question
+ * nor the options.
+ */
+describe("a clarification rebuilt from the store", () => {
+  it("says the fields were not restored rather than fabricating an empty offer", () => {
+    const parse = parseInvestigationResponse(SAMPLES.restored_clarification);
+    if (parse.value?.outcome !== "clarification_required") {
+      throw new Error("expected a clarification");
+    }
+    expect(parse.value.clarification.restored).toBe(true);
+    // Empty, and empty means "not stored" here — the flag above is what
+    // keeps the card from reading it as "the engine offered nothing".
+    expect(parse.value.clarification.options).toEqual([]);
+    expect(parse.value.clarification.question).toBe("");
+  });
+
+  it("reads the question and options the moment the store keeps them", () => {
+    // Written against the shape the live turn already publishes, so the
+    // client is not the reason they stay invisible the day they persist.
+    const stored = {
+      ...SAMPLES.restored_clarification,
+      clarification: {
+        question: "We're going in circles — which of these did you mean?",
+        options: [
+          "Investigate the denial-rate increase this month",
+          "Investigate the posted-cash decline this month",
+        ],
+      },
+    };
+    const parse = parseInvestigationResponse(stored);
+    if (parse.value?.outcome !== "clarification_required") {
+      throw new Error("expected a clarification");
+    }
+    expect(parse.value.clarification.question).toBe(
+      "We're going in circles — which of these did you mean?",
+    );
+    expect(parse.value.clarification.options).toHaveLength(2);
+    // Still a record of a question that was asked, not a live prompt.
+    expect(parse.value.clarification.restored).toBe(true);
+  });
+});

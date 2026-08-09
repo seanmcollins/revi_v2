@@ -2202,5 +2202,365 @@
     ],
     "metric_display": [],
     "created_at": "2026-08-09T17:31:39.557304Z"
+  },
+  "trend_investigation": {
+    "investigation_id": "inv_1729c4fe30bd",
+    "session_id": "sess_e3a191c2c35c",
+    "parent_id": null,
+    "turn_id": "turn_aa6c05499947",
+    "turn_class": "new_investigation",
+    "status": "complete",
+    "question": "Show me Veritas Comp Fund monthly denial rate by month for 2026",
+    "plan_hash": "aafe9fde75dffdbbe58648a9c03263122a781fdf0a2e2dde10f16bdf4008d61b",
+    "context_header": {
+      "window_start": "2026-01-01",
+      "window_end": "2026-08-02",
+      "basis": "service",
+      "comparison_kind": null,
+      "comparison_start": null,
+      "comparison_end": null,
+      "filters": [
+        "payer eq [Veritas Comp Fund]"
+      ],
+      "filter_chips": [
+        {
+          "dimension": "payer",
+          "op": "eq",
+          "values": [
+            "Veritas Comp Fund"
+          ],
+          "requested_values": [],
+          "origin_turn": "turn_aa6c05499947",
+          "pinned": false
+        }
+      ],
+      "cohort": null,
+      "cohort_size": null,
+      "watermark_id": "wm_003",
+      "as_of": null,
+      "display": "2026-01-01..2026-08-02 (service) · filters: payer eq [Veritas Comp Fund] · watermark wm_003"
+    },
+    "context_header_restored": true,
+    "watermark_id": "wm_003",
+    "newest_data_date": "2026-08-02",
+    "restoration_notes": [
+      "Restored context: the window, scope, cohort and watermark below are rebuilt from this turn's stored investigation spec at watermark wm_003, not re-computed — the figures are the ones this turn published when it ran.",
+      "The composed narrative is not stored anywhere — the narrative trace keeps its template, redactions and length, not its sentences — so this turn restores without prose. Its findings, warnings and charts are its own record."
+    ],
+    "findings": [
+      {
+        "referent": "F1",
+        "title": "denial rate by month, 2026-01-01..2026-08-02: 7.5% → 9.0% (up 1.5 points); 2026-07 provisional",
+        "statement": "denial rate ran from 7.5% in 2026-01 to 9.0% in 2026-06 (up 1.5 points over 6 months); highest 10.8% in 2026-02, lowest 7.0% in 2026-04. The 2026-07 point (76.9%) is PROVISIONAL and is excluded from that movement: it was computed over 13 adjudicated records against a series median of 122 (10.7% of it), so the month is still settling and the records that have settled are not a random sample of it.",
+        "metric_ids": [
+          "denial_rate"
+        ],
+        "values": [
+          {
+            "name": "first",
+            "value": 0.075188
+          },
+          {
+            "name": "last",
+            "value": 0.09009
+          },
+          {
+            "name": "delta",
+            "value": 0.014902
+          },
+          {
+            "name": "high",
+            "value": 0.107527
+          },
+          {
+            "name": "low",
+            "value": 0.06993
+          },
+          {
+            "name": "periods",
+            "value": 6
+          },
+          {
+            "name": "provisional_bucket",
+            "value": "2026-07-01"
+          },
+          {
+            "name": "provisional_value",
+            "value": 0.769231
+          },
+          {
+            "name": "terminal_provisional",
+            "value": true
+          }
+        ],
+        "grade": "direct",
+        "impact_cents": null,
+        "confidence": "qualified",
+        "suggested_refinements": [
+          "drill into F1"
+        ],
+        "benchmarks": [
+          {
+            "id": "benchmark.denial_rate.marketplace_kff",
+            "metric_id": "denial_rate",
+            "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
+            "value_low": "19",
+            "value_high": "20",
+            "unit": "percent of in-network claims denied",
+            "period": "2023-2024",
+            "authority": "independent analysis of CMS transparency data",
+            "review_status": "machine_researched",
+            "cautions": [
+              "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
+              "Plan-reported data with no initial/final distinction"
+            ],
+            "sources": [
+              "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
+            ]
+          }
+        ],
+        "metric_caveats": []
+      }
+    ],
+    "warnings": [
+      "window_out_of_range: you asked about 2026, and this load only reaches 2026-08-02 — so the EFFECTIVE window is 2026-01-01..2026-08-02 (214 of the 365 days named). Every figure, the context header and any comparison below are computed over the effective window; nothing here describes the part of the period that has not landed.",
+      "adjudication_incomplete: the last point of this series (2026-07) is RIGHT-CENSORED — it was computed over 13 adjudicated records against a series median of 122 (10.7% of it), so the month is still settling and the records that have settled are not a random sample of it. It is published as provisional and excluded from the first-to-last movement, the high and the low. A rise that terminates on an incompletely adjudicated bucket is a data-maturity artifact until that bucket matures.",
+      "alternate_basis_used: probe 'main' computes 'denial_rate' on the 'service' basis — its primary 'remit' basis is not available at the 'claim' grain in this warehouse",
+      "population_caveat: denial_rate — claims still awaiting their first remittance (status OPEN) are excluded from both sides — an unadjudicated claim carries a false clean flag for want of evidence, not because a payer denied it, so including it would report the data edge as a denial.",
+      "suppression_bounded: 6 cells had fewer than 11 entities in the numerator over a population large enough to publish. Rather than withhold them — which removes the best-performing cells from a ranking and says nothing — each is shown as an UPPER BOUND of at most 10 over its own population: 2026-01-01 (denial rate ≤ 7.5% over 133 entities); 2026-02-01 (denial rate ≤ 10.8% over 93 entities); 2026-03-01 (denial rate ≤ 9.4% over 106 entities); 2026-04-01 (denial rate ≤ 7.0% over 143 entities); 2026-06-01 (denial rate ≤ 9.0% over 111 entities); 2026-07-01 (denial rate ≤ 76.9% over 13 entities). The true figure is at or below the bound and is NOT a measurement. Of 8 cell(s) on this answer, 6 carry an upper bound, 0 were withheld outright and 2 are measured."
+    ],
+    "warnings_v2": [
+      {
+        "code": "WINDOW_OUT_OF_RANGE",
+        "severity": "caution",
+        "message": "window_out_of_range: you asked about 2026, and this load only reaches 2026-08-02 — so the EFFECTIVE window is 2026-01-01..2026-08-02 (214 of the 365 days named). Every figure, the context header and any comparison below are computed over the effective window; nothing here describes the part of the period that has not landed.",
+        "count": 1
+      },
+      {
+        "code": "ADJUDICATION_INCOMPLETE",
+        "severity": "caution",
+        "message": "adjudication_incomplete: the last point of this series (2026-07) is RIGHT-CENSORED — it was computed over 13 adjudicated records against a series median of 122 (10.7% of it), so the month is still settling and the records that have settled are not a random sample of it. It is published as provisional and excluded from the first-to-last movement, the high and the low. A rise that terminates on an incompletely adjudicated bucket is a data-maturity artifact until that bucket matures.",
+        "count": 1
+      },
+      {
+        "code": "ALTERNATE_BASIS_USED",
+        "severity": "caution",
+        "message": "alternate_basis_used: probe 'main' computes 'denial_rate' on the 'service' basis — its primary 'remit' basis is not available at the 'claim' grain in this warehouse",
+        "count": 1
+      },
+      {
+        "code": "POPULATION_CAVEAT",
+        "severity": "caution",
+        "message": "population_caveat: denial_rate — claims still awaiting their first remittance (status OPEN) are excluded from both sides — an unadjudicated claim carries a false clean flag for want of evidence, not because a payer denied it, so including it would report the data edge as a denial.",
+        "count": 1
+      },
+      {
+        "code": "SUPPRESSION_BOUNDED",
+        "severity": "caution",
+        "message": "suppression_bounded: 6 cells had fewer than 11 entities in the numerator over a population large enough to publish. Rather than withhold them — which removes the best-performing cells from a ranking and says nothing — each is shown as an UPPER BOUND of at most 10 over its own population: 2026-01-01 (denial rate ≤ 7.5% over 133 entities); 2026-02-01 (denial rate ≤ 10.8% over 93 entities); 2026-03-01 (denial rate ≤ 9.4% over 106 entities); 2026-04-01 (denial rate ≤ 7.0% over 143 entities); 2026-06-01 (denial rate ≤ 9.0% over 111 entities); 2026-07-01 (denial rate ≤ 76.9% over 13 entities). The true figure is at or below the bound and is NOT a measurement. Of 8 cell(s) on this answer, 6 carry an upper bound, 0 were withheld outright and 2 are measured.",
+        "count": 1
+      }
+    ],
+    "cohort": null,
+    "evidence": {
+      "probes": [
+        {
+          "id": "main",
+          "hash": "349de5a987998408e0370c5ff3a980a7ab99fa56634c8454d63cd64b84b89c14",
+          "purpose": "direct metric query",
+          "kind": "aggregation",
+          "metrics": [
+            {
+              "id": "denial_rate",
+              "contract_version": 2
+            }
+          ],
+          "cache_hit": false,
+          "rows": 8,
+          "limit": null,
+          "truncated": false,
+          "suppressed_cells": 5,
+          "grade": "direct",
+          "duration_ms": 42
+        }
+      ],
+      "reconciliation": {
+        "status": "not_applicable",
+        "detail": "this is a first turn; there is no parent answer to reconcile to",
+        "summary": "status=not_applicable; reason=this is a first turn; there is no parent answer to reconcile to"
+      },
+      "warehouse_queries": 1,
+      "cache_hits": 0,
+      "zero_probe_turn": false,
+      "answer_grade": "direct"
+    },
+    "metric": {
+      "primary": {
+        "id": "denial_rate",
+        "contract_version": 2
+      },
+      "metrics": [
+        {
+          "id": "denial_rate",
+          "contract_version": 2
+        }
+      ],
+      "playbook_id": null,
+      "pack_id": "base-rcm",
+      "pack_version": "1.0.0",
+      "pack_snapshot_id": "8e5f979b791b1d69a0084d7f962469469f414785666fda0f6ae4e5bfb6994a85"
+    },
+    "chart_specs": [
+      {
+        "id": "chart_main",
+        "chart_type": "line",
+        "title": "denial rate — main",
+        "frame_id": "main",
+        "x": "month",
+        "series": null,
+        "value": "denial_rate",
+        "unit": "ratio",
+        "grade": "direct",
+        "rows": [
+          {
+            "x": "2026-01-01",
+            "series": null,
+            "value": 0.075188,
+            "referent_id": null,
+            "is_bound": true,
+            "bound_population": 133,
+            "provisional": false
+          },
+          {
+            "x": "2026-02-01",
+            "series": null,
+            "value": 0.107527,
+            "referent_id": null,
+            "is_bound": true,
+            "bound_population": 93,
+            "provisional": false
+          },
+          {
+            "x": "2026-03-01",
+            "series": null,
+            "value": 0.09434,
+            "referent_id": null,
+            "is_bound": true,
+            "bound_population": 106,
+            "provisional": false
+          },
+          {
+            "x": "2026-04-01",
+            "series": null,
+            "value": 0.06993,
+            "referent_id": null,
+            "is_bound": true,
+            "bound_population": 143,
+            "provisional": false
+          },
+          {
+            "x": "2026-05-01",
+            "series": null,
+            "value": 0.104478,
+            "referent_id": null,
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "2026-06-01",
+            "series": null,
+            "value": 0.09009,
+            "referent_id": null,
+            "is_bound": true,
+            "bound_population": 111,
+            "provisional": false
+          },
+          {
+            "x": "2026-07-01",
+            "series": null,
+            "value": 0.769231,
+            "referent_id": null,
+            "is_bound": true,
+            "bound_population": 13,
+            "provisional": true
+          },
+          {
+            "x": "2026-08-01",
+            "series": null,
+            "value": null,
+            "referent_id": null,
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          }
+        ],
+        "annotations": [
+          "upper bounds: 6 of 8 marks are ceilings, not measurements — their numerator was suppressed and they cannot be ranked against the measured marks",
+          "ranking_refused: 6 of the 7 publishable marks are upper bounds, leaving 1 measured — too few for an order to mean anything. These marks are NOT ranked, whatever order they are drawn in; sorting ceilings against measurements sorts by population size.",
+          "withheld: 1 of 8 cells were withheld outright per the small-cell policy and are drawn with no value"
+        ],
+        "recipe_id": "denial_rate_trend",
+        "sort": null,
+        "axis_order": null
+      }
+    ],
+    "metric_display": [],
+    "created_at": "2026-08-09T19:29:52.366610Z"
+  },
+  "restored_clarification": {
+    "investigation_id": "inv_3695089af705",
+    "session_id": "sess_dba7f2af4527",
+    "parent_id": null,
+    "turn_id": "turn_7e56f35485f0",
+    "turn_class": "new_investigation",
+    "status": "clarification_required",
+    "question": "Why is it worse this month?",
+    "plan_hash": null,
+    "context_header": {
+      "window_start": "2026-07-01",
+      "window_end": "2026-07-31",
+      "basis": "service",
+      "comparison_kind": null,
+      "comparison_start": null,
+      "comparison_end": null,
+      "filters": [],
+      "filter_chips": [],
+      "cohort": null,
+      "cohort_size": null,
+      "watermark_id": "wm_003",
+      "as_of": null,
+      "display": "2026-07-01..2026-07-31 (service) · watermark wm_003"
+    },
+    "context_header_restored": true,
+    "watermark_id": "wm_003",
+    "newest_data_date": "2026-08-02",
+    "restoration_notes": [
+      "Restored context: the window, scope, cohort and watermark below are rebuilt from this turn's stored investigation spec at watermark wm_003, not re-computed — the figures are the ones this turn published when it ran.",
+      "The composed narrative is not stored anywhere — the narrative trace keeps its template, redactions and length, not its sentences — so this turn restores without prose. Its findings, warnings and charts are its own record."
+    ],
+    "findings": [],
+    "warnings": [],
+    "warnings_v2": [],
+    "cohort": null,
+    "evidence": {
+      "probes": [],
+      "reconciliation": null,
+      "warehouse_queries": 0,
+      "cache_hits": 0,
+      "zero_probe_turn": true,
+      "answer_grade": null
+    },
+    "metric": {
+      "primary": null,
+      "metrics": [],
+      "playbook_id": null,
+      "pack_id": "base-rcm",
+      "pack_version": "1.0.0",
+      "pack_snapshot_id": "8e5f979b791b1d69a0084d7f962469469f414785666fda0f6ae4e5bfb6994a85"
+    },
+    "chart_specs": [],
+    "metric_display": [],
+    "created_at": "2026-08-09T19:26:40.002402Z"
   }
 }

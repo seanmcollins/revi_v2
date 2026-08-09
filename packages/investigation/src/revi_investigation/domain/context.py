@@ -226,6 +226,13 @@ class AnalysisSpec:
     #: narrative opened on a 243% sub-cell of a movement that never
     #: happened. A doubling is a claim about magnitude and is verified as one.
     asserted_multiple: Decimal | None = None
+    #: The question asserted a SIZE and nothing could read it — "quadruple",
+    #: "jump 300%", "halve". Round-5 A-02(c): ``holds`` is
+    #: ``directional and magnitude is not SHORT``, so an unparsed size
+    #: silently became a confirmed direction and the card said "Premise
+    #: confirmed" over a claim nobody had checked. A verdict that cannot
+    #: test the claim says so.
+    size_asserted_unparsed: bool = False
     #: The period vocabulary the question used, when the analyst named one
     #: ("June 2026", "this week"). Carried so a downstream sentence can
     #: QUOTE it instead of asserting that no period was named (R3-16).

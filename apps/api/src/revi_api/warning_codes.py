@@ -78,6 +78,13 @@ _RULES: tuple[_Rule, ...] = (
     # confirmed nor refuted — "denials did not rise" would be as false as
     # "denials doubled" over a real +72.6%.
     _rule("PREMISE_PARTIAL", CAUTION, r"^premise_partial:"),
+    # Round-5 A-02: the fourth verdict. A movement between two suppressed
+    # ceilings, a comparison whose two panels are not equally settled, and
+    # a SIZE this platform could not parse are each unverifiable — neither
+    # confirmed nor refuted, and rendering any of them as either is the
+    # defect ("Premise confirmed" over 157.1% that was the ratio of two
+    # denominators).
+    _rule("PREMISE_UNVERIFIABLE", CAUTION, r"^premise_unverifiable:"),
     _rule("PREMISE_VERIFIED", INFO, r"^premise_verified:"),
     _rule("RANKING_REFUSED", CAUTION, r"^ranking_refused:"),
     _rule("BOUNDED_CELLS_UNRANKED", CAUTION, r"^bounded_cells_unranked:"),
@@ -103,6 +110,14 @@ _RULES: tuple[_Rule, ...] = (
     _rule("CHART_ROWS_COLLAPSED", CAUTION, r"^chart_rows_collapsed:"),
     _rule("VALUE_CORRECTED", CAUTION, r"^value_corrected:"),
     _rule("DIRECTION_UNMATCHED", CAUTION, r"^direction_unmatched:"),
+    # Round-5 A-04: the cells a directional selection removed, named. "Show
+    # me all twelve" returned ten and the two missing were the only two
+    # that had improved — a systematically premise-flattering omission that
+    # no census on the card counted.
+    _rule("DIRECTION_OMITTED", CAUTION, r"^direction_omitted:"),
+    # Round-5 A-01: context carried onto a clarification resume from the
+    # thread it interrupted, rather than defaulted.
+    _rule("RESUMED_CONTEXT", INFO, r"^resumed_context:"),
     _rule("WINDOW_ASSUMED", CAUTION, r"^window_assumed:"),
     _rule("SNAPSHOT_AS_OF", CAUTION, r"^snapshot_as_of:"),
     _rule("DROPPED_GRAIN", CAUTION, r"^dropped_grain:"),

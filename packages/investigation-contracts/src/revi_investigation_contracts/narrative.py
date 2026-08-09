@@ -37,6 +37,15 @@ class NarrativeFacts(BaseModel):
     #: the prose said the magnitude and direction "can be taken at face
     #: value for the period and basis stated".
     cautioned: bool = False
+    #: How many caution-severity warnings the ANSWER publishes — which is
+    #: not the same as how many of them this composer was handed. Round-5
+    #: C-01: the prose asserted "No mandatory caveats were attached to
+    #: these findings on this turn" on two turns rendering amber banners,
+    #: because it was reporting the emptiness of its own prompt slot as a
+    #: fact about the answer. Any affirmation of the absence of caveats is
+    #: derived from this census, and a sentence that makes one anyway is
+    #: redacted.
+    published_cautions: int = 0
     #: True when findings were truncated, so superlative and spread claims
     #: describe the served slice rather than the population (R3-04).
     truncated: bool = False

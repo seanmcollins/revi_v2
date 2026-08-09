@@ -595,3 +595,81 @@ describe("chartToCsv — a scaled ratio does not leak its arithmetic", () => {
     expect(chartToCsv(spec)).not.toContain("22.916700000000002");
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* B-01 — the artifact a prospect forwards keeps its reasoning         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * "Copy link" is a first-class header button and the permalink is the demo
+ * path. What the share path had been publishing was this product's caveats
+ * with its reasoning removed — which inverts the calibration, because the
+ * reasoning is what makes the caveats read as rigour rather than as panic.
+ *
+ * Two halves, pinned together here: the WRITTEN ANALYSIS must reach the
+ * export whole whenever the payload carries one (it is read defensively at
+ * the restore seam, so the day the store persists it, it travels), and
+ * every caveat must reach it as the engine's SENTENCE, never as a bare
+ * title — a heading with no body is an assertion with its why deleted.
+ */
+describe("answerToText — the reasoning travels with the caveats", () => {
+  const ANALYSIS =
+    "State Medicaid MCO denies 29.5% of claims against a 19-20% marketplace range [F1]. " +
+    "The gap is concentrated in two CARC families rather than spread across the book.";
+
+  it("carries the write-up whole, under its own heading", () => {
+    const text = answerToText({
+      question: "Which payer has the highest denial rate?",
+      header: HEADER,
+      findings: [FINDING],
+      narrative: ANALYSIS,
+      warnings: WARNINGS,
+      investigationId: "inv_0b707e3c49bb",
+      copiedAt: new Date("2026-08-09T14:32:00"),
+    });
+    expect(text).toContain("ANALYSIS");
+    expect(text).toContain(ANALYSIS.split(". ")[0]);
+    expect(text).toContain("concentrated in two CARC families");
+  });
+
+  it("prints each caveat's SENTENCE, not just the shelf it sits on", () => {
+    const text = answerToText({
+      header: HEADER,
+      findings: [FINDING],
+      narrative: ANALYSIS,
+      warnings: WARNINGS,
+      copiedAt: new Date("2026-08-09T14:32:00"),
+    });
+    // Title AND body, on one line, for every warning on the turn.
+    expect(text).toContain(
+      "[caution] How to read this number — denial_rate — claims still awaiting their first remittance (status OPEN) are excluded from both sides",
+    );
+    expect(text).toContain(
+      "[info] Small cells were suppressed — suppression: cells counting fewer than 11 entities are suppressed",
+    );
+  });
+
+  it("hands over the server's own account when the prose was not stored", () => {
+    // A restored turn on a payload generation that does not persist the
+    // composed narrative. The client cannot establish WHY the analysis is
+    // absent — "there was nothing to say" and "the sentences were not
+    // stored" are different facts — so the server's restoration notes go
+    // into the artifact verbatim rather than one apologetic line standing
+    // in for them.
+    const text = answerToText({
+      header: HEADER,
+      findings: [FINDING],
+      narrative: "",
+      warnings: WARNINGS,
+      restored: true,
+      restorationNotes: [
+        "The composed narrative is not stored anywhere — the narrative trace keeps its template, redactions and length, not its sentences — so this turn restores without prose. Its findings, warnings and charts are its own record.",
+      ],
+      copiedAt: new Date("2026-08-09T14:32:00"),
+    });
+    expect(text).toContain("The written analysis was not stored for this turn");
+    expect(text).toContain("the narrative trace keeps its template, redactions and length");
+    // And the caveats still travel in full underneath it.
+    expect(text).toContain("claims still awaiting their first remittance");
+  });
+});

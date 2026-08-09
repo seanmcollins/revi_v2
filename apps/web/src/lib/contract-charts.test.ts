@@ -618,3 +618,178 @@ describe("series cap — eight slots, and the rest said out loud", () => {
     expect(capped.spec.rows[1]?.values[OTHERS_SERIES_KEY]).toBeUndefined();
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* One chart, two windows (round-5 D-02, client half)                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The engine emits exactly ONE chart per comparison now: `series:
+ * "period"`, rows labelled `current` and `prior`, 12 categories × 2, and
+ * no byte-identical base twin beside it. The payloads below are the live
+ * ones, off `GET /v1/investigations/inv_76852c0ddaa6` (denied dollars by
+ * payer, July against June — 24 rows, declared `stacked_bar`) and
+ * `inv_0899f9defc32/chart_main__compare` (denial rate by plan — prior-side
+ * ceilings, two prior-only plans and five annotations on one figure).
+ *
+ * Three things have to be true of the mapping, and the first is the one
+ * with teeth: the frame declares `stacked_bar`, and stacking July on June
+ * produces a column whose height is the sum of two windows — a number
+ * nobody computed, under an annotation that ends "They are not summed".
+ */
+describe("a comparison is one chart with two windows in it", () => {
+  const compare = {
+    id: "chart_main__compare",
+    chart_type: "stacked_bar",
+    title: "denied dollars — main  compare",
+    frame_id: "main__compare",
+    x: "payer",
+    series: "period",
+    value: "denied_dollars",
+    unit: "money_cents",
+    rows: [
+      { x: "Atlas Commercial", series: "current", value: 13_680_438, referent_id: "D1" },
+      { x: "Atlas Commercial", series: "prior", value: 16_048_793, referent_id: "D1" },
+      { x: "Lakewood Medicaid MCO", series: "current", value: 10_240_987, referent_id: "F2" },
+      { x: "Lakewood Medicaid MCO", series: "prior", value: 1_978_647, referent_id: "F2" },
+    ],
+    annotations: [
+      "comparison: two series per category — current is this window and prior is the window it is compared against. They are not summed.",
+    ],
+  };
+
+  it("never stacks the two windows, whatever chart_type the frame declares", () => {
+    const spec = mapChartSpec(compare);
+    expect(spec?.wireChartType).toBe("stacked_bar");
+    expect(spec?.stacked).toBeUndefined();
+    expect(spec?.kind).toBe("grouped_bar");
+  });
+
+  it("names the pair, and pins both halves against a series cap", () => {
+    const spec = mapChartSpec(compare);
+    expect(spec?.comparison).toEqual({ currentKey: "current", priorKey: "prior" });
+    expect(spec?.series).toEqual([
+      { key: "current", label: "This window", role: "current", pinned: true },
+      { key: "prior", label: "Prior window", role: "baseline", pinned: true },
+    ]);
+    expect(spec?.rows[1]).toMatchObject({
+      label: "Lakewood Medicaid MCO",
+      values: { current: 10_240_987, prior: 1_978_647 },
+      referent: "F2",
+    });
+  });
+
+  it("draws this window first however the wire emitted the two", () => {
+    const spec = mapChartSpec({
+      ...compare,
+      rows: [...compare.rows].reverse(),
+    });
+    expect(spec?.series.map((s) => s.key)).toEqual(["current", "prior"]);
+    expect(spec?.series.map((s) => s.role)).toEqual(["current", "baseline"]);
+  });
+
+  it("leaves a compare frame that kept a real second dimension alone", () => {
+    // `denial_code_mix__compare` is a comparison OUTPUT whose series is
+    // `carc` — two dimensions plus two windows is a third axis, so the
+    // engine keeps drawing the current window and says so. It is a
+    // composition and it keeps its stack.
+    const spec = mapChartSpec({
+      ...compare,
+      series: "carc",
+      rows: [
+        { x: "Atlas Commercial", series: "16", value: 100 },
+        { x: "Atlas Commercial", series: "197", value: 200 },
+      ],
+    });
+    expect(spec?.comparison).toBeUndefined();
+    expect(spec?.stacked).toBe(true);
+  });
+
+  it("flags a ceiling on the side it was published on, not on the category", () => {
+    // Live (`inv_0899f9defc32`): Meridian HMO Care's JUNE numerator was
+    // suppressed and its July one was not. Held on the row alone, that
+    // ceiling desaturated both bars and printed one `n` under both.
+    const spec = mapChartSpec({
+      ...compare,
+      unit: "ratio",
+      value: "denial_rate",
+      rows: [
+        { x: "Meridian PPO Prime", series: "current", value: 0.769231, is_bound: true, bound_population: 13 },
+        { x: "Meridian PPO Prime", series: "prior", value: 0.416667, is_bound: true, bound_population: 24 },
+        { x: "Meridian HMO Care", series: "current", value: 0.2 },
+        { x: "Meridian HMO Care", series: "prior", value: 0.357143, is_bound: true, bound_population: 28 },
+      ],
+    });
+    expect(spec?.rows[1]?.cells).toEqual({
+      prior: { bounded: true, denominator: 28 },
+    });
+    // The category still counts as holding a ceiling — that is what the
+    // axis tick and the ordering rule read — but the current mark does not.
+    expect(spec?.rows[1]?.bounded).toBe(true);
+    expect(spec?.rows[0]?.cells).toEqual({
+      current: { bounded: true, denominator: 13 },
+      prior: { bounded: true, denominator: 24 },
+    });
+  });
+
+  it("marks a prior-only category as an absence rather than a measured zero", () => {
+    // The compare operator outer-joins and zero-fills additive units, so a
+    // payer present only in June arrives with a July value of 0. The
+    // engine counts those by exactly this rule and says so in words.
+    const spec = mapChartSpec({
+      ...compare,
+      rows: [
+        { x: "Atlas Commercial", series: "current", value: 13_680_438 },
+        { x: "Atlas Commercial", series: "prior", value: 16_048_793 },
+        { x: "Gone This Month", series: "current", value: 0 },
+        { x: "Gone This Month", series: "prior", value: 900_000 },
+        { x: "New This Month", series: "current", value: 500_000 },
+        { x: "New This Month", series: "prior", value: 0 },
+      ],
+      annotations: [
+        ...compare.annotations,
+        "prior-only categories: 1 of 3 categories carry a figure on the comparison window and none on this one — their current mark is an absence, not a measured zero.",
+      ],
+    });
+    expect(spec?.rows[1]?.cells).toEqual({ current: { absent: true } });
+    // The value is NOT deleted — the CSV keeps what the wire sent — and a
+    // category that is new this month is a measured zero on the OTHER
+    // side, which is a different fact and is not marked.
+    expect(spec?.rows[1]?.values.current).toBe(0);
+    expect(spec?.rows[2]?.cells).toBeUndefined();
+    expect(spec?.notes?.[1]).toContain("an absence, not a measured zero");
+  });
+
+  it("carries every sentence the engine wrote about the figure, not the first", () => {
+    // Live, `inv_0899f9defc32/chart_main__compare` publishes five. The
+    // comparison sentence is always index 0, so reading it alone dropped
+    // the prior-only census, the upper-bound census, the refused ranking
+    // and the withheld census on the figures that carry the most of them.
+    const spec = mapChartSpec({
+      ...compare,
+      annotations: [
+        ...compare.annotations,
+        "prior-only categories: 2 of 4 categories carry a figure on the comparison window and none on this one — their current mark is an absence, not a measured zero.",
+        "upper bounds: 1 of 4 marks are ceilings, not measurements — their numerator was suppressed and they cannot be ranked against the measured marks",
+        "withheld: 3 of 4 cells were withheld outright per the small-cell policy and are drawn with no value",
+      ],
+    });
+    expect(spec?.notes).toHaveLength(4);
+    expect(spec?.note).toBe(spec?.notes?.[0]);
+    expect(spec?.notes?.[2]).toContain("upper bounds: 1 of 4 marks");
+  });
+
+  it("orders a comparison by this window, and names the measure that ordered it", () => {
+    const spec = mapChartSpec({
+      ...compare,
+      sort: { by: "denied_dollars", descending: true },
+    });
+    expect(spec?.rows.map((r) => r.label)).toEqual([
+      "Atlas Commercial",
+      "Lakewood Medicaid MCO",
+    ]);
+    // Never "ordered by current": the caption names the measure the wire
+    // sorted on, which is what the reader asked for.
+    expect(spec?.order).toEqual({ basis: "value", by: "denied_dollars", descending: true });
+  });
+});

@@ -18,12 +18,18 @@ import {
 
 import { DownloadCsvButton } from "@/components/answer/AnswerActions";
 import { Button } from "@/components/ui/button";
-import { capChartSeries, OTHERS_SERIES_KEY } from "@/lib/contract";
+import { capChartSeries, humanizeColumn, OTHERS_SERIES_KEY } from "@/lib/contract";
 import { chartToCsv } from "@/lib/export";
-import { formatMeasure, formatMeasureTick } from "@/lib/format";
+import {
+  formatMeasure,
+  formatMeasureDelta,
+  formatMeasureTick,
+  formatSignedPct,
+} from "@/lib/format";
 import { useSessionStore } from "@/lib/store";
-import type { ChartSeries, ChartSpec } from "@/lib/types";
+import type { ChartCell, ChartSeries, ChartSpec } from "@/lib/types";
 import { usePrefersReducedMotion } from "@/lib/useReducedMotion";
+import { cn } from "@/lib/utils";
 
 /**
  * TWO series are a comparison — current against its baseline — and they
@@ -79,7 +85,128 @@ interface RowDatum {
   denominator?: number;
   /** The bucket is calendar-partial or still adjudicating. */
   provisional?: boolean;
-  [key: string]: string | number | boolean | undefined;
+  /** The engine published this category with no value at all. */
+  withheld?: boolean;
+  /**
+   * The same facts per MARK, keyed by series key — carried onto the datum
+   * so the `<Cell>` loop and the tooltip can tell July's measurement from
+   * June's ceiling inside one category (see `ChartRow.cells`).
+   */
+  cells?: Record<string, ChartCell>;
+  [key: string]: string | number | boolean | Record<string, ChartCell> | undefined;
+}
+
+/**
+ * TWO WINDOWS ARE DRAWN SIDE BY SIDE, NEVER ONE ON TOP OF THE OTHER.
+ *
+ * The engine emits one chart per comparison — 12 categories × {current,
+ * prior} — and it declares that frame `stacked_bar`, which is the one
+ * chart_type this shape must not honour: the annotation riding with the
+ * rows ends "They are not summed", and a stacked column's height would be
+ * July plus June, a number nobody computed and nobody asked for.
+ *
+ * Grouped is also what the pairing MEANS. Period is a presentation of one
+ * measure, not a second dimension of it, so the two marks take the
+ * product's existing current/baseline pair — this window in the primary
+ * ink, the window it is compared against in the muted one — rather than
+ * two categorical hues, which would read as two entities.
+ */
+function periodSeriesLabel(
+  spec: ChartSpec,
+  key: string,
+  windows?: { current?: string; prior?: string },
+): string | undefined {
+  if (spec.comparison === undefined) return undefined;
+  if (key === spec.comparison.currentKey) {
+    return windows?.current ? `This window (${windows.current})` : "This window";
+  }
+  if (key === spec.comparison.priorKey) {
+    return windows?.prior ? `Prior window (${windows.prior})` : "Prior window";
+  }
+  return undefined;
+}
+
+/* ------------------------------------------------------------------ */
+/* Axis labels that name one entity each                               */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A machine enum reaching the axis as a category ("MEDICAL_NECESSITY").
+ *
+ * Only multi-word tokens are re-spelled. A bare all-caps token is at least
+ * as likely to be an acronym the pack means literally (`COB`, `AUTH`,
+ * `CO`) and "Cob" is not a better label than "COB" — humanizing it would
+ * be this renderer deciding what a governed code means.
+ */
+const ENUM_TOKEN = /^[A-Z0-9]+(?:_[A-Z0-9]+)+$/;
+
+function humanizeCategory(label: string): string {
+  return ENUM_TOKEN.test(label) ? humanizeColumn(label.toLowerCase()) : label;
+}
+
+/**
+ * Shorten from the MIDDLE, never from the identifying end.
+ *
+ * "Dr. Arden Riverstone (033)" cut to a prefix is "Dr. Arden …" — which is
+ * what fifteen consecutive providers were called on one axis. The number
+ * in the tail is the identity; so is the "MCO" that separates two payers.
+ */
+function elide(text: string, width: number): string {
+  if (text.length <= width) return text;
+  if (width <= 4) return `${text.slice(0, Math.max(1, width - 1))}…`;
+  // Half the budget to the tail: the identifying end of a warehouse name
+  // is the "(033)" or the "MCO", and it is what a prefix cut deletes.
+  const tail = Math.max(3, Math.floor((width - 1) * 0.5));
+  const head = Math.max(1, width - 1 - tail);
+  return `${text.slice(0, head).trimEnd()}…${text.slice(-tail).trimStart()}`;
+}
+
+/**
+ * Axis ticks that never put two different entities under one label.
+ *
+ * The rule that shipped was `v.length > 11 ? v.slice(0, 10) + "…" : v`, and
+ * live it printed "State Medi…" twice on one twelve-payer axis: slot 1 is
+ * State Medicaid MCO at 29.5% — the answer's #1 finding — and slot 5 is
+ * State Medicaid at 15.8%. On the 150-provider ranking every label in the
+ * warehouse is "Dr. Firstname Lastname (NNN)", so the axis read as fifteen
+ * groups of indistinguishable names with no identity recoverable for any
+ * of them. This is a wrong-identity defect on the surface the product's
+ * own pitch tells analysts to screenshot into a deck.
+ *
+ * So the width is not a constant: it starts at what the figure can fit and
+ * GROWS until every drawn label is unique. Two labels that are still
+ * indistinguishable at the ceiling are printed whole — an axis that is
+ * cramped is a worse figure, an axis that is wrong is a worse decision.
+ *
+ * Returned as a map from the full label so the tooltip, the CSV and the
+ * drill target keep using the identity the wire published; only the tick
+ * is shortened.
+ */
+export function axisTickLabels(
+  labels: readonly string[],
+  base: number,
+  max = 40,
+): Map<string, string> {
+  const unique = [...new Set(labels)];
+  const spelled = new Map(unique.map((label) => [label, humanizeCategory(label)]));
+  for (let width = base; width <= max; width += 2) {
+    const short = new Map<string, string>();
+    const seen = new Map<string, string>();
+    let collision = false;
+    for (const label of unique) {
+      const text = elide(spelled.get(label) ?? label, width);
+      const owner = seen.get(text);
+      if (owner !== undefined && owner !== label) {
+        collision = true;
+        break;
+      }
+      seen.set(text, label);
+      short.set(label, text);
+    }
+    if (!collision) return short;
+  }
+  // Nothing short enough tells them apart. The names go on whole.
+  return new Map(unique.map((label) => [label, spelled.get(label) ?? label]));
 }
 
 /**
@@ -106,6 +233,7 @@ export function InvestigationChart({
   spec: published,
   turnId,
   windowLabel,
+  comparisonWindows,
   watermarkId,
   packLabel,
   question,
@@ -116,6 +244,14 @@ export function InvestigationChart({
   turnId: string;
   /** The turn's window, appended to the composed title (see AnswerCard). */
   windowLabel?: string;
+  /**
+   * The two windows this turn compared, from its context header, when it
+   * published a comparison — "Jul 2026" and "Jun 2026". The legend of a
+   * period chart names them: "current"/"prior" is the engine's
+   * bookkeeping, and a reader looking at a screenshot of a paired bar
+   * chart is entitled to know which two months they are looking at.
+   */
+  comparisonWindows?: { current?: string; prior?: string };
   /** The data load these rows were measured at — it names the CSV file. */
   watermarkId?: string;
   /** The metric pack that defined the measure, for the CSV's provenance. */
@@ -139,8 +275,12 @@ export function InvestigationChart({
   const colors = useMemo(() => seriesColors(spec.series), [spec.series]);
   // A composition is drawn as one. Recharts stacks by shared `stackId`, and
   // a `stacked_bar` frame drawn without one claims a comparison the engine
-  // never published.
-  const stackId = spec.stacked && spec.kind !== "line" ? spec.id : undefined;
+  // never published. A COMPARISON is the mirror case and is never stacked
+  // whatever chart_type it declares — see `periodSeriesLabel` above.
+  const stackId =
+    spec.stacked && spec.kind !== "line" && spec.comparison === undefined ? spec.id : undefined;
+  const seriesLabel = (s: ChartSeries): string =>
+    periodSeriesLabel(spec, s.key, comparisonWindows) ?? s.label;
 
   /**
    * Draw in ONCE, fast (260ms ease-out) — Recharts' 1.5s default is a
@@ -157,26 +297,56 @@ export function InvestigationChart({
 
   const hasBounded = spec.rows.some((row) => row.bounded === true);
   const hasProvisional = spec.rows.some((row) => row.provisional === true);
+  const hasWithheld = spec.rows.some((row) => row.withheld === true);
 
   /**
-   * A provisional point is not the terminus of a solid line.
+   * A mark that is not a measurement is not a point on a solid line.
    *
-   * The engine publishes the sentence ("the week of 2026-07-20 point is
-   * PROVISIONAL and is excluded from that movement") and the wire carries
-   * the flag; the path drew straight through to it anyway, so the strongest
-   * honesty feature in the build was invisible everywhere except the prose.
+   * This began as the provisional fix — the engine publishes the sentence
+   * ("the week of 2026-07-20 point is PROVISIONAL and is excluded from that
+   * movement") and the wire carries the flag, and the path drew straight
+   * through to it anyway. The bounded half never landed on the line at all:
+   * `BOUNDED_MARK` lives in the BarChart branch's `<Cell>` loop, so a live
+   * eight-month denial-rate series whose Jan/Feb/Mar/Apr/Jun points are
+   * ceilings over 133, 93, 106, 143 and 111 records drew as one solid
+   * measured trend ending in a spike to 76.9% that is a ceiling over
+   * thirteen. That is the figure a CFO screenshots.
    *
-   * Each series is drawn TWICE from the same rows: the settled key, whose
-   * values are blank on provisional buckets so the solid path terminates at
-   * the last settled one, and a `…__provisional` key carrying the
-   * provisional points plus the settled point before them, so the dashed
-   * segment joins up without asserting its endpoint has stopped moving.
+   * The two are the same rendering problem — a point the engine did not
+   * measure — so they take the same treatment. Each series is drawn TWICE
+   * from the same rows: the measured key, blank on qualified buckets so the
+   * solid path terminates at the last measured one, and a `…__qualified`
+   * key carrying the qualified points PLUS their measured neighbours on
+   * BOTH sides, so every segment that touches a ceiling is dashed and no
+   * segment goes undrawn. (The old rule joined forwards only, which left
+   * the segment LEAVING a provisional bucket drawn by neither series.)
    *
-   * Written for the general case (a provisional bucket anywhere in the
-   * series), not only the terminal one: a censored middle bucket is exactly
-   * as unfinished as a censored last one.
+   * Written for the general case, not the terminal one: a censored middle
+   * bucket is exactly as unmeasured as a censored last one.
    */
-  const provisionalKey = (key: string): string => `${key}__provisional`;
+  const qualifiedKey = (key: string): string => `${key}__qualified`;
+  const unmeasured = (row: { bounded?: boolean; provisional?: boolean } | undefined): boolean =>
+    row?.bounded === true || row?.provisional === true;
+  const hasQualified = hasBounded || hasProvisional;
+  /**
+   * A category the comparison window has and this one does not.
+   *
+   * The compare operator outer-joins the two windows and zero-fills, so
+   * the wire carries a current value of 0 that nothing measured — and the
+   * engine says exactly that in its own annotation ("their current mark is
+   * an absence, not a measured zero"). A zero-height bar with the
+   * measured-zero baseline tick under it would say the opposite: that this
+   * payer's denials collapsed to nothing. So no mark is drawn, the axis
+   * tick carries a "‡", and the tooltip and the legend say why.
+   */
+  const absent = (row: { cells?: Record<string, ChartCell> }, key: string): boolean =>
+    row.cells?.[key]?.absent === true;
+  const absentLabels = new Set(
+    spec.rows
+      .filter((row) => spec.series.some((s) => absent(row, s.key)))
+      .map((row) => row.label),
+  );
+
   const data: RowDatum[] = spec.rows.map((row, index) => {
     const datum: RowDatum = {
       label: row.label,
@@ -184,12 +354,22 @@ export function InvestigationChart({
       ...(row.bounded === true ? { bounded: true } : {}),
       ...(row.denominator !== undefined ? { denominator: row.denominator } : {}),
       ...(row.provisional === true ? { provisional: true } : {}),
+      ...(row.withheld === true ? { withheld: true } : {}),
+      ...(row.cells !== undefined ? { cells: row.cells } : {}),
     };
-    const pending = row.provisional === true;
-    const joins = pending || spec.rows[index + 1]?.provisional === true;
+    const pending = unmeasured(row);
+    const joins = pending || unmeasured(spec.rows[index - 1]) || unmeasured(spec.rows[index + 1]);
     for (const [key, value] of Object.entries(row.values)) {
-      if (!pending) datum[key] = value;
-      if (hasProvisional && joins) datum[provisionalKey(key)] = value;
+      // An absence is the one value that is NOT drawn: it is the only case
+      // where the wire's number is an artifact of the join rather than a
+      // reading, and `minPointSize` would floor it to a visible tick.
+      if (absent(row, key)) continue;
+      // BARS keep their value on the measured key whatever they are: a bar
+      // is marked by its own fill (the `<Cell>` loop below), and blanking
+      // the value drew a provisional bucket as no bar at all — a category
+      // with nothing over it, which reads as a zero.
+      if (!pending || spec.kind !== "line") datum[key] = value;
+      if (spec.kind === "line" && hasQualified && joins) datum[qualifiedKey(key)] = value;
     }
     return datum;
   });
@@ -225,15 +405,49 @@ export function InvestigationChart({
   const provisionalLabels = new Set(
     spec.rows.filter((row) => row.provisional === true).map((row) => row.label),
   );
+  const withheldLabels = new Set(
+    spec.rows.filter((row) => row.withheld === true).map((row) => row.label),
+  );
+  // Rotated ticks read along their own axis, so they get roughly twice the
+  // character budget of horizontal ones before they collide.
+  const rotateTicks = spec.kind !== "line" && data.length > 6;
+  const tickText = useMemo(
+    () =>
+      axisTickLabels(
+        spec.rows.map((row) => row.label),
+        rotateTicks ? 18 : data.length > 8 ? 12 : 20,
+      ),
+    [spec.rows, rotateTicks, data.length],
+  );
+  // Composed rather than exclusive: on a comparison one category can hold
+  // a ceiling on one window and no figure at all on the other, and an
+  // early return would print one of those two facts and drop the other.
   const categoryTick = (v: string): string => {
-    const short = v.length > 11 ? `${v.slice(0, 10)}…` : v;
-    if (boundedLabels.has(v)) return `≤ ${short}`;
-    if (provisionalLabels.has(v)) return `${short}*`;
-    return short;
+    const short = tickText.get(v) ?? v;
+    const prefix = boundedLabels.has(v) ? "≤ " : "";
+    const suffix = withheldLabels.has(v)
+      ? " †"
+      : absentLabels.has(v)
+        ? " ‡"
+        : provisionalLabels.has(v)
+          ? "*"
+          : "";
+    return `${prefix}${short}${suffix}`;
   };
 
   const tooltipContent = (props: unknown) => (
-    <ChartTooltipContent {...(props as TooltipRenderProps)} formatValue={formatValue} />
+    <ChartTooltipContent
+      {...(props as TooltipRenderProps)}
+      formatValue={formatValue}
+      unit={spec.unit}
+      {...(spec.comparison !== undefined ? { comparison: spec.comparison } : {})}
+      seriesLabel={(key: string) =>
+        periodSeriesLabel(spec, key, comparisonWindows) ??
+        spec.series.find((s) => s.key === key)?.label ??
+        key
+      }
+      seriesColor={(key: string) => colors[key] ?? "var(--chart-current)"}
+    />
   );
 
   return (
@@ -262,7 +476,7 @@ export function InvestigationChart({
                 className="flex items-center gap-1 text-[0.62rem] text-muted-foreground"
               >
                 <span className="size-2 rounded-[2px]" style={{ background: colors[s.key] }} />
-                {s.label}
+                {seriesLabel(s)}
               </span>
             ))}
           </span>
@@ -280,9 +494,17 @@ export function InvestigationChart({
           `annotations[0]` ("upper bounds: 4 of 12 marks are ceilings, not
           measurements…") and was being fed to a `ReferenceLine` as an x
           value, where it matched no category and drew nothing at all. */}
-      {spec.note && (
-        <p className="mb-1.5 text-[0.62rem] leading-snug text-warning">{spec.note}</p>
-      )}
+      {/* EVERY sentence, not the first one. A comparison publishes its own
+          annotation ahead of the rest ("comparison: two series per
+          category — current is this window and prior is the window it is
+          compared against. They are not summed."), so reading index 0
+          alone dropped the upper-bound census, the prior-only census and
+          the withheld census on exactly the figures that carry them. */}
+      {(spec.notes ?? (spec.note !== undefined ? [spec.note] : [])).map((note) => (
+        <p key={note} className="mb-1.5 text-[0.62rem] leading-snug text-warning">
+          {note}
+        </p>
+      ))}
 
       {/* THE RANKING WAS REFUSED. Said above the picture, at full width,
           because the alternative is what shipped: a bar chart sorted by
@@ -308,12 +530,20 @@ export function InvestigationChart({
           <p className="mt-1">{spec.keying.note}</p>
         </div>
       ) : (
-      <div className="h-52 w-full">
+      <div className={cn("w-full", rotateTicks ? "h-64" : "h-52")}>
         <ResponsiveContainer width="100%" height="100%">
           {spec.kind === "line" ? (
             <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
               <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
-              <XAxis dataKey="label" {...axisProps} interval="preserveStartEnd" />
+              {/* The same tick vocabulary the bars use. A time axis whose
+                  ceilings say nothing is the axis under the trend that drew
+                  six of them as measured points. */}
+              <XAxis
+                dataKey="label"
+                {...axisProps}
+                interval="preserveStartEnd"
+                tickFormatter={categoryTick}
+              />
               <YAxis {...axisProps} tickFormatter={formatTick} width={48} />
               <Tooltip
                 content={tooltipContent}
@@ -331,7 +561,7 @@ export function InvestigationChart({
                 <Line
                   key={s.key}
                   dataKey={s.key}
-                  name={s.label}
+                  name={seriesLabel(s)}
                   stroke={colors[s.key]}
                   strokeWidth={2}
                   dot={false}
@@ -339,19 +569,22 @@ export function InvestigationChart({
                   {...drawIn}
                 />
               ))}
-              {/* The unsettled tail. Dashed, hollow-dotted, and drawn from
-                  the last SETTLED point so the segment joins up without
-                  claiming its endpoint is final. `legendType: none` — it is
-                  the same series in a different state, not a second one. */}
-              {hasProvisional &&
+              {/* Every segment that touches a mark the engine did not
+                  measure. Dashed, hollow-dotted, and drawn through the
+                  measured points on either side so the path joins up
+                  without claiming a ceiling is a reading.
+                  `legendType: none` — it is the same series in a different
+                  state, not a second one. */}
+              {hasQualified &&
                 spec.series.map((s) => (
                   <Line
-                    key={provisionalKey(s.key)}
-                    dataKey={provisionalKey(s.key)}
-                    name={`${s.label} (provisional)`}
+                    key={qualifiedKey(s.key)}
+                    dataKey={qualifiedKey(s.key)}
+                    name={`${seriesLabel(s)} (${hasBounded ? "upper bounds" : "provisional"})`}
                     stroke={colors[s.key]}
                     strokeWidth={2}
                     strokeDasharray="4 3"
+                    strokeOpacity={0.75}
                     legendType="none"
                     dot={{ r: 3, strokeWidth: 1.5, fill: "var(--card)", stroke: colors[s.key] }}
                     activeDot={{ r: 4, strokeWidth: 0 }}
@@ -367,11 +600,19 @@ export function InvestigationChart({
               barCategoryGap="26%"
             >
               <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
+              {/* `interval={0}` forced every one of 150 provider ticks to
+                  draw into a 208px figure. Above what an axis can hold,
+                  Recharts thins them and the tooltip carries the rest:
+                  an unlabelled bar is a bar you have to hover, which is a
+                  far smaller cost than fifteen bars wearing one name. */}
               <XAxis
                 dataKey="label"
                 {...axisProps}
-                interval={0}
+                interval={data.length <= 24 ? 0 : "preserveStartEnd"}
                 tickFormatter={categoryTick}
+                {...(rotateTicks
+                  ? { angle: -35, textAnchor: "end" as const, height: 58, tickMargin: 4 }
+                  : {})}
               />
               <YAxis {...axisProps} tickFormatter={formatTick} width={48} />
               <Tooltip content={tooltipContent} cursor={{ fill: "var(--chart-grid)" }} />
@@ -387,7 +628,7 @@ export function InvestigationChart({
                 <Bar
                   key={s.key}
                   dataKey={s.key}
-                  name={s.label}
+                  name={seriesLabel(s)}
                   {...(stackId ? { stackId } : {})}
                   fill={colors[s.key]}
                   // A stack's segments are one column: only the top one
@@ -395,6 +636,15 @@ export function InvestigationChart({
                   // adjacent fills from reading as a single mass.
                   radius={stackId && i < spec.series.length - 1 ? 0 : [3, 3, 0, 0]}
                   {...(stackId ? { stroke: "var(--card)", strokeWidth: 2 } : {})}
+                  // A MEASURED ZERO gets a baseline tick. Without one it
+                  // draws as nothing at all, which is exactly what a
+                  // withheld cell draws as — and on a 150-cell ranking the
+                  // engine's own sentence said "85 were withheld outright
+                  // and 13 are measured" over a picture showing 85 and 3 as
+                  // the same blank. Only exact zeros are floored, so no
+                  // other value is drawn larger than it is (and never on a
+                  // stack, where Recharts cannot honour it cleanly).
+                  {...(stackId ? {} : { minPointSize: (value: number | undefined | null) => (value === 0 ? 2 : 0) })}
                   maxBarSize={stackId ? 26 : spec.series.length > 1 ? 14 : 22}
                   className="cursor-pointer"
                   onClick={handleBarClick}
@@ -404,17 +654,34 @@ export function InvestigationChart({
                       bounded category is visibly a different KIND of mark
                       from the measured ones beside it — the defect a buyer
                       would have screenshotted was twelve identical bars,
-                      four of which were suppression bounds. */}
+                      four of which were suppression bounds.
+
+                      Per (category, SERIES) once a chart draws two windows
+                      per category: the prior side's ceilings ride the same
+                      `is_bound` machinery and land on their own cell, so a
+                      payer whose June numerator was suppressed and whose
+                      July one was not draws one solid mark and one dashed
+                      one. Falls back to the row when the payload carries
+                      no per-mark detail — nothing is un-marked because a
+                      generation of the wire was less specific. */}
                   {(hasBounded || hasProvisional) &&
-                    data.map((row) => (
-                      <Cell
-                        key={`${s.key}:${row.label}`}
-                        fill={colors[s.key]}
-                        {...(row.bounded === true || row.provisional === true
-                          ? { ...BOUNDED_MARK, stroke: colors[s.key] }
-                          : {})}
-                      />
-                    ))}
+                    data.map((row) => {
+                      // Per-mark when the row carries per-mark detail at
+                      // all, not per-mark when THIS mark happens to have
+                      // an entry — a row that says "the prior cell is a
+                      // ceiling" is also saying the current one is not.
+                      const qualified =
+                        (row.cells !== undefined
+                          ? row.cells[s.key]?.bounded === true
+                          : row.bounded === true) || row.provisional === true;
+                      return (
+                        <Cell
+                          key={`${s.key}:${row.label}`}
+                          fill={colors[s.key]}
+                          {...(qualified ? { ...BOUNDED_MARK, stroke: colors[s.key] } : {})}
+                        />
+                      );
+                    })}
                 </Bar>
               ))}
             </BarChart>
@@ -436,12 +703,35 @@ export function InvestigationChart({
           spans: this sentence is read aloud, copied out of a screenshot
           and searched for, and a phrase split across three text nodes is
           none of those things. */}
-      {(hasBounded || hasProvisional) && (
+      {(hasBounded || hasProvisional || hasWithheld || absentLabels.size > 0) && (
         <p className="mt-1.5 text-[0.62rem] leading-snug text-muted-foreground">
           {hasBounded && <span className="block">{boundedLegend(spec)}</span>}
+          {/* The absence, said out loud on the figure. The engine's own
+              annotation above the picture counts them; this says what the
+              gap in the picture IS. */}
+          {absentLabels.size > 0 && (
+            <span className="block">
+              ‡ marks a category with a figure in the window this one is compared against and none
+              in this one — its mark here is an absence, not a measured zero, so no bar is drawn.
+            </span>
+          )}
+          {hasBounded && spec.kind === "line" && (
+            <span className="block">
+              Segments touching a ceiling are drawn dashed with a hollow point — the line between
+              two ceilings is not a measured movement.
+            </span>
+          )}
           {hasProvisional && (
             <span className="block">
               * marks a provisional bucket: still settling, so its value will move.
+            </span>
+          )}
+          {/* A blank that is a REFUSAL, said out loud. Without it a
+              withheld cell and a measured 0.0% are the same nothing. */}
+          {hasWithheld && (
+            <span className="block">
+              † marks a cell the engine withheld outright — no value was published for it, so its
+              gap on this figure is a refusal, not a zero.
             </span>
           )}
         </p>
@@ -512,6 +802,35 @@ export function InvestigationChart({
  * counting its ceilings differently is how this class of defect starts.
  */
 export function boundedLegend(spec: ChartSpec): string {
+  /*
+   * A COMPARISON IS COUNTED PER SIDE.
+   *
+   * The engine's own census counts the current window against the
+   * categories on the axis ("upper bounds: 1 of 4 marks are ceilings"),
+   * and it is silent about the prior side — live, on
+   * `inv_0899f9defc32/chart_main__compare`, that is one current ceiling
+   * reported and three prior ones not. A single combined figure here
+   * would print "4 of 8" a paragraph below the engine's "1 of 4" and read
+   * as two surfaces disagreeing about one control. Per side it agrees
+   * with the engine on its half and adds the half it never counted.
+   */
+  const pair = spec.comparison;
+  if (pair !== undefined && spec.rows.some((row) => row.cells !== undefined)) {
+    const onSide = (key: string): number =>
+      spec.rows.filter((row) => row.cells?.[key]?.bounded === true).length;
+    const total = spec.rows.length;
+    const current = onSide(pair.currentKey);
+    const prior = onSide(pair.priorKey);
+    const together = current + prior;
+    const single = together === 1;
+    return (
+      `≤ marks an upper bound — ${current} of ${total} ${total === 1 ? "mark" : "marks"} in ` +
+      `this window and ${prior} of ${total} in the window it is compared against ` +
+      `${single ? "is a ceiling" : "are ceilings"} over a suppressed numerator, ` +
+      `not ${single ? "a measurement" : "measurements"}, and ${single ? "it is" : "they are"} ` +
+      "not ranked against the measured ones."
+    );
+  }
   const bounded = spec.boundedRows ?? spec.rows.filter((row) => row.bounded === true).length;
   const one = bounded === 1;
   const total = spec.rows.length;
@@ -572,13 +891,28 @@ interface TooltipRenderProps {
   payload?: TooltipEntry[];
 }
 
-function ChartTooltipContent({
+/**
+ * The hover, exported for the same reason `boundedLegend` is: it is where
+ * a reader goes to read one number exactly, and its wording — the "≤" on a
+ * ceiling, "no figure" on an absence, the change between two windows — is
+ * pinned by tests rather than left to a container jsdom gives no size to.
+ */
+export function ChartTooltipContent({
   active,
   label,
   payload,
   formatValue,
+  unit,
+  comparison,
+  seriesLabel,
+  seriesColor,
 }: TooltipRenderProps & {
   formatValue: (value: number) => string;
+  unit?: ChartSpec["unit"];
+  /** Set when this figure draws two windows per category. */
+  comparison?: NonNullable<ChartSpec["comparison"]>;
+  seriesLabel?: (key: string) => string;
+  seriesColor?: (key: string) => string;
 }) {
   if (!active || !payload || payload.length === 0) return null;
   const row = payload[0]?.payload;
@@ -586,9 +920,123 @@ function ChartTooltipContent({
   // The hover is where a reader goes to read one number exactly. A ceiling
   // read there as a measurement is the same lie the bar told, at higher
   // precision.
+  const cellOf = (key: string): ChartCell | undefined => row?.cells?.[key];
+  // Per-mark when the row carries per-mark detail; per-row when it does
+  // not. A row whose prior cell is flagged is also stating that its
+  // current cell is a measurement.
+  const boundedCell = (key: string): boolean =>
+    row?.cells !== undefined ? cellOf(key)?.bounded === true : row?.bounded === true;
   const bounded = row?.bounded === true;
   const provisional = row?.provisional === true;
   const denominator = typeof row?.denominator === "number" ? row.denominator : undefined;
+
+  /*
+   * A COMPARISON IS READ AS A MOVEMENT, so the hover states one.
+   *
+   * Both windows and the delta between them, composed from the row rather
+   * than from Recharts' payload entries: the current side of a prior-only
+   * category is drawn as no bar at all, which means it is absent from the
+   * payload, and the one thing this popover must not do on that category
+   * is show June's figure alone with no mention of July.
+   */
+  if (comparison !== undefined && row !== undefined) {
+    const read = (key: string): number | undefined => {
+      const raw = row[key];
+      return typeof raw === "number" ? raw : undefined;
+    };
+    const currentAbsent = cellOf(comparison.currentKey)?.absent === true;
+    const priorAbsent = cellOf(comparison.priorKey)?.absent === true;
+    const current = currentAbsent ? undefined : read(comparison.currentKey);
+    const prior = priorAbsent ? undefined : read(comparison.priorKey);
+    const delta =
+      current !== undefined && prior !== undefined ? current - prior : undefined;
+    const lines: { key: string; value: number | undefined; absent: boolean }[] = [
+      { key: comparison.currentKey, value: current, absent: currentAbsent },
+      { key: comparison.priorKey, value: prior, absent: priorAbsent },
+    ];
+    return (
+      <div className="max-w-72 rounded-md border bg-popover px-3 py-2 text-xs shadow-md">
+        <p className="mb-1 flex items-center gap-1.5 font-medium">
+          {String(label)}
+          {referent && (
+            <span className="rounded border border-verified/40 bg-verified/10 px-1 font-mono text-[0.6rem] text-verified">
+              {referent}
+            </span>
+          )}
+        </p>
+        <ul className="space-y-0.5">
+          {lines.map((line) => (
+            <li key={line.key} className="flex items-start justify-between gap-4 leading-snug">
+              <span className="flex min-w-0 items-start gap-1.5 text-muted-foreground">
+                <span
+                  className="mt-[0.28rem] size-2 shrink-0 rounded-[2px]"
+                  style={{ background: seriesColor?.(line.key) }}
+                />
+                {seriesLabel?.(line.key) ?? line.key}
+              </span>
+              <span className="num shrink-0 font-medium">
+                {line.absent ? (
+                  <span className="text-warning">no figure</span>
+                ) : line.value === undefined ? (
+                  "—"
+                ) : (
+                  `${boundedCell(line.key) ? "≤ " : ""}${formatValue(line.value)}`
+                )}
+              </span>
+            </li>
+          ))}
+          {/* Stated, not left to be computed off two bars of similar
+              height — reading a movement off a paired bar chart by eye is
+              exactly the thing the chart is bad at. */}
+          {delta !== undefined && (
+            <li className="mt-1 flex items-start justify-between gap-4 border-t pt-1 leading-snug">
+              <span className="text-muted-foreground">Change</span>
+              <span className="num shrink-0 font-medium">
+                {formatMeasureDelta(delta, unit ?? "count")}
+                {prior !== 0 && prior !== undefined && (
+                  <span className="font-normal text-muted-foreground">
+                    {" "}
+                    ({formatSignedPct(delta / Math.abs(prior))})
+                  </span>
+                )}
+              </span>
+            </li>
+          )}
+        </ul>
+        {/* Which SIDE the ceiling is on. One "≤" over a pair of marks left
+            the reader to guess, and the two windows are flagged
+            independently on the wire. */}
+        {lines
+          .filter((line) => boundedCell(line.key))
+          .map((line) => {
+            const n = cellOf(line.key)?.denominator;
+            return (
+              <p
+                key={`bound:${line.key}`}
+                className="mt-1 max-w-56 border-t pt-1 text-[0.65rem] leading-snug text-warning"
+              >
+                {seriesLabel?.(line.key) ?? line.key} is an upper bound
+                {n !== undefined ? ` over n = ${n}` : ""} — a ceiling, not a measurement. It has no
+                position in a ranking.
+              </p>
+            );
+          })}
+        {(currentAbsent || priorAbsent) && (
+          <p className="mt-1 max-w-56 border-t pt-1 text-[0.65rem] leading-snug text-warning">
+            No figure was measured for this category in that window. The zero on the wire is the
+            join between the two windows, not a reading — an absence, not a measured zero.
+          </p>
+        )}
+        {provisional && (
+          <p className="mt-1 max-w-56 border-t pt-1 text-[0.65rem] leading-snug text-warning">
+            Provisional — this bucket is calendar-partial or still adjudicating, so the value will
+            move.
+          </p>
+        )}
+      </div>
+    );
+  }
+
   return (
     // BOUNDED. A series key is not always a short name: the server folds an
     // undeclared grouping column into `series` as a `" / "`-joined
@@ -621,7 +1069,7 @@ function ChartTooltipContent({
             </span>
             <span className="num shrink-0 font-medium">
               {typeof entry.value === "number"
-                ? `${bounded ? "≤ " : ""}${formatValue(entry.value)}`
+                ? `${boundedCell(String(entry.dataKey)) ? "≤ " : ""}${formatValue(entry.value)}`
                 : entry.value}
             </span>
           </li>
@@ -637,6 +1085,12 @@ function ChartTooltipContent({
         <p className="mt-1 max-w-56 border-t pt-1 text-[0.65rem] leading-snug text-warning">
           Provisional — this bucket is calendar-partial or still adjudicating, so the value will
           move.
+        </p>
+      )}
+      {row?.withheld === true && (
+        <p className="mt-1 max-w-56 border-t pt-1 text-[0.65rem] leading-snug text-warning">
+          Withheld — the engine published no value for this cell under the small-cell policy. The
+          gap is a refusal, not a zero.
         </p>
       )}
     </div>

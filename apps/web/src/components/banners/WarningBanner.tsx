@@ -4,7 +4,7 @@ import { AlertTriangle, Info } from "lucide-react";
 
 import type { WarningEvent } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { warningBody, warningTitle } from "@/lib/warnings";
+import { isVerdictCode, warningBody, warningTitle } from "@/lib/warnings";
 
 /**
  * One warning, rendered from its CODE rather than from its prose.
@@ -42,6 +42,13 @@ export function WarningBanner({
   debug?: boolean;
 }) {
   const caution = warning.severity === "caution";
+  // THE VERDICT on the question that was asked, not a note about how to
+  // read a number. `PREMISE_PARTIAL` — "denied dollars rose 14.1%, short
+  // of the 100.0% a doubling assumes" — rendered in the same box, tone and
+  // type size as "probe 'denial_code_mix__prior' reads 'denied_dollars'",
+  // which gives the most important sentence on the answer no rank at all
+  // over engine bookkeeping. Same sentence, same list, more weight.
+  const verdict = isVerdictCode(warning.code);
   const title = warningTitle(warning.code);
   // Stripped UNCONDITIONALLY, not only when a title exists. The prefix is
   // machine vocabulary either way, and gating the strip on the title meant
@@ -56,11 +63,13 @@ export function WarningBanner({
     <div
       data-warning-code={warning.code}
       data-severity={warning.severity}
+      {...(verdict ? { "data-verdict": "true" } : {})}
       className={cn(
         "flex items-start gap-2 rounded-md border px-3 py-2 text-[0.72rem] leading-snug",
         caution
           ? "border-warning/40 bg-warning/10"
           : "border-border bg-surface-sunken/60 text-muted-foreground",
+        verdict && "border-l-2 border-l-warning px-3.5 py-2.5",
       )}
     >
       {caution ? (
@@ -71,7 +80,15 @@ export function WarningBanner({
       <div className="min-w-0 flex-1">
         {title && (
           <p className="flex flex-wrap items-center gap-1.5">
-            <span className={cn("font-medium", caution && "text-foreground")}>{title}</span>
+            <span
+              className={cn(
+                "font-medium",
+                caution && "text-foreground",
+                verdict && "text-[0.82rem] font-semibold",
+              )}
+            >
+              {title}
+            </span>
             {count > 1 && (
               <span
                 className={cn(
@@ -80,7 +97,14 @@ export function WarningBanner({
                     ? "border-warning/40 text-warning"
                     : "border-border text-muted-foreground",
                 )}
-                title={`The engine raised this ${count} times with the same wording; it is shown once.`}
+                title={
+                  // WHICH plan nodes raised it, when they were the only
+                  // difference between the collapsed entries. The ids are
+                  // recoverable and they are not on the analyst's screen.
+                  warning.probes && warning.probes.length > 1
+                    ? `One fact, raised on ${count} probes: ${warning.probes.join(", ")}. It is stated once.`
+                    : `The engine raised this ${count} times with the same wording; it is shown once.`
+                }
               >
                 ×{count}
               </span>
@@ -104,12 +128,28 @@ export function WarningBanner({
             </span>
           )}
         </p>
+        {/* The plan nodes the collapsed entries differed by. Operator
+            material — it belongs beside the trace, not above the verdict. */}
+        {debug && warning.probes && warning.probes.length > 1 && (
+          <p className="mt-1 break-words font-mono text-[0.6rem] text-muted-foreground">
+            probes: {warning.probes.join(", ")}
+          </p>
+        )}
       </div>
     </div>
   );
 }
 
-/** The turn's warnings, cautions first — the ones that change the reading. */
+/**
+ * The turn's warnings: the VERDICT first, then the cautions that change
+ * how a number should be read, then the notes that do not.
+ *
+ * A stable partition, not a sort — within a band the engine's own order is
+ * the order the checks ran in, and shuffling it would lose the one piece
+ * of sequencing the payload actually carries. The verdict band exists
+ * because the answer to the question asked was arriving in the middle of a
+ * wall of engine bookkeeping, in the same ink.
+ */
 export function WarningList({
   warnings,
   debug = false,
@@ -120,12 +160,10 @@ export function WarningList({
   className?: string;
 }) {
   if (warnings.length === 0) return null;
-  // A stable partition, not a sort: within a severity the engine's own
-  // order is the order the checks ran in, and shuffling it would lose the
-  // one piece of sequencing the payload actually carries.
   const ordered = [
-    ...warnings.filter((w) => w.severity === "caution"),
-    ...warnings.filter((w) => w.severity !== "caution"),
+    ...warnings.filter((w) => isVerdictCode(w.code)),
+    ...warnings.filter((w) => !isVerdictCode(w.code) && w.severity === "caution"),
+    ...warnings.filter((w) => !isVerdictCode(w.code) && w.severity !== "caution"),
   ];
   return (
     <div className={cn("space-y-2", className)}>

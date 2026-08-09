@@ -114,7 +114,21 @@ class TestCaveatsAndDisplayNames:
         prompt = build_narrative_prompt(
             findings=[TF_FINDING], header=HEADER, reconciliation=None
         )
-        assert "(none on this turn)" in prompt
+        assert "nothing on the mandatory list for this slot" in prompt
+
+    def test_an_empty_slot_never_reads_as_an_answer_with_no_caveats(self) -> None:
+        """Round-5 C-01. The slot is empty when nothing on the MANDATORY
+        list is present; the answer can still be carrying a dozen amber
+        banners — and the composer wrote "No mandatory caveats were
+        attached to these findings on this turn" over seven of them."""
+        prompt = build_narrative_prompt(
+            findings=[TF_FINDING],
+            header=HEADER,
+            reconciliation=None,
+            published_cautions=7,
+        )
+        assert "7 caution-severity caveat(s) above your text" in prompt
+        assert "Do NOT write that the answer carries no caveats" in prompt
 
     @pytest.mark.parametrize("depth", list(NarrativeDepth))
     def test_both_depths_carry_the_caveat_and_its_instruction(

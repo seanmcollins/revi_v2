@@ -294,25 +294,74 @@ def recognize_relative_period(question: str) -> RelativePeriod | None:
 #: quantity, and the premise check tested only the sign (round-3 R3-03).
 _MAGNITUDE_WORDS: tuple[tuple[str, Decimal], ...] = (
     ("quadrupled", Decimal(4)),
+    ("quadruple", Decimal(4)),
+    ("fourfold", Decimal(4)),
+    ("four-fold", Decimal(4)),
+    ("4x", Decimal(4)),
     ("tripled", Decimal(3)),
     ("triple", Decimal(3)),
+    ("threefold", Decimal(3)),
+    ("three-fold", Decimal(3)),
+    ("3x", Decimal(3)),
     ("doubled", Decimal(2)),
     ("double", Decimal(2)),
     ("twice", Decimal(2)),
+    ("twofold", Decimal(2)),
+    ("two-fold", Decimal(2)),
     ("2x", Decimal(2)),
-    ("3x", Decimal(3)),
     ("halved", Decimal("0.5")),
+    ("halve", Decimal("0.5")),
     ("by half", Decimal("0.5")),
     ("in half", Decimal("0.5")),
+    ("cut in half", Decimal("0.5")),
+)
+
+#: Sizes stated as arithmetic rather than as a word — "jumped 300%", "up by
+#: 40%", "5x". Round-5 A-02(3): the closed table held "halved" and not
+#: "halve", "quadrupled" and not "quadruple", "2x"/"3x" and no numeric form
+#: at all, and an unparsed size silently became a confirmed DIRECTION —
+#: "Premise confirmed … It happened: -8.0%" over a question that said HALVE.
+_PERCENT_MOVE = re.compile(
+    r"(?<!\w)(?:by\s+)?(\d{1,4}(?:\.\d+)?)\s*(?:%|percent)(?!\w)", re.IGNORECASE
+)
+_MULTIPLE_MOVE = re.compile(r"(?<!\w)(\d{1,3}(?:\.\d+)?)\s*(?:x|-fold|fold)(?!\w)", re.IGNORECASE)
+
+#: Language that ASSERTS a size without naming one this platform can read.
+#: Its only job is to stop a size the engine could not parse from being
+#: published as a confirmed direction.
+_SIZE_ASSERTED = re.compile(
+    r"(?<!\w)(?:\d{1,4}(?:\.\d+)?\s*(?:%|percent|x|-?fold)|half|halve[ds]?|double[ds]?|"
+    r"triple[ds]?|quadruple[ds]?|twice|[a-z]+fold|order of magnitude)(?!\w)",
+    re.IGNORECASE,
 )
 
 
-def asserted_multiple(question: str, direction_asserted: bool) -> Decimal | None:
+#: Words that make a bare percentage a DECREASE. Used only when the
+#: interpretation did not hand over a direction to read it against.
+_FALLING = re.compile(
+    r"(?<!\w)(?:fall|falls|fell|fallen|drop|drops|dropped|declin\w*|down|decreas\w*|"
+    r"shrink\w*|shrank|shrunk|lower\w*|reduc\w*|lost|losing|slid|slipped)(?!\w)",
+    re.IGNORECASE,
+)
+
+
+def asserted_multiple(
+    question: str,
+    direction_asserted: bool,
+    *,
+    proposed: float | None = None,
+    direction: str | None = None,
+) -> Decimal | None:
     """The size a question ASSERTS, when it asserts one.
 
     Only meaningful alongside an asserted direction: "which payer doubled?"
     is a query over cells, while "why did denials double?" is a premise
     about the aggregate, and only the second is checked here.
+
+    The closed table is a deterministic OVERRIDE, not the sole source
+    (round-5 A-02d): a word this platform recognises is resolved here and
+    never asked of a model, and ``proposed`` — the interpretation's own
+    typed reading — fills the long tail of phrasings a table cannot hold.
     """
     if not direction_asserted:
         return None
@@ -320,7 +369,44 @@ def asserted_multiple(question: str, direction_asserted: bool) -> Decimal | None
     for word, multiple in _MAGNITUDE_WORDS:
         if re.search(rf"(?<!\w){re.escape(word)}(?!\w)", text):
             return multiple
+    match = _MULTIPLE_MOVE.search(text)
+    if match is not None:
+        return Decimal(match.group(1))
+    match = _PERCENT_MOVE.search(text)
+    if match is not None:
+        # A percentage names a CHANGE; the multiple is the level it lands
+        # on. Which way it points comes from the interpretation's own
+        # closed direction set where there is one, and from the sentence
+        # only as a fallback — a table of falling verbs is a worse source
+        # than the reading the model already produced.
+        change = Decimal(match.group(1)) / Decimal(100)
+        # "improved"/"worsened" are polarity-relative and resolve to a sign
+        # only against a metric contract, which is not in scope here; only
+        # the two absolute directions decide it outright.
+        falling = (
+            direction == "decrease"
+            if direction in ("increase", "decrease")
+            else _FALLING.search(text) is not None
+        )
+        return Decimal(1) + (-change if falling else change)
+    if proposed is not None and proposed > 0:
+        return Decimal(str(proposed))
     return None
+
+
+def size_asserted_unparsed(question: str, direction_asserted: bool) -> bool:
+    """Did the question assert a SIZE this platform could not read?
+
+    The signal that keeps ``premise_holds`` from being rendered as "Premise
+    confirmed" over a magnitude nobody verified. Direction-only is a legal
+    premise ("why are denials up?"); direction-only *after* a size was
+    asserted is a verdict on a claim that was never checked.
+    """
+    if not direction_asserted:
+        return False
+    if asserted_multiple(question, direction_asserted) is not None:
+        return False
+    return _SIZE_ASSERTED.search(question) is not None
 
 
 #: What "all of them" means when the analyst does not name a number. Large
@@ -328,9 +414,24 @@ def asserted_multiple(question: str, direction_asserted: bool) -> Decimal | None
 #: and still a bound: an unbounded answer is a different failure.
 FULL_RANKING_LIMIT = 100
 
+#: Counts an analyst says out loud rather than types. "Show me all twelve"
+#: names TWELVE, and resolving it to the 100-row ``FULL_RANKING_LIMIT``
+#: made the shortfall notice quote a ceiling this platform invented back at
+#: an analyst who had named a number (round-5 A-04).
+_NUMBER_WORDS: dict[str, int] = {
+    "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
+    "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
+    "thirteen": 13, "fourteen": 14, "fifteen": 15, "sixteen": 16,
+    "seventeen": 17, "eighteen": 18, "nineteen": 19, "twenty": 20,
+}
+
 _EXPLICIT_LIMIT = re.compile(r"\b(?:top|first|bottom|worst|best)\s+(\d{1,3})\b", re.IGNORECASE)
 _COUNTED_ALL = re.compile(
     r"\b(?:all|every|each)\b[^.?!]{0,40}?\b(\d{1,3})\b", re.IGNORECASE
+)
+_COUNTED_ALL_WORD = re.compile(
+    r"\b(?:all|every|each)\b[^.?!]{0,40}?\b(" + "|".join(_NUMBER_WORDS) + r")\b",
+    re.IGNORECASE,
 )
 _UNCOUNTED_ALL = re.compile(
     r"\b(?:all of them|all twelve|every one|every single|full (?:ranking|list|breakdown)"
@@ -353,6 +454,9 @@ def requested_finding_limit(question: str) -> int | None:
     counted = _COUNTED_ALL.search(question)
     if counted is not None:
         return int(counted.group(1))
+    spelled = _COUNTED_ALL_WORD.search(question)
+    if spelled is not None:
+        return _NUMBER_WORDS[spelled.group(1).lower()]
     if _UNCOUNTED_ALL.search(question):
         return FULL_RANKING_LIMIT
     return None
@@ -1027,7 +1131,19 @@ class InterpretQuestionService:
             direction_asserted=bool(parsed.direction_asserted and parsed.direction),
             # The SIZE the question asserted, so the premise check can test
             # it — "doubled" is a claim about magnitude (R3-03).
-            asserted_multiple=asserted_multiple(question, parsed.direction_asserted),
+            asserted_multiple=asserted_multiple(
+                question,
+                parsed.direction_asserted,
+                proposed=parsed.asserted_multiple,
+                direction=parsed.direction,
+            ),
+            # …and whether a size was asserted that nothing could read, so
+            # an unverified magnitude can never be published as a confirmed
+            # direction (round-5 A-02c).
+            size_asserted_unparsed=(
+                parsed.asserted_multiple is None
+                and size_asserted_unparsed(question, parsed.direction_asserted)
+            ),
             # What the analyst called the period, so no later sentence has
             # to assert that they named none (R3-16).
             period_label=period_label,

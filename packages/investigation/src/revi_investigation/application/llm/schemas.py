@@ -239,6 +239,14 @@ class InterpretationResponse(_Closed):
     #: premise, and a premise gets verified against the aggregate before
     #: anything is offered as its cause.
     direction_asserted: bool = False
+    #: The SIZE that movement asserts, as a multiple of the prior level: 2
+    #: for "doubled", 0.5 for "halved", 4 for "quadruple", 3 for "jumped
+    #: 200%". Round-5 A-02(3): a closed 11-entry table was the sole source
+    #: and held "halved" but not "halve", so "why did cash collections
+    #: HALVE in July?" published "Premise confirmed … -8.0%". The table is
+    #: still the deterministic override for every word it holds; this field
+    #: covers the phrasings a table cannot. Null when no size was asserted.
+    asserted_multiple: float | None = Field(default=None, gt=0)
     #: The order a ranking was asked to arrive in ("best to worst" →
     #: ``best_first``). Closed set; never inferred — an unstated order stays
     #: ``None`` and the pack's own default applies.

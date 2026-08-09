@@ -887,3 +887,143 @@ describe("AnswerCard — what a screen reader is told", () => {
     ).toBe("This turn stopped before it finished.");
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* C-01 — one fact, one surface, and the verdict above the bookkeeping */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Two correct fixes that nobody reconciled. The composer builds its
+ * mandatory disclosures into the prose verbatim (round-2 FN-3) while this
+ * card renders the same `warnings_v2` as banners (rounds 1/3). Measured on
+ * one live turn: 4,933 characters of write-up of which 1,704 — 34.5% — are
+ * byte-identical copies of banners on the same screen, one census sentence
+ * printed four times on one answer, "this is not a ranking" restated
+ * fourteen times on one page.
+ */
+describe("AnswerCard — a caution is printed once, not twice", () => {
+  const CENSUS =
+    "Of 150 cells on this answer, 96 carry an upper bound, 0 were withheld outright and 54 are measured.";
+
+  function doubled() {
+    return bareTurn({
+      narrative: `Denial rate is concentrated in the tail. ${CENSUS} The pattern holds across payers.`,
+      warnings: [
+        {
+          type: "warning",
+          code: "SUPPRESSION_BOUNDED",
+          severity: "caution",
+          message: CENSUS,
+          structured: true,
+        },
+      ],
+    });
+  }
+
+  it("prints the sentence once — on the banner, which survives a reload", () => {
+    const { container } = renderCard(doubled());
+    const printed = [...container.querySelectorAll("p")].filter((p) =>
+      (p.textContent ?? "").includes("96 carry an upper bound"),
+    );
+    expect(printed).toHaveLength(1);
+    // And it is the BANNER that kept it: warnings survive a restore and
+    // composed prose does not, so folding onto the prose would have made
+    // the shared permalink thinner still.
+    expect(printed[0].closest("[data-warning-code]")).not.toBeNull();
+  });
+
+  it("keeps the prose that is the write-up's own, and says what it folded", () => {
+    renderCard(doubled());
+    expect(
+      screen.getByText(/Denial rate is concentrated in the tail/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/The pattern holds across payers/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/repeated a caution above word for word and is not printed twice/),
+    ).toBeInTheDocument();
+  });
+
+  it("leaves a write-up that repeats nothing byte-identical alone", () => {
+    renderCard(
+      bareTurn({
+        narrative: "Denial rate is concentrated in the tail.",
+        warnings: [
+          {
+            type: "warning",
+            code: "SUPPRESSION_BOUNDED",
+            severity: "caution",
+            message: CENSUS,
+            structured: true,
+          },
+        ],
+      }),
+    );
+    expect(screen.getByText("Denial rate is concentrated in the tail.")).toBeInTheDocument();
+    expect(screen.queryByText(/is not printed twice/)).not.toBeInTheDocument();
+  });
+
+  it("seats the VERDICT above the engine bookkeeping it was buried in", () => {
+    // PREMISE_PARTIAL is the answer to the question that was asked. It
+    // rendered in the same box, tone and type size as "probe
+    // 'denial_code_mix__prior' reads 'denied_dollars'".
+    const { container } = renderCard(
+      bareTurn({
+        warnings: [
+          {
+            type: "warning",
+            code: "ALTERNATE_BASIS_USED",
+            severity: "caution",
+            message: "alternate_basis_used: a probe reads 'denied_dollars' on the service basis",
+            count: 6,
+            probes: ["main", "premise", "main__window"],
+            structured: true,
+          },
+          {
+            type: "warning",
+            code: "PREMISE_PARTIAL",
+            severity: "caution",
+            message:
+              "premise_partial: denied dollars rose 14.1%, short of the 100.0% a doubling assumes",
+            structured: true,
+          },
+        ],
+      }),
+    );
+    const codes = [...container.querySelectorAll("[data-warning-code]")].map((el) =>
+      el.getAttribute("data-warning-code"),
+    );
+    expect(codes).toEqual(["PREMISE_PARTIAL", "ALTERNATE_BASIS_USED"]);
+    expect(
+      container.querySelector('[data-warning-code="PREMISE_PARTIAL"]')?.getAttribute("data-verdict"),
+    ).toBe("true");
+    expect(
+      container
+        .querySelector('[data-warning-code="ALTERNATE_BASIS_USED"]')
+        ?.getAttribute("data-verdict"),
+    ).toBeNull();
+  });
+
+  it("says how many probes a collapsed caution came from, without naming them on screen", () => {
+    const { container } = renderCard(
+      bareTurn({
+        warnings: [
+          {
+            type: "warning",
+            code: "ALTERNATE_BASIS_USED",
+            severity: "caution",
+            message: "alternate_basis_used: a probe reads 'denied_dollars' on the service basis",
+            count: 6,
+            probes: ["main", "premise", "main__window", "main__window__prior"],
+            structured: true,
+          },
+        ],
+      }),
+    );
+    expect(screen.getByText("×6")).toBeInTheDocument();
+    expect(screen.getByText("×6").getAttribute("title")).toBe(
+      "One fact, raised on 6 probes: main, premise, main__window, main__window__prior. It is stated once.",
+    );
+    // The plan node names are operator material and are not on the answer.
+    expect(container.textContent).not.toContain("main__window__prior");
+  });
+});

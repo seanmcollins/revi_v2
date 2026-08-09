@@ -413,6 +413,25 @@ def _finding_line(
     return _apply_display_names(line, substitutions)
 
 
+def _empty_slot(published_cautions: int) -> str:
+    """What an empty prompt slot says, so nothing reads it as "no caveats".
+
+    Round-5 C-01. The slot is empty when nothing on the MANDATORY list is
+    present; the answer may still be carrying a dozen amber banners the
+    composer was never shown. Saying "(none)" and letting a model turn that
+    into a claim about the answer is how "No mandatory caveats were
+    attached to these findings on this turn" got published over seven of
+    them.
+    """
+    if published_cautions <= 0:
+        return "- (nothing on the mandatory list for this slot)"
+    return (
+        "- (nothing on the mandatory list for this slot — but this answer publishes "
+        f"{published_cautions} caution-severity caveat(s) above your text. Do NOT write that "
+        "the answer carries no caveats, no qualifications or no caution: it does.)"
+    )
+
+
 def build_narrative_prompt(
     *,
     findings: Sequence[FindingPayload],
@@ -423,6 +442,7 @@ def build_narrative_prompt(
     metric_display: Mapping[str, str] | None = None,
     depth: NarrativeDepth = NarrativeDepth.SUMMARY,
     disclosures: Sequence[str] = (),
+    published_cautions: int = 0,
 ) -> str:
     """Render the composition prompt from certified material only.
 
@@ -438,15 +458,24 @@ def build_narrative_prompt(
     ``metric_display`` maps metric ids to the governed display names that
     say what each number actually measures, so the prompt shows "unbilled
     open inventory" where the id says "timely filing at risk dollars".
+
+    ``published_cautions`` is how many caution-severity warnings the ANSWER
+    carries — which is not the same number as how many of them are handed
+    to this composer, and confusing the two is round-5 C-01's second half.
+    Both empty slots below used to read "(none)", and the model reported
+    that as a fact about the answer: *"No mandatory caveats were attached
+    to these findings on this turn"* was published on two turns rendering
+    amber caution banners from the same ``warnings_v2`` array. An empty
+    slot is a statement about this PROMPT, so it now says so.
     """
     substitutions = _display_substitutions(metric_display)
     finding_lines = "\n".join(_finding_line(f, substitutions) for f in findings) or "- (none)"
     benchmark_lines = "\n".join(f"- {line}" for line in benchmarks) or "- (none provided)"
+    empty = _empty_slot(published_cautions)
     caveat_lines = (
-        "\n".join(f"- {_apply_display_names(line, substitutions)}" for line in caveats)
-        or "- (none on this turn)"
+        "\n".join(f"- {_apply_display_names(line, substitutions)}" for line in caveats) or empty
     )
-    disclosure_lines = "\n".join(f"- {line}" for line in disclosures) or "- (none)"
+    disclosure_lines = "\n".join(f"- {line}" for line in disclosures) or empty
     return NARRATIVE_TEMPLATES[depth].format(
         header=header.display,
         findings=finding_lines,
@@ -467,6 +496,7 @@ def build_narrative_facts(
     metric_display: Mapping[str, str] | None = None,
     disclosures: Sequence[str] = (),
     worklist_first_action: str | None = None,
+    published_cautions: int = 0,
 ) -> NarrativeFacts:
     """The closed fact set the validator trusts.
 
@@ -539,7 +569,12 @@ def build_narrative_facts(
         # population, so a sentence that counts cells has something to be
         # checked against instead of a free pass (R3-18).
         population_counts=_population_counts(disclosures),
-        cautioned=bool(disclosures),
+        # Read off the ANSWER's own census, not off what this composer was
+        # handed (round-5 C-01): a turn carrying WINDOW_ASSUMED and nothing
+        # on the mandatory list is a cautioned turn, and the face-value ban
+        # below was silently off for every one of them.
+        cautioned=bool(disclosures) or published_cautions > 0,
+        published_cautions=published_cautions,
         truncated=any(_TRUNCATION_MARKER in line.lower() for line in disclosures),
         topic_sentence=_topic_sentence(findings, header),
         # The ranked list's first item, when this question routed to the
@@ -656,6 +691,12 @@ LEAD_DISCLOSURE_CODES: tuple[str, ...] = (
     # reason a refutation does: everything below it is the composition of a
     # movement the question named wrongly.
     "PREMISE_PARTIAL",
+    # The fourth verdict (round-5 A-02). A premise over two suppressed
+    # ceilings, an immature comparison panel, or a size nothing could parse
+    # is neither confirmed nor refuted — and it leads for the same reason
+    # the other three do: it governs whether anything below may be read as
+    # evidence for the question's own assumption.
+    "PREMISE_UNVERIFIABLE",
     # The other half of the premise family (round-3 R3-03). A verdict that
     # CONFIRMS the question is still the answer's first claim: publishing it
     # only on failure is what let "why did denials double?" — a real +4.2%
@@ -686,6 +727,9 @@ TRAILING_DISCLOSURE_CODES: tuple[str, ...] = (
     # What the answer did NOT publish (R3-04). An omission the reader
     # cannot see is the one that makes a superlative false.
     "FINDINGS_TRUNCATED",
+    # …and specifically the cells a DIRECTION removed (round-5 A-04), which
+    # is the omission that flatters the question that asked for it.
+    "DIRECTION_OMITTED",
     # The window that was actually read, when it is not the window that was
     # asked for (R3-05), and the period vocabulary that was resolved or
     # could not be (R3-16).
@@ -1022,6 +1066,24 @@ _FACE_VALUE = re.compile(
     re.IGNORECASE,
 )
 
+#: Sentences asserting the ANSWER carries no caveats. Round-5 C-01: the
+#: composer was testing whether ``mandatory_disclosures`` had handed it a
+#: lead or a trail and reporting that as a fact about the answer — "No
+#: mandatory caveats were attached to these findings on this turn", written
+#: on two independent turns that render amber caution banners from the same
+#: ``warnings_v2`` array. The affirmation is derived from the warning
+#: census now (see ``published_cautions``), and a sentence that makes it
+#: anyway is redacted rather than argued with.
+_NO_CAVEATS = re.compile(
+    r"\b(?:no|not any|zero|none of the)\b[^.?!]{0,60}?"
+    r"\b(?:caveat|caveats|qualification|qualifications|disclosure|disclosures|"
+    r"caution|cautions|warning|warnings|reservation|reservations)\b"
+    r"|\b(?:caveat|caveats|qualification|qualifications|disclosure|disclosures|"
+    r"caution|cautions|warning|warnings)\b[^.?!]{0,40}?"
+    r"\b(?:were|was|are|is)\s+(?:not|none)\b",
+    re.IGNORECASE,
+)
+
 #: Claims about the SHAPE of a population — its spread, its band, "the
 #: measured group", "all of them". On a truncated answer these describe the
 #: served slice and nothing else, which is how a 4.4% to 15.0% spread (3.4x)
@@ -1202,6 +1264,11 @@ def validate_narrative(text: str, facts: NarrativeFacts) -> NarrativeValidation:
             reason = (
                 "claims the figures can be taken at face value on a turn carrying a "
                 "caution-severity disclosure"
+            )
+        if reason is None and facts.published_cautions and _NO_CAVEATS.search(sentence):
+            reason = (
+                f"states the answer carries no caveats while {facts.published_cautions} "
+                "caution-severity caveat(s) are published on it"
             )
         if reason is None and facts.truncated:
             if _SPREAD_CLAIM.search(sentence):

@@ -512,9 +512,16 @@ describe("TurnResponse contract (parseTurnResponse)", () => {
     const { value } = parseTurnResponse(SAMPLES.turn_complete, PIN);
     if (value?.outcome !== "answer") throw new Error("expected an answer");
     const events = turnResponseToEvents(value);
-    // The real T1 answer carries five honest-limitation warnings (a pruned
-    // probe, two alternate-basis labels, suppression, a skipped transform),
+    // The real T1 answer carries five honest-limitation sentences (a pruned
+    // probe, TWO alternate-basis labels, suppression, a skipped transform),
     // and every one of them reaches the UI as a note rather than vanishing.
+    //
+    // Four banners, not five. The two alternate-basis sentences are one
+    // fact spelled twice — they differ only by `probe
+    // 'submission_volume_by_payer'` and `…__prior`, which is a plan node
+    // the analyst has never seen — so they collapse onto the fact and the
+    // count says it was raised twice. Nothing is dropped: the probe names
+    // ride on `probes` for debug mode and the badge's tooltip.
     expect(events.map((e) => e.type)).toEqual([
       "context_header",
       "stage",
@@ -526,14 +533,35 @@ describe("TurnResponse contract (parseTurnResponse)", () => {
       "warning",
       "warning",
       "warning",
-      "warning",
       "narrative_delta",
       "evidence",
       "turn_complete",
     ]);
     expect(events.filter((e) => e.type === "warning").map((e) => e.code)).toEqual(
-      Array(5).fill("ANSWER_NOTE"),
+      Array(4).fill("ANSWER_NOTE"),
     );
+    const alternate = events.find(
+      (e) => e.type === "warning" && e.message.startsWith("alternate_basis_used"),
+    );
+    if (alternate?.type !== "warning") throw new Error("expected the alternate-basis warning");
+    expect(alternate.count).toBe(2);
+    expect(alternate.probes).toEqual([
+      "submission_volume_by_payer",
+      "submission_volume_by_payer__prior",
+    ]);
+    // The surviving sentence must not keep ONE arbitrary plan node in it —
+    // that would read as a fact about `submission_volume_by_payer` when it
+    // is a fact about both probes.
+    expect(alternate.message).toBe(
+      "alternate_basis_used: a probe reads 'claim_volume' on the 'submission' basis (primary is 'service')",
+    );
+    // A warning raised ONCE keeps the probe the engine named: there is no
+    // ambiguity to remove and the name is the most specific thing in it.
+    const omitted = events.find(
+      (e) => e.type === "warning" && e.message.includes("lag_distribution_compare"),
+    );
+    if (omitted?.type !== "warning") throw new Error("expected the omitted-probe warning");
+    expect(omitted.count).toBeUndefined();
   });
 
   it("reads the governed provenance the badge renders, and invents none of it", () => {
@@ -1032,6 +1060,22 @@ describe("chart shape and duplicates (F20)", () => {
     expect(rendered[0]?.rows[0]?.values.prior).toBeCloseTo(7.9945 / 2, 6);
   });
 
+  it("folds an old-shape twin in as a comparison, drawn paired and never stacked", () => {
+    const base = mapChartSpec({ ...LIVE_RATIO_CHART, chart_type: "stacked_bar" })!;
+    const prior = mapChartSpec({
+      ...LIVE_RATIO_CHART,
+      chart_type: "stacked_bar",
+      id: "chart_main__prior",
+      frame_id: "main__prior",
+      rows: LIVE_RATIO_CHART.rows.map((r) => ({ ...r, value: r.value / 2 })),
+    })!;
+    const [rendered] = selectRenderableCharts([base, prior]);
+    // The stored shape reaches the same renderer as the live one: two
+    // windows per category, side by side, with a delta in the tooltip.
+    expect(rendered?.comparison).toEqual({ currentKey: "denial_rate", priorKey: "prior" });
+    expect(rendered?.stacked).toBe(false);
+  });
+
   it("drops a single-row frame — one point is a number, not a trend", () => {
     const scalar = mapChartSpec({
       ...LIVE_RATIO_CHART,
@@ -1041,6 +1085,53 @@ describe("chart shape and duplicates (F20)", () => {
       rows: [{ x: "denial_rate", series: null, value: 0.0812 }],
     })!;
     expect(selectRenderableCharts([scalar])).toEqual([]);
+  });
+
+  it("keeps a one-category COMPARISON — two windows is two marks, not one point", () => {
+    // Live: `inv_509badf4a978/chart_main__compare` is the whole answer to
+    // "why did our denial rate double in July versus June" — one category,
+    // two marks. Counted in rows it was dropped, and the turn whose entire
+    // subject is a movement between two windows rendered with no figure.
+    const scalar = mapChartSpec({
+      ...LIVE_RATIO_CHART,
+      id: "chart_main__compare",
+      frame_id: "main__compare",
+      x: "denial_rate",
+      series: "period",
+      rows: [
+        { x: "0.0812", series: "current", value: 0.0812 },
+        { x: "0.0812", series: "prior", value: 0.0406 },
+      ],
+    })!;
+    const rendered = selectRenderableCharts([scalar]);
+    expect(rendered).toHaveLength(1);
+    expect(rendered[0]?.comparison).toEqual({ currentKey: "current", priorKey: "prior" });
+  });
+
+  it("leaves a two-window chart whole rather than folding it into a base frame", () => {
+    // The engine suppresses the superseded base at the source, so this
+    // pairing does not arrive today. If it ever does, the comparison is
+    // the chart with both windows in it and must not be reduced to the
+    // current one.
+    const base = mapChartSpec(LIVE_RATIO_CHART)!;
+    const paired = mapChartSpec({
+      ...LIVE_RATIO_CHART,
+      id: "chart_main__compare",
+      frame_id: "main__compare",
+      series: "period",
+      rows: LIVE_RATIO_CHART.rows.flatMap((r) => [
+        { ...r, series: "current" },
+        { ...r, series: "prior", value: r.value / 2 },
+      ]),
+    })!;
+    const rendered = selectRenderableCharts([base, paired]);
+    expect(rendered.map((c) => c.id)).toContain("chart_main__compare");
+    const kept = rendered.find((c) => c.id === "chart_main__compare");
+    expect(kept?.series.map((s) => s.key)).toEqual(["current", "prior"]);
+    expect(kept?.rows[0]?.values).toEqual({
+      current: expect.closeTo(7.9945, 6),
+      prior: expect.closeTo(7.9945 / 2, 6),
+    });
   });
 });
 

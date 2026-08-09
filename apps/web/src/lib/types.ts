@@ -317,6 +317,20 @@ export interface ClarificationData {
   question: string;
   options: string[];
   reason?: string;
+  /**
+   * This clarification was REBUILT from the stored investigation, not
+   * received live — and the store keeps neither the question the engine
+   * asked nor the interpretations it offered.
+   *
+   * The distinction is load-bearing and it is the whole of B-01. An empty
+   * `options` list on a LIVE turn is a substantive claim ("there was
+   * nothing answerable to offer"); the same empty list on a restored turn
+   * is an unrestored field. Rendering the second as the first told a
+   * prospect re-opening the permalink — the demo path — three times over
+   * that the platform had had nothing to say, on turns that each offered
+   * four real interpretations on the wire.
+   */
+  restored?: boolean;
 }
 
 /* ------------------------------------------------------------------ */
@@ -478,6 +492,34 @@ export interface Finding {
    * quoted against.
    */
   measured?: MeasuredValue;
+  /**
+   * The MOVEMENT this shape finding states runs between cells that are
+   * ceilings, so it is not a measured change.
+   *
+   * Live: `"denial rate by month, 2026-01-01..2026-08-02: 7.5% → 9.0% (up
+   * 1.5 points)"`, whose 2026-01 endpoint is a ceiling over 133 records
+   * and whose 2026-06 endpoint is a ceiling over 111. A difference between
+   * two upper bounds has no sign and no size — "≤ 1.5 points" is not a
+   * weaker version of the claim, it is unknowable — and the card printed
+   * the engine's sentence with no qualification at all. Only the narrative
+   * said it, and the narrative is the surface with the least warranty.
+   *
+   * Derived at the wire seam by matching the finding's own `first`/`last`
+   * values against the rows of the turn's temporal chart for the same
+   * measure, so it lands whether or not the kernel grows a
+   * `<metric>__is_bound` for shape findings — and when the kernel does
+   * publish one, `measured.isBound` carries it and this stays consistent
+   * with it rather than competing.
+   */
+  boundedMovement?: {
+    /** The opening endpoint of the stated movement is a ceiling. */
+    first: boolean;
+    /** The closing endpoint of the stated movement is a ceiling. */
+    last: boolean;
+    /** The populations those ceilings were taken over, when published. */
+    firstPopulation?: number;
+    lastPopulation?: number;
+  };
 }
 
 export interface SuggestedRefinement {
@@ -519,6 +561,57 @@ export interface ChartRow {
    * claims run-out as deterioration.
    */
   provisional?: boolean;
+  /**
+   * The engine published this category with NO value — the cell was
+   * withheld outright under the small-cell policy.
+   *
+   * Set only when the wire sent a row for the category and the value was
+   * absent, so it is never confused with a category the frame never
+   * mentioned. It exists because the figure could not tell the difference:
+   * a withheld cell and a measured 0.0% both drew as nothing at all, and
+   * on a 150-cell ranking the engine's own sentence said "85 were withheld
+   * outright and 13 are measured" over a picture showing 85 and 3 as the
+   * same blank. The CSV has always been honest about this (`""` with a
+   * `withheld` note); the chart is the surface that gets screenshotted.
+   */
+  withheld?: boolean;
+  /**
+   * The same facts as the four fields above, but per SERIES CELL rather
+   * than per category — keyed by the series key in `values`.
+   *
+   * A comparison chart draws two marks per category (this window and the
+   * one before it) and the wire flags them independently: a payer whose
+   * JUNE numerator was suppressed publishes `is_bound` on the prior row
+   * only. Carried on the row alone, that ceiling either desaturated BOTH
+   * bars — telling the reader July was unmeasured when it was measured —
+   * or, for `denominator`, kept whichever side's `n` arrived last and
+   * printed it under both. The row-level flags stay: they are "this
+   * category contains a ceiling", which is what the axis tick and the
+   * ordering rule need, and they are what a payload generation without
+   * per-cell detail still gives us.
+   */
+  cells?: Record<string, ChartCell>;
+}
+
+/** One (category, series) mark, and what the engine said about it. */
+export interface ChartCell {
+  /** This MARK is a ceiling over a suppressed numerator, not a measurement. */
+  bounded?: boolean;
+  /** The published ceiling, in the chart's display unit. */
+  bound?: number;
+  /** The population the ceiling was taken over (`n`). */
+  denominator?: number;
+  /**
+   * There is NO figure here, and the zero on the wire is an artifact.
+   *
+   * The compare operator outer-joins the two windows and zero-fills
+   * additive units, so a payer that appears only in the prior window
+   * arrives with a current value of 0 — and the engine says so in its own
+   * annotation ("their current mark is an absence, not a measured zero").
+   * Drawn as a zero it reads as a collapse to nothing, which is the
+   * opposite of what happened: nothing was measured at all.
+   */
+  absent?: boolean;
 }
 
 /**
@@ -587,11 +680,12 @@ export interface ChartSeries {
   /** Which validated series slot to use. */
   role: "current" | "baseline";
   /**
-   * This series survives a series cap no matter how small it is. Set on the
-   * comparison series a `__compare` frame is folded in as: the prior period
-   * is half of what a comparison chart claims, and folding it into "+N
-   * others" because it happens to be the smallest column would delete the
-   * comparison while leaving the title that promises one.
+   * This series survives a series cap no matter how small it is. Set on
+   * both halves of a period comparison (and on the baseline an old-shape
+   * `__compare` frame is folded in as): the prior window is half of what a
+   * comparison chart claims, and folding it into "+N others" because it
+   * happens to be the smallest column would delete the comparison while
+   * leaving the title that promises one.
    */
   pinned?: boolean;
 }
@@ -649,8 +743,41 @@ export interface ChartSpec {
    * on it ("upper bounds: 4 of 12 marks are ceilings, not measurements…").
    * `annotations[0]` was being fed to a `ReferenceLine` as an x value, so
    * a census the engine wrote reached no reader at all.
+   *
+   * The FIRST such sentence. See `notes` for the rest — a comparison chart
+   * publishes its comparison sentence at index 0, which used to push the
+   * upper-bound census off the figure entirely.
    */
   note?: string;
+  /**
+   * Every sentence the wire published about this figure, in wire order.
+   *
+   * Reading `annotations[0]` alone was survivable while a chart carried
+   * one annotation. A two-series comparison carries up to five — the
+   * comparison itself, the prior-only census, truncation, the upper-bound
+   * census and the withheld census — and the comparison sentence is
+   * always first, so every other fact the engine wrote about the picture
+   * was dropped on exactly the charts that carry the most of them.
+   */
+  notes?: string[];
+  /**
+   * This chart draws TWO WINDOWS of one measure, one mark each per
+   * category — the engine's `series: "period"` frame, whose rows are
+   * labelled `current` and `prior`.
+   *
+   * Period is a presentation of one measure, not a second dimension of it,
+   * and the two halves are NOT summed (the engine's own annotation says
+   * so). Which is why this is a named field rather than "two series that
+   * happen to be called current and prior": it is what forbids the stack a
+   * `stacked_bar` chart_type would otherwise earn, and what tells the
+   * tooltip there is a delta worth computing.
+   */
+  comparison?: {
+    /** Series key holding this window's marks. */
+    currentKey: string;
+    /** Series key holding the window it is compared against. */
+    priorKey: string;
+  };
   /**
    * The rows the wire sent were NOT uniquely keyed by the axes this spec
    * declares. Present only when that happened — see `ChartKeying`.
@@ -660,11 +787,16 @@ export interface ChartSpec {
    *  is visible and reversible rather than lossy. */
   wireChartType?: string;
   /**
-   * The published `ChartSpec.frame_id`. Load-bearing, not decoration: a
-   * comparison turn publishes `main` AND `main__compare` (and, when the
-   * engine grows one, `main__prior`) over the same measure, so the frame
-   * id is the only thing that says which charts are the same question
-   * asked twice. See `selectRenderableCharts`.
+   * The published `ChartSpec.frame_id`.
+   *
+   * It used to be load-bearing: a comparison turn published `main` AND a
+   * byte-identical `main__compare`, and the frame id was the only thing
+   * that said which charts were the same question asked twice. The engine
+   * now emits ONE chart per comparison (`series: "period"`, both windows
+   * in it) and suppresses the superseded twin at the source, so on current
+   * payloads this is provenance. `selectRenderableCharts` still reads it,
+   * defensively, because restored investigations stored under the old
+   * shape replay exactly as they were recorded.
    */
   frameId?: string;
   title: string;
@@ -1062,6 +1194,19 @@ export interface WarningEvent {
   count?: number;
   /** True when the code came from `warnings_v2`, not from parsing prose. */
   structured?: boolean;
+  /**
+   * The internal probe names the collapsed entries differed by.
+   *
+   * One fact spelled six ways is still one fact. The server's dedupe keys
+   * on `(code, message)`, so six `ALTERNATE_BASIS_USED` warnings differing
+   * only by `probe 'main'` / `'premise'` / `'main__window'` … survive it
+   * as six amber boxes above the verdict they bury. `dedupeWarnings`
+   * collapses them on the fact and parks the probe names here: they are
+   * operator material, recoverable in debug mode and in the count badge's
+   * tooltip, and they are not a reason to print the same sentence six
+   * times over an analyst's answer.
+   */
+  probes?: string[];
 }
 
 export interface TurnCompleteEvent {

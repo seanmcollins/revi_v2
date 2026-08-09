@@ -105,7 +105,12 @@ from revi_investigation.application.calculation_glue import (
     EmptinessKind,
 )
 from revi_investigation.application.capability_ports import PackPort, PlaybookSpec
-from revi_investigation.application.comparison import ComparisonRendering, render_comparison
+from revi_investigation.application.comparison import (
+    ComparisonMaturity,
+    ComparisonRendering,
+    comparison_maturity,
+    render_comparison,
+)
 from revi_investigation.application.execution import (
     BoundedCell,
     SuppressionCensus,
@@ -431,12 +436,30 @@ def _truncation_warning(served: int, computed: int, spec: AnalysisSpec) -> str |
     the same turn's evidence panel read ``rows: 12, limit: null, truncated:
     false``. The narrative then called a 4.4% to 15.0% spread "roughly three
     percentage points … a tight band" over the three it could see.
+
+    ``computed`` is the frame the CHART draws, not the set selection kept
+    (round-5 A-04): a direction filter that removed two of twelve cells
+    made the census read "3 of 10" beside a twelve-row chart, and then
+    disappeared entirely on the expand — suppressed because served (10) was
+    no longer under a computed (10) that had already been narrowed.
+
+    A count the analyst NAMED is also an obligation. When they asked for
+    twelve and twelve is not what came back, this fires whether or not the
+    frame had more rows to give, and says which of the two happened.
     """
-    if computed <= served:
+    shortfall = spec.limit is not None and spec.limit > served
+    if computed <= served and not shortfall:
         return None
+    if computed <= served:
+        return (
+            f"findings_truncated: this answer publishes all {served} of the {computed} cell(s) "
+            "this cut computed — the row count asked for is larger than the population, so "
+            f"there are no further rows to show. Superlatives and spread statements describe "
+            f"those {served}."
+        )
     asked = (
-        " The limit you asked for could not be met by the rows this turn computed."
-        if spec.limit is not None and spec.limit > served
+        f" The {spec.limit} rows asked for could not be met: {served} are published."
+        if shortfall
         else ""
     )
     return (
@@ -444,6 +467,49 @@ def _truncation_warning(served: int, computed: int, spec: AnalysisSpec) -> str |
         f"the remaining {computed - served} are in the chart and the evidence frame but carry "
         "no finding. Superlatives and spread statements on this answer describe the published "
         f"slice, not the full population.{asked}"
+    )
+
+
+def _direction_omission_warning(
+    counter: list[tuple[Scalar, ...]],
+    published: int,
+    shape: MovementShape,
+    spec: AnalysisSpec,
+    pack: PackPort,
+) -> str | None:
+    """Name the cells a direction filter removed (round-5 A-04).
+
+    "Show me all twelve" returned ten, and the two that were missing were
+    the only two that had IMPROVED — because the question asserted a rise,
+    so the finding population silently narrowed to the cells that rose and
+    every census on the card counted the narrowed set. The card read as
+    "all twelve payers got worse" over a population in which two got
+    better. A directional selection is legitimate; a silent one is not.
+    """
+    if not counter or spec.direction is None:
+        return None
+    names = ", ".join(
+        render_row_label(
+            pack,
+            shape.dimension_columns,
+            {
+                dim: row[shape.frame.schema.index_of(dim)]
+                for dim in shape.dimension_columns
+            },
+        )
+        for row in counter[:8]
+    )
+    more = f" (and {len(counter) - 8} more)" if len(counter) > 8 else ""
+    listed = (
+        f"The first {published} of them are listed below the asked set, labelled."
+        if published
+        else "They carry no finding on this answer."
+    )
+    return (
+        f"direction_omitted: {len(counter)} of {len(shape.frame.rows)} cell(s) moved the OTHER "
+        f"way and are therefore not part of what {spec.direction.value!r} asked about: {names}"
+        f"{more}. {listed} Any statement about how this whole population moved has to count "
+        "them."
     )
 
 
@@ -954,6 +1020,23 @@ class PremiseCheck:
     #: there was a base to divide by. Published on the finding so a reader
     #: never has to take "it did not double" on trust.
     actual_multiple: Decimal | None = None
+    #: Did the aggregate move the way the question says, before any of the
+    #: integrity tests below? Kept separately from ``holds`` so an
+    #: unverifiable verdict can still say which way the arithmetic pointed
+    #: without claiming it means anything.
+    directional: bool = False
+    #: The ceiling on each side, when the §15 policy withheld its numerator
+    #: (round-5 A-02a). A movement between two ceilings is the ratio of the
+    #: two POPULATIONS and carries no information about the measure.
+    current_bound: BoundedCell | None = None
+    prior_bound: BoundedCell | None = None
+    #: The panel asymmetry this plan reported, when it reported one
+    #: (round-5 A-02b). Borrowed from whichever frame carries a
+    #: denominator: an additive money measure has no panel of its own and
+    #: is distorted by an immature one exactly as much as a rate is.
+    immature: ComparisonMaturity | None = None
+    #: The question asserted a SIZE nothing could parse (round-5 A-02c).
+    size_asserted_unparsed: bool = False
 
     @property
     def magnitude_short(self) -> bool:
@@ -964,6 +1047,15 @@ class PremiseCheck:
     def magnitude_beyond(self) -> bool:
         """It happened, and by more than the question claimed."""
         return self.magnitude is MagnitudeVerdict.BEYOND
+
+    @property
+    def bounded(self) -> bool:
+        return self.current_bound is not None or self.prior_bound is not None
+
+    @property
+    def unverifiable(self) -> bool:
+        """Nothing here can confirm OR refute what the question asserted."""
+        return self.bounded or self.immature is not None or self.size_asserted_unparsed
 
     @property
     def is_money(self) -> bool:
@@ -1049,6 +1141,7 @@ def verify_premise(
     pack: PackPort,
     *,
     premise_prefix: str,
+    suppression_threshold: int | None = None,
 ) -> PremiseCheck | None:
     """Check the asserted aggregate movement, before anything explains it.
 
@@ -1056,9 +1149,36 @@ def verify_premise(
     majority of turns), or when no frame measured the metric the premise
     names — an unverifiable premise is not a refuted one, and claiming
     otherwise would be the same failure in the opposite direction.
+
+    **The verdict reads what the integrity layer published** (round-5
+    A-02). Three personas, three mechanisms, one architectural fact: this
+    function used to read ``row[index_of(measure)]`` and ``__prior`` out of
+    the frame and consult nothing else, so it published confident verdicts
+    over quantities the rest of the engine had already marked unmeasurable.
+
+    * **Bounds.** "Denial rate rose 157.1%, past the 100.0% a doubling
+      assumes: 13.9% → 35.7%" — where the same answer's own
+      ``SUPPRESSION_BOUNDED`` warning said both sides were ceilings over
+      one clamped numerator of 10. 157.1% is exactly 72/28 - 1, the ratio
+      of the two DENOMINATORS, carrying no denial information at all.
+    * **Panel maturity.** "It did not happen — denied dollars fell
+      $829,506.94, -72.7%" beside "this window holds 27.0% of the panel
+      the comparison window does". Ground truth: denied dollars per
+      adjudicated claim went $199.39 → $201.81, +1.2%. The guard could not
+      see it because it fires on frames carrying a ``_den`` column and the
+      premise probe measured an additive money measure — so the panel is
+      BORROWED from the sibling frame that does carry one.
+    * **Unparsed size.** ``premise_holds: true`` beside
+      ``premise_magnitude: "unverifiable"``, rendered "Premise confirmed",
+      over a question that said HALVE.
     """
     if not spec.direction_asserted or spec.direction is None:
         return None
+    # Read once for the turn: any frame on this plan whose two sides rest
+    # on differently-settled panels makes EVERY movement between the same
+    # two windows a settlement artifact, whether or not the frame the
+    # premise was measured on carries a denominator of its own.
+    immature = next(iter(comparison_maturity(calculation.frames)), None)
     for frame_id, frame in _premise_frames(plan, calculation, premise_prefix):
         compared = _compared_measures(frame)
         measure = _premise_measure(spec, compared)
@@ -1077,15 +1197,21 @@ def verify_premise(
         current = row[frame.schema.index_of(measure)]
         prior = row[frame.schema.index_of(f"{measure}__prior")]
         directional = (delta > 0) if wanted > 0 else (delta < 0)
+        current_bound, prior_bound = _premise_bounds(frame, measure, suppression_threshold)
+        bounded = current_bound is not None or prior_bound is not None
         # Direction is necessary and not sufficient. "Doubled" asserts a
         # SIZE, and the movement has to land inside a band around what was
         # claimed — on either side of it — before the claim is confirmed.
         magnitude = MagnitudeVerdict.UNVERIFIABLE
         actual_multiple: Decimal | None = None
-        if directional and spec.asserted_multiple is not None:
+        if directional and spec.asserted_multiple is not None and not bounded and immature is None:
             magnitude, actual_multiple = _magnitude_verdict(
                 prior, current, spec.asserted_multiple
             )
+        # A movement between two ceilings is not a movement, and a movement
+        # between two unequally-settled panels is not a business change:
+        # neither can confirm OR refute what was asserted.
+        unverifiable = bounded or immature is not None or spec.size_asserted_unparsed
         return PremiseCheck(
             frame_id=frame_id,
             frame=frame,
@@ -1095,12 +1221,58 @@ def verify_premise(
             prior=prior,
             delta=delta,
             pct=row[frame.schema.index_of(pct_col)] if pct_col in frame.schema.names else None,
-            holds=directional and magnitude is not MagnitudeVerdict.SHORT,
+            holds=(
+                directional
+                and magnitude is not MagnitudeVerdict.SHORT
+                and not unverifiable
+            ),
             asserted_multiple=spec.asserted_multiple,
             magnitude=magnitude,
             actual_multiple=actual_multiple,
+            directional=directional,
+            current_bound=current_bound,
+            prior_bound=prior_bound,
+            immature=immature,
+            size_asserted_unparsed=spec.size_asserted_unparsed,
         )
     return None
+
+
+def _premise_bounds(
+    frame: EvidenceFrame, measure: str, threshold: int | None
+) -> tuple[BoundedCell | None, BoundedCell | None]:
+    """``(current, prior)`` ceilings on the two sides of a premise movement.
+
+    ``bound_index`` recognises ``<m>__num``/``<m>__den`` and therefore sees
+    only the CURRENT side of a compare frame — the prior side's columns are
+    ``<m>__num__prior``/``<m>__den__prior`` and end in neither suffix. Both
+    sides are read here, because a premise verdict over a bounded PRIOR is
+    exactly as unmeasurable as one over a bounded current.
+    """
+    if threshold is None or not frame.rows:
+        return None, None
+
+    def side(suffix: str) -> BoundedCell | None:
+        num_col, den_col = f"{measure}__num{suffix}", f"{measure}__den{suffix}"
+        names = frame.schema.names
+        if num_col not in names or den_col not in names:
+            return None
+        numerator = frame.rows[0][frame.schema.index_of(num_col)]
+        population = frame.rows[0][frame.schema.index_of(den_col)]
+        if isinstance(numerator, bool) or not isinstance(numerator, int):
+            return None
+        if isinstance(population, bool) or not isinstance(population, int):
+            return None
+        if not (0 < numerator < threshold) or population < threshold:
+            return None
+        return BoundedCell(
+            label="",
+            metric_id=measure,
+            population=population,
+            bound=Decimal(threshold - 1) / Decimal(population),
+        )
+
+    return side(""), side(_PRIOR_SUFFIX)
 
 
 def _magnitude_verdict(
@@ -1217,6 +1389,8 @@ def premise_verdict_sentence(
     )
     pct = f", {ratio_pct(premise.pct)}" if isinstance(premise.pct, Decimal) else ""
     moved = "fell" if premise.delta < 0 else ("rose" if premise.delta > 0 else "did not move")
+    if premise.unverifiable:
+        return _unverifiable_sentence(premise, noun, label, phrase, figures)
     if premise.magnitude_short:
         # Neither confirmation nor refutation-of-direction: the movement is
         # real and it is not the movement the question named. Both facts in
@@ -1241,6 +1415,49 @@ def premise_verdict_sentence(
     return (
         f"You asked about {noun} in {label}. It did not happen — {label} {moved} "
         f"{magnitude(premise.delta, premise.unit)}{pct} {phrase}: {figures}"
+    )
+
+
+def _unverifiable_sentence(
+    premise: PremiseCheck, noun: str, label: str, phrase: str, figures: str
+) -> str:
+    """The fourth verdict: the arithmetic is there and it means nothing.
+
+    Round-5 A-02. Each arm does the arithmetic OUT LOUD, because the reason
+    a reader must not act on the number is itself the finding — "157.1%" is
+    a true division of two figures neither of which is a measurement, and
+    saying so is more useful than withholding it.
+    """
+    if premise.bounded:
+        sides = []
+        for side, bound in (("prior", premise.prior_bound), ("current", premise.current_bound)):
+            if bound is not None:
+                sides.append(
+                    f"the {side} side is at most {format_value(bound.bound, premise.unit)} over "
+                    f"{bound.population:,}"
+                )
+        ceilings = " and ".join(sides)
+        return (
+            f"You asked about {noun} in {label}. It cannot be checked here — {ceilings}, each a "
+            f"numerator the small-cell policy withheld, so {figures} is a movement between "
+            "ceilings and the percentage between them is the ratio of the two POPULATIONS, not "
+            f"a movement in {label}. Nothing on this answer confirms or refutes the claim."
+        )
+    if premise.immature is not None:
+        maturity = premise.immature
+        return (
+            f"You asked about {noun} in {label}. It cannot be checked yet — the two windows are "
+            f"not equally settled ({maturity.current_panel:,} adjudicated record(s) on this "
+            f"window against {maturity.prior_panel:,} on the comparison window, "
+            f"{maturity.share:.1%}), so the difference between {figures} {phrase} is dominated "
+            "by how much of the newer window has come back rather than by anything that "
+            "happened. Ask again once the thinner side matures."
+        )
+    return (
+        f"You asked about {noun} in {label}. The SIZE that names is not one this platform can "
+        f"read, so it was not checked: {label} did move {figures} {phrase}, and whether that is "
+        f"{noun} is a question this answer does not settle. Restate the size as a percentage or "
+        "a multiple and I will verify it."
     )
 
 
@@ -1283,6 +1500,12 @@ def _premise_warning(
     """
     assert spec.direction is not None
     sentence = premise_verdict_sentence(premise, spec, comparison=comparison)
+    if premise.unverifiable:
+        return (
+            f"premise_unverifiable: {sentence}. The question's own assumption is neither "
+            "confirmed nor refuted on this answer, so nothing below may be read as evidence "
+            "for it or against it."
+        )
     if premise.magnitude_short:
         return (
             f"premise_partial: {sentence}. The direction the question assumes is right and the "
@@ -1362,7 +1585,12 @@ class EvaluateFindingsService:
         # The premise first, always: a question that STATES a movement is
         # answered honestly only once that movement has been measured.
         premise = verify_premise(
-            plan, calculation, spec, pack, premise_prefix=_PREMISE_PREFIX
+            plan,
+            calculation,
+            spec,
+            pack,
+            premise_prefix=_PREMISE_PREFIX,
+            suppression_threshold=suppression_threshold,
         )
         # The verdict is published on EVERY premise turn, holds or not, and
         # it is published FIRST — registered before any other shape reads
@@ -1430,7 +1658,7 @@ class EvaluateFindingsService:
 
         delta_col = f"{shape.measure}__delta"
         idx_delta = shape.frame.schema.index_of(delta_col)
-        rows, selection_warnings = self._select_directional(
+        rows, selection_warnings, counter = self._select_directional(
             shape.frame.rows, idx_delta, spec, pack, shape.measure
         )
 
@@ -1454,7 +1682,22 @@ class EvaluateFindingsService:
         eligible = [row for row in rows if _as_number(row[idx_delta]) is not None]
         bounds = self._bounds(shape.frame)
         row_positions = {id(row): i for i, row in enumerate(shape.frame.rows)}
-        for row in eligible[:limit]:
+        # The cells the direction filter removed are not gone, they are
+        # LAST (round-5 A-04). "Show me all twelve" returned ten, and the
+        # two missing were the only two that had improved — a systematically
+        # premise-flattering omission on a card whose own premise verdict
+        # already said the premise was only partly supported. When the
+        # analyst named a count, the asked-for set is published first and
+        # the counter-direction cells fill the rest of it, labelled.
+        counter_eligible = [row for row in counter if _as_number(row[idx_delta]) is not None]
+        # Only a count the ANALYST named opens the set: the default top-3 is
+        # this platform's own choice of how much to show, and filling it
+        # with cells that moved the other way would answer a question
+        # nobody asked.
+        room = max(limit - len(eligible), 0) if spec.limit is not None else 0
+        publishable = [*eligible[:limit], *counter_eligible[:room]]
+        counter_published = len(publishable) - len(eligible[:limit])
+        for row in publishable:
             n = finding_offset + len(findings) + 1
             finding, referent = self._build_finding(
                 f"F{n}",
@@ -1467,10 +1710,19 @@ class EvaluateFindingsService:
                 session_id,
                 investigation_id,
                 bound=bounds.get(row_positions.get(id(row), -1), {}).get(shape.measure),
+                counter_direction=len(findings) >= len(eligible[:limit]),
             )
             findings.append(finding)
             referents.append(referent)
-        truncation = _truncation_warning(len(findings), len(eligible), spec)
+        # Counted over the frame the CHART draws, never over the
+        # direction-filtered candidate set: the card that published "3 of 10
+        # computed cells" pointed at a chart drawing twelve payer rows.
+        omission = _direction_omission_warning(
+            counter_eligible, counter_published, shape, spec, pack
+        )
+        if omission is not None:
+            selection_warnings = (*selection_warnings, omission)
+        truncation = _truncation_warning(len(findings), len(shape.frame.rows), spec)
         if truncation is not None:
             selection_warnings = (*selection_warnings, truncation)
 
@@ -1551,7 +1803,7 @@ class EvaluateFindingsService:
         spec: AnalysisSpec,
         pack: PackPort,
         money_measure: str,
-    ) -> tuple[list[tuple[Scalar, ...]], tuple[str, ...]]:
+    ) -> tuple[list[tuple[Scalar, ...]], tuple[str, ...], list[tuple[Scalar, ...]]]:
         """Order (and, when a direction was asked, restrict) the compare rows.
 
         Without a direction this is the old rule: rank by delta ascending,
@@ -1570,6 +1822,12 @@ class EvaluateFindingsService:
         then shows the opposite as context — the honest shape of an empty
         direction-matched set. Rows with a NULL delta are never eligible
         either way: a suppressed movement is not a movement.
+
+        The third return is the cells the direction filter REMOVED, in the
+        frame's own order (round-5 A-04). They are not the answer to what
+        was asked and they are not nothing: "which payers improved?" run as
+        a control returned exactly the two an expand had silently dropped,
+        so the caller publishes them, labelled, and counts them.
         """
         contract = pack.metric(money_measure)
         sign = contract.sign if contract is not None else SignConvention.NEUTRAL
@@ -1595,7 +1853,7 @@ class EvaluateFindingsService:
             # which end to show first, resolved against the metric's sign.
             asked_order = descending_for_order(spec.order, sign)
             if asked_order is not None:
-                return ordered(list(rows), descending=asked_order), ()
+                return ordered(list(rows), descending=asked_order), (), []
             # Otherwise the default is not "ascending" — it is *worst
             # first*, read off the contract's own sign convention: a
             # higher-is-bad measure's worst movement is a rise. Ascending
@@ -1603,7 +1861,7 @@ class EvaluateFindingsService:
             # were higher-is-good dollars, and it published the biggest
             # improvements of a higher-is-bad metric as its headline.
             adverse = adverse_delta_sign(sign)
-            return ordered(list(rows), descending=adverse is not None and adverse > 0), ()
+            return ordered(list(rows), descending=adverse is not None and adverse > 0), (), []
 
         matched = [
             row
@@ -1614,14 +1872,24 @@ class EvaluateFindingsService:
         assert spec.direction is not None
         movement = "rose" if wanted > 0 else "fell"
         if matched:
-            return ordered(matched, descending=(wanted > 0) == biggest_first), ()
+            removed = [
+                row
+                for row in rows
+                if (value := _as_number(row[idx_delta])) is not None
+                and not (value > 0 if wanted > 0 else value < 0)
+            ]
+            return (
+                ordered(matched, descending=(wanted > 0) == biggest_first),
+                (),
+                ordered(removed, descending=not (wanted > 0)),
+            )
         warning = (
             f"direction_unmatched: nothing {movement} — no cell's "
             f"{metric_label(money_measure)} moved the way {spec.direction.value!r} asks about "
             "over this window. The movements below are the opposite direction, shown as "
             "context, not as an answer to what was asked."
         )
-        return ordered(list(rows), descending=not (wanted > 0)), (warning,)
+        return ordered(list(rows), descending=not (wanted > 0)), (warning,), []
 
     # -------------------------------------------------------------- premise
 
@@ -1674,7 +1942,18 @@ class EvaluateFindingsService:
         assert spec.direction is not None
         sentence = premise_verdict_sentence(premise, spec, comparison=comparison)
         claim_noun, _ = _asserted_claim(spec)
-        if premise.magnitude_short:
+        if premise.unverifiable:
+            # A fourth title, because there are four outcomes. "Premise
+            # confirmed" over two ceilings, an immature panel or a size
+            # nobody parsed is the sentence round-5 A-02 is about — and
+            # "Premise not supported" would be the opposite error.
+            title = f"Premise cannot be verified: {sentence}"
+            statement = (
+                f"{sentence}. Nothing below may be called {claim_noun} or offered as evidence "
+                "against it: the cells that follow are the composition of a movement this "
+                "answer cannot certify."
+            )
+        elif premise.magnitude_short:
             # A third title, because there are three outcomes. "Premise
             # confirmed" over a movement 27% short of the claim is the
             # sentence R4-05 was raised about; "Premise not supported" over
@@ -1714,7 +1993,29 @@ class EvaluateFindingsService:
             # "confirmed" can never again sit beside an asserted_multiple
             # of 2.0 and a pct_change of 0.726 (R4-05c).
             ("premise_magnitude", premise.magnitude.value),
+            # …and WHY nothing could be concluded, when nothing could
+            # (round-5 A-02). ``premise_holds: false`` on its own reads as
+            # a refutation, and an unverifiable premise is not a refuted
+            # one — a client that renders the two the same way publishes
+            # "it did not happen" over a movement between two ceilings.
+            ("premise_unverifiable", premise.unverifiable),
         ]
+        if premise.unverifiable:
+            values.append(
+                (
+                    "premise_unverifiable_reason",
+                    "bounded_endpoint"
+                    if premise.bounded
+                    else ("immature_panel" if premise.immature is not None else "size_unparsed"),
+                )
+            )
+        if premise.current_bound is not None:
+            values.extend(_bound_values(premise.measure, premise.current_bound))
+        if premise.prior_bound is not None:
+            values.append((f"{premise.measure}__prior__is_bound", True))
+            values.append(
+                (f"{premise.measure}__prior__bound_population", premise.prior_bound.population)
+            )
         if premise.asserted_multiple is not None:
             values.append(("asserted_multiple", premise.asserted_multiple))
             # The question's own word for the size it asserted, published as
@@ -1736,7 +2037,10 @@ class EvaluateFindingsService:
             # A refutation is not a recoverable opportunity: ranking it in a
             # worklist would put "this did not happen" on somebody's queue.
             impact_cents=None,
-            confidence="high",
+            # A verdict that could not test the claim is not a high-
+            # confidence verdict, whatever the arithmetic behind it looks
+            # like (round-5 A-02).
+            confidence="qualified" if premise.unverifiable else "high",
             suggested_refinements=suggested_refinements_for(referent_value),
         )
         registered = RegisteredReferent(
@@ -1817,6 +2121,7 @@ class EvaluateFindingsService:
         session_id: str,
         investigation_id: str,
         bound: BoundedCell | None = None,
+        counter_direction: bool = False,
     ) -> tuple[Finding, RegisteredReferent]:
         schema = shape.frame.schema
         measure = shape.measure
@@ -1861,6 +2166,19 @@ class EvaluateFindingsService:
                 f"{statement[:-1]}. The current side is an UPPER BOUND: its numerator was "
                 f"suppressed over a population of {bound.population:,}, so the movement is at "
                 "most this large and may be smaller."
+            )
+        if counter_direction:
+            # Published because the analyst named a count that the
+            # direction-matched set could not fill, and labelled in both
+            # fields because the title is what gets screenshotted: this
+            # cell is IN the population and is not an answer to what was
+            # asked (round-5 A-04).
+            assert spec.direction is not None
+            title = f"{title} — moved the other way"
+            statement = (
+                f"{statement[:-1]}. This cell moved the OPPOSITE way to the "
+                f"{spec.direction.value!r} the question asks about; it is published because you "
+                "asked for the whole set, not as an instance of what was asked."
             )
 
         delta_value: Scalar = int(delta) if shape.is_money else delta

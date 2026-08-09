@@ -70,6 +70,7 @@ import type {
 } from "@/lib/types";
 import { GRADE_STRENGTH } from "@/lib/types";
 import { formatMeasure, type MeasureUnit } from "@/lib/format";
+import { dedupeWarnings } from "@/lib/warnings";
 import type {
   PortfolioItem,
   PortfolioLane,
@@ -781,6 +782,113 @@ export interface FindingContext {
    * a number it does not describe.
    */
   benchmarks?: Benchmark[];
+  /**
+   * The turn's temporal series, unscaled, by measure id — see
+   * `temporalCellsFromChartSpecs`. A shape finding states a movement
+   * between two of these cells and the wire does not say whether either of
+   * them is a ceiling; the rows do.
+   */
+  temporalCells?: Record<string, TemporalCell[]>;
+}
+
+/**
+ * One point of a temporal series, in the RAW wire value the finding's own
+ * `first`/`last` are published in (unscaled — a `ratio` frame publishes
+ * 0.075188 in both places, and the scaling happens later, once).
+ */
+export interface TemporalCell {
+  label: string;
+  value?: number;
+  bounded: boolean;
+  population?: number;
+  provisional: boolean;
+}
+
+/**
+ * The turn's single-measure temporal frames, keyed by the measure they
+ * publish.
+ *
+ * Read straight off `chart_specs` for the same reason `unitsFromChartSpecs`
+ * is: the frames are the only published place the per-cell suppression
+ * flags appear, and a shape finding carries `first`/`last`/`delta` with no
+ * bound anatomy of its own. Single-series frames only — a movement between
+ * two points of a multi-series composition is not a thing this can
+ * identify, and guessing which series the finding meant is how a card
+ * comes to be qualified by another payer's ceiling.
+ */
+export function temporalCellsFromChartSpecs(raw: unknown): Record<string, TemporalCell[]> {
+  const out: Record<string, TemporalCell[]> = {};
+  for (const entry of asArray(raw)) {
+    if (!isRecord(entry)) continue;
+    if (typeof entry.series === "string") continue;
+    const measure = asString(entry.value);
+    if (measure === "") continue;
+    const rows = asArray(entry.rows).filter(isRecord);
+    const labels = rows.map((row) => asString(row.x));
+    if (!isTemporalAxis(labels)) continue;
+    const cells: TemporalCell[] = rows.map((row) => {
+      const value = asNumber(row.value);
+      const population = asNumber(row.bound_population ?? row.denominator ?? row.n);
+      return {
+        label: asString(row.x),
+        ...(value !== undefined ? { value } : {}),
+        bounded:
+          row.is_bound === true ||
+          row.bounded === true ||
+          row.suppressed === true ||
+          asNumber(row.bound ?? row.upper_bound) !== undefined,
+        ...(population !== undefined ? { population } : {}),
+        provisional: row.provisional === true,
+      };
+    });
+    // A later frame for the same measure does not replace an earlier one:
+    // `main` is the answer's own series and `main__compare` is the same
+    // measure over a different window.
+    if (out[measure] === undefined) out[measure] = cells;
+  }
+  return out;
+}
+
+/** Two published figures are the same figure (float noise, not rounding). */
+function sameFigure(a: number, b: number): boolean {
+  return Math.abs(a - b) <= Math.max(1e-9, Math.abs(a) * 1e-6);
+}
+
+/**
+ * Are the endpoints of the movement this shape finding states ceilings?
+ *
+ * The endpoints are located by VALUE — the finding publishes `first` and
+ * `last` and the frame publishes the same unscaled numbers — because the
+ * engine does not always mean the first and last rows: the live Veritas
+ * series runs to 2026-08 with no value and states its movement to 2026-06,
+ * excluding the provisional 2026-07 point. Matching on the figure lands on
+ * the cells the sentence is actually about. Position is the fallback, and
+ * it applies the same exclusion the engine's own sentence does.
+ */
+function boundedMovementOf(
+  cells: readonly TemporalCell[],
+  first: number,
+  last: number,
+): Finding["boundedMovement"] {
+  const withValue = cells.filter((cell) => cell.value !== undefined);
+  if (withValue.length < 2) return undefined;
+  const settled = withValue.filter((cell) => !cell.provisional);
+  const firstCell =
+    withValue.find((cell) => sameFigure(cell.value!, first)) ?? (settled[0] ?? withValue[0]);
+  const lastCell =
+    [...withValue].reverse().find((cell) => sameFigure(cell.value!, last)) ??
+    (settled[settled.length - 1] ?? withValue[withValue.length - 1]);
+  if (!firstCell.bounded && !lastCell.bounded) return undefined;
+  return {
+    first: firstCell.bounded,
+    last: lastCell.bounded,
+    ...(firstCell.bounded && firstCell.population !== undefined
+      ? { firstPopulation: firstCell.population }
+      : {}),
+    ...(lastCell.bounded && lastCell.population !== undefined
+      ? { lastPopulation: lastCell.population }
+      : {}),
+  };
 }
 
 /**
@@ -939,6 +1047,33 @@ export function mapFinding(raw: unknown, context: FindingContext = {}): Finding 
     ? metricRefs.map((id) => context.metricDisplay?.[id]).find((entry) => entry !== undefined)
     : undefined;
 
+  /*
+   * A SHAPE finding states a movement, and the movement may run between
+   * two ceilings.
+   *
+   * `first`/`last`/`delta` is the anatomy the kernel publishes for a trend
+   * ("denial rate ran from 7.5% in 2026-01 to 9.0% in 2026-06, up 1.5
+   * points"), and it carries no `__is_bound` of its own — so this card
+   * rendered a difference between two suppression ceilings in exactly the
+   * ink it renders a measured change in. The rows of the turn's own
+   * temporal frame do carry the flags, and they say both endpoints of that
+   * live sentence are ceilings (over 133 records and over 111).
+   *
+   * "≤ 1.5 points" is not the honest weakening of that claim. A difference
+   * between two upper bounds has no sign and no size at all, so what the
+   * card publishes is the absence, not a qualified number.
+   */
+  const first = asNumber(values.first);
+  const last = asNumber(values.last);
+  const boundedMovement =
+    first !== undefined && last !== undefined && context.temporalCells !== undefined
+      ? metricRefs
+          .map((id) => context.temporalCells?.[id])
+          .filter((cells): cells is TemporalCell[] => cells !== undefined)
+          .map((cells) => boundedMovementOf(cells, first, last))
+          .find((movement) => movement !== undefined)
+      : undefined;
+
   return {
     referent: { value: asString(raw.referent), kind: "finding" },
     // The title and statement as the engine composed them, with raw metric
@@ -998,6 +1133,7 @@ export function mapFinding(raw: unknown, context: FindingContext = {}): Finding 
       return mine.length > 0 ? { benchmarks: mine } : {};
     })(),
     ...(measured !== undefined ? { measured } : {}),
+    ...(boundedMovement !== undefined ? { boundedMovement } : {}),
   };
 }
 
@@ -1061,6 +1197,42 @@ export interface ChartTurnContext {
 /** Units whose cells may be added together without inventing a number. */
 function additiveUnit(unit: ChartSpec["unit"]): boolean {
   return unit === "cents" || unit === "count";
+}
+
+/* ------------------------------------------------------------------ */
+/* A comparison is ONE chart with two windows in it                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The two labels the engine puts on a comparison's synthetic series axis
+ * (`revi_presentation.charts.CURRENT_SERIES` / `PRIOR_SERIES`).
+ *
+ * That axis — `series: "period"` — is deliberately not a frame column: the
+ * distinction it draws is between two WINDOWS, not between two values of a
+ * dimension. Live, off `GET /v1/investigations/inv_76852c0ddaa6`, it is
+ * one `chart_main__compare` carrying 24 rows over 12 payers × {current,
+ * prior}, where the same question used to publish `chart_main` and a
+ * byte-identical `chart_main__compare` and the reader got July twice.
+ */
+export const PERIOD_CURRENT_KEY = "current";
+export const PERIOD_PRIOR_KEY = "prior";
+
+/**
+ * Are these the two halves of one measure over two windows?
+ *
+ * Keyed on the ROW LABELS rather than on the declared series column, and
+ * on both of them being present: `series: "period"` is the current
+ * spelling, and a payload that publishes the pair without naming the axis
+ * is still a comparison. A frame that kept a real second dimension
+ * (`denial_code_mix__compare`, series `carc`) is not one, and is drawn as
+ * the categorical chart it is.
+ */
+function isPeriodPair(seriesKeys: readonly string[]): boolean {
+  return (
+    seriesKeys.length === 2 &&
+    seriesKeys.includes(PERIOD_CURRENT_KEY) &&
+    seriesKeys.includes(PERIOD_PRIOR_KEY)
+  );
 }
 
 export function mapChartSpec(
@@ -1180,6 +1352,20 @@ export function mapChartSpec(
     if (collision) delete row.bound;
     if (denominator !== undefined && !collision) row.denominator = denominator;
     if (collision) delete row.denominator;
+    // The same three facts, kept per MARK. A comparison draws two marks
+    // per category and the wire flags them independently — a payer whose
+    // June numerator was suppressed and whose July one was not publishes
+    // `is_bound` on the prior row alone. Held only on the row, that
+    // ceiling desaturated both bars and printed one `n` under both.
+    const cells = (row.cells ??= {});
+    const cell = (cells[key] ??= {});
+    if (bounded) cell.bounded = true;
+    if (boundValue !== undefined && !collision) cell.bound = boundValue * scale;
+    if (denominator !== undefined && !collision) cell.denominator = denominator;
+    if (collision) {
+      delete cell.bound;
+      delete cell.denominator;
+    }
     // A terminal bucket that is calendar-partial or still adjudicating is
     // not a settled measurement, and a spreadsheet that presents it as one
     // reports the claims run-out as deterioration.
@@ -1188,6 +1374,61 @@ export function mapChartSpec(
   }
   if (seriesKeys.length === 0) seriesKeys.push(valueColumn);
   const rows = [...rowsByX.values()];
+  // A category the wire sent and published NO number for. The engine says
+  // so in words ("85 were withheld outright and 13 are measured") over a
+  // figure that drew a withheld cell and a measured 0.0% as the same
+  // nothing. The row survives — it is a real category — and it is marked,
+  // so the axis can say which blanks are refusals.
+  for (const row of rows) {
+    if (Object.keys(row.values).length === 0) row.withheld = true;
+    // Per-mark detail only where there IS any. `cells` present is the
+    // signal that this payload distinguishes one mark from another, and a
+    // row of empty records would claim a precision it does not carry.
+    if (row.cells !== undefined) {
+      for (const [key, cell] of Object.entries(row.cells)) {
+        if (Object.keys(cell).length === 0) delete row.cells[key];
+      }
+      if (Object.keys(row.cells).length === 0) delete row.cells;
+    }
+  }
+
+  /*
+   * TWO WINDOWS, ONE CHART.
+   *
+   * The engine emits exactly one chart per comparison now — 12 categories
+   * × {current, prior} — and the byte-identical base twin this client used
+   * to dedupe is no longer published at all. What arrives is a pair of
+   * series that are the SAME measure in two windows, so:
+   *
+   *   - `current` is drawn first whatever order the wire emitted them in,
+   *     because left-to-right is half of what says which is which;
+   *   - neither half may be folded into a "+N others" rollup;
+   *   - and neither may be STACKED on the other. The engine's own
+   *     annotation ends "They are not summed", and a `stacked_bar`
+   *     chart_type on a comparison frame (live: `chart_main__compare`)
+   *     would otherwise earn a stack whose column height is a number
+   *     nobody computed.
+   */
+  const paired = isPeriodPair(seriesKeys);
+  if (paired) {
+    seriesKeys.sort((a, b) => (a === PERIOD_CURRENT_KEY ? -1 : b === PERIOD_CURRENT_KEY ? 1 : 0));
+    for (const row of rows) {
+      const current = row.values[PERIOD_CURRENT_KEY];
+      const prior = row.values[PERIOD_PRIOR_KEY];
+      // A category the comparison window has and this one does not. The
+      // compare operator outer-joins and zero-fills additive units, so it
+      // arrives as a current value of 0 — and the engine counts them in
+      // its own annotation ("their current mark is an absence, not a
+      // measured zero") by exactly this rule, read off exactly these two
+      // columns. Drawn as a zero it is a collapse to nothing; drawn as
+      // nothing it is what it is.
+      if ((current === undefined || current === 0) && prior !== undefined && prior > 0) {
+        const cells = (row.cells ??= {});
+        const cell = (cells[PERIOD_CURRENT_KEY] ??= {});
+        cell.absent = true;
+      }
+    }
+  }
 
   const distinctKeys = cellCount.size;
   const collided = wireRows.length > distinctKeys;
@@ -1235,7 +1476,15 @@ export function mapChartSpec(
         : "bar"
       : temporal && seriesKeys.length === 1
         ? "line"
-        : declared;
+        : paired
+          ? // Two windows per category are drawn SIDE BY SIDE. Named as
+            // `grouped_bar` rather than left as whatever the frame
+            // declared, so the shape the renderer draws and the shape the
+            // spec claims are the same shape. (`declared` cannot be `line`
+            // in this branch — that case is handled above, and a
+            // comparison over a time axis stays two lines.)
+            "grouped_bar"
+          : declared;
 
   /*
    * ORDER. Six rules, in this order, and a stated basis for each — the
@@ -1328,7 +1577,15 @@ export function mapChartSpec(
         ? sort.by
         : seriesKeys.length === 1
           ? seriesKeys[0]
-          : undefined;
+          : // A comparison HAS a resolvable ordering even though it draws
+            // two series: they are one measure, and the window the
+            // question is about is the one an ordering over it means. The
+            // caption still names the measure the wire sorted by, not the
+            // key ("ordered by denied_dollars", never "ordered by
+            // current").
+            paired
+            ? PERIOD_CURRENT_KEY
+            : undefined;
     if (ordinal && !sortsOnLabel) {
       // Rule 3: the axis's own scale outranks any value sort over it.
       ordered = orderRowsByOrdinalBucket(rows);
@@ -1343,7 +1600,7 @@ export function mapChartSpec(
       ordered = holdingBounds((a, b) => (sort.descending ? at(b) - at(a) : at(a) - at(b)));
       order = {
         basis: "value",
-        by: valueKey,
+        by: paired && valueKey === PERIOD_CURRENT_KEY ? sort.by : valueKey,
         descending: sort.descending,
         ...(boundedRows > 0 ? { boundedExcluded: boundedRows } : {}),
       };
@@ -1360,16 +1617,23 @@ export function mapChartSpec(
     }
   }
 
-  // `annotations[0]` is a SENTENCE about the figure ("upper bounds: 4 of 12
+  // An annotation is a SENTENCE about the figure ("upper bounds: 4 of 12
   // marks are ceilings, not measurements — their numerator was suppressed
   // and they cannot be ranked against the measured marks"). It was being
   // handed to a `ReferenceLine` as an x value, where it matched no category
   // and drew nothing, so a census the engine wrote reached no reader. One
   // that DOES name a drawn category is a highlight and still draws as one.
-  const annotation = asArray(raw.annotations)[0];
-  const annotationText = typeof annotation === "string" ? annotation : undefined;
-  const annotationIsCategory =
-    annotationText !== undefined && labels.includes(annotationText);
+  //
+  // ALL of them, not `annotations[0]`. A comparison publishes its own
+  // sentence first ("comparison: two series per category…"), so on the
+  // charts carrying the most annotations — the comparison, the prior-only
+  // census, truncation, the upper-bound census, the withheld census —
+  // every fact after the first was dropped.
+  const annotations = asArray(raw.annotations).filter(
+    (value): value is string => typeof value === "string",
+  );
+  const highlight = annotations.find((text) => labels.includes(text));
+  const notes = annotations.filter((text) => text !== highlight);
 
   return {
     id: asString(raw.id),
@@ -1378,7 +1642,13 @@ export function mapChartSpec(
     // `grouped_bar` and the renderer never set a stackId, so six plan
     // shares of one runway bucket drew as six competing bars — a
     // comparison the frame never claimed.
-    ...(wireType === "stacked_bar" && kind !== "line" ? { stacked: true } : {}),
+    //
+    // Except across WINDOWS. The comparison frame arrives declaring
+    // `stacked_bar` (live: `chart_main__compare`, chart_type
+    // `stacked_bar`, series `period`), and stacking July on June makes a
+    // column whose height is a sum of two windows — a number nobody
+    // computed, under an annotation that ends "They are not summed".
+    ...(wireType === "stacked_bar" && kind !== "line" && !paired ? { stacked: true } : {}),
     order,
     wireChartType: wireType,
     frameId: asString(raw.frame_id) || undefined,
@@ -1396,16 +1666,30 @@ export function mapChartSpec(
     xLabel: xColumn || undefined,
     series: seriesKeys.map((key, index) => ({
       key,
-      label: seriesColumn === null ? valueColumn : key,
+      // The wire's series key IS the label everywhere except a
+      // comparison, where "current" and "prior" are the engine's
+      // bookkeeping for two windows and not what either window is called.
+      // The renderer replaces these with the turn's own dates when the
+      // header carries them.
+      label: paired
+        ? key === PERIOD_CURRENT_KEY
+          ? "This window"
+          : "Prior window"
+        : seriesColumn === null
+          ? valueColumn
+          : key,
       role: index === 0 ? "current" : "baseline",
+      // Neither half of a comparison is ever folded into a rollup.
+      ...(paired ? { pinned: true } : {}),
     })),
     rows: ordered,
+    ...(paired
+      ? { comparison: { currentKey: PERIOD_CURRENT_KEY, priorKey: PERIOD_PRIOR_KEY } }
+      : {}),
     ...(boundedRows > 0 ? { boundedRows } : {}),
     ...(keying !== undefined ? { keying } : {}),
-    ...(annotationText !== undefined && annotationIsCategory
-      ? { highlightLabel: annotationText }
-      : {}),
-    ...(annotationText !== undefined && !annotationIsCategory ? { note: annotationText } : {}),
+    ...(highlight !== undefined ? { highlightLabel: highlight } : {}),
+    ...(notes.length > 0 ? { note: notes[0], notes } : {}),
   };
 }
 
@@ -1413,6 +1697,20 @@ export function mapChartSpec(
 /* Which of a turn's charts are worth drawing (F20)                    */
 /* ------------------------------------------------------------------ */
 
+/**
+ * Frame-id suffixes that named the OLD comparison shape.
+ *
+ * Retired for live payloads and kept for stored ones. The engine now emits
+ * one two-series chart per comparison and suppresses the superseded base
+ * frame at the source, so nothing arriving today needs a suffix list —
+ * which is just as well, because a list is exactly the wrong shape for
+ * this: the server had already invented `__compare__share` while this read
+ * `["__compare", "__prior"]`, and two byte-identical 34-row charts drew
+ * under one title on the flagship answer.
+ *
+ * Restored investigations still replay what was recorded, and a turn
+ * stored under the old shape must render the way it rendered then.
+ */
 const COMPARE_SUFFIXES = ["__compare", "__prior"] as const;
 
 function splitFrameSuffix(frameId: string): { base: string; suffix: string } | null {
@@ -1422,6 +1720,21 @@ function splitFrameSuffix(frameId: string): { base: string; suffix: string } | n
     }
   }
   return null;
+}
+
+/**
+ * How many things this spec says — positions on the axis that carry a
+ * value or a stated absence.
+ *
+ * A category the engine published and withheld still occupies the axis and
+ * still prints its "†", so it counts for one; a category with two windows
+ * on it counts for two.
+ */
+function markCount(spec: ChartSpec): number {
+  return spec.rows.reduce((total, row) => {
+    const drawn = spec.series.filter((s) => typeof row.values[s.key] === "number").length;
+    return total + Math.max(1, drawn);
+  }, 0);
 }
 
 function sameRows(a: ChartSpec, b: ChartSpec): boolean {
@@ -1438,23 +1751,33 @@ function sameRows(a: ChartSpec, b: ChartSpec): boolean {
 /**
  * The charts a turn should actually draw.
  *
- * A comparison turn publishes the same measure twice — `main` and
- * `main__compare` — and (verified against a live `GET
- * /v1/investigations/{iid}`) their rows are byte-identical, because the
- * compare frame carries the CURRENT window's values with a comparison
- * annotation rather than the prior window's. Drawing both is two identical
- * charts stacked, which reads as a rendering bug and buries the real
- * answer. So:
+ * THE LIVE SHAPE. A comparison turn publishes ONE chart holding both
+ * windows: `series: "period"`, rows labelled `current` and `prior`, and no
+ * base twin beside it (verified against `GET /v1/investigations/
+ * inv_76852c0ddaa6` — a single `chart_main__compare`, 24 rows over 12
+ * payers). Nothing here folds, merges or drops it; it arrives whole and it
+ * is drawn whole.
+ *
+ * THE STORED SHAPE, kept defensively. The engine used to publish `main`
+ * and a byte-identical `main__compare` — the compare frame carried the
+ * CURRENT window's values with a comparison annotation rather than the
+ * prior window's — and an investigation stored then still replays exactly
+ * as it was recorded. For those, and only those:
  *
  *   - a `__compare`/`__prior` frame whose rows match its base frame is a
  *     duplicate and is dropped;
  *   - one whose rows DIFFER is the prior period, and is folded into the
  *     base chart as a second (baseline) series — current vs prior in one
  *     chart, which is what the analyst asked for;
- *   - a compare frame with no base frame stands on its own;
- *   - anything with fewer than two rows is not a chart. A single point
- *     plotted on an axis is a number that has been made to look like a
- *     trend; the finding card already says it, better.
+ *   - a compare frame with no base frame stands on its own.
+ *
+ * And in both shapes: anything drawing fewer than two MARKS is not a
+ * chart. A single point plotted on an axis is a number that has been made
+ * to look like a trend; the finding card already says it, better. Counted
+ * in marks rather than rows because a comparison of one category is two
+ * marks and a real figure — "denial rate, July against June" is the whole
+ * question on those turns, and dropping it left the answer with no picture
+ * at all.
  */
 export function selectRenderableCharts(specs: readonly ChartSpec[]): ChartSpec[] {
   const byFrame = new Map<string, ChartSpec>();
@@ -1466,10 +1789,15 @@ export function selectRenderableCharts(specs: readonly ChartSpec[]): ChartSpec[]
   const dropped = new Set<string>();
 
   for (const spec of specs) {
+    // A chart that already holds both windows is not a half of anything:
+    // folding it into a base frame would write the prior window's numbers
+    // into a series the base chart does not have and lose the pairing the
+    // engine published.
+    if (spec.comparison !== undefined) continue;
     const split = spec.frameId !== undefined ? splitFrameSuffix(spec.frameId) : null;
     if (split === null) continue;
     const base = byFrame.get(split.base);
-    if (base === undefined) continue;
+    if (base === undefined || base.comparison !== undefined) continue;
     dropped.add(spec.id);
     if (sameRows(base, spec)) continue; // identical twin — the base one stands
     // A genuinely different comparison frame: same measure, other window.
@@ -1495,6 +1823,14 @@ export function selectRenderableCharts(specs: readonly ChartSpec[]): ChartSpec[]
           pinned: true,
         },
       ],
+      // A folded old-shape twin IS a period comparison, and is drawn as
+      // one: paired bars, a delta in the tooltip, never a stack.
+      ...(baselineKey === PERIOD_PRIOR_KEY && base.series.length === 1 && base.series[0] !== undefined
+        ? {
+            stacked: false,
+            comparison: { currentKey: base.series[0].key, priorKey: baselineKey },
+          }
+        : {}),
     });
   }
 
@@ -1502,7 +1838,7 @@ export function selectRenderableCharts(specs: readonly ChartSpec[]): ChartSpec[]
   for (const spec of specs) {
     if (dropped.has(spec.id)) continue;
     const resolved = merged.get(spec.id) ?? spec;
-    if (resolved.rows.length < 2) continue;
+    if (markCount(resolved) < 2) continue;
     out.push(resolved);
   }
   return out;
@@ -1993,9 +2329,14 @@ export function readTurnWarnings(
       const warning = mapStructuredWarning(entry);
       if (warning !== null) mapped.push(warning);
     }
-    if (mapped.length > 0) return mapped;
+    // Collapsed on the FACT, here at the seam, so the banner rail, the
+    // copied text and the CSV preamble cannot disagree about how many
+    // times one thing was said. See `dedupeWarnings` — idempotent, so it
+    // returns the server's list unchanged the day the server's own dedupe
+    // stops keying on the probe name.
+    if (mapped.length > 0) return dedupeWarnings(mapped);
   }
-  return sentences.map(mapAnswerWarning);
+  return dedupeWarnings(sentences.map(mapAnswerWarning));
 }
 
 /* ------------------------------------------------------------------ */
@@ -2613,6 +2954,10 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
   const turnBenchmarks = mapBenchmarks(raw.benchmarks);
   const findingContext: FindingContext = {
     unitByMetric: unitsFromChartSpecs(raw.chart_specs),
+    // The per-cell suppression flags of the turn's own temporal frames,
+    // so a shape finding can say whether its movement runs between
+    // ceilings. The frames are the only published place they appear.
+    temporalCells: temporalCellsFromChartSpecs(raw.chart_specs),
     ...(impactWithheldReason(warningSentences) !== undefined
       ? { impactWithheldReason: impactWithheldReason(warningSentences) }
       : {}),
@@ -2691,6 +3036,52 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
 }
 
 /**
+ * A clarification rebuilt from the stored investigation.
+ *
+ * The record keeps the analyst's utterance and the turn's status; it does
+ * NOT keep the question the interpreter asked or the interpretations it
+ * offered. What shipped for that was a synthesized `{question: <placeholder>,
+ * options: []}` handed to a component whose empty-options branch is a
+ * substantive claim — so three live turns that each offered four real
+ * options on the wire ("Investigate the denial-rate increase this month",
+ * "Investigate the posted-cash decline this month", …) each re-opened as
+ * "There is no answerable option to offer here." on the permalink, which
+ * is the demo path.
+ *
+ * Two facts, kept apart. `restored: true` says the fields are unrestored;
+ * an empty `options` list still means "the engine offered none" and only
+ * ever reaches here from a live turn. And the stored question and options
+ * ARE read when a payload generation publishes them — the server already
+ * computes both and publishes them live, so the client must not be the
+ * reason they stay invisible the day they are persisted.
+ */
+function restoredClarification(raw: UnknownRecord): ClarificationData {
+  const stored = isRecord(raw.clarification) ? raw.clarification : undefined;
+  const question =
+    asString(stored?.question) ||
+    asString(alias(raw, "clarificationQuestion", "clarification_question"));
+  const options = asStringList(
+    stored?.options ?? alias(raw, "clarificationOptions", "clarification_options"),
+  );
+  const reason =
+    asString(stored?.reason) ||
+    asString(alias(raw, "clarificationReason", "clarification_reason"));
+  return {
+    // Empty when the store kept none, and empty is the honest value: the
+    // card says the wording was not stored rather than printing a
+    // placeholder sentence in the position a reader reads the engine's own
+    // question from.
+    question,
+    options,
+    ...(reason !== "" ? { reason } : {}),
+    // Set whether or not the store kept the question: a turn read back
+    // from history is a record of a question that was asked, not a live
+    // prompt waiting on an answer, and the card says which it is.
+    restored: true,
+  };
+}
+
+/**
  * Parse `GET /v1/investigations/{iid}` — a different shape from the turn
  * body and the only recovery path when the stream dropped after the
  * investigation id was known. A recovered turn renders what the server
@@ -2719,10 +3110,7 @@ export function parseInvestigationResponse(
         outcome: "clarification_required",
         investigationId,
         sessionId: asString(raw.session_id),
-        clarification: {
-          question: "This turn ended with a question — resend it to see the options again.",
-          options: [],
-        },
+        clarification: restoredClarification(raw),
         watermarkStale: false,
       },
       drift,
@@ -2755,6 +3143,9 @@ export function parseInvestigationResponse(
   const restoredBenchmarks = mapBenchmarks(raw.benchmarks);
   const restoredContext: FindingContext = {
     unitByMetric: unitsFromChartSpecs(raw.chart_specs),
+    // A restored turn is qualified exactly as the live one was: the
+    // stored frames carry the same per-cell flags.
+    temporalCells: temporalCellsFromChartSpecs(raw.chart_specs),
     ...(impactWithheldReason(restoredWarnings) !== undefined
       ? { impactWithheldReason: impactWithheldReason(restoredWarnings) }
       : {}),

@@ -46,6 +46,13 @@ export const WARNING_TITLES: Readonly<Record<string, string>> = {
   // assumes and fell short of the SIZE it assumes. "Denials did not rise"
   // would be as false as "denials doubled" over a real +72.6%.
   PREMISE_PARTIAL: "The premise holds in direction, not in size",
+  // The fourth verdict, and the one this lane's own D-01 is about: a
+  // movement between two suppressed ceilings, a comparison whose panels
+  // are not equally settled, and a size the platform could not parse are
+  // each UNVERIFIABLE — neither confirmed nor refuted. Deliberately not
+  // "Premise unverified", which reads as "we did not get round to it";
+  // the fact is that the evidence cannot decide it either way.
+  PREMISE_UNVERIFIABLE: "The premise cannot be checked on this evidence",
   // The other half of the same verdict, and it has to be published as
   // loudly: a premise probe runs on every turn that asserts a movement,
   // and reporting it only when it FAILS leaves a reader unable to tell
@@ -97,6 +104,15 @@ export const WARNING_TITLES: Readonly<Record<string, string>> = {
   CHART_ROWS_COLLAPSED: "This chart's rows aren't uniquely keyed",
   VALUE_CORRECTED: "A published value was corrected",
   DIRECTION_UNMATCHED: "The movement went the other way",
+  // The cells a directional selection took OUT, named. "Show me all
+  // twelve" returned ten and the two it dropped were the only two that
+  // improved — an omission that flatters the premise, which is the one
+  // kind a reader will never notice on their own.
+  DIRECTION_OMITTED: "Some cells were left out of this selection",
+  // Context carried onto a clarification resume from the thread it
+  // interrupted, rather than defaulted. An INFO: it does not change how a
+  // number reads, it says where the scope came from.
+  RESUMED_CONTEXT: "Scope carried over from the question this answers",
   WINDOW_ASSUMED: "Window assumed",
   // An as-of contract applies no start..end predicate at all, so the
   // period in the question scoped the cohort and the charts but not the
@@ -191,6 +207,193 @@ export function warningBody(code: string, message: string): string {
   const normalized = head.trim().toUpperCase().replace(/[\s-]+/g, "_");
   if (normalized !== code) return message;
   return message.slice(separator + 2).trim() || message;
+}
+
+/* ------------------------------------------------------------------ */
+/* One fact, once                                                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The verdict on the question the analyst actually asked.
+ *
+ * These codes are not cautions about how to read a number — they ARE the
+ * answer's finding about the premise or about whether an order could be
+ * published at all. Rendered in the same box, tone and type size as
+ * "probe 'denial_code_mix__prior' reads 'denied_dollars'", the single most
+ * important sentence on the answer has no rank over engine bookkeeping.
+ * They are seated first and given heading weight; nothing else about them
+ * changes, because the sentence is the server's.
+ */
+export const VERDICT_CODES: ReadonlySet<string> = new Set([
+  "PREMISE_FALSE",
+  "PREMISE_PARTIAL",
+  "PREMISE_UNVERIFIABLE",
+  "PREMISE_VERIFIED",
+  "RANKING_REFUSED",
+  "DIRECTION_UNMATCHED",
+]);
+
+export function isVerdictCode(code: string): boolean {
+  return VERDICT_CODES.has(code);
+}
+
+/**
+ * `probe 'main__window__prior'` — an internal plan node, named inside a
+ * warning sentence. The probe is the only thing that differs between six
+ * otherwise identical `ALTERNATE_BASIS_USED` warnings, and it is the one
+ * token in them an analyst has never seen and cannot act on.
+ */
+const PROBE_REFERENCE = /\bprobe(s)? '([^']+)'/g;
+
+/** The same fact, spelled without whichever plan node happened to raise it. */
+function factKey(code: string, message: string): string {
+  return `${code} ${message
+    .replace(PROBE_REFERENCE, "probe ⟨⟩")
+    .replace(/\s+/g, " ")
+    .trim()
+    .toLowerCase()}`;
+}
+
+/**
+ * Warnings collapsed on the FACT they state rather than on their exact
+ * wording.
+ *
+ * The server dedupes on `(code, message)` and defends it — "two
+ * alternate_basis_used warnings naming different probes are two facts".
+ * They are not; they are one fact spelled six ways. Live, one answer
+ * carried six of them differing only by `probe 'main'`, `'premise'`,
+ * `'main__window'`, `'main__window__prior'`, `'premise__window'`,
+ * `'premise__window__prior'`, and another carried ten — 1,356px of amber,
+ * 2.7 screen-heights, before a single number.
+ *
+ * Applied at the wire seam, so every surface downstream inherits it: the
+ * banner rail, the copied text, and the CSV preamble that was carrying the
+ * engine's plan structure above row 1 of a spreadsheet.
+ *
+ * Idempotent by construction. When the server's own fact-keyed dedupe
+ * lands, each group has one member, the probe reference is left exactly as
+ * the server wrote it, and this function returns its input unchanged.
+ */
+export function dedupeWarnings<T extends { code: string; message: string; count?: number }>(
+  warnings: readonly T[],
+): T[] {
+  const order: string[] = [];
+  const groups = new Map<string, { first: T; count: number; probes: string[] }>();
+  for (const warning of warnings) {
+    const key = factKey(warning.code, warning.message);
+    const probes = [...warning.message.matchAll(PROBE_REFERENCE)].map((m) => m[2]);
+    const group = groups.get(key);
+    if (group === undefined) {
+      order.push(key);
+      groups.set(key, { first: warning, count: warning.count ?? 1, probes: [...probes] });
+      continue;
+    }
+    group.count += warning.count ?? 1;
+    for (const probe of probes) if (!group.probes.includes(probe)) group.probes.push(probe);
+  }
+
+  return order.map((key) => {
+    const group = groups.get(key)!;
+    if (group.count <= 1) return group.first;
+    // Two or more entries collapsed into one. When they differed by their
+    // probe, the surviving sentence must not keep one arbitrary plan node
+    // in it — that would read as a fact about `main` when it is a fact
+    // about six probes. The ids travel on `probes` instead, which debug
+    // mode and the count badge both render.
+    const distinctProbes = group.probes.length > 1;
+    const message = distinctProbes
+      ? group.first.message.replace(PROBE_REFERENCE, (_m, plural: string | undefined) =>
+          plural ? "probes" : "a probe",
+        )
+      : group.first.message;
+    return {
+      ...group.first,
+      message,
+      count: group.count,
+      ...(group.probes.length > 0 ? { probes: group.probes } : {}),
+    };
+  });
+}
+
+/* ------------------------------------------------------------------ */
+/* One fact, one SURFACE                                               */
+/* ------------------------------------------------------------------ */
+
+/** Comparable form of a sentence: no case, no runs of space, no full stop. */
+function normalizeSentence(text: string): string {
+  return text
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/[.;:]+$/, "")
+    .toLowerCase();
+}
+
+/** Paragraph → sentences, keeping the delimiter on the sentence it ends. */
+function sentencesOf(paragraph: string): string[] {
+  return paragraph.split(/(?<=[.!?])\s+/).filter((s) => s.trim() !== "");
+}
+
+/**
+ * The narrative with the sentences the banners already carry taken out of
+ * it.
+ *
+ * Two correct fixes were never reconciled. The composer deliberately
+ * builds mandatory disclosures into the prose (`mandatory_disclosures`,
+ * round-2 FN-3) while the card independently renders the same
+ * `warnings_v2` as banners (rounds 1/3). Measured on one live turn: the
+ * write-up is 4,933 characters of which 1,704 — 34.5% — are byte-identical
+ * copies of banners on the same screen; one census sentence appears four
+ * times on one answer; "this is not a ranking" is restated fourteen times
+ * on one page.
+ *
+ * The BANNER is kept and the prose defers to it, not the other way round,
+ * for one reason: warnings survive a reload and composed prose does not.
+ * Collapsing onto the surface that does not persist would have made the
+ * shared permalink even thinner than it already is.
+ *
+ * Deliberately conservative. A prose sentence is dropped only when it
+ * matches a rendered warning's own sentence exactly (modulo case, spacing
+ * and trailing punctuation), or is a whole sentence of one. Nothing is
+ * paraphrased, nothing is summarized, and a narrative that shares no
+ * sentence with any banner comes back byte-identical.
+ */
+export function foldComposedDisclosures(
+  narrative: string,
+  warnings: readonly { code: string; message: string }[],
+): { text: string; folded: number } {
+  if (narrative.trim() === "" || warnings.length === 0) return { text: narrative, folded: 0 };
+
+  const banner = new Set<string>();
+  for (const warning of warnings) {
+    // BOTH spellings. The banner strips a machine prefix that IS the code
+    // (`population_caveat: …`) and the composer builds the message into
+    // the prose as the engine wrote it — so the same fact reaches the two
+    // surfaces one prefix apart, and matching only one of them would fold
+    // nothing on precisely the warnings that carry a prefix.
+    for (const form of [warning.message, warningBody(warning.code, warning.message)]) {
+      banner.add(normalizeSentence(form));
+      // A disclosure composed of several sentences reaches the prose as
+      // several sentences; each one of them is still the banner's text.
+      for (const sentence of sentencesOf(form)) banner.add(normalizeSentence(sentence));
+    }
+  }
+  banner.delete("");
+
+  let folded = 0;
+  const paragraphs = narrative.split(/\n{2,}/);
+  const kept: string[] = [];
+  for (const paragraph of paragraphs) {
+    const sentences = sentencesOf(paragraph);
+    const keptSentences = sentences.filter((sentence) => {
+      if (!banner.has(normalizeSentence(sentence))) return true;
+      folded += 1;
+      return false;
+    });
+    if (keptSentences.length > 0) kept.push(keptSentences.join(" "));
+  }
+
+  if (folded === 0) return { text: narrative, folded: 0 };
+  return { text: kept.join("\n\n").trim(), folded };
 }
 
 /**

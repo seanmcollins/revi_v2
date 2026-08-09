@@ -30,7 +30,7 @@ import { answerToText, caveatLines, windowLine } from "@/lib/export";
 import { chartWindowLabel } from "@/lib/format";
 import { useSessionStore, type TurnRecord } from "@/lib/store";
 import { cn } from "@/lib/utils";
-import { splitErrorMessage } from "@/lib/warnings";
+import { foldComposedDisclosures, splitErrorMessage } from "@/lib/warnings";
 
 /**
  * The composed answer: stage rail → context header (always) →
@@ -80,6 +80,18 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
       ? `as of ${a.header.asOf}`
       : chartWindowLabel(a.header.window)
     : undefined;
+  // A comparison chart draws two windows per category, and "current" /
+  // "prior" is the engine's bookkeeping rather than what either window is
+  // called. When the header states both — and it does whenever the turn
+  // resolved a comparison — the legend names them, so a screenshot of the
+  // figure says July against June without the header beside it.
+  const comparisonWindows =
+    a.header && !a.header.asOf && a.header.comparison
+      ? {
+          current: chartWindowLabel(a.header.window),
+          prior: a.header.comparison.label ?? chartWindowLabel(a.header.comparison.window),
+        }
+      : undefined;
 
   /**
    * An answer that completed with nothing to show. This is a real, typed
@@ -109,6 +121,29 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
   // The same caveats the copied text prints, handed to every chart CSV on
   // this turn — one answer, one set of caveats, whichever button is used.
   const csvCaveats = useMemo(() => caveatLines(a.warnings), [a.warnings]);
+
+  /**
+   * ONE FACT, ONE SURFACE.
+   *
+   * The composer builds its mandatory disclosures into the prose verbatim
+   * (round-2 FN-3) and this card independently renders the same
+   * `warnings_v2` as banners (rounds 1/3). Nobody reconciled the two, and
+   * the measurement on one live turn is 4,933 characters of write-up of
+   * which 1,704 are byte-identical copies of banners on the same screen —
+   * one census sentence printed four times on one answer.
+   *
+   * The banner is kept as the structured surface and the prose defers to
+   * it, in that direction on purpose: warnings survive a reload and
+   * composed prose does not, so collapsing onto the prose would thin out
+   * the very artifact a permalink forwards. Nothing is summarized — only
+   * sentences that ARE a rendered banner's own sentence come out — and the
+   * export prints the full caveat block underneath either way, so no
+   * reasoning leaves the page or the file.
+   */
+  const prose = useMemo(
+    () => foldComposedDisclosures(a.narrative, warnings),
+    [a.narrative, warnings],
+  );
 
   /**
    * Ceilings are separated from measurements, and the separation is stated.
@@ -309,7 +344,11 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
                     : {}),
                   ...(a.header ? { header: a.header } : {}),
                   findings: a.findings,
-                  narrative: a.narrative,
+                  // The prose exactly as the page shows it — the caveats
+                  // it repeated are printed in full in the CAVEATS block
+                  // below it, so the artifact loses no reasoning and
+                  // gains no duplicate.
+                  narrative: prose.text,
                   warnings: a.warnings,
                   // The rows behind the pictures and the ranked worklist,
                   // both of which the caveats already refer to. A copy
@@ -320,6 +359,15 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
                   ...(a.metric ? { metric: a.metric } : {}),
                   ...(a.investigationId ? { investigationId: a.investigationId } : {}),
                   ...(a.rehydrated ? { restored: true } : {}),
+                  // The server's OWN account of what a restore kept and
+                  // what it did not. This is the share path — the button
+                  // beside this one is "Copy link" — and an artifact whose
+                  // analysis section is one apologetic sentence is the
+                  // product forwarding its caveats without its reasoning.
+                  // The notes name precisely which of the two happened.
+                  ...(a.header?.restorationNotes
+                    ? { restorationNotes: a.header.restorationNotes }
+                    : {}),
                 })
               }
             />
@@ -400,6 +448,7 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
             spec={spec}
             turnId={turn.id}
             windowLabel={windowLabel}
+            {...(comparisonWindows ? { comparisonWindows } : {})}
             {...(a.header?.watermark.id ? { watermarkId: a.header.watermark.id } : {})}
             {...(a.header
               ? {
@@ -414,7 +463,22 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
       ))}
 
       {(a.narrative || streaming) && a.status !== "clarification" && (
-        <NarrativeText text={a.narrative} streaming={streaming} />
+        <>
+          {/* While it streams, the prose is whatever has arrived so far —
+              folding a half-written sentence against a banner would take
+              text out from under a caret mid-word. The fold lands the
+              moment the turn is finished, which is when the reader starts
+              reading it. */}
+          <NarrativeText text={streaming ? a.narrative : prose.text} streaming={streaming} />
+          {!streaming && prose.folded > 0 && (
+            <p className="text-[0.66rem] leading-snug text-muted-foreground">
+              {prose.folded === 1 ? "One sentence" : `${prose.folded} sentences`} of this write-up
+              repeated {prose.folded === 1 ? "a caution" : "the cautions"} above word for word and{" "}
+              {prose.folded === 1 ? "is" : "are"} not printed twice. Every caveat is stated in full
+              above, and travels with the copied answer and the CSV.
+            </p>
+          )}
+        </>
       )}
 
       {/* A restored turn with findings and no prose. The write-up is

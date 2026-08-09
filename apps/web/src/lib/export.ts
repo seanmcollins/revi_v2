@@ -137,6 +137,22 @@ export interface AnswerCopyInput {
   worklist?: WorklistData;
   /** True when the turn was rebuilt from stored state, not watched live. */
   restored?: boolean;
+  /**
+   * `InvestigationResponse.restoration_notes` — the SERVER's account of
+   * what a restore rebuilt and what the store does not keep.
+   *
+   * This is the share path. The permalink is a first-class header button,
+   * and on a payload generation that does not persist the composed prose
+   * the artifact a prospect forwards is, by construction, this product's
+   * caveats with its reasoning removed — which inverts the calibration,
+   * because the reasoning is what makes the caveats read as rigour rather
+   * than as panic. These notes are the only thing on the wire that says
+   * WHICH of "there was nothing to say" and "the sentences were not
+   * stored" is true, in the server's own words, so they travel with the
+   * export instead of one apologetic client-side line standing in for
+   * them.
+   */
+  restorationNotes?: readonly string[];
   /** Injected so the output is a pure function of its inputs (tests pin it). */
   copiedAt?: Date;
 }
@@ -305,6 +321,11 @@ export function answerToText(input: AnswerCopyInput): string {
       "ANALYSIS",
       RULE,
       "The written analysis was not stored for this turn — the findings above and the context they were measured under are what the server kept.",
+      // The server's own sentences about the restore, verbatim. A reader
+      // who receives this file is owed the difference between an answer
+      // that had nothing to say and an answer whose sentences were not
+      // persisted, and the client cannot establish that difference.
+      ...(input.restorationNotes ?? []),
       "",
     );
   }
@@ -649,6 +670,11 @@ export function chartToCsv(spec: ChartSpec, meta?: ChartCsvMeta): string {
       "Some rows are PROVISIONAL: the bucket is calendar-partial or still adjudicating, so its value will move. The `provisional` column marks them.",
     );
   }
+  if (spec.rows.some((row) => Object.values(row.cells ?? {}).some((cell) => cell.absent === true))) {
+    say(
+      "Some cells are EMPTY because the category exists in one of the two windows and not the other. The comparison joins the windows and fills the missing side with a zero; that zero is the join, not a measurement, so it is not written here.",
+    );
+  }
   if (meta?.watermarkId) say(`Data as of: ${meta.watermarkId}`);
   if (meta?.packLabel) say(`Metric definitions: ${meta.packLabel}`);
   say("CAVEATS THAT TRAVEL WITH THESE NUMBERS");
@@ -729,6 +755,11 @@ export function chartToCsv(spec: ChartSpec, meta?: ChartCsvMeta): string {
         row.referent ?? "",
         ...spec.series.map((s) => {
           const value = row.values[s.key];
+          // A cell the engine zero-filled across the join is left EMPTY,
+          // like a withheld one: the figure draws no bar for it, and a
+          // spreadsheet column of comparisons in which an absence reads as
+          // 0.00 is the one surface most likely to be summed.
+          if (row.cells?.[s.key]?.absent === true) return "";
           if (typeof value !== "number" || !Number.isFinite(value)) return "";
           return scaled(value);
         }),

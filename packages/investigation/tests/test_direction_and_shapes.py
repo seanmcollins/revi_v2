@@ -198,7 +198,11 @@ class TestDirectionAwareSelection:
 
         assert titles[0].startswith("Meridian Health")  # +400k, the biggest rise
         assert all("down" not in title for title in titles), titles
-        assert not warnings
+        # Round-5 A-04: the two cells the filter removed are NAMED. They
+        # were silent, and "show me all twelve" then returned ten — the two
+        # missing being the only two that had improved.
+        assert [w for w in warnings if w.startswith("direction_omitted:")], warnings
+        assert not [w for w in warnings if w.startswith("direction_unmatched:")]
 
     async def test_smallest_flips_the_end_of_the_same_set(
         self, pack_port: PackSnapshotPort, make_spec: SpecFactory
@@ -645,7 +649,7 @@ class TestAssertedPremises:
             _compare_frame(), _scalar_compare_frame(1_091_524, 5_898_354), spec, pack_port
         )
 
-        assert not warnings
+        assert not [w for w in warnings if w.startswith("premise_")]
         assert titles[0].startswith("Meridian Health")
 
     def test_the_premise_probe_is_planned_only_when_something_is_asserted(

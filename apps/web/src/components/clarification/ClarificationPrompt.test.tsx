@@ -147,6 +147,73 @@ describe("ClarificationPrompt — options rendered as tappable recovery chips", 
     });
   });
 
+  /**
+   * B-01. A clarification rebuilt from the stored investigation is a
+   * RECORD of a question, and the store keeps neither its wording nor the
+   * options it offered. Read through the no-options branch — which keys on
+   * `options.length === 0` — every restored clarification on the permalink
+   * announced "There is no answerable option to offer here." over turns
+   * that had each offered four real interpretations live.
+   *
+   * The permalink is the demo path: the code's own comments call it "the
+   * one question every buyer asks in the first demo".
+   */
+  describe("a restored clarification is history, not a refusal", () => {
+    const RESTORED: ClarificationData = { question: "", options: [], restored: true };
+
+    it("never claims the platform had nothing to offer", () => {
+      useSessionStore.setState({ submit: vi.fn(), streamingTurnId: null });
+      render(<ClarificationPrompt clarification={RESTORED} />);
+
+      expect(
+        screen.queryByText("There is no answerable option to offer here."),
+      ).not.toBeInTheDocument();
+      expect(screen.getByText("This turn ended with a question")).toBeInTheDocument();
+      expect(
+        screen.getByText(/The wording of the question and the interpretations it offered/),
+      ).toBeInTheDocument();
+    });
+
+    it("offers no dead controls — the composer below is where this continues", () => {
+      useSessionStore.setState({ submit: vi.fn(), streamingTurnId: null });
+      render(<ClarificationPrompt clarification={RESTORED} />);
+
+      expect(screen.queryAllByRole("button")).toEqual([]);
+      expect(screen.queryByPlaceholderText(/Ask it a different way/)).not.toBeInTheDocument();
+    });
+
+    it("shows the question and options when the store DID keep them, as a record", () => {
+      useSessionStore.setState({ submit: vi.fn(), streamingTurnId: null });
+      render(
+        <ClarificationPrompt
+          clarification={{
+            question: "Which did you mean?",
+            options: ["Investigate the denial-rate increase this month"],
+            restored: true,
+          }}
+        />,
+      );
+
+      expect(screen.getByText("Which did you mean?")).toBeInTheDocument();
+      expect(
+        screen.getByText("Investigate the denial-rate increase this month"),
+      ).toBeInTheDocument();
+      // Listed, not tapped: the option that was taken is the turn below.
+      expect(screen.queryAllByRole("button")).toEqual([]);
+      expect(screen.getByText(/a record of what was offered, not live choices/)).toBeInTheDocument();
+    });
+
+    it("leaves a LIVE empty option list exactly as it was", () => {
+      useSessionStore.setState({ submit: vi.fn(), streamingTurnId: null });
+      render(
+        <ClarificationPrompt
+          clarification={{ question: "Which did you mean?", options: [], reason: "Low match." }}
+        />,
+      );
+      expect(screen.getByText("There is no answerable option to offer here.")).toBeInTheDocument();
+    });
+  });
+
   it("free text still works alongside the option chips", () => {
     const submit = vi.fn().mockResolvedValue(undefined);
     useSessionStore.setState({ submit, streamingTurnId: null });
