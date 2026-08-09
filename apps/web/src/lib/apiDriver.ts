@@ -477,6 +477,36 @@ export class ApiDriver implements TurnDriver {
   }
 
   /**
+   * The session an investigation belongs to — the `/i/{iid}` permalink's
+   * one server read.
+   *
+   * Deliberately NOT `fetchInvestigation`: that parses a whole turn against
+   * the contract and needs the session's pin to do it, and the pin is the
+   * very thing this call exists to find. All that is wanted here is the id,
+   * which is a required field on the response, so the raw body is read for
+   * that one string and the rebuild happens through `resumeSession` like
+   * every other way into a session.
+   */
+  async sessionForInvestigation(investigationId: string): Promise<string> {
+    const raw = await requestJson(
+      `${this.baseUrl}/v1/investigations/${encodeURIComponent(investigationId)}`,
+      { method: "GET" },
+      this.requestOptions(),
+    );
+    const sessionId =
+      typeof raw === "object" && raw !== null
+        ? (raw as { session_id?: unknown }).session_id
+        : undefined;
+    if (typeof sessionId !== "string" || sessionId === "") {
+      this.reportDrift(["session_id"], `GET /v1/investigations/${investigationId}`);
+      throw new Error(
+        "That investigation exists but does not say which session it belongs to, so there is nothing to open.",
+      );
+    }
+    return sessionId;
+  }
+
+  /**
    * Switch to an existing session and rebuild its thread.
    *
    * Three published reads, in order: re-join (`POST /v1/sessions` carrying

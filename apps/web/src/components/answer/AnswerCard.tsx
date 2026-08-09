@@ -26,7 +26,7 @@ import { AnswerWorklist } from "@/components/worklist/AnswerWorklist";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { humanizeColumn, selectRenderableCharts } from "@/lib/contract";
-import { answerToText, windowLine } from "@/lib/export";
+import { answerToText, caveatLines, windowLine } from "@/lib/export";
 import { chartWindowLabel } from "@/lib/format";
 import { useSessionStore, type TurnRecord } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -106,8 +106,49 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
     !a.error &&
     a.narrative.trim() === "";
 
+  // The same caveats the copied text prints, handed to every chart CSV on
+  // this turn — one answer, one set of caveats, whichever button is used.
+  const csvCaveats = useMemo(() => caveatLines(a.warnings), [a.warnings]);
+
+  /**
+   * What a screen reader is told, and when (WCAG 2.2 SC 4.1.3).
+   *
+   * A turn takes 26–60 seconds: stages stream, prose types itself out
+   * behind a blinking caret, findings land one at a time on staggered
+   * delays — and none of it was announced. The container carries
+   * `aria-busy` for the whole run, `StageRail` announces the step it is on,
+   * and this is the single completion sentence.
+   *
+   * Terse on purpose. Piping the narrative through a live region would
+   * read a thousand words of prose aloud, interrupting itself on every
+   * delta; what a non-sighted reader needs is that the answer has arrived
+   * and how much of it there is, then their own cursor.
+   */
+  const completionMessage = useMemo(() => {
+    if (streaming) return "";
+    if (a.status === "error") return "This turn stopped before it finished.";
+    if (a.status === "clarification") return "The platform needs one more detail before it answers.";
+    if (a.status !== "complete") return "";
+    const cautions = a.warnings.filter((w) => w.severity === "caution").length;
+    const parts = [
+      `${a.findings.length} finding${a.findings.length === 1 ? "" : "s"}`,
+      ...(charts.length > 0 ? [`${charts.length} chart${charts.length === 1 ? "" : "s"}`] : []),
+      `${cautions} caution${cautions === 1 ? "" : "s"}`,
+    ];
+    return `Answer ready: ${parts.join(", ")}.`;
+  }, [streaming, a.status, a.findings.length, a.warnings, charts.length]);
+
   return (
-    <div className={cn("space-y-3", active && "relative isolate")}>
+    <div
+      className={cn("space-y-3", active && "relative isolate")}
+      // The pipeline is running and this region is not finished changing.
+      aria-busy={streaming || undefined}
+    >
+      {/* Off-screen, polite, and the only thing on the answer path that
+          speaks: one sentence when the turn lands. */}
+      <p role="status" aria-live="polite" className="sr-only">
+        {completionMessage}
+      </p>
       {/* Depth model: a faint accent glow marks the answer being read. */}
       {active && (
         <div
@@ -250,6 +291,12 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
                   findings: a.findings,
                   narrative: a.narrative,
                   warnings: a.warnings,
+                  // The rows behind the pictures and the ranked worklist,
+                  // both of which the caveats already refer to. A copy
+                  // that carried the WORKLIST_ATTACHED sentence and no
+                  // worklist announced a list it did not contain.
+                  ...(charts.length > 0 ? { charts } : {}),
+                  ...(a.worklist ? { worklist: a.worklist } : {}),
                   ...(a.metric ? { metric: a.metric } : {}),
                   ...(a.investigationId ? { investigationId: a.investigationId } : {}),
                   ...(a.rehydrated ? { restored: true } : {}),
@@ -293,7 +340,20 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
 
       {charts.map((spec) => (
         <div key={spec.id} className="fade-up">
-          <InvestigationChart spec={spec} turnId={turn.id} windowLabel={windowLabel} />
+          <InvestigationChart
+            spec={spec}
+            turnId={turn.id}
+            windowLabel={windowLabel}
+            {...(a.header?.watermark.id ? { watermarkId: a.header.watermark.id } : {})}
+            {...(a.header
+              ? {
+                  packLabel: `${a.header.packVersion.packId}@${a.header.packVersion.version}`,
+                }
+              : {})}
+            {...(turn.submission.utterance ? { question: turn.submission.utterance } : {})}
+            {...(a.investigationId ? { investigationId: a.investigationId } : {})}
+            caveats={csvCaveats}
+          />
         </div>
       ))}
 

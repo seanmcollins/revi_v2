@@ -144,7 +144,9 @@ export function PortfolioPanel() {
               label="CSV"
               title={`Download all ${items.length} cards as CSV — impact, this platform's re-derivation, whether they agree, recoverable estimate, actionability, lane and priority score. Nothing leaves this browser.`}
               filenameKind="worklist"
-              filenameTag={
+              // The data load goes in its own slot now, not smuggled
+              // through the free-text tag — see `exportFilename`.
+              watermark={
                 mode === "api" && query.data
                   ? query.data.watermark
                   : PORTFOLIO_META.watermark

@@ -232,6 +232,25 @@ class InvestigationPlan:
     direction: AskedDirection | None = None
     #: The extremity phrased over that direction ("biggest"/"smallest").
     magnitude: AskedMagnitude | None = None
+    #: ``(dimension id, declared bucket order)`` for every ordinal bucket
+    #: dimension this plan cuts by, in the catalog's own declared order —
+    #: which for a runway dimension IS urgency order (``expired``, ``0-30``,
+    #: ``31-60``, …).
+    #:
+    #: Round-3 R3-08: the narrative sequenced the ``90+`` band ahead of
+    #: ``61-90`` — work the least urgent first and let the 61-90 band age
+    #: into expired — because findings were ordered by SIZE and nothing
+    #: downstream knew the buckets had a direction. The catalog declares it
+    #: (``dimensions.yaml``: ``buckets: ["expired", "0-30", "31-60",
+    #: "61-90", "90+", "filed"]``); the plan carries it to the layer that
+    #: orders sentences.
+    bucket_orders: tuple[tuple[str, tuple[str, ...]], ...] = ()
+
+    def bucket_order(self, dimension_id: str) -> tuple[str, ...] | None:
+        for name, order in self.bucket_orders:
+            if name == dimension_id:
+                return order
+        return None
 
     def node(self, node_id: str) -> ProbeNode:
         for node in self.nodes:
@@ -250,6 +269,47 @@ class PlanDiff:
     added: tuple[ProbeNode, ...]
     removed: tuple[ProbeNode, ...]
     unchanged: tuple[ProbeNode, ...]
+
+
+def resolved_orderings(plan: InvestigationPlan) -> tuple[tuple[str, str, bool], ...]:
+    """``(frame id, column, descending)`` for every frame this plan ordered.
+
+    Round-3 R3-13: the ordering a ranked question resolves exists in three
+    places inside the plan — an :class:`~revi_kernel.probes.Ordering` on the
+    probe, ``by``/``descending`` args on a rank step, and the ``{by}__rank``
+    column the rank operator appends — and reached the renderer through
+    none of them. So the findings obeyed "best to worst" and the chart
+    directly beneath them was drawn alphabetically, off the same rows.
+
+    Both sources are read, transform steps last so they win: a rank step is
+    a later and more specific decision than the probe's own ``ORDER BY``,
+    and it is the one the findings layer reads. The step's INPUT frame is
+    keyed as well as its output, because the rank operator appends a rank
+    column rather than reordering rows — the frame that gets charted is the
+    input, and the output frame is skipped by the chart builder.
+
+    Nothing is inferred: a plan that resolved no ordering yields no entry,
+    and the chart then publishes ``sort: null`` rather than a guess a
+    renderer would sort by.
+    """
+    out: dict[str, tuple[str, bool]] = {}
+    for node in plan.nodes:
+        order_by = getattr(node.probe, "order_by", ())
+        for ordering in order_by:
+            out[node.id] = (ordering.by.id, ordering.descending)
+            break
+    for step in plan.transforms.steps:
+        if step.operator not in ("rank", "top_k"):
+            continue
+        by = step.arg("by")
+        if not by:
+            continue
+        # ``top_k`` is descending-only by construction (see the operator).
+        descending = step.operator == "top_k" or step.arg("descending") != "false"
+        out[step.id] = (by, descending)
+        for source in step.inputs:
+            out[source] = (by, descending)
+    return tuple((frame_id, by, desc) for frame_id, (by, desc) in out.items())
 
 
 # ---------------------------------------------------------------------------
@@ -346,7 +406,104 @@ class BuildInvestigationPlanService:
             notes=tuple(notes),
             direction=spec.direction,
             magnitude=spec.magnitude,
+            bucket_orders=self._bucket_orders(nodes),
         )
+
+    def _bucket_orders(
+        self, nodes: list[ProbeNode]
+    ) -> tuple[tuple[str, tuple[str, ...]], ...]:
+        """The declared order of every ordinal bucket dimension this plan cuts by.
+
+        Read off the catalog rather than inferred from the values, because
+        the values do not carry it: sorted lexically, ``expired`` follows
+        ``90+``, and sorted by size the most urgent band leads only by
+        accident (round-3 R3-08).
+        """
+        out: list[tuple[str, tuple[str, ...]]] = []
+        seen: set[str] = set()
+        for node in nodes:
+            probe = node.probe
+            if not isinstance(probe, (AggregationProbe, SnapshotProbe)):
+                continue
+            for ref in probe.dimensions:
+                if ref.id in seen:
+                    continue
+                seen.add(ref.id)
+                declared = self._catalog.dimension(ref.id)
+                if declared is not None and declared.buckets:
+                    out.append((ref.id, tuple(declared.buckets)))
+        return tuple(out)
+
+    def _named_cut_nodes(
+        self,
+        spec: AnalysisSpec,
+        nodes: list[ProbeNode],
+        node_contracts: dict[str, tuple[MetricContract, ...]],
+        notes: list[str],
+        *,
+        window: TimeWindow,
+        limit: int | None,
+    ) -> list[ProbeNode]:
+        """A probe for a governed dimension the utterance named and no template cut by.
+
+        Round-3 R3-08, unanimous across six seats: asked in business English
+        — "on service dates, break my unbilled inventory down by filing
+        runway bucket and tell me how much is already expired" — the answer
+        came back cut by plan and facility, with prose instructing the
+        reader to run the cut themselves ("Before anyone works this list,
+        cut F1 by filing_runway_bucket…"). The number was exactly right and
+        reachable only by typing the internal identifier. A governed
+        dimension the analyst names is the primary cut, not a suggestion.
+        """
+        if not spec.dimensions:
+            return []
+        already = {
+            ref.id
+            for node in nodes
+            if isinstance(node.probe, (AggregationProbe, SnapshotProbe))
+            for ref in node.probe.dimensions
+        }
+        wanted = tuple(ref for ref in spec.dimensions if ref.id not in already)
+        if not wanted:
+            return []
+        contracts = [
+            contract
+            for group in node_contracts.values()
+            for contract in group
+            if all(contract.allows_dimension(ref) for ref in wanted)
+        ]
+        if not contracts:
+            return []
+        groups = self._group_metrics(
+            tuple(dict.fromkeys(contract.id for contract in contracts)),
+            spec,
+            basis_override=None,
+        )
+        if not groups:
+            return []
+        group = groups[0]
+        node = self._node_for_group(
+            "named_cut",
+            group,
+            spec,
+            dimensions=wanted,
+            window=window,
+            limit=limit,
+            rank_by=None,
+            rank_descending=True,
+            purpose=(
+                "the breakdown the question named: "
+                + ", ".join(ref.id for ref in wanted)
+            ),
+        )
+        node_contracts[node.id] = group.contracts
+        notes.append(
+            "named_cut_applied: the question named "
+            + ", ".join(repr(ref.id) for ref in wanted)
+            + " and no playbook probe cuts by it, so this answer leads with that breakdown "
+            "rather than describing it."
+        )
+        return [node]
 
     @staticmethod
     def _dropped_grain_notes(spec: AnalysisSpec, nodes: list[ProbeNode]) -> list[str]:
@@ -524,11 +681,24 @@ class BuildInvestigationPlanService:
                 )
                 node_contracts[node_id] = group.contracts
 
+        named = self._named_cut_nodes(
+            spec,
+            nodes,
+            node_contracts,
+            notes,
+            window=spec.context.window,
+            limit=_scaled_top_n(spec.limit, evidence_depth),
+        )
+        # Prepended, so the cut the question NAMED is the frame the
+        # findings path reads first (R3-08).
+        nodes[:0] = named
         nodes.extend(self._premise_nodes(spec, nodes))
         prior_steps = self._pair_comparisons(nodes, spec)
         steps, transform_notes = self._playbook_transforms(
             playbook, nodes, node_contracts, prior_steps, spec
         )
+        if named:
+            steps[:0] = self._rank_uncompared(named, spec)
         notes.extend(transform_notes)
         notes.extend(self._dropped_grain_notes(spec, nodes))
         return InvestigationPlan(
@@ -538,6 +708,7 @@ class BuildInvestigationPlanService:
             notes=tuple(notes),
             direction=spec.direction,
             magnitude=spec.magnitude,
+            bucket_orders=self._bucket_orders(nodes),
         )
 
     # ------------------------------------------------------------- helpers

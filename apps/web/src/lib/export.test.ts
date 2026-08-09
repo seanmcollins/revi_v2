@@ -201,6 +201,104 @@ describe("answerToText", () => {
   });
 });
 
+/*
+ * R3-19: no export was both complete and caveated. This one carried the
+ * caveats and three of twelve payers — with `WORKLIST_ATTACHED` surviving
+ * into the text, so the pasted email announced a ranked worklist it did
+ * not contain.
+ */
+describe("answerToText — complete AND caveated, or it is neither", () => {
+  const CHART: ChartSpec = {
+    id: "chart_main",
+    kind: "bar",
+    title: "Denial rate by payer",
+    unit: "percent",
+    xLabel: "payer",
+    order: { basis: "value", by: "denial_rate", descending: true },
+    series: [{ key: "denial_rate", label: "denial rate", role: "current" }],
+    rows: [
+      { label: "State Medicaid MCO", referent: "D10", values: { denial_rate: 29.5082 } },
+      { label: "Atlas Commercial", referent: "D1", values: { denial_rate: 8.169 } },
+      { label: "Federal Medicare", referent: "D3", values: {} },
+      {
+        label: "Cascade MA",
+        referent: "D7",
+        values: { denial_rate: 45.4545 },
+        bounded: true,
+      },
+    ],
+  };
+
+  const text = answerToText({
+    question: "What is our denial rate by payer for July 2026?",
+    header: HEADER,
+    findings: [FINDING],
+    narrative: "State Medicaid MCO has the highest…",
+    warnings: WARNINGS,
+    charts: [CHART],
+    copiedAt: new Date(2026, 7, 9, 14, 32),
+  });
+
+  it("carries every measured row, not just the ones written up", () => {
+    expect(text).toContain("DATA — Denial rate by payer");
+    expect(text).toContain("State Medicaid MCO: 29.5%");
+    expect(text).toContain("Atlas Commercial: 8.2%");
+    expect(text).toContain("4 rows × 1 series");
+    expect(text).toContain("ordered by denial_rate high to low");
+  });
+
+  it("states the slice the findings are", () => {
+    expect(text).toContain("1 of 4 measured rows are written up below");
+  });
+
+  it("keeps a withheld cell withheld and a bound a bound", () => {
+    expect(text).toContain("Federal Medicare: (withheld)");
+    expect(text).toContain("Cascade MA: ≤ 45.5%");
+    expect(text).toContain("≤ marks an upper bound, not a measurement");
+  });
+
+  it("carries the worklist the caveats promise", () => {
+    const withWorklist = answerToText({
+      header: HEADER,
+      findings: [],
+      narrative: "",
+      warnings: [],
+      worklist: {
+        matchedOn: "playbook",
+        matchedId: "pb_denials",
+        statement: "33 cards, 19 ranked on the detector's impact.",
+        label: "What to work first",
+        description: "",
+        formulaVersion: "anomaly_priority@3",
+        watermarkId: "wm_003",
+        items: [
+          {
+            rank: 1,
+            referent: "A12",
+            title: "CARC 197 spike — Bluestone",
+            ageDays: 3,
+            impactCents: 1_200_000,
+            recoverableCentsEstimate: 400_000,
+            rankedOn: "detector",
+            priorityScore: 0.82,
+            priorityFormulaVersion: "anomaly_priority@3",
+            drillable: true,
+          } as PortfolioItem,
+        ],
+        lanes: [],
+        totalItems: 33,
+        limit: 8,
+        totalRecoverableCentsEstimate: 400_000,
+        warnings: [],
+      },
+    });
+    expect(withWorklist).toContain("RANKED WORKLIST — What to work first");
+    expect(withWorklist).toContain("1 of 33 cards listed here");
+    expect(withWorklist).toContain("CARC 197 spike — Bluestone");
+    expect(withWorklist).toContain("impact $12000");
+  });
+});
+
 describe("windowLine", () => {
   it("is the resolved range for a flow metric", () => {
     expect(windowLine(HEADER)).toBe("Jul 1 – Jul 31, 2026 (service date)");
@@ -348,17 +446,22 @@ describe("chartToCsv", () => {
     ],
   };
 
+  /** The table half of the document: everything below the `#` preamble. */
+  const body = (csv: string): string[] =>
+    csv
+      .trimEnd()
+      .split("\r\n")
+      .filter((line) => !line.startsWith("#") && !line.startsWith('"#'));
+
   it("exports the rows in the unit the chart draws them in", () => {
-    const csv = chartToCsv(spec, { windowLabel: "Jul 2026" });
-    const lines = csv.trimEnd().split("\r\n");
+    const lines = body(chartToCsv(spec, { windowLabel: "Jul 2026" }));
     expect(lines[0]).toBe("payer (Jul 2026),referent,denial rate (percent)");
     expect(lines[1]).toBe("Atlas Commercial,D1,8.169");
     expect(lines[2]).toBe("State Medicaid MCO,D10,29.5082");
   });
 
   it("exports a withheld cell as empty, never as zero", () => {
-    const lines = chartToCsv(spec).trimEnd().split("\r\n");
-    expect(lines[3]).toBe("Federal Medicare,D3,");
+    expect(body(chartToCsv(spec))[3]).toBe("Federal Medicare,D3,");
   });
 
   it("exports money in dollars, not integer cents", () => {
@@ -368,22 +471,100 @@ describe("chartToCsv", () => {
       series: [{ key: "denied_dollars", label: "denied dollars", role: "current" }],
       rows: [{ label: "Atlas Commercial", values: { denied_dollars: 3_395_490 } }],
     };
-    const lines = chartToCsv(money).trimEnd().split("\r\n");
+    const lines = body(chartToCsv(money));
     expect(lines[0]).toContain("denied dollars (usd)");
     expect(lines[1]).toBe("Atlas Commercial,,33954.9");
+  });
+
+  /*
+   * The load-bearing half of R3-19: this file used to carry twelve rows and
+   * no caveats, while the text copy carried the caveats and three rows.
+   * Neither artifact was both complete and honest.
+   */
+  it("writes the caveats above the numbers, as comment lines", () => {
+    const csv = chartToCsv(spec, {
+      windowLabel: "Jul 2026",
+      watermarkId: "wm_003",
+      investigationId: "inv_42",
+      caveats: [
+        "[caution] Small cells withheld — 3 payers fall under the publication threshold",
+      ],
+      exportedAt: new Date(2026, 7, 9, 14, 32),
+    });
+    expect(csv.startsWith("# Revi — Denial rate by payer")).toBe(true);
+    expect(csv).toContain("# Window: Jul 2026");
+    expect(csv).toContain("# CAVEATS THAT TRAVEL WITH THESE NUMBERS");
+    expect(csv).toContain("Small cells withheld");
+    expect(csv).toContain("# Data as of: wm_003");
+    expect(csv).toContain("investigation inv_42");
+    expect(csv).toContain("exported 2026-08-09 14:32");
+  });
+
+  it("says so when the platform attached no caveats, rather than saying nothing", () => {
+    expect(chartToCsv(spec)).toContain("The platform attached no caveats to this answer.");
+  });
+
+  it("defuses a caveat that would otherwise execute in Excel", () => {
+    const csv = chartToCsv(spec, { caveats: ['=cmd|"/c calc"!A0'] });
+    // Quoted as one cell, and behind the `#` marker — never a formula.
+    expect(csv).toContain('"# =cmd|""/c calc""!A0"');
+  });
+
+  it("carries the bound and the denominator once the wire publishes them", () => {
+    const bounded: ChartSpec = {
+      ...spec,
+      rows: [
+        { label: "Atlas Commercial", referent: "D1", values: { denial_rate: 8.169 } },
+        {
+          label: "Cascade Medicare Advantage",
+          referent: "D7",
+          values: { denial_rate: 45.4545 },
+          bounded: true,
+          bound: 45.4545,
+          denominator: 22,
+        },
+      ],
+    };
+    const lines = body(chartToCsv(bounded));
+    expect(lines[0]).toBe(
+      "payer,referent,denial rate (percent),bounded,bound (percent),denominator",
+    );
+    expect(lines[1]).toBe("Atlas Commercial,D1,8.169,,,");
+    expect(lines[2]).toBe("Cascade Medicare Advantage,D7,45.4545,TRUE,45.4545,22");
+    expect(chartToCsv(bounded)).toContain("UPPER BOUNDS, not measurements");
+  });
+
+  it("keeps the bound columns off a chart that carries no bounds", () => {
+    expect(body(chartToCsv(spec))[0]).not.toContain("bounded");
+  });
+
+  it("states the ordering the rows are in", () => {
+    const ranked: ChartSpec = {
+      ...spec,
+      order: { basis: "value", by: "denial_rate", descending: true },
+    };
+    expect(chartToCsv(ranked)).toContain("ordered by denial_rate high to low");
   });
 });
 
 describe("exportFilename", () => {
   it("slugs the tag and keeps the data load in the name", () => {
-    expect(exportFilename("worklist", "wm_003", "csv")).toBe("revi-worklist-wm-003.csv");
-    expect(exportFilename("chart", "Denial rate by payer", "csv")).toBe(
-      "revi-chart-denial-rate-by-payer.csv",
+    expect(exportFilename("worklist", "wm_003", "csv", "wm_003")).toBe(
+      "revi-worklist-wm-003.csv",
+    );
+    // Two exports of one chart at different loads are different documents
+    // and must not overwrite one another in a downloads folder — which is
+    // exactly what happened while nobody passed the watermark.
+    expect(exportFilename("chart", "Denial rate by payer", "csv", "wm_003")).toBe(
+      "revi-chart-denial-rate-by-payer-wm-003.csv",
+    );
+    expect(exportFilename("chart", "Denial rate by payer", "csv", "wm_004")).not.toBe(
+      exportFilename("chart", "Denial rate by payer", "csv", "wm_003"),
     );
   });
   it("survives a tag with nothing usable in it", () => {
-    expect(exportFilename("worklist", "///", "csv")).toBe("revi-worklist.csv");
-    expect(exportFilename("worklist", undefined, "csv")).toBe("revi-worklist.csv");
+    expect(exportFilename("worklist", "///", "csv", undefined)).toBe("revi-worklist.csv");
+    expect(exportFilename("worklist", undefined, "csv", undefined)).toBe("revi-worklist.csv");
   });
 });
 

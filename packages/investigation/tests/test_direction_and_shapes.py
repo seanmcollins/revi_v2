@@ -239,7 +239,12 @@ class TestDirectionAwareSelection:
         # denied_dollars is higher_is_bad: the worst thing that happened is
         # the biggest RISE in denied dollars.
         assert titles[0].startswith("Meridian Health")
-        assert not warnings
+        # Nothing is claimed about the *selection* — but a frame with more
+        # rows than findings says so now (round-3 R3-04): silence over a
+        # served slice is what let "a tight band" be narrated over a 3.4x
+        # spread.
+        assert [w for w in warnings if w.startswith("findings_truncated:")]
+        assert not [w for w in warnings if not w.startswith("findings_truncated:")]
 
 
 class TestPlanCarriesDirection:
@@ -568,9 +573,16 @@ class TestAssertedPremises:
         # …and the rising cells still follow, as context
         assert any("Meridian Health" in title for title in titles[1:])
 
-    async def test_a_premise_that_holds_says_nothing_extra(
+    async def test_a_premise_that_holds_is_published_as_the_verdict(
         self, pack_port: PackSnapshotPort, make_spec: SpecFactory
     ) -> None:
+        """Round-3 R3-03: a verdict is a verdict either way.
+
+        This used to assert that a confirmed premise "says nothing extra",
+        which is exactly the defect six personas hit: the premise probe ran,
+        the aggregate was measured, the verdict was discarded because it
+        agreed with the question, and the narrative opened on a sub-cell.
+        """
         spec = make_spec(measures=("denied_dollars",), dimensions=("payer",), watermark=WATERMARK)
         spec = replace(spec, direction=AskedDirection.INCREASE, direction_asserted=True)
 
@@ -582,7 +594,39 @@ class TestAssertedPremises:
         )
 
         assert not [w for w in warnings if w.startswith("premise_false:")]
-        assert titles[0].startswith("Meridian Health")
+        assert warnings[0].startswith("premise_verified:")
+        assert titles[0].startswith("Premise confirmed:")
+        assert "$58,983.54" in titles[0] and "$10,915.24" in titles[0]
+        assert any("Meridian Health" in title for title in titles[1:])
+
+    async def test_a_directionally_true_premise_that_falls_short_is_refuted(
+        self, pack_port: PackSnapshotPort, make_spec: SpecFactory
+    ) -> None:
+        """Round-3 R3-03: "double" is a claim about SIZE.
+
+        ``holds`` tested the sign alone, so "why did denials double?" over
+        +4.2% was scored true, published nothing, and let the narrative lead
+        with a 243% sub-cell of a movement that never happened.
+        """
+        spec = make_spec(measures=("denied_dollars",), dimensions=("payer",), watermark=WATERMARK)
+        spec = replace(
+            spec,
+            direction=AskedDirection.INCREASE,
+            direction_asserted=True,
+            asserted_multiple=Decimal(2),
+        )
+
+        titles, warnings = await _findings_with_premise(
+            _compare_frame(),
+            # +4.2%: the sign matches and the size does not
+            _scalar_compare_frame(288_499_272, 276_899_269),
+            spec,
+            pack_port,
+        )
+
+        assert warnings[0].startswith("premise_false:")
+        assert "did not double" in warnings[0]
+        assert titles[0].startswith("Premise not supported:")
 
     async def test_a_question_that_asserts_nothing_is_never_corrected(
         self, pack_port: PackSnapshotPort, make_spec: SpecFactory

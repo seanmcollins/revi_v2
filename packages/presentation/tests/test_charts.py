@@ -127,3 +127,44 @@ class TestRowsAndAnnotations:
         )
         specs = build_chart_specs((("totals", totals), ("main", _payer_cash())), limit=2)
         assert [s.frame_id for s in specs] == ["main", "totals"]
+
+
+class TestResolvedSortReachesTheSpec:
+    """Round-3 R3-13: the findings obeyed "best to worst" and the chart
+    directly beneath them was drawn in frame order, because the ordering the
+    plan resolved reached the renderer through nothing. It is passed through
+    here — never derived — so a chart with no plan ordering says so rather
+    than implying one."""
+
+    def test_the_resolved_ordering_is_published(self) -> None:
+        spec = build_chart_spec("main", _payer_cash(), sort=("cash_posted", True))
+        assert spec is not None
+        assert spec.sort is not None
+        assert (spec.sort.by, spec.sort.direction) == ("cash_posted", "desc")
+
+    def test_an_ascending_resolution_survives(self) -> None:
+        spec = build_chart_spec("main", _payer_cash(), sort=("cash_posted", False))
+        assert spec is not None and spec.sort is not None
+        assert spec.sort.direction == "asc"
+
+    def test_no_ordering_publishes_none(self) -> None:
+        spec = build_chart_spec("main", _payer_cash())
+        assert spec is not None and spec.sort is None
+
+    def test_a_column_this_chart_does_not_draw_is_refused(self) -> None:
+        """A sort naming a column the renderer cannot see is a hint it must
+        either ignore or obey wrongly, and both are worse than none."""
+        spec = build_chart_spec("main", _payer_cash(), sort=("denied_dollars", True))
+        assert spec is not None and spec.sort is None
+
+    def test_the_batch_builder_routes_each_frames_own_ordering(self) -> None:
+        specs = build_chart_specs(
+            (("main", _payer_cash()),), sorts={"main": ("cash_posted", True)}
+        )
+        assert [s.sort and s.sort.by for s in specs] == ["cash_posted"]
+
+    def test_a_frame_absent_from_the_map_publishes_none(self) -> None:
+        specs = build_chart_specs(
+            (("main", _payer_cash()),), sorts={"other": ("cash_posted", True)}
+        )
+        assert [s.sort for s in specs] == [None]

@@ -25,12 +25,14 @@ from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
-from revi_investigation_contracts.api import ChartRow, ChartSpec, ChartType
+from revi_investigation_contracts.api import ChartRow, ChartSort, ChartSpec, ChartType
 from revi_kernel.filters import Scalar
 from revi_kernel.frame import EvidenceFrame
 from revi_kernel.refs import DimensionRef, MetricRef
 
 _TIME_BUCKET_PREFIX = "time_bucket:"
+_NUMERATOR_SUFFIX = "__num"
+_DENOMINATOR_SUFFIX = "__den"
 _ALLOWED_TYPES: frozenset[str] = frozenset(
     {"bar", "grouped_bar", "stacked_bar", "line", "waterfall", "table", "range_band"}
 )
@@ -104,6 +106,35 @@ def _cell(value: Scalar) -> str | int | float | None:
     return str(value)
 
 
+def bounded_rows(frame: EvidenceFrame, measure: str, threshold: int | None) -> dict[int, int]:
+    """``{row index: population}`` for cells whose value is a ceiling.
+
+    Structural, from the frame's own ``__num``/``__den`` columns — the same
+    rule the executor applied, read back where the mark is drawn. Round-3
+    R3-01: a bounded cell reached the chart as ``{x, series, value,
+    referent_id}`` with no marker of any kind, so a hatched-vs-solid
+    distinction was impossible for a renderer to make and every reader saw
+    a measurement.
+    """
+    if threshold is None:
+        return {}
+    numerator, denominator = f"{measure}{_NUMERATOR_SUFFIX}", f"{measure}{_DENOMINATOR_SUFFIX}"
+    names = frame.schema.names
+    if numerator not in names or denominator not in names:
+        return {}
+    n_idx, d_idx = frame.schema.index_of(numerator), frame.schema.index_of(denominator)
+    out: dict[int, int] = {}
+    for i, row in enumerate(frame.rows):
+        num, den = row[n_idx], row[d_idx]
+        if isinstance(num, bool) or isinstance(den, bool):
+            continue
+        if not isinstance(num, int) or not isinstance(den, int):
+            continue
+        if 0 < num < threshold <= den:
+            out[i] = den
+    return out
+
+
 def _pick_recipe(
     frame: EvidenceFrame, recipes: Sequence[RecipeSpec], playbook_id: str | None
 ) -> RecipeSpec | None:
@@ -135,8 +166,23 @@ def build_chart_spec(
     playbook_id: str | None = None,
     suggestion: ChartSuggestion | None = None,
     row_referents: Mapping[tuple[str, str], str] | None = None,
+    suppression_threshold: int | None = None,
+    provisional_x: str | None = None,
+    sort: tuple[str, bool] | None = None,
 ) -> ChartSpec | None:
-    """Build one chart spec for a frame, or None when nothing is chartable."""
+    """Build one chart spec for a frame, or None when nothing is chartable.
+
+    ``suppression_threshold`` is the §15 threshold the frame was policed
+    under. Without it a bounded cell is indistinguishable from a measured
+    one, which is exactly the state R3-01 found: the ceiling existed as
+    structured data on the executed probe and reached the chart as a point
+    value. ``provisional_x`` names a bucket that has not settled (R3-06).
+
+    ``sort`` is ``(column, descending)`` as the PLAN resolved it (R3-13),
+    published on the spec so the renderer orders the marks the way the
+    findings above them were ordered. It is passed through, never derived:
+    a chart with no plan ordering says so rather than implying one.
+    """
     value = _primary_measure(frame)
     if value is None:
         return None
@@ -167,8 +213,9 @@ def build_chart_spec(
 
     referents = row_referents or {}
     x_is_dim = x in dims
+    bounds = bounded_rows(frame, value, suppression_threshold)
     rows: list[ChartRow] = []
-    for row in frame.rows:
+    for row_index, row in enumerate(frame.rows):
         x_value = row[frame.schema.index_of(x)] if x in frame.schema.names else None
         series_value = row[frame.schema.index_of(series)] if series is not None else None
         referent_id: str | None = None
@@ -182,13 +229,35 @@ def build_chart_spec(
                 series=str(series_value) if series_value is not None else None,
                 value=_cell(row[frame.schema.index_of(value)]),
                 referent_id=referent_id,
+                is_bound=row_index in bounds,
+                bound_population=bounds.get(row_index),
+                provisional=provisional_x is not None and str(x_value) == provisional_x,
             )
         )
 
     annotations: list[str] = []
     if frame.truncated:
         annotations.append("truncated: not all cells are shown (top-N applied at the source)")
-    if frame.suppressed_cells > 0:
+    if bounds:
+        # Counted from the marks actually drawn, so the chart caption, the
+        # narrative and the probe metadata cannot state three different
+        # numbers for one control (round-3 R3-18).
+        annotations.append(
+            f"upper bounds: {len(bounds)} of {len(frame.rows)} marks are ceilings, not "
+            "measurements — their numerator was suppressed and they cannot be ranked "
+            "against the measured marks"
+        )
+    withheld = sum(
+        1
+        for row in frame.rows
+        if row[frame.schema.index_of(value)] is None
+    )
+    if withheld:
+        annotations.append(
+            f"withheld: {withheld} of {len(frame.rows)} cells were withheld outright per the "
+            "small-cell policy and are drawn with no value"
+        )
+    elif frame.suppressed_cells > 0 and not bounds:
         annotations.append(
             f"suppression: {frame.suppressed_cells} small cells withheld per policy"
         )
@@ -207,6 +276,14 @@ def build_chart_spec(
         rows=rows,
         annotations=annotations,
         recipe_id=recipe.id if recipe is not None else None,
+        # Only ever an ordering over a column this chart actually draws:
+        # a sort naming a column the renderer cannot see is a hint it must
+        # either ignore or obey wrongly, and both are worse than none.
+        sort=(
+            ChartSort(by=sort[0], direction="desc" if sort[1] else "asc")
+            if sort is not None and sort[0] in frame.schema.names
+            else None
+        ),
     )
 
 
@@ -218,8 +295,15 @@ def build_chart_specs(
     suggestion: ChartSuggestion | None = None,
     row_referents: Mapping[tuple[str, str], str] | None = None,
     limit: int = 4,
+    suppression_threshold: int | None = None,
+    sorts: Mapping[str, tuple[str, bool]] | None = None,
 ) -> tuple[ChartSpec, ...]:
-    """Chart the displayable frames, derived (compare/share) outputs first."""
+    """Chart the displayable frames, derived (compare/share) outputs first.
+
+    ``sorts`` maps a frame id to the ``(column, descending)`` the plan
+    resolved for it (see ``resolved_orderings``); frames absent from it
+    were not ordered by the plan and publish no sort.
+    """
     ranked = sorted(
         frames,
         key=lambda item: (
@@ -242,6 +326,8 @@ def build_chart_specs(
             playbook_id=playbook_id,
             suggestion=suggestion,
             row_referents=row_referents,
+            suppression_threshold=suppression_threshold,
+            sort=(sorts or {}).get(frame_id),
         )
         if spec is not None and spec.rows:
             specs.append(spec)

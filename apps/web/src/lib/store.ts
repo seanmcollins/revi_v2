@@ -388,6 +388,13 @@ interface SessionState {
    */
   switchSession: (sessionId: string) => Promise<void>;
   /**
+   * Open the session an investigation belongs to — what
+   * `/i/{investigation_id}` resolves to. Never rejects: a link to a turn
+   * this tenant cannot read names the failure on the rail's error line
+   * rather than leaving a blank workspace.
+   */
+  openInvestigation: (investigationId: string) => Promise<void>;
+  /**
    * Dismiss a session from the rail (`DELETE /v1/sessions/{sid}`) — a SOFT
    * archive server-side: nothing is deleted and the session stays
    * fetchable by id. The row leaves optimistically and is PUT BACK if the
@@ -701,6 +708,33 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       set({ switchingSessionId: null });
       void get().loadSessions();
     }
+  },
+
+  openInvestigation: async (investigationId) => {
+    const { driver } = get();
+    if (!driver) return;
+    if (!driver.sessionForInvestigation) {
+      set({
+        switchError: "This driver cannot open an investigation link — the live API can.",
+      });
+      return;
+    }
+    set({ switchError: null });
+    let sessionId: string;
+    try {
+      sessionId = await driver.sessionForInvestigation(investigationId);
+    } catch (error) {
+      set({
+        switchError:
+          error instanceof Error
+            ? error.message
+            : `Could not open investigation ${investigationId}.`,
+      });
+      return;
+    }
+    // From here it is an ordinary session open: the turn is only honest
+    // inside the conversation that produced it.
+    await get().switchSession(sessionId);
   },
 
   archiveSession: async (sessionId) => {

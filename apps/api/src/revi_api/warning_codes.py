@@ -73,6 +73,14 @@ _RULES: tuple[_Rule, ...] = (
     # -- how the number was scoped or qualified (changes the reading) -----
     _rule("EMPTY_RESULT", CAUTION, r"^empty_result:"),
     _rule("PREMISE_FALSE", CAUTION, r"^premise_false:"),
+    _rule("PREMISE_VERIFIED", INFO, r"^premise_verified:"),
+    _rule("RANKING_REFUSED", CAUTION, r"^ranking_refused:"),
+    _rule("BOUNDED_CELLS_UNRANKED", CAUTION, r"^bounded_cells_unranked:"),
+    _rule("ADJUDICATION_INCOMPLETE", CAUTION, r"^adjudication_incomplete:"),
+    _rule("FINDINGS_TRUNCATED", CAUTION, r"^findings_truncated:"),
+    _rule("WINDOW_RELATIVE", INFO, r"^window_relative:"),
+    _rule("WINDOW_HORIZON", CAUTION, r"^window_horizon:"),
+    _rule("NAMED_CUT_APPLIED", INFO, r"^named_cut_applied:"),
     _rule("SUPPRESSION_BOUNDED", CAUTION, r"^suppression_bounded:"),
     _rule("WINDOW_OUT_OF_RANGE", CAUTION, r"^window_out_of_range:"),
     _rule("COMPARISON_ASSUMED", INFO, r"^comparison_assumed:"),
@@ -92,7 +100,18 @@ _RULES: tuple[_Rule, ...] = (
     _rule("RESULT_TRUNCATED", CAUTION, r"^probe '.+' truncated to the top"),
     _rule("COHORT_WINDOW_DROPPED", CAUTION, r"^cohort pinned without its window:"),
     _rule("ASSUMPTION_COMMITTED", CAUTION, r"^Assumed:"),
-    _rule("CLARIFICATION_ANSWER_APPLIED", CAUTION, r"^Read as an answer to the question above:"),
+    _rule(
+        "CLARIFICATION_ANSWER_APPLIED",
+        CAUTION,
+        # Two sentences, one fact: the analyst's reply read as an answer, and
+        # the engine applying a one-option clarification without asking.
+        r"^(Read as an answer to the question above:|clarification_answer_applied:)",
+    ),
+    # This platform's own dimension swap, disclosed on the turn that made it
+    # (round-3 R3-11). The card carried it and the drill answer did not, so
+    # the strip blamed the detector for a population change the platform
+    # chose. Emitted by :func:`revi_api.portfolio.dimension_repointed_warning`.
+    _rule("DIMENSION_REPOINTED", CAUTION, r"^dimension_repointed:"),
     # -- what the platform did with the answer (does not change it) -------
     _rule("SUPPRESSION_APPLIED", INFO, r"^suppression: cells counting fewer than"),
     _rule("NARRATIVE_REDACTED", INFO, r"^narrative sentence redacted:"),
@@ -121,6 +140,10 @@ _RULES: tuple[_Rule, ...] = (
         r"ranked on the detection system's figure because",
     ),
     # -- the worklist, read into a conversation ---------------------------
+    # The worklist is the ANSWER, not a companion to it: emitted only when
+    # the question routed to the governed work-prioritization playbook or
+    # concept, and led with (round-3 R3-10).
+    _rule("WORKLIST_LEADS", CAUTION, r"^worklist_leads:"),
     _rule("WORKLIST_ATTACHED", INFO, r"^worklist_attached:"),
     _rule("WORKLIST_UNAVAILABLE", CAUTION, r"^the ranked anomaly worklist was requested"),
     # -- coverage the pipeline measured and did not publish ---------------

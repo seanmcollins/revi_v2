@@ -24,6 +24,7 @@ from __future__ import annotations
 import logging
 import uuid
 from dataclasses import replace
+from datetime import UTC, datetime
 from typing import Any
 
 from pydantic import TypeAdapter
@@ -42,8 +43,11 @@ from revi_api.error_copy import budget_subcode, plain_message
 from revi_api.portfolio import (
     SNAPSHOT_NOT_COMPARABLE,
     build_portfolio,
+    dimension_repointed_warning,
+    dimension_repoints_for,
     drill_spec_for,
     is_active,
+    reconciliation_note,
 )
 from revi_api.rederive import (
     ReDerivedImpact,
@@ -54,13 +58,19 @@ from revi_api.rederive import (
 from revi_api.settings_policy import DEBUG_TRACE_ENV
 from revi_api.usage_ledger import bind_ledger, unbind_ledger
 from revi_api.wiring import ApiComponents
-from revi_api.worklist import build_worklist
+from revi_api.worklist import (
+    WorklistReference,
+    build_worklist,
+    resolve_worklist_reference,
+    worklist_reference_warning,
+)
 from revi_investigation.application.dto_mapping import refinement_to_dto
 from revi_investigation.application.ports import AnomalyRecord, TraceRecord
 from revi_investigation.application.submit_turn import SubmitTurnRequest, TurnOutcome
 from revi_investigation.domain.records import Investigation, Session
 from revi_investigation.domain.settings import SessionSettings
 from revi_investigation_contracts.api import (
+    AnomalyCard,
     AnomalyReconciliationPayload,
     CapabilitiesResponse,
     DebugTracePayload,
@@ -79,6 +89,7 @@ from revi_investigation_contracts.api import (
     TurnRequest,
     TurnResponse,
     WorklistPayload,
+    WorklistQuery,
 )
 from revi_investigation_contracts.settings import SessionSettingsModel
 from revi_kernel.errors import ErrorCode, PolicyDeniedError, ReviError
@@ -92,6 +103,18 @@ TurnResult = TurnAnswer | TurnClarification | TurnError
 #: value is the serialized response, so a replay returns what the first
 #: execution published rather than a second run of the same turn.
 _TURN_RESULT_ADAPTER: TypeAdapter[TurnResult] = TypeAdapter(TurnResponse)
+
+#: Suffix of the supplementary record a turn writes to remember which page
+#: of the ranked worklist it published, so a later "open the top item"
+#: resolves against the rows the analyst was actually shown (round-3 R3-09).
+WORKLIST_TRACE_SUFFIX = ":worklist"
+
+#: How far back a worklist reference looks for the list it names. Three
+#: turns: the list, a question about it, and a follow-up to that. Beyond
+#: that "the top item" is a memory rather than a reference, and answering it
+#: from a list four turns gone would be the platform pointing at a screen
+#: nobody is on.
+_WORKLIST_CONTEXT_DEPTH = 3
 
 #: Page size for ``GET /v1/sessions`` when the caller names none.
 DEFAULT_SESSION_LIST_LIMIT = 50
@@ -111,6 +134,16 @@ def _cohort_id_of(investigation: Investigation) -> str | None:
     context = getattr(getattr(investigation, "spec", None), "context", None)
     cohort = getattr(context, "cohort", None)
     return getattr(cohort, "id", None)
+
+
+def _lane_of(worklist: WorklistPayload) -> str | None:
+    """The lane this page was filtered to, read back off the cards.
+
+    Taken from the rows rather than from the request: a lane the caller
+    asked for and the builder rejected is not the lane that was shown.
+    """
+    lanes = {card.lane for card in worklist.items}
+    return next(iter(lanes)) if len(lanes) == 1 and worklist.total_items else None
 
 
 def _playbook_of(trace: TraceRecord | None) -> str | None:
@@ -304,6 +337,10 @@ class ApiService:
                 # The ORIGINAL payload, re-validated into its typed shape —
                 # never a re-execution. See revi_api.session_lifecycle.
                 return _TURN_RESULT_ADAPTER.validate_python(stored)
+        # A row of the ranked worklist, addressed by the id or the position
+        # this platform printed, becomes the card's own stored drill —
+        # before anything is classified or interpreted (round-3 R3-09).
+        request, worklist_reference = await self._resolve_worklist_turn(session_id, request)
         default_question = (
             "(typed investigation)" if request.spec is not None else "(typed gesture)"
         )
@@ -333,15 +370,36 @@ class ApiService:
                 ),
                 re_anchor=request.re_anchor,
                 settings=turn_settings,
+                # The dedicated channel, carried as the fact it is rather
+                # than flattened into ``utterance`` (round-3 R3-07). It was
+                # flattened here, which is why a verbatim option sent on it
+                # came back re-classified as a bare refinement at confidence
+                # 0.45, rooted, with the analyst's question dropped.
+                clarification_response=bool(request.clarification_response),
+                # A body carrying only ``worklist`` is the lane chip the
+                # platform drew, and it is a complete request (R3-09).
+                worklist_only=(
+                    request.worklist is not None
+                    and not request.utterance
+                    and request.spec is None
+                    and request.refinements is None
+                    and not request.clarification_response
+                ),
             )
             outcome = await self._components.submit.submit(engine_request)
+            if worklist_reference is not None:
+                outcome = _with_warning(
+                    outcome, worklist_reference_warning(worklist_reference)
+                )
             outcome, strip = await self._anomaly_reconciliation(request, outcome)
             # Read once here and handed to the assembler: the worklist
             # routing reads the plan context off it and the assembler needs
             # the same row for usage, evidence and provenance.
             trace = await self._components.traces.get(outcome.trace_id)
             try:
-                worklist = await self._worklist_for(request, outcome, trace)
+                worklist = await self._worklist_for(
+                    request, outcome, trace, carried=worklist_reference is not None
+                )
             except Exception:
                 logger.warning("worklist could not be built for this turn", exc_info=True)
                 worklist = None
@@ -360,6 +418,14 @@ class ApiService:
                 worklist=worklist,
                 trace=trace,
             )
+            if worklist is not None:
+                # Which page was shown, so the NEXT turn can address it by
+                # id or by position (round-3 R3-09). Best-effort: a lost
+                # context record costs a later reference, never this answer.
+                try:
+                    await self._record_worklist_context(outcome, worklist)
+                except Exception:  # pragma: no cover - defensive
+                    logger.warning("worklist context not recorded", exc_info=True)
         except ReviError as exc:
             # The engine's own sentence, always, in the log: the plain
             # message below is for the analyst, and this is the copy an
@@ -494,6 +560,24 @@ class ApiService:
                 else None
             ),
         )
+        # The card's OWN reconciliation sentence, not the raw comparison
+        # note (round-3 R3-11). ``detail=comparison.note`` published "the
+        # detector's window, population or valuation basis is not the
+        # contract's" on a drill whose population differs because THIS
+        # PLATFORM substituted the cut — laying the platform's own dimension
+        # swap at the detector's door, on the one screen where a human reads
+        # the gap. ``_reconciliation_fields`` is the function the card uses
+        # (portfolio.py:776); routing through it is what makes the drill say
+        # what the card says.
+        repoints = dimension_repoints_for(
+            record,
+            self._components.actionability,
+            request.spec.metric_ids[0],
+            self._scope_dimensions,
+        )
+        detail = reconciliation_note(comparison, repoints)
+        if repoints:
+            outcome = _with_warning(outcome, dimension_repointed_warning(record, repoints))
         strip = AnomalyReconciliationPayload(
             anomaly_id=record.anomaly_id,
             status=comparison.status,  # type: ignore[arg-type]
@@ -505,7 +589,7 @@ class ApiService:
             card_metric_id=record.metric_id,
             card_window_start=record.window_start,
             card_window_end=record.window_end,
-            detail=comparison.note,
+            detail=detail,
             summary=(
                 f"status={comparison.status}; card=${record.impact_cents / 100:,.2f}; "
                 + (
@@ -590,12 +674,23 @@ class ApiService:
     async def _primary_trace(self, investigation_id: str) -> TraceRecord | None:
         """The turn's decision trace, if one was recorded.
 
-        The narrative validator persists a supplementary record against
-        the same investigation; the decision trace is the other one.
+        Supplementary records persist against the same investigation — the
+        narrative validator's, and the worklist page this turn published —
+        and are excluded by suffix. The decision trace is the one with no
+        suffix at all; picking "the first one that is not the narrative"
+        was already a rule that would break the next time a second writer
+        appeared, which is what happened.
         """
         records = await self._components.traces.for_investigation(investigation_id)
         return next(
-            (r for r in records if not r.trace_id.endswith(NARRATIVE_TRACE_SUFFIX)), None
+            (
+                r
+                for r in records
+                if not r.trace_id.endswith(
+                    (NARRATIVE_TRACE_SUFFIX, WORKLIST_TRACE_SUFFIX)
+                )
+            ),
+            None,
         )
 
     async def get_trace(
@@ -742,8 +837,130 @@ class ApiService:
             return frozenset()
         return frozenset(dimension.id for dimension in contract.scope_dimensions)
 
+    async def _resolve_worklist_turn(
+        self, session_id: str, request: TurnRequest
+    ) -> tuple[TurnRequest, WorklistReference | None]:
+        """Rewrite a turn that names a worklist row into that row's drill.
+
+        Round-3 R3-09. The rewrite is total and deliberate: the request
+        becomes ``{spec: <the card's own stored drill_spec>, anomaly_ref:
+        <the card's id>}`` — byte-for-byte what ``PortfolioPanel`` posts
+        when the analyst clicks the same row — while keeping the analyst's
+        own words as the utterance so the turn is titled by what they
+        asked. One path, so the reconciliation strip and the repoint
+        disclosure fire for a typed reference exactly as they do for a
+        click, and there is no second definition of "open a card".
+
+        Only ever attempted against a worklist this session has actually
+        SHOWN (see :meth:`_session_worklist`): resolving "the top item"
+        against a list nobody has seen would be the platform answering
+        about rows the analyst is not looking at.
+
+        A body that already carries a typed spec, typed refinements, or a
+        clarification reply is left alone — those are complete requests and
+        none of them is a reference to a list.
+        """
+        if (
+            not request.utterance
+            or request.spec is not None
+            or request.refinements is not None
+            or request.clarification_response
+        ):
+            return request, None
+        try:
+            cards = await self._session_worklist(session_id)
+        except Exception:  # pragma: no cover - defensive; see docstring
+            logger.warning("worklist context unreadable for %s", session_id, exc_info=True)
+            return request, None
+        reference = resolve_worklist_reference(request.utterance, cards)
+        if reference is None:
+            return request, None
+        return (
+            request.model_copy(
+                update={
+                    "spec": reference.card.drill_spec,
+                    "anomaly_ref": reference.card.anomaly_id,
+                }
+            ),
+            reference,
+        )
+
+    async def _session_worklist(self, session_id: str) -> tuple[AnomalyCard, ...]:
+        """The ranked rows this session most recently published, in order.
+
+        The worklist is a deterministic projection of the portfolio at a
+        watermark, so what has to persist is not the cards but WHICH page of
+        them was shown: the lane and the limit. Those ride on a supplementary
+        trace record the turn writes (see :data:`WORKLIST_TRACE_SUFFIX`), the
+        same way the narrative validator persists its own, and the rows are
+        rebuilt from the same ``build_portfolio`` call the rail uses.
+
+        Empty when this session has shown no worklist — which is what makes
+        "the top item" a reference rather than a guess.
+        """
+        lineage = await self._components.investigations.lineage(session_id)
+        if lineage is None or not lineage.investigations:
+            return ()
+        ordered = sorted(
+            lineage.investigations, key=lambda inv: inv.created_at, reverse=True
+        )
+        for investigation in ordered[:_WORKLIST_CONTEXT_DEPTH]:
+            for record in await self._components.traces.for_investigation(investigation.id):
+                context = record.payload.get("worklist_context")
+                if not isinstance(context, dict):
+                    continue
+                session = await self._components.sessions.get(session_id)
+                if session is None:
+                    return ()
+                portfolio = await self._portfolio_for(session.tenant, session.watermark)
+                built = build_worklist(
+                    portfolio,
+                    self._components.worklist,
+                    matched_on=str(context.get("matched_on") or "typed_query"),
+                    matched_id=str(context.get("matched_id") or ""),
+                    query=WorklistQuery(
+                        limit=context.get("limit"), lane=context.get("lane")
+                    ),
+                )
+                return tuple(built.items)
+        return ()
+
+    async def _record_worklist_context(
+        self, outcome: TurnOutcome, worklist: WorklistPayload
+    ) -> None:
+        """Remember which page of the worklist this turn published.
+
+        A supplementary record rather than a field on the decision trace:
+        the engine writes that record before the API has built the worklist,
+        and rewriting somebody else's finished trace to add a field is how
+        two writers end up disagreeing about one row.
+        """
+        await self._components.traces.save(
+            TraceRecord(
+                trace_id=f"{outcome.trace_id}{WORKLIST_TRACE_SUFFIX}",
+                session_id=outcome.session.id,
+                investigation_id=outcome.investigation.id,
+                turn_id=outcome.investigation.turn_id,
+                created_at=datetime.now(UTC),
+                payload={
+                    "worklist_context": {
+                        "matched_on": worklist.matched_on,
+                        "matched_id": worklist.matched_id,
+                        "lane": _lane_of(worklist),
+                        "limit": worklist.limit,
+                        "anomaly_ids": [card.anomaly_id for card in worklist.items],
+                    }
+                },
+            )
+        )
+
     async def _worklist_for(
-        self, request: TurnRequest, outcome: TurnOutcome, trace: TraceRecord | None
+        self,
+        request: TurnRequest,
+        outcome: TurnOutcome,
+        trace: TraceRecord | None,
+        *,
+        carried: bool = False,
     ) -> WorklistPayload | None:
         """The ranked worklist this turn should carry, or ``None``.
 
@@ -757,10 +974,17 @@ class ApiService:
         A failure to build one is a warning on the answer, never an error:
         an unreadable detection feed must not cost the analyst the answer
         they actually asked for.
+
+        ``carried`` says this turn is a worklist-scoped follow-up — it
+        opened a row of the list by name — so the list is re-attached
+        rather than dropped. Round-3 R3-09: "which items are
+        compliance-mandatory", asked one turn after the list was published,
+        came back without it, and the analyst had to re-ask for the list to
+        ask about the list.
         """
         routing = self._components.worklist
         query = request.worklist
-        if query is None and not routing.enabled:
+        if query is None and not routing.enabled and not carried:
             return None
         matched: tuple[str, str] | None = ("typed_query", "") if query is not None else None
         if matched is None:
@@ -770,6 +994,8 @@ class ApiService:
             # The playbook lives on the recorded plan context, not on the
             # outcome.
             matched = routing.match(playbook_id=_playbook_of(trace), concepts=())
+        if matched is None and carried:
+            matched = ("typed_query", "")
         if matched is None:
             return None
         portfolio = await self._portfolio_for(

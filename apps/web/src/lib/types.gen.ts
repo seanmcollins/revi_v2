@@ -609,6 +609,18 @@ export interface components {
         };
         /** ChartRow */
         ChartRow: {
+            /** Bound Population */
+            bound_population?: number | null;
+            /**
+             * Is Bound
+             * @default false
+             */
+            is_bound: boolean;
+            /**
+             * Provisional
+             * @default false
+             */
+            provisional: boolean;
             /** Referent Id */
             referent_id?: string | null;
             /** Series */
@@ -617,6 +629,34 @@ export interface components {
             value?: string | number | null;
             /** X */
             x: string;
+        };
+        /**
+         * ChartSort
+         * @description The ordering the PLAN resolved for the rows below (round-3 R3-13).
+         *
+         *     The findings obey "best to worst" and the chart directly beneath them
+         *     was drawn alphabetically, because the ordering existed only inside the
+         *     plan — as an ``Ordering`` on the probe, as ``by``/``descending`` args
+         *     on a rank step, and as a ``{by}__rank`` column on a frame nothing
+         *     charts — and never reached the renderer. It is published here so the
+         *     chart and the sentence above it cannot disagree about which cell is
+         *     first.
+         *
+         *     ``by`` is a column name on the charted frame (a measure id, or a
+         *     dimension id when the ranking is over labels). ``direction`` is the
+         *     resolved sort, not the question's phrasing: "smallest increase" and
+         *     "best first" have already been resolved against the metric contract's
+         *     sign convention by the time this is written.
+         */
+        ChartSort: {
+            /** By */
+            by: string;
+            /**
+             * Direction
+             * @default desc
+             * @enum {string}
+             */
+            direction: "asc" | "desc";
         };
         /**
          * ChartSpec
@@ -646,6 +686,7 @@ export interface components {
             rows?: components["schemas"]["ChartRow"][];
             /** Series */
             series?: string | null;
+            sort?: components["schemas"]["ChartSort"] | null;
             /** Title */
             title: string;
             /** Unit */

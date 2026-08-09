@@ -145,3 +145,37 @@ describe("StageRail — debug mode restores the engine's own stages", () => {
     expect(screen.getByText(/skipped \(zero-probe path\)/)).toBeInTheDocument();
   });
 });
+
+/**
+ * The rail is the only thing that speaks during a 26–60 second turn, so
+ * the step the pipeline is ON announces itself — and only that one. Eight
+ * chips all claiming `role="status"` would announce the whole rail on
+ * every transition, which is the noise that gets live regions turned off.
+ */
+describe("StageRail — the running step announces itself", () => {
+  it("puts role=status on the active step and nothing else", () => {
+    const { container } = render(
+      <StageRail
+        stages={stagesWith({ classified: "done", interpreted: "done", executing: "active" })}
+        streaming
+        cacheHits={0}
+      />,
+    );
+
+    const announced = container.querySelectorAll("[role='status']");
+    expect(announced).toHaveLength(1);
+    expect(announced[0]?.textContent).toContain("Checking the numbers");
+  });
+
+  it("announces nothing once every step is done", () => {
+    const { container } = render(
+      <StageRail
+        stages={STAGE_ORDER.map((stage) => ({ stage, state: "done" as const }))}
+        streaming
+        cacheHits={0}
+      />,
+    );
+
+    expect(container.querySelectorAll("[role='status']")).toHaveLength(0);
+  });
+});

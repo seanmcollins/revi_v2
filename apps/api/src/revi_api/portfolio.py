@@ -429,19 +429,17 @@ def _comparison_for(
     )
 
 
-def _reconciliation_fields(
+def reconciliation_note(
     comparison: ImpactComparison,
     dimension_repoints: Sequence[DimensionRepoint] = (),
-) -> dict[str, object]:
-    """The card's reconciliation block, from the comparison already made.
+) -> str:
+    """The sentence a card — or its drill — owes about a repointed cut.
 
-    A repointed CUT is named in the note. The shared sentence says the gap
-    is that "the detector's window, population or valuation basis is not
-    the contract's" — true in general, and a misattribution on a card whose
-    population differs because THIS PLATFORM substituted the dimension: the
-    detector counted lines in a procedure group and the drill counts claims
-    whose dominant group is that one. Laying that at the detector's door is
-    the same defect the snapshot guard closed, wearing a different mask.
+    Exported (round-3 R3-11) because the drill strip must say what the card
+    says: ``service.py`` set ``detail=comparison.note`` straight off the raw
+    :class:`ImpactComparison` and shipped the shared "the detector's window,
+    population or valuation basis is not the contract's" on a -40.3% gap
+    this platform had created itself. One function, both surfaces.
     """
     note = comparison.note
     if dimension_repoints and comparison.status in ("diverged", "unavailable"):
@@ -455,6 +453,49 @@ def _reconciliation_fields(
             "dimension, so the two figures are measured over related — not "
             "identical — populations. See drill_dimension_repoints."
         ).strip()
+    return note
+
+
+def dimension_repointed_warning(
+    record: AnomalyRecord, dimension_repoints: Sequence[DimensionRepoint]
+) -> str:
+    """The turn-level disclosure a repointed drill owes its reader.
+
+    The card carried its ``drill_dimension_repoints`` and its rationale and
+    the drill answer carried neither: rcm-exec grepped a full live ANM-013
+    drill response for "repoint", "dominant" and "not identical" and found
+    zero occurrences. This is that fact as a coded warning, so it reaches
+    the narrative's mandatory disclosures and the structured warning table
+    rather than living only on a card the analyst has navigated away from.
+
+    The rationale is the pack's own, verbatim — a substitution stated in
+    the platform's words and not the pack author's would be a second,
+    ungoverned explanation of a governed decision.
+    """
+    swaps = "; ".join(f"{r.from_dimension} → {r.to_dimension}" for r in dimension_repoints)
+    rationales = "; ".join(
+        dict.fromkeys(r.rationale for r in dimension_repoints if r.rationale)
+    )
+    tail = f" {rationales}" if rationales else ""
+    return (
+        f"dimension_repointed: this drill of {record.anomaly_id} does not read the cut the "
+        f"detector fired on: the governed contract declares no legal cut at "
+        f"{', '.join(sorted({r.from_dimension for r in dimension_repoints}))}, so the "
+        f"platform repointed it ({swaps}). The figures below are measured over a related "
+        f"— not identical — population, and any gap against the card's figure is partly "
+        f"this substitution rather than the detector's error.{tail}"
+    )
+
+
+def _reconciliation_fields(
+    comparison: ImpactComparison,
+    dimension_repoints: Sequence[DimensionRepoint] = (),
+) -> dict[str, object]:
+    """The card's reconciliation block, from the comparison already made.
+
+    A repointed CUT is named in the note (see :func:`reconciliation_note`).
+    """
+    note = reconciliation_note(comparison, dimension_repoints)
     return {
         "reconciled_impact_cents": comparison.platform_cents,
         "reconciled_impact_metric_id": comparison.measure_id,
@@ -861,7 +902,17 @@ def _reconciliation_warnings(cards: list[AnomalyCard]) -> list[str]:
     # folding it into the divergence statistic is how "-99.6% divergence"
     # got published about a percentage (FN-1) and how a balance-vs-flow gap
     # got attributed to the detector (FN-2).
-    diverged = [c for c in drillable if c.impact_agreement == "diverged"]
+    all_diverged = [c for c in drillable if c.impact_agreement == "diverged"]
+    # …and a THIRD class, for the same reason (round-3 R3-11). A card whose
+    # drill this platform repointed onto a different cut measures a related
+    # population, not the same one, so the gap is partly ours. Publishing it
+    # as detector divergence is a self-inflicted population change reported
+    # as somebody else's error — and it was the headline: "largest gap
+    # 100.0%" was ANM-030, a $256.67 card this platform itself zeroed via
+    # that swap. The two classes are counted apart and the headline gap is
+    # computed over the detector's alone.
+    repointed = [c for c in all_diverged if c.drill_dimension_repoints]
+    diverged = [c for c in all_diverged if not c.drill_dimension_repoints]
     not_comparable = [c for c in drillable if c.impact_agreement == "not_comparable"]
     if not_comparable:
         out.append(
@@ -883,6 +934,24 @@ def _reconciliation_warnings(cards: list[AnomalyCard]) -> list[str]:
             f"the same cell (largest gap {worst:.1%}); each card publishes both figures, "
             "the delta, and the reason the detector's window, population or valuation "
             "basis is not the contract's"
+        )
+    if repointed:
+        worst_repointed = max(abs(c.impact_delta_fraction or 0.0) for c in repointed)
+        swaps = sorted(
+            {
+                f"{r.from_dimension} → {r.to_dimension}"
+                for c in repointed
+                for r in c.drill_dimension_repoints
+            }
+        )
+        out.append(
+            f"dimension_repointed: {len(repointed)} further ranked cards differ from this "
+            "platform's re-derivation because THIS PLATFORM repointed their drill onto a "
+            f"different cut ({'; '.join(swaps)}) — the governed contract declares no legal "
+            "cut at the detector's dimension, so the two figures are measured over related, "
+            f"not identical, populations (largest gap {worst_repointed:.1%}). They are "
+            "counted here and not in the divergence figure above: the gap is this "
+            "platform's doing, not the detection system's"
         )
     # Which basis ordered the worklist, counted. A reader who is about to
     # work the top of this list is entitled to know that some of its order

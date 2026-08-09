@@ -9,9 +9,11 @@ import {
   MessageSquarePlus,
   Play,
   RefreshCw,
+  Search,
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
+import { CopyTextButton } from "@/components/answer/AnswerActions";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { PortfolioPanel } from "@/components/portfolio/PortfolioPanel";
 import { Button } from "@/components/ui/button";
@@ -19,6 +21,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { apiBaseUrl } from "@/lib/apiDriver";
 import { displaySessionTitle, relativeTime } from "@/lib/format";
+import { sessionLinkFor } from "@/lib/links";
 import { REFERENCE_QUESTIONS } from "@/lib/mock/reference";
 import { useSessionStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
@@ -248,7 +251,7 @@ function ReplayDemoButton({
  * panel used to do, and every one of them was a dead button.
  */
 function SessionList() {
-  const sessions = useSessionStore((s) => s.sessions);
+  const allSessions = useSessionStore((s) => s.sessions);
   const total = useSessionStore((s) => s.sessionsTotal);
   const state = useSessionStore((s) => s.sessionsState);
   const error = useSessionStore((s) => s.sessionsError);
@@ -262,6 +265,23 @@ function SessionList() {
   const replaying = useSessionStore((s) => s.replaying);
   const newChatPending = useSessionStore((s) => s.newChatPending);
   const [confirmingArchiveId, setConfirmingArchiveId] = useState<string | null>(null);
+  const [query, setQuery] = useState("");
+  /**
+   * A filter over the sessions THIS RAIL HAS, and it says so.
+   *
+   * The live tenant has 219 sessions and the list reads 50 of them, so a
+   * box that silently searched the loaded page would answer "no sessions
+   * called X" about a session that exists — the honest version names the
+   * population it searched. Matching is on the title the row displays, so
+   * what is typed and what is compared are the same string.
+   */
+  const needle = query.trim().toLowerCase();
+  const sessions =
+    needle === ""
+      ? allSessions
+      : allSessions.filter((session) =>
+          displaySessionTitle(session.title).toLowerCase().includes(needle),
+        );
   // Switching mid-turn would abandon a stream whose answer is still
   // arriving, so the rows are inert until the pipeline is free.
   const busy = streaming || replaying || newChatPending || switchingSessionId !== null;
@@ -277,12 +297,31 @@ function SessionList() {
           <MessagesSquare className="size-3" />
           Sessions
         </span>
-        {state === "ready" && total > sessions.length && (
+        {state === "ready" && total > allSessions.length && (
           <span className="num text-[0.6rem] font-normal text-muted-foreground">
-            {sessions.length} of {total}
+            {allSessions.length} of {total}
           </span>
         )}
       </h3>
+
+      {/* Offered once the list is long enough to need it. Client-side over
+          the rows already read — no request, no debounce, no spinner. */}
+      {state === "ready" && allSessions.length > 6 && (
+        <div className="relative px-1 pb-1">
+          <Search
+            aria-hidden
+            className="pointer-events-none absolute left-2.5 top-1/2 size-3 -translate-y-1/2 text-muted-foreground"
+          />
+          <input
+            type="search"
+            value={query}
+            onChange={(event) => setQuery(event.target.value)}
+            placeholder={`Filter these ${allSessions.length} sessions`}
+            aria-label={`Filter the ${allSessions.length} sessions loaded in this rail by title`}
+            className="focus-ring w-full rounded-md border bg-surface-sunken/60 py-1 pl-7 pr-2 text-[0.65rem] placeholder:text-muted-foreground"
+          />
+        </div>
+      )}
 
       {switchError && (
         <p
@@ -302,9 +341,17 @@ function SessionList() {
         // Includes "idle" — before the read has answered, "no sessions" is
         // a claim the app has not earned yet.
         <p className="px-1 text-[0.62rem] leading-snug text-muted-foreground">Loading sessions…</p>
-      ) : sessions.length === 0 ? (
+      ) : allSessions.length === 0 ? (
         <p className="px-1 text-[0.62rem] leading-snug text-muted-foreground">
           No sessions yet. Ask a question and this one appears here.
+        </p>
+      ) : sessions.length === 0 ? (
+        // Never "no sessions match": this searched the 50 rows the rail
+        // read, and the tenant may have 219.
+        <p className="px-1 text-[0.62rem] leading-snug text-muted-foreground">
+          Nothing in the {allSessions.length} session{allSessions.length === 1 ? "" : "s"}{" "}
+          loaded here matches “{query.trim()}”
+          {total > allSessions.length && ` — this tenant has ${total} in all`}.
         </p>
       ) : (
         <ul className="space-y-0.5">
@@ -318,6 +365,7 @@ function SessionList() {
                 <li key={session.sessionId}>
                   <ArchiveConfirm
                     title={title}
+                    sessionId={session.sessionId}
                     onCancel={() => setConfirmingArchiveId(null)}
                     onConfirm={() => {
                       setConfirmingArchiveId(null);
@@ -388,7 +436,7 @@ function SessionList() {
                     size="xs"
                     disabled={busy}
                     aria-label={`Archive ${title}`}
-                    title="Remove this session from the list. Nothing is deleted — it keeps its answers and stays reachable by link."
+                    title="Remove this session from the list. Nothing is deleted — it keeps its answers and stays reachable at its own link, which the confirmation hands you before you archive."
                     onClick={() => setConfirmingArchiveId(session.sessionId)}
                     className="absolute right-0.5 top-1/2 size-5 -translate-y-1/2 rounded p-0 text-muted-foreground opacity-0 transition-opacity duration-150 hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100"
                   >
@@ -417,13 +465,22 @@ function SessionList() {
  * It replaces the row rather than opening over it: there is no undo behind
  * the button, and a confirmation that can be dismissed by clicking
  * anywhere is not one.
+ *
+ * The sentence about staying "reachable by link" was, until this route
+ * existed, false: there was no per-session URL anywhere in the product, no
+ * archived filter and no way back — so archiving was irreversible from the
+ * UI while the dialog said otherwise. It is true now (`/s/{session_id}`),
+ * and rather than ask the reader to take that on faith the dialog HANDS
+ * OVER the link, here, before the row goes.
  */
 function ArchiveConfirm({
   title,
+  sessionId,
   onConfirm,
   onCancel,
 }: {
   title: string;
+  sessionId: string;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
@@ -431,8 +488,18 @@ function ArchiveConfirm({
     <div className="space-y-1.5 rounded-md border border-warning/40 bg-warning/10 p-2">
       <p className="text-[0.62rem] leading-snug">
         Remove <span className="font-medium">{title}</span> from this list? Its answers are
-        kept and it stays reachable by link — only the row goes.
+        kept and it stays reachable at its link — only the row goes. Take the link first: once
+        the row is gone, this rail has no way back to it.
       </p>
+      <CopyTextButton
+        label="Copy this session's link"
+        doneLabel="Link copied"
+        title="Copy the permalink to this session, so it can be re-opened after the row leaves this list"
+        className="h-5 px-1.5 text-[0.62rem]"
+        text={() =>
+          sessionLinkFor(sessionId, typeof window === "undefined" ? "" : window.location.origin)
+        }
+      />
       <div className="flex gap-1.5">
         <Button
           size="xs"

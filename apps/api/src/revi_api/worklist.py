@@ -37,6 +37,7 @@ platform's re-derived figure rather than the detector's.
 from __future__ import annotations
 
 import hashlib
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass
 from pathlib import Path
@@ -219,9 +220,136 @@ def _statement(
     return " ".join(parts)
 
 
+# ---------------------------------------------------------------------------
+# addressing the list (round-3 R3-09)
+
+
+#: A card's own published id. The one unambiguous handle: the platform mints
+#: it, prints it on every row, and ``GET /v1/portfolio/latest`` serves it.
+_ANOMALY_ID = re.compile(r"\bANM[-_\s]?(\d{1,6})\b", re.IGNORECASE)
+
+#: Positions, in the two forms an analyst writes them. Word ordinals cover
+#: "the top item" / "open the first one"; the numeric form covers "number
+#: 3", "#2", "item 4", "rank 2".
+_ORDINAL_WORDS: dict[str, int] = {
+    "top": 1,
+    "first": 1,
+    "1st": 1,
+    "second": 2,
+    "2nd": 2,
+    "third": 3,
+    "3rd": 3,
+    "fourth": 4,
+    "4th": 4,
+    "fifth": 5,
+    "5th": 5,
+    "sixth": 6,
+    "6th": 6,
+    "seventh": 7,
+    "7th": 7,
+    "eighth": 8,
+    "8th": 8,
+    "ninth": 9,
+    "9th": 9,
+    "tenth": 10,
+    "10th": 10,
+}
+_ORDINAL_WORD = re.compile(
+    r"\bthe\s+(" + "|".join(sorted(_ORDINAL_WORDS, key=len, reverse=True)) + r")\b",
+    re.IGNORECASE,
+)
+_ORDINAL_NUMBER = re.compile(
+    # ``#`` gets its own branch: a word boundary before a non-word character
+    # requires a word character in front of it, so "#3" at the start of an
+    # utterance never matched the alternation it was listed in.
+    r"(?:\b(?:number|item|card|rank|row|priority)\s*#?\s*|#\s*)(\d{1,3})\b",
+    re.IGNORECASE,
+)
+#: A finding handle. Present, the analyst is pointing at a finding and the
+#: engine's own referent resolver owns the turn — this module stands down
+#: rather than racing it for the same words.
+_FINDING_HANDLE = re.compile(r"\b[FD]\d+\b", re.IGNORECASE)
+
+
+@dataclass(frozen=True, slots=True)
+class WorklistReference:
+    """A worklist row the analyst named, and how they named it."""
+
+    card: AnomalyCard
+    mention: str
+    basis: str  # anomaly_id | ordinal
+
+
+def resolve_worklist_reference(
+    utterance: str, cards: Sequence[AnomalyCard]
+) -> WorklistReference | None:
+    """The worklist row an utterance addresses, resolved deterministically.
+
+    Round-3 R3-09, five personas. Three consecutive live turns: *"Open the
+    top item and show me what is behind the $178,217"* → a clarification
+    claiming "nothing shown totals $178,217", while the SAME turn's
+    worklist payload read "First is ANM-021 — $178,216.82"; *"Show me
+    ANM-021"* → "I can't open a worklist item by its id", offering three
+    options all categorically wrong for a ``dnfb`` card. Meanwhile
+    ``/v1/portfolio/latest`` reported every card drillable with a complete
+    ``drill_spec``, and the rail's own click dispatched exactly that spec.
+    The list was addressable by mouse and unaddressable by name.
+
+    So the ids and the positions this platform PRINTED are resolved the way
+    every other handle it prints is resolved: by lookup, before any model
+    call, against the rows the analyst was actually shown. The result routes
+    to the card's STORED ``drill_spec`` with its ``anomaly_ref`` — the
+    identical path the rail takes, so the reconciliation strip and the
+    repoint disclosure fire exactly as they do from a click.
+
+    ``None`` — meaning "this is ordinary language, hand it to the engine" —
+    whenever nothing matches, whenever a position names a row that was not
+    shown (a claim about a row the analyst cannot see is worse than a
+    question), and whenever the utterance carries a finding handle, which
+    belongs to the engine's referent registry and not to this list.
+    """
+    if not cards or not utterance.strip() or _FINDING_HANDLE.search(utterance):
+        return None
+    by_id = {card.anomaly_id.casefold(): card for card in cards}
+    match = _ANOMALY_ID.search(utterance)
+    if match is not None:
+        # Matched on the digits so "ANM 21", "anm-021" and "ANM-021" are one
+        # handle; the printed form is what gets echoed back.
+        digits = match.group(1).lstrip("0") or "0"
+        for key, card in by_id.items():
+            trailing = key.rsplit("-", 1)[-1].lstrip("0") or "0"
+            if trailing == digits:
+                return WorklistReference(card=card, mention=match.group(0), basis="anomaly_id")
+        return None
+    position: int | None = None
+    mention = ""
+    word = _ORDINAL_WORD.search(utterance)
+    if word is not None:
+        position, mention = _ORDINAL_WORDS[word.group(1).lower()], word.group(0)
+    else:
+        number = _ORDINAL_NUMBER.search(utterance)
+        if number is not None:
+            position, mention = int(number.group(1)), number.group(0)
+    if position is None or not 1 <= position <= len(cards):
+        return None
+    return WorklistReference(card=cards[position - 1], mention=mention, basis="ordinal")
+
+
 #: Attached as an ordinary turn warning so the disclosure travels with the
 #: answer's own warnings rather than only inside the payload.
 WORKLIST_ATTACHED_PREFIX = "worklist_attached:"
+
+
+def worklist_reference_warning(reference: WorklistReference) -> str:
+    """What the platform resolved, said before the answer that used it."""
+    card = reference.card
+    return (
+        f"named_cut_applied: read {reference.mention!r} as worklist row "
+        f"{card.anomaly_id} — {card.title} — and opened the card's own stored drill "
+        f"({', '.join(card.drill_spec.metric_ids)}), which is the same investigation the "
+        "rail's click on that row runs. Nothing about the phrasing was interpreted: the id "
+        "and the position are handles this platform published."
+    )
 
 
 def worklist_warning(payload: WorklistPayload) -> str:
@@ -236,6 +364,60 @@ def worklist_warning(payload: WorklistPayload) -> str:
         f"because {routed} routed it. The cards are the detection feed's, ordered by "
         f"{payload.formula_version}; they are not findings this turn computed."
     )
+
+
+#: Emitted only when the worklist ROUTED — i.e. the analyst's question
+#: resolved the governed "what should I work first" playbook or concept —
+#: and therefore only when the ranked cards ARE the answer.
+WORKLIST_LEADS_PREFIX = "worklist_leads:"
+
+
+def worklist_lead_warning(payload: WorklistPayload) -> str | None:
+    """The sentence a work-prioritization answer must open with (R3-10).
+
+    "What should my denial team work first this week" came back as three
+    denied-dollars-by-payer findings and ~500 words about them, with the
+    ranked list rendered below the findings, the charts and the prose. The
+    narrative's closing instruction named Atlas at $33,954.90 as the first
+    action while the attached worklist's first item was ANM-021 at
+    $178,216.82 — the prose pointed at a fifth of the money — and the
+    answer's own worklist statement labelled itself "not a measurement of
+    the question asked above".
+
+    So when the worklist routed, it leads. This is that lead, composed from
+    the payload the answer already carries (never from a model, and never a
+    figure the payload does not hold), published verbatim ahead of the prose
+    by the mandatory-disclosure machinery, and shown to the composer so the
+    metric probes are written as what they are: also-measured context.
+
+    ``None`` when the worklist was asked for explicitly (``typed_query``) or
+    carries no cards — an attached list the analyst requested beside a
+    different question is not that question's answer.
+    """
+    if payload.matched_on == "typed_query" or not payload.items:
+        return None
+    top = payload.items[0]
+    lanes = "; ".join(
+        f"{lane.item_count} {lane.label.lower()}" for lane in payload.lanes if lane.item_count
+    )
+    lane_clause = f" Lanes: {lanes}." if lanes else ""
+    return (
+        f"{WORKLIST_LEADS_PREFIX} this question routed to the governed "
+        f"{payload.matched_on} {payload.matched_id!r}, so the ranked worklist below IS the "
+        f"answer and the measurements on this answer are context beside it. Start with "
+        f"{top.anomaly_id} — {top.title} — {_dollars(abs(top.ranked_impact_cents))}, about "
+        f"{_dollars(top.recoverable_cents_estimate)} of it estimated recoverable "
+        f"({top.actionability_label}). {payload.total_items} cards are ranked and the "
+        f"governed recoverable estimate across them totals "
+        f"{_dollars(payload.total_recoverable_cents_estimate)}.{lane_clause}"
+    )
+
+
+def worklist_first_action(payload: WorklistPayload | None) -> str | None:
+    """The anomaly id no other first action may be named ahead of."""
+    if payload is None or payload.matched_on == "typed_query" or not payload.items:
+        return None
+    return payload.items[0].anomaly_id
 
 
 def build_worklist(

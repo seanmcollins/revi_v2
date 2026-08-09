@@ -11,6 +11,7 @@ component(s) it names (property-tested).
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from decimal import Decimal
 from enum import StrEnum
 
 from revi_calculation_contracts.contract import SignConvention
@@ -214,6 +215,21 @@ class AnalysisSpec:
     #: increases — inside a move from $58,983.54 to $10,915.24, a fall of
     #: 81% that the answer never mentioned.
     direction_asserted: bool = False
+    #: The SIZE the question asserted, as a multiple of the prior level:
+    #: ``2`` for "doubled"/"twice", ``3`` for "tripled", ``0.5`` for "halved"
+    #: / "fell by half". ``None`` when the question asserted a direction
+    #: without a size ("why are denials up?").
+    #:
+    #: Round-3 R3-03: the premise check tested direction alone, so "why did
+    #: denials double?" over a +4.2% move was scored as HOLDING — the
+    #: verdict was then discarded (it was published only on failure) and the
+    #: narrative opened on a 243% sub-cell of a movement that never
+    #: happened. A doubling is a claim about magnitude and is verified as one.
+    asserted_multiple: Decimal | None = None
+    #: The period vocabulary the question used, when the analyst named one
+    #: ("June 2026", "this week"). Carried so a downstream sentence can
+    #: QUOTE it instead of asserting that no period was named (R3-16).
+    period_label: str | None = None
 
     def with_context(self, context: InvestigationContext) -> AnalysisSpec:
         return replace(self, context=context)

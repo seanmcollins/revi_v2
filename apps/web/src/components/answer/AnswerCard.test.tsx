@@ -834,3 +834,56 @@ describe("AnswerCard — a turn carrying the ranked worklist", () => {
     ).toBeInTheDocument();
   });
 });
+
+/**
+ * WCAG 2.2 SC 4.1.3 on the product's single primary interaction.
+ *
+ * A turn takes 26–60 seconds: the stage rail streams, prose types itself
+ * out behind a caret, findings land one at a time on staggered delays —
+ * and none of it was announced. Six `aria-live` hits existed in the whole
+ * app and not one was on the answer path.
+ *
+ * What is asserted here is as much about restraint as about coverage: the
+ * live region says ONE sentence when the answer lands. Piping the
+ * narrative through it would read a thousand words aloud and interrupt
+ * itself on every delta.
+ */
+describe("AnswerCard — what a screen reader is told", () => {
+  it("marks the region busy while the pipeline runs, and says nothing yet", () => {
+    const streaming: TurnRecord = {
+      ...turn(),
+      answer: { ...turn().answer, status: "streaming", narrative: "Denials on Atlas…" },
+    };
+    const { container } = renderCard(streaming);
+
+    expect(container.querySelector("[aria-busy='true']")).not.toBeNull();
+    const live = container.querySelector("[role='status'][aria-live='polite']");
+    expect(live?.textContent).toBe("");
+  });
+
+  it("announces one terse completion sentence, not the answer", () => {
+    const { container } = renderCard(turn());
+
+    const live = container.querySelector("[role='status'][aria-live='polite']");
+    expect(live?.textContent).toBe("Answer ready: 0 findings, 1 caution.");
+    // The narrative is on screen; it is not in the live region.
+    expect(live?.textContent).not.toContain("CARC 16");
+    expect(container.querySelector("[aria-busy='true']")).toBeNull();
+  });
+
+  it("says a refused turn stopped rather than announcing an answer", () => {
+    const failed: TurnRecord = {
+      ...turn(),
+      answer: {
+        ...turn().answer,
+        status: "error",
+        error: { code: "QUERY_BUDGET_EXCEEDED", message: "stopped" },
+      },
+    };
+    const { container } = renderCard(failed);
+
+    expect(
+      container.querySelector("[role='status'][aria-live='polite']")?.textContent,
+    ).toBe("This turn stopped before it finished.");
+  });
+});

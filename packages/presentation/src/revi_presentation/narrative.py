@@ -402,6 +402,7 @@ def build_narrative_facts(
     caveats: Sequence[str] = (),
     metric_display: Mapping[str, str] | None = None,
     disclosures: Sequence[str] = (),
+    worklist_first_action: str | None = None,
 ) -> NarrativeFacts:
     """The closed fact set the validator trusts.
 
@@ -443,6 +444,21 @@ def build_narrative_facts(
             names.add(match.group(1))
     if header.cohort_size is not None:
         numbers.append(Decimal(header.cohort_size))
+    # The turn's own resolved predicate values are certified vocabulary
+    # (round-3 R3-12). They were not, so a turn whose context header reads
+    # ``filters: payer eq [Veritas Comp Fund]`` had two sentences deleted
+    # for "naming 'Veritas Comp Fund', which is outside the certified
+    # vocabulary" — a value the answer prints two rows above the redaction,
+    # and one of the twelve the product's own clarification offers verbatim.
+    # The resulting narrative opened "That bound rests on direct evidence…"
+    # with no antecedent anywhere.
+    for chip in header.filter_chips:
+        names.update(chip.values)
+        names.update(chip.requested_values)
+    for finding in findings:
+        for value in finding.values:
+            if isinstance(value.value, str) and value.value:
+                names.add(value.value)
     names.update(extra_names)
     dates = [
         header.window_start.isoformat(),
@@ -455,7 +471,67 @@ def build_narrative_facts(
         numeric_values=numbers,
         allowed_names=sorted(names),
         date_tokens=dates,
+        # Every integer the mandatory disclosures state about the cell
+        # population, so a sentence that counts cells has something to be
+        # checked against instead of a free pass (R3-18).
+        population_counts=_population_counts(disclosures),
+        cautioned=bool(disclosures),
+        truncated=any(_TRUNCATION_MARKER in line.lower() for line in disclosures),
+        topic_sentence=_topic_sentence(findings, header),
+        # The ranked list's first item, when this question routed to the
+        # worklist: no prose instruction may name a different one (R3-10).
+        worklist_first_action=worklist_first_action,
     )
+
+
+#: Recognises the FINDINGS_TRUNCATED disclosure without re-classifying it.
+_TRUNCATION_MARKER = "published as findings"
+
+#: A number immediately qualified by a population noun — "3 of 15 cells",
+#: "12 payers", "296 entities". These are claims about how much was
+#: measured, and they are checked against certified integers rather than
+#: waved through as small numbers (R3-18).
+_POPULATION_CLAIM = re.compile(
+    r"(\d[\d,]*)\s*(?:of\s+(\d[\d,]*)\s*)?"
+    r"(?:small\s+)?(?:cells?|payers?|entities|rows?|providers?|facilities|plans?)",
+    re.IGNORECASE,
+)
+
+
+def _population_counts(lines: Sequence[str]) -> list[int]:
+    """Every population integer the certified disclosures state."""
+    out: list[int] = []
+    for line in lines:
+        for token in re.findall(r"\d[\d,]*", line):
+            try:
+                out.append(int(token.replace(",", "")))
+            except ValueError:  # pragma: no cover - the regex only matches digits
+                continue
+    return sorted(set(out))
+
+
+def _topic_sentence(
+    findings: Sequence[FindingPayload], header: ContextHeaderPayload
+) -> str | None:
+    """What this answer is about, said deterministically.
+
+    Prepended when grounding validation removes the narrative's opening and
+    the survivor starts with a pronoun (round-3 R3-12): "That bound rests
+    on direct evidence and is carried at high confidence (F10)" shipped as
+    an answer's first words, and the reader never learned what "that bound"
+    was. Composed from the header and the leading finding, both certified.
+    """
+    if not findings:
+        return None
+    scope = "; ".join(header.filters) if header.filters else None
+    period = (
+        f"as of {header.as_of.isoformat()}"
+        if header.as_of is not None
+        else f"{header.window_start.isoformat()}..{header.window_end.isoformat()}"
+    )
+    lead = findings[0]
+    where = f" for {scope}" if scope else ""
+    return f"This answer covers {period} ({header.basis} basis){where}. {lead.title} ({lead.referent})."
 
 
 
@@ -475,7 +551,24 @@ def build_narrative_facts(
 #: confirmation of something that did not happen. The correction leads or it
 #: does not work.
 LEAD_DISCLOSURE_CODES: tuple[str, ...] = (
+    # The worklist, when the worklist IS the answer (round-3 R3-10). "What
+    # should my denial team work first" routed to the governed
+    # work_prioritization concept, returned three denied-dollars-by-payer
+    # findings and ~500 words about them, and rendered the ranked list below
+    # the findings, the charts and the prose — an answer whose own worklist
+    # statement said it was "not a measurement of the question asked above".
+    # It leads, because the question asked for it.
+    "WORKLIST_LEADS",
     "PREMISE_FALSE",
+    # The other half of the premise family (round-3 R3-03). A verdict that
+    # CONFIRMS the question is still the answer's first claim: publishing it
+    # only on failure is what let "why did denials double?" — a real +4.2%
+    # — open on a 243% sub-cell while the measured aggregate was discarded.
+    "PREMISE_VERIFIED",
+    # A ranking the platform declined to publish, because too much of its
+    # population carries ceilings rather than measurements (R3-02). A
+    # refusal cannot sit under the rows it refused to order.
+    "RANKING_REFUSED",
     "DIRECTION_UNMATCHED",
     "EMPTY_RESULT",
 )
@@ -488,6 +581,21 @@ TRAILING_DISCLOSURE_CODES: tuple[str, ...] = (
     # that silently mixes the two is as misleading as one that drops the
     # bounded rows, so the bound is said, not merely available.
     "SUPPRESSION_BOUNDED",
+    # …and which of them could not be ordered at all (round-3 R3-02).
+    "BOUNDED_CELLS_UNRANKED",
+    # A series whose last point is a data-maturity artifact rather than a
+    # measurement (R3-06): "up 5.5 points" over a month that is 23%
+    # adjudicated is the claims run-out, not the business.
+    "ADJUDICATION_INCOMPLETE",
+    # What the answer did NOT publish (R3-04). An omission the reader
+    # cannot see is the one that makes a superlative false.
+    "FINDINGS_TRUNCATED",
+    # The window that was actually read, when it is not the window that was
+    # asked for (R3-05), and the period vocabulary that was resolved or
+    # could not be (R3-16).
+    "WINDOW_OUT_OF_RANGE",
+    "WINDOW_HORIZON",
+    "WINDOW_RELATIVE",
     "RECONCILIATION_FAILED",
     "SNAPSHOT_AS_OF",
     "PROBE_FAMILIES_EMPTY",
@@ -504,6 +612,10 @@ MANDATORY_DISCLOSURE_CODES: tuple[str, ...] = (
 #: needs (the suppressed-cell count) or does not exist as prose at all (the
 #: card/answer reconciliation).
 _COMPOSED_CODES = frozenset({"SUPPRESSION_APPLIED", "RECONCILIATION_FAILED"})
+
+#: The engine's own frame-level cell arithmetic, recognised so this module
+#: does not publish a second one beside it (R3-18).
+_CENSUS_CLAUSE = "cell(s) on this answer"
 
 
 def _sentence(text: str) -> str:
@@ -647,7 +759,13 @@ def mandatory_disclosures(
 
     lead = stated(LEAD_DISCLOSURE_CODES)
     trail: list[str] = []
-    if "SUPPRESSION_APPLIED" in by_code and suppressed_cells > 0:
+    # The engine now counts its own cells and publishes the arithmetic on
+    # the SUPPRESSION_BOUNDED disclosure (round-3 R3-18). When it has, the
+    # count derived here from ``suppressed_cells`` — which counts nulled
+    # VALUES, several per row — is a second, different population for one
+    # control, and two arithmetics in one paragraph is the defect.
+    engine_counted = _CENSUS_CLAUSE in by_code.get("SUPPRESSION_BOUNDED", "")
+    if "SUPPRESSION_APPLIED" in by_code and suppressed_cells > 0 and not engine_counted:
         scope = f" of {total_cells}" if total_cells else ""
         noun = "cell" if suppressed_cells == 1 else "cells"
         # Two policies, two readings. Where every withheld cell was dropped,
@@ -795,6 +913,108 @@ def _name_admitted(name: str, known_token_sequences: list[list[str]]) -> bool:
     return any(_is_contiguous_run(core, known) for known in known_token_sequences)
 
 
+#: Sentences that assert the answer needs no allowance. Round-3 R3-05: the
+#: engine warned "this load only reaches 2026-08-02 — the figures below
+#: cover 2026-07-01..2026-08-02" and the prose on the same turn said the
+#: magnitude and direction "can be taken at face value for the period and
+#: basis stated, without an allowance for derivation error", over a
+#: sign-inverted year-over-year comparison. A caution and a face-value
+#: claim cannot both be published.
+_FACE_VALUE = re.compile(
+    r"\b(?:at face value|taken at face value|without (?:an? )?(?:allowance|caveat|qualification)"
+    r"|no allowance for)\b",
+    re.IGNORECASE,
+)
+
+#: Claims about the SHAPE of a population — its spread, its band, "the
+#: measured group", "all of them". On a truncated answer these describe the
+#: served slice and nothing else, which is how a 4.4% to 15.0% spread (3.4x)
+#: was narrated as "roughly three percentage points … a tight band"
+#: (round-3 R3-04). Never certified over a slice, whatever it cites.
+_SPREAD_CLAIM = re.compile(
+    r"\b(?:tight|narrow|wide|broad)\s+(?:band|range|spread)"
+    r"|\bthe\s+(?:measured|published|shown)\s+group\b"
+    r"|\bspread\s+(?:of|is|was|runs)\b"
+    r"|\ball\s+(?:of\s+them|payers|providers|facilities|plans)\b"
+    r"|\b(?:every|each)\s+(?:payer|provider|facility|plan)\b",
+    re.IGNORECASE,
+)
+
+#: Superlatives. The ordering IS computed over the full population, so the
+#: leading finding may be called the largest — that relation is certified.
+#: A superlative in a sentence that does NOT cite the leading finding is a
+#: claim about rows the answer did not publish: "State Medicaid MCO is
+#: highest of the measured group at 7.5%" was written over a served slice
+#: whose true maximum was 15.0%.
+_SUPERLATIVE = re.compile(
+    r"\b(?:largest|biggest|highest|lowest|worst|best|smallest|most|least)\b",
+    re.IGNORECASE,
+)
+
+#: Opening words that need an antecedent the previous sentence supplied.
+_STRANDED_OPENING = re.compile(
+    r"^(?:that|those|this|these|it|they|them|its|their|he|she|both|such)\b",
+    re.IGNORECASE,
+)
+
+
+def _population_claim_allowed(sentence: str, certified: set[int]) -> str | None:
+    """Reason a population count in this sentence is not certified, if any."""
+    for match in _POPULATION_CLAIM.finditer(sentence):
+        for group in match.groups():
+            if group is None:
+                continue
+            try:
+                value = int(group.replace(",", ""))
+            except ValueError:  # pragma: no cover - regex yields digits only
+                continue
+            if value not in certified:
+                return (
+                    f"counts {value} cell(s)/entities, which no certified suppression figure "
+                    "on this answer states"
+                )
+    return None
+
+
+#: How a sentence proposes what to do first. Deliberately narrow: it fires
+#: on an INSTRUCTION about ordering ("start with", "the first action is",
+#: "prioritise", "work X first"), never on a sentence that merely describes
+#: which figure is largest — the findings are allowed to say that, and the
+#: worklist is allowed to rank differently, because they rank different
+#: things over different populations.
+_FIRST_ACTION = re.compile(
+    r"\b("
+    r"start(?:ing)? with|begin(?:ning)? with|first (?:action|step|priority|move)|"
+    r"prioriti[sz]e|work(?:ing)? (?:on )?[^.;]{0,40}?first|focus (?:first )?on|"
+    r"next step|immediate (?:action|priority)|should (?:be )?(?:tackle|address|work)"
+    r")\b",
+    re.IGNORECASE,
+)
+
+
+def _first_action_conflict(sentence: str, first_action: str) -> str | None:
+    """Does this sentence recommend a first action other than rank 1?
+
+    Round-3 R3-10. The worklist and the narrative are two orderings on one
+    card, and when the question was "what should we work first" only one of
+    them was asked for. A prose instruction that names a different first
+    thing is not a second opinion — the analyst has no way to tell which
+    the platform means, and the one they read first pointed at a fifth of
+    the money.
+
+    The rule is one-directional: a sentence may recommend rank 1 by name,
+    or recommend nothing, but it may not recommend instead of it.
+    """
+    if not _FIRST_ACTION.search(sentence):
+        return None
+    if first_action.casefold() in sentence.casefold():
+        return None
+    return (
+        "recommends a first action without naming the ranked worklist's first item "
+        f"({first_action}), which is the answer this question routed to"
+    )
+
+
 def validate_narrative(text: str, facts: NarrativeFacts) -> NarrativeValidation:
     """Sentence-level grounding check.
 
@@ -810,6 +1030,16 @@ def validate_narrative(text: str, facts: NarrativeFacts) -> NarrativeValidation:
     referent_ids = set(facts.referent_ids)
     known_token_sequences = [name.split() for name in facts.allowed_names]
     date_tokens = set(facts.date_tokens)
+    # A population count may be quoted from a mandatory disclosure or from
+    # a certified finding value; anything else is a count the composer
+    # derived, and deriving the censorship arithmetic is what produced
+    # "3 of 15 cells" over a 12-cell answer with nothing withheld (R3-18).
+    leading_referent = facts.referent_ids[0] if facts.referent_ids else ""
+    certified_counts: set[int] = set(facts.population_counts)
+    for value in facts.numeric_values:
+        decimal_value = Decimal(value)
+        if decimal_value == decimal_value.to_integral_value():
+            certified_counts.add(int(decimal_value))
 
     kept: list[str] = []
     redactions: list[NarrativeRedaction] = []
@@ -839,10 +1069,50 @@ def validate_narrative(text: str, facts: NarrativeFacts) -> NarrativeValidation:
                 if (numbers or cited) and not _name_admitted(name, known_token_sequences):
                     reason = f"names {name!r}, which is outside the certified vocabulary"
                     break
+        if reason is None and facts.cautioned and _FACE_VALUE.search(sentence):
+            reason = (
+                "claims the figures can be taken at face value on a turn carrying a "
+                "caution-severity disclosure"
+            )
+        if reason is None and facts.truncated:
+            if _SPREAD_CLAIM.search(sentence):
+                reason = (
+                    "describes the spread or extent of a population over a truncated finding "
+                    "list — the shape of the full population was not published"
+                )
+            elif _SUPERLATIVE.search(sentence) and leading_referent not in cited:
+                reason = (
+                    "states a superlative over a truncated finding list without citing the "
+                    f"leading finding ({leading_referent or 'none'}) — the relation is certified "
+                    "only over the full computed population"
+                )
+        if reason is None:
+            claim = _population_claim_allowed(sentence, certified_counts)
+            if claim is not None:
+                reason = claim
+        if reason is None and facts.worklist_first_action:
+            first = _first_action_conflict(sentence, facts.worklist_first_action)
+            if first is not None:
+                reason = first
         if reason is None:
             kept.append(sentence.strip())
         else:
             redactions.append(NarrativeRedaction(sentence=sentence.strip(), reason=reason))
+
+    # An analysis whose opening pronoun lost its antecedent is not an
+    # analysis (round-3 R3-12). When redaction took the first sentence and
+    # the survivor opens with a demonstrative, the deterministic topic
+    # sentence goes in front of it rather than the reader being left to
+    # guess what "that bound" was.
+    if (
+        redactions
+        and kept
+        and facts.topic_sentence
+        and _STRANDED_OPENING.match(kept[0])
+        and text.strip()
+        and _SENTENCE_SPLIT.split(text.strip())[0].strip() != kept[0]
+    ):
+        kept.insert(0, facts.topic_sentence)
 
     warnings: list[str] = []
     if redactions:

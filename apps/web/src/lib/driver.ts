@@ -186,4 +186,19 @@ export interface TurnDriver {
    * by pretending a row went away.
    */
   archiveSession?(sessionId: string): Promise<void>;
+  /**
+   * Which session an investigation belongs to
+   * (`InvestigationResponse.session_id`, a required field).
+   *
+   * The `/i/{investigation_id}` permalink is a link to ONE answered turn,
+   * and a turn is only honest inside the conversation that produced it —
+   * its filters, its cohort and its referents were established by the
+   * turns above it. So the link resolves to a session and opens that,
+   * rather than rendering a findings card with no lineage over it.
+   *
+   * Optional on the seam like the reads beside it: the mock fixture has no
+   * deployment, and a driver that cannot resolve an id says so by not
+   * implementing this.
+   */
+  sessionForInvestigation?(investigationId: string): Promise<string>;
 }

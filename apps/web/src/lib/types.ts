@@ -473,6 +473,30 @@ export interface ChartRow {
   /** Referent for chart-click → DrillInto. */
   referent?: string;
   values: Record<string, number>;
+  /**
+   * This row's value is an upper BOUND, not a measurement — the engine
+   * withheld a small numerator and published a ceiling over a publishable
+   * population instead (see `BoundedCell` server-side, R3-01).
+   *
+   * Read defensively at the seam: the structured flag is landing on the
+   * wire in a later batch, and a payload generation that does not publish
+   * it simply leaves this undefined. Nothing renders a bound it was not
+   * told about — but the moment it arrives, the CSV carries it, because a
+   * spreadsheet of ceilings that does not say so is the export most likely
+   * to reach a payer.
+   */
+  bounded?: boolean;
+  /** The published ceiling, in the chart's display unit, when the wire carries it. */
+  bound?: number;
+  /** The population the bound was taken over (`n`), when the wire carries it. */
+  denominator?: number;
+  /**
+   * The point is not a settled measurement yet — a terminal bucket that is
+   * calendar-partial or still adjudicating. Also read defensively: a
+   * spreadsheet that presents a 23%-adjudicated month as final reports the
+   * claims run-out as deterioration.
+   */
+  provisional?: boolean;
 }
 
 export interface ChartSeries {
@@ -480,12 +504,37 @@ export interface ChartSeries {
   label: string;
   /** Which validated series slot to use. */
   role: "current" | "baseline";
+  /**
+   * This series survives a series cap no matter how small it is. Set on the
+   * comparison series a `__compare` frame is folded in as: the prior period
+   * is half of what a comparison chart claims, and folding it into "+N
+   * others" because it happens to be the smallest column would delete the
+   * comparison while leaving the title that promises one.
+   */
+  pinned?: boolean;
 }
 
 export interface ChartSpec {
   id: string;
   /** The shape this UI draws — a reduction of `chart_type` (see contract.ts). */
   kind: "bar" | "grouped_bar" | "line";
+  /**
+   * The frame declared a COMPOSITION (`stacked_bar`): the series sum to the
+   * category's total and the marks must share a stack. Drawn grouped, the
+   * same payload asserts a comparison the frame never made.
+   */
+  stacked?: boolean;
+  /**
+   * How the rows were ordered, and by what. `wire` means "the order the
+   * engine emitted", which is what a chart falls back to when nothing on
+   * the payload resolves an order — never a silent alphabetical sort.
+   */
+  order?: {
+    basis: "wire" | "ordinal-bucket" | "value" | "label";
+    /** The column the order was taken on, when the wire named one. */
+    by?: string;
+    descending?: boolean;
+  };
   /** The published `ChartSpec.chart_type`, kept verbatim so the reduction
    *  is visible and reversible rather than lossy. */
   wireChartType?: string;

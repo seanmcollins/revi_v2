@@ -21,7 +21,14 @@
  * intermediary that could reformat a number.
  */
 
-import { formatCount, formatWindow, mediumDate, type MeasureUnit } from "@/lib/format";
+import type { WorklistData } from "@/lib/contract";
+import {
+  formatCount,
+  formatMeasure,
+  formatWindow,
+  mediumDate,
+  type MeasureUnit,
+} from "@/lib/format";
 import type { PortfolioItem } from "@/lib/mock/portfolio";
 import type {
   Benchmark,
@@ -56,9 +63,25 @@ export function csvCell(value: CsvValue): string {
   return /[",\n\r]|^\s|\s$/.test(guarded) ? `"${guarded.replace(/"/g, '""')}"` : guarded;
 }
 
-/** Header row + body rows as one CRLF-delimited CSV document. */
-export function buildCsv(headers: readonly string[], rows: readonly CsvValue[][]): string {
-  const lines = [headers.map(csvCell).join(",")];
+/**
+ * Header row + body rows as one CRLF-delimited CSV document, optionally
+ * under a block of `#` comment lines.
+ *
+ * The preamble is where an export's caveats live. Each line is emitted as a
+ * SINGLE cell through `csvCell`, so a sentence containing a comma stays one
+ * cell and a sentence beginning with "=" is text rather than something
+ * Excel executes on open. `#` is not a formula trigger, so the guard never
+ * fires on the marker itself.
+ */
+export function buildCsv(
+  headers: readonly string[],
+  rows: readonly CsvValue[][],
+  preamble: readonly string[] = [],
+): string {
+  const lines = preamble.map((line) =>
+    csvCell(`# ${line.replace(/\s*[\r\n]+\s*/g, " ").trim()}`),
+  );
+  lines.push(headers.map(csvCell).join(","));
   for (const row of rows) lines.push(row.map(csvCell).join(","));
   return `${lines.join("\r\n")}\r\n`;
 }
@@ -95,6 +118,23 @@ export interface AnswerCopyInput {
   warnings: readonly WarningEvent[];
   metric?: MetricProvenance;
   investigationId?: string;
+  /**
+   * The rows behind the charts — every one of them.
+   *
+   * A copied answer used to carry three of twelve payers: the caveats were
+   * immaculate and the numbers were a slice, with nothing saying so. The
+   * two halves of an export cannot be split like that — a complete artifact
+   * without caveats and a caveated artifact without the data are the same
+   * failure wearing different clothes. So the table travels too, and the
+   * findings section states which rows it named.
+   */
+  charts?: readonly ChartSpec[];
+  /**
+   * The ranked worklist the turn attached. `WORKLIST_ATTACHED` already
+   * survives into the caveats, so a text export without this announces a
+   * ranked worklist it does not contain.
+   */
+  worklist?: WorklistData;
   /** True when the turn was rebuilt from stored state, not watched live. */
   restored?: boolean;
   /** Injected so the output is a pure function of its inputs (tests pin it). */
@@ -102,6 +142,28 @@ export interface AnswerCopyInput {
 }
 
 const RULE = "—".repeat(4);
+
+/**
+ * The turn's warnings as the sentences an export prints — cautions first,
+ * each one titled by its code and counted when it was raised more than
+ * once.
+ *
+ * Shared rather than duplicated: the text copy and the chart CSV must
+ * carry the SAME caveats, or the product has two accounts of one answer
+ * and the reader has whichever one they exported.
+ */
+export function caveatLines(warnings: readonly WarningEvent[]): string[] {
+  const ordered = [
+    ...warnings.filter((w) => w.severity === "caution"),
+    ...warnings.filter((w) => w.severity !== "caution"),
+  ];
+  return ordered.map((warning) => {
+    const title = warningTitle(warning.code);
+    const body = title ? warningBody(warning.code, warning.message) : warning.message;
+    const times = warning.count && warning.count > 1 ? ` (raised ${warning.count} times)` : "";
+    return `[${warning.severity}] ${title ? `${title} — ` : ""}${body}${times}`;
+  });
+}
 
 /** "as of Aug 2, 2026 (service date)" or "Jul 1 – Jul 31, 2026 (service date)". */
 export function windowLine(header: ContextHeaderData): string {
@@ -189,8 +251,19 @@ export function answerToText(input: AnswerCopyInput): string {
     out.push("");
   }
 
+  // How much of the measured table the findings actually name. Twelve
+  // payers were measured, three were written up, and the copied text said
+  // nothing about the other nine — so the email read as the whole answer.
+  const measuredRows = Math.max(0, ...(input.charts ?? []).map((c) => c.rows.length));
+
   if (input.findings.length > 0) {
     out.push("FINDINGS", RULE);
+    if (measuredRows > input.findings.length) {
+      out.push(
+        `${input.findings.length} of ${measuredRows} measured rows are written up below. All ${measuredRows} are in the DATA section further down.`,
+        "",
+      );
+    }
     for (const finding of input.findings) {
       out.push(`${finding.referent.value}  ${finding.title}`);
       if (finding.statement) out.push(`    ${finding.statement}`);
@@ -220,23 +293,69 @@ export function answerToText(input: AnswerCopyInput): string {
     );
   }
 
+  // The rows behind the pictures, in full. Written as aligned text rather
+  // than CSV because this artifact is pasted into an email, and the CSV
+  // button beside it is what a spreadsheet is for.
+  for (const chart of input.charts ?? []) {
+    if (chart.rows.length === 0) continue;
+    out.push(
+      `DATA — ${chart.title}`,
+      RULE,
+      `${chart.rows.length} row${chart.rows.length === 1 ? "" : "s"} × ${chart.series.length} series, in ${unitWord(chart.unit)}${orderPhrase(chart)}`,
+    );
+    for (const row of chart.rows) {
+      const cells = chart.series.map((series) => {
+        const value = row.values[series.key];
+        // A withheld cell is a blank, never a zero — the same discipline
+        // the CSV keeps. And a bounded one is a ceiling, said as one.
+        const text =
+          typeof value !== "number" || !Number.isFinite(value)
+            ? "(withheld)"
+            : `${row.bounded ? "≤ " : ""}${formatMeasure(value, chart.unit)}`;
+        return chart.series.length === 1 ? text : `${series.label} ${text}`;
+      });
+      out.push(`    ${row.label}: ${cells.join(" · ")}`);
+    }
+    if (chart.rows.some((row) => row.bounded)) {
+      out.push(
+        "    ≤ marks an upper bound, not a measurement: the engine withheld a small numerator and published a ceiling over the population instead.",
+      );
+    }
+    out.push("");
+  }
+
+  if (input.worklist) {
+    const worklist = input.worklist;
+    out.push(`RANKED WORKLIST — ${worklist.label || "what to work first"}`, RULE);
+    if (worklist.statement) out.push(worklist.statement);
+    out.push(
+      `${worklist.items.length} of ${worklist.totalItems} cards listed here · ranked by ${worklist.formulaVersion} · data load ${worklist.watermarkId}`,
+    );
+    for (const item of worklist.items) {
+      const parts = [
+        `#${item.rank}`,
+        item.lane ? `[${item.lane}]` : "",
+        item.title,
+        item.impactCents === undefined ? "" : `impact $${centsToDollars(item.impactCents)}`,
+        item.recoverableCentsEstimate === undefined
+          ? ""
+          : `recoverable $${centsToDollars(item.recoverableCentsEstimate)}`,
+        item.rankedOn ? `ranked on ${item.rankedOn}` : "",
+        item.impactAgreement ? `reconciliation: ${item.impactAgreement}` : "",
+      ].filter((p) => p !== "");
+      out.push(`    ${parts.join(" · ")}`);
+    }
+    for (const warning of worklist.warnings) {
+      out.push(`    caution: ${warningBody(warning.code, warning.message)}`);
+    }
+    out.push("");
+  }
+
   // Never optional, never below the fold, never dropped when the list is
   // empty: "no caveats were attached" is itself a fact about the answer.
   out.push("CAVEATS THAT TRAVEL WITH THESE NUMBERS", RULE);
-  if (input.warnings.length === 0) {
-    out.push("The platform attached no caveats to this answer.");
-  } else {
-    const ordered = [
-      ...input.warnings.filter((w) => w.severity === "caution"),
-      ...input.warnings.filter((w) => w.severity !== "caution"),
-    ];
-    for (const warning of ordered) {
-      const title = warningTitle(warning.code);
-      const body = title ? warningBody(warning.code, warning.message) : warning.message;
-      const times = warning.count && warning.count > 1 ? ` (raised ${warning.count} times)` : "";
-      out.push(`[${warning.severity}] ${title ? `${title} — ` : ""}${body}${times}`);
-    }
-  }
+  const caveats = caveatLines(input.warnings);
+  out.push(...(caveats.length === 0 ? ["The platform attached no caveats to this answer."] : caveats));
   out.push("");
 
   out.push("PROVENANCE", RULE);
@@ -401,38 +520,155 @@ export function portfolioToCsv(input: PortfolioCsvInput): string {
  * EMPTY cell with a `withheld` note — never as a zero, which is a number
  * the engine did not publish and a payer meeting would act on.
  */
-export function chartToCsv(spec: ChartSpec, meta?: { windowLabel?: string }): string {
-  const unitName: Record<MeasureUnit, string> = {
-    cents: "usd",
-    percent: "percent",
-    count: "count",
-    days: "days",
+export interface ChartCsvMeta {
+  /** The turn's window, so the sheet is not a table of undated numbers. */
+  windowLabel?: string;
+  /** The data load these rows were measured at — the same id the header states. */
+  watermarkId?: string;
+  /** The metric pack that defined the measure. */
+  packLabel?: string;
+  /** The question this chart answered. */
+  question?: string;
+  /** The turn's caveats, already rendered to sentences by the caller. */
+  caveats?: readonly string[];
+  /** What the picture did that this file does not (a series rollup, a cap). */
+  renderNote?: string;
+  investigationId?: string;
+  /** Injected so the output is a pure function of its inputs (tests pin it). */
+  exportedAt?: Date;
+}
+
+const UNIT_NAME: Record<MeasureUnit, string> = {
+  cents: "usd",
+  percent: "percent",
+  count: "count",
+  days: "days",
+};
+
+function unitWord(unit: MeasureUnit): string {
+  return unit === "cents" ? "US dollars" : unit === "percent" ? "percent" : unit;
+}
+
+function orderPhrase(spec: ChartSpec): string {
+  const order = spec.order;
+  if (order === undefined || order.basis === "wire") return "";
+  if (order.basis === "ordinal-bucket") return ", ordered by bucket";
+  const direction = order.descending === false ? "low to high" : "high to low";
+  return order.by ? `, ordered by ${order.by} ${direction}` : `, ordered ${direction}`;
+}
+
+/**
+ * The chart's own rows, in the unit the chart draws them in — with the
+ * caveats above them.
+ *
+ * The unit is named in the column heading rather than baked into the cell,
+ * so the numbers stay summable: a `ratio` frame is scaled to percentage
+ * points once at the wire seam and exported as `29.5`, under a heading
+ * that says `percent`. A row whose value the engine withheld exports as an
+ * EMPTY cell with a `withheld` note — never as a zero, which is a number
+ * the engine did not publish and a payer meeting would act on.
+ *
+ * Above the header row sits the same preamble `answerToText` writes, as
+ * `#` comment lines: window, scope, data load, ordering, and a caveats
+ * block that prints "no caveats were attached" rather than vanishing. This
+ * is the export most likely to reach a payer or a board deck, and it was
+ * the one artifact in the product carrying a hundred and fifty rows of
+ * suppression ceilings with nothing on the sheet saying so. Every comment
+ * line goes through `csvCell`, so a caveat sentence beginning with "=" is
+ * text in a spreadsheet rather than a formula.
+ */
+export function chartToCsv(spec: ChartSpec, meta?: ChartCsvMeta): string {
+  const suffix = UNIT_NAME[spec.unit];
+  const bounded = spec.rows.some((row) => row.bounded === true);
+  const hasBound = spec.rows.some((row) => row.bound !== undefined);
+  const hasDenominator = spec.rows.some((row) => row.denominator !== undefined);
+  const hasProvisional = spec.rows.some((row) => row.provisional === true);
+
+  const preamble: string[] = [];
+  const say = (text: string): void => {
+    preamble.push(text);
   };
-  const suffix = unitName[spec.unit];
+  say(`Revi — ${spec.title}`);
+  if (meta?.question) say(`Question: ${meta.question}`);
+  if (meta?.windowLabel) say(`Window: ${meta.windowLabel}`);
+  say(
+    `${spec.rows.length} row${spec.rows.length === 1 ? "" : "s"} × ${spec.series.length} series, in ${unitWord(spec.unit)}${orderPhrase(spec)}`,
+  );
+  if (spec.truncation && spec.truncation.total > spec.truncation.shown) {
+    say(
+      `Truncated at the source: ${spec.truncation.shown} of ${spec.truncation.total} categories are here.`,
+    );
+  }
+  if (meta?.renderNote) say(`On screen: ${meta.renderNote}. This file has every series.`);
+  if (bounded || hasBound) {
+    say(
+      "Some rows are UPPER BOUNDS, not measurements: the engine withheld a small numerator and published a ceiling over the population instead. The `bounded` column marks them. A ceiling cannot be ranked against a measurement — ordering the two together sorts by population size.",
+    );
+  }
+  if (hasProvisional) {
+    say(
+      "Some rows are PROVISIONAL: the bucket is calendar-partial or still adjudicating, so its value will move. The `provisional` column marks them.",
+    );
+  }
+  if (meta?.watermarkId) say(`Data as of: ${meta.watermarkId}`);
+  if (meta?.packLabel) say(`Metric definitions: ${meta.packLabel}`);
+  say("CAVEATS THAT TRAVEL WITH THESE NUMBERS");
+  if (!meta?.caveats || meta.caveats.length === 0) {
+    say("The platform attached no caveats to this answer.");
+  } else {
+    for (const caveat of meta.caveats) say(caveat);
+  }
+  const provenance = ["Revi"];
+  if (meta?.investigationId) provenance.push(`investigation ${meta.investigationId}`);
+  if (meta?.watermarkId) provenance.push(`data load ${meta.watermarkId}`);
+  provenance.push(`exported ${isoInstant(meta?.exportedAt ?? new Date())}`);
+  say(provenance.join(" · "));
+  say(
+    "These numbers are as of the data load named above. Re-running the same question against a newer load can change them.",
+  );
+
   const headers = [
-    meta?.windowLabel ? `${spec.xLabel ?? "category"} (${meta.windowLabel})` : (spec.xLabel ?? "category"),
+    meta?.windowLabel
+      ? `${spec.xLabel ?? "category"} (${meta.windowLabel})`
+      : (spec.xLabel ?? "category"),
     "referent",
     ...spec.series.map((s) => `${s.label} (${suffix})`),
+    // Emitted only when the wire carries them: an always-empty column
+    // trains a reader to ignore it before it ever means anything.
+    ...(bounded || hasBound ? ["bounded"] : []),
+    ...(hasBound ? [`bound (${suffix})`] : []),
+    ...(hasDenominator ? ["denominator"] : []),
+    ...(hasProvisional ? ["provisional"] : []),
   ];
+
+  const scaled = (value: number): number =>
+    // Money is exported in dollars for the same reason the worklist is:
+    // integer cents in a spreadsheet column reads as a 100× error.
+    spec.unit === "cents"
+      ? Math.round(value) / 100
+      : // A `ratio` frame is scaled ×100 at the wire seam, and binary
+        // floating point turns 0.229167 into 22.916700000000002. Twelve
+        // significant digits is far more precision than any governed metric
+        // carries and exactly enough to erase the epsilon — the published
+        // value is unchanged, its representation stops leaking the
+        // arithmetic that got it here.
+        Number(value.toPrecision(12));
+
   const rows: CsvValue[][] = spec.rows.map((row) => [
     row.label,
     row.referent ?? "",
     ...spec.series.map((s) => {
       const value = row.values[s.key];
       if (typeof value !== "number" || !Number.isFinite(value)) return "";
-      // Money is exported in dollars for the same reason the worklist is:
-      // integer cents in a spreadsheet column reads as a 100× error.
-      if (spec.unit === "cents") return Math.round(value) / 100;
-      // A `ratio` frame is scaled ×100 at the wire seam, and binary
-      // floating point turns 0.229167 into 22.916700000000002. Twelve
-      // significant digits is far more precision than any governed metric
-      // carries and exactly enough to erase the epsilon — the published
-      // value is unchanged, its representation stops leaking the
-      // arithmetic that got it here.
-      return Number(value.toPrecision(12));
+      return scaled(value);
     }),
+    ...(bounded || hasBound ? [row.bounded === true ? "TRUE" : ""] : []),
+    ...(hasBound ? [row.bound === undefined ? "" : scaled(row.bound)] : []),
+    ...(hasDenominator ? [row.denominator ?? ""] : []),
+    ...(hasProvisional ? [row.provisional === true ? "TRUE" : ""] : []),
   ]);
-  return buildCsv(headers, rows);
+
+  return buildCsv(headers, rows, preamble);
 }
 
 /* ------------------------------------------------------------------ */
@@ -444,15 +680,32 @@ export function chartToCsv(spec: ChartSpec, meta?: { windowLabel?: string }): st
  * ASCII, dashes, and the data load in it — two exports of the same
  * worklist at different watermarks are different documents and must not
  * overwrite one another in a downloads folder.
+ *
+ * The watermark is a REQUIRED parameter for exactly that reason. It used to
+ * be documented as the point of the function and passed by nobody: the
+ * worklist happened to send its watermark as the free-text `tag`, and the
+ * chart sent its title — so yesterday's chart export and today's landed on
+ * the same name and the newer one silently replaced the older. A caller
+ * with genuinely no pin passes `undefined` and gets a name with no load in
+ * it, which is at least visibly missing rather than quietly wrong.
  */
-export function exportFilename(kind: string, tag: string | undefined, ext: string): string {
+export function exportFilename(
+  kind: string,
+  tag: string | undefined,
+  ext: string,
+  watermarkId: string | undefined,
+): string {
   const slug = (value: string): string =>
     value
       .toLowerCase()
       .replace(/[^a-z0-9]+/g, "-")
       .replace(/^-+|-+$/g, "")
       .slice(0, 48);
-  const parts = ["revi", slug(kind), tag ? slug(tag) : ""].filter((p) => p !== "");
+  const parts = ["revi", slug(kind), tag ? slug(tag) : "", watermarkId ? slug(watermarkId) : ""]
+    .filter((p) => p !== "")
+    // A tag that IS the watermark (the worklist's old convention) must not
+    // print it twice.
+    .filter((part, index, all) => all.indexOf(part) === index);
   return `${parts.join("-")}.${ext}`;
 }
 

@@ -47,7 +47,7 @@ from __future__ import annotations
 import re
 import time
 import uuid
-from collections.abc import Iterable, Mapping
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -65,7 +65,9 @@ from revi_investigation.application.comparison import window_mismatch_warning
 from revi_investigation.application.execution import (
     ExecutedProbe,
     ExecuteInvestigationService,
+    SuppressionCensus,
     bounded_cells_warning,
+    suppression_census,
 )
 from revi_investigation.application.findings import (
     EvaluateFindingsService,
@@ -88,6 +90,7 @@ from revi_investigation.application.planning import (
     DiffPlanService,
     InvestigationPlan,
     PlanDiff,
+    resolved_orderings,
 )
 from revi_investigation.application.ports import (
     FrameStore,
@@ -117,6 +120,7 @@ from revi_investigation.application.validation import (
     PlanClarificationNeeded,
     PlanValidationService,
     ValidatedPlan,
+    map_predicates,
 )
 from revi_investigation.domain.context import (
     AnalysisSpec,
@@ -142,9 +146,15 @@ from revi_investigation.domain.refinements import (
     detect_conflict,
 )
 from revi_investigation.domain.settings import DEFAULT_SESSION_SETTINGS, SessionSettings
-from revi_investigation.domain.turns import ClarificationRequest, TurnClass, TurnClassification
+from revi_investigation.domain.turns import (
+    ClarificationBinding,
+    ClarificationRequest,
+    TurnClass,
+    TurnClassification,
+)
 from revi_investigation_contracts.api import TypedInvestigationSpec
 from revi_investigation_contracts.header import ContextHeaderPayload, build_header_payload
+from revi_investigation_contracts.refinements import AbsoluteWindowModel, AddFilterModel
 from revi_investigation_contracts.settings import EvidenceDepth
 from revi_kernel.capabilities import AnalyticalRepository
 from revi_kernel.cohort import CohortRef
@@ -156,7 +166,7 @@ from revi_kernel.errors import (
     ReviError,
     UnsupportedConceptError,
 )
-from revi_kernel.filters import EMPTY_SCOPE, Predicate, iter_predicates
+from revi_kernel.filters import EMPTY_SCOPE, Predicate, PredicateOp, and_merge, iter_predicates
 from revi_kernel.frame import EvidenceFrame
 from revi_kernel.probes import AggregationProbe, EvidenceProbe, SnapshotProbe
 from revi_kernel.refs import SERVICE, DimensionRef, EntityGrain, Grain, MetricRef, ReferentId
@@ -259,6 +269,21 @@ class SubmitTurnRequest:
     refinements: tuple[AnyRefinementOperator, ...] | None = None
     # Watermark epochs (§7.1): opt into re-anchoring on a newer load.
     re_anchor: bool = False
+    #: This turn is an ANSWER to the clarification the platform is holding,
+    #: sent on the dedicated channel rather than typed into the chat box.
+    #: A dedicated channel that is flattened into an utterance is not a
+    #: channel: round-3 R3-07 sent a verbatim option on it and watched the
+    #: reply get re-classified as a bare ``refinement`` at confidence 0.45,
+    #: as a ROOT investigation, dropping the analyst's question. The class
+    #: is known by construction here — no model call decides it.
+    clarification_response: bool = False
+    #: This turn asks for the ranked worklist and nothing else — a typed
+    #: request the API answers from the detection feed. Complete by
+    #: construction: there is nothing here to classify, and classifying it
+    #: is what produced "That came through as a gesture rather than a
+    #: request" at confidence 0.15, over a lane chip the platform drew
+    #: (round-3 R3-09).
+    worklist_only: bool = False
     # Settings for THIS turn only, already bounds-checked by the API layer.
     # None runs the session's own settings; a per-turn override never
     # rewrites the session record, so one deep sweep or one debug turn does
@@ -333,6 +358,10 @@ class TurnOutcome:
     #: the structured fact a presentation layer writes the difference from
     #: (empty population vs. data with no publishable finding).
     emptiness: EmptinessFact | None = None
+    #: ``(frame id, column, descending)`` for every frame the PLAN ordered
+    #: (round-3 R3-13). The chart builder reads it so a ranked answer and
+    #: the chart under it cannot disagree about which cell is first.
+    chart_sorts: tuple[tuple[str, str, bool], ...] = ()
 
 
 #: The contract ``kind`` that reports a balance at a moment rather than a
@@ -342,25 +371,53 @@ _SNAPSHOT_KIND = "snapshot"
 
 
 def snapshot_as_of(
-    spec: AnalysisSpec, session: Session, pack: PackPort | None
+    spec: AnalysisSpec, session: Session, pack: PackPort | None,
+    measure_ids: Sequence[str] = (),
 ) -> date | None:
     """The as-of date for a turn measured entirely by snapshot contracts.
 
     ``None`` — i.e. "render the window" — unless EVERY measure this turn
-    names is ``kind: snapshot``. Eight contracts are (the whole A/R and
+    READ is ``kind: snapshot``. Eight contracts are (the whole A/R and
     inventory family), and they read a balance standing at the watermark:
     they apply no start..end predicate, so a header, a title or a sentence
     that names one is asserting a scoping that did not happen (round-2
     FN-2). A turn mixing a snapshot with a flow keeps the window, because
     the window governs the flow half and is real.
+
+    Round-3 R3-15: the test was ``spec.measures``, which a *playbook* turn
+    leaves empty — so ``timely_filing_at_risk_dollars`` (``kind: snapshot``)
+    rendered as ``2026-07-01..2026-07-31 (service)`` with the narrative
+    "across the July 2026 service period … $1,424,231.54 in Unbilled open
+    inventory", and the very next turn published the same metric as an
+    as-of balance ~14x larger with no bridging sentence. ``measure_ids``
+    carries what the PLAN read, so the rule is per-kind rather than
+    per-route.
     """
-    if pack is None or not spec.measures:
+    if pack is None:
         return None
-    for ref in spec.measures:
-        contract = pack.metric(ref.id)
+    names = [ref.id for ref in spec.measures] or list(measure_ids)
+    if not names:
+        return None
+    for metric_id in names:
+        contract = pack.metric(metric_id)
         if contract is None or str(contract.kind) != _SNAPSHOT_KIND:
             return None
     return session.watermark.newest_data_date
+
+
+def plan_measure_ids(plan: InvestigationPlan | None) -> tuple[str, ...]:
+    """Every metric id this plan's probes read, in plan order."""
+    if plan is None:
+        return ()
+    out: list[str] = []
+    for node in plan.nodes:
+        probe = node.probe
+        if not isinstance(probe, (AggregationProbe, SnapshotProbe)):
+            continue
+        for measure in probe.measures:
+            if measure.id not in out:
+                out.append(measure.id)
+    return tuple(out)
 
 
 def build_context_header(
@@ -369,6 +426,7 @@ def build_context_header(
     *,
     pack: PackPort | None = None,
     corrections: Mapping[str, Mapping[str, str]] | None = None,
+    measure_ids: Sequence[str] = (),
 ) -> ContextHeaderPayload:
     """Delegate to the canonical contracts builder (§7.2 single source)."""
     context = spec.context
@@ -379,7 +437,7 @@ def build_context_header(
         pinned_predicates=tuple(pin.predicate for pin in context.pins),
         cohort=context.cohort,
         watermark_id=session.watermark.id,
-        as_of=snapshot_as_of(spec, session, pack),
+        as_of=snapshot_as_of(spec, session, pack, measure_ids),
         corrections=corrections,
     )
 
@@ -592,7 +650,7 @@ def drop_refuted_options(
     if len(kept) == len(clarification.options):
         return clarification
     if kept:
-        return replace(clarification, options=kept)
+        return replace(clarification, options=kept, bindings=_bindings_for(clarification, kept))
     return replace(
         clarification,
         question=(
@@ -601,8 +659,145 @@ def drop_refuted_options(
             "Name a different one, or ask me what exists.)"
         ),
         options=(),
+        bindings=(),
         reason=f"{clarification.reason}; all generated options named a refuted value",
     )
+
+
+def _bindings_for(
+    clarification: ClarificationRequest, kept: tuple[str, ...]
+) -> tuple[ClarificationBinding, ...]:
+    """The bindings of the options that survived a drop.
+
+    Dropping an option must drop its meaning with it: a binding left behind
+    for an option nobody can see is a resolution the analyst never chose.
+    """
+    surviving = {" ".join(option.split()).casefold().rstrip(".") for option in kept}
+    return tuple(
+        binding
+        for binding in clarification.bindings
+        if " ".join(binding.option.split()).casefold().rstrip(".") in surviving
+    )
+
+
+#: How far back a clarification option's DRY RUN looks. Deliberately the
+#: widest window the load will admit — a value check asks "does this exist
+#: in the data", and asking it over one narrow month would refuse a payer
+#: that is simply quiet in that month. The observed-value read is cached per
+#: (watermark, entity, dimension, window), so every option in a session
+#: shares one read.
+_OPTION_CHECK_YEARS = 3
+
+
+def _option_window(session: Session) -> AbsoluteWindowModel:
+    """The window a clarification option is dry-run over (see above)."""
+    end = session.watermark.newest_data_date
+    floor = session.watermark.oldest_data_date
+    start = date(end.year - _OPTION_CHECK_YEARS, 1, 1)
+    return AbsoluteWindowModel(start=max(start, floor) if floor is not None else start, end=end)
+
+
+def _with_chosen_values(
+    spec: AnalysisSpec, chosen: tuple[tuple[str, tuple[str, ...]], ...]
+) -> AnalysisSpec:
+    """Substitute the values an analyst picked from a value clarification.
+
+    Round-3 R3-07. Every predicate on a chosen dimension is REPLACED, not
+    added to: the clarification exists because the value in the question
+    does not exist in the data, so carrying it alongside the real one would
+    re-raise the refusal that started the dialogue — which is exactly what
+    it did live. The dimension the analyst never mentioned is untouched,
+    and a dimension the re-interpretation dropped is re-added, because the
+    choice is the analyst's and it must survive the model's second reading.
+    """
+    if not chosen:
+        return spec
+    values_by_dimension = {dimension: values for dimension, values in chosen if values}
+    if not values_by_dimension:
+        return spec
+
+    def substitute(predicate: Predicate) -> Predicate:
+        values = values_by_dimension.get(predicate.dimension.id)
+        if values is None:
+            return predicate
+        op = PredicateOp.IN if len(values) > 1 else PredicateOp.EQ
+        return replace(predicate, op=op, values=tuple(values))
+
+    scope = map_predicates(spec.context.scope, substitute)
+    present = {p.dimension.id for p in iter_predicates(scope)}
+    missing = [
+        Predicate(
+            dimension=DimensionRef(dimension),
+            op=PredicateOp.IN if len(values) > 1 else PredicateOp.EQ,
+            values=tuple(values),
+        )
+        for dimension, values in values_by_dimension.items()
+        if dimension not in present
+    ]
+    if missing:
+        scope = and_merge(scope, *missing)
+    return spec.with_context(replace(spec.context, scope=scope))
+
+
+def _bindings_from_trace(payload: Mapping[str, Any]) -> tuple[ClarificationBinding, ...]:
+    """Rebuild the option bindings a clarification turn recorded.
+
+    Read back off the trace for the same reason ``_pending_clarification``
+    reads the lineage: a turn is a stateless request and the session may
+    resume in another process. A record written before this field existed
+    simply yields nothing, and the reply falls back to being read as text.
+    """
+    raw = payload.get("clarification_bindings") or ()
+    out: list[ClarificationBinding] = []
+    for entry in raw:
+        if not isinstance(entry, Mapping):
+            continue
+        option, kind = entry.get("option"), entry.get("kind")
+        if not isinstance(option, str) or not isinstance(kind, str):
+            continue
+        scope: list[tuple[str, tuple[str, ...]]] = []
+        for item in entry.get("scope") or ():
+            if not isinstance(item, Mapping):
+                continue
+            dimension = item.get("dimension")
+            if isinstance(dimension, str):
+                scope.append(
+                    (dimension, tuple(str(v) for v in (item.get("values") or ())))
+                )
+        basis, playbook_id = entry.get("basis"), entry.get("playbook_id")
+        out.append(
+            ClarificationBinding(
+                option=option,
+                kind=kind,
+                metric_ids=tuple(str(m) for m in (entry.get("metric_ids") or ())),
+                dimension_ids=tuple(str(d) for d in (entry.get("dimension_ids") or ())),
+                playbook_id=playbook_id if isinstance(playbook_id, str) else None,
+                scope=tuple(scope),
+                basis=basis if isinstance(basis, str) else None,
+            )
+        )
+    return tuple(out)
+
+
+def _turn_census(
+    calculation: CalculationResult, threshold: int
+) -> SuppressionCensus | None:
+    """This turn's cell arithmetic, counted once (round-3 R3-18).
+
+    Read off the frame the published figures came from — the widest
+    dimensional frame the plan produced — because that is the population
+    the reader is counting. ``EvidenceFrame.suppressed_cells`` counts nulled
+    VALUES, several per row, and quoting it as a population is how "3 of 15
+    cells" was published over 12 payer cells of which none were withheld.
+    """
+    best: SuppressionCensus | None = None
+    for _, frame in calculation.frames:
+        if not frame.rows:
+            continue
+        census = suppression_census(frame, threshold)
+        if best is None or census.total > best.total:
+            best = census
+    return best
 
 
 def _predicate_label(predicate: Predicate) -> str:
@@ -716,6 +911,22 @@ class _TurnState:
     #: surfaced as turn warnings and recorded on the trace. A committed
     #: interpretation that is not stated is a guess.
     assumptions: list[str] = field(default_factory=list)
+    #: The investigation this turn continues in the SESSION GRAPH without
+    #: refining it — a clarification being answered. Distinct from the
+    #: refinement parent: there is no plan diff and no sum-of-cells
+    #: reconciliation to make against a turn that produced no plan, but the
+    #: edge is real and the lineage was a forest without it (round-3 R3-07).
+    lineage_parent: str | None = None
+    #: A date basis this turn is required to read on, because the analyst
+    #: picked it from a clarification the platform asked.
+    basis_override: str | None = None
+    #: ``(dimension, values)`` the analyst chose from a value clarification,
+    #: substituted into the resumed question's scope.
+    scope_override: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    #: Clarification options this turn applied on the analyst's behalf. One
+    #: is a disclosure; a second would be the engine holding a conversation
+    #: with itself, so the ceiling is one per turn.
+    applied_bindings: list[str] = field(default_factory=list)
 
     def time_stage(self, stage: str) -> None:
         now = time.monotonic()
@@ -815,6 +1026,14 @@ class SubmitTurnService:
         )
         session = await self._check_watermark(session, state, request)
 
+        if request.worklist_only:
+            # A typed worklist request is a whole request. Zero probes, zero
+            # model calls, and a COMPLETE investigation rather than a
+            # clarification: the answer is the ranked list the API attaches,
+            # and asking the analyst what they meant by a control this
+            # platform drew is the platform not recognising its own output.
+            return await self._worklist_turn(session, state)
+
         if request.spec is not None:
             # typed FIRST turn: an explicit investigation, never a
             # refinement — no NL, no classification, no LLM
@@ -848,6 +1067,26 @@ class SubmitTurnService:
         # fresh question — see PendingClarification.
         pending = await self._pending_clarification(session)
         state.pending = pending
+
+        if request.clarification_response and pending is not None:
+            # The analyst answered on the dedicated channel. There is
+            # nothing left to classify: this IS a clarification response,
+            # by construction, at zero model cost — and re-classifying it
+            # is exactly how the original question got dropped (R3-07).
+            state.time_stage("classify")
+            return await self._clarification_response_turn(
+                session,
+                state,
+                ClassificationOutcome(
+                    classification=TurnClassification(
+                        turn_class=TurnClass.CLARIFICATION_RESPONSE, confidence=1.0
+                    ),
+                    clarification=None,
+                    usage=_NO_MODEL_USAGE,
+                    template_hash="by_construction",
+                ),
+                pending,
+            )
 
         known = await self._classification_by_construction(session, pending, state.question)
         if known is not None:
@@ -949,6 +1188,50 @@ class SubmitTurnService:
             template_hash="by_construction",
         )
 
+    async def _worklist_turn(self, session: Session, state: _TurnState) -> TurnOutcome:
+        """A typed worklist request: complete, zero-probe, zero-call (R3-09).
+
+        The engine holds no worklist — it is the detection feed's, projected
+        by the API — so this turn's job is to be a real node in the session:
+        a COMPLETE investigation the lineage can hang follow-ups off, with
+        the analyst's own request recorded as its question. The ranked cards
+        ride on the response the API assembles around it.
+        """
+        state.time_stage("worklist")
+        investigation = replace(
+            self._minimal_investigation(
+                session,
+                state,
+                InvestigationStatus.COMPLETE,
+                ClassificationOutcome(
+                    classification=TurnClassification(
+                        turn_class=TurnClass.NEW_INVESTIGATION, confidence=1.0
+                    ),
+                    clarification=None,
+                    usage=_NO_MODEL_USAGE,
+                    template_hash="by_construction",
+                ),
+            ),
+        )
+        await self._investigations.save(investigation, None)
+        await self._traces.save(
+            self._trace_record(session, state, None, extra={"worklist_request": True})
+        )
+        await self._turn_complete(state, investigation)
+        return TurnOutcome(
+            session=session,
+            investigation=investigation,
+            findings=(),
+            header=None,
+            frames=(),
+            warnings=(),
+            clarification=None,
+            definitional=None,
+            trace_id=state.trace_id,
+            watermark_stale=state.watermark_stale,
+            settings=state.settings,
+        )
+
     # -------------------------------------------- answering a clarification
 
     async def _clarification_response_turn(
@@ -988,6 +1271,21 @@ class SubmitTurnService:
                     reason="clarification_response with no clarification pending",
                 ),
             )
+        # The strongest resolution first: the reply IS one of the options
+        # the platform offered, and that option already carries the ids it
+        # stands for. Nothing is re-read as language — the analyst chose a
+        # thing this platform named, and the thing is applied to the
+        # question it interrupted (round-3 R3-07).
+        binding = pending.binding_for(state.question)
+        if binding is not None and pending.original_question:
+            state.question = pending.original_question
+            state.lineage_parent = pending.investigation_id
+            state.assumptions.append(
+                f"Read as an answer to the question above: {pending.question!r} → "
+                f"{binding.option!r}. Resuming {pending.original_question!r} with that "
+                "applied; this answer is recorded as a child of the turn that asked."
+            )
+            return await self._apply_binding(session, state, classified, binding)
         resolved = _join_question_and_answer(pending.original_question, state.question)
         if resolved != state.question:
             state.assumptions.append(
@@ -995,7 +1293,223 @@ class SubmitTurnService:
                 f"{state.question!r}. Answering the original question with that applied."
             )
             state.question = resolved
+        # Parented either way: an answer to a question this platform asked
+        # belongs under that question, whether it matched an option or was
+        # typed in the analyst's own words. Live, every clarification reply
+        # in a 13-investigation session was saved as a ROOT node.
+        state.lineage_parent = pending.investigation_id
         return await self._new_investigation_turn(session, state, classified)
+
+    async def _apply_binding(
+        self,
+        session: Session,
+        state: _TurnState,
+        classified: ClassificationOutcome | None,
+        binding: ClarificationBinding,
+    ) -> TurnOutcome:
+        """Re-run the interrupted question with one option applied.
+
+        The application is a substitution into the ORIGINAL question's
+        pipeline, never a new question:
+
+        * ``date_basis`` re-interprets the same words with the basis fixed,
+          so the playbook routing, the window vocabulary and the concepts
+          the analyst's sentence carried all survive — the runway question
+          comes back as the runway question;
+        * everything else runs as the typed investigation the option's own
+          ids describe, which is the same disposal a portfolio card's drill
+          handle goes through.
+        """
+        if binding.kind == "date_basis" and binding.basis:
+            state.basis_override = binding.basis
+            return await self._new_investigation_turn(session, state, classified)
+        if binding.kind == "predicate_value" and binding.scope:
+            # The analyst picked a value from the twelve this warehouse
+            # actually holds, offered because the one they typed does not
+            # exist. Joining their reply onto the original sentence and
+            # re-interpreting it leaves the refuted value in the question —
+            # live, that came straight back as the SAME refusal. The choice
+            # is a substitution and is applied as one.
+            state.scope_override = binding.scope
+            return await self._new_investigation_turn(session, state, classified)
+        spec = self._spec_for_binding(session, binding)
+        if spec is None:
+            # Nothing typed to run: fall back to the analyst's words, which
+            # is what happened before bindings existed and is still honest.
+            state.question = _join_question_and_answer(state.question, binding.option)
+            return await self._new_investigation_turn(session, state, classified)
+        pins = await self._inherited_pins(session)
+        if pins:
+            spec = spec.with_context(replace(spec.context, pins=pins))
+        return await self._run_analysis(
+            session,
+            state,
+            classified,
+            spec=spec,
+            playbook_id=binding.playbook_id,
+            window_explicit=False,
+            turn_class=TurnClass.NEW_INVESTIGATION,
+            parent=None,
+            operators=(),
+            trace_extra={
+                "clarification_binding": {
+                    "option": binding.option,
+                    "kind": binding.kind,
+                    "resumed_investigation_id": state.lineage_parent,
+                }
+            },
+        )
+
+    # ------------------------------------------- validating what we offer
+
+    async def _validated_options(
+        self, session: Session, clarification: ClarificationRequest
+    ) -> ClarificationRequest:
+        """Drop every option this platform could not actually answer.
+
+        Round-3 R3-17. The value-existence guard that produces this
+        platform's best refusal — *"There is no payer named
+        UnitedHealthcare in this data"*, all twelve real values enumerated,
+        ``PREDICATE_VALUE_UNMATCHED`` — was never applied to the options the
+        platform OFFERS. Two holes, both found live:
+
+        * ``_option_resolves`` checks scope values only against a
+          dimension's DECLARED ``value_domain`` and skips the open
+          dimensions outright, so "Summit Peak is a facility — walk through
+          the medical-necessity denial spike in cardiology at that facility"
+          was offered over a warehouse holding six facilities, none of them
+          Summit Peak: an option the engine will refuse the moment it is
+          selected, $0.1428 to be asked and another turn to discover.
+        * Nothing dry-ran an option against the planner, so an option naming
+          a legal metric and an illegal cut for it survived to be tapped.
+
+        Both are closed by running the option the way the turn that accepts
+        it will run it: build its spec, plan it, validate it, and resolve
+        its predicate values against this watermark. An option that raises
+        anything is dropped — including :class:`PlanClarificationNeeded`,
+        which is precisely the phantom-value refusal arriving one turn early
+        and for free (the observed-value read is cached per watermark, so
+        the check costs at most one warehouse round trip per dimension).
+
+        Options with no binding are left alone: a platform-authored recovery
+        chip ("Raise the per-turn cost ceiling") is not a query and has
+        nothing to dry-run. When every *checkable* option fails, the
+        question keeps its text and says it has no suggestions rather than
+        rendering as a question above a blank row of buttons.
+        """
+        if not clarification.bindings:
+            return clarification
+        kept: list[str] = []
+        dropped: list[str] = []
+        for option in clarification.options:
+            binding = clarification.binding_for(option)
+            if binding is None or await self._option_answerable(session, binding):
+                kept.append(option)
+            else:
+                dropped.append(option)
+        if not dropped:
+            return clarification
+        surviving = tuple(kept)
+        if surviving:
+            return replace(
+                clarification,
+                options=surviving,
+                bindings=_bindings_for(clarification, surviving),
+                reason=(
+                    f"{clarification.reason}; {len(dropped)} option(s) dropped: they name "
+                    "content this pack, catalog or watermark does not hold"
+                ),
+            )
+        return replace(
+            clarification,
+            question=(
+                f"{clarification.question} (I had suggestions here and dropped all "
+                f"{len(dropped)} of them: each named a metric, cut or value this data "
+                "does not hold at this watermark, so tapping one would only have bought "
+                "you the same refusal a turn later. Say what you want in your own words, "
+                "or ask me what exists.)"
+            ),
+            options=(),
+            bindings=(),
+            reason=(
+                f"{clarification.reason}; CLARIFICATION_OPTIONS_UNANSWERABLE: all "
+                f"{len(dropped)} generated options failed value or plan validation"
+            ),
+        )
+
+    async def _option_answerable(
+        self, session: Session, binding: ClarificationBinding
+    ) -> bool:
+        """Would this option produce a plan the platform can execute?
+
+        The check applies where an option could be WRONG. A
+        ``predicate_value`` option is a value read out of the warehouse's
+        own domain one moment earlier and a ``date_basis`` option is a
+        basis the contract declares and this warehouse binds: re-checking
+        the validator's own output against the validator would be a
+        tautology, and a failing round trip would drop the twelve real
+        payers the analyst needs to choose from.
+        """
+        if binding.kind in ("predicate_value", "date_basis"):
+            return True
+        if not binding.metric_ids:
+            # A playbook-only option carries no measures to dry-run; the
+            # pack either holds the playbook or the option is hollow.
+            return binding.playbook_id is not None and (
+                self._pack.playbook(binding.playbook_id) is not None
+            )
+        spec = self._spec_for_binding(session, binding)
+        if spec is None:
+            return False
+        try:
+            plan = self._planner.build(
+                spec,
+                playbook_id=binding.playbook_id if not spec.measures else None,
+                window_explicit=False,
+            )
+            validated = self._validator.validate(plan, spec)
+            await self._validator.resolve_predicate_values(
+                validated, watermark=session.watermark
+            )
+        except (PlanClarificationNeeded, ReviError, ValueError, KeyError, AssertionError):
+            return False
+        return True
+
+    def _spec_for_binding(
+        self, session: Session, binding: ClarificationBinding
+    ) -> AnalysisSpec | None:
+        """The typed investigation an option stands for, or ``None``.
+
+        Built through the same ``from_typed_spec`` disposal a portfolio
+        card's drill handle goes through, so a dry run exercises the path
+        the accepted option would actually take rather than an approximation
+        of it.
+        """
+        if not binding.metric_ids:
+            return None
+        try:
+            typed = TypedInvestigationSpec(
+                metric_ids=list(binding.metric_ids),
+                dimensions=list(binding.dimension_ids),
+                filters=[
+                    AddFilterModel(
+                        op="add_filter",
+                        dimension=dimension,
+                        predicate_op="in" if len(values) > 1 else "eq",
+                        values=list(values),
+                    )
+                    for dimension, values in binding.scope
+                    if values
+                ],
+                window=_option_window(session),
+                basis=binding.basis,
+            )
+            interpreted = self._interpreter.from_typed_spec(
+                typed, session=session, turn_id="__option_check__"
+            )
+        except (ReviError, ValueError, AssertionError):
+            return None
+        return interpreted.spec
 
     async def _refuted_in_session(self, session: Session) -> frozenset[str]:
         """Dimension values this session has already proved do not exist.
@@ -1043,7 +1557,7 @@ class SubmitTurnService:
         # The oldest turn in the run is the analyst's actual question; the
         # ones after it are their replies to us.
         oldest = streak[-1]
-        question, options = await self._recorded_clarification(latest.id)
+        question, options, bindings = await self._recorded_clarification(latest.id)
         if question is None:
             return None
         return PendingClarification(
@@ -1051,19 +1565,21 @@ class SubmitTurnService:
             options=options,
             original_question=oldest.question,
             streak=len(streak),
+            investigation_id=latest.id,
+            bindings=bindings,
         )
 
     async def _recorded_clarification(
         self, investigation_id: str
-    ) -> tuple[str | None, tuple[str, ...]]:
-        """The clarification question and options a turn actually published."""
+    ) -> tuple[str | None, tuple[str, ...], tuple[ClarificationBinding, ...]]:
+        """The clarification question, options and bindings a turn published."""
         for record in await self._traces.for_investigation(investigation_id):
             question = record.payload.get("clarification")
             if isinstance(question, str) and question:
                 raw = record.payload.get("clarification_options") or ()
                 options = tuple(str(option) for option in raw)
-                return question, options
-        return None, ()
+                return question, options, _bindings_from_trace(record.payload)
+        return None, (), ()
 
     @staticmethod
     def _bounded_clarification(
@@ -1193,7 +1709,13 @@ class SubmitTurnService:
         await self._stage(state, "interpret")
         try:
             interpretation = await self._interpreter.interpret(
-                state.question, session=session, turn_id=state.turn_id, policy=state.call_policy()
+                state.question,
+                session=session,
+                turn_id=state.turn_id,
+                policy=state.call_policy(),
+                # Set when a clarification about the date basis has been
+                # answered — or answered itself, see _recoverable_refusal.
+                basis_override=state.basis_override,
             )
         except DateBasisInvalidError as refusal:
             # The basis is fixed at interpretation (it is what the context
@@ -1225,7 +1747,7 @@ class SubmitTurnService:
 
         # carryover law 5: session pins persist until explicitly cleared
         pins = await self._inherited_pins(session)
-        spec = interpreted.spec
+        spec = _with_chosen_values(interpreted.spec, state.scope_override)
         if pins:
             spec = spec.with_context(replace(spec.context, pins=pins))
 
@@ -1589,6 +2111,11 @@ class SubmitTurnService:
             playbook=playbook,
             session_id=session.id,
             investigation_id=state.investigation_id,
+            # The §15 threshold the frames were policed under: a bound is
+            # only recognisable against the threshold that produced it, and
+            # without it findings publish `(threshold - 1) / n` as a
+            # measured value (round-3 R3-01).
+            suppression_threshold=self._executor.suppression_threshold,
         )
         state.time_stage("findings")
 
@@ -1611,9 +2138,15 @@ class SubmitTurnService:
         # What the §15 policy bounded rather than dropped, said once for the
         # turn: a ranking that mixes measured and bounded figures without
         # saying so is as misleading as one that censors the bounded rows.
+        # Counted once, at frame level, and published as the integers the
+        # narrator must cite rather than derive (round-3 R3-18): three
+        # surfaces published three different numbers for one control, and
+        # in one case the narrator invented the population outright.
+        census = _turn_census(calculation, self._executor.suppression_threshold)
         bounds = bounded_cells_warning(
             tuple(cell for item in executed for cell in item.bounded_cells),
             self._executor.suppression_threshold,
+            census=census,
         )
         if bounds is not None:
             extra_warnings.append(bounds)
@@ -1666,13 +2199,24 @@ class SubmitTurnService:
         emptiness = calculation.emptiness or findings_result.emptiness
         benchmarks = self._benchmarks_for(findings_result)
         header = build_context_header(
-            spec, session, pack=self._pack, corrections=validated.corrections_map
+            spec,
+            session,
+            pack=self._pack,
+            corrections=validated.corrections_map,
+            # What the PLAN read, not only what the utterance named: a
+            # playbook turn carries no spec.measures and its snapshot
+            # contracts were rendering under a start..end window (R3-15).
+            measure_ids=plan_measure_ids(validated.plan),
         )
         frame_refs = await self._persist_frames(state, calculation)
+        # A refinement's parent is the answer it edits; a clarification
+        # answer's parent is the question that asked it. Either is a real
+        # edge and neither used to be recorded for the second kind.
+        lineage_parent_id = parent.id if parent is not None else state.lineage_parent
         investigation = Investigation(
             id=state.investigation_id,
             session_id=session.id,
-            parent_id=parent.id if parent is not None else None,
+            parent_id=lineage_parent_id,
             turn_id=state.turn_id,
             turn_class=turn_class,
             question=state.question,
@@ -1686,21 +2230,32 @@ class SubmitTurnService:
         )
         edge = (
             RefinementEdge(
-                parent_id=parent.id,
+                parent_id=lineage_parent_id,
                 child_id=investigation.id,
                 turn_id=state.turn_id,
-                operators=operators,
+                # No operators on a clarification edge: nothing was refined,
+                # a question was answered.
+                operators=operators if parent is not None else (),
             )
-            if parent is not None
+            if lineage_parent_id is not None
             else None
         )
         await self._investigations.save(investigation, edge)
 
+        chart_sorts = resolved_orderings(validated.plan)
         extra: dict[str, Any] = {
             "plan_context": {
                 "playbook_id": playbook_id,
                 "window_explicit": window_explicit,
                 "evidence_depth": evidence_depth.value,
+                # The orderings this plan resolved, recorded so a RESTORED
+                # turn's charts sort the way the live ones did (R3-13).
+                # Rebuilt charts read the persisted frames, and the frame
+                # carries the rows but not the decision that ordered them.
+                "chart_sorts": [
+                    {"frame_id": frame_id, "by": by, "descending": descending}
+                    for frame_id, by, descending in chart_sorts
+                ],
             },
             # Recorded for every analytical turn, not only refinements.
             # It used to live under ``refinement`` alone, which meant a
@@ -1758,6 +2313,7 @@ class SubmitTurnService:
             benchmarks=benchmarks,
             settings=state.settings,
             emptiness=emptiness,
+            chart_sorts=chart_sorts,
         )
 
     async def _recoverable_refusal(
@@ -1782,7 +2338,40 @@ class SubmitTurnService:
         clarification = self._validator.clarification_for(refusal, spec)
         if clarification is None:
             return None
+        # A "question" with one answer is not a question (round-3 R3-07).
+        # ``timely_filing_at_risk_dollars`` cannot be read on the submission
+        # basis and this warehouse binds exactly one alternative, so the
+        # platform asked "which should I use?" over a list of one — and the
+        # analyst's runway question was then lost answering it. Where the
+        # lone option is a binding this platform derived itself, it is
+        # applied and DISCLOSED, which is the move this product already
+        # makes well everywhere else.
+        applied = self._lone_binding(clarification)
+        if applied is not None and not state.applied_bindings:
+            state.applied_bindings.append(applied.option)
+            state.assumptions.append(
+                f"clarification_answer_applied: {applied.option} — this was the only "
+                f"answer available to '{clarification.question}', so it was applied rather "
+                "than asked about, and your question was run with it. Say so if you wanted "
+                "something else and I will re-run it."
+            )
+            return await self._apply_binding(session, state, classified, applied)
         return await self._clarification_outcome(session, state, classified, clarification)
+
+    @staticmethod
+    def _lone_binding(
+        clarification: ClarificationRequest,
+    ) -> ClarificationBinding | None:
+        """The single unambiguous choice a clarification leaves, if any.
+
+        Deliberately narrow: exactly one option, exactly one binding, and a
+        binding this platform derived from governed content rather than one
+        a model proposed. Anything else is a real choice and is asked.
+        """
+        if len(clarification.options) != 1 or len(clarification.bindings) != 1:
+            return None
+        binding = clarification.bindings[0]
+        return binding if binding.deterministic else None
 
     def _benchmarks_for(self, findings: FindingsResult) -> tuple[BenchmarkSpec, ...]:
         """Benchmark ranges for every metric the turn's findings cite, in
@@ -2233,14 +2822,26 @@ class SubmitTurnService:
     ) -> TurnOutcome:
         del interpretation  # usage already tracked on state
         # Every option this platform offers goes through the same value
-        # existence check that produced its refusals (round-2 FN-6).
+        # existence check that produced its refusals (round-2 FN-6)…
         clarification = drop_refuted_options(
             clarification, await self._refuted_in_session(session)
         )
+        # …and then through the warehouse and the planner (round-3 R3-17).
+        clarification = await self._validated_options(session, clarification)
         investigation = self._minimal_investigation(
             session, state, InvestigationStatus.CLARIFICATION_REQUIRED, classified
         )
-        await self._investigations.save(investigation, None)
+        await self._investigations.save(
+            investigation,
+            RefinementEdge(
+                parent_id=state.lineage_parent,
+                child_id=investigation.id,
+                turn_id=state.turn_id,
+                operators=(),
+            )
+            if state.lineage_parent is not None
+            else None,
+        )
         await self._traces.save(
             self._trace_record(
                 session, state, classified, clarification=clarification, extra=extra
@@ -2468,7 +3069,10 @@ class SubmitTurnService:
         return Investigation(
             id=state.investigation_id,
             session_id=session.id,
-            parent_id=None,
+            # A follow-up clarification in a thread hangs off the one before
+            # it, so a dialogue reads as a dialogue rather than as a row of
+            # unrelated roots (round-3 R3-07).
+            parent_id=state.lineage_parent,
             turn_id=state.turn_id,
             turn_class=turn_class,
             question=state.question,
@@ -2629,6 +3233,28 @@ class SubmitTurnService:
             # classifier was told nothing had been asked at all.
             "clarification_options": (
                 list(clarification.options) if clarification is not None else []
+            ),
+            # …and what each of them MEANT. Held server-side, keyed by the
+            # investigation that asked, so a reply naming an option is
+            # resolved by lookup rather than re-interpreted (round-3 R3-07).
+            "clarification_bindings": (
+                [
+                    {
+                        "option": b.option,
+                        "kind": b.kind,
+                        "metric_ids": list(b.metric_ids),
+                        "dimension_ids": list(b.dimension_ids),
+                        "playbook_id": b.playbook_id,
+                        "scope": [
+                            {"dimension": dimension, "values": list(values)}
+                            for dimension, values in b.scope
+                        ],
+                        "basis": b.basis,
+                    }
+                    for b in clarification.bindings
+                ]
+                if clarification is not None
+                else []
             ),
             # The reason carries the stage that stopped and, for a model
             # call, which kind of empty-handed it was — the half of a

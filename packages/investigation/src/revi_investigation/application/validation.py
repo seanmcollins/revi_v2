@@ -144,7 +144,7 @@ from revi_investigation.application.planning import (
     TransformPlan,
 )
 from revi_investigation.domain.context import AnalysisSpec
-from revi_investigation.domain.turns import ClarificationRequest
+from revi_investigation.domain.turns import ClarificationBinding, ClarificationRequest
 from revi_kernel.capabilities import AnalyticalRepository, RepositoryCapabilities
 from revi_kernel.errors import (
     DateBasisInvalidError,
@@ -328,18 +328,23 @@ def contract_pinned_values(contract: MetricContract) -> dict[str, frozenset[str]
     return {dimension: frozenset(values) for dimension, values in pinned.items()}
 
 
-def _map_predicates(
+def map_predicates(
     expr: FilterExpr, fn: Callable[[Predicate], Predicate]
 ) -> FilterExpr:
-    """Rewrite every predicate in a filter tree, structure preserved."""
+    """Rewrite every predicate in a filter tree, structure preserved.
+
+    Exported: the turn engine applies a clarification's chosen value the
+    same way (round-3 R3-07), and two tree-rewriters would be two chances
+    to forget a node type.
+    """
     if isinstance(expr, Predicate):
         return fn(expr)
     if isinstance(expr, And):
-        return And(tuple(_map_predicates(clause, fn) for clause in expr.clauses))
+        return And(tuple(map_predicates(clause, fn) for clause in expr.clauses))
     if isinstance(expr, Or):
-        return Or(tuple(_map_predicates(clause, fn) for clause in expr.clauses))
+        return Or(tuple(map_predicates(clause, fn) for clause in expr.clauses))
     if isinstance(expr, Not):
-        return Not(_map_predicates(expr.clause, fn))
+        return Not(map_predicates(expr.clause, fn))
     return expr  # InCohort: its definition is pinned, not re-read here
 
 
@@ -507,6 +512,7 @@ class PlanValidationService:
             if isinstance(refused_basis, str)
             else "that date basis"
         )
+        options = tuple(f"Use the {basis.id} date basis" for basis in available)
         return ClarificationRequest(
             question=(
                 f"{metric_id!r} cannot be read on {asked} here — the contract and this "
@@ -514,10 +520,23 @@ class PlanValidationService:
                 f"{', '.join(repr(basis.id) for basis in available)} at the {entity} grain. "
                 "Which should I use?"
             ),
-            options=tuple(f"Use the {basis.id} date basis" for basis in available),
+            options=options,
             reason=(
                 f"DATE_BASIS_INVALID_RECOVERABLE: {metric_id} cannot be read on {asked}; "
                 f"{len(available)} bound alternative(s) offered"
+            ),
+            # Each option carries the basis it stands for, so a reply that
+            # names one resumes the question that was interrupted instead of
+            # being re-read as a fresh utterance — and so a lone survivor can
+            # simply be applied rather than asked about (round-3 R3-07).
+            bindings=tuple(
+                ClarificationBinding(
+                    option=option,
+                    kind="date_basis",
+                    metric_ids=(metric_id,),
+                    basis=basis.id,
+                )
+                for option, basis in zip(options, available, strict=True)
             ),
         )
 
@@ -618,6 +637,15 @@ class PlanValidationService:
                 f"GRAIN_INCOMPATIBLE_RECOVERABLE: {dimension_id} is not a scope dimension of "
                 f"{refused_label}; {total} pack metrics declare it, {len(offered)} offered"
             ),
+            bindings=tuple(
+                ClarificationBinding(
+                    option=option,
+                    kind="metric_cut",
+                    metric_ids=(contract.id,),
+                    dimension_ids=(dimension_id, *also),
+                )
+                for option, contract in zip(options, offered, strict=True)
+            ),
         )
 
     def _near_miss_dimension(self, dimension_id: str) -> ClarificationRequest | None:
@@ -702,7 +730,7 @@ class PlanValidationService:
             for predicate in self._top_level_predicates(probe.scope):
                 await self._resolve_predicate(node, predicate, watermark, corrections, warnings)
             if corrections:
-                scope = _map_predicates(probe.scope, lambda p: _corrected(p, corrections))
+                scope = map_predicates(probe.scope, lambda p: _corrected(p, corrections))
                 if scope != probe.scope:
                     nodes.append(replace(node, probe=replace(probe, scope=scope)))
                     changed = True
@@ -826,6 +854,14 @@ class PlanValidationService:
                 f"PREDICATE_VALUE_UNMATCHED: {dim.id} "
                 f"{[str(value) for value in unmatched]} not in the {len(domain)} values "
                 "this watermark holds"
+            ),
+            bindings=tuple(
+                ClarificationBinding(
+                    option=option,
+                    kind="predicate_value",
+                    scope=((dim.id, (option,)),),
+                )
+                for option in options
             ),
         )
 

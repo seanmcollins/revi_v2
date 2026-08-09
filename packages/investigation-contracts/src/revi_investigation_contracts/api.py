@@ -286,6 +286,44 @@ class ChartRow(ClosedModel):
     series: str | None = None
     value: str | int | float | None = None
     referent_id: str | None = None
+    #: True when ``value`` is an UPPER BOUND rather than a measurement —
+    #: a cell whose numerator was withheld by small-cell suppression and
+    #: replaced by the largest value it could have held (round-3 R3-01).
+    #: The engine computed this and published nothing, so 147 of 150 marks
+    #: on one chart were ceilings drawn identically to measurements, and
+    #: the ranking they implied was inverse panel size. A renderer must not
+    #: draw a bounded mark the way it draws a measured one.
+    is_bound: bool = False
+    #: The population the bound was taken over, so a reader can judge how
+    #: tight it is. ``None`` on a measured row.
+    bound_population: int | None = None
+    #: True when the point is not yet a settled measurement — a terminal
+    #: trend bucket that is calendar-partial or still adjudicating
+    #: (round-3 R3-06). "Up 5.5 points" on a month that was 23% adjudicated
+    #: is the claims run-out, plotted as deterioration.
+    provisional: bool = False
+
+
+class ChartSort(ClosedModel):
+    """The ordering the PLAN resolved for the rows below (round-3 R3-13).
+
+    The findings obey "best to worst" and the chart directly beneath them
+    was drawn alphabetically, because the ordering existed only inside the
+    plan — as an ``Ordering`` on the probe, as ``by``/``descending`` args
+    on a rank step, and as a ``{by}__rank`` column on a frame nothing
+    charts — and never reached the renderer. It is published here so the
+    chart and the sentence above it cannot disagree about which cell is
+    first.
+
+    ``by`` is a column name on the charted frame (a measure id, or a
+    dimension id when the ranking is over labels). ``direction`` is the
+    resolved sort, not the question's phrasing: "smallest increase" and
+    "best first" have already been resolved against the metric contract's
+    sign convention by the time this is written.
+    """
+
+    by: str
+    direction: Literal["asc", "desc"] = "desc"
 
 
 class ChartSpec(ClosedModel):
@@ -304,6 +342,10 @@ class ChartSpec(ClosedModel):
     rows: list[ChartRow] = Field(default_factory=list)
     annotations: list[str] = Field(default_factory=list)
     recipe_id: str | None = None
+    #: The plan's resolved ordering for these rows, when the plan resolved
+    #: one. ``None`` means nothing was ranked and the wire order is the
+    #: frame's own — which a renderer must not silently re-sort.
+    sort: ChartSort | None = None
 
 
 class ReferentPayload(ClosedModel):

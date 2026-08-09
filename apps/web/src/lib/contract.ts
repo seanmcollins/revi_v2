@@ -453,6 +453,162 @@ function isTemporalAxis(labels: readonly string[]): boolean {
   return labels.every((label) => TEMPORAL_LABEL.test(label) || MONTH_LABEL.test(label));
 }
 
+/**
+ * Is this x column an ORDINAL BUCKET axis — and if so, where does a label
+ * sit on it?
+ *
+ * The sibling problem to `isTemporalAxis`, and the same root cause: the
+ * wire does not say. A bucketed axis arrives as strings, so anything that
+ * sorts it sorts it lexicographically — which is how the unbilled-aging
+ * chart drew `120+` ($14.1M) in SECOND position, between `0-30` and
+ * `31-60`, and why the filing-runway profile was correct only by luck of
+ * emission order.
+ *
+ * Deliberately a SHAPE recognizer, not a list of known buckets: a pack that
+ * adds `0-15/16-45/46+` tomorrow gets the same ordering without a code
+ * change, and a hard-coded list would silently mis-order the first bucket
+ * nobody thought of. What is recognized is the shape of a numeric range or
+ * an open-ended edge:
+ *
+ *   `0-30`, `31–60`, `0 to 30`, `61-90 days`   → the range's LOWER bound
+ *   `90+`, `>90`, `over 90`, `120 or more`     → the number itself
+ *   `<30`, `under 30`, `up to 30`              → just below the number
+ *
+ * A label carrying no number at all (`expired`, `unbilled`, `no deadline`)
+ * is NOT given a position: inventing one would be this module deciding
+ * that "expired" means "less than zero days", which is a semantic the pack
+ * owns and the wire has not published. Such labels keep the slot the engine
+ * emitted them in — see `orderRowsByOrdinalBucket`.
+ */
+const BUCKET_RANGE = /^\D*?(-?\d+(?:\.\d+)?)\s*(?:-|–|—|\.\.|to)\s*(-?\d+(?:\.\d+)?)\b/i;
+const BUCKET_OPEN_UPPER =
+  /^\D*?(-?\d+(?:\.\d+)?)\s*\+|^(?:>=?|over|above|more than|at least|older than)\s*(-?\d+(?:\.\d+)?)\b|^(-?\d+(?:\.\d+)?)\s*(?:or more|and over|and above|plus)\b/i;
+const BUCKET_OPEN_LOWER =
+  /^(?:<=?|under|below|less than|up to|within|fewer than)\s*(-?\d+(?:\.\d+)?)\b/i;
+
+export function ordinalBucketKey(label: string): number | undefined {
+  const text = label.trim();
+  if (text === "") return undefined;
+  const lower = BUCKET_OPEN_LOWER.exec(text);
+  // "under 30" sorts just below the range that starts at 30, so a
+  // `<30 / 30-60` pair cannot tie.
+  if (lower?.[1] !== undefined) return Number(lower[1]) - 0.5;
+  const range = BUCKET_RANGE.exec(text);
+  if (range?.[1] !== undefined) return Number(range[1]);
+  const upper = BUCKET_OPEN_UPPER.exec(text);
+  if (upper !== null) {
+    const captured = upper[1] ?? upper[2] ?? upper[3];
+    if (captured !== undefined) return Number(captured);
+  }
+  return undefined;
+}
+
+/**
+ * True when the axis is bucketed rather than nominal: at least two labels
+ * carry a bucket position and no label is temporal (a month axis is
+ * already ordered, and `2026-02` would otherwise parse as a range).
+ */
+export function isOrdinalBucketAxis(labels: readonly string[]): boolean {
+  if (labels.length < 2) return false;
+  if (labels.some((label) => TEMPORAL_LABEL.test(label) || MONTH_LABEL.test(label))) return false;
+  return labels.filter((label) => ordinalBucketKey(label) !== undefined).length >= 2;
+}
+
+/**
+ * Order bucketed rows by their position on the axis, leaving un-positioned
+ * labels exactly where the engine put them.
+ *
+ * The positioned rows are sorted among themselves and re-seated into the
+ * slots they already occupied; a label with no number (`expired`) keeps its
+ * own slot. So the chart stops drawing `120+` in second place, and nothing
+ * here has to decide what "expired" means.
+ */
+function orderRowsByOrdinalBucket(rows: readonly ChartRow[], descending = false): ChartRow[] {
+  const slots: number[] = [];
+  const positioned: { row: ChartRow; key: number }[] = [];
+  rows.forEach((row, index) => {
+    const key = ordinalBucketKey(row.label);
+    if (key === undefined) return;
+    slots.push(index);
+    positioned.push({ row, key });
+  });
+  if (positioned.length < 2) return [...rows];
+  positioned.sort((a, b) => (descending ? b.key - a.key : a.key - b.key));
+  const out = [...rows];
+  slots.forEach((slot, i) => {
+    const entry = positioned[i];
+    if (entry !== undefined) out[slot] = entry.row;
+  });
+  return out;
+}
+
+/**
+ * The resolved ordering the payload carries, in whatever spelling it
+ * carries it.
+ *
+ * The engine's own vocabulary for this is `Ordering{by, descending}` on the
+ * probe (`revi_kernel.probes`), and the chart-spec half that publishes it is
+ * landing in a later batch — so this reads the shapes that half could
+ * plausibly take rather than one it has not committed to yet: a nested
+ * object, a bare column name with a sibling direction, a `-column` /
+ * `column_desc` string, or an array of orderings (first wins).
+ *
+ * Returns undefined when the payload says nothing about order — which is
+ * the case today, and which leaves the wire's own row order alone. This
+ * never invents a ranking; it only honours one that was published.
+ */
+export interface ChartSortHint {
+  by: string;
+  descending: boolean;
+}
+
+function directionOf(value: unknown, fallback: boolean): boolean {
+  if (typeof value === "boolean") return value;
+  if (typeof value === "string") {
+    const text = value.trim().toLowerCase();
+    if (text === "desc" || text === "descending" || text === "down") return true;
+    if (text === "asc" || text === "ascending" || text === "up") return false;
+  }
+  return fallback;
+}
+
+export function readChartSort(raw: UnknownRecord): ChartSortHint | undefined {
+  const candidates = [raw.sort, raw.order, raw.ordering, raw.order_by, raw.sort_by, raw.ranked_by];
+  for (const candidate of candidates) {
+    const entry = Array.isArray(candidate) ? candidate[0] : candidate;
+    if (isRecord(entry)) {
+      const by = asString(entry.by ?? entry.column ?? entry.field ?? entry.key ?? entry.measure);
+      if (by === "") continue;
+      return {
+        by,
+        descending: directionOf(
+          entry.descending ?? entry.desc ?? entry.direction ?? entry.order,
+          true,
+        ),
+      };
+    }
+    if (typeof entry === "string" && entry.trim() !== "") {
+      const text = entry.trim();
+      // "-denied_dollars" / "denied_dollars desc" / "denied_dollars_desc".
+      const leadingMinus = text.startsWith("-");
+      const stripped = leadingMinus ? text.slice(1) : text;
+      const suffix = /[\s_](asc|ascending|desc|descending)$/i.exec(stripped);
+      const by = suffix ? stripped.slice(0, suffix.index) : stripped;
+      if (by === "") continue;
+      return {
+        by,
+        descending: leadingMinus
+          ? true
+          : directionOf(
+              suffix?.[1] ?? raw.descending ?? raw.sort_direction ?? raw.direction,
+              true,
+            ),
+      };
+    }
+  }
+  return undefined;
+}
+
 /** "denied_dollars" → "Denied dollars"; "carc" → "CARC". */
 const COLUMN_ACRONYMS: Record<string, string> = {
   carc: "CARC",
@@ -825,6 +981,30 @@ export function mapChartSpec(
     const value = asNumber(entry.value);
     if (value !== undefined) row.values[key] = value * scale;
     if (typeof entry.referent_id === "string") row.referent = entry.referent_id;
+    // The suppression ceiling, read in whichever spelling arrives. The
+    // structured flag is a later batch's work (R3-01: `BoundedCell.bound`
+    // plus the population it was taken over); until it lands every branch
+    // below is simply false and nothing is claimed. When it lands, the CSV
+    // starts carrying `bound` and `denominator` with no further change —
+    // a bounded row is a ceiling, and an export of ceilings that does not
+    // say so is the one this product cannot ship.
+    const boundValue = asNumber(entry.bound ?? entry.upper_bound);
+    const bounded =
+      entry.bounded === true ||
+      entry.is_bound === true ||
+      entry.suppressed === true ||
+      entry.bound === true ||
+      boundValue !== undefined;
+    if (bounded) row.bounded = true;
+    if (boundValue !== undefined) row.bound = boundValue * scale;
+    const denominator = asNumber(
+      entry.denominator ?? entry.bound_population ?? entry.population ?? entry.n,
+    );
+    if (denominator !== undefined) row.denominator = denominator;
+    // A terminal bucket that is calendar-partial or still adjudicating is
+    // not a settled measurement, and a spreadsheet that presents it as one
+    // reports the claims run-out as deterioration.
+    if (entry.provisional === true) row.provisional = true;
     rowsByX.set(label, row);
   }
   if (seriesKeys.length === 0) seriesKeys.push(valueColumn);
@@ -849,7 +1029,8 @@ export function mapChartSpec(
   // an already-decided line, which is current-vs-prior over time and
   // exactly right.
   const declared = CHART_KIND_BY_WIRE[wireType] ?? "bar";
-  const temporal = isTemporalAxis(rows.map((row) => row.label));
+  const labels = rows.map((row) => row.label);
+  const temporal = isTemporalAxis(labels);
   const kind: ChartSpec["kind"] =
     declared === "line"
       ? temporal
@@ -859,9 +1040,68 @@ export function mapChartSpec(
         ? "line"
         : declared;
 
+  /*
+   * ORDER. Three rules, in this order, and a stated basis for each — the
+   * chart sits directly under findings that read "best to worst", and an
+   * axis that disagrees with the sentence above it is the answer arguing
+   * with itself.
+   *
+   *   1. A temporal axis is already ordered; nothing here touches it.
+   *      Sorting a month axis by value would delete the trend it draws.
+   *   2. A resolved ordering published on the payload wins. `by` is
+   *      matched against the value column, the x column and the series
+   *      keys — an ordering naming a measure this chart does not carry is
+   *      not honoured, because guessing which column was meant is how a
+   *      "ranked" chart ends up ranked on the wrong thing.
+   *   3. Failing that, a bucketed axis is ordered by its buckets. That is
+   *      not a ranking, it is the axis's own scale, and lexicographic
+   *      order on it is simply wrong (`120+` between `0-30` and `31-60`).
+   *
+   * With none of those, the engine's emission order stands. Nominal
+   * categories are NOT sorted by value on a hunch: the wire has not said
+   * the question was a ranking, and a chart that re-ranks itself would
+   * contradict a findings list ordered by something else.
+   */
+  const sort = readChartSort(raw);
+  const ordinal = isOrdinalBucketAxis(labels);
+  let ordered = rows;
+  let order: ChartSpec["order"] = { basis: "wire" };
+  if (!temporal) {
+    const sortsOnValue =
+      sort !== undefined &&
+      (sort.by === valueColumn || sort.by === "value" || seriesKeys.includes(sort.by));
+    const sortsOnLabel =
+      sort !== undefined && (sort.by === xColumn || sort.by === "x" || sort.by === "label");
+    if (sortsOnValue) {
+      const key = seriesKeys.includes(sort.by) ? sort.by : (seriesKeys[0] ?? valueColumn);
+      const at = (row: ChartRow): number => row.values[key] ?? Number.NEGATIVE_INFINITY;
+      ordered = [...rows].sort((a, b) => (sort.descending ? at(b) - at(a) : at(a) - at(b)));
+      order = { basis: "value", by: key, descending: sort.descending };
+    } else if (sortsOnLabel && ordinal) {
+      // "Order by the bucket column, ascending" means up the SCALE, not up
+      // the alphabet — which is the whole of this bug on the runway chart.
+      ordered = orderRowsByOrdinalBucket(rows, sort.descending);
+      order = { basis: "ordinal-bucket", by: sort.by, descending: sort.descending };
+    } else if (sortsOnLabel) {
+      ordered = [...rows].sort((a, b) =>
+        sort.descending ? b.label.localeCompare(a.label) : a.label.localeCompare(b.label),
+      );
+      order = { basis: "label", by: sort.by, descending: sort.descending };
+    } else if (ordinal) {
+      ordered = orderRowsByOrdinalBucket(rows);
+      order = { basis: "ordinal-bucket" };
+    }
+  }
+
   return {
     id: asString(raw.id),
     kind,
+    // A declared composition draws as one. `stacked_bar` was mapped to
+    // `grouped_bar` and the renderer never set a stackId, so six plan
+    // shares of one runway bucket drew as six competing bars — a
+    // comparison the frame never claimed.
+    ...(wireType === "stacked_bar" && kind !== "line" ? { stacked: true } : {}),
+    order,
     wireChartType: wireType,
     frameId: asString(raw.frame_id) || undefined,
     // The chart names the same measure the finding above it does, so it
@@ -881,7 +1121,7 @@ export function mapChartSpec(
       label: seriesColumn === null ? valueColumn : key,
       role: index === 0 ? "current" : "baseline",
     })),
-    rows,
+    rows: ordered,
     ...(asArray(raw.annotations).length > 0
       ? { highlightLabel: String(asArray(raw.annotations)[0]) }
       : {}),
@@ -965,7 +1205,14 @@ export function selectRenderableCharts(specs: readonly ChartSpec[]): ChartSpec[]
       rows,
       series: [
         ...base.series,
-        { key: baselineKey, label: baselineKey === "prior" ? "prior" : "comparison", role: "baseline" },
+        {
+          key: baselineKey,
+          label: baselineKey === "prior" ? "prior" : "comparison",
+          role: "baseline",
+          // Never folded into a rollup: it is the other half of the
+          // comparison this chart's title promises.
+          pinned: true,
+        },
       ],
     });
   }
@@ -978,6 +1225,113 @@ export function selectRenderableCharts(specs: readonly ChartSpec[]): ChartSpec[]
     out.push(resolved);
   }
   return out;
+}
+
+/* ------------------------------------------------------------------ */
+/* How many series one chart can actually say (R3-13)                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The categorical palette has eight fixed slots, so eight is the number of
+ * series a chart may DRAW. Seven entities plus the rollup when there are
+ * more — a ninth hue is never generated (see `globals.css`).
+ */
+export const MAX_DRAWN_SERIES = 8;
+
+/** Key and label of the folded-together tail. */
+export const OTHERS_SERIES_KEY = "__others";
+
+export interface CappedChart {
+  /** The spec to draw. Identical to the input when nothing was capped. */
+  spec: ChartSpec;
+  /** How many series are not drawn under their own name. */
+  hiddenSeries: number;
+  /** True when the hidden series were SUMMED into the rollup mark. */
+  rolledUp: boolean;
+  /** The sentence the figure has to print when either of the above is true. */
+  note?: string;
+}
+
+/**
+ * Cap a chart's series, and say so.
+ *
+ * Twenty CARC codes and thirty plan names were being drawn in two colours,
+ * which is not a legend problem — it is a chart that cannot be read at all.
+ * The fix is not more hues (the palette's slot order IS its CVD safety):
+ * it is to draw the largest few and fold the rest into one honest mark.
+ *
+ * The tail is SUMMED only when the measure is additive. Dollars and counts
+ * add up; a percentage or a day-count does not, and a bar labelled "+13
+ * others" holding the sum of thirteen rates would be a number nobody
+ * computed. On those units the tail is dropped and named instead.
+ *
+ * Survivors keep their WIRE ORDER, not their rank, so the colour a series
+ * wears does not change when the chart gains or loses a row.
+ *
+ * The returned spec is for DRAWING only. Every caller that exports keeps
+ * the original — the CSV carries all thirty series, because an export that
+ * silently matched the picture would drop rows the analyst came for.
+ */
+export function capChartSeries(spec: ChartSpec, max: number = MAX_DRAWN_SERIES): CappedChart {
+  if (spec.series.length <= max) return { spec, hiddenSeries: 0, rolledUp: false };
+
+  const total = (key: string): number =>
+    spec.rows.reduce((sum, row) => sum + Math.abs(row.values[key] ?? 0), 0);
+  // Pinned series are kept whatever their size — a comparison chart that
+  // dropped its prior period would still be titled as a comparison.
+  const pinned = spec.series.filter((s) => s.pinned === true);
+  const ranked = [...spec.series]
+    .filter((s) => s.pinned !== true)
+    .sort((a, b) => total(b.key) - total(a.key));
+  const keptKeys = new Set([
+    ...pinned.map((s) => s.key),
+    ...ranked.slice(0, Math.max(0, max - 1 - pinned.length)).map((s) => s.key),
+  ]);
+  const kept = spec.series.filter((s) => keptKeys.has(s.key));
+  const hiddenKeys = spec.series.filter((s) => !keptKeys.has(s.key)).map((s) => s.key);
+  const hiddenSeries = hiddenKeys.length;
+  const additive = spec.unit === "cents" || spec.unit === "count";
+
+  if (!additive) {
+    return {
+      spec: { ...spec, series: kept, rows: spec.rows.map((row) => ({ ...row })) },
+      hiddenSeries,
+      rolledUp: false,
+      note: `showing the ${kept.length} largest of ${spec.series.length} series — ${hiddenSeries} more are in the CSV (they are not summed here: ${spec.unit === "percent" ? "percentages" : "day counts"} do not add up)`,
+    };
+  }
+
+  const rows: ChartRow[] = spec.rows.map((row) => {
+    let sum: number | undefined;
+    for (const key of hiddenKeys) {
+      const value = row.values[key];
+      if (value === undefined) continue;
+      sum = (sum ?? 0) + value;
+    }
+    const values: Record<string, number> = {};
+    for (const series of kept) {
+      const value = row.values[series.key];
+      if (value !== undefined) values[series.key] = value;
+    }
+    // A row with nothing in the tail gets NO rollup value — never a zero
+    // the engine did not publish.
+    if (sum !== undefined) values[OTHERS_SERIES_KEY] = sum;
+    return { ...row, values };
+  });
+
+  return {
+    spec: {
+      ...spec,
+      rows,
+      series: [
+        ...kept,
+        { key: OTHERS_SERIES_KEY, label: `+${hiddenSeries} others`, role: "baseline" },
+      ],
+    },
+    hiddenSeries,
+    rolledUp: true,
+    note: `showing the ${kept.length} largest of ${spec.series.length} series; the other ${hiddenSeries} are combined into “+${hiddenSeries} others” — each one is a separate column in the CSV`,
+  };
 }
 
 export function mapContextHeader(raw: unknown, pin: WirePin): ContextHeaderData | null {

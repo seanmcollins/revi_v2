@@ -44,6 +44,7 @@ nothing to refine.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
@@ -89,7 +90,12 @@ from revi_investigation.domain.context import (
     InvestigationContext,
 )
 from revi_investigation.domain.records import Session
-from revi_investigation.domain.turns import ClarificationRequest, TurnClass, TurnClassification
+from revi_investigation.domain.turns import (
+    ClarificationBinding,
+    ClarificationRequest,
+    TurnClass,
+    TurnClassification,
+)
 from revi_investigation_contracts.api import TypedInvestigationSpec
 from revi_investigation_contracts.refinements import (
     AbsoluteWindowModel,
@@ -199,6 +205,157 @@ def data_range_phrase(watermark: DataWatermark) -> str:
 
 def absolute_label(window: AbsoluteRange) -> str:
     return f"{window.start.isoformat()}..{window.end.isoformat()}"
+
+
+#: Relative period vocabulary the resolver understands directly, mapped to
+#: the closed kernel shape it resolves to (round-3 R3-16).
+#:
+#: "What should my denial team work first THIS WEEK to recover the most
+#: cash?" and "what is at risk in the NEXT 30 DAYS" both came back with
+#: ``window_assumed: the question named no period`` — a false statement
+#: about the analyst's own sentence, printed directly under it, over a
+#: silent widening of a 7-day horizon to a 31-day month. Everything here is
+#: anchored on the newest data date, exactly like "June 2026".
+_RELATIVE_WINDOW_VOCABULARY: tuple[tuple[str, str, RelativeRange | None], ...] = (
+    ("week to date", "week to date", RelativeRange(Decimal(1), TimeUnit.WEEK, RangeMode.TO_DATE)),
+    ("wtd", "WTD", RelativeRange(Decimal(1), TimeUnit.WEEK, RangeMode.TO_DATE)),
+    ("this week", "this week", RelativeRange(Decimal(1), TimeUnit.WEEK, RangeMode.TO_DATE)),
+    ("last week", "last week", RelativeRange(Decimal(1), TimeUnit.WEEK, RangeMode.FULL_PERIODS)),
+    ("month to date", "month to date", RelativeRange(Decimal(1), TimeUnit.MONTH, RangeMode.TO_DATE)),
+    ("mtd", "MTD", RelativeRange(Decimal(1), TimeUnit.MONTH, RangeMode.TO_DATE)),
+    ("this month", "this month", RelativeRange(Decimal(1), TimeUnit.MONTH, RangeMode.TO_DATE)),
+    ("last month", "last month", RelativeRange(Decimal(1), TimeUnit.MONTH, RangeMode.FULL_PERIODS)),
+    ("quarter to date", "quarter to date", RelativeRange(Decimal(1), TimeUnit.QUARTER, RangeMode.TO_DATE)),
+    ("qtd", "QTD", RelativeRange(Decimal(1), TimeUnit.QUARTER, RangeMode.TO_DATE)),
+    ("this quarter", "this quarter", RelativeRange(Decimal(1), TimeUnit.QUARTER, RangeMode.TO_DATE)),
+    ("year to date", "year to date", RelativeRange(Decimal(1), TimeUnit.YEAR, RangeMode.TO_DATE)),
+    ("ytd", "YTD", RelativeRange(Decimal(1), TimeUnit.YEAR, RangeMode.TO_DATE)),
+    ("today", "today", RelativeRange(Decimal(1), TimeUnit.DAY, RangeMode.TO_DATE)),
+    ("yesterday", "yesterday", RelativeRange(Decimal(1), TimeUnit.DAY, RangeMode.FULL_PERIODS)),
+)
+
+#: ``last 30 days`` / ``trailing 6 months`` / ``past 2 weeks``.
+_TRAILING_PHRASE = re.compile(
+    r"\b(?:last|past|trailing|previous|prior)\s+(\d{1,3})\s+(day|week|month|quarter|year)s?\b",
+    re.IGNORECASE,
+)
+
+#: ``next 30 days`` / ``coming 2 weeks`` — a horizon for WORK, not a
+#: measurement window. There is no data after the newest data date and
+#: pretending a month of history answers it is the substitution R3-16 names.
+_FORWARD_PHRASE = re.compile(
+    r"\b(?:next|coming|upcoming|following)\s+(\d{1,3})\s+(day|week|month|quarter|year)s?\b",
+    re.IGNORECASE,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class RelativePeriod:
+    """A relative period the analyst named, as quoted and as resolved."""
+
+    #: Exactly what the analyst wrote, for quoting back to them.
+    quoted: str
+    #: ``None`` for a forward horizon: no window can measure it.
+    relative: RelativeRange | None
+    forward: bool = False
+
+
+def recognize_relative_period(question: str) -> RelativePeriod | None:
+    """The relative period this utterance names, if it names one.
+
+    Deterministic and closed-vocabulary — the model is asked for a window
+    first and this is what catches the phrases it drops. Nothing here reads
+    the question's *subject*; it reads time words, which is the same job
+    ``resolve_window`` already does for "June 2026".
+    """
+    text = question.lower()
+    forward = _FORWARD_PHRASE.search(question)
+    if forward is not None:
+        return RelativePeriod(quoted=forward.group(0), relative=None, forward=True)
+    trailing = _TRAILING_PHRASE.search(question)
+    if trailing is not None:
+        return RelativePeriod(
+            quoted=trailing.group(0),
+            relative=RelativeRange(
+                quantity=Decimal(trailing.group(1)),
+                unit=TimeUnit(trailing.group(2).lower()),
+                mode=RangeMode.TRAILING,
+            ),
+        )
+    for needle, label, relative in _RELATIVE_WINDOW_VOCABULARY:
+        if re.search(rf"(?<!\w){re.escape(needle)}(?!\w)", text):
+            return RelativePeriod(quoted=label, relative=relative)
+    return None
+
+
+#: The sizes an assertion can name, as a multiple of the prior level. A
+#: closed vocabulary of magnitude words, read off the utterance the same way
+#: the period vocabulary above is: "doubled" is not a direction, it is a
+#: quantity, and the premise check tested only the sign (round-3 R3-03).
+_MAGNITUDE_WORDS: tuple[tuple[str, Decimal], ...] = (
+    ("quadrupled", Decimal(4)),
+    ("tripled", Decimal(3)),
+    ("triple", Decimal(3)),
+    ("doubled", Decimal(2)),
+    ("double", Decimal(2)),
+    ("twice", Decimal(2)),
+    ("2x", Decimal(2)),
+    ("3x", Decimal(3)),
+    ("halved", Decimal("0.5")),
+    ("by half", Decimal("0.5")),
+    ("in half", Decimal("0.5")),
+)
+
+
+def asserted_multiple(question: str, direction_asserted: bool) -> Decimal | None:
+    """The size a question ASSERTS, when it asserts one.
+
+    Only meaningful alongside an asserted direction: "which payer doubled?"
+    is a query over cells, while "why did denials double?" is a premise
+    about the aggregate, and only the second is checked here.
+    """
+    if not direction_asserted:
+        return None
+    text = question.lower()
+    for word, multiple in _MAGNITUDE_WORDS:
+        if re.search(rf"(?<!\w){re.escape(word)}(?!\w)", text):
+            return multiple
+    return None
+
+
+#: What "all of them" means when the analyst does not name a number. Large
+#: enough to stop being a truncation on any real breakdown in this catalog,
+#: and still a bound: an unbounded answer is a different failure.
+FULL_RANKING_LIMIT = 100
+
+_EXPLICIT_LIMIT = re.compile(r"\b(?:top|first|bottom|worst|best)\s+(\d{1,3})\b", re.IGNORECASE)
+_COUNTED_ALL = re.compile(
+    r"\b(?:all|every|each)\b[^.?!]{0,40}?\b(\d{1,3})\b", re.IGNORECASE
+)
+_UNCOUNTED_ALL = re.compile(
+    r"\b(?:all of them|all twelve|every one|every single|full (?:ranking|list|breakdown)"
+    r"|complete (?:ranking|list|breakdown)|not just (?:the )?(?:top )?\w+)\b",
+    re.IGNORECASE,
+)
+
+
+def requested_finding_limit(question: str) -> int | None:
+    """How many rows the analyst asked to see, when they asked (R3-04).
+
+    ``top_n = 3`` was a constructor default nothing could lift, so "show me
+    all twelve payers, not just three" returned three findings, and "every
+    one of our 12 payers" returned three with no omission notice. A count
+    the question names is an instruction.
+    """
+    explicit = _EXPLICIT_LIMIT.search(question)
+    if explicit is not None:
+        return int(explicit.group(1))
+    counted = _COUNTED_ALL.search(question)
+    if counted is not None:
+        return int(counted.group(1))
+    if _UNCOUNTED_ALL.search(question):
+        return FULL_RANKING_LIMIT
+    return None
 
 
 def out_of_range_question(period_label: str, watermark: DataWatermark) -> str:
@@ -324,6 +481,20 @@ class PendingClarification:
     original_question: str | None = None
     #: How many clarifications this thread has issued back-to-back.
     streak: int = 0
+    #: The investigation that ASKED, so an answer can be parented to it.
+    #: Round-3 R3-07: the resolved turn was saved as a root node, leaving
+    #: the clarification and its own answer in two disconnected trees.
+    investigation_id: str | None = None
+    #: What each offered option means in governed ids. A reply that matches
+    #: one is resolved by lookup, not by re-reading it as language.
+    bindings: tuple[ClarificationBinding, ...] = ()
+
+    def binding_for(self, reply: str) -> ClarificationBinding | None:
+        wanted = " ".join(reply.split()).casefold().rstrip(".")
+        for binding in self.bindings:
+            if " ".join(binding.option.split()).casefold().rstrip(".") == wanted:
+                return binding
+        return None
 
 
 def render_pending_clarification(pending: PendingClarification | None) -> str:
@@ -570,7 +741,19 @@ class InterpretQuestionService:
         session: Session,
         turn_id: str,
         policy: LlmCallPolicy = DEFAULT_LLM_CALL_POLICY,
+        basis_override: str | None = None,
     ) -> InterpretationOutcome:
+        """Interpret one question against the pack, catalog and session.
+
+        ``basis_override`` forces the date basis this turn reads on, in
+        place of whatever the model proposes. It exists for exactly one
+        caller: a clarification the platform itself asked ("this metric
+        cannot be read on the submission basis here — which should I
+        use?"), being ANSWERED. The answer is a governed basis id the
+        platform offered, so re-running the analyst's original question
+        with it applied is a substitution, not a second interpretation
+        (round-3 R3-07).
+        """
         prompt = render_template(self._template.text, {**self._vocabulary(), "question": question})
         assert_safe_payload(prompt)
         result = await self._llm.structured(
@@ -609,8 +792,14 @@ class InterpretQuestionService:
                         "rejected_options": [o.label for o in parsed.clarification_options],
                     },
                 )
-            return self._clarify(parsed.clarification, "model requested clarification",
-                                 result.usage, template_hash, options=options)
+            return self._clarify(
+                parsed.clarification,
+                "model requested clarification",
+                result.usage,
+                template_hash,
+                options=options,
+                bindings=self._grounded_bindings(parsed.clarification_options),
+            )
 
         analytical = bool(parsed.metric_ids or parsed.playbook_id or parsed.dimension_ids)
         if parsed.definitional_terms and not analytical:
@@ -656,14 +845,48 @@ class InterpretQuestionService:
                 result.usage,
                 template_hash,
                 options=options,
+                bindings=self._grounded_bindings(parsed.clarification_options),
             )
         primary = governing[0]
 
-        basis = self._resolve_basis(parsed.basis, primary)
+        basis = self._resolve_basis(basis_override or parsed.basis, primary)
         window_explicit = parsed.window is not None
         window, period_label = self._interpreted_window(parsed.window, basis, session)
 
         notes: list[str] = []
+        # The model is asked for a window first; this catches the phrases it
+        # drops (round-3 R3-16). "This week" and "the next 30 days" were
+        # both answered with ``the question named no period``, printed under
+        # the analyst's own sentence, over a silent widening to a 31-day
+        # month.
+        relative_named: RelativePeriod | None = None
+        if not window_explicit:
+            relative_named = recognize_relative_period(question)
+        if relative_named is not None and relative_named.relative is not None:
+            anchor = window_anchor(session.watermark, relative_named.relative.mode)
+            window = resolve_window(relative_named.relative, anchor, basis=basis)
+            window_explicit = True
+            period_label = relative_named.quoted
+            notes.append(
+                f'window_relative: you said "{relative_named.quoted}", which resolves to '
+                f"{window.range.start.isoformat()}..{window.range.end.isoformat()} on the "
+                f"{basis.id} basis, anchored on the newest data date "
+                f"({session.watermark.newest_data_date.isoformat()})."
+            )
+        elif relative_named is not None and relative_named.forward:
+            # A horizon for WORK, not a measurement window. No data exists
+            # after the newest data date, and substituting a month of
+            # history for it silently answers a different question.
+            notes.append(
+                f'window_horizon: you said "{relative_named.quoted}", which names when the work '
+                f"happens rather than a period to measure — and this load ends "
+                f"{session.watermark.newest_data_date.isoformat()}, so there is no data after "
+                f"it. The figures below are read over "
+                f"{window.range.start.isoformat()}..{window.range.end.isoformat()}; the horizon "
+                "you named is applied to the runway of the population, not to the window."
+            )
+            window_explicit = True  # a period WAS named; do not claim otherwise
+            period_label = relative_named.quoted
         # A period the analyst NAMED is checked against the data this load
         # holds before anything is computed over it. Saying "the question
         # named no period" under a bubble containing the words "in January
@@ -678,13 +901,29 @@ class InterpretQuestionService:
                 template_hash,
                 options=in_range_options(session.watermark),
             )
-        if period_label is not None and coverage is Coverage.PARTIAL:
+        if coverage is Coverage.PARTIAL and window.range.end > session.watermark.newest_data_date:
+            # Round-3 R3-05: the warning was right and nothing acted on it.
+            # "Compare denied dollars in Q3 2026 to Q3 2025" published the
+            # REQUESTED window in the header, the finding title and the
+            # narrative — 92 days against 33 of data — and reported denials
+            # "down 56.9% year over year" when per-day they were UP ~20%.
+            # The comparison is derived from the window below, and the
+            # length gate reads it, so truncating HERE is what makes every
+            # downstream surface state the window that was actually read.
+            requested = window.range
+            effective = AbsoluteRange(
+                start=requested.start, end=session.watermark.newest_data_date
+            )
+            window = replace(window, range=effective)
+            named = f"you asked about {period_label}" if period_label else "the window requested"
             notes.append(
-                f"window_out_of_range: you asked about {period_label}, and this load only "
-                f"reaches {session.watermark.newest_data_date.isoformat()} — the figures below "
-                f"cover {window.range.start.isoformat()}.."
-                f"{min(window.range.end, session.watermark.newest_data_date).isoformat()}, "
-                "the part of that period the data actually holds."
+                f"window_out_of_range: {named}, and this load only reaches "
+                f"{session.watermark.newest_data_date.isoformat()} — so the EFFECTIVE window is "
+                f"{effective.start.isoformat()}..{effective.end.isoformat()} "
+                f"({effective.day_length} of the {requested.day_length} days named). Every "
+                "figure, the context header and any comparison below are computed over the "
+                "effective window; nothing here describes the part of the period that has not "
+                "landed."
             )
         scope = self._resolve_scope(parsed, turn_id, governing, notes)
         context = InvestigationContext(
@@ -721,6 +960,15 @@ class InterpretQuestionService:
             # AnalysisSpec.direction_asserted). Only meaningful with a
             # direction to assert.
             direction_asserted=bool(parsed.direction_asserted and parsed.direction),
+            # The SIZE the question asserted, so the premise check can test
+            # it — "doubled" is a claim about magnitude (R3-03).
+            asserted_multiple=asserted_multiple(question, parsed.direction_asserted),
+            # What the analyst called the period, so no later sentence has
+            # to assert that they named none (R3-16).
+            period_label=period_label,
+            # A count the question names is an instruction, not a
+            # suggestion (R3-04).
+            limit=requested_finding_limit(question),
         )
         if spec.direction_asserted and context.comparison is None:
             # A question that asserts a movement is asking about two
@@ -788,11 +1036,14 @@ class InterpretQuestionService:
         template_hash: str,
         *,
         options: tuple[str, ...] = (),
+        bindings: tuple[ClarificationBinding, ...] = (),
         failure: LlmFailureKind | None = None,
     ) -> InterpretationOutcome:
         return InterpretationOutcome(
             investigation=None,
-            clarification=ClarificationRequest(question=question, options=options, reason=reason),
+            clarification=ClarificationRequest(
+                question=question, options=options, reason=reason, bindings=bindings
+            ),
             definitional=None,
             usage=usage,
             template_hash=template_hash,
@@ -1088,6 +1339,36 @@ class InterpretQuestionService:
             f"filter_redundant: dropped the {dimension_id} filter {stated} — metric "
             f"{metric_id!r} already pins that population in its own definition, so the "
             "filter narrowed nothing and is not a cut this metric supports."
+        )
+
+    def _grounded_bindings(
+        self, options: Sequence[GroundedOptionModel]
+    ) -> tuple[ClarificationBinding, ...]:
+        """The surviving options' ids, carried onto the clarification.
+
+        Round-3 R3-17: the disposal below is deterministic and good, and it
+        was the LAST thing that looked at an option. Nothing downstream
+        could re-check one against the warehouse (which is where the phantom
+        facility lived — an OPEN dimension has no declared ``value_domain``,
+        so ``_option_resolves`` skipped its values entirely), and nothing
+        could dry-run one against the planner. Both of those happen in the
+        turn engine, which has the watermark and the planner; they need the
+        ids, and this is where the ids still exist.
+        """
+        return tuple(
+            ClarificationBinding(
+                option=" ".join(option.label.split()),
+                kind="grounded_option",
+                metric_ids=tuple(option.metric_ids),
+                dimension_ids=tuple(option.dimension_ids),
+                playbook_id=option.playbook_id,
+                scope=tuple(
+                    (entry.dimension, tuple(str(value) for value in entry.values))
+                    for entry in option.scope
+                ),
+            )
+            for option in options
+            if self._option_resolves(option)
         )
 
     def _grounded_options(

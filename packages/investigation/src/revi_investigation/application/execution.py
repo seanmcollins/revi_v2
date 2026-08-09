@@ -72,6 +72,9 @@ from revi_kernel.grades import EvidenceGrade
 from revi_kernel.refs import DimensionRef, MetricRef
 from revi_kernel.watermark import DataWatermark
 
+#: How many bounded cells the disclosure names before it summarises.
+_MAX_NAMED_BOUNDS = 8
+
 _NUMERATOR_SUFFIX = "__num"
 _DENOMINATOR_SUFFIX = "__den"
 _COUNT_UNIT = "count"
@@ -83,6 +86,15 @@ class BoundedCell:
 
     Carries what a reader needs to judge the answer: which cell, which
     metric, the population the bound is taken over, and the bound itself.
+
+    ``row_index`` is what makes the bound *addressable*. Round-3 R3-01: the
+    bound was computed here and then existed only inside one warning
+    sentence, while the frame published ``(threshold - 1) / population`` as
+    a measured point value — so "Dr. Casey Quarry (143): 45.5% denial rate"
+    reached findings, charts, rankings and CSV at grade ``direct`` and
+    confidence ``high`` over a figure that is 10/22. The row index lets
+    every downstream consumer ask "is THIS cell a measurement?" instead of
+    reading prose.
     """
 
     #: Dimension values identifying the row ("Federal Medicare"), in
@@ -95,31 +107,97 @@ class BoundedCell:
     population: int
     #: The tight upper bound on the ratio: ``(threshold - 1) / population``.
     bound: Decimal
+    #: Position of the bounded row in the frame it was derived from.
+    row_index: int = -1
 
 
-def bounded_cells_warning(cells: Sequence[BoundedCell], threshold: int) -> str | None:
+@dataclass(frozen=True, slots=True)
+class SuppressionCensus:
+    """How many cells a frame has, and what the policy did to each.
+
+    Computed once, at frame level, because the alternative was letting the
+    narrator derive it — and it derived "the three payers named here are
+    only part of a fifteen-cell set in which several cells were withheld"
+    over 12 payer cells of which zero were withheld (round-3 R3-18). Three
+    surfaces (narrative, chart annotation, probe metadata) published three
+    different numbers for one control.
+
+    A *cell* here is a row: the unit the reader counts. ``suppressed_cells``
+    on the frame counts nulled VALUES, several per row, which is why it can
+    never be quoted as a population.
+    """
+
+    #: Rows in the frame — every cell the answer is about.
+    total: int
+    #: Rows carrying an upper bound on at least one measure.
+    bounded: int
+    #: Rows whose every measure was nulled by the small-population rule.
+    withheld: int
+
+    @property
+    def measured(self) -> int:
+        return max(self.total - self.bounded - self.withheld, 0)
+
+    def as_payload(self) -> dict[str, int]:
+        return {
+            "total_cells": self.total,
+            "bounded_cells": self.bounded,
+            "withheld_cells": self.withheld,
+            "measured_cells": self.measured,
+        }
+
+
+def bounded_cells_warning(
+    cells: Sequence[BoundedCell],
+    threshold: int,
+    *,
+    census: SuppressionCensus | None = None,
+) -> str | None:
     """The sentence a bounded answer owes its reader, or ``None``.
 
-    Says the two things a bound is useless without: that the figure is an
-    upper bound rather than a measurement, and which cells it applies to —
-    because a ranking that silently mixes measured and bounded values is
-    exactly as misleading as one that drops the bounded rows.
+    Says the three things a bound is useless without: that the figure is an
+    upper bound rather than a measurement, which cells it applies to, and
+    what is left over — because a ranking that silently mixes measured and
+    bounded values is exactly as misleading as one that drops the bounded
+    rows.
+
+    Two sentences of the previous wording were false and are gone (R3-02).
+    "Every other figure here is measured" was published on a frame where
+    147 of 150 values were bounds and the remaining 3 were zeros; and the
+    count was stated without the withheld cells beside it, so a reader
+    adding the two disclosures got a population that does not exist. When a
+    :class:`SuppressionCensus` is supplied the arithmetic is stated from it
+    and nothing is claimed about cells the census does not cover.
     """
     if not cells:
         return None
+    ordered = sorted(cells, key=lambda c: (c.metric_id, c.label))
+    shown = ordered[:_MAX_NAMED_BOUNDS]
     named = "; ".join(
         f"{cell.label or 'the whole population'} "
         f"({metric_label(cell.metric_id)} ≤ {ratio_pct(cell.bound)} "
         f"over {cell.population:,} entities)"
-        for cell in sorted(cells, key=lambda c: (c.metric_id, c.label))
+        for cell in shown
     )
+    if len(ordered) > len(shown):
+        # Naming every bounded cell put 147 parenthesised figures into one
+        # mandatory disclosure — a sentence nobody finishes is a disclosure
+        # nobody reads. The full set is on the frame and in the chart.
+        named += f"; and {len(ordered) - len(shown)} more, each shown as a bound in the chart"
     noun = "cell" if len(cells) == 1 else "cells"
+    if census is not None:
+        arithmetic = (
+            f" Of {census.total} cell(s) on this answer, {census.bounded} carry an upper bound, "
+            f"{census.withheld} were withheld outright and {census.measured} are measured."
+        )
+    else:
+        arithmetic = ""
     return (
         f"suppression_bounded: {len(cells)} {noun} had fewer than {threshold} entities in the "
         "numerator over a population large enough to publish. Rather than withhold them — which "
         "removes the best-performing cells from a ranking and says nothing — each is shown as an "
         f"UPPER BOUND of at most {threshold - 1} over its own population: {named}. The true "
-        "figure is at or below the bound; every other figure here is measured."
+        f"figure is at or below the bound and is NOT a measurement.{arithmetic}"
     )
 
 
@@ -171,7 +249,7 @@ def bounded_cells_of(frame: EvidenceFrame, threshold: int) -> tuple[BoundedCell,
     dimension_idx = [
         i for i, col in enumerate(frame.schema.columns) if isinstance(col.ref, DimensionRef)
     ]
-    for row in frame.rows:
+    for row_index, row in enumerate(frame.rows):
         for i, (metric_id, den) in numerators.items():
             numerator, population = row[i], row[den]
             if not _is_count(numerator) or not _is_count(population):
@@ -187,9 +265,53 @@ def bounded_cells_of(frame: EvidenceFrame, threshold: int) -> tuple[BoundedCell,
                     metric_id=metric_id,
                     population=population,
                     bound=Decimal(threshold - 1) / Decimal(population),
+                    row_index=row_index,
                 )
             )
     return tuple(cells)
+
+
+def bound_index(frame: EvidenceFrame, threshold: int) -> dict[int, dict[str, BoundedCell]]:
+    """``{row index: {metric id: bound}}`` for a post-policy frame.
+
+    The addressable form of :func:`bounded_cells_of`, so a findings or
+    chart row can ask whether the value it is about to publish is a
+    measurement without re-deriving the policy. Derived structurally from
+    the frame's own ``__num``/``__den`` columns, which every kernel
+    operator carries forward (``ratio`` and ``rank`` append; they never
+    drop), so it works the same on a probe frame and on a ranked one.
+    """
+    index: dict[int, dict[str, BoundedCell]] = {}
+    for cell in bounded_cells_of(frame, threshold):
+        if cell.row_index < 0:  # pragma: no cover - always set by bounded_cells_of
+            continue
+        index.setdefault(cell.row_index, {})[cell.metric_id] = cell
+    return index
+
+
+def suppression_census(frame: EvidenceFrame, threshold: int) -> SuppressionCensus:
+    """Count this frame's cells once: total, bounded, withheld.
+
+    See :class:`SuppressionCensus`. A withheld row is one whose every
+    measure came back NULL — what the small-population branch of
+    :func:`apply_small_cell_suppression` leaves behind. Rows that were
+    simply empty at source are not withheld, so a frame with no
+    ``suppressed_cells`` reports zero however many NULLs it holds.
+    """
+    measure_idx = [
+        i for i, col in enumerate(frame.schema.columns) if isinstance(col.ref, MetricRef)
+    ]
+    bounded_rows = set(bound_index(frame, threshold))
+    withheld = 0
+    if frame.suppressed_cells and measure_idx:
+        withheld = sum(
+            1
+            for i, row in enumerate(frame.rows)
+            if i not in bounded_rows and all(row[j] is None for j in measure_idx)
+        )
+    return SuppressionCensus(
+        total=len(frame.rows), bounded=len(bounded_rows), withheld=withheld
+    )
 
 
 def _is_count(value: Scalar) -> bool:

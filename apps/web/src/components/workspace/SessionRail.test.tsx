@@ -256,11 +256,37 @@ describe("SessionRail — archiving a session off the list", () => {
     // Nothing has happened yet — the confirm is a real gate.
     expect(archiveSession).not.toHaveBeenCalled();
     const body = document.body.textContent ?? "";
-    expect(body).toMatch(/Its answers are kept and it stays reachable by link/);
+    expect(body).toMatch(/Its answers are kept and it stays reachable at its link/);
     // The word "delete" must not appear over an operation that deletes
     // nothing; the row is what goes.
     expect(body).not.toMatch(/delete/i);
     expect(body).not.toMatch(/permanent/i);
+  });
+
+  /*
+   * The dialog promised a link for a release in which no per-session URL
+   * existed anywhere in the product. Now `/s/{session_id}` does, and the
+   * promise is not asked to be taken on faith: the confirm hands the link
+   * over, before the row it belongs to leaves the list.
+   */
+  it("hands over the link it promises, before the row goes", async () => {
+    const archiveSession = vi.fn().mockResolvedValue(undefined);
+    useSessionStore.getState().setDriver(archivingDriver(archiveSession));
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    Object.defineProperty(navigator, "clipboard", {
+      value: { writeText },
+      configurable: true,
+    });
+    renderRail();
+    await screen.findByText("COB investigation");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Archive Why did cash decline last week?" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: /Copy this session's link/ }));
+
+    expect(writeText).toHaveBeenCalledWith(expect.stringContaining("/s/sess_a"));
+    expect(archiveSession).not.toHaveBeenCalled();
   });
 
   it("keeps the row when the confirm is declined", async () => {
@@ -372,5 +398,74 @@ describe("SessionRail — the mock fixture has no sessions and says so", () => {
     await waitFor(() =>
       expect(screen.queryByText("Simulate a newer data load")).not.toBeInTheDocument(),
     );
+  });
+});
+
+/**
+ * The rail at real scale.
+ *
+ * The live tenant has 219 sessions and this list reads 50 of them, with no
+ * search, no archived view and no date grouping — so finding last
+ * Tuesday's investigation meant scrolling a wall of one-line titles. This
+ * is the minimum viable slice: a filter over the rows already loaded,
+ * which is honest about being exactly that.
+ */
+describe("SessionRail — finding a session in a long list", () => {
+  beforeEach(() => {
+    useSessionStore.getState().reset();
+    useSessionStore.setState({
+      driver: null,
+      sessions: [],
+      sessionsTotal: 0,
+      sessionsState: "idle",
+      sessionsError: null,
+      switchingSessionId: null,
+      switchError: null,
+      connection: { mode: "api", state: "online" },
+    });
+  });
+
+  afterEach(() => cleanup());
+
+  const manyRows = Array.from({ length: 9 }, (_, i) =>
+    row({ sessionId: `sess_${i}`, title: i === 4 ? "COB investigation" : `Cash question ${i}` }),
+  );
+
+  it("offers no filter box while the list is short enough to read", async () => {
+    useSessionStore
+      .getState()
+      .setDriver(listingDriver({ sessions: [row()], total: 1 }));
+    renderRail();
+    await screen.findByText("Why did cash decline last week?");
+
+    expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+  });
+
+  it("filters the loaded rows by title", async () => {
+    useSessionStore
+      .getState()
+      .setDriver(listingDriver({ sessions: manyRows, total: 219 }));
+    renderRail();
+    await screen.findByText("COB investigation");
+
+    await userEvent.type(screen.getByRole("searchbox"), "cob");
+
+    expect(screen.getByText("COB investigation")).toBeInTheDocument();
+    expect(screen.queryByText("Cash question 3")).not.toBeInTheDocument();
+  });
+
+  it("says which population it searched when nothing matches", async () => {
+    useSessionStore
+      .getState()
+      .setDriver(listingDriver({ sessions: manyRows, total: 219 }));
+    renderRail();
+    await screen.findByText("COB investigation");
+
+    await userEvent.type(screen.getByRole("searchbox"), "zzz");
+
+    // Never "no sessions match": this read 9 of the tenant's 219.
+    const body = document.body.textContent ?? "";
+    expect(body).toMatch(/Nothing in the 9 sessions loaded here matches/);
+    expect(body).toMatch(/this tenant has 219 in all/);
   });
 });

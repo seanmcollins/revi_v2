@@ -649,6 +649,27 @@
       "ChartRow": {
         "additionalProperties": false,
         "properties": {
+          "bound_population": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Bound Population"
+          },
+          "is_bound": {
+            "default": false,
+            "title": "Is Bound",
+            "type": "boolean"
+          },
+          "provisional": {
+            "default": false,
+            "title": "Provisional",
+            "type": "boolean"
+          },
           "referent_id": {
             "anyOf": [
               {
@@ -697,6 +718,30 @@
           "x"
         ],
         "title": "ChartRow",
+        "type": "object"
+      },
+      "ChartSort": {
+        "additionalProperties": false,
+        "description": "The ordering the PLAN resolved for the rows below (round-3 R3-13).\n\nThe findings obey \"best to worst\" and the chart directly beneath them\nwas drawn alphabetically, because the ordering existed only inside the\nplan \u2014 as an ``Ordering`` on the probe, as ``by``/``descending`` args\non a rank step, and as a ``{by}__rank`` column on a frame nothing\ncharts \u2014 and never reached the renderer. It is published here so the\nchart and the sentence above it cannot disagree about which cell is\nfirst.\n\n``by`` is a column name on the charted frame (a measure id, or a\ndimension id when the ranking is over labels). ``direction`` is the\nresolved sort, not the question's phrasing: \"smallest increase\" and\n\"best first\" have already been resolved against the metric contract's\nsign convention by the time this is written.",
+        "properties": {
+          "by": {
+            "title": "By",
+            "type": "string"
+          },
+          "direction": {
+            "default": "desc",
+            "enum": [
+              "asc",
+              "desc"
+            ],
+            "title": "Direction",
+            "type": "string"
+          }
+        },
+        "required": [
+          "by"
+        ],
+        "title": "ChartSort",
         "type": "object"
       },
       "ChartSpec": {
@@ -764,6 +809,16 @@
               }
             ],
             "title": "Series"
+          },
+          "sort": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ChartSort"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "title": {
             "title": "Title",

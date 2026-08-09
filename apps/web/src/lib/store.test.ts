@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { TurnDriver } from "@/lib/driver";
+import { investigationLinkFor, sessionLinkFor } from "@/lib/links";
 import { REFERENCE_QUESTIONS, REFERENCE_TURNS } from "@/lib/mock/reference";
 import { chunkNarrative, MockDriver } from "@/lib/mockDriver";
 import {
@@ -703,6 +704,83 @@ describe("session list + switching", () => {
 
     expect(useSessionStore.getState().switchError).toMatch(/cannot re-open/i);
     expect(useSessionStore.getState().sessionId).toBe("sess_current");
+  });
+
+  /*
+   * `/i/{investigation_id}`. A turn read outside its conversation has lost
+   * the filters, the cohort and the referents that made its numbers mean
+   * what they mean, so the link resolves to the session that produced it
+   * (`InvestigationResponse.session_id`) and opens that.
+   */
+  it("opens the session an investigation link names", async () => {
+    const resumeSession = vi.fn().mockResolvedValue({
+      sessionId: "sess_other",
+      watermark: { id: "wm_9", loadedAt: "2026-08-08 04:00", newestDataDate: "2026-08-07" },
+      pack: { packId: "base-rcm", version: "1.0.0" },
+      turns: [],
+    });
+    const sessionForInvestigation = vi.fn().mockResolvedValue("sess_other");
+    useSessionStore.getState().setDriver({
+      submit: vi.fn(),
+      newSession: vi.fn(),
+      listSessions: vi.fn().mockResolvedValue({ sessions: [], total: 0 }),
+      resumeSession,
+      sessionForInvestigation,
+    });
+
+    await useSessionStore.getState().openInvestigation("inv_b8267d9b585a");
+
+    expect(sessionForInvestigation).toHaveBeenCalledWith("inv_b8267d9b585a");
+    expect(resumeSession).toHaveBeenCalledWith("sess_other");
+    expect(useSessionStore.getState().sessionId).toBe("sess_other");
+  });
+
+  it("names the failure when an investigation link cannot be resolved", async () => {
+    useSessionStore.getState().setDriver({
+      submit: vi.fn(),
+      newSession: vi.fn(),
+      resumeSession: vi.fn(),
+      sessionForInvestigation: vi.fn().mockRejectedValue(new Error("HTTP 404")),
+    });
+
+    await useSessionStore.getState().openInvestigation("inv_gone");
+
+    expect(useSessionStore.getState().switchError).toBe("HTTP 404");
+  });
+
+  it("says so when the driver cannot resolve investigation links at all", async () => {
+    useSessionStore.getState().setDriver(new MockDriver(0));
+
+    await useSessionStore.getState().openInvestigation("inv_1");
+
+    expect(useSessionStore.getState().switchError).toMatch(/cannot open an investigation link/i);
+  });
+});
+
+/**
+ * The permalinks themselves. There was no per-session URL anywhere in the
+ * product while the archive dialog promised in writing that a session
+ * "stays reachable by link" — these are the strings that make the promise
+ * true.
+ */
+describe("permalinks", () => {
+  it("builds a session link an id with URL-unsafe characters cannot break", () => {
+    expect(sessionLinkFor("sess_a", "https://revi.example.com")).toBe(
+      "https://revi.example.com/s/sess_a",
+    );
+    // A trailing slash on the origin must not double up.
+    expect(sessionLinkFor("sess_a", "https://revi.example.com/")).toBe(
+      "https://revi.example.com/s/sess_a",
+    );
+    expect(sessionLinkFor("a b/c", "http://localhost:3000")).toBe(
+      "http://localhost:3000/s/a%20b%2Fc",
+    );
+  });
+
+  it("builds an investigation link the same way", () => {
+    expect(investigationLinkFor("inv_1", "https://revi.example.com")).toBe(
+      "https://revi.example.com/i/inv_1",
+    );
   });
 });
 

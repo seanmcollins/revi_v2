@@ -28,7 +28,11 @@ from revi_api.metric_display import MetricDisplayRules
 from revi_api.metric_provenance import build_metric_provenance
 from revi_api.warning_codes import structured_warnings
 from revi_api.wiring import ApiComponents
-from revi_api.worklist import worklist_warning
+from revi_api.worklist import (
+    worklist_first_action,
+    worklist_lead_warning,
+    worklist_warning,
+)
 from revi_investigation.application.capability_ports import BenchmarkSpec
 from revi_investigation.application.llm.guard import assert_safe_payload
 from revi_investigation.application.ports import (
@@ -446,8 +450,28 @@ async def restored_chart_specs(
             recipes=components.recipes,
             playbook_id=playbook_id,
             row_referents=row_referents,
+            suppression_threshold=components.catalog.suppression.threshold,
+            # The plan is gone by restore time; the ordering it resolved was
+            # recorded with it, so a re-opened turn's charts sort the way the
+            # live ones did instead of falling back to frame order (R3-13).
+            sorts=chart_sorts_from_trace(trace),
         )
     )
+
+
+def chart_sorts_from_trace(trace: TraceRecord | None) -> dict[str, tuple[str, bool]]:
+    """``{frame id: (column, descending)}`` off a recorded plan context."""
+    if trace is None:
+        return {}
+    raw = (trace.payload.get("plan_context") or {}).get("chart_sorts") or ()
+    out: dict[str, tuple[str, bool]] = {}
+    for entry in raw:
+        if not isinstance(entry, Mapping):
+            continue
+        frame_id, by = entry.get("frame_id"), entry.get("by")
+        if isinstance(frame_id, str) and isinstance(by, str) and by:
+            out[frame_id] = (by, bool(entry.get("descending", True)))
+    return out
 
 
 def _usage_from_trace(trace: TraceRecord | None) -> UsageSummary:
@@ -578,6 +602,7 @@ async def _compose_narrative(
     spent: Decimal = Decimal(0),
     usage_out: list[LlmUsage] | None = None,
     anomaly_reconciliation: AnomalyReconciliationPayload | None = None,
+    worklist: WorklistPayload | None = None,
 ) -> str | None:
     """Compose the answer's prose, and report what it cost.
 
@@ -592,6 +617,18 @@ async def _compose_narrative(
     header = outcome.header
     lead, trail = _narrative_disclosures(outcome, warnings, anomaly_reconciliation)
     disclosures = [*lead, *trail]
+    if not findings and worklist is not None and worklist.items:
+        # The worklist IS the answer and its statement is already composed —
+        # deterministically, from the build, naming the formula, the lanes,
+        # the top card and the recoverable total (round-3 R3-09/R3-10). A
+        # turn that carries it and no findings used to publish
+        # ``narrative: null`` beside a fully-populated ranked list, so the
+        # client wrote "No findings for this question" over the answer.
+        # Nothing is generated here and no model is called.
+        stated = " ".join([*lead, worklist.statement, *trail])
+        if on_event is not None:
+            await on_event("narrative_delta", {"delta": stated})
+        return stated
     if header is None or not findings:
         # A turn with nothing to publish is exactly the turn whose reader
         # most needs a sentence. ``narrative: null`` shipped beside
@@ -692,6 +729,10 @@ async def _compose_narrative(
         # Published verbatim above the composer's text, so if the composer
         # restates one it must validate rather than be cut.
         disclosures=disclosures,
+        # On a turn that routed to the worklist, no prose instruction may
+        # name a first action other than the ranked list's own rank 1
+        # (R3-10): two orderings on one card, and only one was asked for.
+        worklist_first_action=worklist_first_action(worklist),
     )
     validation = validate_narrative(provisional, facts)
     warnings.extend(validation.warnings)
@@ -832,6 +873,13 @@ async def assemble_turn_response(
             recipes=components.recipes,
             playbook_id=playbook_id,
             row_referents=row_referents,
+            suppression_threshold=components.catalog.suppression.threshold,
+            # The ordering the plan resolved (R3-13): the findings obey it
+            # and the chart under them used to be drawn in frame order.
+            sorts={
+                frame_id: (by, descending)
+                for frame_id, by, descending in outcome.chart_sorts
+            },
         )
     )
     if on_event is not None:
@@ -845,6 +893,13 @@ async def assemble_turn_response(
         # a reader must be told that the ranked cards beside them are the
         # detection feed's work rather than this answer's evidence.
         warnings.append(worklist_warning(worklist))
+        # …and when the worklist ROUTED, it does not sit beside the answer,
+        # it IS the answer, and it leads (R3-10). Prepended rather than
+        # appended so it is the first thing in the warning order the lead
+        # disclosures are composed from.
+        leads = worklist_lead_warning(worklist)
+        if leads is not None:
+            warnings.insert(0, leads)
     if outcome.emptiness is not None:
         # An empty result is a first-class fact, not a blank card: say which
         # kind of nothing this was and, for an empty population, which
@@ -865,6 +920,9 @@ async def assemble_turn_response(
         spent=Decimal(usage.cost_usd),
         usage_out=narrative_usage,
         anomaly_reconciliation=anomaly_reconciliation,
+        # No prose instruction may name a first action other than the ranked
+        # worklist's own rank 1, on a turn that routed to it (R3-10).
+        worklist=worklist,
     )
     # The last model call of the turn, folded in after it ran. Everything
     # else was summed from the trace the engine wrote before this stage

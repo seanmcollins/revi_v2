@@ -40,9 +40,73 @@ class TurnClassification:
 
 
 @dataclass(frozen=True, slots=True)
+class ClarificationBinding:
+    """What one clarification option MEANS, in governed ids.
+
+    An option used to be a sentence, and a sentence resolves against
+    nothing: tapping it re-entered the reply as free text to be classified
+    and interpreted all over again. Live (round-3 R3-07), a reply sent on
+    the dedicated ``clarification_response`` channel — byte-for-byte an
+    option the platform had just offered — came back classified
+    ``refinement`` at confidence 0.45, as a ROOT investigation, asking a
+    different question; the analyst's original question was gone.
+
+    So an option the platform authored carries the ids it would use. The
+    reply is then resolved by *matching*, not by re-reading: an exact match
+    is the analyst choosing a thing the platform already named, and the
+    engine applies that thing to the question it interrupted.
+
+    The same structure is what makes an option checkable. Round-3 R3-17:
+    the value-existence guard covered dimensions with a DECLARED domain and
+    silently skipped the open ones, so "Summit Peak is a facility" was
+    offered over a warehouse holding six facilities, none of them that.
+
+    ``kind`` is the closed set of things an option can bind:
+
+    * ``date_basis`` — read the metric on ``basis`` instead;
+    * ``metric_cut`` — measure ``metric_ids`` broken out by
+      ``dimension_ids``;
+    * ``predicate_value`` — the analyst meant these ``scope`` values;
+    * ``grounded_option`` — a model-authored alternative, grounded in pack
+      and catalog ids (see the interpretation schema's
+      ``GroundedOptionModel``).
+    """
+
+    option: str
+    kind: str
+    metric_ids: tuple[str, ...] = ()
+    dimension_ids: tuple[str, ...] = ()
+    playbook_id: str | None = None
+    #: ``(dimension id, values)`` the option would filter to.
+    scope: tuple[tuple[str, tuple[str, ...]], ...] = ()
+    basis: str | None = None
+
+    @property
+    def deterministic(self) -> bool:
+        """Can this option be APPLIED without asking anything further?
+
+        Only the bindings the platform derived itself from governed content
+        — never a model's proposal, which is a suggestion and stays one.
+        """
+        return self.kind in ("date_basis", "metric_cut")
+
+
+@dataclass(frozen=True, slots=True)
 class ClarificationRequest:
     """A first-class successful outcome, not an error (design §2.8, §12)."""
 
     question: str
     options: tuple[str, ...] = ()
     reason: str | None = None
+    #: What each option means, for the options the platform can say it for.
+    #: Positionally independent of ``options`` — matched by ``option`` text
+    #: — so dropping an option never silently rebinds another.
+    bindings: tuple[ClarificationBinding, ...] = ()
+
+    def binding_for(self, option: str) -> ClarificationBinding | None:
+        """The binding for an option string, matched as the analyst sent it."""
+        wanted = " ".join(option.split()).casefold().rstrip(".")
+        for binding in self.bindings:
+            if " ".join(binding.option.split()).casefold().rstrip(".") == wanted:
+                return binding
+        return None

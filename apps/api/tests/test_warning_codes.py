@@ -82,6 +82,13 @@ FAMILIES: list[tuple[str, str, str]] = [
         "Answering the original question with that applied.",
     ),
     (
+        "DIMENSION_REPOINTED",
+        "caution",
+        "dimension_repointed: this drill of ANM-013 does not read the cut the detector "
+        "fired on: the governed contract declares no legal cut at proc_group, so the "
+        "platform repointed it (proc_group → primary_proc_group).",
+    ),
+    (
         "NARRATIVE_REDACTED",
         "info",
         "narrative sentence redacted: names 'Federal Medicare General Surgery', which is "
@@ -154,6 +161,14 @@ FAMILIES: list[tuple[str, str, str]] = [
         "against a windowed flow)",
     ),
     (
+        "WORKLIST_LEADS",
+        "caution",
+        "worklist_leads: this question routed to the governed concept "
+        "'work_prioritization', so the ranked worklist below IS the answer and the "
+        "measurements on this answer are context beside it. Start with ANM-021 — DNFB "
+        "accumulation — $178,216.82.",
+    ),
+    (
         "WORKLIST_ATTACHED",
         "info",
         "worklist_attached: this answer also carries the ranked anomaly worklist (8 of 33 "
@@ -185,6 +200,56 @@ FAMILIES: list[tuple[str, str, str]] = [
         "caution",
         "empty_result: every probe returned zero rows — predicates in play: "
         "payer in [UnitedHealthcare, Aetna]",
+    ),
+    (
+        "PREMISE_VERIFIED",
+        "info",
+        "premise_verified: denied dollars did move the way the question assumes — "
+        "up $115,039.03 (+4.2%) over this window",
+    ),
+    (
+        "RANKING_REFUSED",
+        "caution",
+        "ranking_refused: 147 of the 147 publishable denial rate cells in this cut "
+        "carry an upper bound rather than a measurement, leaving 0 measured, so no "
+        "ranking is published",
+    ),
+    (
+        "BOUNDED_CELLS_UNRANKED",
+        "caution",
+        "bounded_cells_unranked: 4 cells report upper bounds and sit outside the "
+        "ranking: Veritas Comp Fund (\u2264 9.0% over 111 entities) and 3 more",
+    ),
+    (
+        "ADJUDICATION_INCOMPLETE",
+        "caution",
+        "adjudication_incomplete: the terminal bucket 2026-07 is RIGHT-CENSORED — it "
+        "was computed over 1,544 adjudicated records against a series median of 6,050 "
+        "(25.5%), so its point is provisional",
+    ),
+    (
+        "FINDINGS_TRUNCATED",
+        "caution",
+        "findings_truncated: 3 of 147 computed cells are published as findings; the "
+        "ordering was computed over the full population",
+    ),
+    (
+        "WINDOW_RELATIVE",
+        "info",
+        "window_relative: you said \"this week\", which resolves to "
+        "2026-07-27..2026-08-02 — anchored on the newest data date",
+    ),
+    (
+        "WINDOW_HORIZON",
+        "caution",
+        "window_horizon: \"the next 30 days\" names a future period — this data ends "
+        "2026-08-02 and holds no future activity to measure",
+    ),
+    (
+        "NAMED_CUT_APPLIED",
+        "info",
+        "named_cut_applied: the question names 'filing_runway_bucket', so a probe "
+        "cut by it was added and leads the findings",
     ),
     (
         "PREMISE_FALSE",

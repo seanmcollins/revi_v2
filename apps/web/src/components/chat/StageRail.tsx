@@ -176,6 +176,16 @@ interface RailNode {
 function StageNode({ node }: { node: RailNode }) {
   return (
     <span
+      /*
+       * The step the pipeline is ON is the only one that changes, so it is
+       * the only one that speaks: `role="status"` makes each transition a
+       * polite announcement ("Checking the numbers"), which over a 26–60
+       * second turn is the difference between a product that is working
+       * and a product that has hung. The finished and pending steps stay
+       * silent — announcing eight of them would be noise, and the summary
+       * line after the turn already says how many ran.
+       */
+      {...(node.state === "active" ? { role: "status" } : {})}
       className={cn(
         "inline-flex h-5 items-center gap-1 rounded-full px-1.5 text-[0.65rem] transition-all duration-200",
         node.state === "done" && "text-secondary-foreground",

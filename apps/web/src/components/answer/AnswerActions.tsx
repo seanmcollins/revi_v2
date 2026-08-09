@@ -121,6 +121,7 @@ export function DownloadCsvButton({
   title,
   filenameKind,
   filenameTag,
+  watermark,
   csv,
   className,
 }: {
@@ -129,6 +130,13 @@ export function DownloadCsvButton({
   title: string;
   filenameKind: string;
   filenameTag?: string;
+  /**
+   * The data load the rows were measured at. It goes in the FILENAME:
+   * two exports of the same chart at different watermarks are different
+   * documents, and one that overwrites the other in a downloads folder is
+   * a silent revision of yesterday's number.
+   */
+  watermark?: string;
   csv: () => string;
   className?: string;
 }) {
@@ -140,7 +148,11 @@ export function DownloadCsvButton({
       title={title}
       className={className}
       onRun={() => {
-        downloadTextFile(exportFilename(filenameKind, filenameTag, "csv"), "text/csv", csv());
+        downloadTextFile(
+          exportFilename(filenameKind, filenameTag, "csv", watermark),
+          "text/csv",
+          csv(),
+        );
         return true;
       }}
     />

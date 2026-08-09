@@ -95,6 +95,7 @@ Every compare row is also registered as a dimension-value referent
 from __future__ import annotations
 
 from dataclasses import dataclass
+from datetime import date, timedelta
 from decimal import Decimal
 
 from revi_calculation_contracts.contract import SignConvention
@@ -105,6 +106,12 @@ from revi_investigation.application.calculation_glue import (
 )
 from revi_investigation.application.capability_ports import PackPort, PlaybookSpec
 from revi_investigation.application.comparison import ComparisonRendering, render_comparison
+from revi_investigation.application.execution import (
+    BoundedCell,
+    SuppressionCensus,
+    bound_index,
+    suppression_census,
+)
 from revi_investigation.application.gestures import suggested_refinements_for
 from revi_investigation.application.planning import InvestigationPlan
 from revi_investigation.application.ports import ReferentRegistryStore, RegisteredReferent
@@ -143,6 +150,10 @@ from revi_kernel.refs import (
 )
 
 _TIME_BUCKET_PREFIX = "time_bucket:"
+
+#: The adapter's ratio-denominator column suffix (``denial_rate__den``).
+#: Read here to judge whether a series' terminal bucket has settled.
+_DENOMINATOR_SUFFIX = "__den"
 
 #: Node-id prefix of the premise-verification probe (see
 #: ``BuildInvestigationPlanService.PREMISE_PREFIX``). Compared as a string
@@ -187,6 +198,57 @@ def _period_paren(spec: AnalysisSpec, pack: PackPort, measure: str, frame: Evide
 _PRIOR_SUFFIX = "__prior"
 _QUALIFIED_GRADES = (EvidenceGrade.PROXY, EvidenceGrade.DISCOVERY, EvidenceGrade.UNAVAILABLE)
 
+#: Share of a ranking frame's published cells that may carry an upper bound
+#: before the ranking itself stops meaning anything (round-3 R3-02).
+#:
+#: "Rank our rendering providers by denial rate, worst first" published 150
+#: values of which 147 were exactly ``(threshold - 1) / n``: the sort key
+#: was the panel size, inverted, and the answer's first sentence was "Dr.
+#: Casey Quarry ranks #1 by denial rate (worst first, as asked)". Past this
+#: share there is no measured population left to rank, and the honest
+#: answer is the population arithmetic rather than an order.
+MAX_BOUNDED_SHARE_FOR_RANKING = 0.5
+
+#: How far the movement a question ASSERTS may fall short of the movement
+#: that happened before the premise is refuted (round-3 R3-03).
+#:
+#: ``holds`` tested direction alone, so "why did denials double?" over a
+#: +4.2% move was scored TRUE, the verdict was discarded, and the narrative
+#: opened on a 243% sub-cell. A doubling is a claim about size: an actual
+#: change smaller than this fraction of the asserted one did not happen,
+#: whatever its sign.
+PREMISE_MAGNITUDE_TOLERANCE = Decimal("0.5")
+
+
+def _bound_values(measure: str, bound: BoundedCell | None) -> list[tuple[str, Scalar]]:
+    """The bound, as named values on the finding rather than as prose.
+
+    Three additive names, so every consumer — card, chart, CSV, replay —
+    can ask the same question the title now answers: is this a measurement
+    (``__is_bound`` absent or false), what is the ceiling, and how big was
+    the population it was taken over.
+    """
+    if bound is None:
+        return []
+    return [
+        (f"{measure}__is_bound", True),
+        (f"{measure}__bound", bound.bound),
+        (f"{measure}__bound_population", bound.population),
+    ]
+
+
+def bound_text(value: Scalar, unit: str | None, *, bounded: bool) -> str:
+    """A published figure, with the ``≤`` a suppressed numerator earns it.
+
+    The single place a bound becomes visible prose. Round-3 R3-01: the
+    engine computed the ceiling and then rendered it through the ordinary
+    value formatter, so every title, statement, chart label and export cell
+    said "45.5% denial rate" about 10/22 — the ``≤`` existed only inside a
+    warning string nobody's screenshot contained.
+    """
+    text = format_value(value, unit)
+    return f"≤ {text}" if bounded else text
+
 #: Units whose totals scale with the length of the window they are measured
 #: over. A length-mismatched comparison distorts these and leaves a rate
 #: alone, which is why the mismatch caveat is applied per unit rather than
@@ -212,6 +274,96 @@ class FindingsResult:
     #: "there is plenty here and none of it is notable" are different
     #: answers, and publishing both as silence made them the same one.
     emptiness: EmptinessFact | None = None
+
+
+def _with_premise(
+    result: FindingsResult, premise: tuple[Finding, RegisteredReferent, str] | None
+) -> FindingsResult:
+    """Put the premise verdict at the head of a non-movement result.
+
+    The verdict is registered before the branch runs, so the branch's own
+    findings are already numbered from F2 — this only splices the published
+    objects back into the order the reader sees them in.
+    """
+    if premise is None:
+        return result
+    finding, referent, warning = premise
+    return FindingsResult(
+        findings=(finding, *result.findings),
+        referents=(referent, *result.referents),
+        warnings=(warning, *result.warnings),
+        # A premise verdict IS a finding, so a turn carrying one is never
+        # empty however little the rest of the plan found.
+        emptiness=None,
+    )
+
+
+def _declared_bucket_order(
+    plan: InvestigationPlan | None, shape: ConcentrationShape
+) -> tuple[str, ...] | None:
+    """The catalog's declared order for this cut, when it is an ordinal one."""
+    if plan is None or len(shape.dimension_columns) != 1:
+        return None
+    return plan.bucket_order(shape.dimension_columns[0])
+
+
+def _unranked_bounds_warning(
+    *,
+    bounded_count: int,
+    measured_count: int,
+    total: int,
+    measure: str,
+    unrankable: bool,
+    order: object | None,
+) -> str:
+    """What a ranking owes a reader once some of its cells are ceilings.
+
+    Round-3 R3-02, and the population arithmetic R3-18 asked for in the
+    same breath: the counts are computed once, here, from the frame the
+    findings were selected from, so the narrative cannot invent a different
+    denominator for them.
+    """
+    label = metric_label(measure)
+    noun = "cell" if bounded_count == 1 else "cells"
+    if unrankable:
+        return (
+            f"ranking_refused: {bounded_count} of the {total} publishable {label} {noun} on this "
+            f"answer carry an upper bound rather than a measurement, leaving {measured_count} "
+            "measured, so no ranking is published. Ordering ceilings against measurements sorts "
+            "by population size, not by the measure that was asked about. The bounded cells are "
+            "listed separately, each with the population its bound was taken over."
+        )
+    asked = " (the order you asked for applies to the measured cells only)" if order else ""
+    return (
+        f"bounded_cells_unranked: {bounded_count} of {total} {label} {noun} had a suppressed "
+        f"numerator and are published as upper bounds in their own block, unranked{asked}. The "
+        f"ranking above covers the {measured_count} measured {'cell' if measured_count == 1 else 'cells'} "
+        "only — a ceiling has no position in an order it was never measured for."
+    )
+
+
+def _truncation_warning(served: int, computed: int, spec: AnalysisSpec) -> str | None:
+    """What a truncated finding list owes its reader (round-3 R3-04).
+
+    Live, "show me all twelve payers, not just three" and "every one of our
+    12 payers" both returned three findings with no omission notice, and
+    the same turn's evidence panel read ``rows: 12, limit: null, truncated:
+    false``. The narrative then called a 4.4% to 15.0% spread "roughly three
+    percentage points … a tight band" over the three it could see.
+    """
+    if computed <= served:
+        return None
+    asked = (
+        " The limit you asked for could not be met by the rows this turn computed."
+        if spec.limit is not None and spec.limit > served
+        else ""
+    )
+    return (
+        f"findings_truncated: {served} of {computed} computed cells are published as findings; "
+        f"the remaining {computed - served} are in the chart and the evidence frame but carry "
+        "no finding. Superlatives and spread statements on this answer describe the published "
+        f"slice, not the full population.{asked}"
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -506,6 +658,154 @@ class TrendShape:
         return self.unit == _MONEY_UNIT
 
 
+#: How small a terminal bucket's own denominator may be, as a fraction of
+#: the series median, before the point it produces is a data-maturity
+#: artifact rather than a measurement (round-3 R3-06).
+#:
+#: Live: adjudicated denominators 6,049 / 6,133 / 5,723 / 1,544 across
+#: 2026-01..2026-07. The July point was computed on 25% of the median panel
+#: — the fastest-adjudicating quarter of the month, which skews heavily to
+#: denials — and published as "up 5.5 points", ``direct``, ``high``, with an
+#: ACA benchmark attached. "Are denials getting worse" answered confidently
+#: backwards.
+TERMINAL_BUCKET_MIN_SHARE = Decimal("0.6")
+
+
+@dataclass(frozen=True, slots=True)
+class TerminalCensoring:
+    """A trend's last bucket, and why it cannot close the series."""
+
+    bucket: str
+    #: The bucket's own population, and the series median, when the frame
+    #: carries a denominator to read them off.
+    population: int | None
+    median_population: int | None
+    reason: str
+    warning: str
+
+
+def _median(values: list[int]) -> int:
+    ordered = sorted(values)
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[middle]
+    return (ordered[middle - 1] + ordered[middle]) // 2
+
+
+def _bucket_end(bucket: Scalar, noun: str) -> date | None:
+    """The last calendar day the bucket covers, when it can be derived."""
+    text = str(bucket)
+    try:
+        start = date.fromisoformat(text[:10]) if len(text) >= 10 else None
+        if start is None and noun == "month" and len(text) >= 7:
+            start = date(int(text[:4]), int(text[5:7]), 1)
+    except ValueError:
+        return None
+    if start is None:
+        return None
+    if noun == "day":
+        return start
+    if noun == "week":
+        return start + timedelta(days=6)
+    if noun == "month":
+        return date(start.year + start.month // 12, start.month % 12 + 1, 1) - timedelta(days=1)
+    if noun == "quarter":
+        end_month = ((start.month - 1) // 3 + 1) * 3
+        return date(
+            start.year + end_month // 12, end_month % 12 + 1, 1
+        ) - timedelta(days=1)
+    if noun == "year":
+        return date(start.year, 12, 31)
+    return None
+
+
+def terminal_bucket_censoring(
+    shape: TrendShape, spec: AnalysisSpec
+) -> TerminalCensoring | None:
+    """Is this series' last point a measurement, or an artifact of maturity?
+
+    Two independent tests, both read off material the turn already holds:
+
+    * **Calendar-partial** — the bucket extends past the newest data date,
+      so it covers fewer days than every bucket before it. ``2026-08`` on a
+      load ending ``2026-08-02`` is two days of a month, and it was plotted
+      unannotated beside eleven full ones.
+    * **Right-censored** — the bucket's own adjudicated denominator is a
+      fraction of the series median. The claims exist; they have not
+      settled. The engine holds both counts and said neither.
+    """
+    frame = shape.frame
+    schema = frame.schema
+    if shape.bucket_column not in schema.names or len(frame.rows) < 3:
+        return None
+    idx_bucket = schema.index_of(shape.bucket_column)
+    idx_value = schema.index_of(shape.measure)
+    rows = sorted(
+        (row for row in frame.rows if _as_number(row[idx_value]) is not None),
+        key=lambda row: str(row[idx_bucket]),
+    )
+    if len(rows) < 3:
+        return None
+    noun = _bucket_noun(frame, shape.bucket_column)
+    terminal = rows[-1]
+    bucket_label = _bucket_text(terminal[idx_bucket], noun)
+    newest = frame.watermark.newest_data_date
+
+    covered = _bucket_end(terminal[idx_bucket], noun)
+    if covered is not None and covered > newest:
+        reason = (
+            f"the {noun} runs to {covered.isoformat()} and this load ends "
+            f"{newest.isoformat()}, so the bucket holds only part of its own period."
+        )
+        return TerminalCensoring(
+            bucket=bucket_label,
+            population=None,
+            median_population=None,
+            reason=reason,
+            warning=(
+                f"adjudication_incomplete: the last point of this series ({bucket_label}) is a "
+                f"PARTIAL {noun} — {reason} It is published as provisional and excluded from the "
+                "first-to-last movement, the high and the low; a series that terminates on a "
+                "partial bucket reports the calendar, not the business."
+            ),
+        )
+
+    denominator = f"{shape.measure}{_DENOMINATOR_SUFFIX}"
+    if denominator not in schema.names:
+        return None
+    idx_den = schema.index_of(denominator)
+    populations = [
+        value for row in rows if (value := _as_int(row[idx_den])) is not None and value > 0
+    ]
+    if len(populations) < 3:
+        return None
+    terminal_population = _as_int(terminal[idx_den])
+    if terminal_population is None or terminal_population <= 0:
+        return None
+    median = _median(populations[:-1])
+    if median <= 0 or Decimal(terminal_population) >= TERMINAL_BUCKET_MIN_SHARE * Decimal(median):
+        return None
+    share = Decimal(terminal_population) / Decimal(median)
+    reason = (
+        f"it was computed over {terminal_population:,} adjudicated records against a series "
+        f"median of {median:,} ({ratio_pct(share)} of it), so the {noun} is still settling and "
+        "the records that have settled are not a random sample of it."
+    )
+    return TerminalCensoring(
+        bucket=bucket_label,
+        population=terminal_population,
+        median_population=median,
+        reason=reason,
+        warning=(
+            f"adjudication_incomplete: the last point of this series ({bucket_label}) is "
+            f"RIGHT-CENSORED — {reason} It is published as provisional and excluded from the "
+            "first-to-last movement, the high and the low. A rise that terminates on an "
+            "incompletely adjudicated bucket is a data-maturity artifact until that bucket "
+            "matures."
+        ),
+    )
+
+
 def find_trend_shapes(
     plan: InvestigationPlan, calculation: CalculationResult
 ) -> tuple[TrendShape, ...]:
@@ -624,6 +924,13 @@ class PremiseCheck:
     delta: Decimal
     pct: Scalar
     holds: bool
+    #: The size the question asserted, when it asserted one (2 for
+    #: "doubled"). Carried so the verdict sentence can say what was claimed
+    #: as well as what happened.
+    asserted_multiple: Decimal | None = None
+    #: Set when the direction matched and the SIZE did not — the case that
+    #: used to score as holding and publish nothing (R3-03).
+    magnitude_short: bool = False
 
     @property
     def is_money(self) -> bool:
@@ -674,18 +981,48 @@ def verify_premise(
         if wanted is None:
             continue
         pct_col = f"{measure}__pct_change"
+        current = row[frame.schema.index_of(measure)]
+        prior = row[frame.schema.index_of(f"{measure}__prior")]
+        directional = (delta > 0) if wanted > 0 else (delta < 0)
+        # Direction is necessary and not sufficient. "Doubled" asserts a
+        # SIZE, and +4.2% is not it: the movement has to reach a governed
+        # fraction of what was claimed before the claim is confirmed.
+        short = False
+        if directional and spec.asserted_multiple is not None:
+            short = _magnitude_short(prior, current, spec.asserted_multiple)
         return PremiseCheck(
             frame_id=step.id,
             frame=frame,
             measure=measure,
             unit=_unit_of(frame, measure),
-            current=row[frame.schema.index_of(measure)],
-            prior=row[frame.schema.index_of(f"{measure}__prior")],
+            current=current,
+            prior=prior,
             delta=delta,
             pct=row[frame.schema.index_of(pct_col)] if pct_col in frame.schema.names else None,
-            holds=(delta > 0) if wanted > 0 else (delta < 0),
+            holds=directional and not short,
+            asserted_multiple=spec.asserted_multiple,
+            magnitude_short=short,
         )
     return None
+
+
+def _magnitude_short(prior: Scalar, current: Scalar, asserted: Decimal) -> bool:
+    """Did the movement fall short of the size the question asserted?
+
+    Compared as *changes* rather than as levels, so the same rule reads
+    "doubled" (asserted change +1.0) and "halved" (asserted change -0.5).
+    An unmeasurable base (a zero or suppressed prior) refutes nothing: an
+    unverifiable premise is not a false one.
+    """
+    prior_value = _as_number(prior)
+    current_value = _as_number(current)
+    if prior_value is None or current_value is None or prior_value == 0:
+        return False
+    actual = Decimal(current_value) / Decimal(prior_value)
+    asserted_change = abs(asserted - Decimal(1))
+    if asserted_change == 0:
+        return False
+    return abs(actual - Decimal(1)) < PREMISE_MAGNITUDE_TOLERANCE * asserted_change
 
 
 def _bucket_noun(frame: EvidenceFrame, column: str) -> str:
@@ -725,6 +1062,66 @@ def _premise_sentence(premise: PremiseCheck, phrase: str) -> str:
     )
 
 
+#: How a multiple reads in English. A closed table, because the sentence
+#: that refutes a question has to use the question's own word for the size
+#: it asserted ("they did not DOUBLE"), and inventing one is how a
+#: correction stops being recognisable as an answer.
+_MULTIPLE_WORDS: tuple[tuple[Decimal, str, str], ...] = (
+    (Decimal(2), "a doubling", "double"),
+    (Decimal(3), "a tripling", "triple"),
+    (Decimal(4), "a quadrupling", "quadruple"),
+    (Decimal("0.5"), "a halving", "halve"),
+)
+
+
+def _asserted_claim(spec: AnalysisSpec) -> tuple[str, str]:
+    """``(noun phrase, verb)`` for the movement the question asserted."""
+    assert spec.direction is not None
+    multiple = spec.asserted_multiple
+    if multiple is not None:
+        for value, noun, verb in _MULTIPLE_WORDS:
+            if value == multiple:
+                return noun, verb
+        return f"a {multiple.normalize()}x movement", f"move {multiple.normalize()}x"
+    noun = f"a{'n' if spec.direction.value[0] in 'aeiou' else ''} {spec.direction.value}"
+    return noun, spec.direction.value
+
+
+def premise_verdict_sentence(
+    premise: PremiseCheck, spec: AnalysisSpec, *, comparison: ComparisonRendering | None
+) -> str:
+    """What the question assumed, and what the aggregate did — deterministic.
+
+    Round-3 R3-03. This sentence is composed here, from the premise probe's
+    own figures and the interpretation's closed ``direction`` set, and never
+    by a model: it is the answer's first claim on every turn that states a
+    movement, and a first claim a composer may decline to write is not a
+    first claim. No phrasing of the original question appears in it,
+    because none of it was parsed.
+    """
+    noun, verb = _asserted_claim(spec)
+    label = metric_label(premise.measure)
+    phrase = comparison.phrase if comparison is not None else "vs the prior period"
+    figures = (
+        f"{format_value(premise.prior, premise.unit)} → "
+        f"{format_value(premise.current, premise.unit)}"
+    )
+    pct = f", {ratio_pct(premise.pct)}" if isinstance(premise.pct, Decimal) else ""
+    if premise.holds:
+        return (
+            f"You asked about {noun} in {label}. It happened: {figures}{pct} {phrase}"
+        )
+    if premise.magnitude_short:
+        return (
+            f"You asked about {noun} in {label}. It did not {verb}: {figures}{pct} {phrase}"
+        )
+    moved = "fell" if premise.delta < 0 else ("rose" if premise.delta > 0 else "did not move")
+    return (
+        f"You asked about {noun} in {label}. It did not happen — {label} {moved} "
+        f"{magnitude(premise.delta, premise.unit)}{pct} {phrase}: {figures}"
+    )
+
+
 def _premise_warning(
     premise: PremiseCheck, spec: AnalysisSpec, *, comparison: ComparisonRendering | None
 ) -> str:
@@ -736,12 +1133,34 @@ def _premise_warning(
     original question appears here, because none of it was parsed.
     """
     assert spec.direction is not None
-    phrase = comparison.phrase if comparison is not None else "vs the prior period"
+    sentence = premise_verdict_sentence(premise, spec, comparison=comparison)
+    tail = (
+        "The question takes that size as given and the aggregate did not reach it."
+        if premise.magnitude_short
+        else "The question takes that movement as given, and over this window there was none."
+    )
     return (
-        f"premise_false: {_premise_sentence(premise, phrase)}. The question takes a movement of "
-        f"{spec.direction.value!r} as given, and over this window there was none. What follows "
-        "describes the cells that did move that way; it is context for a movement that did not "
-        "happen at the level asked about, not confirmation of it."
+        f"premise_false: {sentence}. {tail} What follows describes the cells that did move that "
+        "way; it is context for a movement that did not happen at the level asked about, not "
+        "confirmation of it."
+    )
+
+
+def _premise_verified_warning(
+    premise: PremiseCheck, spec: AnalysisSpec, *, comparison: ComparisonRendering | None
+) -> str:
+    """The verdict a *confirmed* premise owes the reader, said first.
+
+    The other half of R3-03. A premise probe ran on every turn that states
+    a movement and its verdict was published only when it failed, so
+    "why did denials double?" over a real +4.2% opened on a 243% sub-cell
+    and the aggregate the platform had already measured was discarded. A
+    verdict is a verdict either way.
+    """
+    sentence = premise_verdict_sentence(premise, spec, comparison=comparison)
+    return (
+        f"premise_verified: {sentence}. The movement below is read against that aggregate, "
+        "which is the level the question asked about."
     )
 
 
@@ -749,6 +1168,32 @@ class EvaluateFindingsService:
     def __init__(self, registry: ReferentRegistryStore, *, top_n: int = 3) -> None:
         self._registry = registry
         self._top_n = top_n
+        #: The §15 threshold of the turn being evaluated, set per call. A
+        #: bound is only recognisable against the threshold that produced
+        #: it, and the evaluator has no catalog of its own.
+        self._threshold: int | None = None
+
+    def _limit(self, spec: AnalysisSpec) -> int:
+        """How many findings this turn may publish.
+
+        Round-3 R3-04: ``top_n`` was a constructor default applied at four
+        call sites, and ``Expand(limit=12)`` — parsed perfectly from "show
+        me all twelve payers, not just three" — set ``spec.limit`` that
+        nothing read. The same three findings came back for $0.0919 and
+        33.8 seconds. The analyst's own limit is not a suggestion.
+        """
+        return spec.limit if spec.limit is not None and spec.limit > 0 else self._top_n
+
+    def _bounds(self, frame: EvidenceFrame) -> dict[int, dict[str, BoundedCell]]:
+        """Which of this frame's cells carry a ceiling instead of a value."""
+        if self._threshold is None:
+            return {}
+        return bound_index(frame, self._threshold)
+
+    def _census(self, frame: EvidenceFrame) -> SuppressionCensus | None:
+        if self._threshold is None:
+            return None
+        return suppression_census(frame, self._threshold)
 
     async def evaluate(
         self,
@@ -760,51 +1205,76 @@ class EvaluateFindingsService:
         playbook: PlaybookSpec | None,
         session_id: str,
         investigation_id: str,
+        suppression_threshold: int | None = None,
     ) -> FindingsResult:
+        self._threshold = suppression_threshold
         # The premise first, always: a question that STATES a movement is
         # answered honestly only once that movement has been measured.
         premise = verify_premise(
             plan, calculation, spec, pack, premise_prefix=_PREMISE_PREFIX
         )
+        # The verdict is published on EVERY premise turn, holds or not, and
+        # it is published FIRST — registered before any other shape reads
+        # the registry, so the aggregate the question assumed is F1 and the
+        # cells that explain it are F2 onward (R3-03).
+        premise_lead: tuple[Finding, RegisteredReferent, str] | None = None
+        if premise is not None:
+            premise_lead = await self._publish_premise(
+                premise, spec, pack, session_id, investigation_id
+            )
+
         shape = find_primary_movement(plan, calculation)
         if shape is None:
             concentration = find_primary_concentration(plan, calculation)
             if concentration is not None:
-                return await self._evaluate_concentration(
-                    shape=concentration,
-                    spec=spec,
-                    pack=pack,
-                    playbook=playbook,
-                    session_id=session_id,
-                    investigation_id=investigation_id,
+                return _with_premise(
+                    await self._evaluate_concentration(
+                        shape=concentration,
+                        spec=spec,
+                        plan=plan,
+                        pack=pack,
+                        playbook=playbook,
+                        session_id=session_id,
+                        investigation_id=investigation_id,
+                    ),
+                    premise_lead,
                 )
             trends = find_trend_shapes(plan, calculation)
             if trends:
-                return await self._evaluate_trends(
-                    shapes=trends,
-                    spec=spec,
-                    pack=pack,
-                    playbook=playbook,
-                    session_id=session_id,
-                    investigation_id=investigation_id,
+                return _with_premise(
+                    await self._evaluate_trends(
+                        shapes=trends,
+                        spec=spec,
+                        pack=pack,
+                        playbook=playbook,
+                        session_id=session_id,
+                        investigation_id=investigation_id,
+                    ),
+                    premise_lead,
                 )
             scalars = find_scalar_shapes(plan, calculation)
             if not scalars:
                 # Frames exist and no shape could publish from them: the
                 # turn read data and has nothing to say about it. Which of
                 # the two nothings this is, said as data.
-                return FindingsResult(
-                    findings=(),
-                    referents=(),
-                    emptiness=self._no_findings(plan, calculation, "no publishable shape"),
+                return _with_premise(
+                    FindingsResult(
+                        findings=(),
+                        referents=(),
+                        emptiness=self._no_findings(plan, calculation, "no publishable shape"),
+                    ),
+                    premise_lead,
                 )
-            return await self._evaluate_scalars(
-                shapes=scalars,
-                spec=spec,
-                pack=pack,
-                playbook=playbook,
-                session_id=session_id,
-                investigation_id=investigation_id,
+            return _with_premise(
+                await self._evaluate_scalars(
+                    shapes=scalars,
+                    spec=spec,
+                    pack=pack,
+                    playbook=playbook,
+                    session_id=session_id,
+                    investigation_id=investigation_id,
+                ),
+                premise_lead,
             )
 
         delta_col = f"{shape.measure}__delta"
@@ -812,14 +1282,6 @@ class EvaluateFindingsService:
         rows, selection_warnings = self._select_directional(
             shape.frame.rows, idx_delta, spec, pack, shape.measure
         )
-        if premise is not None and not premise.holds:
-            # The cells below did move the way the question assumed; the
-            # population they sit in did not. Said first, and said as the
-            # correction it is — the rows are context now, not the answer.
-            selection_warnings = (
-                _premise_warning(premise, spec, comparison=render_comparison(spec)),
-                *selection_warnings,
-            )
 
         qualified = self._requires_qualification(shape.frame.evidence_grade, pack, playbook)
         comparison = render_comparison(spec)
@@ -837,24 +1299,11 @@ class EvaluateFindingsService:
 
         findings: list[Finding] = []
         referents: list[RegisteredReferent] = []
-        if premise is not None and not premise.holds:
-            # F1 is the correction, with the aggregate figures behind it, so
-            # the number that refutes the question is certified evidence the
-            # narrative must work from rather than a caveat under it.
-            correction, correction_referent = self._build_premise_finding(
-                f"F{finding_offset + 1}",
-                premise,
-                spec,
-                comparison,
-                pack,
-                session_id,
-                investigation_id,
-            )
-            findings.append(correction)
-            referents.append(correction_referent)
-        for row in rows[: self._top_n]:
-            if _as_number(row[idx_delta]) is None:
-                continue
+        limit = self._limit(spec)
+        eligible = [row for row in rows if _as_number(row[idx_delta]) is not None]
+        bounds = self._bounds(shape.frame)
+        row_positions = {id(row): i for i, row in enumerate(shape.frame.rows)}
+        for row in eligible[:limit]:
             n = finding_offset + len(findings) + 1
             finding, referent = self._build_finding(
                 f"F{n}",
@@ -866,9 +1315,13 @@ class EvaluateFindingsService:
                 pack,
                 session_id,
                 investigation_id,
+                bound=bounds.get(row_positions.get(id(row), -1), {}).get(shape.measure),
             )
             findings.append(finding)
             referents.append(referent)
+        truncation = _truncation_warning(len(findings), len(eligible), spec)
+        if truncation is not None:
+            selection_warnings = (*selection_warnings, truncation)
 
         for i, row in enumerate(shape.frame.rows):
             referents.append(
@@ -885,23 +1338,30 @@ class EvaluateFindingsService:
             )
 
         await self._registry.register(tuple(referents))
-        return FindingsResult(
-            findings=tuple(findings),
-            referents=tuple(referents),
-            warnings=selection_warnings,
-            emptiness=(
-                None
-                if findings
-                else EmptinessFact(
-                    kind=EmptinessKind.NO_FINDINGS,
-                    frame_id=shape.frame_id,
-                    detail=(
-                        f"{len(shape.frame.rows)} compared row(s) on {shape.measure!r}, and "
-                        "none carried a movement that could be published (every delta was "
-                        "suppressed or filtered out by the asked direction)"
-                    ),
-                )
+        # The cells below moved the way the question assumed; whether the
+        # population they sit in did is the verdict, and it leads either
+        # way — as a correction when it refutes the question, as the
+        # measured aggregate when it confirms it.
+        return _with_premise(
+            FindingsResult(
+                findings=tuple(findings),
+                referents=tuple(referents),
+                warnings=selection_warnings,
+                emptiness=(
+                    None
+                    if findings
+                    else EmptinessFact(
+                        kind=EmptinessKind.NO_FINDINGS,
+                        frame_id=shape.frame_id,
+                        detail=(
+                            f"{len(shape.frame.rows)} compared row(s) on {shape.measure!r}, and "
+                            "none carried a movement that could be published (every delta was "
+                            "suppressed or filtered out by the asked direction)"
+                        ),
+                    )
+                ),
             ),
+            premise_lead,
         )
 
     @staticmethod
@@ -1014,6 +1474,35 @@ class EvaluateFindingsService:
 
     # -------------------------------------------------------------- premise
 
+    async def _publish_premise(
+        self,
+        premise: PremiseCheck,
+        spec: AnalysisSpec,
+        pack: PackPort,
+        session_id: str,
+        investigation_id: str,
+    ) -> tuple[Finding, RegisteredReferent, str]:
+        """Register the premise verdict as this turn's first finding.
+
+        Registered here, before any shape reads the registry, so the
+        aggregate the question assumed always takes F1 and every other
+        shape numbers itself after it — the alternative was threading a
+        "reserve one handle" flag through four independent branches.
+        """
+        comparison = render_comparison(spec)
+        existing = await self._registry.list_for_session(session_id)
+        offset = sum(1 for e in existing if e.referent.kind is ReferentKind.FINDING)
+        finding, referent = self._build_premise_finding(
+            f"F{offset + 1}", premise, spec, comparison, pack, session_id, investigation_id
+        )
+        await self._registry.register((referent,))
+        warning = (
+            _premise_verified_warning(premise, spec, comparison=comparison)
+            if premise.holds
+            else _premise_warning(premise, spec, comparison=comparison)
+        )
+        return finding, referent, warning
+
     def _build_premise_finding(
         self,
         referent_value: str,
@@ -1032,14 +1521,21 @@ class EvaluateFindingsService:
         just a contradiction.
         """
         assert spec.direction is not None
-        phrase = comparison.phrase if comparison is not None else "vs prior period"
-        sentence = _premise_sentence(premise, phrase)
-        title = f"Premise not supported: {sentence}"
-        statement = (
-            f"{sentence}. The question asks about a movement of {spec.direction.value!r} over "
-            "this window and the population it names shows none, so the movements below are the "
-            "exceptions inside it rather than the story."
-        )
+        sentence = premise_verdict_sentence(premise, spec, comparison=comparison)
+        if premise.holds:
+            title = f"Premise confirmed: {sentence}"
+            statement = (
+                f"{sentence}. That is the movement the question takes as given, measured on the "
+                "population it names, so the cells below are its composition rather than a "
+                "separate claim."
+            )
+        else:
+            title = f"Premise not supported: {sentence}"
+            statement = (
+                f"{sentence}. The population the question names does not show the movement it "
+                "assumes, so the movements below are the exceptions inside it rather than the "
+                "story."
+            )
         values: list[tuple[str, Scalar]] = [
             (premise.measure, premise.current),
             (f"{premise.measure}__prior", premise.prior),
@@ -1048,7 +1544,12 @@ class EvaluateFindingsService:
                 int(premise.delta) if premise.is_money else premise.delta,
             ),
             ("pct_change", premise.pct),
+            # The verdict as data, so a client never has to read the title
+            # to know whether the question's own assumption survived.
+            ("premise_holds", premise.holds),
         ]
+        if premise.asserted_multiple is not None:
+            values.append(("asserted_multiple", premise.asserted_multiple))
         referent = ReferentId(value=referent_value, kind=ReferentKind.FINDING)
         finding = Finding(
             referent=referent,
@@ -1140,6 +1641,7 @@ class EvaluateFindingsService:
         pack: PackPort,
         session_id: str,
         investigation_id: str,
+        bound: BoundedCell | None = None,
     ) -> tuple[Finding, RegisteredReferent]:
         schema = shape.frame.schema
         measure = shape.measure
@@ -1167,35 +1669,51 @@ class EvaluateFindingsService:
             and comparison.material_length_mismatch
             and _is_additive(shape.unit)
         )
+        current_text = bound_text(current, shape.unit, bounded=bound is not None)
         title = f"{label} {measure_label} {direction} {amount} {period_phrase}"
         pct_text = ratio_pct(pct) if isinstance(pct, Decimal) else "n/a"
         statement = (
             f"{label}: {measure_label} moved from {format_value(prior, shape.unit)} to "
-            f"{format_value(current, shape.unit)} "
+            f"{current_text} "
             f"({direction} {amount}, {pct_text} {period_phrase})."
         )
+        if bound is not None:
+            # A movement computed off a bounded endpoint is a movement
+            # toward a ceiling, not a measured one. Said in the title as
+            # well as the statement: the title is what gets screenshotted.
+            title = f"{label} {measure_label} at most {current_text} {period_phrase}"
+            statement = (
+                f"{statement[:-1]}. The current side is an UPPER BOUND: its numerator was "
+                f"suppressed over a population of {bound.population:,}, so the movement is at "
+                "most this large and may be smaller."
+            )
 
         delta_value: Scalar = int(delta) if shape.is_money else delta
+        values: list[tuple[str, Scalar]] = [
+            ("current_cents" if shape.is_money else measure, current),
+            ("prior_cents" if shape.is_money else f"{measure}__prior", prior),
+            ("delta_cents" if shape.is_money else f"{measure}__delta", delta_value),
+            ("pct_change", pct),
+        ]
+        values.extend(_bound_values(measure, bound))
         referent = ReferentId(value=referent_value, kind=ReferentKind.FINDING)
         finding = Finding(
             referent=referent,
             title=title,
             statement=statement,
             metric_refs=(MetricRef(measure),),
-            values=(
-                ("current_cents" if shape.is_money else measure, current),
-                ("prior_cents" if shape.is_money else f"{measure}__prior", prior),
-                ("delta_cents" if shape.is_money else f"{measure}__delta", delta_value),
-                ("pct_change", pct),
-            ),
+            values=tuple(values),
             grade=shape.frame.evidence_grade,
             # A rate is not dollars: an impact is a figure this platform is
             # willing to rank, sum and put in a worklist, and a percentage
-            # point is none of those.
+            # point is none of those. Nor is a bounded movement: a ceiling
+            # is not a recoverable dollar figure.
             impact_cents=(
-                int(delta) if (shape.is_money and not mismatched) else None
+                int(delta) if (shape.is_money and not mismatched and bound is None) else None
             ),
-            confidence="qualified" if (qualified or mismatched) else "high",
+            confidence=(
+                "qualified" if (qualified or mismatched or bound is not None) else "high"
+            ),
             suggested_refinements=suggested_refinements_for(referent_value),
         )
         registered = RegisteredReferent(
@@ -1250,7 +1768,7 @@ class EvaluateFindingsService:
 
         findings: list[Finding] = []
         referents: list[RegisteredReferent] = []
-        for shape in shapes[: self._top_n]:
+        for shape in shapes[: self._limit(spec)]:
             row = shape.frame.rows[0]
             value = row[shape.frame.schema.index_of(shape.measure)]
             # A suppressed cell has no level to publish. Saying so is the
@@ -1271,6 +1789,7 @@ class EvaluateFindingsService:
                 pack,
                 session_id,
                 investigation_id,
+                bound=self._bounds(shape.frame).get(0, {}).get(shape.measure),
             )
             findings.append(finding)
             referents.append(referent)
@@ -1301,11 +1820,12 @@ class EvaluateFindingsService:
         pack: PackPort,
         session_id: str,
         investigation_id: str,
+        bound: BoundedCell | None = None,
     ) -> tuple[Finding, RegisteredReferent]:
         schema = shape.frame.schema
         row = shape.frame.rows[0]
         label = metric_label(shape.measure)
-        current_text = format_value(value, shape.unit)
+        current_text = bound_text(value, shape.unit, bounded=bound is not None)
         period_text = _period_phrase(spec, pack, shape.measure, shape.frame)
         period_paren = _period_paren(spec, pack, shape.measure, shape.frame)
 
@@ -1350,6 +1870,13 @@ class EvaluateFindingsService:
         else:
             title = f"{label}: {current_text} {period_paren}"
             statement = f"{label} is {current_text} {period_text}."
+        if bound is not None:
+            statement = (
+                f"{statement[:-1]} — an UPPER BOUND, not a measurement: the numerator was "
+                f"suppressed over a population of {bound.population:,}, so the true figure is "
+                "at or below this one."
+            )
+        values.extend(_bound_values(shape.measure, bound))
 
         referent = ReferentId(value=referent_value, kind=ReferentKind.FINDING)
         finding = Finding(
@@ -1362,9 +1889,13 @@ class EvaluateFindingsService:
             # A rate is not dollars, and a length-mismatched difference is
             # not an impact — the same two rules the other shapes apply.
             impact_cents=(
-                _as_int(delta) if (shape.is_money and not mismatched) else None
+                _as_int(delta)
+                if (shape.is_money and not mismatched and bound is None)
+                else None
             ),
-            confidence="qualified" if (qualified or mismatched) else "high",
+            confidence=(
+                "qualified" if (qualified or mismatched or bound is not None) else "high"
+            ),
             suggested_refinements=suggested_refinements_for(referent_value),
         )
         registered = RegisteredReferent(
@@ -1397,16 +1928,21 @@ class EvaluateFindingsService:
 
         findings: list[Finding] = []
         referents: list[RegisteredReferent] = []
-        for shape in shapes[: self._top_n]:
+        warnings: list[str] = []
+        for shape in shapes[: self._limit(spec)]:
+            censoring = terminal_bucket_censoring(shape, spec)
             finding = self._build_trend_finding(
                 f"F{finding_offset + len(findings) + 1}",
                 shape,
                 spec,
                 pack,
                 playbook,
+                censoring=censoring,
             )
             if finding is None:
                 continue
+            if censoring is not None:
+                warnings.append(censoring.warning)
             findings.append(finding)
             referents.append(
                 RegisteredReferent(
@@ -1425,6 +1961,7 @@ class EvaluateFindingsService:
         return FindingsResult(
             findings=tuple(findings),
             referents=tuple(referents),
+            warnings=tuple(dict.fromkeys(warnings)),
             emptiness=(
                 None
                 if findings
@@ -1443,8 +1980,18 @@ class EvaluateFindingsService:
         spec: AnalysisSpec,
         pack: PackPort,
         playbook: PlaybookSpec | None,
+        censoring: TerminalCensoring | None = None,
     ) -> Finding | None:
-        """One series, stated as a series: ends first, then its extremes."""
+        """One series, stated as a series: ends first, then its extremes.
+
+        A right-censored terminal bucket never becomes the "end" (round-3
+        R3-06). "Denial rate by month for 2026 so far" published
+        ``7.3% → 12.8% (up 5.5 points)`` at grade ``direct``, confidence
+        ``high``, with a benchmark attached, over a July point computed on
+        22.9% of July's claims — the fastest-adjudicating subset, which
+        skews heavily to denials. The series is stated to its last SETTLED
+        bucket and the provisional point is named as provisional.
+        """
         schema = shape.frame.schema
         idx_bucket = schema.index_of(shape.bucket_column)
         idx_value = schema.index_of(shape.measure)
@@ -1456,9 +2003,12 @@ class EvaluateFindingsService:
         if len(points) < 2:
             return None  # a series of one is not a trend, and nor is silence
         points.sort(key=lambda point: str(point[0]))
-        (first_bucket, first_value), (last_bucket, last_value) = points[0], points[-1]
-        low = min(points, key=lambda point: point[1])
-        high = max(points, key=lambda point: point[1])
+        provisional = points[-1] if censoring is not None else None
+        settled = points[:-1] if (censoring is not None and len(points) > 2) else points
+        (first_bucket, first_value) = settled[0]
+        (last_bucket, last_value) = settled[-1]
+        low = min(settled, key=lambda point: point[1])
+        high = max(settled, key=lambda point: point[1])
         delta = last_value - first_value
         label = metric_label(shape.measure)
         window = spec.context.window.range
@@ -1478,30 +2028,51 @@ class EvaluateFindingsService:
         statement = (
             f"{label} ran from {format_value(first_value, shape.unit)} in "
             f"{_bucket_text(first_bucket, noun)} to {format_value(last_value, shape.unit)} in "
-            f"{_bucket_text(last_bucket, noun)} ({movement} over {len(points)} {noun}s); highest "
+            f"{_bucket_text(last_bucket, noun)} ({movement} over {len(settled)} {noun}s); highest "
             f"{format_value(high[1], shape.unit)} in {_bucket_text(high[0], noun)}, lowest "
             f"{format_value(low[1], shape.unit)} in {_bucket_text(low[0], noun)}."
         )
+        values: list[tuple[str, Scalar]] = [
+            ("first", first_value),
+            ("last", last_value),
+            ("delta", int(delta) if shape.is_money else delta),
+            ("high", high[1]),
+            ("low", low[1]),
+            ("periods", len(settled)),
+        ]
+        if provisional is not None and censoring is not None:
+            # The point is published — dropping it would hide the newest
+            # data the analyst asked for — and it is published as
+            # provisional, outside the movement the sentence claims.
+            statement = (
+                f"{statement} The {_bucket_text(provisional[0], noun)} point "
+                f"({format_value(provisional[1], shape.unit)}) is PROVISIONAL and is excluded "
+                f"from that movement: {censoring.reason}"
+            )
+            title = f"{title}; {_bucket_text(provisional[0], noun)} provisional"
+            values.extend(
+                [
+                    ("provisional_bucket", str(provisional[0])),
+                    ("provisional_value", provisional[1]),
+                    ("terminal_provisional", True),
+                ]
+            )
         return Finding(
             referent=ReferentId(value=referent_value, kind=ReferentKind.FINDING),
             title=title,
             statement=statement,
             metric_refs=(MetricRef(shape.measure),),
-            values=(
-                ("first", first_value),
-                ("last", last_value),
-                ("delta", int(delta) if shape.is_money else delta),
-                ("high", high[1]),
-                ("low", low[1]),
-                ("periods", len(points)),
-            ),
+            values=tuple(values),
             grade=shape.frame.evidence_grade,
             # End-to-end movement of a series is not a recoverable dollar
             # figure, whatever the unit: it is a description, not a target.
             impact_cents=None,
             confidence=(
                 "qualified"
-                if self._requires_qualification(shape.frame.evidence_grade, pack, playbook)
+                if (
+                    censoring is not None
+                    or self._requires_qualification(shape.frame.evidence_grade, pack, playbook)
+                )
                 else "high"
             ),
             suggested_refinements=suggested_refinements_for(referent_value),
@@ -1514,20 +2085,68 @@ class EvaluateFindingsService:
         *,
         shape: ConcentrationShape,
         spec: AnalysisSpec,
+        plan: InvestigationPlan | None = None,
         pack: PackPort,
         playbook: PlaybookSpec | None,
         session_id: str,
         investigation_id: str,
     ) -> FindingsResult:
-        """Findings from a ranked population — the no-comparison answer."""
+        """Findings from a ranked population — the no-comparison answer.
+
+        Measured cells are ranked; bounded cells are not (round-3 R3-02).
+        Ordering a ceiling against a measurement sorts by *panel size*, and
+        "rank our rendering providers by denial rate, worst first" published
+        147 bounds of 150 values, sorted descending, so the answer's ranking
+        was exactly ascending population with "ranks #1 … (worst first, as
+        asked)" written over it. The bounded cells still publish — dropping
+        them is the censorship the bound exists to avoid — in their own
+        block, unranked, and saying so.
+        """
         schema = shape.frame.schema
         idx_rank = schema.index_of(shape.rank_column)
-        rows = sorted(
+        idx_measure = schema.index_of(shape.measure)
+        bounds = self._bounds(shape.frame)
+        positions = {id(row): i for i, row in enumerate(shape.frame.rows)}
+
+        def publishable(row: tuple[Scalar, ...]) -> bool:
+            # Suppressed (NULL) and empty (zero) rows are not findings. A
+            # ranked list always has a tail; "Payer X: 0 mismatched claims"
+            # is padding that dilutes the one row that matters.
+            value = row[idx_measure]
+            return value is not None and not (
+                isinstance(value, int | Decimal) and value == 0
+            )
+
+        def bound_of(row: tuple[Scalar, ...]) -> BoundedCell | None:
+            return bounds.get(positions.get(id(row), -1), {}).get(shape.measure)
+
+        ordered = sorted(
             shape.frame.rows,
             key=lambda row: (
                 _as_int(row[idx_rank]) is None,  # unranked rows last
                 _as_int(row[idx_rank]) or 0,
             ),
+        )
+        candidates = [row for row in ordered if publishable(row)]
+        # An ordinal bucket dimension carries its own direction, and it is
+        # urgency, not size (round-3 R3-08). Sequencing "90+" ahead of
+        # "61-90" tells a team to work the least urgent band first and let
+        # the 61-90 band age into expired; the catalog declares the order
+        # and the plan carries it here.
+        urgency = _declared_bucket_order(plan, shape)
+        if urgency is not None:
+            idx_dim = schema.index_of(shape.dimension_columns[0])
+            position = {value: i for i, value in enumerate(urgency)}
+            candidates.sort(
+                key=lambda row: position.get(str(row[idx_dim]), len(position))
+            )
+        measured = [row for row in candidates if bound_of(row) is None]
+        bounded = [row for row in candidates if bound_of(row) is not None]
+        # Past a governed share of bounds there is no measured population
+        # left to order, and an ordinal claim over it is arithmetic about
+        # panel size. The answer is then the population arithmetic.
+        unrankable = bool(candidates) and (
+            len(bounded) / len(candidates) > MAX_BOUNDED_SHARE_FOR_RANKING
         )
         qualified = self._requires_qualification(shape.frame.evidence_grade, pack, playbook)
 
@@ -1537,19 +2156,61 @@ class EvaluateFindingsService:
 
         findings: list[Finding] = []
         referents: list[RegisteredReferent] = []
-        for row in rows[: self._top_n]:
-            value = row[schema.index_of(shape.measure)]
-            # Suppressed (NULL) and empty (zero) rows are not findings. A
-            # ranked list always has a tail; "Payer X: 0 mismatched claims"
-            # is padding that dilutes the one row that matters.
-            if value is None or (isinstance(value, int | Decimal) and value == 0):
-                continue
+        warnings: list[str] = []
+        limit = self._limit(spec)
+        for position, row in enumerate(measured[:limit], start=1):
             n = finding_offset + len(findings) + 1
             finding, referent = self._build_concentration_finding(
-                f"F{n}", row, shape, spec, qualified, pack, session_id, investigation_id
+                f"F{n}",
+                row,
+                shape,
+                spec,
+                qualified,
+                pack,
+                session_id,
+                investigation_id,
+                display_rank=None if (unrankable or urgency is not None) else position,
+                measured_total=len(measured),
+                bound=None,
+                urgency_position=(
+                    None if urgency is None else (position, len(measured))
+                ),
             )
             findings.append(finding)
             referents.append(referent)
+        for row in bounded[:limit]:
+            n = finding_offset + len(findings) + 1
+            finding, referent = self._build_concentration_finding(
+                f"F{n}",
+                row,
+                shape,
+                spec,
+                qualified,
+                pack,
+                session_id,
+                investigation_id,
+                display_rank=None,
+                measured_total=len(measured),
+                bound=bound_of(row),
+            )
+            findings.append(finding)
+            referents.append(referent)
+        if bounded:
+            warnings.append(
+                _unranked_bounds_warning(
+                    bounded_count=len(bounded),
+                    measured_count=len(measured),
+                    total=len(candidates),
+                    measure=shape.measure,
+                    unrankable=unrankable,
+                    order=spec.order,
+                )
+            )
+        truncation = _truncation_warning(
+            min(len(measured), limit) + min(len(bounded), limit), len(candidates), spec
+        )
+        if truncation is not None:
+            warnings.append(truncation)
 
         for i, row in enumerate(shape.frame.rows):
             referents.append(
@@ -1569,6 +2230,7 @@ class EvaluateFindingsService:
         return FindingsResult(
             findings=tuple(findings),
             referents=tuple(referents),
+            warnings=tuple(warnings),
             emptiness=(
                 None
                 if findings
@@ -1593,6 +2255,10 @@ class EvaluateFindingsService:
         pack: PackPort,
         session_id: str,
         investigation_id: str,
+        display_rank: int | None = None,
+        measured_total: int = 0,
+        bound: BoundedCell | None = None,
+        urgency_position: tuple[int, int] | None = None,
     ) -> tuple[Finding, RegisteredReferent]:
         schema = shape.frame.schema
         value = row[schema.index_of(shape.measure)]
@@ -1627,14 +2293,44 @@ class EvaluateFindingsService:
         # none was, nothing is claimed about what first means.
         order_text = f" ({spec.order.phrase}, as asked)" if spec.order is not None else ""
         title = f"{label}: {magnitude} {measure_label}{share_text}"
-        statement = (
-            f"{label} ranks #{rank} by {measure_label}{order_text} "
-            f"{period_text}: {magnitude}{share_text}."
-        )
+        if bound is not None:
+            # No ordinal, in either field. A bound cannot hold a position in
+            # an order it was not measured for, and "ranks #1" over a
+            # ceiling is the sentence this whole branch exists to delete.
+            title = f"{label}: ≤ {magnitude} {measure_label} (upper bound){share_text}"
+            statement = (
+                f"{label}: {measure_label} is AT MOST {magnitude} {period_text} — the numerator "
+                f"was suppressed over a population of {bound.population:,}, so this is a ceiling "
+                "and not a measurement. It is published unranked: a bound cannot be ordered "
+                "against measured cells."
+            )
+        elif urgency_position is not None:
+            place, total = urgency_position
+            statement = (
+                f"{label}: {magnitude} {measure_label}{share_text} {period_text}. This is band "
+                f"{place} of {total} in the catalog's declared order for "
+                f"{shape.dimension_columns[0]}, which runs most urgent first — it is sequenced "
+                "by urgency, not by size."
+            )
+        elif display_rank is not None:
+            of_text = f" of {measured_total} measured" if measured_total else ""
+            statement = (
+                f"{label} ranks #{display_rank}{of_text} by {measure_label}{order_text} "
+                f"{period_text}: {magnitude}{share_text}."
+            )
+        else:
+            statement = (
+                f"{label}: {magnitude} {measure_label}{share_text} {period_text}. No position is "
+                "claimed for it — too much of this population carries suppressed numerators for "
+                "an order to mean anything."
+            )
 
-        values: list[tuple[str, Scalar]] = [(shape.measure, value), ("rank", rank)]
+        values: list[tuple[str, Scalar]] = [(shape.measure, value)]
+        if bound is None:
+            values.append(("rank", display_rank if display_rank is not None else rank))
         if share is not None:
             values.append(("share_of_total", share))
+        values.extend(_bound_values(shape.measure, bound))
 
         referent = ReferentId(value=referent_value, kind=ReferentKind.FINDING)
         finding = Finding(
@@ -1645,9 +2341,10 @@ class EvaluateFindingsService:
             values=tuple(values),
             grade=shape.frame.evidence_grade,
             # A count is not dollars: impact stays unset unless the ranked
-            # measure is money, rather than inventing a figure.
-            impact_cents=amount if shape.is_money else None,
-            confidence="qualified" if qualified else "high",
+            # measure is money, rather than inventing a figure. Nor is a
+            # ceiling: nobody can work a bound.
+            impact_cents=amount if (shape.is_money and bound is None) else None,
+            confidence="qualified" if (qualified or bound is not None) else "high",
             suggested_refinements=suggested_refinements_for(referent_value),
         )
         registered = RegisteredReferent(
