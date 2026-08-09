@@ -22,7 +22,7 @@ def catalog() -> CatalogSnapshot:
 
 def test_loads_all_artifacts(catalog: CatalogSnapshot) -> None:
     assert len(catalog.entities) == 5
-    assert len(catalog.dimensions) == 23
+    assert len(catalog.dimensions) == 26
     assert len(catalog.measures) == 20
     assert len(catalog.date_bases) == 5
     assert len(catalog.join_paths) == 7
@@ -62,6 +62,28 @@ def test_synonym_resolution(catalog: CatalogSnapshot) -> None:
     both = catalog.dimensions_for_synonym("service area")
     assert {d.id for d in both} == {"facility", "service_line"}
     assert catalog.dimension_for_synonym("no such thing") is None
+
+
+def test_boolean_flag_dimensions_are_certified_and_bound_to_claim_columns(
+    catalog: CatalogSnapshot,
+) -> None:
+    """The three claim-level flags a filter predicate needs. `submission_date`
+    and `discharge_date` stay date bases (a window rides on them); the
+    predicate form is a certified boolean dimension, which is what makes
+    `submission_date IS NULL` expressible at all."""
+    for dimension_id, column in (
+        ("first_pass_paid", "first_pass_paid"),
+        ("billed_flag", "billed_flag"),
+        ("discharged_flag", "discharged_flag"),
+    ):
+        dim = catalog.dimension(dimension_id)
+        assert dim is not None, dimension_id
+        assert dim.certified and dim.column_for("claim") == column
+        assert dim.cardinality_estimate == 2
+        assert dim.description, dimension_id
+    # the dates themselves are bases, never dimensions
+    assert catalog.dimension("submission_date") is None
+    assert catalog.dimension("discharge_date") is None
 
 
 def test_certification_awareness(catalog: CatalogSnapshot) -> None:
@@ -104,11 +126,50 @@ def test_join_paths_index(catalog: CatalogSnapshot) -> None:
     assert "remit_id" in catalog.declared_columns("denial")
 
 
+def test_declared_columns_carry_the_entitys_explicit_declarations(
+    catalog: CatalogSnapshot,
+) -> None:
+    """`declared_columns:` in entities.yaml is the escape hatch for a base-view
+    column no dimension, measure, date basis or join path names.
+
+    `charge_entry_date` is the live case: the probe-time derived measures
+    `charge_entry_lag_days` and `late_charge_cents` (summed by `charge_lag_days`
+    and `late_charge_pct`) read it, and until it was declared here the DuckDB
+    compiler reached it through a private module constant — a column dependency
+    that existed in one adapter and nowhere in the catalog. It is deliberately
+    NOT a dimension (nothing groups by it) and NOT a date basis (no window
+    rides on it), so the declaration is the only place it can be visible.
+    """
+    line = catalog.entity_named("claim_line")
+    assert line is not None
+    assert line.extra_columns == ("charge_entry_date",)
+    assert "charge_entry_date" in catalog.declared_columns("claim_line")
+    # It stays out of the dimension and date-basis surfaces.
+    assert catalog.dimension("charge_entry_date") is None
+    assert line.date_basis_column(SERVICE) == "service_date"
+    # Entities that declare none are unaffected.
+    claim = catalog.entity_named("claim")
+    assert claim is not None and claim.extra_columns == ()
+
+
+def test_declared_columns_must_be_a_list_of_strings(tmp_path: Path) -> None:
+    target = _copy_catalog(tmp_path)
+    entities = target / "entities.yaml"
+    entities.write_text(
+        entities.read_text().replace("      - charge_entry_date", "      - 17", 1)
+    )
+    with pytest.raises(CatalogLoadError, match=r"entities\.yaml.*claim_line.*declared_columns"):
+        load_catalog(target)
+
+
 def test_calendar_binding(catalog: CatalogSnapshot) -> None:
     assert catalog.calendar.table == "dim_calendar"
-    assert catalog.calendar.range_start == date(2025, 1, 1)
+    # The calendar spans the closed 2024 comparison year as well as the organic
+    # era, so business-day alignment works on both sides of a year-over-year cut.
+    assert catalog.calendar.range_start == date(2024, 1, 1)
     assert catalog.calendar.range_end == date(2026, 12, 31)
     assert catalog.calendar.week_convention == "ISO-8601"
+    assert date(2024, 12, 25) in catalog.calendar.holidays
     assert date(2026, 12, 25) in catalog.calendar.holidays
     assert dict(catalog.calendar.policies).keys() == {"CALENDAR_DAY", "BUSINESS_DAY"}
 

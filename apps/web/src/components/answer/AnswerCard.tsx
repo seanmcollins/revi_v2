@@ -1,16 +1,20 @@
 "use client";
 
-import { AlertTriangle, FileSearch, Info, Zap } from "lucide-react";
+import { AlertTriangle, FileSearch, History, Info, Zap } from "lucide-react";
 
 import { ContextHeader } from "@/components/answer/ContextHeader";
 import { GradeBadge } from "@/components/answer/GradeBadge";
 import { InterpretationPanel } from "@/components/answer/InterpretationPanel";
-import { MetricProvenanceBadge } from "@/components/answer/MetricProvenanceBadge";
+import {
+  hasGovernedProvenance,
+  MetricProvenanceBadge,
+} from "@/components/answer/MetricProvenanceBadge";
 import { NarrativeText } from "@/components/answer/NarrativeText";
 import { ReconciliationBanner } from "@/components/banners/ReconciliationBanner";
 import { InvestigationChart } from "@/components/charts/InvestigationChart";
 import { StageRail } from "@/components/chat/StageRail";
 import { ClarificationPrompt } from "@/components/clarification/ClarificationPrompt";
+import { DebugTracePanel } from "@/components/debug/DebugTracePanel";
 import { DefinitionCard } from "@/components/definitional/DefinitionCard";
 import { FeedbackTriage } from "@/components/feedback/FeedbackTriage";
 import { FindingCard } from "@/components/findings/FindingCard";
@@ -25,6 +29,7 @@ import { cn } from "@/lib/utils";
  */
 export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?: boolean }) {
   const openDrawer = useSessionStore((s) => s.openDrawer);
+  const debug = useSessionStore((s) => s.settings.debug);
   const streaming = turn.answer.status === "streaming";
   const a = turn.answer;
 
@@ -37,7 +42,25 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
           className="answer-glow pointer-events-none absolute -inset-x-10 -top-8 -z-10 h-80"
         />
       )}
-      <StageRail stages={a.stages} streaming={streaming} cacheHits={a.cacheHits} />
+      {/* A turn rebuilt when this session was re-opened was never watched
+          running, and the server keeps no stage timings — so it says where
+          it came from instead of drawing a pipeline nobody observed. */}
+      {a.rehydrated ? (
+        <p
+          className="flex items-center gap-1.5 text-[0.68rem] text-muted-foreground"
+          title="Re-opening a session replays what the server kept: this turn's findings, its charts (rebuilt from the frames it stored) and its evidence bundle (projected from its recorded trace). Its stage timings and streamed narrative were never persisted."
+        >
+          <History className="size-3" />
+          Restored from this session&apos;s history
+        </p>
+      ) : (
+        <StageRail
+          stages={a.stages}
+          streaming={streaming}
+          cacheHits={a.cacheHits}
+          debug={debug}
+        />
+      )}
 
       {a.header && (
         <div className="fade-up">
@@ -60,16 +83,20 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
           </div>
         )}
 
-      {(a.answerGrade || a.metric || a.evidence?.zeroProbeTurn) && (
+      {(a.answerGrade || hasGovernedProvenance(a.metric) || a.evidence?.zeroProbeTurn) && (
         <div className="flex flex-wrap items-center gap-1.5">
-          {a.metric && (
-            <MetricProvenanceBadge metric={a.metric} packVersion={a.header?.packVersion} />
-          )}
+          {/* A turn that measured nothing governed (definitional, META)
+              publishes the block with an empty metric list — no badge,
+              because there is no governed contract to point at. */}
+          {a.metric && <MetricProvenanceBadge metric={a.metric} />}
           {a.answerGrade && <GradeBadge grade={a.answerGrade} />}
           {a.evidence?.zeroProbeTurn && (
-            <span className="inline-flex h-5 items-center gap-1 rounded-full border border-verified/40 bg-verified/10 px-2 text-[0.7rem] font-medium text-verified">
+            <span
+              className="inline-flex h-5 items-center gap-1 rounded-full border border-verified/40 bg-verified/10 px-2 text-[0.7rem] font-medium text-verified"
+              title="Everything this answer needed was already computed in this session — the warehouse was not queried again."
+            >
               <Zap className="size-3" />
-              0 warehouse queries
+              No new queries
             </span>
           )}
           {a.evidence && (
@@ -104,7 +131,14 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
             <Info className="mt-0.5 size-3.5 shrink-0" />
           )}
           <p>
-            <code className="mr-1.5 font-mono text-[0.62rem] text-muted-foreground">{w.code}</code>
+            {/* The §12 code is engine vocabulary — precise, and useless to
+                an analyst reading a caution. The sentence carries the same
+                meaning; the code stays one debug toggle away. */}
+            {debug && (
+              <code className="mr-1.5 font-mono text-[0.62rem] text-muted-foreground">
+                {w.code}
+              </code>
+            )}
             {w.message}
           </p>
         </div>
@@ -147,6 +181,10 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
           </p>
         </div>
       )}
+
+      {/* Debug mode: how this turn was decided, from the server's own
+          recorded trace. Never rendered in the default experience. */}
+      {debug && !streaming && <DebugTracePanel turnId={turn.id} answer={a} />}
 
       {a.status === "complete" && (
         <div className="border-t pt-2">

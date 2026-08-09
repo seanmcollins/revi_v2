@@ -24,7 +24,13 @@ import sqlalchemy as sa
 from sqlalchemy.dialects.postgresql import insert as pg_insert
 from sqlalchemy.engine import Connection, Engine
 
-from revi_investigation.application.ports import RegisteredReferent, TraceRecord
+from revi_investigation.application.ports import (
+    EMPTY_SESSION_TITLE,
+    RegisteredReferent,
+    SessionPage,
+    SessionSummary,
+    TraceRecord,
+)
 from revi_investigation.domain.context import AnalysisSpec, PackVersionRef
 from revi_investigation.domain.records import (
     Finding,
@@ -35,6 +41,7 @@ from revi_investigation.domain.records import (
     SessionLineage,
 )
 from revi_investigation.domain.refinements import Refinement
+from revi_investigation.domain.settings import DEFAULT_SESSION_SETTINGS, SessionSettings
 from revi_investigation.domain.turns import TurnClass
 from revi_kernel.cohort import CohortDefinition, CohortMaterialization, CohortRef
 from revi_kernel.frame import EvidenceFrame
@@ -61,13 +68,89 @@ def _load_session(conn: Connection, session_id: str) -> Session | None:
     if row is None:
         return None
     epochs = cast(tuple[WatermarkEpoch, ...], from_stored(row["epochs"]))
+    # NULL is a row written before session settings existed: it reads back
+    # as the defaults, which is exactly what that session ran under.
+    stored_settings = row["settings"]
+    settings = (
+        cast(SessionSettings, from_stored(stored_settings))
+        if stored_settings is not None
+        else DEFAULT_SESSION_SETTINGS
+    )
     return Session(
         id=row["id"],
         tenant=row["tenant"],
         pack_version=PackVersionRef(pack_id=row["pack_id"], version=row["pack_version"]),
         epochs=epochs,
         created_at=row["created_at"],
+        settings=settings,
     )
+
+
+def session_page_query(tenant: str, limit: int) -> sa.Select[Any]:
+    """One tenant's session rows with their derived title, activity and
+    turn count — newest activity first.
+
+    Two LATERAL subqueries correlated to each session row, so the
+    investigations table is reached only through
+    ``ix_revi_trace_investigations_session_id`` for the tenant's own
+    sessions; an uncorrelated ``GROUP BY session_id`` would aggregate every
+    row in the table to answer a question about a handful of them.
+
+    Reading ``revi_trace.investigations`` from the session store is the same
+    cross-schema join :meth:`PostgresInvestigationStore.lineage` already
+    makes — both schemas are the investigation capability's own application
+    state (design §15). The alternative, a title and a last-activity column
+    on the session row, would be a second copy of facts the turns already
+    carry, and the copies would drift the first time a turn was written
+    without touching the session.
+
+    Module-level rather than inline so the SQL shape can be compiled and
+    asserted without a database (``tests/test_session_list_sql.py``); the
+    behavior itself is covered by the shared store contract under
+    ``-m postgres``.
+    """
+    turn_stats = (
+        sa.select(
+            sa.func.count().label("turn_count"),
+            sa.func.max(t.investigations.c.created_at).label("last_activity"),
+        )
+        .where(t.investigations.c.session_id == t.sessions.c.id)
+        .lateral("turn_stats")
+    )
+    first_turn = (
+        sa.select(t.investigations.c.question.label("question"))
+        .where(
+            t.investigations.c.session_id == t.sessions.c.id,
+            t.investigations.c.question.is_not(None),
+            t.investigations.c.question != "",
+        )
+        .order_by(t.investigations.c.created_at, t.investigations.c.id)
+        .limit(1)
+        .lateral("first_turn")
+    )
+    # A session with no turns has no activity but still has a row: it was
+    # opened, and the list is how an analyst finds it again.
+    activity = sa.func.coalesce(turn_stats.c.last_activity, t.sessions.c.created_at)
+    return (
+        sa.select(
+            t.sessions.c.id,
+            t.sessions.c.created_at,
+            turn_stats.c.turn_count,
+            activity.label("last_activity"),
+            first_turn.c.question,
+        )
+        .select_from(
+            t.sessions.join(turn_stats, sa.true()).join(first_turn, sa.true(), isouter=True)
+        )
+        .where(t.sessions.c.tenant == tenant)
+        .order_by(activity.desc(), t.sessions.c.id)
+        .limit(limit)
+    )
+
+
+def session_total_query(tenant: str) -> sa.Select[Any]:
+    """Every session the tenant owns — the page's ``total``."""
+    return sa.select(sa.func.count()).select_from(t.sessions).where(t.sessions.c.tenant == tenant)
 
 
 class PostgresSessionStore:
@@ -82,9 +165,30 @@ class PostgresSessionStore:
     async def save(self, session: Session) -> None:
         await asyncio.to_thread(self._save, session)
 
+    async def list_for_tenant(self, tenant: str, *, limit: int) -> SessionPage:
+        return await asyncio.to_thread(self._list_for_tenant, tenant, limit)
+
     def _get(self, session_id: str) -> Session | None:
         with self._engine.connect() as conn:
             return _load_session(conn, session_id)
+
+    def _list_for_tenant(self, tenant: str, limit: int) -> SessionPage:
+        with self._engine.connect() as conn:
+            rows = conn.execute(session_page_query(tenant, limit)).mappings().all()
+            total = conn.execute(session_total_query(tenant)).scalar_one()
+        return SessionPage(
+            sessions=tuple(
+                SessionSummary(
+                    session_id=row["id"],
+                    title=row["question"] or EMPTY_SESSION_TITLE,
+                    created_at=row["created_at"],
+                    last_activity=row["last_activity"],
+                    turn_count=row["turn_count"],
+                )
+                for row in rows
+            ),
+            total=total,
+        )
 
     def _save(self, session: Session) -> None:
         values = {
@@ -93,6 +197,7 @@ class PostgresSessionStore:
             "pack_id": session.pack_version.pack_id,
             "pack_version": session.pack_version.version,
             "epochs": to_stored(session.epochs),
+            "settings": to_stored(session.settings),
             "created_at": _utc(session.created_at),
         }
         stmt = pg_insert(t.sessions).values(values)

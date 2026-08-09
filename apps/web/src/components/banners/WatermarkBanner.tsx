@@ -27,16 +27,19 @@ export function WatermarkBanner() {
       <div className="min-w-0 flex-1">
         <p className="text-[0.78rem] font-medium">Data refreshed since this session began</p>
         <p className="num text-[0.68rem] text-muted-foreground">
-          Session pinned to {current.loadedAt} (data through {mediumDate(current.newestDataDate)}) ·
-          new load {banner.newWatermark.loadedAt} (through {mediumDate(banner.newWatermark.newestDataDate)})
+          This session is using {current.loadedAt} (data through{" "}
+          {mediumDate(current.newestDataDate)}) · newer load {banner.newWatermark.loadedAt} (through{" "}
+          {mediumDate(banner.newWatermark.newestDataDate)})
         </p>
       </div>
+      {/* Same decision, same consequences — the analyst chooses between
+          reproducibility and freshness. Only the button words changed. */}
       <div className="flex shrink-0 gap-1.5">
         <Button variant="outline" size="sm" className="h-7 text-xs" onClick={() => resolve("stay_pinned")}>
-          Stay pinned
+          Keep this data
         </Button>
         <Button size="sm" className="h-7 text-xs" onClick={() => resolve("re_anchor")}>
-          Re-anchor
+          Move to the newer data
         </Button>
       </div>
     </div>

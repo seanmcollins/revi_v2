@@ -260,13 +260,40 @@ def test_every_shipped_contract_was_examined(
     assert len({c.id for c in contracts}) == len(contracts)
 
     with_exclusions = {c.id for c in contracts if c.exclusions is not None}
-    # Three contracts carry an exclusion, and every one names a dimension
-    # the catalog defines. `denials_unworked_pct` was polarity-repaired in
-    # the 2026-08-08 correction; `denial_rate` and `clean_claim_rate` had
-    # theirs *restored* once `status` was certified (see NOTES.md,
-    # "Adjudicated population restored"). The remaining four stay removed
-    # because their dimensions are still absent.
-    assert with_exclusions == {"denials_unworked_pct", "denial_rate", "clean_claim_rate"}
+    # Five contracts carry an exclusion, and every one names a dimension the
+    # catalog defines. `denials_unworked_pct` was polarity-repaired in the
+    # 2026-08-08 correction; `denial_rate` and `clean_claim_rate` had theirs
+    # *restored* once `status` was certified (see NOTES.md, "Adjudicated
+    # population restored"). Coverage wave 2 added two more, both authored
+    # with `exclusions:` polarity from the start — `patient_responsibility_rate`
+    # removes un-adjudicated claims (`status eq OPEN`), which carry expected
+    # dollars but no assigned patient responsibility, and
+    # `denials_unworked_dollar_pct` removes patient-responsibility notices
+    # (`denial_category eq PATIENT_RESP`), matching its record-count twin
+    # exactly so the pair describes one population in two units. The four
+    # contracts whose exclusions were *removed* in the polarity correction
+    # stay removed: their dimensions are still absent from the catalog.
+    assert with_exclusions == {
+        "denials_unworked_pct",
+        "denial_rate",
+        "clean_claim_rate",
+        "patient_responsibility_rate",
+        "denials_unworked_dollar_pct",
+    }
+    # The wave-2 pair, spelled out: an exclusion names the population to
+    # REMOVE, so both are `eq`, and both dimensions are certified.
+    for metric_id, dimension_id, value in (
+        ("patient_responsibility_rate", "status", "OPEN"),
+        ("denials_unworked_dollar_pct", "denial_category", "PATIENT_RESP"),
+    ):
+        contract = base_pack_snapshot.metric(metric_id)
+        assert contract is not None, metric_id
+        exclusion = contract.exclusions
+        assert isinstance(exclusion, Predicate), metric_id
+        assert exclusion.dimension == DimensionRef(dimension_id), metric_id
+        assert exclusion.op is PredicateOp.EQ, metric_id
+        assert exclusion.values == (value,), metric_id
+        assert real_catalog.is_certified(dimension_id), metric_id
     for metric_id in ("first_pass_yield", "initial_denial_rate", "bill_lag_days"):
         contract = base_pack_snapshot.metric(metric_id)
         assert contract is not None, metric_id

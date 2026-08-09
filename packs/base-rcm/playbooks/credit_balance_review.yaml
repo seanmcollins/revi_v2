@@ -1,0 +1,71 @@
+id: credit_balance_review
+description: >-
+  Work the credit-balance liability: value the credits standing unrefunded by
+  payer, trend the refunds actually issued, and read the two together —
+  credits rising while refunds flatten is a compliance backlog, not an
+  improvement. Credit balances carry statutory return deadlines, so this
+  investigation is mandatory work regardless of dollar size and the governed
+  actionability rules floor its priority accordingly.
+triggers:
+  - credit balances
+  - do we owe refunds
+  - credit balance review
+  - overpayments
+  - unrefunded credits
+params:
+  - payer
+probes:
+  - id: credit_standing
+    metric_ids: [credit_balance_dollars]
+    dimensions: [payer]
+    top_n: 12
+    scope_note: >-
+      Credit-balance dollars standing as of the snapshot by payer — posted
+      collections above what the account should have collected, net of
+      refunds already issued and floored at zero per claim.
+  - id: refund_activity
+    metric_ids: [refund_dollars]
+    dimensions: [payer]
+    window: {quantity: 6, unit: month, mode: full_periods}
+    top_n: 12
+    scope_note: >-
+      Refunds actually issued by payer, POST basis. These are provider-issued
+      returns of overpayment, not payer takebacks — no clawback events exist
+      in this warehouse.
+  - id: refund_trend
+    metric_ids: [refund_dollars]
+    window: {quantity: 6, unit: month, mode: full_periods}
+    scope_note: >-
+      Monthly refund outflow — the resolution rate the standing credits are
+      read against.
+  - id: overpayment_context
+    metric_ids: [cash_posted, expected_reimbursement]
+    dimensions: [payer]
+    window: {quantity: 6, unit: month, mode: full_periods}
+    scope_note: >-
+      Cash posted against contract-expected by payer: duplicate or
+      above-expected posting is where credits come from, so a payer with
+      persistent excess is the upstream fix.
+transforms:
+  - operator: share_of_total
+    args: {measure: credit_balance_dollars}
+  - operator: rank
+    args: {by: credit_balance_dollars, descending: true}
+# Deliberate dead end: credit_balance_claim requires the credit_standing probe
+# as evidence, and credit_standing reads credit_balance_dollars. So this
+# playbook runs its other probes and CANNOT conclude — by design, since refund
+# evidence alone would assert a liability nothing here measured.
+# The reason it cannot conclude moved on 2026-08-08 and the record should say
+# which one is current. The derived credit_balance_cents measure SHIPPED:
+# credit_balance_dollars now compiles and executes at direct grade (12 payer
+# rows, 5,221,798 cents at wm_003). It is §6.6 plan validation that still
+# prunes credit_standing — PlanValidationService decides answerability from the
+# catalog alone and knows only one adapter-computed field (open_balance_cents),
+# so every probe summing a probe-time derived measure is dropped before it can
+# reach the adapter that would compute it. That is platform work, not pack
+# work, and nothing in this file can close it. The requirement stays exactly as
+# written: "no credit-balance number, no credit-balance conclusion" is the rule
+# that should govern whichever layer is the one withholding the number.
+# See NOTES.md ("Playbooks added", credit_balance_claim) and Appendix B.
+conclusion_policies: [credit_balance_claim]
+ranking_policy: impact_first

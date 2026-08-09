@@ -1,0 +1,27 @@
+# Refund dollars issued — the outflow side of the credit-balance family.
+# NOT payer takebacks/recoupments: this warehouse's REFUND transactions are
+# money the provider returns after an overpayment (see pack NOTES; payer
+# clawback events are not modeled and "takeback rate" stays deferred).
+id: refund_dollars
+version: 1
+kind: flow
+entity_grain: transaction
+numerator: {sum: refund_cents}
+primary_date_basis: post
+allowed_date_bases: [post, service, submission]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, facility, region,
+   service_line, claim_type]
+sign: neutral
+unit: money_cents
+description: >-
+  Refund dollars posted in the window on the post-date basis — overpayments
+  returned to the payer, the resolution side of a credit balance. Direction
+  note: refunds are recorded as positive amounts like every transaction, and
+  the sign convention is neutral because issuing an owed refund is correct
+  behavior, not a performance failure; rising refunds signal upstream
+  overpayment (in this warehouse, duplicate payer payments) rather than poor
+  collection. Read against credit_balance_dollars, which values the credits
+  still standing: refunds falling while credits rise is a compliance
+  backlog, not an improvement. This contract does not measure payer
+  takebacks or recoupments — no clawback events exist here.

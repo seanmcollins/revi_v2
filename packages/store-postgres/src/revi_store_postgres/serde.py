@@ -66,7 +66,9 @@ from revi_investigation.domain.refinements import (
     SetGrain,
     SetWindow,
 )
+from revi_investigation.domain.settings import SessionSettings
 from revi_investigation.domain.turns import TurnClass
+from revi_investigation_contracts.settings import EvidenceDepth, NarrativeDepth
 from revi_kernel.cohort import CohortDefinition, CohortMaterialization, CohortRef
 from revi_kernel.filters import And, InCohort, Not, Or, Predicate, PredicateOp
 from revi_kernel.frame import (
@@ -165,6 +167,7 @@ _DATACLASSES: tuple[type, ...] = (
     InvestigationContext,
     AnalysisSpec,
     Session,
+    SessionSettings,
     Finding,
     RefinementEdge,
     Investigation,
@@ -199,6 +202,8 @@ _ENUMS: tuple[type[Enum], ...] = (
     SampleMethod,
     InvestigationStatus,
     TurnClass,
+    NarrativeDepth,
+    EvidenceDepth,
 )
 
 _DATACLASS_REGISTRY: dict[str, type] = {cls.__name__: cls for cls in _DATACLASSES}
@@ -217,6 +222,20 @@ _TAGS = ("__type__", "__enum__", "__decimal__", "__date__", "__datetime__", "__l
 
 def encode(value: object) -> Json:
     """Encode a supported value to a JSON-safe structure (no envelope)."""
+    # Enums FIRST. A ``StrEnum`` member is a ``str`` and an ``IntEnum``
+    # member is an ``int``, so the scalar branch below used to swallow them
+    # and emit a bare "complete" where the tag scheme promises
+    # ``{"__enum__": "InvestigationStatus", ...}``. In memory that was
+    # invisible (``encode`` returned the member itself); through a JSONB
+    # column it decoded back as a plain string, and every ``is`` comparison
+    # against an enum member silently went False — a Postgres deployment
+    # answered "there is no prior answer to refine" on turns whose parent
+    # was sitting right there, because ``status is COMPLETE`` was False.
+    if isinstance(value, Enum):
+        name = type(value).__name__
+        if name not in _ENUM_REGISTRY:
+            raise SerdeError(f"enum {name} is not registered for serialization")
+        return {"__enum__": name, "value": encode(value.value)}
     if value is None or isinstance(value, (bool, int, float, str)):
         return value
     if isinstance(value, Decimal):
@@ -225,11 +244,6 @@ def encode(value: object) -> Json:
         return {"__datetime__": value.isoformat()}
     if isinstance(value, date):
         return {"__date__": value.isoformat()}
-    if isinstance(value, Enum):
-        name = type(value).__name__
-        if name not in _ENUM_REGISTRY:
-            raise SerdeError(f"enum {name} is not registered for serialization")
-        return {"__enum__": name, "value": encode(value.value)}
     if is_dataclass(value) and not isinstance(value, type):
         name = type(value).__name__
         if name not in _DATACLASS_REGISTRY:

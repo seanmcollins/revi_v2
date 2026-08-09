@@ -13,6 +13,7 @@ import {
   MINUS,
   mediumDate,
   parseIsoDate,
+  relativeTime,
   shortDate,
   windowChipLabel,
 } from "@/lib/format";
@@ -129,5 +130,24 @@ describe("dates and windows", () => {
 describe("formatCount", () => {
   it("groups thousands", () => {
     expect(formatCount(120_000)).toBe("120,000");
+  });
+});
+
+describe("relativeTime", () => {
+  const now = Date.parse("2026-08-08T12:00:00Z");
+
+  it("reads the last minute as now", () => {
+    expect(relativeTime("2026-08-08T11:59:30Z", now)).toBe("now");
+  });
+  it("counts minutes, then hours, then days", () => {
+    expect(relativeTime("2026-08-08T11:12:00Z", now)).toBe("48m");
+    expect(relativeTime("2026-08-08T04:00:00Z", now)).toBe("8h");
+    expect(relativeTime("2026-08-05T12:00:00Z", now)).toBe("3d");
+  });
+  it("falls back to a calendar date past a week", () => {
+    expect(relativeTime("2026-07-22T12:00:00Z", now)).toMatch(/^Jul \d{1,2}$/);
+  });
+  it("returns an unparseable timestamp verbatim rather than inventing an age", () => {
+    expect(relativeTime("not-a-date", now)).toBe("not-a-date");
   });
 });

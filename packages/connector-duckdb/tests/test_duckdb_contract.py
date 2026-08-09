@@ -19,10 +19,14 @@ Four layers:
 from __future__ import annotations
 
 import json
+from collections.abc import Iterator
+from dataclasses import replace
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
+import duckdb
 import pytest
 
 from revi_calculation_contracts.contract import (
@@ -40,6 +44,7 @@ from revi_connector_duckdb import (
     CohortSweepResult,
     DuckDbAnalyticalRepository,
 )
+from revi_connector_duckdb.compile import _DERIVED_MEASURES, ProbeCompiler
 from revi_kernel.cohort import CohortDefinition, CohortRef
 from revi_kernel.errors import (
     DateBasisInvalidError,
@@ -52,7 +57,13 @@ from revi_kernel.errors import (
 )
 from revi_kernel.filters import EMPTY_SCOPE, And, InCohort, Predicate, PredicateOp
 from revi_kernel.grades import EvidenceGrade
-from revi_kernel.probes import AggregationProbe, Ordering, SnapshotProbe
+from revi_kernel.probes import (
+    AggregationProbe,
+    MeasurePredicate,
+    Ordering,
+    ProbeShape,
+    SnapshotProbe,
+)
 from revi_kernel.refs import (
     POST,
     REMIT,
@@ -136,6 +147,29 @@ class TestDuckDbAdapterBehavior:
         assert caps.as_of_reads and caps.cohort_semijoin
         assert caps.having_pushdown and caps.server_side_top_n
         assert caps.max_cohort_size == 100_000
+
+    def test_the_advertisement_is_the_registry_itself(
+        self, repository: DuckDbAnalyticalRepository
+    ) -> None:
+        """§6.3: what this source tells the planner it computes is the same
+        table the compiler enforces — not a copy of it.
+
+        A copy is the whole failure mode being fixed here: §6.6 carried its
+        own one-entry list of adapter-computed fields, it fell behind the
+        adapter, and nine executable contracts were refused with a claim
+        about the source the source disproved. So the advertisement is
+        asserted against ``_DERIVED_MEASURES`` field by field, entity by
+        entity, shape by shape.
+        """
+        advertised = repository.capabilities().derived_measures
+        assert {m.field for m in advertised} == set(_DERIVED_MEASURES)
+        for measure in advertised:
+            spec = _DERIVED_MEASURES[measure.field]
+            assert measure.entity == spec.entity
+            assert measure.shapes == spec.shapes
+            assert measure.shapes, "a derivation valid in no probe shape is not a capability"
+        # ...and the construction the compiler documents is advertised too
+        assert repository.capabilities().cross_entity_ratio_of_sums
 
     async def test_unknown_dimension_is_unsupported_concept(
         self, repository: DuckDbAnalyticalRepository
@@ -884,6 +918,48 @@ def pack_reference_repository(  # type: ignore[no-untyped-def]
     return DuckDbAnalyticalRepository(REFERENCE_DB, catalog, pack_metrics)
 
 
+@pytest.fixture
+def reference_con() -> Iterator[Any]:
+    """A raw read-only connection to the reference warehouse.
+
+    Every number a probe returns below is also computed here by a hand-written
+    query that shares no code with the compiler — the two paths agreeing is
+    the actual claim, not the constant.
+
+    Deliberately function-scoped: DuckDB refuses a read-write connection to a
+    file that any read-only connection in the process still holds, so a
+    session-scoped handle here would break cohort materialization in every
+    later test module.
+    """
+    if not REFERENCE_DB.exists():
+        pytest.skip("data/revi_warehouse.duckdb not generated")
+    con = duckdb.connect(str(REFERENCE_DB), read_only=True)
+    try:
+        yield con
+    finally:
+        con.close()
+
+
+def _one(con: Any, sql: str) -> tuple[Any, ...]:
+    row = con.execute(sql).fetchone()
+    assert row is not None
+    return tuple(row)
+
+
+#: The reference window as SQL, so hand-written cross-checks and the probes
+#: they check cannot drift apart.
+_W = "DATE '2026-05-01' AND DATE '2026-08-02'"
+_AS_OF = "DATE '2026-08-02'"
+
+#: Open inventory as-of, the snapshot compiler's own definition restated.
+_OPEN_INVENTORY = f"""
+    FROM snap_003.v_claim c
+    WHERE c.service_date <= {_AS_OF}
+      AND (c.submission_date IS NULL OR c.submission_date <= {_AS_OF})
+      AND (c.resolved_date IS NULL OR c.resolved_date > {_AS_OF})
+"""
+
+
 def _pack_probe(*metric_ids: str, **overrides: object) -> AggregationProbe:
     defaults: dict[str, object] = {
         "measures": tuple(MetricRef(m) for m in metric_ids),
@@ -1001,18 +1077,49 @@ class TestReferencePackContracts:
         # records alone. v2 computes the workable-denial population.
         assert total.rows[0] == (1_182, 1_520)
 
-    async def test_first_pass_yield_remains_unanswerable_on_its_numerator(
+    async def test_first_pass_yield_executes_once_the_flag_is_certified(
         self, pack_reference_repository: DuckDbAnalyticalRepository
     ) -> None:
-        """Known residue of the polarity correction: removing the exclusion
-        does not make this metric answerable, because its numerator filters
-        on `first_pass_paid`, a base-view column the catalog does not
-        certify as a dimension. Pinned so it cannot quietly change in either
-        direction (packs/base-rcm/NOTES.md)."""
+        """Was unanswerable: the numerator filters on `first_pass_paid`, which
+        the catalog did not certify as a dimension. Certifying the flag (a
+        predicate needs a dimension; a date basis carries a window) is the
+        whole fix — the contract is untouched."""
         wm = (await pack_reference_repository.list_watermarks())[-1]
-        with pytest.raises(UnsupportedConceptError) as excinfo:
-            await pack_reference_repository.execute(_pack_probe("first_pass_yield"), watermark=wm)
-        assert excinfo.value.details["dimension"] == "first_pass_paid"
+        frame = await pack_reference_repository.execute(_pack_probe("first_pass_yield"), watermark=wm)
+        assert frame.schema.names == ("first_pass_yield__num", "first_pass_yield__den")
+        assert frame.rows[0] == (14_318, 18_410)
+        assert frame.evidence_grade is EvidenceGrade.DIRECT
+
+    async def test_first_pass_yield_numerator_includes_adjudicated_open_claims(
+        self, pack_reference_repository: DuckDbAnalyticalRepository, reference_con: Any
+    ) -> None:
+        """The OPEN trap, executed in the direction that surprises people.
+        `first_pass_paid` reads the remit, not the cash, so claims still
+        standing OPEN because payment has not posted DO belong in the
+        numerator — unlike `clean_claim`, which reads false on every one of
+        them. Both halves asserted so a "fix" to either flag is loud."""
+        wm = (await pack_reference_repository.list_watermarks())[-1]
+        frame = await pack_reference_repository.execute(
+            _pack_probe("first_pass_yield", "clean_claim_rate"), watermark=wm
+        )
+        yield_num, _, clean_num, _ = frame.rows[0]
+        assert isinstance(yield_num, int) and isinstance(clean_num, int)
+        assert (yield_num, clean_num) == (14_318, 13_725)
+        # The gap is not approximately the OPEN-but-adjudicated claims — it is
+        # exactly them, and nothing is clean without being first-pass-paid.
+        open_and_paid, clean_not_paid = _one(
+            reference_con,
+            "SELECT count(*) FILTER (WHERE status = 'OPEN' AND first_pass_paid), "
+            "       count(*) FILTER (WHERE clean_claim AND NOT first_pass_paid) "
+            f"FROM snap_003.v_claim WHERE submission_date BETWEEN {_W}",
+        )
+        assert yield_num - clean_num == open_and_paid == 593
+        assert clean_not_paid == 0
+        (open_and_clean,) = _one(
+            reference_con,
+            "SELECT count(*) FROM snap_003.v_claim WHERE status = 'OPEN' AND clean_claim",
+        )
+        assert open_and_clean == 0
 
     async def test_denial_rate_cannot_be_probed_on_its_own_primary_basis(
         self, pack_reference_repository: DuckDbAnalyticalRepository
@@ -1033,3 +1140,487 @@ class TestReferencePackContracts:
         # v1 read (7_484, 19_672) = 38.0%: every un-adjudicated claim in
         # the window counted as denied. v2 excludes them on both sides.
         assert service.rows[0] == (1_212, 13_400)
+
+
+# ---------------------------------------------------------------------------
+# 6. the previously-dead contracts, now executing
+#
+# Thirteen shipped contracts had never executed through the probe path. Twelve
+# of them light up here; each test executes the real pack contract and compares
+# the result with a hand-written query over the same base views. `dnfb_dollars`
+# and `timely_filing_at_risk_dollars` joined the list once their `filtered:`
+# predicates were renamed from the raw date columns to the certified
+# `billed_flag` / `discharged_flag` dimensions (the population is unchanged —
+# both tests below assert the flag form and the raw-date form agree). The one
+# contract still dark is `denial_rate` on its remit basis, pinned above.
+
+
+@pytest.mark.reference
+class TestPreviouslyDeadContracts:
+    """Every assertion is a pair: the compiled probe, and the same number
+    derived independently in SQL. A constant on its own would only pin
+    whatever the compiler happens to emit."""
+
+    async def test_net_and_gross_collection_rate_compile_across_entity_grains(
+        self, pack_reference_repository: DuckDbAnalyticalRepository, reference_con: Any
+    ) -> None:
+        """The headline fix: `payment_cents` lives at the transaction grain and
+        the denominators at the claim grain, which used to raise
+        GrainIncompatibleError inside the compiler. Both sides now aggregate
+        over the same service-date cohort and the kernel still divides."""
+        wm = (await pack_reference_repository.list_watermarks())[-1]
+        frame = await pack_reference_repository.execute(
+            _pack_probe(
+                "net_collection_rate",
+                "gross_collection_rate",
+                window=TimeWindow(basis=SERVICE, range=_PACK_WINDOW),
+            ),
+            watermark=wm,
+        )
+        assert frame.schema.names == (
+            "net_collection_rate__num",
+            "net_collection_rate__den",
+            "gross_collection_rate__num",
+            "gross_collection_rate__den",
+        )
+        net_num, net_den, gross_num, gross_den = frame.rows[0]
+        (sql_payments,) = _one(
+            reference_con,
+            "SELECT SUM(amount_cents) FILTER (WHERE txn_type = 'PAYMENT') "
+            f"FROM snap_003.v_transaction WHERE service_date BETWEEN {_W}",
+        )
+        sql_expected, sql_billed = _one(
+            reference_con,
+            "SELECT SUM(expected_amount_cents), SUM(billed_amount_cents) "
+            f"FROM snap_003.v_claim WHERE service_date BETWEEN {_W}",
+        )
+        assert (net_num, net_den) == (sql_payments, sql_expected) == (1_494_532_901, 2_623_183_106)
+        assert (gross_num, gross_den) == (sql_payments, sql_billed) == (1_494_532_901, 5_642_309_382)
+        # 56.97% of contract-expected realized so far; 26.49% of gross charges.
+        assert 0.56 < net_num / net_den < 0.58
+        assert frame.evidence_grade is EvidenceGrade.DIRECT
+
+    async def test_cross_entity_ratio_reconciles_cut_by_payer(
+        self, pack_reference_repository: DuckDbAnalyticalRepository, reference_con: Any
+    ) -> None:
+        """The slicing law across the join: cut by payer, both sides must sum
+        back to the ungrouped totals, and no cell may go missing on either
+        side of the FULL OUTER JOIN."""
+        wm = (await pack_reference_repository.list_watermarks())[-1]
+        cut = await pack_reference_repository.execute(
+            _pack_probe(
+                "net_collection_rate",
+                dimensions=(DimensionRef("payer"),),
+                window=TimeWindow(basis=SERVICE, range=_PACK_WINDOW),
+            ),
+            watermark=wm,
+        )
+        assert cut.schema.names == ("payer", "net_collection_rate__num", "net_collection_rate__den")
+        assert len(cut.rows) == 12
+        assert all(row[0] is not None for row in cut.rows)
+        assert sum(row[1] for row in cut.rows) == 1_494_532_901  # type: ignore[misc]
+        assert sum(row[2] for row in cut.rows) == 2_623_183_106  # type: ignore[misc]
+        by_payer = {row[0]: (row[1], row[2]) for row in cut.rows}
+        for payer, num, den in reference_con.execute(
+            "SELECT c.payer_name, "
+            "  (SELECT COALESCE(SUM(t.amount_cents) FILTER (WHERE t.txn_type = 'PAYMENT'), 0) "
+            "   FROM snap_003.v_transaction t "
+            f"   WHERE t.payer_name = c.payer_name AND t.service_date BETWEEN {_W}), "
+            "  SUM(c.expected_amount_cents) "
+            f"FROM snap_003.v_claim c WHERE c.service_date BETWEEN {_W} "
+            "GROUP BY c.payer_name ORDER BY c.payer_name"
+        ).fetchall():
+            assert by_payer[payer] == (num, den), payer
+
+    async def test_cross_entity_ratio_keeps_cells_only_one_side_has(
+        self, pack_reference_repository: DuckDbAnalyticalRepository, reference_con: Any
+    ) -> None:
+        """The reason the blocks are FULL OUTER joined rather than left joined.
+
+        August service cohorts have expected dollars but no posted cash yet, so
+        those cells exist in the claim block and not the transaction one. They
+        survive with a NULL numerator — which `revi_calculation.ratio` renders
+        as no reading rather than as 0% — and both column totals still
+        reconcile to the ungrouped run.
+        """
+        wm = (await pack_reference_repository.list_watermarks())[-1]
+        frame = await pack_reference_repository.execute(
+            _pack_probe(
+                "net_collection_rate",
+                dimensions=(DimensionRef("payer"),),
+                window=TimeWindow(basis=SERVICE, range=_PACK_WINDOW),
+                grain=Grain(EntityGrain.CLAIM, TimeBucket.MONTH),
+            ),
+            watermark=wm,
+        )
+        assert frame.schema.names == (
+            "payer",
+            "month",
+            "net_collection_rate__num",
+            "net_collection_rate__den",
+        )
+        num_missing = [row for row in frame.rows if row[2] is None]
+        assert num_missing, "no one-sided cell in this window — the join shape is untested"
+        assert all(row[1] == date(2026, 8, 1) and row[3] for row in num_missing)
+        assert all(row[0] is not None and row[1] is not None for row in frame.rows)
+        assert sum(row[2] for row in frame.rows if row[2] is not None) == 1_494_532_901  # type: ignore[misc]
+        assert sum(row[3] for row in frame.rows) == 2_623_183_106  # type: ignore[misc]
+        (cells,) = _one(
+            reference_con,
+            "SELECT count(*) FROM (SELECT payer_name, date_trunc('month', service_date) "
+            f"FROM snap_003.v_claim WHERE service_date BETWEEN {_W} GROUP BY 1, 2)",
+        )
+        assert len(frame.rows) == cells
+
+    async def test_cross_entity_ratio_rejects_having(
+        self, pack_reference_repository: DuckDbAnalyticalRepository
+    ) -> None:
+        """A HAVING predicate on a cross-entity probe would filter one block
+        and not the other — a denominator-law violation. Refused, not applied."""
+        wm = (await pack_reference_repository.list_watermarks())[-1]
+        probe = _pack_probe(
+            "net_collection_rate",
+            window=TimeWindow(basis=SERVICE, range=_PACK_WINDOW),
+            having=(
+                MeasurePredicate(
+                    measure=MetricRef("claim_volume"), op=PredicateOp.RANGE, values=(0, 10)
+                ),
+            ),
+        )
+        with pytest.raises(SourceCapabilityUnsupportedError):
+            await pack_reference_repository.execute(probe, watermark=wm)
+
+    async def test_avg_days_to_pay_delivers_the_payment_lag_derived_measure(
+        self, pack_reference_repository: DuckDbAnalyticalRepository, reference_con: Any
+    ) -> None:
+        wm = (await pack_reference_repository.list_watermarks())[-1]
+        frame = await pack_reference_repository.execute(
+            _pack_probe(
+                "avg_days_to_pay",
+                window=TimeWindow(basis=POST, range=_PACK_WINDOW),
+                grain=Grain(EntityGrain.TRANSACTION),
+            ),
+            watermark=wm,
+        )
+        expected = _one(
+            reference_con,
+            "SELECT SUM(datediff('day', submission_date, post_date)) "
+            "         FILTER (WHERE txn_type = 'PAYMENT'), COUNT(*) "
+            f"FROM snap_003.v_transaction WHERE post_date BETWEEN {_W}",
+        )
+        assert frame.rows[0] == expected == (328_459, 48_984)
+        # 6.7 days, diluted by the non-payment transactions the contract's
+        # denominator counts and its description warns about.
+        assert 6.0 < 328_459 / 48_984 < 7.0
+
+    async def test_bill_lag_days_delivers_the_submission_lag_derived_measure(
+        self, pack_reference_repository: DuckDbAnalyticalRepository, reference_con: Any
+    ) -> None:
+        wm = (await pack_reference_repository.list_watermarks())[-1]
+        frame = await pack_reference_repository.execute(_pack_probe("bill_lag_days"), watermark=wm)
+        expected = _one(
+            reference_con,
+            "SELECT SUM(datediff('day', service_date, submission_date)), COUNT(DISTINCT claim_id) "
+            f"FROM snap_003.v_claim WHERE submission_date BETWEEN {_W}",
+        )
+        assert frame.rows[0] == expected == (149_973, 18_410)
+        assert 8.0 < 149_973 / 18_410 < 8.3  # days, service to submission
+
+    async def test_charge_lag_and_late_charge_share_the_charge_capture_pair(
+        self, pack_reference_repository: DuckDbAnalyticalRepository, reference_con: Any
+    ) -> None:
+        wm = (await pack_reference_repository.list_watermarks())[-1]
+        frame = await pack_reference_repository.execute(
+            _pack_probe(
+                "charge_lag_days",
+                "late_charge_pct",
+                window=TimeWindow(basis=SERVICE, range=_PACK_WINDOW),
+                grain=Grain(EntityGrain.LINE),
+            ),
+            watermark=wm,
+        )
+        lag_num, lag_den, late_num, late_den = frame.rows[0]
+        expected = _one(
+            reference_con,
+            "SELECT SUM(datediff('day', service_date, charge_entry_date)), "
+            "       COUNT(DISTINCT claim_line_id), "
+            "       SUM(CASE WHEN datediff('day', service_date, charge_entry_date) > 3 "
+            "                THEN billed_amount_cents ELSE 0 END), "
+            "       SUM(billed_amount_cents) "
+            f"FROM snap_003.v_claim_line WHERE service_date BETWEEN {_W}",
+        )
+        assert (lag_num, lag_den, late_num, late_den) == expected
+        assert (lag_num, lag_den) == (100_670, 48_294)  # 2.08 days mean
+        assert (late_num, late_den) == (953_661_749, 5_697_582_337)  # 16.7% of charges
+        assert 2.0 < lag_num / lag_den < 2.2
+
+    async def test_underpayment_variance_floors_per_claim_and_never_nets(
+        self, pack_reference_repository: DuckDbAnalyticalRepository, reference_con: Any
+    ) -> None:
+        """The derived measure's whole point: floor at zero per claim, then sum
+        over adjudicated claims only.
+
+        On this warehouse the floor is a *guard*, not an effect: no claim is
+        allowed more than its expected amount, so the floored and netted forms
+        agree exactly. Both facts are asserted rather than one of them assumed
+        — if the generator ever plants an overpayment, the equality breaks and
+        whoever changed it has to decide deliberately."""
+        wm = (await pack_reference_repository.list_watermarks())[-1]
+        frame = await pack_reference_repository.execute(
+            _pack_probe("underpayment_variance", window=TimeWindow(basis=SERVICE, range=_PACK_WINDOW)),
+            watermark=wm,
+        )
+        floored, netted = _one(
+            reference_con,
+            "WITH a AS (SELECT claim_id, SUM(allowed_amount_cents) AS allowed "
+            "           FROM snap_003.v_claim_line GROUP BY claim_id) "
+            "SELECT SUM(GREATEST(c.expected_amount_cents - a.allowed, 0)), "
+            "       SUM(c.expected_amount_cents - a.allowed) "
+            "FROM snap_003.v_claim c JOIN a USING (claim_id) "
+            f"WHERE c.service_date BETWEEN {_W} AND a.allowed IS NOT NULL",
+        )
+        assert frame.rows[0] == (floored,) == (14_306_720,)
+        assert netted == floored
+        (overpaid_claims,) = _one(
+            reference_con,
+            "WITH a AS (SELECT claim_id, SUM(allowed_amount_cents) AS allowed "
+            "           FROM snap_003.v_claim_line GROUP BY claim_id) "
+            "SELECT count(*) FROM snap_003.v_claim c JOIN a USING (claim_id) "
+            f"WHERE c.service_date BETWEEN {_W} AND a.allowed > c.expected_amount_cents",
+        )
+        assert overpaid_claims == 0, "the floor now bites: netting is no longer a no-op"
+        # Un-adjudicated claims are excluded, not counted as fully underpaid:
+        # including them would inflate the variance by their whole expected value.
+        (naive_including_unadjudicated,) = _one(
+            reference_con,
+            "WITH a AS (SELECT claim_id, SUM(allowed_amount_cents) AS allowed "
+            "           FROM snap_003.v_claim_line GROUP BY claim_id) "
+            "SELECT SUM(GREATEST(c.expected_amount_cents - COALESCE(a.allowed, 0), 0)) "
+            "FROM snap_003.v_claim c LEFT JOIN a USING (claim_id) "
+            f"WHERE c.service_date BETWEEN {_W}",
+        )
+        assert naive_including_unadjudicated > 50 * floored
+
+    async def test_the_per_claim_line_rollup_does_not_fan_out_the_claim_grain(
+        self, pack_reference_repository: DuckDbAnalyticalRepository
+    ) -> None:
+        """`underpayment_cents` needs summed line allowed amounts, which means a
+        join from the claim grain down to lines — the classic fan-out bug. The
+        rollup is pre-aggregated to one row per claim, so a claim count probed
+        alongside it must be unchanged. Cut by payer too: fan-out shows up per
+        cell before it shows up in a total."""
+        wm = (await pack_reference_repository.list_watermarks())[-1]
+        window = TimeWindow(basis=SERVICE, range=_PACK_WINDOW)
+        alone = await pack_reference_repository.execute(
+            _pack_probe("claim_volume", window=window, dimensions=(DimensionRef("payer"),)),
+            watermark=wm,
+        )
+        together = await pack_reference_repository.execute(
+            _pack_probe(
+                "claim_volume",
+                "underpayment_variance",
+                window=window,
+                dimensions=(DimensionRef("payer"),),
+            ),
+            watermark=wm,
+        )
+        assert [(row[0], row[1]) for row in alone.rows] == [
+            (row[0], row[1]) for row in together.rows
+        ]
+        assert sum(row[1] for row in alone.rows) == 19_672  # type: ignore[misc]
+
+    async def test_days_in_ar_is_the_billed_weighted_age_of_open_receivables(
+        self, pack_reference_repository: DuckDbAnalyticalRepository, reference_con: Any
+    ) -> None:
+        wm = (await pack_reference_repository.list_watermarks())[-1]
+        probe = SnapshotProbe(
+            measures=(MetricRef("days_in_ar"),),
+            dimensions=(),
+            scope=EMPTY_SCOPE,
+            as_of=wm.newest_data_date,
+            grain=Grain(EntityGrain.CLAIM),
+        )
+        frame = await pack_reference_repository.execute(probe, watermark=wm)
+        expected = _one(
+            reference_con,
+            "SELECT SUM(c.billed_amount_cents * datediff('day', c.service_date, "
+            f"           {_AS_OF})) FILTER (WHERE c.status IN ('OPEN', 'DENIED')), "
+            "       SUM(c.billed_amount_cents) FILTER (WHERE c.status IN ('OPEN', 'DENIED')) "
+            + _OPEN_INVENTORY,
+        )
+        assert frame.rows[0] == expected == (548_063_722_723, 3_438_036_345)
+        # The denominator is exactly ar_over_120_pct's open population
+        # (Appendix A), which is the reconciliation that matters: two
+        # snapshot contracts must value the same A/R identically.
+        assert expected[1] == 3_438_036_345
+        # 159 days: the aging form, and this warehouse's A/R really is old —
+        # 41% of open dollars sit past 120 days with a 578-day tail. NOT the
+        # MAP FM-1 net-days figure, which the contract says it is not.
+        assert 155 < expected[0] / expected[1] < 165
+
+    async def test_credit_balance_dollars_floors_at_zero_after_refunds(
+        self, pack_reference_repository: DuckDbAnalyticalRepository, reference_con: Any
+    ) -> None:
+        wm = (await pack_reference_repository.list_watermarks())[-1]
+        probe = SnapshotProbe(
+            measures=(MetricRef("credit_balance_dollars"),),
+            dimensions=(),
+            scope=EMPTY_SCOPE,
+            as_of=wm.newest_data_date,
+            grain=Grain(EntityGrain.CLAIM),
+        )
+        frame = await pack_reference_repository.execute(probe, watermark=wm)
+        (expected,) = _one(
+            reference_con,
+            "SELECT SUM(GREATEST(GREATEST(COALESCE(t.cash_in, 0) - c.expected_amount_cents, 0) "
+            "                    - COALESCE(t.refunds, 0), 0)) "
+            "FROM snap_003.v_claim c LEFT JOIN ("
+            "  SELECT claim_id, "
+            "    COALESCE(SUM(amount_cents) FILTER ("
+            "      WHERE txn_type IN ('PAYMENT', 'PATIENT_PAYMENT')), 0) AS cash_in, "
+            "    COALESCE(SUM(amount_cents) FILTER (WHERE txn_type = 'REFUND'), 0) AS refunds "
+            f"  FROM snap_003.v_transaction WHERE post_date <= {_AS_OF} GROUP BY claim_id"
+            ") t USING (claim_id) "
+            f"WHERE c.service_date <= {_AS_OF} "
+            f"  AND (c.submission_date IS NULL OR c.submission_date <= {_AS_OF}) "
+            f"  AND (c.resolved_date IS NULL OR c.resolved_date > {_AS_OF})",
+        )
+        assert frame.rows[0] == (expected,) == (5_221_798,)
+
+    async def test_dnfb_dollars_reads_the_certified_flags_not_the_raw_dates(
+        self, pack_reference_repository: DuckDbAnalyticalRepository, reference_con: Any
+    ) -> None:
+        """The rename, proved to be a rename.
+
+        The contract's `filtered:` predicates now say `discharged_flag eq true`
+        AND `billed_flag eq false` where they used to say `NOT discharge_date
+        IS NULL` AND `submission_date IS NULL`. The flags are materialized from
+        exactly those two columns (`warehouse/generator/src/revi_warehouse/writer.py`,
+        guarded by `verify.py`), so the SECOND query below is the pre-rename
+        definition spelled out in raw columns: probe, flag-form SQL and
+        date-form SQL must all agree, or the rename changed the population.
+        """
+        wm = (await pack_reference_repository.list_watermarks())[-1]
+        probe = SnapshotProbe(
+            measures=(MetricRef("dnfb_dollars"),),
+            dimensions=(),
+            scope=EMPTY_SCOPE,
+            as_of=wm.newest_data_date,
+            grain=Grain(EntityGrain.CLAIM),
+        )
+        frame = await pack_reference_repository.execute(probe, watermark=wm)
+        (by_flags,) = _one(
+            reference_con,
+            "SELECT SUM(c.billed_amount_cents) FILTER "
+            "  (WHERE c.discharged_flag AND NOT c.billed_flag) " + _OPEN_INVENTORY,
+        )
+        (by_dates,) = _one(
+            reference_con,
+            "SELECT SUM(billed_amount_cents) FROM snap_003.v_claim "
+            "WHERE discharge_date IS NOT NULL AND submission_date IS NULL "
+            f"  AND service_date <= {_AS_OF} "
+            f"  AND (resolved_date IS NULL OR resolved_date > {_AS_OF})",
+        )
+        assert frame.rows[0] == (by_flags,) == (by_dates,) == (963_165_147,)
+        assert frame.evidence_grade is EvidenceGrade.DIRECT
+
+    async def test_timely_filing_at_risk_dollars_values_open_unbilled_inventory(
+        self, pack_reference_repository: DuckDbAnalyticalRepository, reference_con: Any
+    ) -> None:
+        """Same rename on the other contract: `billed_flag eq false` replaces
+        `submission_date IS NULL`, with the `status eq OPEN` half untouched.
+
+        Note the relationship to `dnfb_dollars`: DNFB is the discharged slice of
+        this inventory, so the DNFB total must sit strictly inside it."""
+        wm = (await pack_reference_repository.list_watermarks())[-1]
+        probe = SnapshotProbe(
+            measures=(MetricRef("timely_filing_at_risk_dollars"),),
+            dimensions=(),
+            scope=EMPTY_SCOPE,
+            as_of=wm.newest_data_date,
+            grain=Grain(EntityGrain.CLAIM),
+        )
+        frame = await pack_reference_repository.execute(probe, watermark=wm)
+        (by_flags,) = _one(
+            reference_con,
+            "SELECT SUM(c.billed_amount_cents) FILTER "
+            "  (WHERE NOT c.billed_flag AND c.status = 'OPEN') " + _OPEN_INVENTORY,
+        )
+        (by_dates,) = _one(
+            reference_con,
+            "SELECT SUM(billed_amount_cents) FROM snap_003.v_claim "
+            "WHERE submission_date IS NULL AND status = 'OPEN' "
+            f"  AND service_date <= {_AS_OF} "
+            f"  AND (resolved_date IS NULL OR resolved_date > {_AS_OF})",
+        )
+        assert frame.rows[0] == (by_flags,) == (by_dates,) == (2_242_600_028,)
+        assert frame.evidence_grade is EvidenceGrade.DIRECT
+        assert by_dates > 963_165_147
+
+    async def test_open_balance_still_reconciles_after_the_rollup_refactor(
+        self, pack_reference_repository: DuckDbAnalyticalRepository
+    ) -> None:
+        """Regression guard for the shared per-claim money rollup: `ar_balance`
+        and the A/R band contracts read `open_balance_cents` through the same
+        join that now also serves credit balances. Appendix A's published
+        numbers must not move."""
+        wm = (await pack_reference_repository.list_watermarks())[-1]
+        probe = SnapshotProbe(
+            measures=(MetricRef("ar_over_120_pct"), MetricRef("denied_ar_dollars")),
+            dimensions=(),
+            scope=EMPTY_SCOPE,
+            as_of=wm.newest_data_date,
+            grain=Grain(EntityGrain.CLAIM),
+        )
+        frame = await pack_reference_repository.execute(probe, watermark=wm)
+        num, den, denied = frame.rows[0]
+        assert (num, den) == (1_410_505_150, 3_438_036_345)
+        assert denied == 209_606_158
+
+    async def test_derived_measures_refuse_the_wrong_probe_shape(
+        self, pack_reference_repository: DuckDbAnalyticalRepository
+    ) -> None:
+        """`ar_age_days_billed_cents` needs a snapshot's as-of to have an age at
+        all. Asked for inside a flow aggregation the compiler refuses rather
+        than inventing a reference date."""
+        wm = (await pack_reference_repository.list_watermarks())[-1]
+        contract = pack_reference_repository._compiler._metrics("days_in_ar")
+        assert contract is not None and contract.kind is MetricKind.SNAPSHOT
+        with pytest.raises(GrainIncompatibleError):  # kind gate fires first
+            await pack_reference_repository.execute(_pack_probe("days_in_ar"), watermark=wm)
+
+    async def test_an_advertised_shape_is_the_shape_the_compiler_accepts(
+        self, pack_reference_repository: DuckDbAnalyticalRepository
+    ) -> None:
+        """The two verdicts, taken from opposite ends of one declaration.
+
+        ``credit_balance_cents`` is advertised for snapshots only. Named by
+        a contract mis-authored at the flow kind — so the metric-kind gate
+        cannot answer first — the compiler refuses on the *shape*, which is
+        precisely the refusal §6.6 now issues at plan time from the same
+        advertisement.
+        """
+        wm = (await pack_reference_repository.list_watermarks())[-1]
+        compiler = pack_reference_repository._compiler
+        credit = next(
+            m
+            for m in pack_reference_repository.capabilities().derived_measures
+            if m.field == "credit_balance_cents"
+        )
+        assert credit.shapes == frozenset({ProbeShape.SNAPSHOT})
+        authored = compiler._metrics("credit_balance_dollars")
+        assert authored is not None
+        mis_authored = replace(authored, kind=MetricKind.FLOW)
+        rebuilt = ProbeCompiler(
+            compiler._catalog, {"credit_balance_dollars": mis_authored}.get
+        )
+        with pytest.raises(SourceCapabilityUnsupportedError) as raised:
+            rebuilt.compile_aggregation(
+                _pack_probe(
+                    "credit_balance_dollars",
+                    window=TimeWindow(basis=SERVICE, range=_PACK_WINDOW),
+                ),
+                schema="snap_003",
+                watermark=wm,
+            )
+        assert "snapshot" in str(raised.value)

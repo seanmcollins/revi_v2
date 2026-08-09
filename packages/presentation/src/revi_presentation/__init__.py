@@ -11,8 +11,10 @@ from revi_presentation.charts import (
 )
 from revi_presentation.narrative import (
     NARRATIVE_TEMPLATE,
+    NARRATIVE_TEMPLATE_ANALYST,
     NARRATIVE_TEMPLATE_ID,
     NARRATIVE_TEMPLATE_VERSION,
+    NARRATIVE_TEMPLATES,
     REDACTION_NOTE,
     build_narrative_facts,
     build_narrative_prompt,
@@ -22,6 +24,8 @@ from revi_presentation.narrative import (
 
 __all__ = [
     "NARRATIVE_TEMPLATE",
+    "NARRATIVE_TEMPLATES",
+    "NARRATIVE_TEMPLATE_ANALYST",
     "NARRATIVE_TEMPLATE_ID",
     "NARRATIVE_TEMPLATE_VERSION",
     "REDACTION_NOTE",

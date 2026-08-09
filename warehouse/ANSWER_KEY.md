@@ -14,6 +14,19 @@ generated data** per scenario per watermark — never hand-entered. Regenerate w
 All SQL below runs against any snapshot schema; substitute `snap_003` for the
 newest watermark.
 
+Service dates span **2024-01-01 .. 2026-08-02**, in two eras:
+
+- **2024** is a closed comparison year (see "The 2024 comparison backfill"
+  below): every claim in it was billed, adjudicated and paid or written off by
+  2025-06-30. It exists so that period-over-period questions have real rows.
+- **2025-01-01 onward** is the *organic era* — the world the five scenarios and
+  the anomaly population live in. Scenario cohorts that would otherwise be
+  open-ended ("everything before the break") are bounded below by
+  `service_date >= DATE '2025-01-01'`, because a prior-year cohort must not
+  retroactively redefine the baseline a break is measured against. Every
+  organic and injected claim is serviced on or after that day, so the bound
+  changes no published number.
+
 ## Scenario 1 — Denial spike: Meridian Health x Imaging, CARC 197 (CO)
 
 **Mechanism.** For claims of payer `Meridian Health` on service line `Imaging`,
@@ -28,6 +41,7 @@ planted rates are clean.
 WITH cell AS (
   SELECT claim_id FROM snap_003.v_claim
   WHERE payer_name = 'Meridian Health' AND service_line_name = 'Imaging'
+    AND service_date >= DATE '2025-01-01'   -- organic era; excludes the 2024 backfill
 ),
 first_remit AS (
   SELECT claim_id, MIN(remit_date) AS fr FROM snap_003.fact_remit GROUP BY claim_id
@@ -157,6 +171,7 @@ SELECT fr >= DATE '2026-05-01' AS post,
        SUM(l.allowed_amount_cents)::DOUBLE / SUM(l.billed_amount_cents) AS ratio
 FROM snap_003.v_claim_line l JOIN first_remit USING (claim_id)
 WHERE l.payer_name = 'Northbridge Commercial' AND l.proc_group = 'ORTHO-SURG'
+  AND l.claim_service_date >= DATE '2025-01-01'   -- organic era
   AND l.allowed_amount_cents IS NOT NULL
 GROUP BY 1 ORDER BY 1;
 ```
@@ -193,7 +208,8 @@ WHERE plan_name = 'State Medicaid HMO' AND facility_name = 'Eastside Medical Cen
 SELECT count(*), SUM(denied_amount_cents)
 FROM snap_003.v_denial
 WHERE plan_name = 'State Medicaid HMO'
-  AND facility_name = 'Eastside Medical Center' AND carc_code = 29;
+  AND facility_name = 'Eastside Medical Center' AND carc_code = 29
+  AND service_date >= DATE '2025-01-01';   -- organic era
 ```
 
 Expected at full scale: 414 unsubmitted July claims (400 planted + a handful of
@@ -405,12 +421,120 @@ layers enforce that:
    injected State Medicaid payment may carry a remit on/after 2026-07-06.
 3. **Post-hoc proof.** `verify._non_interference_checks` re-runs all five
    scenario computations over **base claims only** (`claim_id <
-   first_injected_claim_id`) and requires exact equality with the recorded
-   all-rows values, per snapshot. If injection had leaked into any scenario, the
-   base-only recomputation would diverge.
+   first_injected_claim_id`, which also excludes the 2024 backfill) and requires
+   exact equality with the recorded all-rows values, per snapshot. If injection
+   or the backfill had leaked into any scenario, the base-only recomputation
+   would diverge. The same pass runs the backfill's closure guards (below) over
+   every snapshot.
 
 The load-bearing anchors are unchanged: the reference-week payer cash totals at
 `snap_003` remain exactly **152,196,731** and **132,844,152** cents (-12.7%).
+
+## The 2024 comparison backfill
+
+"How did 2025 compare with 2024?" is an ordinary question for anyone probing
+this warehouse, and it deserves rows rather than a shrug. `backfill.py` appends
+a full calendar year of 2024 claims — with lines, remits, transactions, denials
+and appeals — after every other stage has run. Full scale, at every watermark:
+
+| | 2024 (backfill) | 2025 (organic) |
+| --- | --- | --- |
+| claims | 65,451 | 75,898 |
+| claims per day | 178.8 | 207.9 (2024 is 86.0% of the rate) |
+| billed | $187.1M | $219.1M |
+| posted payer cash | $72.8M | $80.8M |
+| denial rate (claims with >= 1 denial) | 6.03% | 6.69% |
+
+Every row cohorts claims by **service year** — including the cash row, which
+sums the payer payments posted against each year's claims whenever they posted.
+Grouping the same cash by *posting* year instead gives $67.8M / $79.9M, because
+$5.1M of 2024's cash posts in early 2025 (the year closes on 2025-06-30, not on
+2024-12-31); on that basis the 2025 column is not purely organic. Pick one basis
+and say which — the two differ by more than the year-over-year gap they measure.
+
+Rows added: 65,451 claims, 163,197 lines, 66,075 remits, 175,006 transactions,
+3,949 denials — identical in all three snapshots, since 2024 predates every
+cutoff. Claim ids start at `backfill_meta.first_backfill_claim_id`
+(`CLM-0120512` at full scale), above every pre-existing id.
+
+**Shape.** Volume follows `BACKFILL.volume_ratio` (0.86) of the observed 2025
+claims-per-day rate, with monthly seasonality. The payer mix is tilted mildly
+toward Medicaid — the story is that commercial and Medicare Advantage volume
+grew into 2025 (Atlas 17.9% -> 20.0%, State Medicaid 18.4% -> 16.1%, Summit
+Peak MA 3.2% -> 4.0% of claims). Denial propensity is each payer's 2025 rate
+times `BACKFILL.denial_factor` (0.88). Nothing else changes: contract rates,
+line mixes, lag distributions and payment mechanics are the organic world's, so
+a 2024-vs-2025 cycle-time comparison is a real comparison (18.14 vs 18.05 mean
+days submission -> first payment posting), not an artifact.
+
+**Why it cannot move a 2026 number.** Every backfill claim is *closed*: billed,
+adjudicated, and paid or written off, with every appeal decided and every
+duplicate payment refunded, by `BACKFILL.resolved_by` (2025-06-30 — the last
+observed resolution is 2025-04-27). One consequence covers everything:
+
+- no claim sits in `OPEN` or `DENIED` status, so A/R, aging and days-in-A/R are
+  untouched at every watermark;
+- no claim is unsubmitted, so DNFB and timely-filing-at-risk dollars are
+  untouched;
+- no credit balance stands open;
+- no denial is left mid-appeal (`appeal_status = 'APPEALED'` count is zero), so
+  the unworked-denial share of any 2026 window is untouched;
+- every scenario window, every anomaly observation window and every trailing
+  window anchored at a 2026-08 watermark starts after the last backfill date.
+
+Denials that were never appealed keep `appeal_status = 'NONE'` and carry a
+posted write-off — terminal at the claim level, and the honest way to keep the
+2024 appeal rate (34.5% of denials) comparable with 2025's.
+
+**Determinism.** Each sub-stream is seeded by
+`(REVI_SEED, BACKFILL_STREAM, crc32(sub_stream))`, the same pattern the anomaly
+engine uses, and the rows are appended after everything else. No draw belonging
+to dims/world/anomalies is consumed or shifted, so every pre-existing row is
+byte-identical with the backfill on or off. `GeneratorConfig.include_backfill`
+switches it off, and `tests/test_backfill.py` builds both ways and diffs the
+pre-existing id space, the `detected_anomalies` tables and the whole answer key.
+
+**Verify.**
+
+```sql
+-- volume, cash and denial rate by year
+WITH c AS (SELECT claim_id, year(service_date) AS yr, billed_amount_cents
+           FROM snap_003.fact_claim WHERE service_date < DATE '2026-01-01'),
+d AS (SELECT DISTINCT claim_id FROM snap_003.fact_denial)
+SELECT yr, count(*) AS claims, SUM(billed_amount_cents) AS billed,
+       count(d.claim_id)::DOUBLE / count(*) AS denial_rate
+FROM c LEFT JOIN d USING (claim_id) GROUP BY 1 ORDER BY 1;
+
+-- the closure proof: all three must return zero
+SELECT count(*) FROM snap_003.fact_claim
+WHERE service_date < DATE '2025-01-01'
+  AND (status NOT IN ('PAID', 'CLOSED') OR submission_date IS NULL
+       OR resolved_date IS NULL OR resolved_date > DATE '2025-06-30');
+SELECT count(*) FROM snap_003.fact_transaction t JOIN snap_003.fact_claim c USING (claim_id)
+WHERE c.service_date < DATE '2025-01-01' AND t.post_date > DATE '2025-06-30';
+SELECT count(*) FROM snap_003.fact_denial d JOIN snap_003.fact_claim c USING (claim_id)
+WHERE c.service_date < DATE '2025-01-01' AND d.appeal_status = 'APPEALED';
+```
+
+**Known consequence.** A cohort or probe with no lower date bound now spans
+2024 as well. For example, "all claims for Atlas Commercial, State Medicaid and
+Meridian Health" materialises 86,415 claims at `snap_003` rather than the 55,722
+it did before:
+
+```sql
+SELECT count(*) FILTER (WHERE service_date >= DATE '2025-01-01') AS organic_era,
+       count(*)                                                 AS with_backfill
+FROM snap_003.v_claim
+WHERE payer_name IN ('Atlas Commercial', 'State Medicaid', 'Meridian Health');
+-- 55722, 86415
+```
+
+The *windowed* numbers such a probe reports are unchanged — only the population
+it names is larger, which is what an unbounded cohort means. Anything measured
+over a window that starts on or after 2025-05-28 is byte-for-byte what it was:
+that is the latest date carried by any backfill row of any kind, 430 days before
+the earliest watermark, so no trailing window the platform anchors at a 2026-08
+watermark can reach the backfill.
 
 ## Cross-cutting invariants (also enforced by `--verify`)
 

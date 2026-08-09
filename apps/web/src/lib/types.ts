@@ -158,19 +158,42 @@ export interface ContextHeaderData {
  */
 export type DirectionOfGood = "up_is_good" | "down_is_good" | "neutral";
 
-export interface MetricContractSummary {
+/**
+ * One governed metric contract a turn read, as the turn recorded it.
+ *
+ * `contractVersion` is the version the connector stamped on the executed
+ * frame — absent when the probe was planned and never ran, which is a
+ * different fact from "version 1" and is shown as one.
+ */
+export interface MetricContractRef {
   id: string;
-  version: number;
-  name: string;
-  kind: "FLOW" | "SNAPSHOT";
-  numerator: string;
-  denominator?: string;
-  primaryDateBasis: DateBasis;
-  exclusions: string[];
-  unit: "cents" | "percent" | "count" | "days";
-  directionOfGood: DirectionOfGood;
-  /** Content-hash prefix of the governed contract. */
-  fingerprint: string;
+  contractVersion?: number;
+}
+
+/**
+ * `TurnAnswer.metric` — whose definition produced this answer's numbers.
+ *
+ * Projected server-side from the turn's own recorded trace (the same
+ * record the evidence bundle and the debug trace read), so the badge
+ * cannot disagree with the drawer. It carries ids, versions, the playbook
+ * and the pack — and deliberately nothing else: a contract's display
+ * name, numerator, date basis, exclusions and fingerprint live in the
+ * pack, are not recorded per turn, and captioning last week's answer with
+ * today's pack would be exactly the overclaim the badge exists to
+ * prevent.
+ *
+ * `primary` is set only when ONE contract stands behind the answer. A
+ * playbook turn that ran several leaves it undefined and lists them all.
+ */
+export interface MetricProvenance {
+  primary?: MetricContractRef;
+  /** Every governed metric this turn's probes named, in plan order. */
+  metrics: MetricContractRef[];
+  /** The governed playbook recorded in the turn's plan context. */
+  playbookId?: string;
+  pack: PackVersionRef;
+  /** Content hash of the pack as loaded — "1.0.0" vs "1.0.0, hot-edited". */
+  packSnapshotId?: string;
 }
 
 /* ------------------------------------------------------------------ */
@@ -295,48 +318,81 @@ export interface ChartSpec {
 /* Evidence (revi_kernel.frame provenance → drawer lineage)            */
 /* ------------------------------------------------------------------ */
 
-export interface OperatorApplication {
-  name: string;
-  version: string;
+/**
+ * These mirror `EvidencePayload` on the wire (see the server's
+ * `revi_investigation_contracts.evidence`), which is projected from the
+ * turn's recorded trace — the same record `GET .../trace` reads. Every
+ * field below therefore has a counterpart the server actually stored;
+ * nothing here is derived in the browser.
+ *
+ * Two things this deliberately no longer models, both cut in the pass
+ * that pointed the drawer at the live API rather than at fixtures:
+ *
+ *   `sampleRows` — the planner emits only aggregation and snapshot
+ *     probes, so no frame the platform stores holds row-level content and
+ *     a masked-sample table had nothing behind it. The probe `kind` field
+ *     is where `row_evidence` will announce itself when that lands.
+ *   per-probe operator versions, and reconciliation `parentCents` /
+ *     `childSumCents` — the trace records operator applications for the
+ *     turn, not per probe, and the §7.8 verdict as a status string
+ *     without the totals. Showing either meant inventing the attribution.
+ */
+export interface ProbeMetricRef {
+  id: string;
+  /** The contract version the executed frame was stamped with. */
+  contractVersion?: number;
 }
 
 export interface ProbeEvidence {
   probeId: string;
-  /** Content-hash prefix (mono in UI). */
+  /** Content hash of the probe — the evidence-cache key component. */
   probeHash: string;
-  kind: "aggregation" | "snapshot" | "row_evidence";
+  /** The §6.2 probe union member; "" on traces predating the field. */
+  kind: string;
+  /** The plan's own statement of what this probe was for. */
   description: string;
-  contract?: { id: string; version: number };
-  operators: OperatorApplication[];
+  metrics: ProbeMetricRef[];
   cacheHit: boolean;
-  rowCount: number;
+  /** Undefined for a probe planned but never executed — not zero rows. */
+  rowCount?: number;
+  /** The top-N cutoff applied, when one was. */
+  limit?: number;
   truncated: boolean;
   suppressedCells: number;
-  grade: EvidenceGrade;
+  grade?: EvidenceGrade;
+  durationMs: number;
 }
 
 export interface ReconciliationResult {
-  status: "passed" | "failed" | "not_applicable";
-  /** "12 payer rows sum to parent delta −$193,525.79 (tolerance 0¢)". */
+  /**
+   * The recorded verdict. `passed_with_suppression` is its own state: the
+   * parts agree within the allowance small-cell suppression leaves, which
+   * is not the same claim as an exact match. `unknown` means the server
+   * stored a summary in a grammar this build cannot parse — reported, not
+   * rounded up to "passed".
+   */
+  status: "passed" | "passed_with_suppression" | "failed" | "not_applicable" | "unknown";
+  /** The reason half of the verdict, e.g. "this is a first turn; ...". */
   detail?: string;
-  parentCents?: number;
-  childSumCents?: number;
-}
-
-export interface MaskedSampleRows {
-  columns: string[];
-  rows: string[][];
-  maskedColumns: string[];
-  purpose: string;
+  /** The recorded string verbatim, for the debug disclosure. */
+  summary: string;
 }
 
 export interface EvidenceBundle {
   probes: ProbeEvidence[];
-  reconciliation: ReconciliationResult;
-  sampleRows?: MaskedSampleRows;
-  /** Turn answered entirely from trace/cache — zero warehouse queries. */
+  /**
+   * Absent when the turn recorded no verdict at all (a META citation, a
+   * kernel-only refinement). Distinct from a recorded `not_applicable`,
+   * which means the check was reached, declined, and said why.
+   */
+  reconciliation?: ReconciliationResult;
+  /** Probes that went to the warehouse; the rest came from the cache. */
+  warehouseQueries: number;
+  cacheHits: number;
+  /** `warehouseQueries === 0` — this answer cost the warehouse nothing. */
   zeroProbeTurn: boolean;
-  traceNote?: string;
+  /** The grade law over the turn's recorded finding grades (§5.3). */
+  answerGrade?: EvidenceGrade;
 }
 
 /* ------------------------------------------------------------------ */
@@ -418,6 +474,128 @@ export const STAGE_LABELS: Record<StageId, string> = {
   narrating: "Narrating",
 };
 
+/**
+ * The default (non-debug) rail: the same eight engine stages, grouped into
+ * four steps an analyst can read without knowing the pipeline. This is a
+ * relabelling and a grouping — no stage is hidden, and a group's state is
+ * derived from the stages inside it, so a skipped step still reads as
+ * skipped. The precise eight-stage rail stays one debug toggle away.
+ */
+export interface PlainStageGroup {
+  id: string;
+  label: string;
+  stages: StageId[];
+}
+
+export const PLAIN_STAGE_GROUPS: PlainStageGroup[] = [
+  { id: "reading", label: "Reading your question", stages: ["classified", "interpreted"] },
+  { id: "deciding", label: "Deciding what to check", stages: ["planned", "validated"] },
+  {
+    id: "checking",
+    label: "Checking the numbers",
+    stages: ["executing", "calculating", "reconciled"],
+  },
+  { id: "writing", label: "Writing it up", stages: ["narrating"] },
+];
+
+/* ------------------------------------------------------------------ */
+/* Debug trace (DebugTracePayload — internal debug mode only)          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One turn's decision breakdown, as published by `TurnAnswer.debug` /
+ * `TurnClarification.debug` and by `GET /v1/investigations/{iid}/trace`.
+ *
+ * This is the ONE place in the UI where precise internal vocabulary is
+ * correct: it exists to explain how the engine reached an answer, to an
+ * engineer, and blurring "probe" into "check" here would defeat it.
+ * Everything in this shape is recorded on every turn regardless of the
+ * debug setting — the setting only decides whether it is published — so a
+ * turn nobody thought to debug is still explainable afterwards.
+ */
+export interface DebugInterpretationTrace {
+  intentSummary: string;
+  metricIds: string[];
+  dimensionIds: string[];
+  conceptIds: string[];
+  playbookId?: string;
+  windowStart?: string;
+  windowEnd?: string;
+  basis?: string;
+}
+
+export interface DebugProbeTrace {
+  id: string;
+  hash: string;
+  purpose: string;
+  cacheHit: boolean;
+  /** null = planned but never executed. */
+  rows: number | null;
+  limit: number | null;
+  truncated: boolean;
+  suppressedCells: number;
+  grade?: string;
+  durationMs: number;
+}
+
+/** `failure` is the LlmFailureKind: declined / schema / off_script. */
+export interface DebugLlmCallTrace {
+  template: string;
+  model: string;
+  inputTokens: number;
+  outputTokens: number;
+  /** Decimal string — never rounded through a float. */
+  costUsd: string;
+  schemaRetries: number;
+  attempts: number;
+  durationMs: number;
+  failure?: string;
+}
+
+export interface DebugTrace {
+  traceId: string;
+  sessionId: string;
+  investigationId: string;
+  turnId: string;
+  /** The settings actually in force for the turn, as the server resolved them. */
+  settings: {
+    modelTier: string | null;
+    maxTurnCostUsd: string | null;
+    narrativeDepth: string;
+    evidenceDepth: string;
+    debug: boolean;
+  };
+  question?: string;
+  turnClass?: string;
+  classificationConfidence?: number;
+  interpretation?: DebugInterpretationTrace;
+  refinementOperators: Record<string, unknown>[];
+  refinementRationale?: string;
+  referentResolutions: Record<string, unknown>[];
+  clarificationReason?: string;
+  planHash?: string;
+  playbookId?: string;
+  probes: DebugProbeTrace[];
+  grades: Record<string, string>;
+  weakestGrade?: string;
+  findingGrades: Record<string, string>;
+  calculationOperators: Record<string, unknown>[];
+  reconciliation?: string;
+  warnings: string[];
+  llmCalls: DebugLlmCallTrace[];
+  templateHashes: Record<string, string>;
+  timingsMs: Record<string, number>;
+  watermarkId: string;
+  watermarkStale: boolean;
+  epoch: number;
+  reAnchored: boolean;
+  packId: string;
+  packVersion: string;
+  packSnapshotId: string;
+  /** Free text the outbound-payload guard withheld — named, never silent. */
+  redactions: string[];
+}
+
 /* ------------------------------------------------------------------ */
 /* SSE turn events (plan §6: the POST-SSE stream)                      */
 /* ------------------------------------------------------------------ */
@@ -471,7 +649,10 @@ export interface TurnCompleteEvent {
   investigationId: string;
   status: "complete" | "clarification_required" | "failed";
   answerGrade?: EvidenceGrade;
-  metric?: MetricContractSummary;
+  /** The governed provenance of this turn's numbers (`TurnAnswer.metric`). */
+  metric?: MetricProvenance;
+  /** Present only when the settings in force for the turn had debug on. */
+  debug?: DebugTrace;
 }
 
 export interface ErrorEvent {
@@ -551,4 +732,30 @@ export interface LineageEdge {
 export interface SessionLineageData {
   nodes: LineageNode[];
   edges: LineageEdge[];
+}
+
+/* ------------------------------------------------------------------ */
+/* Session list (GET /v1/sessions)                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * One row of the tenant's session list. Every field is server-derived:
+ * `title` is the session's first question verbatim ("New session" when it
+ * has none), `lastActivity` is its newest investigation. The rail renders
+ * these and nothing else — there is no client-side naming of a session.
+ */
+export interface SessionSummary {
+  sessionId: string;
+  title: string;
+  /** ISO timestamp — when the session was opened. */
+  createdAt: string;
+  /** ISO timestamp — when a turn was last answered in it. */
+  lastActivity: string;
+  turnCount: number;
+}
+
+export interface SessionListData {
+  sessions: SessionSummary[];
+  /** Every session the tenant owns, so a truncated page can say so. */
+  total: number;
 }

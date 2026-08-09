@@ -6,7 +6,7 @@ calendar:
   table: dim_calendar
   date_column: cal_date
   range:
-    start: 2025-01-01
+    start: 2024-01-01 # covers the closed 2024 comparison year as well as the organic era
     end: 2026-12-31
   columns:
     is_business_day: is_business_day
@@ -20,6 +20,12 @@ calendar:
     generator's SYNTHETIC_HOLIDAYS — fictional observed dates, not an official
     holiday calendar).
   holidays:
+    - 2024-01-01
+    - 2024-05-27
+    - 2024-07-04
+    - 2024-09-02
+    - 2024-11-28
+    - 2024-12-25
     - 2025-01-01
     - 2025-05-26
     - 2025-07-04

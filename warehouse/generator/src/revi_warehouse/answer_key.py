@@ -16,6 +16,8 @@ import numpy as np
 
 from revi_warehouse.config import (
     ANOMALY_SPECS,
+    BACKFILL,
+    ORGANIC_ERA_START,
     REVI_SEED,
     SCENARIOS,
     SELF_RESOLVING_IDS,
@@ -28,6 +30,19 @@ _S = SCENARIOS
 
 def _iso(day_int: int) -> str:
     return str(np.datetime64(day_int, "D"))
+
+
+ERA_START = _iso(ORGANIC_ERA_START)
+"""Every scenario cohort is scoped to claims serviced in the organic era.
+
+Three of the five scenarios compare a window against "everything before the
+break". The 2024 comparison backfill (backfill.py) is not part of that history —
+it is a closed prior year planted for period-over-period questions — so the
+open-ended cohorts are bounded below by the claim's service date. (Service date,
+not remit date: a December-2024 claim adjudicates in January 2025.) Every
+organic and injected claim is serviced on or after this day, so the bound leaves
+each published figure exactly where it was.
+"""
 
 
 WEEK_PRIOR = (_iso(_S.s3_week_prior_start), _iso(_S.s3_week_prior_end))
@@ -51,6 +66,7 @@ def _denial_spike(con: duckdb.DuckDBPyConnection, sch: str) -> dict[str, Any]:
         WITH cell AS (
             SELECT claim_id FROM {sch}.v_claim
             WHERE payer_name = '{_S.s1_payer}' AND service_line_name = '{_S.s1_service_line}'
+              AND service_date >= DATE '{ERA_START}'
         ),
         first_remit AS (
             SELECT claim_id, MIN(remit_date) AS fr FROM {sch}.fact_remit GROUP BY claim_id
@@ -74,6 +90,7 @@ def _denial_spike(con: duckdb.DuckDBPyConnection, sch: str) -> dict[str, Any]:
         WITH cell AS (
             SELECT claim_id FROM {sch}.v_claim
             WHERE payer_name = '{_S.s1_payer}' AND service_line_name = '{_S.s1_service_line}'
+              AND service_date >= DATE '{ERA_START}'
         ),
         first_remit AS (
             SELECT claim_id, MIN(remit_date) AS fr FROM {sch}.fact_remit GROUP BY claim_id
@@ -249,6 +266,7 @@ def _underpayment(con: duckdb.DuckDBPyConnection, sch: str) -> dict[str, Any]:
         ortho_claims AS (
             SELECT DISTINCT l.claim_id FROM {sch}.v_claim_line l
             WHERE l.payer_name = '{_S.s4_payer}' AND l.proc_group = '{_S.s4_proc_group}'
+              AND l.claim_service_date >= DATE '{ERA_START}'
         ),
         adjudicated AS (
             SELECT c.claim_id, fr.fr, c.expected_amount_cents,
@@ -279,6 +297,7 @@ def _underpayment(con: duckdb.DuckDBPyConnection, sch: str) -> dict[str, Any]:
         FROM {sch}.v_claim_line l
         JOIN first_remit fr USING (claim_id)
         WHERE l.payer_name = '{_S.s4_payer}' AND l.proc_group = '{_S.s4_proc_group}'
+          AND l.claim_service_date >= DATE '{ERA_START}'
           AND l.allowed_amount_cents IS NOT NULL
         """,
     )
@@ -316,6 +335,7 @@ def _timely_filing(con: duckdb.DuckDBPyConnection, sch: str, newest_data_date: s
         SELECT count(*), COALESCE(SUM(denied_amount_cents), 0)
         FROM {sch}.v_denial
         WHERE plan_name = '{_S.s5_plan}' AND facility_name = '{_S.s5_facility}' AND carc_code = 29
+          AND service_date >= DATE '{ERA_START}'
         """,
     )
     return {
@@ -367,6 +387,30 @@ def _anomaly_rows(con: duckdb.DuckDBPyConnection, sch: str) -> list[dict[str, An
     ]
 
 
+def _backfill_meta(con: duckdb.DuckDBPyConnection, config: GeneratorConfig) -> dict[str, Any]:
+    """The 2024 backfill's footprint, read back out of the newest snapshot."""
+    final = SNAPSHOTS[-1].schema_name
+    first_id, claims, min_svc, max_svc, max_resolved = _one(
+        con,
+        f"""
+        SELECT MIN(claim_id), count(*), CAST(MIN(service_date) AS VARCHAR),
+               CAST(MAX(service_date) AS VARCHAR), CAST(MAX(resolved_date) AS VARCHAR)
+        FROM {final}.fact_claim WHERE service_date < DATE '{ERA_START}'
+        """,
+    )
+    return {
+        "enabled": config.include_backfill,
+        "organic_era_start": ERA_START,
+        "first_backfill_claim_id": first_id,
+        "claims": int(claims),
+        "service_window": {"start": min_svc, "end": max_svc},
+        "resolved_by": _iso(BACKFILL.resolved_by),
+        "observed_last_resolved_date": max_resolved,
+        "volume_ratio_target": BACKFILL.volume_ratio,
+        "denial_factor": BACKFILL.denial_factor,
+    }
+
+
 def compute_answer_key(db_path: Path, config: GeneratorConfig) -> dict[str, Any]:
     con = duckdb.connect(str(db_path), read_only=True)
     try:
@@ -378,6 +422,7 @@ def compute_answer_key(db_path: Path, config: GeneratorConfig) -> dict[str, Any]
                 "n_patients": config.n_patients,
                 "timely_cluster_size": config.timely_cluster_size,
                 "carc29_count": config.carc29_count,
+                "include_backfill": config.include_backfill,
             },
             "watermarks": [
                 {
@@ -404,6 +449,7 @@ def compute_answer_key(db_path: Path, config: GeneratorConfig) -> dict[str, Any]
                 "self_resolving_ids": sorted(SELF_RESOLVING_IDS),
                 "per_snapshot_counts": {},
             },
+            "backfill_meta": _backfill_meta(con, config),
         }
         for snap in SNAPSHOTS:
             sch = snap.schema_name

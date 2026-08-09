@@ -8,8 +8,8 @@ numerator:
     inner: {sum: billed_amount_cents}
     where:
       and:
-        - {not: {dimension: discharge_date, op: is_null}}
-        - {dimension: submission_date, op: is_null}
+        - {dimension: discharged_flag, op: eq, value: true}
+        - {dimension: billed_flag, op: eq, value: false}
 primary_date_basis: discharge
 allowed_date_bases: [discharge]
 scope_dimensions:

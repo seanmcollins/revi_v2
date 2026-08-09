@@ -10,16 +10,20 @@
    (a CARC standing in for coordination of benefits) cannot launder into a
    certified conclusion. Resolution also covers
    measure *fields*: a contract whose measure fields are not answerable at
-   the source (no catalog measure at the probe's entity, no declared
-   column) prunes its probe from the plan with a surfaced warning — the
-   honest-limitation path — and the whole plan failing to resolve is an
+   the source — no catalog measure at the probe's entity, no declared
+   column, and nothing the repository *advertises* that it computes (see
+   "Answerability is negotiated" below) — prunes its probe from the plan
+   with a surfaced warning naming the field and the reason: the
+   honest-limitation path. The whole plan failing to resolve is an
    ``UNSUPPORTED_CONCEPT`` error. Comparison twins and transform steps that
    consumed pruned probes are pruned with them.
 2. **Grain legality.** For every ratio metric, probe dimensions must be a
    subset of the contract's ``scope_dimensions`` (``GRAIN_INCOMPATIBLE``);
    ``time_bucket:*`` pseudo-dimensions are exempt. Additive money/count
    metrics accept any certified dimension. Independently, every group-by
-   and scope dimension must be bound at the probe's entity grain.
+   and scope dimension must be bound at the probe's entity grain — and, for
+   a metric whose components live at a *second* entity, at that entity too,
+   since each side aggregates the identical keys against its own base view.
 3. **Date basis.** The probe's basis (window basis for flow, aging basis
    for snapshots) must be allowed by every referenced contract
    (``DATE_BASIS_INVALID``); a legal non-primary basis yields an
@@ -43,8 +47,42 @@
 7. **Capability negotiation.** Cohort semi-joins, server-side top-N,
    HAVING pushdown, and as-of reads are checked against
    ``repository.capabilities()`` (``SOURCE_CAPABILITY_UNSUPPORTED``).
+   Probe-time derived measures and cross-entity components are negotiated
+   against the same declaration, in step 1 where answerability is decided.
 8. **Policy limits.** Simple plan-level budgets (probe count) enforce the
    read-only/row/time posture hooks (``QUERY_BUDGET_EXCEEDED``).
+
+Answerability is negotiated, not assumed
+========================================
+Step 1 used to decide answerability from the catalog alone, plus one
+hardcoded exception — a module constant naming ``open_balance_cents``,
+the single field the DuckDB adapter computed at probe time on the day the
+predicate was written. It was true then. It stopped being true when the
+adapter grew seven probe-time derivations and cross-entity ratio-of-sums,
+and the consequence was not a warning but a refusal: nine metric
+contracts that the source executes correctly were pruned to an empty plan
+and answered ``UNSUPPORTED_CONCEPT: no probe in the plan is answerable at
+the source`` — a sentence about the source that the source disproves.
+
+The fix is not a longer constant. It is §6.3's capability negotiation:
+the repository advertises what it computes (``derived_measures``, each
+with its entity and the probe shapes that can compute it, and
+``cross_entity_ratio_of_sums``), and this pass reads the advertisement.
+Three properties follow, and each is pinned by a test:
+
+- **Silence is not permission.** A repository that advertises nothing
+  extra gets exactly the old behaviour, refusal text included. Adapters
+  that never learned the new tricks degrade honestly rather than being
+  assumed capable.
+- **Shape verdicts cannot disagree.** The adapter refuses a snapshot-age
+  measure inside a flow aggregation; because the same declaration drives
+  both, so does this pass — at plan time, with a §6.6 reason, instead of
+  as an exception after the click.
+- **Cross-entity is aggregation-only.** A component declared at another
+  entity compiles to a same-scope block per entity joined on the shared
+  group keys, which is why the group-by and scope dimensions must bind at
+  *both* entities and the window basis must be bound at both (step 2). A
+  snapshot aggregates one entity as-of a date and is never eligible.
 
 Population caveats are structural, not per-metric
 =================================================
@@ -84,7 +122,7 @@ from revi_investigation.application.planning import (
     TransformPlan,
 )
 from revi_investigation.domain.context import AnalysisSpec
-from revi_kernel.capabilities import AnalyticalRepository
+from revi_kernel.capabilities import AnalyticalRepository, RepositoryCapabilities
 from revi_kernel.errors import (
     DateBasisInvalidError,
     GrainIncompatibleError,
@@ -101,12 +139,11 @@ from revi_kernel.filters import (
     iter_predicates,
 )
 from revi_kernel.grades import EvidenceGrade, min_grade
-from revi_kernel.probes import AggregationProbe, SnapshotProbe
+from revi_kernel.probes import AggregationProbe, ProbeShape, SnapshotProbe, probe_shape
 from revi_kernel.refs import SERVICE, DateBasisRef, DimensionRef
 
 _TIME_BUCKET_PREFIX = "time_bucket:"
 _PRIOR_SUFFIX = "__prior"
-_SNAPSHOT_DERIVED_FIELDS = frozenset({"open_balance_cents"})  # adapter-computed
 
 #: The governed marker a metric contract uses to declare that its population
 #: is narrower or wider than a reader would assume. Case-insensitive, one per
@@ -145,6 +182,22 @@ class ValidationLimits:
 
 
 DEFAULT_LIMITS = ValidationLimits()
+
+
+@dataclass(frozen=True, slots=True)
+class _FieldVerdict:
+    """Whether one measure field is answerable, and where it aggregates.
+
+    ``entity`` is set only when the field lives at a *second* entity — the
+    cross-entity case step 2 then re-checks the group keys against.
+    """
+
+    resolved: bool
+    entity: str | None = None
+    reason: str | None = None
+
+
+_RESOLVED = _FieldVerdict(True)
 
 
 @dataclass(frozen=True, slots=True)
@@ -248,19 +301,22 @@ class PlanValidationService:
         """Drop probes whose measure fields cannot be answered at the source
         (with a surfaced warning); an empty result is UNSUPPORTED_CONCEPT."""
         dropped: set[str] = set()
+        reasons: dict[str, list[str]] = {}
         for node in plan.nodes:
             if not isinstance(node.probe, (AggregationProbe, SnapshotProbe)):
                 continue
             entity = self._entity_for(node)
+            shape = probe_shape(node.probe)
             unresolved: list[str] = []
             for contract in self._contracts_for(node):
                 for field_id in (
                     *_measure_fields(contract.numerator),
                     *_measure_fields(contract.denominator),
                 ):
-                    if self._field_resolves(field_id, entity, snapshot=isinstance(node.probe, SnapshotProbe)):
+                    verdict = self._resolve_field(field_id, entity, shape)
+                    if verdict.resolved:
                         continue
-                    unresolved.append(f"{contract.id}.{field_id}")
+                    unresolved.append(f"{contract.id}.{field_id} — {verdict.reason}")
                 # A contract-internal filter dimension the catalog does not
                 # define is exactly as fatal as an unresolvable measure
                 # field — the adapter raises UNSUPPORTED_CONCEPT when it
@@ -271,9 +327,13 @@ class PlanValidationService:
                 # the conformance gap ``packs/base-rcm/NOTES.md`` names.)
                 for dimension_id in sorted(_internal_filter_dimensions(contract)):
                     if self._catalog.dimension(dimension_id) is None:
-                        unresolved.append(f"{contract.id}[{dimension_id}]")
+                        unresolved.append(
+                            f"{contract.id}[{dimension_id}] — the contract filters on a "
+                            "dimension the catalog does not define"
+                        )
             if unresolved:
                 dropped.add(node.id)
+                reasons[node.id] = unresolved
         # a pruned base prunes its comparison twin, and vice versa
         for node_id in tuple(dropped):
             twin = (
@@ -287,16 +347,27 @@ class PlanValidationService:
             return plan
         for node in plan.nodes:
             if node.id in dropped and not node.id.endswith(_PRIOR_SUFFIX):
+                why = "; ".join(reasons.get(node.id, ()))
                 warnings.append(
                     f"probe '{node.id}' omitted: its measures are not answerable at the "
-                    "source for this catalog (probe-time derived fields, or a "
-                    "contract-internal filter dimension the catalog does not define)"
+                    f"source for this catalog and this repository ({why})"
                 )
         kept_nodes = tuple(node for node in plan.nodes if node.id not in dropped)
         if not any(not node.id.endswith(_PRIOR_SUFFIX) for node in kept_nodes):
+            # The refusal carries the per-field reasons, not only the probe
+            # ids: "no probe is answerable" was true and useless for as long
+            # as the reason was a hardcoded predicate nobody could read from
+            # the outside. What is missing — a catalog measure, a source
+            # that computes it, a probe shape that can — belongs in the
+            # error the caller renders.
             raise UnsupportedConceptError(
                 "no probe in the plan is answerable at the source",
-                details={"dropped": sorted(dropped)},
+                details={
+                    "dropped": sorted(dropped),
+                    "reasons": sorted(
+                        reason for items in reasons.values() for reason in items
+                    ),
+                },
             )
         kept_ids = {node.id for node in kept_nodes}
         steps = []
@@ -306,13 +377,102 @@ class PlanValidationService:
                 kept_ids.add(step.id)
         return replace(plan, nodes=kept_nodes, transforms=TransformPlan(steps=tuple(steps)))
 
-    def _field_resolves(self, field_id: str, entity: EntityDef, *, snapshot: bool) -> bool:
-        if snapshot and field_id in _SNAPSHOT_DERIVED_FIELDS:
-            return True
+    def _capabilities(self) -> RepositoryCapabilities:
+        return self._repository.capabilities()
+
+    def _resolve_field(
+        self, field_id: str, entity: EntityDef, shape: ProbeShape
+    ) -> _FieldVerdict:
+        """Can this source answer ``field_id`` on a probe of this shape?
+
+        Four ways a field can be answerable, in the order the adapter
+        itself tries them: a catalog measure at the probe's own entity; a
+        measure the repository *advertises* that it derives at probe time;
+        either of those declared at a **second** entity, when the source
+        advertises cross-entity aggregation and the probe is a flow
+        aggregation; or a plain declared column of the entity.
+
+        Everything else is unanswerable, and says which of those it
+        failed — the warning the analyst reads is the reason, not a
+        category.
+        """
+        caps = self._capabilities()
         measure = self._catalog.measure(field_id)
         if measure is not None:
-            return measure.entity == entity.name
-        return field_id in self._catalog.declared_columns(entity.name)
+            if measure.entity == entity.name:
+                return _RESOLVED
+            return self._resolve_foreign(field_id, measure.entity, shape, caps)
+
+        derived = caps.derived_anywhere(field_id)
+        home = caps.derived_at(field_id, entity.name)
+        if home is not None:
+            if home.computable_in(shape):
+                return _RESOLVED
+            return _FieldVerdict(
+                False,
+                None,
+                f"the source computes {field_id!r} only in "
+                f"{sorted(s.value for s in home.shapes)} probes, not {shape.value!r}",
+            )
+        if derived:
+            # advertised, but at another entity — the cross-entity path,
+            # subject to the same shape rule as its home declaration
+            elsewhere = derived[0]
+            if not elsewhere.computable_in(shape):
+                return _FieldVerdict(
+                    False,
+                    None,
+                    f"the source computes {field_id!r} only in "
+                    f"{sorted(s.value for s in elsewhere.shapes)} probes, not {shape.value!r}",
+                )
+            return self._resolve_foreign(field_id, elsewhere.entity, shape, caps)
+
+        if field_id in self._catalog.declared_columns(entity.name):
+            return _RESOLVED
+        return _FieldVerdict(
+            False,
+            None,
+            f"{field_id!r} is neither a catalog measure at the {entity.name!r} grain, nor a "
+            f"measure this source computes, nor a declared column of {entity.name!r}",
+        )
+
+    def _resolve_foreign(
+        self,
+        field_id: str,
+        home_entity: str,
+        shape: ProbeShape,
+        caps: RepositoryCapabilities,
+    ) -> _FieldVerdict:
+        """A field that lives at another entity than the probe's own.
+
+        Legal exactly where the source says it is: an aggregation probe
+        compiles one same-scope block per entity and joins them on the
+        shared group keys, so both sides read the identical window, scope
+        and cuts. A snapshot has no such construction — it aggregates one
+        entity as-of a date — so it is refused here whatever the source
+        advertises, which is also what the adapter does.
+        """
+        if not caps.cross_entity_ratio_of_sums:
+            return _FieldVerdict(
+                False,
+                None,
+                f"{field_id!r} is defined at the {home_entity!r} grain and this source cannot "
+                f"aggregate components across entity grains in one probe",
+            )
+        if shape is not ProbeShape.AGGREGATION:
+            return _FieldVerdict(
+                False,
+                None,
+                f"{field_id!r} is defined at the {home_entity!r} grain and a "
+                f"{shape.value} probe aggregates a single entity",
+            )
+        if self._catalog.entity_named(home_entity) is None:
+            return _FieldVerdict(
+                False,
+                None,
+                f"{field_id!r} names entity {home_entity!r}, which this catalog does not define",
+            )
+        return _FieldVerdict(True, home_entity, None)
 
     def _scope_predicates(self, node: ProbeNode) -> tuple[Predicate, ...]:
         probe = node.probe
@@ -428,6 +588,60 @@ class PlanValidationService:
                 raise GrainIncompatibleError(
                     f"dimension {ref.id!r} is not available at the {entity.name!r} grain",
                     details={"dimension": ref.id, "entity": entity.name, "probe": node.id},
+                )
+        self._check_cross_entity_grain(node, entity)
+
+    def _check_cross_entity_grain(self, node: ProbeNode, entity: EntityDef) -> None:
+        """The same legality, at the *other* entity of a cross-entity metric.
+
+        A metric whose components span two grains compiles to one
+        same-scope aggregate per entity, joined on the shared group keys —
+        so every group-by and scope dimension has to exist on the second
+        base view too, and the window's date basis has to be bound there.
+        Checked here rather than discovered at execute time: the second
+        side reading a different population (or failing to compile at all)
+        is not something an answer can be honest about after the fact.
+        """
+        probe = node.probe
+        if not isinstance(probe, AggregationProbe):
+            return  # a snapshot is single-entity by construction (step 1)
+        foreign: dict[str, str] = {}  # entity name → the field that put it there
+        for contract in self._contracts_for(node):
+            for field_id in (
+                *_measure_fields(contract.numerator),
+                *_measure_fields(contract.denominator),
+            ):
+                verdict = self._resolve_field(field_id, entity, ProbeShape.AGGREGATION)
+                if verdict.resolved and verdict.entity is not None:
+                    foreign.setdefault(verdict.entity, field_id)
+        for entity_name, field_id in foreign.items():
+            other = self._catalog.entity_named(entity_name)
+            assert other is not None  # step 1 resolved it
+            for ref in (
+                *self._probe_dimensions(node),
+                *(p.dimension for p in self._scope_predicates(node)),
+            ):
+                if ref.id.startswith(_TIME_BUCKET_PREFIX):
+                    continue
+                dim_def = self._catalog.dimension(ref.id)
+                assert dim_def is not None  # step 1 resolved it
+                if dim_def.column_for(other.name) is None:
+                    raise GrainIncompatibleError(
+                        f"probe '{node.id}' reads {field_id!r} at the {other.name!r} grain, but "
+                        f"dimension {ref.id!r} is not available there — both sides of a "
+                        "cross-grain metric must be cut by the same keys",
+                        details={"dimension": ref.id, "entity": other.name, "probe": node.id},
+                    )
+            if other.date_basis_column(probe.window.basis) is None:
+                raise DateBasisInvalidError(
+                    f"probe '{node.id}' reads {field_id!r} at the {other.name!r} grain, but date "
+                    f"basis {probe.window.basis.id!r} is not bound there — both sides of a "
+                    "cross-grain metric must read the same window",
+                    details={
+                        "basis": probe.window.basis.id,
+                        "entity": other.name,
+                        "probe": node.id,
+                    },
                 )
 
     # -------------------------------------------------------- step 3: basis

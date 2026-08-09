@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from revi_calculation_contracts.contract import MetricContract, MetricKind
 from revi_catalog_contracts.model import CatalogSnapshot
 from revi_investigation.application.planning import (
     BuildInvestigationPlanService,
@@ -20,7 +21,7 @@ from revi_investigation.application.validation import (
     ValidationLimits,
     population_caveat,
 )
-from revi_kernel.capabilities import RepositoryCapabilities
+from revi_kernel.capabilities import DerivedMeasure, RepositoryCapabilities
 from revi_kernel.cohort import CohortDefinition, CohortRef
 from revi_kernel.errors import (
     DateBasisInvalidError,
@@ -31,7 +32,7 @@ from revi_kernel.errors import (
 )
 from revi_kernel.filters import EMPTY_SCOPE, InCohort, Predicate, PredicateOp
 from revi_kernel.grades import EvidenceGrade
-from revi_kernel.probes import AggregationProbe
+from revi_kernel.probes import AggregationProbe, ProbeShape
 from revi_kernel.refs import (
     DISCHARGE,
     SERVICE,
@@ -45,7 +46,7 @@ from revi_kernel.refs import (
 from revi_kernel.scope import ComparisonKind
 from revi_kernel.watermark import DataWatermark
 from revi_testing.engine_wiring import PackSnapshotPort
-from revi_testing.fakes import StubAnalyticalRepository
+from revi_testing.fakes import MINIMAL_CAPABILITIES, StubAnalyticalRepository
 
 if TYPE_CHECKING:
     from conftest import SpecFactory
@@ -55,16 +56,38 @@ WATERMARK = DataWatermark(
 )
 
 
-def _capabilities(**overrides: bool) -> RepositoryCapabilities:
-    values: dict[str, object] = {
-        "as_of_reads": True,
-        "cohort_semijoin": True,
-        "max_cohort_size": 100_000,
-        "having_pushdown": True,
-        "server_side_top_n": True,
-    }
-    values.update(overrides)
-    return RepositoryCapabilities(**values)  # type: ignore[arg-type]
+def _capabilities(**overrides: object) -> RepositoryCapabilities:
+    """A source with the retrieval mechanics and **no** advertised
+    computation of its own — the §6.3 default, and the pre-negotiation
+    behaviour every existing expectation in this module was written
+    against. Tests that want a computing source say so."""
+    return replace(MINIMAL_CAPABILITIES, **overrides)  # type: ignore[arg-type]
+
+
+def _derived(field: str, entity: str, *shapes: ProbeShape) -> DerivedMeasure:
+    return DerivedMeasure(field=field, entity=entity, shapes=frozenset(shapes))
+
+
+class _PackWithOverrides:
+    """The real pack with one or two contracts replaced.
+
+    Used to state plan-time refusals that the shipped pack cannot express
+    — a contract mis-authored at the wrong metric kind, or one whose
+    allowed bases reach a date basis only one of its two entities binds.
+    Delegates everything else, so nothing about the pack under test is a
+    fixture of its own.
+    """
+
+    def __init__(self, inner: PackSnapshotPort, overrides: dict[str, MetricContract]) -> None:
+        self._inner = inner
+        self._overrides = overrides
+
+    def metric(self, metric_id: str) -> MetricContract | None:
+        override = self._overrides.get(metric_id)
+        return override if override is not None else self._inner.metric(metric_id)
+
+    def __getattr__(self, name: str) -> object:
+        return getattr(self._inner, name)
 
 
 def _validator(
@@ -109,8 +132,10 @@ class TestResolution:
         validator: PlanValidationService,
         make_spec: SpecFactory,
     ) -> None:
-        # cash_decline's lag probe sums the probe-time-derived
-        # payment_lag_days field, which this catalog cannot answer yet
+        # cash_decline's lag probe sums payment_lag_days, which is neither a
+        # catalog measure nor a declared column — so it is answerable only
+        # by a source that says it computes it, and this one advertises
+        # nothing (``_capabilities``). Honest degradation, not assumption.
         spec = make_spec(dimensions=("payer",), comparison=ComparisonKind.PRIOR_PERIOD)
         plan = planner.build(spec, playbook_id="cash_decline", window_explicit=True)
         validated = validator.validate(plan, spec)
@@ -119,6 +144,8 @@ class TestResolution:
         assert "lag_distribution_compare__prior" not in ids
         assert "cash_by_payer" in ids
         assert any("lag_distribution_compare" in w and "omitted" in w for w in validated.warnings)
+        # the warning names the field and why, not a category
+        assert any("payment_lag_days" in w for w in validated.warnings)
         for step in validated.plan.transforms.steps:
             assert all(not inp.startswith("lag_distribution_compare") for inp in step.inputs)
 
@@ -414,3 +441,211 @@ class TestCapabilities:
         with pytest.raises(SourceCapabilityUnsupportedError) as excinfo:
             validator.validate(planner.build(spec), spec)
         assert excinfo.value.details["capability"] == "cohort_semijoin"
+
+
+class TestCapabilityNegotiation:
+    """§6.3: answerability is negotiated with the source, not guessed.
+
+    Before this, ``_field_resolves`` consulted the catalog plus one
+    hardcoded field name, so a source that had learned to compute seven
+    more was told it could not. These tests hold the negotiation from both
+    sides: what a source advertises, it gets asked for; what it does not,
+    it is not — with the refusal naming the field and the reason.
+    """
+
+    def test_an_advertised_derived_measure_becomes_answerable(
+        self,
+        catalog: CatalogSnapshot,
+        pack_port: PackSnapshotPort,
+        planner: BuildInvestigationPlanService,
+        make_spec: SpecFactory,
+    ) -> None:
+        """The same plan the pruning test uses, against a source that says
+        it computes the field."""
+        validator = _validator(
+            catalog,
+            pack_port,
+            _capabilities(
+                derived_measures=(
+                    _derived("payment_lag_days", "transaction", ProbeShape.AGGREGATION),
+                )
+            ),
+        )
+        spec = make_spec(dimensions=("payer",), comparison=ComparisonKind.PRIOR_PERIOD)
+        plan = planner.build(spec, playbook_id="cash_decline", window_explicit=True)
+        validated = validator.validate(plan, spec)
+        ids = [node.id for node in validated.plan.nodes]
+        assert "lag_distribution_compare" in ids
+        assert "lag_distribution_compare__prior" in ids
+        assert not any("lag_distribution_compare" in w for w in validated.warnings)
+
+    def test_an_unadvertised_derived_measure_refuses_with_the_reason(
+        self,
+        planner: BuildInvestigationPlanService,
+        validator: PlanValidationService,
+        make_spec: SpecFactory,
+    ) -> None:
+        """Silence is not permission — and the refusal says what is
+        missing, so nobody has to guess whether it is the catalog, the
+        pack or the source."""
+        spec = make_spec(measures=("avg_days_to_pay",), entity=EntityGrain.TRANSACTION)
+        with pytest.raises(UnsupportedConceptError) as excinfo:
+            validator.validate(planner.build(spec), spec)
+        assert "no probe in the plan is answerable at the source" in str(excinfo.value)
+        [reason] = excinfo.value.details["reasons"]
+        assert "payment_lag_days" in reason
+        assert "computes" in reason or "neither a catalog measure" in reason
+
+    def test_a_derived_measure_advertised_at_another_entity_does_not_resolve(
+        self,
+        catalog: CatalogSnapshot,
+        pack_port: PackSnapshotPort,
+        planner: BuildInvestigationPlanService,
+        make_spec: SpecFactory,
+    ) -> None:
+        """An advertisement is per entity: computing ``payment_lag_days``
+        over transactions says nothing about computing it over claims, and
+        a source that cannot cross grains at all cannot borrow it."""
+        validator = _validator(
+            catalog,
+            pack_port,
+            _capabilities(
+                derived_measures=(
+                    _derived("submission_lag_days", "transaction", ProbeShape.AGGREGATION),
+                )
+            ),
+        )
+        spec = make_spec(measures=("bill_lag_days",))  # claim-grain contract
+        with pytest.raises(UnsupportedConceptError):
+            validator.validate(planner.build(spec), spec)
+
+    def test_a_shape_the_source_cannot_compute_is_refused_at_plan_time(
+        self,
+        catalog: CatalogSnapshot,
+        pack_port: PackSnapshotPort,
+        make_spec: SpecFactory,
+    ) -> None:
+        """The verdicts cannot disagree.
+
+        ``credit_balance_cents`` is a snapshot-time quantity: the adapter
+        refuses it inside a flow aggregation rather than inventing an
+        as-of. Given a contract mis-authored at the flow kind, §6.6 must
+        refuse the same probe for the same reason *before* it is executed —
+        otherwise plan time promises what execute time denies.
+        """
+        authored = pack_port.metric("credit_balance_dollars")
+        assert authored is not None
+        pack = _PackWithOverrides(
+            pack_port, {"credit_balance_dollars": replace(authored, kind=MetricKind.FLOW)}
+        )
+        validator = _validator(
+            catalog,
+            pack,  # type: ignore[arg-type]
+            _capabilities(
+                derived_measures=(
+                    _derived("credit_balance_cents", "claim", ProbeShape.SNAPSHOT),
+                )
+            ),
+        )
+        planner = BuildInvestigationPlanService(pack)  # type: ignore[arg-type]
+        spec = make_spec(measures=("credit_balance_dollars",), basis=SERVICE)
+        plan = planner.build(spec)
+        assert isinstance(plan.nodes[0].probe, AggregationProbe)  # the mis-authoring
+        with pytest.raises(UnsupportedConceptError) as excinfo:
+            validator.validate(plan, spec)
+        assert excinfo.value.details["dropped"] == ["main"]
+
+    def test_cross_entity_components_need_the_advertised_construction(
+        self,
+        catalog: CatalogSnapshot,
+        pack_port: PackSnapshotPort,
+        planner: BuildInvestigationPlanService,
+        make_spec: SpecFactory,
+    ) -> None:
+        """``net_collection_rate`` sums transaction cash over claim
+        expected. A source that cannot aggregate across grains refuses it;
+        a source that advertises the construction answers it."""
+        spec = make_spec(measures=("net_collection_rate",), basis=SERVICE)
+        blind = _validator(catalog, pack_port)
+        with pytest.raises(UnsupportedConceptError):
+            blind.validate(planner.build(spec), spec)
+
+        capable = _validator(catalog, pack_port, _capabilities(cross_entity_ratio_of_sums=True))
+        validated = capable.validate(planner.build(spec), spec)
+        assert [node.id for node in validated.plan.nodes] == ["main"]
+
+    def test_cross_entity_is_refused_on_a_snapshot_probe(
+        self,
+        catalog: CatalogSnapshot,
+        pack_port: PackSnapshotPort,
+        make_spec: SpecFactory,
+    ) -> None:
+        """A snapshot aggregates one entity as-of a date; there is no
+        second block to join. Advertising the construction does not make a
+        snapshot eligible for it — which is also what the adapter does."""
+        authored = pack_port.metric("net_collection_rate")
+        assert authored is not None
+        pack = _PackWithOverrides(
+            pack_port, {"net_collection_rate": replace(authored, kind=MetricKind.SNAPSHOT)}
+        )
+        validator = _validator(
+            catalog,
+            pack,  # type: ignore[arg-type]
+            _capabilities(cross_entity_ratio_of_sums=True),
+        )
+        planner = BuildInvestigationPlanService(pack)  # type: ignore[arg-type]
+        spec = make_spec(measures=("net_collection_rate",), basis=SERVICE)
+        plan = planner.build(spec)
+        with pytest.raises(UnsupportedConceptError):
+            validator.validate(plan, spec)
+
+    def test_cross_entity_cuts_must_bind_at_both_entities(
+        self,
+        catalog: CatalogSnapshot,
+        pack_port: PackSnapshotPort,
+        planner: BuildInvestigationPlanService,
+        make_spec: SpecFactory,
+    ) -> None:
+        """Each side aggregates the identical keys against its own base
+        view, so a scope the second entity cannot express would silently
+        give the two sides different populations. ``status`` binds at claim
+        and nowhere else, so the probe is refused rather than executed
+        half-scoped."""
+        validator = _validator(catalog, pack_port, _capabilities(cross_entity_ratio_of_sums=True))
+        scope = Predicate(DimensionRef("status"), PredicateOp.EQ, ("OPEN",))
+        spec = make_spec(measures=("net_collection_rate",), basis=SERVICE, scope=scope)
+        with pytest.raises(GrainIncompatibleError) as excinfo:
+            validator.validate(planner.build(spec), spec)
+        assert excinfo.value.details["entity"] == "transaction"
+        assert excinfo.value.details["dimension"] == "status"
+
+    def test_cross_entity_windows_must_read_the_same_basis_at_both_entities(
+        self,
+        catalog: CatalogSnapshot,
+        pack_port: PackSnapshotPort,
+        make_spec: SpecFactory,
+    ) -> None:
+        """The other half of the same law: a window basis bound at one
+        entity only would date the two sides differently."""
+        authored = pack_port.metric("net_collection_rate")
+        assert authored is not None
+        pack = _PackWithOverrides(
+            pack_port,
+            {
+                "net_collection_rate": replace(
+                    authored,
+                    primary_date_basis=DISCHARGE,  # bound at claim, not at transaction
+                    allowed_date_bases=(DISCHARGE,),
+                )
+            },
+        )
+        validator = _validator(
+            catalog,
+            pack,  # type: ignore[arg-type]
+            _capabilities(cross_entity_ratio_of_sums=True),
+        )
+        planner = BuildInvestigationPlanService(pack)  # type: ignore[arg-type]
+        spec = make_spec(measures=("net_collection_rate",), basis=DISCHARGE)
+        with pytest.raises(DateBasisInvalidError) as excinfo:
+            validator.validate(planner.build(spec), spec)
+        assert excinfo.value.details["entity"] == "transaction"

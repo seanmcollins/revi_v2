@@ -1,0 +1,29 @@
+# Non-contractual write-off dollars per dollar of payer cash posted. Both
+# components resolve on the transaction entity (txn_type carries the family),
+# so this is a same-grain ratio the compiler computes as ratio-of-sums.
+id: write_off_rate
+version: 1
+kind: flow
+entity_grain: transaction
+numerator: {sum: other_adj_cents}
+denominator: {sum: payment_cents}
+primary_date_basis: post
+allowed_date_bases: [post, service, submission]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, facility, region,
+   service_line, claim_type]
+sign: higher_is_bad
+unit: ratio
+description: >-
+  Non-contractual (OTHER_ADJ) write-off dollars divided by payer cash posted
+  in the same window, post-date basis — write-offs per dollar collected.
+  Three honesty notes. (1) The denominator is posted payer cash, NOT net
+  patient service revenue: the MAP AR-6 ratio needs an NPSR series this
+  warehouse does not have, so this contract is a cash-denominated cousin and
+  must never be quoted against NPSR-denominated targets. (2) Contractual
+  adjustments are excluded from the numerator by construction — they are the
+  negotiated discount, not a write-off (see contractual_adjustment_dollars).
+  (3) Timing: write-offs post 30-90 days after the denial that caused them
+  while cash posts within days of adjudication, so a single short window
+  pairs write-offs with cash from a different cohort — trend it over months
+  and read step changes, not single-week levels.

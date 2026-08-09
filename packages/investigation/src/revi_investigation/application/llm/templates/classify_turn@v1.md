@@ -18,6 +18,11 @@ Rules:
 - Report your confidence honestly in [0, 1]. When the utterance is genuinely
   ambiguous, set a low confidence and propose one short
   clarification_question; never guess.
+- With a clarification_question you may also give up to four
+  clarification_options: short restatements the analyst could send back
+  as-is, each resolving the ambiguity a different way. Leave the list empty
+  when you cannot honestly propose one — an invented option costs the
+  analyst a turn.
 
 Utterance:
 

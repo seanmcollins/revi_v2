@@ -91,6 +91,12 @@ class EntityDef:
     primary_key: str
     description: str = ""
     date_basis_columns: tuple[tuple[str, str], ...] = ()  # (basis id, column), sorted
+    #: Base-view columns the catalog binds for this entity that no dimension,
+    #: measure, date basis or join path already names. The escape hatch for a
+    #: column an adapter genuinely needs — a probe-time derived measure's input,
+    #: say — so the dependency is declared here rather than living as a constant
+    #: inside one adapter. Folded into :meth:`CatalogSnapshot.declared_columns`.
+    extra_columns: tuple[str, ...] = ()
 
     def __post_init__(self) -> None:
         named = (("name", self.name), ("base_view", self.base_view), ("primary_key", self.primary_key))
@@ -347,7 +353,8 @@ class CatalogSnapshot:
 
     def _build_declared_columns(self) -> dict[str, frozenset[str]]:
         """Every column the catalog binds per entity: primary key, dimension
-        columns, measure columns, date-basis columns, and join-path columns.
+        columns, measure columns, date-basis columns, join-path columns, and
+        the entity's explicitly declared ``extra_columns``.
         Adapters may reference base-view columns only from this set."""
         declared: dict[str, set[str]] = {e.name: {e.primary_key} for e in self.entities}
         for dim in self.dimensions:
@@ -358,6 +365,7 @@ class CatalogSnapshot:
         for entity in self.entities:
             for _, column in entity.date_basis_columns:
                 declared[entity.name].add(column)
+            declared[entity.name].update(entity.extra_columns)
         for path in self.join_paths:
             declared.setdefault(path.from_entity, set()).add(path.on)
         return {name: frozenset(columns) for name, columns in declared.items()}

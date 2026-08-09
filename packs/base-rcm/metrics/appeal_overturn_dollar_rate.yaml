@@ -1,0 +1,32 @@
+# Dollar-weighted appeal overturn rate: overturned denied dollars over
+# DECIDED denied dollars. Deliberately distinct from appeal_overturn_rate,
+# which counts records — the two diverge exactly when big-dollar denials
+# behave differently from small ones, which is the finding worth having.
+id: appeal_overturn_dollar_rate
+version: 1
+kind: flow
+entity_grain: denial
+numerator:
+  filtered:
+    inner: {sum: denied_amount_cents}
+    where: {dimension: appeal_status, op: eq, value: OVERTURNED}
+denominator:
+  filtered:
+    inner: {sum: denied_amount_cents}
+    where: {dimension: appeal_status, op: in, values: [OVERTURNED, UPHELD]}
+primary_date_basis: remit
+allowed_date_bases: [remit, service]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, facility, region,
+   service_line, claim_type, carc, group_code, denial_category]
+sign: higher_is_good
+unit: ratio
+description: >-
+  Overturned denied dollars divided by decided denied dollars (overturned
+  plus upheld) for denials in the window, remittance-date basis. The
+  denominator is decided appeals only — never all denials and never all
+  appeals — so pending appeals do not dilute it, exactly as in the
+  record-count appeal_overturn_rate. Present the two together: a dollar rate
+  well below the count rate means the wins are small claims and the losses
+  are the expensive ones, which changes where appeal effort should go.
+  Appeal state reflects the snapshot watermark.

@@ -148,8 +148,14 @@ _FACT_SQL: dict[str, str] = {
 }
 
 _VIEWS: dict[str, str] = {
+    # v_claim's two derived flags are view-level, not stored: they restate
+    # nullable dates as the booleans the catalog certifies as dimensions
+    # (billed_flag / discharged_flag). A date basis carries a window; a flag
+    # carries a predicate, and a predicate needs a certified dimension.
     "v_claim": """
         SELECT c.*,
+               (c.submission_date IS NOT NULL) AS billed_flag,
+               (c.discharge_date IS NOT NULL) AS discharged_flag,
                p.payer_name, p.payer_type, p.financial_class,
                pl.plan_name, pl.product_type, pl.timely_filing_days, pl.timely_filing_basis,
                pr.provider_name, pr.specialty AS provider_specialty, pr.npi_synthetic,

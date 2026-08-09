@@ -31,7 +31,9 @@ export function PortfolioPanel() {
   const query = usePortfolioQuery(mode === "api");
 
   let items: PortfolioItem[] = PORTFOLIO_ITEMS;
-  let footer = `Pre-materialized at ${PORTFOLIO_META.watermark} · drill-downs continue as ordinary turns at this watermark`;
+  // "Watermark" is the engine's word for the pinned data load; the panel
+  // says "data as of", which is the same fact in the analyst's words.
+  let footer = `Computed on the data as of ${PORTFOLIO_META.watermark} · drilling in asks an ordinary question against that same data`;
   let emptyNote: string | null = null;
 
   if (mode === "api") {
@@ -39,9 +41,9 @@ export function PortfolioPanel() {
       items = query.data.snapshot.items;
       const at = query.data.snapshot.watermark;
       footer = at
-        ? `Pre-materialized at ${at} · drill-downs continue as ordinary turns at this watermark`
-        : "Drill-downs continue as ordinary turns at the portfolio's watermark";
-      if (items.length === 0) emptyNote = "No portfolio items at the current watermark.";
+        ? `Computed on the data as of ${at} · drilling in asks an ordinary question against that same data`
+        : "Drilling in asks an ordinary question against the same data this list was built on";
+      if (items.length === 0) emptyNote = "Nothing flagged in this data load.";
     } else {
       items = [];
       emptyNote = query.isPending

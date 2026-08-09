@@ -15,7 +15,11 @@ from claude_agent_sdk import AssistantMessage, ClaudeAgentOptions, ResultMessage
 from revi_adapter_claude.adapter import ClaudeAgentSdkLanguageModel
 from revi_adapter_claude.envelope import LlmEnvelope, is_transient
 from revi_investigation.application.llm.schemas import RefinementEmissionResponse
-from revi_investigation.application.ports import StructuredLlmRequest, TextLlmRequest
+from revi_investigation.application.ports import (
+    LlmFailureKind,
+    StructuredLlmRequest,
+    TextLlmRequest,
+)
 from revi_kernel.errors import QueryBudgetExceededError, SourceUnavailableError
 
 PIN = "claude-test-pin"
@@ -105,6 +109,7 @@ async def test_structured_success(monkeypatch: pytest.MonkeyPatch) -> None:
     result = await adapter.structured(_structured_request())
 
     assert result.output == {"operators": [], "rationale": "canned"}
+    assert result.failure is None
     assert result.usage.model == PIN
     assert result.usage.cost_usd == Decimal("0.0123")
     assert result.usage.input_tokens == 7
@@ -124,6 +129,10 @@ async def test_structured_output_none_is_a_result_not_an_error(
     result = await adapter.structured(_structured_request())
 
     assert result.output is None
+    # DECLINED, not SCHEMA: the model ran to completion and said nothing.
+    # The caller turns that into "rephrase", where a SCHEMA failure would
+    # (rightly) have asked for the same question again.
+    assert result.failure is LlmFailureKind.DECLINED
     assert result.usage.cost_usd == Decimal("0.0123")
 
 
@@ -136,6 +145,8 @@ async def test_structured_non_mapping_output_is_treated_as_none(
     result = await adapter.structured(_structured_request())
 
     assert result.output is None
+    # something arrived; it was just not the shape the schema asked for
+    assert result.failure is LlmFailureKind.SCHEMA
 
 
 async def test_budget_error_subtype_raises_budget_error(monkeypatch: pytest.MonkeyPatch) -> None:
@@ -184,6 +195,7 @@ async def test_schema_failure_subtypes_return_output_none(monkeypatch: pytest.Mo
         result = await adapter.structured(_structured_request())
 
         assert result.output is None
+        assert result.failure is LlmFailureKind.SCHEMA
         assert result.usage.schema_retries == 5  # num_turns=7 minus the 2-turn baseline
 
 

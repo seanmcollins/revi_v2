@@ -130,6 +130,45 @@ live("ApiDriver against a live API", () => {
     });
   }, 60_000);
 
+  it("lists real sessions and switches between them, rebuilding the thread", async () => {
+    // Two independent drivers = two independent sessions, exactly as two
+    // "New chat" clicks would be.
+    const first = newDriver();
+    await drive(first.driver, { utterance: "Why did cash decline last week?" });
+    const second = newDriver();
+    await drive(second.driver, { utterance: "What is PR3?" });
+    expect([...first.drift, ...second.drift]).toEqual([]);
+
+    const page = await second.driver.listSessions();
+    const titles = new Map(page.sessions.map((s) => [s.title, s]));
+    expect(page.total).toBeGreaterThanOrEqual(2);
+    // Titles are the questions actually asked — no client-side naming.
+    expect(titles.has("Why did cash decline last week?")).toBe(true);
+    expect(titles.has("What is PR3?")).toBe(true);
+    const cashSession = titles.get("Why did cash decline last week?");
+    if (!cashSession) throw new Error("the cash session is not listed");
+    expect(cashSession.turnCount).toBeGreaterThanOrEqual(1);
+    // Newest activity leads: "What is PR3?" was answered last.
+    expect(page.sessions[0]?.title).toBe("What is PR3?");
+
+    // Switch the SECOND driver into the FIRST session and rebuild it.
+    const resumed = await second.driver.resumeSession(cashSession.sessionId);
+    expect(second.drift).toEqual([]);
+    expect(resumed.sessionId).toBe(cashSession.sessionId);
+    expect(resumed.watermark.id).toBe("wm_003"); // the original pin, re-joined
+    expect(resumed.turns).toHaveLength(1);
+    const rebuilt = resumed.turns[0];
+    expect(rebuilt.question).toBe("Why did cash decline last week?");
+    const findings = rebuilt.events.filter((e) => e.type === "finding");
+    expect(
+      findings.map((e) => (e.type === "finding" ? e.finding.referent.value : "")),
+    ).toEqual(["F1", "F2", "F3"]);
+    expect(rebuilt.events[rebuilt.events.length - 1]).toMatchObject({
+      type: "turn_complete",
+      status: "complete",
+    });
+  }, 120_000);
+
   it("renders a clarification as a clarification, not an empty answer", async () => {
     const { driver, drift } = newDriver();
     const events = await drive(driver, { utterance: "mumble" });

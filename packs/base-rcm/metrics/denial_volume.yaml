@@ -1,0 +1,32 @@
+# Denial records — the count ruler at DENIAL grain. Distinct from
+# denied_claims (claims carrying at least one denial) and from denied_dollars
+# (money): a claim denied under three CARCs is one denied claim and three
+# denial records, and the staffing question is usually about records.
+id: denial_volume
+version: 1
+kind: flow
+entity_grain: denial
+numerator: {count_distinct: denial_id}
+primary_date_basis: remit
+allowed_date_bases: [remit, service, submission]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, facility, region,
+   service_line, claim_type, carc, group_code, denial_category,
+   appeal_status]
+sign: higher_is_bad
+unit: count
+description: >-
+  Distinct denial records in the window on the remittance (denial) date
+  basis. Denials are keyed on the group code + CARC pair, so one adjudicated
+  claim can produce several records; unlike denied_claims this contract IS
+  additive across code-level cuts, which makes it the right denominator-free
+  ruler for a code mix decomposition that has to reconcile. Read the pair
+  together when sizing work: records measure touches, denied_claims measures
+  accounts, and the ratio between them is how many reasons a typical denied
+  claim carries. Data note for this warehouse specifically: the mock
+  generator emits at most ONE denial record per claim, so here the two
+  contracts return identical numbers and their ratio is exactly one — the
+  distinction is governed meaning that bites on production remittances, not
+  a difference visible in the reference data. Not every record is workable —
+  patient-responsibility notices are billing instructions, and
+  denials_unworked_pct removes them.

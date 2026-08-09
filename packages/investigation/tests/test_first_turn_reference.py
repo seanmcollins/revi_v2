@@ -176,14 +176,19 @@ class TestReferenceFirstTurn:
         assert payload["plan_hash"] == outcome.investigation.plan_hash
         assert payload["watermark"]["id"] == "wm_003"
         probes = payload["probes"]
-        assert len(probes) == 6  # 3 flow probes + 3 comparison twins (lag pruned)
+        # 4 flow probes + 4 comparison twins. The playbook's
+        # `lag_distribution_compare` sums the probe-time derived
+        # `payment_lag_days`; it was pruned for as long as §6.6 decided
+        # answerability from the catalog alone, and runs now that the
+        # repository advertises what it computes (§6.3 negotiation).
+        assert len(probes) == 8
         assert all(len(p["hash"]) == 64 for p in probes)
         assert all(p["cache_hit"] is False for p in probes)  # first run: all misses
         assert payload["grades"] and set(payload["grades"].values()) == {"direct"}
         operators = {op["operator"] for op in payload["operators"]}
         assert "compare" in operators and "rank" in operators
         assert payload["findings"] == ["F1", "F2", "F3"]
-        assert any("lag_distribution_compare" in w for w in payload["warnings"])
+        assert not any("lag_distribution_compare" in w for w in payload["warnings"])
         llm_entries = payload["llm"]
         assert {entry["template"] for entry in llm_entries} == {
             "classify_turn",

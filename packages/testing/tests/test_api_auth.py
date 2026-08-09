@@ -73,7 +73,12 @@ class TestTheCredentialIsRequired:
     async def test_every_v1_route_refuses_an_unauthenticated_caller(
         self, http: httpx.AsyncClient
     ) -> None:
-        gets = ("/v1/capabilities", "/v1/portfolio/latest", "/v1/sessions/anything/lineage")
+        gets = (
+            "/v1/capabilities",
+            "/v1/portfolio/latest",
+            "/v1/sessions",
+            "/v1/sessions/anything/lineage",
+        )
         for path in gets:
             assert (await http.get(path)).status_code == 401, path
         assert (await http.get("/v1/investigations/anything")).status_code == 401
@@ -157,6 +162,82 @@ class TestTenantIsolation:
         lineage = await http.get(f"/v1/sessions/{session_id}/lineage", headers=owner)
         assert lineage.status_code == 200
         assert len(lineage.json()["investigations"]) == 1
+
+    async def test_the_session_list_never_shows_another_tenants_sessions(
+        self, http: httpx.AsyncClient
+    ) -> None:
+        """The list route has no tenant parameter at all, and the store call
+        is scoped by the token — so this is the exploit's read step applied
+        to the surface that enumerates sessions rather than reads one."""
+        owner = {"authorization": f"Bearer {_token('list-owner')}"}
+        intruder = {"authorization": f"Bearer {_token('list-intruder')}"}
+
+        opened = await http.post("/v1/sessions", json={}, headers=owner)
+        assert opened.status_code == 200
+        session_id = opened.json()["session_id"]
+        answered = await http.post(
+            f"/v1/sessions/{session_id}/turns",
+            json=_typed_turn().model_dump(mode="json"),
+            headers={**owner, "accept": "application/json"},
+        )
+        assert answered.status_code == 200
+
+        mine = await http.get("/v1/sessions", headers=owner)
+        assert mine.status_code == 200
+        body = mine.json()
+        assert body["tenant"] == "list-owner"
+        assert session_id in {row["session_id"] for row in body["sessions"]}
+
+        theirs = await http.get("/v1/sessions", headers=intruder)
+        assert theirs.status_code == 200
+        assert theirs.json()["tenant"] == "list-intruder"
+        assert session_id not in {row["session_id"] for row in theirs.json()["sessions"]}
+        # ...and not merely filtered out of the rows: the count must not
+        # betray that another tenant's session exists either.
+        assert theirs.json()["total"] == 0
+
+    async def test_a_listed_row_carries_its_first_question_and_turn_count(
+        self, http: httpx.AsyncClient
+    ) -> None:
+        """The title is the turn's own question text, not a generated
+        label — and a session that has answered nothing says so.
+
+        A typed turn names no question, so the engine's own placeholder for
+        one (``(typed investigation)``) is what the row shows: honest about
+        there being no sentence rather than inventing one from the spec."""
+        headers = {"authorization": f"Bearer {_token('list-titles')}", "accept": "application/json"}
+        answered = await http.post("/v1/sessions", json={}, headers=headers)
+        answered_id = answered.json()["session_id"]
+        turn = await http.post(
+            f"/v1/sessions/{answered_id}/turns",
+            json=_typed_turn().model_dump(mode="json"),
+            headers=headers,
+        )
+        assert turn.status_code == 200
+        empty_id = (await http.post("/v1/sessions", json={}, headers=headers)).json()[
+            "session_id"
+        ]
+
+        rows = {
+            row["session_id"]: row
+            for row in (await http.get("/v1/sessions", headers=headers)).json()["sessions"]
+        }
+
+        assert rows[answered_id]["title"] == "(typed investigation)"
+        assert rows[answered_id]["turn_count"] == 1
+        assert rows[empty_id]["title"] == "New session"
+        assert rows[empty_id]["turn_count"] == 0
+
+    async def test_the_limit_is_bounded_by_the_deployment(
+        self, http: httpx.AsyncClient
+    ) -> None:
+        """An unbounded page size is a handle a client can pull by
+        accident; a refused one is a 422 request-shape error, the same
+        status every other malformed request gets."""
+        headers = {"authorization": f"Bearer {_token('list-limits')}"}
+        assert (await http.get("/v1/sessions?limit=1", headers=headers)).status_code == 200
+        assert (await http.get("/v1/sessions?limit=0", headers=headers)).status_code == 422
+        assert (await http.get("/v1/sessions?limit=100000", headers=headers)).status_code == 422
 
     async def test_the_body_cannot_name_another_tenant(self, http: httpx.AsyncClient) -> None:
         """`tenant` used to be an unvalidated client-asserted string; it is

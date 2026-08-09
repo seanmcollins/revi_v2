@@ -1,0 +1,27 @@
+# Allowed dollars at line grain — what the payer said the service is worth.
+# The actual side of the expected-versus-allowed comparison that
+# underpayment_variance floors and sums per claim.
+id: allowed_dollars
+version: 1
+kind: flow
+entity_grain: line
+numerator: {sum: allowed_amount_cents}
+primary_date_basis: service
+allowed_date_bases: [service, submission]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, facility, region,
+   service_line, claim_type, payer_sequence, proc_group]
+sign: neutral
+unit: money_cents
+description: >-
+  Payer-allowed dollars on claim lines in the window, service-date basis —
+  the adjudicated worth of each procedure, and the "actual" side of contract
+  variance. Population caveat: the allowed amount is null until the claim's
+  first remittance lands, so unadjudicated lines contribute nothing and
+  recent service cohorts under-read until adjudication catches up; that also
+  means allowed dollars must never be divided by line_charges over the same
+  window as if it were a payment-to-charge ratio, because the denominator
+  counts lines the numerator cannot see (see pack NOTES for the deferred
+  allowed-to-charges contract). Cut by proc_group for procedure-level
+  contract analysis, and pair with expected_reimbursement to see contracted
+  expectation against payer decision.

@@ -1,0 +1,66 @@
+id: charge_capture_review
+description: >-
+  Investigate the mid-cycle: unbilled inventory standing after discharge,
+  how long charges take to reach the account, and whether procedure-level
+  volume and charge value moved in a way that reads as missing or late
+  capture. Procedure-group evidence runs at LINE grain because proc_group
+  binds at claim_line only — no claim-grain contract can be cut by it.
+triggers:
+  - charge capture
+  - dnfb
+  - unbilled inventory
+  - are we missing charges
+  - charge lag
+params:
+  - facility
+probes:
+  - id: unbilled_standing
+    metric_ids: [dnfb_dollars]
+    dimensions: [facility]
+    top_n: 10
+    scope_note: >-
+      Discharged-not-final-billed dollars by facility as of the snapshot,
+      discharge basis. Professional claims carry no discharge date and are
+      outside this population by construction.
+  - id: charge_timing
+    metric_ids: [charge_lag_days, late_charge_pct]
+    dimensions: [facility]
+    window: {quantity: 3, unit: month, mode: full_periods}
+    scope_note: >-
+      Service-to-charge-entry lag and the share of charge value entered late,
+      by facility. Both are line-grain; late charges are the ones that arrive
+      after the account would otherwise have dropped.
+  - id: procedure_volume
+    metric_ids: [line_volume, line_charges]
+    dimensions: [proc_group]
+    window: {quantity: 3, unit: month, mode: full_periods}
+    top_n: 13
+    scope_note: >-
+      Procedure lines and charge value by procedure group, service basis —
+      the capture ruler. A group whose line count falls while its parent
+      service line's claim volume holds is the missing-charge signal.
+  - id: procedure_mix_by_service
+    metric_ids: [line_charges]
+    dimensions: [service_line, proc_group]
+    window: {quantity: 3, unit: month, mode: full_periods}
+    top_n: 15
+    scope_note: >-
+      Where the charge value sits, service line by procedure group; isolates
+      whether a movement is one department or house-wide.
+  - id: claim_volume_context
+    metric_ids: [claim_volume, charges]
+    dimensions: [facility]
+    window: {quantity: 3, unit: month, mode: full_periods}
+    scope_note: >-
+      Claim-grain volume and charges by facility over the same months. Lines
+      per claim varies by service line, so line and claim volume are expected
+      to move differently — the finding is a divergence beyond that.
+transforms:
+  - operator: compare
+    args: {kind: prior_period}
+  - operator: share_of_total
+    args: {measure: line_charges}
+  - operator: rank
+    args: {by: line_charges, descending: true}
+conclusion_policies: [charge_capture_claim]
+ranking_policy: impact_first

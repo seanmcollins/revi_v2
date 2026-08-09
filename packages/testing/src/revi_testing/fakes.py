@@ -13,10 +13,14 @@ from dataclasses import dataclass, field
 from datetime import datetime, timedelta
 from decimal import Decimal
 
+from revi_connector_duckdb import derived_measure_capabilities
 from revi_investigation.application.ports import (
+    EMPTY_SESSION_TITLE,
     AnomalyRecord,
     LlmUsage,
     RegisteredReferent,
+    SessionPage,
+    SessionSummary,
     TextLlmRequest,
     TraceRecord,
     TurnEvent,
@@ -39,12 +43,45 @@ from revi_kernel.watermark import DataWatermark
 class FakeSessionStore:
     def __init__(self) -> None:
         self.sessions: dict[str, Session] = {}
+        # The other half of the list join — a session carries neither a
+        # title nor a last-activity of its own; both come from its turns.
+        # Bound by FakeInvestigationStore when the pair is constructed.
+        self._investigations: FakeInvestigationStore | None = None
+
+    def bind_investigations(self, investigations: FakeInvestigationStore) -> None:
+        self._investigations = investigations
 
     async def get(self, session_id: str) -> Session | None:
         return self.sessions.get(session_id)
 
     async def save(self, session: Session) -> None:
         self.sessions[session.id] = session
+
+    async def list_for_tenant(self, tenant: str, *, limit: int) -> SessionPage:
+        owned = [s for s in self.sessions.values() if s.tenant == tenant]
+        rows = [self._summarize(session) for session in owned]
+        rows.sort(key=lambda row: row.session_id)
+        rows.sort(key=lambda row: row.last_activity, reverse=True)
+        return SessionPage(sessions=tuple(rows[:limit]), total=len(owned))
+
+    def _summarize(self, session: Session) -> SessionSummary:
+        held = (
+            self._investigations.investigations.values()
+            if self._investigations is not None
+            else ()
+        )
+        turns = sorted(
+            (inv for inv in held if inv.session_id == session.id),
+            key=lambda inv: (inv.created_at, inv.id),
+        )
+        return SessionSummary(
+            session_id=session.id,
+            title=next((inv.question for inv in turns if inv.question), None)
+            or EMPTY_SESSION_TITLE,
+            created_at=session.created_at,
+            last_activity=turns[-1].created_at if turns else session.created_at,
+            turn_count=len(turns),
+        )
 
 
 class FakeReferentRegistryStore:
@@ -72,6 +109,8 @@ class FakeInvestigationStore:
         self.investigations: dict[str, Investigation] = {}
         self.edges: list[RefinementEdge] = []
         self._sessions = sessions
+        if sessions is not None:
+            sessions.bind_investigations(self)
 
     async def save(self, investigation: Investigation, edge: RefinementEdge | None) -> None:
         self.investigations[investigation.id] = investigation
@@ -199,13 +238,43 @@ class FakeAnomalySource:
 # ---------------------------------------------------------------------------
 # analytical repository doubles (the kernel port)
 
-_DEFAULT_CAPABILITIES = RepositoryCapabilities(
+#: What a test double advertises unless a test says otherwise: the
+#: reference adapter's own declaration (§6.3).
+#:
+#: The stub serves whatever frame a test canned for a probe, so nothing
+#: about *it* limits which measures are computable — which means an
+#: understated advertisement would silently prune probes that the
+#: deployment being simulated answers perfectly well, and the suite would
+#: be testing a source nobody ships. Read from the DuckDB compiler's own
+#: registry rather than restated, so a derivation added or restricted
+#: there moves the fakes in the same edit.
+#:
+#: A test that wants a *less* capable source states that explicitly —
+#: :data:`MINIMAL_CAPABILITIES`, or its own ``RepositoryCapabilities`` —
+#: and the honest refusal is what it then gets.
+REFERENCE_CAPABILITIES = RepositoryCapabilities(
+    as_of_reads=True,
+    cohort_semijoin=True,
+    max_cohort_size=100_000,
+    having_pushdown=True,
+    server_side_top_n=True,
+    derived_measures=derived_measure_capabilities(),
+    cross_entity_ratio_of_sums=True,
+)
+
+#: A source with the retrieval mechanics but no probe-time computation of
+#: its own: every measure must already be a catalog measure at the probe's
+#: entity or a declared column. The pre-negotiation behaviour, and the
+#: honest-degradation case §6.3 requires an adapter to be able to state.
+MINIMAL_CAPABILITIES = RepositoryCapabilities(
     as_of_reads=True,
     cohort_semijoin=True,
     max_cohort_size=100_000,
     having_pushdown=True,
     server_side_top_n=True,
 )
+
+_DEFAULT_CAPABILITIES = REFERENCE_CAPABILITIES
 
 
 @dataclass

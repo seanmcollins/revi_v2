@@ -49,8 +49,18 @@ def test_dimensions_yaml() -> None:
     dims = data["dimensions"]
     certified = {k for k, v in dims.items() if v["certified"]}
     uncertified = {k for k, v in dims.items() if not v["certified"]}
-    assert len(certified) == 21, sorted(certified)
+    assert len(certified) == 24, sorted(certified)
     assert uncertified == {"rarc_synthetic", "revenue_code"}
+    # The three claim-level boolean flags: a filter predicate needs a
+    # dimension, so `submission_date IS NULL` is only expressible once the
+    # catalog certifies billed_flag. The dates stay date bases.
+    flags = {"first_pass_paid", "billed_flag", "discharged_flag"}
+    assert flags <= certified
+    for flag in flags:
+        assert dims[flag]["entities"].keys() == {"claim"}, flag
+        assert dims[flag]["cardinality_estimate"] == 2, flag
+        assert dims[flag]["description"].strip(), flag
+    assert not flags & set(_load("date_bases.yaml")["date_bases"])
     for name, spec in dims.items():
         assert spec["synonyms"], f"{name} needs synonyms"
         assert isinstance(spec["cardinality_estimate"], int) and spec["cardinality_estimate"] > 0
@@ -104,3 +114,14 @@ def test_calendar_yaml() -> None:
     assert cal["week_convention"].startswith("ISO")
     assert len(cal["holidays"]) >= 10
     assert {"CALENDAR_DAY", "BUSINESS_DAY"} <= set(cal["policies"])
+
+
+def test_calendar_yaml_matches_the_generated_calendar() -> None:
+    """The published range and holiday list are the generator's, not a copy that drifts."""
+    from revi_warehouse.config import CALENDAR_END, CALENDAR_START, day
+    from revi_warehouse.dims import SYNTHETIC_HOLIDAYS
+
+    cal = _load("calendar.yaml")["calendar"]
+    assert day(cal["range"]["start"].isoformat()) == CALENDAR_START
+    assert day(cal["range"]["end"].isoformat()) == CALENDAR_END
+    assert [h.isoformat() for h in cal["holidays"]] == list(SYNTHETIC_HOLIDAYS)

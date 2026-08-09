@@ -61,7 +61,7 @@ export function DetectionBadge({
             )}
             {sourceWatermarkId && (
               <div className="flex gap-1.5">
-                <dt>Read at</dt>
+                <dt>Data as of</dt>
                 <dd className="font-mono">{sourceWatermarkId}</dd>
               </div>
             )}

@@ -21,26 +21,33 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
+from revi_api.debug_trace import build_debug_trace
+from revi_api.evidence import build_evidence
+from revi_api.metric_provenance import build_metric_provenance
 from revi_api.wiring import ApiComponents
 from revi_investigation.application.capability_ports import BenchmarkSpec
 from revi_investigation.application.llm.guard import assert_safe_payload
-from revi_investigation.application.ports import TextLlmRequest, TraceRecord
+from revi_investigation.application.ports import LlmCallPolicy, TextLlmRequest, TraceRecord
 from revi_investigation.application.submit_turn import TurnOutcome
 from revi_investigation.domain.records import Finding, Investigation
 from revi_investigation_contracts.api import (
     BenchmarkPayload,
     ChartSpec,
+    DebugTracePayload,
     DefinitionalPayload,
+    EvidencePayload,
     FindingPayload,
     FindingValue,
     InvestigationResponse,
     MetaAnswerPayload,
+    MetricProvenancePayload,
     ReferentPayload,
     TermPayload,
     TurnAnswer,
     TurnClarification,
     UsageSummary,
 )
+from revi_kernel.frame import EvidenceFrame
 from revi_presentation import (
     NARRATIVE_TEMPLATE_ID,
     NARRATIVE_TEMPLATE_VERSION,
@@ -52,6 +59,23 @@ from revi_presentation import (
 )
 
 OnEvent = Callable[[str, dict[str, Any]], Awaitable[None]]
+
+#: Suffix of the supplementary trace record the narrative validator writes,
+#: so a reader of ``for_investigation`` can tell it from the decision trace.
+NARRATIVE_TRACE_SUFFIX = ":narrative"
+
+#: Warning surfaced when a turn's cost ceiling left nothing for the
+#: narrative. The findings, charts and grades are untouched — only the
+#: prose is missing, and the answer says so rather than reading as though
+#: there were nothing to write.
+NARRATIVE_BUDGET_WARNING = (
+    "narrative not composed: this turn reached its cost ceiling after the evidence was "
+    "computed; the findings and charts below are complete"
+)
+
+#: Mirrors the engine's per-call floor: below this there is no call worth
+#: making, only a provider refusal that would read like an outage.
+_MIN_NARRATIVE_BUDGET_USD = Decimal("0.001")
 
 
 def _finding_value(name: str, value: object) -> FindingValue:
@@ -98,7 +122,32 @@ def finding_payload(
     )
 
 
-def investigation_response(investigation: Investigation) -> InvestigationResponse:
+def investigation_response(
+    investigation: Investigation,
+    trace: TraceRecord | None = None,
+    chart_specs: Sequence[ChartSpec] = (),
+) -> InvestigationResponse:
+    """A stored investigation on the wire.
+
+    ``trace`` is the turn's recorded decision trace when the caller has
+    it. Passed, the response carries the same evidence bundle the live
+    answer published — a turn restored when a session is re-opened shows
+    the probes it ran rather than an empty drawer. Omitted (the lineage
+    listing, which would otherwise read one trace per node), the field is
+    ``None``: absent because it was not looked up, never an empty bundle
+    implying the turn ran nothing.
+
+    ``chart_specs`` are rebuilt from the turn's persisted frames by
+    :func:`restored_chart_specs`. There is no equivalent for the
+    narrative: nothing stores the composed prose (the narrative trace
+    record keeps its template, its redactions and its length, not its
+    text), so a restored turn shows its findings and charts and does not
+    pretend to have kept the sentences.
+
+    The governed-provenance block rides on the same ``trace``, for the
+    same reason: a restored turn that lost its badge would read as an
+    ungoverned answer.
+    """
     return InvestigationResponse(
         investigation_id=investigation.id,
         session_id=investigation.session_id,
@@ -110,7 +159,53 @@ def investigation_response(investigation: Investigation) -> InvestigationRespons
         plan_hash=investigation.plan_hash,
         findings=[finding_payload(f) for f in investigation.findings],
         warnings=list(investigation.warnings),
+        evidence=build_evidence(trace) if trace is not None else None,
+        metric=build_metric_provenance(trace) if trace is not None else None,
+        chart_specs=list(chart_specs),
         created_at=investigation.created_at,
+    )
+
+
+async def restored_chart_specs(
+    components: ApiComponents,
+    investigation: Investigation,
+    trace: TraceRecord | None = None,
+) -> list[ChartSpec]:
+    """Rebuild a stored turn's charts from the frames it persisted.
+
+    Not a second computation of the answer: ``frame_refs`` point at the
+    very frames the live turn charted, saved verbatim, and this runs the
+    same :func:`build_chart_specs` over them with the same playbook id
+    (read back off the trace) and the same row referents (read back off
+    the registry, scoped to this investigation). A frame the store has
+    since dropped simply yields no chart rather than a partial one.
+    """
+    frames: list[tuple[str, EvidenceFrame]] = []
+    for key in investigation.frame_refs:
+        frame = await components.frames.get(key)
+        if frame is None:
+            continue
+        _, _, frame_id = key.partition(":")
+        frames.append((frame_id or key, frame))
+    if not frames:
+        return []
+    playbook_id: str | None = None
+    if trace is not None:
+        raw = (trace.payload.get("plan_context") or {}).get("playbook_id")
+        playbook_id = raw if isinstance(raw, str) else None
+    entries = await components.referents.list_for_session(investigation.session_id)
+    row_referents = {
+        entry.dimension_value: entry.referent.value
+        for entry in entries
+        if entry.dimension_value is not None and entry.investigation_id == investigation.id
+    }
+    return list(
+        build_chart_specs(
+            frames,
+            recipes=components.recipes,
+            playbook_id=playbook_id,
+            row_referents=row_referents,
+        )
     )
 
 
@@ -134,16 +229,37 @@ def _usage_from_trace(trace: TraceRecord | None) -> UsageSummary:
     )
 
 
+def _narrative_budget(outcome: TurnOutcome, spent: Decimal) -> Decimal | None:
+    """What is left of the turn's ceiling for the narrative call.
+
+    ``None`` means no ceiling was set, which leaves the call bounded by the
+    deployment's own per-call cap — the behavior that predates the control.
+    The engine ran the same ledger over its structured calls; this is the
+    last stage, and it reads the spend back off the recorded trace rather
+    than keeping a second counter that could disagree with the first.
+    """
+    ceiling = outcome.settings.max_turn_cost_usd
+    return None if ceiling is None else ceiling - spent
+
+
 async def _compose_narrative(
     components: ApiComponents,
     outcome: TurnOutcome,
     findings: list[FindingPayload],
     warnings: list[str],
     on_event: OnEvent | None,
+    spent: Decimal = Decimal(0),
 ) -> str | None:
     header = outcome.header
     if header is None or not findings:
         return None
+    remaining = _narrative_budget(outcome, spent)
+    if remaining is not None and remaining < _MIN_NARRATIVE_BUDGET_USD:
+        # Never a silent omission: the evidence stands, the prose does not,
+        # and the warning says which and why.
+        warnings.append(NARRATIVE_BUDGET_WARNING)
+        return None
+    depth = outcome.settings.narrative_depth
     prompt = build_narrative_prompt(
         findings=findings,
         header=header,
@@ -152,6 +268,10 @@ async def _compose_narrative(
         # cautions and sources since KB wave 1, and passed here as a
         # literal empty tuple until the round-1 review counted them.
         benchmarks=[b.prompt_line for b in outcome.benchmarks],
+        # A real composition parameter: depth selects the template that is
+        # rendered, so the model writes a different piece rather than the
+        # same one cut short.
+        depth=depth,
     )
     assert_safe_payload(prompt)
     chunks: list[str] = []
@@ -160,6 +280,9 @@ async def _compose_narrative(
             template_id=NARRATIVE_TEMPLATE_ID,
             template_version=NARRATIVE_TEMPLATE_VERSION,
             rendered_prompt=prompt,
+            policy=LlmCallPolicy(
+                model=outcome.settings.model_tier, max_cost_usd=remaining
+            ),
         )
     )
     async for delta in stream:
@@ -182,7 +305,8 @@ async def _compose_narrative(
             payload={
                 "narrative": {
                     "template": f"{NARRATIVE_TEMPLATE_ID}@{NARRATIVE_TEMPLATE_VERSION}",
-                    "template_hash": template_hash(),
+                    "depth": depth.value,
+                    "template_hash": template_hash(depth),
                     "provisional_chars": len(provisional),
                     "redactions": [r.model_dump() for r in validation.redactions],
                     "validated": True,
@@ -191,6 +315,21 @@ async def _compose_narrative(
         )
     )
     return validation.text
+
+
+def _debug_payload(outcome: TurnOutcome, trace: TraceRecord | None) -> DebugTracePayload | None:
+    """The decision trace, when the settings in force asked for it.
+
+    Projected from the record the engine already wrote — never recomputed,
+    because a debug view that derived its own numbers could disagree with
+    the answer it is supposed to explain. Absent ``debug``, the trace is
+    still recorded and still readable at
+    ``GET /v1/investigations/{id}/trace``; it is simply not published with
+    the answer.
+    """
+    if not outcome.settings.debug or trace is None:
+        return None
+    return build_debug_trace(trace)
 
 
 async def assemble_turn_response(
@@ -203,6 +342,19 @@ async def assemble_turn_response(
     events along the way (see module docstring for the ordering)."""
     trace = await components.traces.get(outcome.trace_id)
     usage = _usage_from_trace(trace)
+    debug = _debug_payload(outcome, trace)
+    # Published on every answer, from the same record the debug view
+    # reads. An empty bundle here means the trace store had nothing for
+    # this turn — which the drawer says in those words rather than
+    # drawing a reassuring "no queries ran".
+    evidence = build_evidence(trace) if trace is not None else EvidencePayload()
+    # Whose definition the numbers are, from that same record. ``None``
+    # here means there was no trace to read — distinct from a recorded
+    # turn that measured nothing governed, which publishes the block with
+    # an empty metric list and says so.
+    metric: MetricProvenancePayload | None = (
+        build_metric_provenance(trace) if trace is not None else None
+    )
 
     if outcome.clarification is not None:
         return TurnClarification(
@@ -214,6 +366,7 @@ async def assemble_turn_response(
             reason=outcome.clarification.reason,
             watermark_stale=outcome.watermark_stale,
             usage=usage,
+            debug=debug,
         )
 
     findings = [finding_payload(f, outcome.benchmarks) for f in outcome.findings]
@@ -246,7 +399,9 @@ async def assemble_turn_response(
             await on_event("chart_spec", spec.model_dump(mode="json"))
 
     warnings = list(outcome.warnings)
-    narrative = await _compose_narrative(components, outcome, findings, warnings, on_event)
+    narrative = await _compose_narrative(
+        components, outcome, findings, warnings, on_event, spent=Decimal(usage.cost_usd)
+    )
 
     definitional: DefinitionalPayload | None = None
     if outcome.definitional is not None:
@@ -301,4 +456,7 @@ async def assemble_turn_response(
         plan_hash=outcome.investigation.plan_hash,
         watermark_stale=outcome.watermark_stale,
         usage=usage,
+        evidence=evidence,
+        metric=metric,
+        debug=debug,
     )

@@ -198,9 +198,77 @@ dimensions:
   clean_claim:
     label: Clean claim flag
     certified: true
+    description: >
+      True when the claim was paid with no denial on its first remittance AND
+      the payment has posted. Outcome-derived, so it carries the OPEN trap in
+      the `status` note below: a claim awaiting cash reads false for want of
+      posting, not because the payer touched it. Rate contracts whose
+      numerator reads this flag exclude OPEN (clean_claim_rate does).
     entities:
       claim: clean_claim
     synonyms: [clean, first pass clean, no-touch claim]
+    cardinality_estimate: 2
+    phi: none
+  first_pass_paid:
+    label: First-pass paid flag
+    certified: true
+    description: >
+      True when the claim's FIRST remittance paid it with no denial — measured
+      at the payer's adjudication outcome, before any cash has to post. It is
+      therefore NOT the complement of a denial on OPEN claims, and it does not
+      move with `clean_claim`: at wm_003, 593 of the 11,319 OPEN claims carry
+      first_pass_paid = true (adjudicated clean, payment not yet posted) while
+      clean_claim is false on every one of them. The OPEN trap documented on
+      `status` still applies in the other direction: an un-adjudicated claim
+      reads false for want of a remittance, so first_pass_yield's denominator
+      carries claims nobody has decided yet and reads low on fresh cohorts —
+      the contract says so. Boolean, never null.
+    entities:
+      claim: first_pass_paid
+    synonyms: [first pass paid, first pass yield flag, paid first pass,
+               clean adjudication, paid on first submission]
+    cardinality_estimate: 2
+    phi: none
+  billed_flag:
+    label: Billed flag
+    certified: true
+    description: >
+      True when the claim has left the door — submission_date is not null as of
+      the snapshot. Structural, not outcome-derived: false means unbilled
+      inventory (DNFB, charge holds, timely-filing risk), never "no evidence
+      yet", so it does not carry the OPEN trap. This is the certified way to
+      express "unsubmitted" as a filter; `submission_date` remains a date basis
+      (a window rides on it) and is not itself a dimension.
+    entities:
+      claim: billed_flag
+    synonyms: [billed, submitted, claim submitted, dropped, unbilled flag,
+               submission flag]
+    cardinality_estimate: 2
+    phi: none
+  discharged_flag:
+    label: Discharged flag
+    certified: true
+    description: >
+      True when the claim carries a discharge date as of the snapshot. Read it
+      with claim_type: professional claims have no discharge date by
+      construction, so false means "not an institutional discharge OR a stay
+      still open", and a DNFB population is discharged_flag = true AND
+      billed_flag = false, scoped to INSTITUTIONAL. Structural, not
+      outcome-derived. `discharge_date` remains a date basis, not a dimension.
+      KNOWN LIMITATION — the flag is NOT as-of aware. It is materialized from
+      the CURRENT discharge_date at snapshot build time, so a back-dated
+      snapshot query (as_of earlier than the watermark) reads it as true for
+      claims discharged AFTER that as_of, where `discharge_date <= as_of`
+      would read false. Measured on snap_003 at as_of 2026-06-01: 5 claims
+      worth 3,028,611 cents fall inside the as-of open-inventory population
+      with discharged_flag true and a discharge date past 2026-06-01, which
+      moves dnfb_dollars there from 651,695,123 to 654,723,734. At the
+      watermark itself (as_of = newest data date) the two readings are
+      identical, which is the case every shipped probe takes. A back-dated
+      DNFB reading is therefore slightly high; state it rather than trust it.
+    entities:
+      claim: discharged_flag
+    synonyms: [discharged, has discharge, discharge flag, stay closed]
     cardinality_estimate: 2
     phi: none
   status:
@@ -208,15 +276,24 @@ dimensions:
     certified: true
     description: >
       Adjudication standing of the claim at the snapshot watermark. OPEN
-      means no remittance has been received yet — the claim has no
-      adjudication outcome of any kind, so every outcome-derived flag on it
-      (clean_claim, first_pass_paid) reads false for want of evidence
-      rather than because the payer decided anything. Rate contracts whose
-      numerator reads one of those flags must exclude OPEN or they report
-      "not yet adjudicated" as "denied": in this warehouse all 11,319 OPEN
-      claims carry zero denial records, and counting them as denials moved
-      the published denial rate from 5.2% to 49.9%. PAID and CLOSED are
-      resolved; DENIED is standing-denied inventory.
+      means NO MONEY HAS POSTED and no denial is visible — not that no
+      remittance has arrived. The generator derives status from payment
+      posting and denial visibility (project.py), so a claim adjudicated
+      clean sits OPEN through the remit-to-post lag: at wm_003, 593 of the
+      11,319 OPEN claims carry a remit, line allowed amounts, patient
+      responsibility and first_pass_paid = true, and 0 carry a transaction
+      (605 at wm_001, 622 at wm_002 — the same population, re-measured).
+      That is a real partial-adjudication state, not a defect, and
+      `verify.py` guards all four halves of it.
+      Consequences for rate contracts, stated exactly: (a) OPEN claims carry
+      ZERO denial records in every snapshot, so a numerator reading a denial
+      flag must exclude OPEN or it reports "not yet adjudicated" as
+      "denied" — counting them moved the published denial rate from 5.2% to
+      49.9%; (b) `clean_claim` needs posted cash, so it reads false on every
+      OPEN claim, including those 593 — hence clean_claim_rate's OPEN
+      exclusion; (c) `first_pass_paid` needs only the remit, so it reads
+      TRUE on those 593 and they belong in first_pass_yield's numerator.
+      PAID and CLOSED are resolved; DENIED is standing-denied inventory.
     entities:
       claim: status
     synonyms: [claim status, adjudication status, claim state, acct status, status code]

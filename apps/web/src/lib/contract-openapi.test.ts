@@ -70,6 +70,7 @@ import {
   REQUIRED_LINEAGE_NODE_FIELDS,
   REQUIRED_PORTFOLIO_ITEM_FIELDS,
   REQUIRED_SESSION_FIELDS,
+  REQUIRED_SESSION_SUMMARY_FIELDS,
   REQUIRED_TURN_ERROR_FIELDS,
 } from "@/lib/contract";
 import type { components, paths } from "@/lib/types.gen";
@@ -155,6 +156,21 @@ const FRAME_PAYLOAD_SCHEMA: Partial<Record<keyof typeof REQUIRED_FRAME_FIELDS, k
   error: "ErrorEnvelope",
 };
 
+/**
+ * The session list reads the wire spelling directly (no camelCase aliases
+ * to keep in step), so this binding exists to make a server-side rename a
+ * type error rather than a rail that silently drops every row.
+ */
+const SESSION_SUMMARY_BACKING = {
+  session_id: "session_id",
+  title: "title",
+  created_at: "created_at",
+  last_activity: "last_activity",
+} satisfies Record<
+  (typeof REQUIRED_SESSION_SUMMARY_FIELDS)[number],
+  keyof Schemas["SessionSummary"]
+>;
+
 const LINEAGE_NODE_BACKING = {
   turnId: "turn_id",
   investigationId: "investigation_id",
@@ -209,6 +225,86 @@ const TURN_REQUEST_KEYS = [
   "re_anchor",
 ] as const satisfies readonly (keyof Schemas["TurnRequest"])[];
 
+/**
+ * The evidence bundle the drawer, the reconciliation banner and the "no
+ * new queries" chip read. It is not a REQUIRED_* table — a missing bundle
+ * degrades the drawer instead of blanking the answer — so it is bound by
+ * UI concept rather than by required path: every key the mapper reads must
+ * still be a real field on the published schema.
+ */
+const EVIDENCE_BACKING = {
+  probes: "probes",
+  reconciliation: "reconciliation",
+  warehouseQueries: "warehouse_queries",
+  cacheHits: "cache_hits",
+  zeroProbeTurn: "zero_probe_turn",
+  answerGrade: "answer_grade",
+} satisfies Record<string, keyof Schemas["EvidencePayload"]>;
+
+const EVIDENCE_PROBE_BACKING = {
+  probeId: "id",
+  probeHash: "hash",
+  description: "purpose",
+  kind: "kind",
+  metrics: "metrics",
+  cacheHit: "cache_hit",
+  rowCount: "rows",
+  limit: "limit",
+  truncated: "truncated",
+  suppressedCells: "suppressed_cells",
+  grade: "grade",
+  durationMs: "duration_ms",
+} satisfies Record<string, keyof Schemas["EvidenceProbePayload"]>;
+
+/**
+ * Cut when the drawer was pointed at the live API, and listed so they stay
+ * cut: nothing on the wire backs them. Masked sample rows have no source
+ * (the planner emits no row-evidence probe, so no stored frame holds
+ * row-level content); the reconciliation totals are computed inside the
+ * reconcile operator and never leave it; per-probe operator versions are
+ * recorded for the turn, not per probe. If any of these appears on
+ * `EvidencePayload` later, THEN the UI may show it.
+ */
+const EVIDENCE_FIELDS_WITH_NO_WIRE_SOURCE = [
+  "sample_rows",
+  "trace_note",
+  "operators",
+] as const;
+
+/**
+ * The "Governed" badge. Same binding discipline as the evidence bundle:
+ * bound by UI concept, because a missing block degrades the badge to
+ * silence rather than blanking the answer.
+ */
+const METRIC_PROVENANCE_BACKING = {
+  primary: "primary",
+  metrics: "metrics",
+  playbookId: "playbook_id",
+  packSnapshotId: "pack_snapshot_id",
+} satisfies Record<string, keyof Schemas["MetricProvenancePayload"]>;
+
+/**
+ * Cut when the badge was pointed at the live API, and listed so they stay
+ * cut. Every one of them is a real field of a governed `MetricContract` —
+ * and none is recorded per turn, so rendering them would mean reading
+ * TODAY's pack and captioning an OLDER answer with it. The badge shows the
+ * id and the version the turn read; that pair is enough to look the rest
+ * up, and unlike a name copied out of a live pack it cannot go stale.
+ * If any of these ever appears on `MetricProvenancePayload`, THEN the UI
+ * may show it.
+ */
+const METRIC_FIELDS_WITH_NO_WIRE_SOURCE = [
+  "name",
+  "kind",
+  "numerator",
+  "denominator",
+  "primary_date_basis",
+  "exclusions",
+  "unit",
+  "direction_of_good",
+  "fingerprint",
+] as const;
+
 /** A portfolio card's drill handle IS a typed first turn (§18.1-10). */
 const DRILL_SPEC_BACKING = {
   metric_ids: "metric_ids",
@@ -219,13 +315,16 @@ const DRILL_SPEC_BACKING = {
 
 /** The endpoints the driver calls, with the method it calls them by. */
 const DRIVER_OPERATIONS = {
-  "/v1/health": "get",
-  "/v1/sessions": "post",
-  "/v1/sessions/{session_id}/turns": "post",
-  "/v1/sessions/{session_id}/lineage": "get",
-  "/v1/investigations/{investigation_id}": "get",
-  "/v1/portfolio/latest": "get",
-} as const satisfies Partial<Record<keyof paths, "get" | "post">>;
+  "/v1/health": ["get"],
+  // POST opens (or re-joins) a session; GET lists this tenant's sessions.
+  "/v1/sessions": ["post", "get"],
+  "/v1/sessions/{session_id}/turns": ["post"],
+  "/v1/sessions/{session_id}/lineage": ["get"],
+  "/v1/investigations/{investigation_id}": ["get"],
+  "/v1/investigations/{investigation_id}/trace": ["get"],
+  "/v1/capabilities": ["get"],
+  "/v1/portfolio/latest": ["get"],
+} as const satisfies Partial<Record<keyof paths, readonly ("get" | "post")[]>>;
 
 /** Statuses §12 answers with the envelope; 422 is FastAPI's own, on purpose. */
 const ENVELOPE_STATUSES = ["400", "404", "409", "503"] as const;
@@ -247,6 +346,8 @@ interface OpenApiSchema {
   required?: string[];
   properties?: Record<string, unknown>;
   description?: string;
+  /** Closed vocabularies (NarrativeDepth, EvidenceDepth, frame kinds). */
+  enum?: string[];
 }
 interface OpenApiRef {
   $ref?: string;
@@ -260,6 +361,7 @@ interface OpenApiResponse {
 }
 interface OpenApiOperation {
   responses?: Record<string, OpenApiResponse>;
+  parameters?: { name: string; in: string }[];
 }
 interface OpenApiDoc {
   paths: Record<string, Record<string, OpenApiOperation>>;
@@ -310,12 +412,39 @@ function publishedSseKinds(): string[] {
 
 describe("OpenAPI reconciliation — paths", () => {
   it("still publishes every endpoint the driver calls, by the method it calls", () => {
-    for (const [route, method] of Object.entries(DRIVER_OPERATIONS)) {
+    for (const [route, methods] of Object.entries(DRIVER_OPERATIONS)) {
       expect(Object.keys(SPEC.paths)).toContain(route);
-      expect(Object.keys(SPEC.paths[route] ?? {}), `${route} must accept ${method}`).toContain(
-        method,
-      );
+      for (const method of methods) {
+        expect(Object.keys(SPEC.paths[route] ?? {}), `${route} must accept ${method}`).toContain(
+          method,
+        );
+      }
     }
+  });
+});
+
+describe("OpenAPI reconciliation — the session list", () => {
+  it("guarantees every field a session row is drawn from", () => {
+    expectGuaranteed("SessionSummary", Object.values(SESSION_SUMMARY_BACKING));
+  });
+
+  it("maps each required row path to exactly one wire key", () => {
+    expect(Object.keys(SESSION_SUMMARY_BACKING).sort()).toEqual(
+      [...REQUIRED_SESSION_SUMMARY_FIELDS].sort(),
+    );
+  });
+
+  it("publishes a total, so a capped page cannot pass as the whole history", () => {
+    expect(Object.keys(schema("SessionListResponse").properties ?? {})).toEqual(
+      expect.arrayContaining(["sessions", "total", "tenant", "limit"]),
+    );
+  });
+
+  it("takes no tenant parameter — the token decides whose list this is", () => {
+    const operation = SPEC.paths["/v1/sessions"]?.get as OpenApiOperation | undefined;
+    const names = (operation?.parameters ?? []).map((p) => p.name);
+    expect(names).not.toContain("tenant");
+    expect(names).toContain("limit");
   });
 });
 
@@ -427,6 +556,71 @@ describe("OpenAPI reconciliation — portfolio", () => {
   });
 });
 
+describe("OpenAPI reconciliation — the evidence bundle", () => {
+  it("publishes the bundle on every answer, not only in debug mode", () => {
+    expect(Object.keys(schema("TurnAnswer").properties ?? {})).toContain("evidence");
+    // ...and on the by-id read, so a restored turn shows its working.
+    expect(Object.keys(schema("InvestigationResponse").properties ?? {})).toContain("evidence");
+  });
+
+  it("backs every field the drawer reads with a published wire key", () => {
+    const bundle = Object.keys(schema("EvidencePayload").properties ?? {});
+    for (const key of Object.values(EVIDENCE_BACKING)) expect(bundle).toContain(key);
+    const probe = Object.keys(schema("EvidenceProbePayload").properties ?? {});
+    for (const key of Object.values(EVIDENCE_PROBE_BACKING)) expect(probe).toContain(key);
+  });
+
+  it("keeps the cut affordances cut — they have no wire source", () => {
+    const bundle = Object.keys(schema("EvidencePayload").properties ?? {});
+    const probe = Object.keys(schema("EvidenceProbePayload").properties ?? {});
+    for (const field of EVIDENCE_FIELDS_WITH_NO_WIRE_SOURCE) {
+      expect(bundle, `EvidencePayload.${field}`).not.toContain(field);
+      expect(probe, `EvidenceProbePayload.${field}`).not.toContain(field);
+    }
+    // The verdict is a status plus the recorded summary — not two totals.
+    const reconciliation = Object.keys(schema("EvidenceReconciliation").properties ?? {});
+    expect(reconciliation.sort()).toEqual(["detail", "status", "summary"]);
+  });
+
+  it("publishes the governed provenance on both doors onto a turn", () => {
+    // On the live answer AND on the by-id read, so a restored turn keeps
+    // its badge instead of reading as ungoverned.
+    expect(Object.keys(schema("TurnAnswer").properties ?? {})).toContain("metric");
+    expect(Object.keys(schema("InvestigationResponse").properties ?? {})).toContain("metric");
+  });
+
+  it("backs every field the badge reads with a published wire key", () => {
+    const block = Object.keys(schema("MetricProvenancePayload").properties ?? {});
+    for (const key of Object.values(METRIC_PROVENANCE_BACKING)) expect(block).toContain(key);
+    // The pack the TURN recorded — not the session pin the header carries.
+    expect(block).toContain("pack_id");
+    expect(block).toContain("pack_version");
+  });
+
+  it("keeps the contract-detail fields cut — nothing per turn records them", () => {
+    const block = Object.keys(schema("MetricProvenancePayload").properties ?? {});
+    for (const field of METRIC_FIELDS_WITH_NO_WIRE_SOURCE) {
+      expect(block, `MetricProvenancePayload.${field}`).not.toContain(field);
+    }
+    // A metric reference is an id and the version it was READ at, and the
+    // badge and the drawer share one shape for it rather than two that
+    // could disagree about the same contract.
+    expect(Object.keys(schema("EvidenceMetricRef").properties ?? {}).sort()).toEqual([
+      "contract_version",
+      "id",
+    ]);
+  });
+
+  it("keeps the drawer and the debug trace reading one probe shape", () => {
+    // Two projections of one recorded trace: if their probe fields drift
+    // apart, the drawer and the trace panel can disagree about the same
+    // turn, which is the failure this whole design exists to prevent.
+    const shown = Object.keys(schema("EvidenceProbePayload").properties ?? {});
+    const traced = Object.keys(schema("DebugProbe").properties ?? {});
+    for (const field of traced) expect(shown).toContain(field);
+  });
+});
+
 describe("OpenAPI reconciliation — §12 error envelope", () => {
   it("guarantees every field parseErrorEnvelope requires", () => {
     expectGuaranteed("ErrorEnvelope", Object.values(ERROR_ENVELOPE_BACKING));
@@ -442,13 +636,15 @@ describe("OpenAPI reconciliation — §12 error envelope", () => {
     // The schema existing is not enough — the driver decodes an envelope out
     // of ANY non-2xx body, so each route must actually declare it. This is
     // the half that would rot silently.
-    for (const [route, method] of Object.entries(DRIVER_OPERATIONS)) {
-      const op = operation(route, method);
-      for (const status of ENVELOPE_STATUSES) {
-        expect(
-          responseRef(op, status, "application/json"),
-          `${method.toUpperCase()} ${route} → ${status} must return ErrorEnvelope`,
-        ).toBe(ENVELOPE_REF);
+    for (const [route, methods] of Object.entries(DRIVER_OPERATIONS)) {
+      for (const method of methods) {
+        const op = operation(route, method);
+        for (const status of ENVELOPE_STATUSES) {
+          expect(
+            responseRef(op, status, "application/json"),
+            `${method.toUpperCase()} ${route} → ${status} must return ErrorEnvelope`,
+          ).toBe(ENVELOPE_REF);
+        }
       }
     }
   });
@@ -456,12 +652,14 @@ describe("OpenAPI reconciliation — §12 error envelope", () => {
   it("leaves 422 to FastAPI's HTTPValidationError — one status, one model", () => {
     // Domain (§12) errors are 400 now; 422 means a malformed request body and
     // nothing else, so it must NOT be re-pointed at ErrorEnvelope.
-    for (const [route, method] of Object.entries(DRIVER_OPERATIONS)) {
-      const ref = responseRef(operation(route, method), "422", "application/json");
-      if (ref === undefined) continue; // routes with no parameters declare no 422
-      expect(ref, `${method.toUpperCase()} ${route} → 422`).toBe(
-        "#/components/schemas/HTTPValidationError",
-      );
+    for (const [route, methods] of Object.entries(DRIVER_OPERATIONS)) {
+      for (const method of methods) {
+        const ref = responseRef(operation(route, method), "422", "application/json");
+        if (ref === undefined) continue; // routes with no parameters declare no 422
+        expect(ref, `${method.toUpperCase()} ${route} → 422`).toBe(
+          "#/components/schemas/HTTPValidationError",
+        );
+      }
     }
   });
 });
@@ -498,10 +696,11 @@ describe("OpenAPI reconciliation — SSE frames", () => {
 
   it("keeps the three turn_complete-only kinds out of the SSE enum", () => {
     // interpretation / evidence / definition_card are UI event kinds the
-    // server does not stream: the definition card rides inside the
-    // turn_complete payload, and the other two are UI-only shapes with no
-    // wire counterpart at all. They must not be "fixed" by adding them to
-    // TurnStreamEvent.
+    // server does not stream. The definition card and the evidence bundle
+    // ride inside the turn_complete payload — the bundle is only whole
+    // once the turn is, so there is nothing to stream mid-flight — and
+    // `interpretation` is UI-only. They must not be "fixed" by adding
+    // them to TurnStreamEvent.
     const published = publishedSseKinds();
     for (const kind of TURN_COMPLETE_ONLY_KINDS) {
       expect(published, `"${kind}" is not an SSE frame`).not.toContain(kind);
@@ -572,5 +771,172 @@ describe("OpenAPI reconciliation — the discriminated 200 turn body", () => {
 
   it("keeps recovery-by-id honest — InvestigationResponse guarantees its own shape", () => {
     expectGuaranteed("InvestigationResponse", Object.values(INVESTIGATION_BACKING));
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Session settings + debug traces                                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The settings panel and debug mode are rendered from published shapes,
+ * so the same discipline applies: every key the UI reads is bound to a key
+ * the generated wire type still has, and the facts the panel depends on to
+ * decide what to OFFER are asserted here rather than assumed.
+ */
+const SETTINGS_BACKING = {
+  modelTier: "model_tier",
+  maxTurnCostUsd: "max_turn_cost_usd",
+  narrativeDepth: "narrative_depth",
+  evidenceDepth: "evidence_depth",
+  debug: "debug",
+} satisfies Record<string, keyof Schemas["SessionSettingsModel"]>;
+
+const BOUNDS_BACKING = {
+  modelTiers: "model_tiers",
+  defaultModelTier: "default_model_tier",
+  modelTierEffective: "model_tier_effective",
+  maxTurnCostUsd: "max_turn_cost_usd",
+  narrativeDepths: "narrative_depths",
+  evidenceDepths: "evidence_depths",
+  evidenceDepthDeepMultiplier: "evidence_depth_deep_multiplier",
+  debugAvailable: "debug_available",
+} satisfies Record<string, keyof Schemas["SettingsBoundsPayload"]>;
+
+const DEBUG_TRACE_BACKING = {
+  traceId: "trace_id",
+  sessionId: "session_id",
+  investigationId: "investigation_id",
+  turnId: "turn_id",
+  turnClass: "turn_class",
+  classificationConfidence: "classification_confidence",
+  interpretation: "interpretation",
+  refinementOperators: "refinement_operators",
+  planHash: "plan_hash",
+  probes: "probes",
+  grades: "grades",
+  weakestGrade: "weakest_grade",
+  findingGrades: "finding_grades",
+  llmCalls: "llm_calls",
+  timingsMs: "timings_ms",
+  watermarkId: "watermark_id",
+  epoch: "epoch",
+  packVersion: "pack_version",
+  redactions: "redactions",
+} satisfies Record<string, keyof Schemas["DebugTracePayload"]>;
+
+const DEBUG_PROBE_BACKING = {
+  id: "id",
+  hash: "hash",
+  purpose: "purpose",
+  cacheHit: "cache_hit",
+  rows: "rows",
+  limit: "limit",
+  truncated: "truncated",
+  suppressedCells: "suppressed_cells",
+  grade: "grade",
+  durationMs: "duration_ms",
+} satisfies Record<string, keyof Schemas["DebugProbe"]>;
+
+const DEBUG_LLM_CALL_BACKING = {
+  template: "template",
+  model: "model",
+  inputTokens: "input_tokens",
+  outputTokens: "output_tokens",
+  costUsd: "cost_usd",
+  schemaRetries: "schema_retries",
+  attempts: "attempts",
+  durationMs: "duration_ms",
+  failure: "failure",
+} satisfies Record<string, keyof Schemas["DebugLlmCall"]>;
+
+describe("OpenAPI reconciliation — session settings", () => {
+  it("binds every control the panel renders to a published field", () => {
+    const properties = Object.keys(schema("SessionSettingsModel").properties ?? {});
+    for (const key of Object.values(SETTINGS_BACKING)) {
+      expect(properties, `SessionSettingsModel.${key}`).toContain(key);
+    }
+  });
+
+  it("carries the per-turn ceiling as a decimal STRING, like every other money field", () => {
+    const budget = schema("SessionSettingsModel").properties?.max_turn_cost_usd as
+      | { anyOf?: { type?: string }[] }
+      | undefined;
+    expect(budget?.anyOf?.map((variant) => variant.type)).toEqual(["string", "null"]);
+    expect(schema("SettingsBoundsPayload").properties?.max_turn_cost_usd).toMatchObject({
+      type: "string",
+    });
+  });
+
+  it("publishes the bounds the panel needs to decide what to offer", () => {
+    const properties = Object.keys(schema("SettingsBoundsPayload").properties ?? {});
+    for (const key of Object.values(BOUNDS_BACKING)) {
+      expect(properties, `SettingsBoundsPayload.${key}`).toContain(key);
+    }
+  });
+
+  it("hangs the bounds off /v1/capabilities, and settings off both request shapes", () => {
+    expect(Object.keys(schema("CapabilitiesResponse").properties ?? {})).toContain("settings");
+    // Turn-scoped application is the one the UI uses; session-open exists too.
+    expect(Object.keys(schema("TurnRequest").properties ?? {})).toContain("settings");
+    expect(Object.keys(schema("OpenSessionRequest").properties ?? {})).toContain("settings");
+    // …and the resolved values come back on the session, not the requested ones.
+    expect(Object.keys(schema("SessionResponse").properties ?? {})).toContain("settings");
+  });
+
+  it("keeps the depth vocabularies closed — the panel renders exactly these", () => {
+    expect(schema("NarrativeDepth").enum).toEqual(["summary", "analyst"]);
+    expect(schema("EvidenceDepth").enum).toEqual(["standard", "deep"]);
+  });
+});
+
+describe("OpenAPI reconciliation — debug traces", () => {
+  it("binds every field the debug panel renders", () => {
+    const properties = Object.keys(schema("DebugTracePayload").properties ?? {});
+    for (const key of Object.values(DEBUG_TRACE_BACKING)) {
+      expect(properties, `DebugTracePayload.${key}`).toContain(key);
+    }
+  });
+
+  it("guarantees the four identity fields the mapper refuses to invent", () => {
+    expectGuaranteed("DebugTracePayload", [
+      "trace_id",
+      "session_id",
+      "investigation_id",
+      "turn_id",
+    ]);
+  });
+
+  it("binds the probe and LLM-call rows", () => {
+    const probeProperties = Object.keys(schema("DebugProbe").properties ?? {});
+    for (const key of Object.values(DEBUG_PROBE_BACKING)) {
+      expect(probeProperties, `DebugProbe.${key}`).toContain(key);
+    }
+    const callProperties = Object.keys(schema("DebugLlmCall").properties ?? {});
+    for (const key of Object.values(DEBUG_LLM_CALL_BACKING)) {
+      expect(callProperties, `DebugLlmCall.${key}`).toContain(key);
+    }
+  });
+
+  it("keeps `rows` nullable — planned-but-not-executed is not zero rows", () => {
+    const rows = schema("DebugProbe").properties?.rows as { anyOf?: { type?: string }[] } | undefined;
+    expect(rows?.anyOf?.map((variant) => variant.type)).toEqual(["integer", "null"]);
+  });
+
+  it("rides the debug block on both successful outcomes, and on no new SSE frame kind", () => {
+    expect(Object.keys(schema("TurnAnswer").properties ?? {})).toContain("debug");
+    expect(Object.keys(schema("TurnClarification").properties ?? {})).toContain("debug");
+    // The `turn_complete` frame carries the whole TurnResponse, so debug
+    // reaches a streaming client without a new frame kind to parse.
+    expect(publishedSseKinds()).not.toContain("debug");
+  });
+
+  it("still serves the after-the-fact trace route the UI reads", () => {
+    const op = operation("/v1/investigations/{investigation_id}/trace", "get");
+    expect(responseRef(op, "200", "application/json")).toBe(
+      "#/components/schemas/DebugTracePayload",
+    );
+    // Refusals travel in the §12 envelope, so they can be shown verbatim.
+    expect(responseRef(op, "400", "application/json")).toBe(ENVELOPE_REF);
   });
 });

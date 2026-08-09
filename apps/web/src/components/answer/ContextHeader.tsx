@@ -24,8 +24,10 @@ import { cn } from "@/lib/utils";
 
 /**
  * §7.2 hard requirement: EVERY answer carries its explicit context —
- * window + basis · comparison · filters · cohort · watermark. Each chip
- * opens a plain-language explanation of what it pins.
+ * window + basis · comparison · filters · cohort · data load. Each chip
+ * opens a plain-language explanation of what it pins. The chip named
+ * "Data as of" is the pinned WATERMARK; it is labelled the way an analyst
+ * would say it, and the engine's own name for it is one debug toggle away.
  */
 export function ContextHeader({
   header,
@@ -79,7 +81,8 @@ export function ContextHeader({
               {formatWindow(header.comparison.window)}.
             </p>
             <p className="mt-1.5 text-muted-foreground">
-              Comparison windows re-anchor deterministically from stored concrete dates.
+              Comparison windows are stored as concrete dates, so the same question
+              always compares the same two periods.
             </p>
           </ChipDoc>
         </Chip>
@@ -97,8 +100,8 @@ export function ContextHeader({
         <ChipDoc title="Scope">
           {header.filters.length === 0 ? (
             <p>
-              No filters applied — every claim, payer, and facility visible at this
-              watermark is included.
+              No filters applied — every claim, payer, and facility in this data load is
+              included.
             </p>
           ) : (
             <ul className="space-y-1">
@@ -131,22 +134,25 @@ export function ContextHeader({
         </Chip>
       )}
 
+      {/* Same fact as before — the pinned data load — under the name an
+          analyst uses for it. "Watermark" is the engine's word and stays
+          available in debug mode and the settings panel. */}
       <Chip
         icon={<Database className="size-3" />}
-        name="Watermark"
+        name="Data as of"
         label={header.watermark.loadedAt}
         trailing={pinnedEpoch ? <Pin className="size-2.5 text-muted-foreground" /> : undefined}
       >
-        <ChipDoc title="Data watermark">
+        <ChipDoc title="Data as of">
           <p>
-            Every number in this answer was computed against the warehouse load of{" "}
-            <span className="font-medium">{header.watermark.loadedAt}</span> (newest fact
-            date {mediumDate(header.watermark.newestDataDate)}).
+            Every number in this answer was computed against the data load of{" "}
+            <span className="font-medium">{header.watermark.loadedAt}</span> (newest
+            activity {mediumDate(header.watermark.newestDataDate)}).
           </p>
           <p className="mt-1.5 text-muted-foreground">
-            Pack {header.packVersion.packId}@{header.packVersion.version}. Re-running at a
-            newer watermark can change results; this session stays pinned until you
-            re-anchor.
+            Metric definitions {header.packVersion.packId}@{header.packVersion.version}.
+            Re-running against a newer load can change the numbers; this session stays on
+            this one until you choose to move it.
           </p>
         </ChipDoc>
       </Chip>
@@ -163,7 +169,7 @@ const BASIS_DOCS: Record<string, string> = {
 };
 
 /**
- * A metadata chip: uppercase wide-tracked micro-label (WINDOW · WATERMARK
+ * A metadata chip: uppercase wide-tracked micro-label (WINDOW · DATA AS OF
  * · SCOPE) carrying the §10.3 verbatim value in tabular numerals. The
  * label names the dimension so the value never has to repeat it.
  */

@@ -25,11 +25,13 @@ from revi_api.auth import Principal
 from revi_api.service import ApiService, TurnResult
 from revi_investigation_contracts.api import (
     CapabilitiesResponse,
+    DebugTracePayload,
     ErrorEnvelope,
     InvestigationResponse,
     OpenSessionRequest,
     PortfolioResponse,
     SessionLineageResponse,
+    SessionListResponse,
     SessionResponse,
     TurnError,
     TurnRequest,
@@ -55,11 +57,17 @@ class InProcessInvestigationClient:
     async def open_session(self, request: OpenSessionRequest) -> SessionResponse:
         return await self._service.open_session(self._principal, request)
 
+    async def list_sessions(self, limit: int = 50) -> SessionListResponse:
+        return await self._service.list_sessions(self._principal, limit=limit)
+
     async def submit_turn(self, session_id: str, request: TurnRequest) -> TurnResult:
         return await self._service.submit_turn(self._principal, session_id, request)
 
     async def get_investigation(self, investigation_id: str) -> InvestigationResponse:
         return await self._service.get_investigation(self._principal, investigation_id)
+
+    async def get_trace(self, investigation_id: str) -> DebugTracePayload:
+        return await self._service.get_trace(self._principal, investigation_id)
 
     async def get_session_lineage(self, session_id: str) -> SessionLineageResponse:
         return await self._service.get_session_lineage(self._principal, session_id)
@@ -85,6 +93,13 @@ class HttpInvestigationClient:
         )
         response.raise_for_status()
         return SessionResponse.model_validate(response.json())
+
+    async def list_sessions(self, limit: int = 50) -> SessionListResponse:
+        response = await self._client.get(
+            "/v1/sessions", params={"limit": limit}, headers=self._headers
+        )
+        response.raise_for_status()
+        return SessionListResponse.model_validate(response.json())
 
     async def submit_turn(self, session_id: str, request: TurnRequest) -> TurnResult:
         response = await self._client.post(
@@ -123,6 +138,13 @@ class HttpInvestigationClient:
         response = await self._client.get(f"/v1/investigations/{investigation_id}", headers=self._headers)
         response.raise_for_status()
         return InvestigationResponse.model_validate(response.json())
+
+    async def get_trace(self, investigation_id: str) -> DebugTracePayload:
+        response = await self._client.get(
+            f"/v1/investigations/{investigation_id}/trace", headers=self._headers
+        )
+        response.raise_for_status()
+        return DebugTracePayload.model_validate(response.json())
 
     async def get_session_lineage(self, session_id: str) -> SessionLineageResponse:
         response = await self._client.get(f"/v1/sessions/{session_id}/lineage", headers=self._headers)

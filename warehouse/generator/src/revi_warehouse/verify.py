@@ -139,6 +139,45 @@ _EXPECTED_WATERMARKS = [
 ]
 
 
+def _open_state_checks(con: duckdb.DuckDBPyConnection, s: str) -> list[Check]:
+    """What OPEN actually means, guarded.
+
+    An audit found 593 OPEN claims at snap_003 carrying remit rows, which
+    contradicted the catalog's "OPEN means no remittance has been received
+    yet". The generator is right and the note was wrong: status is derived
+    from *payment posting* and denial visibility (project.py), so a claim
+    adjudicated clean sits OPEN for the length of the remit-to-post lag. That
+    is a real partial-adjudication state; these four checks pin every half of
+    it so neither the data nor the corrected note can drift again.
+    """
+    open_claim = f"SELECT count(*) FROM {s}.fact_claim c WHERE c.status = 'OPEN'"
+    return [
+        _expect_zero(
+            con,
+            f"{s}: no OPEN claim carries a denial record",
+            f"{open_claim} AND EXISTS "
+            f"(SELECT 1 FROM {s}.fact_denial d WHERE d.claim_id = c.claim_id)",
+        ),
+        _expect_zero(
+            con,
+            f"{s}: no OPEN claim carries a posted transaction",
+            f"{open_claim} AND EXISTS "
+            f"(SELECT 1 FROM {s}.fact_transaction t WHERE t.claim_id = c.claim_id)",
+        ),
+        _expect_zero(
+            con,
+            f"{s}: an OPEN claim has a remit iff it is first_pass_paid",
+            f"{open_claim} AND c.first_pass_paid <> EXISTS "
+            f"(SELECT 1 FROM {s}.fact_remit r WHERE r.claim_id = c.claim_id)",
+        ),
+        _expect_zero(
+            con,
+            f"{s}: no OPEN claim reads clean_claim (that flag needs posted cash)",
+            f"{open_claim} AND c.clean_claim",
+        ),
+    ]
+
+
 def _structural_checks(con: duckdb.DuckDBPyConnection) -> list[Check]:
     checks: list[Check] = []
     rows = con.execute(
@@ -184,6 +223,18 @@ def _structural_checks(con: duckdb.DuckDBPyConnection) -> list[Check]:
                 con,
                 f"{s}: transaction amounts strictly positive",
                 f"SELECT count(*) FROM {s}.fact_transaction WHERE amount_cents <= 0",
+            )
+        )
+        checks.extend(_open_state_checks(con, s))
+        checks.append(
+            _expect_zero(
+                con,
+                f"{s}: v_claim flags restate their source dates",
+                f"""
+                SELECT count(*) FROM {s}.v_claim
+                WHERE billed_flag <> (submission_date IS NOT NULL)
+                   OR discharged_flag <> (discharge_date IS NOT NULL)
+                """,
             )
         )
         checks.append(
@@ -510,10 +561,132 @@ def _values_equal(a: Any, b: Any) -> bool:
     return bool(a == b)
 
 
+def _injection_guards(injected: str) -> tuple[tuple[str, str], ...]:
+    """Direct guards that no anomaly-injected row can reach a scenario aggregate.
+
+    `injected` is the SQL predicate selecting the injected claim-id range.
+    """
+    return (
+        (
+            "no injected claim on Silverline Medicare Advantage",
+            f"SELECT count(*) FROM wh.snap_003.v_claim WHERE {injected} "
+            "AND payer_name = 'Silverline Medicare Advantage'",
+        ),
+        (
+            "no injected claim in Meridian Health x Imaging",
+            f"SELECT count(*) FROM wh.snap_003.v_claim WHERE {injected} "
+            "AND payer_name = 'Meridian Health' AND service_line_name = 'Imaging'",
+        ),
+        (
+            "no injected claim on State Medicaid HMO x Eastside",
+            f"SELECT count(*) FROM wh.snap_003.v_claim WHERE {injected} "
+            "AND plan_name = 'State Medicaid HMO' "
+            "AND facility_name = 'Eastside Medical Center'",
+        ),
+        (
+            "no injected Atlas submission in the scenario-3a window",
+            f"SELECT count(*) FROM wh.snap_003.v_claim WHERE {injected} "
+            "AND payer_name = 'Atlas Commercial' "
+            "AND submission_date BETWEEN DATE '2026-06-15' AND DATE '2026-08-02'",
+        ),
+        (
+            "no injected Northbridge ORTHO-SURG line",
+            f"SELECT count(*) FROM wh.snap_003.v_claim_line WHERE {injected} "
+            "AND payer_name = 'Northbridge Commercial' AND proc_group = 'ORTHO-SURG'",
+        ),
+        (
+            "no injected payer/patient cash inside the reference compare weeks",
+            f"SELECT count(*) FROM wh.snap_003.v_transaction WHERE {injected} "
+            "AND txn_type IN ('PAYMENT', 'PATIENT_PAYMENT') "
+            "AND post_date BETWEEN DATE '2026-07-20' AND DATE '2026-08-02'",
+        ),
+        (
+            "no injected State Medicaid payment with remit on/after 2026-07-06",
+            f"SELECT count(*) FROM wh.snap_003.v_transaction WHERE {injected} "
+            "AND txn_type = 'PAYMENT' AND payer_name = 'State Medicaid' "
+            "AND remit_date >= DATE '2026-07-06'",
+        ),
+    )
+
+
+def _backfill_guards(first_id: str, era_start: str, resolved_by: str) -> tuple[tuple[str, str], ...]:
+    """The 2024 backfill's closure proof, per snapshot schema.
+
+    Every scenario window, every anomaly observation window and every trailing
+    window anchored at a watermark lives in 2025-2026, so "no backfill row
+    carries a date on or after `resolved_by` + 1" covers all of them at once.
+    The rest are the watermark-time point-metric invariants: nothing open,
+    nothing unbilled, nothing over-collected.
+    """
+    backfill = f"claim_id >= '{first_id}'"
+    guards: list[tuple[str, str]] = []
+    for snap in SNAPSHOTS:
+        s = snap.schema_name
+        guards.extend(
+            [
+                (
+                    f"{s}: every backfill claim has a 2024 service date",
+                    f"SELECT count(*) FROM wh.{s}.fact_claim WHERE {backfill} "
+                    f"AND (service_date < DATE '2024-01-01' OR service_date >= DATE '{era_start}')",
+                ),
+                (
+                    f"{s}: every backfill claim is PAID or CLOSED (never in A/R)",
+                    f"SELECT count(*) FROM wh.{s}.fact_claim WHERE {backfill} "
+                    "AND status NOT IN ('PAID', 'CLOSED')",
+                ),
+                (
+                    f"{s}: every backfill claim is billed (no DNFB / timely-filing risk)",
+                    f"SELECT count(*) FROM wh.{s}.fact_claim WHERE {backfill} "
+                    "AND submission_date IS NULL",
+                ),
+                (
+                    f"{s}: every backfill claim is resolved by {resolved_by}",
+                    f"SELECT count(*) FROM wh.{s}.fact_claim WHERE {backfill} "
+                    f"AND (resolved_date IS NULL OR resolved_date > DATE '{resolved_by}')",
+                ),
+                (
+                    f"{s}: no backfill activity after {resolved_by}",
+                    f"SELECT (SELECT count(*) FROM wh.{s}.fact_transaction WHERE {backfill} "
+                    f"          AND post_date > DATE '{resolved_by}')"
+                    f"     + (SELECT count(*) FROM wh.{s}.fact_remit WHERE {backfill} "
+                    f"          AND remit_date > DATE '{resolved_by}')"
+                    f"     + (SELECT count(*) FROM wh.{s}.fact_denial WHERE {backfill} "
+                    f"          AND (denial_date > DATE '{resolved_by}' "
+                    f"               OR appeal_decision_date > DATE '{resolved_by}'))"
+                    f"     + (SELECT count(*) FROM wh.{s}.fact_claim_line WHERE {backfill} "
+                    f"          AND charge_entry_date > DATE '{resolved_by}')",
+                ),
+                (
+                    f"{s}: every backfill denial carries a terminal appeal status",
+                    f"SELECT count(*) FROM wh.{s}.fact_denial WHERE {backfill} "
+                    "AND appeal_status = 'APPEALED'",
+                ),
+                (
+                    f"{s}: no backfill claim carries an unrefunded credit balance",
+                    f"""
+                    SELECT count(*) FROM (
+                        SELECT c.claim_id
+                        FROM wh.{s}.fact_claim c
+                        JOIN wh.{s}.fact_transaction t USING (claim_id)
+                        WHERE c.claim_id >= '{first_id}'
+                        GROUP BY c.claim_id, c.expected_amount_cents
+                        HAVING COALESCE(SUM(t.amount_cents) FILTER (
+                                   WHERE t.txn_type IN ('PAYMENT', 'PATIENT_PAYMENT')), 0)
+                             - COALESCE(SUM(t.amount_cents) FILTER (
+                                   WHERE t.txn_type = 'REFUND'), 0)
+                             > c.expected_amount_cents
+                    )
+                    """,
+                ),
+            ]
+        )
+    return tuple(guards)
+
+
 def _non_interference_checks(db_path: Path, key: dict[str, Any]) -> list[Check]:
-    """Recompute all five scenarios over base claims only (injected rows excluded)
-    and require exact agreement with the recorded all-rows values; plus direct
-    guards that no injected row can reach a scenario aggregate."""
+    """Recompute all five scenarios over base claims only (every appended row
+    excluded) and require exact agreement with the recorded all-rows values;
+    plus direct guards on the anomaly and backfill blocks."""
     from revi_warehouse.answer_key import (
         _cash_decline,
         _cob,
@@ -524,50 +697,19 @@ def _non_interference_checks(db_path: Path, key: dict[str, Any]) -> list[Check]:
 
     checks: list[Check] = []
     threshold = key["anomalies_meta"]["first_injected_claim_id"]
+    meta = key.get("backfill_meta", {})
+    first_backfill = meta.get("first_backfill_claim_id")
+    injected = f"claim_id >= '{threshold}'"
+    if first_backfill is not None:
+        injected += f" AND claim_id < '{first_backfill}'"
     con = duckdb.connect()  # in-memory primary; warehouse attached read-only
     try:
         con.execute(f"ATTACH '{db_path}' AS wh (READ_ONLY)")
-        guards: tuple[tuple[str, str], ...] = (
-            (
-                "no injected claim on Silverline Medicare Advantage",
-                f"SELECT count(*) FROM wh.snap_003.v_claim WHERE claim_id >= '{threshold}' "
-                "AND payer_name = 'Silverline Medicare Advantage'",
-            ),
-            (
-                "no injected claim in Meridian Health x Imaging",
-                f"SELECT count(*) FROM wh.snap_003.v_claim WHERE claim_id >= '{threshold}' "
-                "AND payer_name = 'Meridian Health' AND service_line_name = 'Imaging'",
-            ),
-            (
-                "no injected claim on State Medicaid HMO x Eastside",
-                f"SELECT count(*) FROM wh.snap_003.v_claim WHERE claim_id >= '{threshold}' "
-                "AND plan_name = 'State Medicaid HMO' "
-                "AND facility_name = 'Eastside Medical Center'",
-            ),
-            (
-                "no injected Atlas submission in the scenario-3a window",
-                f"SELECT count(*) FROM wh.snap_003.v_claim WHERE claim_id >= '{threshold}' "
-                "AND payer_name = 'Atlas Commercial' "
-                "AND submission_date BETWEEN DATE '2026-06-15' AND DATE '2026-08-02'",
-            ),
-            (
-                "no injected Northbridge ORTHO-SURG line",
-                f"SELECT count(*) FROM wh.snap_003.v_claim_line WHERE claim_id >= '{threshold}' "
-                "AND payer_name = 'Northbridge Commercial' AND proc_group = 'ORTHO-SURG'",
-            ),
-            (
-                "no injected payer/patient cash inside the reference compare weeks",
-                f"SELECT count(*) FROM wh.snap_003.v_transaction WHERE claim_id >= '{threshold}' "
-                "AND txn_type IN ('PAYMENT', 'PATIENT_PAYMENT') "
-                "AND post_date BETWEEN DATE '2026-07-20' AND DATE '2026-08-02'",
-            ),
-            (
-                "no injected State Medicaid payment with remit on/after 2026-07-06",
-                f"SELECT count(*) FROM wh.snap_003.v_transaction WHERE claim_id >= '{threshold}' "
-                "AND txn_type = 'PAYMENT' AND payer_name = 'State Medicaid' "
-                "AND remit_date >= DATE '2026-07-06'",
-            ),
-        )
+        guards = _injection_guards(injected)
+        if first_backfill is not None:
+            guards += _backfill_guards(
+                first_backfill, meta["organic_era_start"], meta["resolved_by"]
+            )
         for name, sql in guards:
             n = con.execute(sql).fetchone()
             assert n is not None

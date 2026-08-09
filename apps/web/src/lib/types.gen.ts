@@ -64,6 +64,35 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/investigations/{investigation_id}/trace": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Trace
+         * @description One turn's decision breakdown: classification and confidence,
+         *     the ids interpretation chose, refinement operators, plan hash and
+         *     §6.6 outcomes, per-probe rows/timings, per-call model spend and
+         *     failure kind, watermark epoch and pack version.
+         *
+         *     The same projection the `debug` block on a turn response carries —
+         *     this route is for the turn nobody thought to debug until after it
+         *     answered. Free text is filtered by the outbound-payload guard and
+         *     anything withheld is named in `redactions`. `REVI_DEBUG_TRACE=0`
+         *     turns the whole surface off (POLICY_DENIED).
+         */
+        get: operations["get_trace_v1_investigations__investigation_id__trace_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/portfolio/latest": {
         parameters: {
             query?: never;
@@ -92,7 +121,17 @@ export interface paths {
             path?: never;
             cookie?: never;
         };
-        get?: never;
+        /**
+         * List Sessions
+         * @description The caller tenant's sessions, newest activity first.
+         *
+         *     Every row is derived, never stored: the title is the session's
+         *     first question verbatim, and `last_activity` is its newest
+         *     investigation. There is no tenant parameter — the token decides
+         *     whose sessions these are, so no request can ask for another
+         *     tenant's list at all.
+         */
+        get: operations["list_sessions_v1_sessions_get"];
         put?: never;
         /**
          * Open Session
@@ -396,6 +435,7 @@ export interface components {
             repository?: {
                 [key: string]: unknown;
             };
+            settings?: components["schemas"]["SettingsBoundsPayload"];
         };
         /** ChartRow */
         ChartRow: {
@@ -487,6 +527,233 @@ export interface components {
              */
             window_start: string;
         };
+        /**
+         * DebugInterpretation
+         * @description What the interpretation stage chose, by id.
+         */
+        DebugInterpretation: {
+            /** Basis */
+            basis?: string | null;
+            /** Concept Ids */
+            concept_ids?: string[];
+            /** Dimension Ids */
+            dimension_ids?: string[];
+            /**
+             * Intent Summary
+             * @default
+             */
+            intent_summary: string;
+            /** Metric Ids */
+            metric_ids?: string[];
+            /** Playbook Id */
+            playbook_id?: string | null;
+            /** Window End */
+            window_end?: string | null;
+            /** Window Start */
+            window_start?: string | null;
+        };
+        /**
+         * DebugLlmCall
+         * @description One model call: what was asked, on what, at what price.
+         *
+         *     ``failure`` is the :class:`LlmFailureKind` value when the call came
+         *     back with nothing usable — ``declined`` / ``schema`` / ``off_script``
+         *     — because "the model had no mapping for this" and "the answer never
+         *     arrived in a readable shape" want opposite recoveries.
+         */
+        DebugLlmCall: {
+            /**
+             * Attempts
+             * @default 1
+             */
+            attempts: number;
+            /**
+             * Cost Usd
+             * @default 0
+             */
+            cost_usd: string;
+            /**
+             * Duration Ms
+             * @default 0
+             */
+            duration_ms: number;
+            /** Failure */
+            failure?: string | null;
+            /**
+             * Input Tokens
+             * @default 0
+             */
+            input_tokens: number;
+            /** Model */
+            model: string;
+            /**
+             * Output Tokens
+             * @default 0
+             */
+            output_tokens: number;
+            /**
+             * Schema Retries
+             * @default 0
+             */
+            schema_retries: number;
+            /** Template */
+            template: string;
+        };
+        /**
+         * DebugProbe
+         * @description One planned probe and what executing it actually produced.
+         */
+        DebugProbe: {
+            /**
+             * Cache Hit
+             * @default false
+             */
+            cache_hit: boolean;
+            /**
+             * Duration Ms
+             * @default 0
+             */
+            duration_ms: number;
+            /** Grade */
+            grade?: string | null;
+            /** Hash */
+            hash: string;
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @default
+             */
+            kind: string;
+            /** Limit */
+            limit?: number | null;
+            /** Metrics */
+            metrics?: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * Purpose
+             * @default
+             */
+            purpose: string;
+            /** Rows */
+            rows?: number | null;
+            /**
+             * Suppressed Cells
+             * @default 0
+             */
+            suppressed_cells: number;
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+        };
+        /**
+         * DebugTracePayload
+         * @description One turn's decision breakdown, projected from its trace record.
+         */
+        DebugTracePayload: {
+            /** Calculation Operators */
+            calculation_operators?: {
+                [key: string]: unknown;
+            }[];
+            /** Clarification Reason */
+            clarification_reason?: string | null;
+            /** Classification Confidence */
+            classification_confidence?: number | null;
+            /**
+             * Epoch
+             * @default 0
+             */
+            epoch: number;
+            /** Finding Grades */
+            finding_grades?: {
+                [key: string]: string;
+            };
+            /** Grades */
+            grades?: {
+                [key: string]: string;
+            };
+            interpretation?: components["schemas"]["DebugInterpretation"] | null;
+            /** Investigation Id */
+            investigation_id: string;
+            /** Llm Calls */
+            llm_calls?: components["schemas"]["DebugLlmCall"][];
+            /**
+             * Pack Id
+             * @default
+             */
+            pack_id: string;
+            /**
+             * Pack Snapshot Id
+             * @default
+             */
+            pack_snapshot_id: string;
+            /**
+             * Pack Version
+             * @default
+             */
+            pack_version: string;
+            /** Plan Hash */
+            plan_hash?: string | null;
+            /** Playbook Id */
+            playbook_id?: string | null;
+            /** Probes */
+            probes?: components["schemas"]["DebugProbe"][];
+            /** Question */
+            question?: string | null;
+            /**
+             * Re Anchored
+             * @default false
+             */
+            re_anchored: boolean;
+            /** Reconciliation */
+            reconciliation?: string | null;
+            /** Redactions */
+            redactions?: string[];
+            /** Referent Resolutions */
+            referent_resolutions?: {
+                [key: string]: unknown;
+            }[];
+            /** Refinement Operators */
+            refinement_operators?: {
+                [key: string]: unknown;
+            }[];
+            /** Refinement Rationale */
+            refinement_rationale?: string | null;
+            /** Session Id */
+            session_id: string;
+            settings?: components["schemas"]["SessionSettingsModel"];
+            /** Template Hashes */
+            template_hashes?: {
+                [key: string]: string;
+            };
+            /** Timings Ms */
+            timings_ms?: {
+                [key: string]: number;
+            };
+            /** Trace Id */
+            trace_id: string;
+            /** Turn Class */
+            turn_class?: string | null;
+            /** Turn Id */
+            turn_id: string;
+            /** Warnings */
+            warnings?: string[];
+            /**
+             * Watermark Id
+             * @default
+             */
+            watermark_id: string;
+            /**
+             * Watermark Stale
+             * @default false
+             */
+            watermark_stale: boolean;
+            /** Weakest Grade */
+            weakest_grade?: string | null;
+        };
         /** DefinitionalPayload */
         DefinitionalPayload: {
             /** Pack Id */
@@ -518,6 +785,121 @@ export interface components {
             correlation_id: string;
             /** Message */
             message: string;
+        };
+        /**
+         * EvidenceDepth
+         * @description How wide the platform's own top-N cutoffs are planned.
+         * @enum {string}
+         */
+        EvidenceDepth: "standard" | "deep";
+        /**
+         * EvidenceMetricRef
+         * @description A metric a probe read, with the contract version it was read under.
+         *
+         *     Both halves come off the executed frame's schema — the version the
+         *     connector stamped on the column, not the version the plan asked for,
+         *     because those differ exactly when a pack promotion lands mid-session
+         *     and that is the case worth seeing.
+         */
+        EvidenceMetricRef: {
+            /** Contract Version */
+            contract_version?: number | null;
+            /** Id */
+            id: string;
+        };
+        /**
+         * EvidencePayload
+         * @description Everything an answer can honestly say about its own working.
+         */
+        EvidencePayload: {
+            /** Answer Grade */
+            answer_grade?: string | null;
+            /**
+             * Cache Hits
+             * @default 0
+             */
+            cache_hits: number;
+            /** Probes */
+            probes?: components["schemas"]["EvidenceProbePayload"][];
+            reconciliation?: components["schemas"]["EvidenceReconciliation"] | null;
+            /**
+             * Warehouse Queries
+             * @default 0
+             */
+            warehouse_queries: number;
+            /**
+             * Zero Probe Turn
+             * @default true
+             */
+            zero_probe_turn: boolean;
+        };
+        /**
+         * EvidenceProbePayload
+         * @description One data check: what it was for, and what came back.
+         *
+         *     ``rows`` is ``None`` for a probe that was planned but never executed
+         *     (a turn that stopped at clarification, a pruned node) — distinct from
+         *     ``0``, which means the warehouse was asked and answered "nothing".
+         */
+        EvidenceProbePayload: {
+            /**
+             * Cache Hit
+             * @default false
+             */
+            cache_hit: boolean;
+            /**
+             * Duration Ms
+             * @default 0
+             */
+            duration_ms: number;
+            /** Grade */
+            grade?: string | null;
+            /** Hash */
+            hash: string;
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @default
+             */
+            kind: string;
+            /** Limit */
+            limit?: number | null;
+            /** Metrics */
+            metrics?: components["schemas"]["EvidenceMetricRef"][];
+            /**
+             * Purpose
+             * @default
+             */
+            purpose: string;
+            /** Rows */
+            rows?: number | null;
+            /**
+             * Suppressed Cells
+             * @default 0
+             */
+            suppressed_cells: number;
+            /**
+             * Truncated
+             * @default false
+             */
+            truncated: boolean;
+        };
+        /**
+         * EvidenceReconciliation
+         * @description The §7.8 verdict this turn recorded, split for display.
+         *
+         *     ``summary`` is the recorded string verbatim (``status=<verdict>`` with
+         *     optional ``; reason=...`` / ``; failed measures: ...``); ``status`` and
+         *     ``detail`` are that same string parsed, never a second judgement.
+         */
+        EvidenceReconciliation: {
+            /** Detail */
+            detail?: string | null;
+            /** Status */
+            status: string;
+            /** Summary */
+            summary: string;
         };
         /** ExpandModel */
         ExpandModel: {
@@ -598,15 +980,19 @@ export interface components {
         };
         /** InvestigationResponse */
         InvestigationResponse: {
+            /** Chart Specs */
+            chart_specs?: components["schemas"]["ChartSpec"][];
             /**
              * Created At
              * Format: date-time
              */
             created_at: string;
+            evidence?: components["schemas"]["EvidencePayload"] | null;
             /** Findings */
             findings?: components["schemas"]["FindingPayload"][];
             /** Investigation Id */
             investigation_id: string;
+            metric?: components["schemas"]["MetricProvenancePayload"] | null;
             /** Parent Id */
             parent_id?: string | null;
             /** Plan Hash */
@@ -665,6 +1051,56 @@ export interface components {
             warnings?: string[];
         };
         /**
+         * MetricProvenancePayload
+         * @description The governed provenance of one answer's numbers.
+         *
+         *     ``metrics`` is the honest whole: every governed metric this turn's
+         *     probes named, in recorded order, each with the contract version the
+         *     connector stamped when it ran (``None`` when the probe was planned and
+         *     never executed). A playbook turn legitimately has several, and this
+         *     payload says so rather than electing one of them the headline.
+         *
+         *     ``primary`` is set only when ONE governed contract stands behind the
+         *     answer — either the interpretation named it as governing (the engine's
+         *     own ``governing[0]``), or exactly one metric was read all turn. On a
+         *     playbook turn that ran several, it is ``None``: there is no single
+         *     contract to point at, and inventing one would be the exact overclaim
+         *     the badge exists to prevent.
+         *
+         *     An empty ``metrics`` with no ``primary`` is a turn that measured
+         *     nothing governed — a definitional answer, a META citation. The pack
+         *     fields still travel: which pack was pinned is a fact about the turn
+         *     even when the turn read no metric.
+         */
+        MetricProvenancePayload: {
+            /** Metrics */
+            metrics?: components["schemas"]["EvidenceMetricRef"][];
+            /**
+             * Pack Id
+             * @default
+             */
+            pack_id: string;
+            /**
+             * Pack Snapshot Id
+             * @default
+             */
+            pack_snapshot_id: string;
+            /**
+             * Pack Version
+             * @default
+             */
+            pack_version: string;
+            /** Playbook Id */
+            playbook_id?: string | null;
+            primary?: components["schemas"]["EvidenceMetricRef"] | null;
+        };
+        /**
+         * NarrativeDepth
+         * @description How much the narrative composer is asked to write.
+         * @enum {string}
+         */
+        NarrativeDepth: "summary" | "analyst";
+        /**
          * OpenSessionRequest
          * @description Open (or re-join) a session.
          *
@@ -677,6 +1113,7 @@ export interface components {
         OpenSessionRequest: {
             /** Session Id */
             session_id?: string | null;
+            settings?: components["schemas"]["SessionSettingsModel"] | null;
             /**
              * Tenant
              * @default
@@ -783,6 +1220,34 @@ export interface components {
             investigations?: components["schemas"]["InvestigationResponse"][];
             session: components["schemas"]["SessionResponse"];
         };
+        /**
+         * SessionListResponse
+         * @description The caller tenant's sessions, newest activity first.
+         *
+         *     ``total`` counts every session the tenant owns, so a page truncated by
+         *     ``limit`` cannot be mistaken for the whole history. ``tenant`` names
+         *     whose list this is — the same reason :class:`PortfolioResponse` carries
+         *     it: "whose worklist is this?" must be answerable from the payload.
+         */
+        SessionListResponse: {
+            /**
+             * Limit
+             * @default 0
+             */
+            limit: number;
+            /** Sessions */
+            sessions?: components["schemas"]["SessionSummary"][];
+            /**
+             * Tenant
+             * @default
+             */
+            tenant: string;
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+        };
         /** SessionResponse */
         SessionResponse: {
             /** Epoch */
@@ -798,6 +1263,7 @@ export interface components {
             pack_version: string;
             /** Session Id */
             session_id: string;
+            settings?: components["schemas"]["SessionSettingsModel"];
             /** Tenant */
             tenant: string;
             /** Watermark Id */
@@ -807,6 +1273,59 @@ export interface components {
              * Format: date-time
              */
             watermark_loaded_at: string;
+        };
+        /**
+         * SessionSettingsModel
+         * @description The settings a caller applies to a session (or to one turn).
+         */
+        SessionSettingsModel: {
+            /**
+             * Debug
+             * @default false
+             */
+            debug: boolean;
+            /** @default standard */
+            evidence_depth: components["schemas"]["EvidenceDepth"];
+            /** Max Turn Cost Usd */
+            max_turn_cost_usd?: string | null;
+            /** Model Tier */
+            model_tier?: string | null;
+            /** @default summary */
+            narrative_depth: components["schemas"]["NarrativeDepth"];
+        };
+        /**
+         * SessionSummary
+         * @description One row of ``GET /v1/sessions`` — enough to pick a session, and
+         *     nothing more.
+         *
+         *     ``title`` is the session's FIRST question, verbatim, or ``"New
+         *     session"`` when nothing has been asked yet: a session record carries no
+         *     name, and a generated one would be a label the analyst never wrote.
+         *     ``last_activity`` is derived from the session's newest investigation
+         *     (its own ``created_at`` when it has none), so the ordering an analyst
+         *     sees is when a session was last *worked*, not when it was opened.
+         *
+         *     Deliberately not a :class:`SessionResponse`: a list row must not imply
+         *     a pinned watermark or an epoch, both of which are facts about a session
+         *     you have actually joined.
+         */
+        SessionSummary: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Last Activity
+             * Format: date-time
+             */
+            last_activity: string;
+            /** Session Id */
+            session_id: string;
+            /** Title */
+            title: string;
+            /** Turn Count */
+            turn_count: number;
         };
         /** SetComparisonModel */
         SetComparisonModel: {
@@ -856,6 +1375,44 @@ export interface components {
             /** Window */
             window: components["schemas"]["WindowSpecModel"] | components["schemas"]["AbsoluteWindowModel"];
         };
+        /**
+         * SettingsBoundsPayload
+         * @description What a deployment will accept — published so a UI can render the
+         *     controls honestly instead of guessing and discovering refusals.
+         */
+        SettingsBoundsPayload: {
+            /**
+             * Debug Available
+             * @default false
+             */
+            debug_available: boolean;
+            /**
+             * Default Model Tier
+             * @default
+             */
+            default_model_tier: string;
+            /**
+             * Evidence Depth Deep Multiplier
+             * @default 1
+             */
+            evidence_depth_deep_multiplier: number;
+            /** Evidence Depths */
+            evidence_depths?: string[];
+            /**
+             * Max Turn Cost Usd
+             * @default 0
+             */
+            max_turn_cost_usd: string;
+            /**
+             * Model Tier Effective
+             * @default false
+             */
+            model_tier_effective: boolean;
+            /** Model Tiers */
+            model_tiers?: string[];
+            /** Narrative Depths */
+            narrative_depths?: string[];
+        };
         /** TermPayload */
         TermPayload: {
             /** Definition */
@@ -876,12 +1433,15 @@ export interface components {
             /** Chart Specs */
             chart_specs?: components["schemas"]["ChartSpec"][];
             context_header?: components["schemas"]["ContextHeaderPayload"] | null;
+            debug?: components["schemas"]["DebugTracePayload"] | null;
             definitional?: components["schemas"]["DefinitionalPayload"] | null;
+            evidence?: components["schemas"]["EvidencePayload"];
             /** Findings */
             findings?: components["schemas"]["FindingPayload"][];
             /** Investigation Id */
             investigation_id: string;
             meta_answer?: components["schemas"]["MetaAnswerPayload"] | null;
+            metric?: components["schemas"]["MetricProvenancePayload"] | null;
             /** Narrative */
             narrative?: string | null;
             /**
@@ -910,6 +1470,7 @@ export interface components {
         };
         /** TurnClarification */
         TurnClarification: {
+            debug?: components["schemas"]["DebugTracePayload"] | null;
             /** Investigation Id */
             investigation_id: string;
             /** Options */
@@ -962,6 +1523,7 @@ export interface components {
             re_anchor: boolean;
             /** Refinements */
             refinements?: (components["schemas"]["SetDimensionsModel"] | components["schemas"]["AddFilterModel"] | components["schemas"]["RemoveFilterModel"] | components["schemas"]["SetWindowModel"] | components["schemas"]["SetComparisonModel"] | components["schemas"]["SetGrainModel"] | components["schemas"]["DrillIntoModel"] | components["schemas"]["PivotModel"] | components["schemas"]["ExplainModel"] | components["schemas"]["RankByModel"] | components["schemas"]["ExpandModel"] | components["schemas"]["ResetContextModel"])[] | null;
+            settings?: components["schemas"]["SessionSettingsModel"] | null;
             spec?: components["schemas"]["TypedInvestigationSpec"] | null;
             /** Utterance */
             utterance?: string | null;
@@ -1326,6 +1888,91 @@ export interface operations {
             };
         };
     };
+    get_trace_v1_investigations__investigation_id__trace_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                investigation_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DebugTracePayload"];
+                };
+            };
+            /** @description Stable §12 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, …). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unknown session, investigation, or referent (REFERENT_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description WATERMARK_STALE or CONTEXT_CONFLICT — the pinned context cannot absorb the request without an explicit decision. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description SOURCE_UNAVAILABLE or DATA_LOADING — the analytical source cannot serve this watermark right now. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
     get_portfolio_v1_portfolio_latest_get: {
         parameters: {
             query?: never;
@@ -1387,6 +2034,92 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description SOURCE_UNAVAILABLE or DATA_LOADING — the analytical source cannot serve this watermark right now. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    list_sessions_v1_sessions_get: {
+        parameters: {
+            query?: {
+                /** @description Page size, newest activity first. */
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["SessionListResponse"];
+                };
+            };
+            /** @description Stable §12 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, …). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unknown session, investigation, or referent (REFERENT_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description WATERMARK_STALE or CONTEXT_CONFLICT — the pinned context cannot absorb the request without an explicit decision. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
             /** @description SOURCE_UNAVAILABLE or DATA_LOADING — the analytical source cannot serve this watermark right now. */

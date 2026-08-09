@@ -7,6 +7,14 @@ model ambiguity (missing structured output, an explicit clarification, or
 low classification confidence) becomes a :class:`ClarificationRequest`,
 which is a successful outcome, never a guess.
 
+A clarification says which of two things happened, because the recoveries
+differ: ``LlmFailureKind.SCHEMA`` means the answer never arrived in a
+readable shape and asking again may simply work, while a model that
+declined (or a demo script with no entry) will decline identically until
+the question changes. When the model proposes ways forward they ride along
+as ``ClarificationRequest.options`` — deterministically trimmed, never
+invented here.
+
 Window resolution happens exactly once, here: the anchor is the session
 watermark's ``loaded_at.date()`` and the concrete dates are stored on the
 spec (replay uses the stored dates). The date basis defaults to the
@@ -47,12 +55,18 @@ from revi_investigation.application.llm.render import (
 from revi_investigation.application.llm.schemas import (
     InterpretationResponse,
     TurnClassificationResponse,
+    clarification_options,
     sanitize_json_schema,
 )
 from revi_investigation.application.ports import (
+    DEFAULT_LLM_CALL_POLICY,
     LanguageModelPort,
+    LlmCallPolicy,
+    LlmFailureKind,
     LlmUsage,
     StructuredLlmRequest,
+    failure_note,
+    retry_may_help,
 )
 from revi_investigation.domain.context import AnalysisSpec, InvestigationContext
 from revi_investigation.domain.records import Session
@@ -104,6 +118,16 @@ _DEFINITIONAL_LEAD_INS = (
     "explain",
 )
 
+# Coming up empty has two honest shapes and they want opposite advice. A
+# model that read the utterance and had no mapping for it wants a different
+# wording; an answer that never arrived in a readable shape wants the same
+# wording again. Telling an analyst to rephrase a question that was never
+# the problem is how a platform teaches people it cannot be trusted.
+_CLASSIFY_REPHRASE = "I couldn't confidently read that request — could you rephrase it?"
+_CLASSIFY_RETRY = "I hit a problem reading that just now — please try again."
+_INTERPRET_REPHRASE = "I couldn't map that question onto governed content — could you rephrase it?"
+_INTERPRET_RETRY = "I hit a problem working that out just now — please try again."
+
 
 @dataclass(frozen=True, slots=True)
 class DefinitionalAnswer:
@@ -122,6 +146,10 @@ class ClassificationOutcome:
     clarification: ClarificationRequest | None
     usage: LlmUsage
     template_hash: str
+    #: Why the call came back empty-handed, when it did. The clarification
+    #: reason already spells it for a reader; this carries it as data so a
+    #: trace consumer does not have to parse English to chart it.
+    failure: LlmFailureKind | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -142,6 +170,8 @@ class InterpretationOutcome:
     definitional: DefinitionalAnswer | None
     usage: LlmUsage
     template_hash: str
+    #: See :attr:`ClassificationOutcome.failure`.
+    failure: LlmFailureKind | None = None
 
 
 def _clip(text: str) -> str:
@@ -171,7 +201,9 @@ class ClassifyTurnService:
         self._template: LoadedTemplate = load_template("classify_turn", "v1")
         self._schema = sanitize_json_schema(TurnClassificationResponse.model_json_schema())
 
-    async def classify(self, question: str) -> ClassificationOutcome:
+    async def classify(
+        self, question: str, *, policy: LlmCallPolicy = DEFAULT_LLM_CALL_POLICY
+    ) -> ClassificationOutcome:
         prompt = render_template(self._template.text, {"question": question})
         assert_safe_payload(prompt)
         result = await self._llm.structured(
@@ -180,29 +212,20 @@ class ClassifyTurnService:
                 template_version=self._template.version,
                 rendered_prompt=prompt,
                 schema=self._schema,
+                policy=policy,
             )
         )
         if result.output is None:
-            return ClassificationOutcome(
-                classification=None,
-                clarification=ClarificationRequest(
-                    question="I couldn't confidently read that request — could you rephrase it?",
-                    reason="turn classification returned no structured output",
-                ),
-                usage=result.usage,
-                template_hash=self._template.sha256,
+            return self._unusable(
+                "turn classification returned no structured output", result.failure, result.usage
             )
         try:
             parsed = TurnClassificationResponse.model_validate(dict(result.output))
         except ValidationError:
-            return ClassificationOutcome(
-                classification=None,
-                clarification=ClarificationRequest(
-                    question="I couldn't confidently read that request — could you rephrase it?",
-                    reason="turn classification failed schema validation",
-                ),
-                usage=result.usage,
-                template_hash=self._template.sha256,
+            return self._unusable(
+                "turn classification failed schema validation",
+                LlmFailureKind.SCHEMA,
+                result.usage,
             )
         classification = TurnClassification(
             turn_class=TurnClass(parsed.turn_class),
@@ -217,6 +240,7 @@ class ClassifyTurnService:
             clarification = ClarificationRequest(
                 question=classification.clarification_question
                 or "Could you say more about what you'd like to investigate?",
+                options=clarification_options(parsed.clarification_options),
                 reason=f"turn classification confidence {classification.confidence:.2f}",
             )
         return ClassificationOutcome(
@@ -224,6 +248,29 @@ class ClassifyTurnService:
             clarification=clarification,
             usage=result.usage,
             template_hash=self._template.sha256,
+        )
+
+    def _unusable(
+        self, reason: str, failure: LlmFailureKind | None, usage: LlmUsage
+    ) -> ClassificationOutcome:
+        """No classification came back — ask for the right thing.
+
+        A schema failure is the platform's problem and the analyst's
+        question may have been fine, so the ask is "again", not "differently".
+        The failure kind rides into the trace either way. No options on this
+        path by construction: there is no parsed response for the model to
+        have proposed any on.
+        """
+        retry = retry_may_help(failure)
+        return ClassificationOutcome(
+            classification=None,
+            clarification=ClarificationRequest(
+                question=_CLASSIFY_RETRY if retry else _CLASSIFY_REPHRASE,
+                reason=reason + failure_note(failure),
+            ),
+            usage=usage,
+            template_hash=self._template.sha256,
+            failure=failure,
         )
 
 
@@ -339,7 +386,12 @@ class InterpretQuestionService:
         )
 
     async def interpret(
-        self, question: str, *, session: Session, turn_id: str
+        self,
+        question: str,
+        *,
+        session: Session,
+        turn_id: str,
+        policy: LlmCallPolicy = DEFAULT_LLM_CALL_POLICY,
     ) -> InterpretationOutcome:
         prompt = render_template(self._template.text, {**self._vocabulary(), "question": question})
         assert_safe_payload(prompt)
@@ -349,28 +401,24 @@ class InterpretQuestionService:
                 template_version=self._template.version,
                 rendered_prompt=prompt,
                 schema=self._schema,
+                policy=policy,
             )
         )
         template_hash = self._template.sha256
         if result.output is None:
-            return self._clarify(
-                "I couldn't map that question onto governed content — could you rephrase it?",
-                "interpretation returned no structured output",
-                result.usage,
-                template_hash,
+            return self._unusable(
+                "interpretation returned no structured output", result.failure, result.usage
             )
         try:
             parsed = InterpretationResponse.model_validate(dict(result.output))
         except ValidationError:
-            return self._clarify(
-                "I couldn't map that question onto governed content — could you rephrase it?",
-                "interpretation failed schema validation",
-                result.usage,
-                template_hash,
+            return self._unusable(
+                "interpretation failed schema validation", LlmFailureKind.SCHEMA, result.usage
             )
+        options = clarification_options(parsed.clarification_options)
         if parsed.clarification:
             return self._clarify(parsed.clarification, "model requested clarification",
-                                 result.usage, template_hash)
+                                 result.usage, template_hash, options=options)
 
         analytical = bool(parsed.metric_ids or parsed.playbook_id or parsed.dimension_ids)
         if parsed.definitional_terms and not analytical:
@@ -415,6 +463,7 @@ class InterpretQuestionService:
                 "no governing metric or playbook resolved",
                 result.usage,
                 template_hash,
+                options=options,
             )
         primary = governing[0]
 
@@ -465,14 +514,39 @@ class InterpretQuestionService:
 
     @staticmethod
     def _clarify(
-        question: str, reason: str, usage: LlmUsage, template_hash: str
+        question: str,
+        reason: str,
+        usage: LlmUsage,
+        template_hash: str,
+        *,
+        options: tuple[str, ...] = (),
+        failure: LlmFailureKind | None = None,
     ) -> InterpretationOutcome:
         return InterpretationOutcome(
             investigation=None,
-            clarification=ClarificationRequest(question=question, reason=reason),
+            clarification=ClarificationRequest(question=question, options=options, reason=reason),
             definitional=None,
             usage=usage,
             template_hash=template_hash,
+            failure=failure,
+        )
+
+    def _unusable(
+        self, reason: str, failure: LlmFailureKind | None, usage: LlmUsage
+    ) -> InterpretationOutcome:
+        """Nothing interpretable came back — ask for the right thing.
+
+        Same split as classification: a shape that never arrived is worth
+        asking again for, a model that had no mapping is not. No options
+        here either — there is no parsed response to have carried any.
+        """
+        retry = retry_may_help(failure)
+        return self._clarify(
+            _INTERPRET_RETRY if retry else _INTERPRET_REPHRASE,
+            reason + failure_note(failure),
+            usage,
+            self._template.sha256,
+            failure=failure,
         )
 
     def _definitional_from_terms(

@@ -69,6 +69,104 @@ conclusion_policies:
     required_grade: derived
     required_evidence: [portfolio_cash_trend, portfolio_denial_trend]
     estimate_label_required: false
+  # --- coverage wave 2 (2026-08-08): policies for the widened playbook set --
+  - id: ar_aging_claim
+    claim: >-
+      Movement in the receivable is attributable to named aging bands,
+      payers, or the standing-denied slice — rather than to inflow.
+      Requires the aging profile AND both inflow and outflow context: A/R
+      that grows with charges is business, not a collection failure, and a
+      claim that skips the inflow evidence cannot tell the two apart.
+    required_grade: derived
+    required_evidence: [ar_profile, ar_aging_by_payer, ar_inflow, ar_outflow]
+    estimate_label_required: false
+  - id: appeal_effectiveness_claim
+    claim: >-
+      The appeal function's win rate, pipeline state and never-appealed
+      share are established for the scoped population, and the recommended
+      shift in appeal effort follows from them. Both overturn forms are
+      required evidence: a count rate alone cannot support a
+      where-to-spend-effort claim when the dollar rate disagrees.
+    required_grade: derived
+    required_evidence: [overturn_by_payer, overturn_by_category, appeal_pipeline]
+    estimate_label_required: false
+  - id: credit_balance_claim
+    claim: >-
+      Unrefunded credit balances of a stated size are standing against named
+      payers, and the refund pace is or is not clearing them. Compliance-
+      mandatory work: the claim is made regardless of dollar size.
+    required_grade: derived
+    required_evidence: [credit_standing, refund_activity]
+    estimate_label_required: false
+  - id: clean_claim_claim
+    claim: >-
+      A change in first-pass quality is attributable to named payers,
+      root-cause categories, or billing timing. Always voiced with the
+      outcome-derived caveat — this warehouse has no scrubber events, so
+      "clean" means "landed cleanly", not "passed our edits".
+    required_grade: derived
+    required_evidence: [clean_trend, clean_by_payer, failure_reasons]
+    estimate_label_required: false
+  - id: patient_responsibility_claim
+    claim: >-
+      The size, mix and collection state of the patient book are established
+      for the scoped population. The billed-out and collected sides are
+      reported as separate series; a cell-by-cell patient collection rate is
+      never asserted from them.
+    required_grade: derived
+    required_evidence: [pr_dollars, pr_share, patient_cash_trend]
+    estimate_label_required: false
+  - id: charge_capture_claim
+    claim: >-
+      Procedure-level charge capture moved materially and the movement is
+      localized to named facilities or procedure groups. Claim volume context
+      is required evidence: lines per claim vary by service line, so a
+      line-count move is only a capture finding once claim volume is read
+      beside it. Deliberately narrower than "we are missing charges" —
+      attributing a movement to missed or late capture needs the unbilled
+      inventory and charge-entry-timing evidence, which is why those probes
+      are in the playbook but the claim above does not assert them.
+    required_grade: derived
+    required_evidence: [procedure_volume, claim_volume_context]
+    estimate_label_required: false
+  - id: payer_scorecard_claim
+    claim: >-
+      A named payer's behavior differs materially from its peers across the
+      governed payer-performance metrics, on a shared-mix comparison.
+      Requires both the flow view and the receivable view — a payer that
+      denies little but pays late is a finding the flow view alone misses.
+    required_grade: derived
+    required_evidence: [payer_flow, payer_receivable, payer_denial_profile]
+    estimate_label_required: false
+  - id: denial_category_claim
+    claim: >-
+      Denials in a named root-cause category are concentrated in identified
+      cells and route to a named owning stage (front end, coding, billing,
+      contracting). Requires the category rollup AND the code detail: a
+      category is a rollup of group-code + CARC pairs, and the owning stage
+      follows from the pairs, not from the category label.
+    required_grade: derived
+    required_evidence: [category_rollup, category_code_detail, category_concentration]
+    estimate_label_required: false
+  - id: volume_mix_claim
+    claim: >-
+      A movement in volume or charge value is attributable to a shift in
+      payer, service-line or procedure mix rather than to rate or process
+      change. Requires volume, charge value and the mix share together —
+      any two of the three cannot separate mix from price.
+    required_grade: derived
+    required_evidence: [volume_trend, mix_by_payer, mix_by_service_line]
+    estimate_label_required: false
+  - id: write_off_claim
+    claim: >-
+      Non-contractual write-off dollars of a stated size are concentrated in
+      named cells, and are distinguished from contractual allowance. The
+      contractual series is required evidence precisely so the claim can
+      say what it is NOT: a contractual adjustment is the negotiated
+      discount, never leakage.
+    required_grade: derived
+    required_evidence: [write_off_trend, write_off_by_payer, contractual_context]
+    estimate_label_required: false
 
 ranking_policies:
   - id: impact_first

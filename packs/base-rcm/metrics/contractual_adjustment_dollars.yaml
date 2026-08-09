@@ -1,0 +1,33 @@
+# Contractual adjustment dollars — the charge-to-allowed haircut posted as
+# CONTRACTUAL_ADJ transactions. Distinct from denial_write_off_dollars
+# (OTHER_ADJ): contractuals are the contract working as designed, write-offs
+# are failed collection. Keeping the two families in separate contracts is
+# the point — an "adjustments" total that mixes them hides every leakage
+# story inside a much larger, expected number.
+id: contractual_adjustment_dollars
+version: 1
+kind: flow
+entity_grain: transaction
+numerator: {sum: contractual_adj_cents}
+primary_date_basis: post
+allowed_date_bases: [post, remit, service, submission]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, facility, region,
+   service_line, claim_type]
+sign: neutral
+unit: money_cents
+description: >-
+  Contractual adjustment dollars posted in the window on the post-date basis
+  — the difference between gross charges and the contracted allowed amount,
+  taken at adjudication. Sign is neutral on purpose: a contractual is the
+  negotiated discount, not leakage, and a rising contractual total usually
+  means charge growth or mix shift rather than a problem. Read it against
+  charges and expected_reimbursement, but never by subtraction across a
+  window: charges minus contractuals equals the expected amount per
+  ADJUDICATED CLAIM only. This contract is transaction-grain on the post
+  basis while both of those are claim-grain on the service basis, and
+  contractuals post only after adjudication, so the window totals do not
+  close — over 2026-05-01..2026-08-02 the residual runs 7.8% above expected
+  on these primary bases and 40.2% above it with both sides on the service
+  basis. Never add it to denial_write_off_dollars either — that family is
+  non-contractual write-off and answers a different question.

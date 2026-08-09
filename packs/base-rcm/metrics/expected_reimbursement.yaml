@@ -1,0 +1,37 @@
+# Contract-expected reimbursement — the net-collectible ruler that
+# net_collection_rate divides into. Exposed as a contract in its own right so
+# "what should these claims pay?" is answerable without a ratio.
+id: expected_reimbursement
+version: 1
+kind: flow
+entity_grain: claim
+numerator: {sum: expected_amount_cents}
+primary_date_basis: service
+allowed_date_bases: [service, submission, discharge]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, provider,
+   provider_specialty, facility, region, service_line, claim_type,
+   payer_sequence]
+sign: neutral
+unit: money_cents
+description: >-
+  Contract-modeled expected reimbursement for claims in the window,
+  service-date basis — gross charges net of the contractual allowance, i.e.
+  the total the account should collect from all sources. Scope note: the
+  expected amount is the whole allowed quantity, so it INCLUDES the patient's
+  share; payer-only expectation is expected_reimbursement minus
+  patient_responsibility_dollars, and patient_responsibility_rate states that
+  split directly. This is a contract-modeled expectation, not booked net
+  revenue: it carries no bad-debt, charity or acuity adjustment and is not an
+  NPSR series, so never quote it against net-revenue benchmarks.
+  Reconciliation caveat, and it is the one people get wrong: charges minus
+  the contractual adjustment equals the expected amount PER ADJUDICATED
+  CLAIM, and does not hold across a window. Contractuals post only once a
+  claim adjudicates, and contractual_adjustment_dollars is a
+  transaction-grain contract on the post basis while this one is claim-grain
+  on the service basis — so a window always holds charges whose contractual
+  has not landed and contractuals belonging to charges outside it. Executed
+  over 2026-05-01..2026-08-02, charges minus contractuals overshoots
+  expected by 7.8% reading contractuals on their own post basis and by 40.2%
+  reading both on the service basis. Never hand-reconcile the window totals;
+  read the three as related rulers, not as an identity.

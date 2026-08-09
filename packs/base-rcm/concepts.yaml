@@ -947,6 +947,8 @@ concepts:
       - retraction
       - PLB
       - provider level adjustment
+      - recoup
+      - payer takeback
     related: [refund, credit_balance, remittance]
   - id: downcoding
     name: Downcoding
@@ -1005,6 +1007,8 @@ concepts:
       - msp
       - medicare secondary payer
       - crossover claim
+      - crossover
+      - crossover billing
       - cob mismatch
     related: [payer_sequence, denial_category, eligibility_verification]
   - id: payer_sequence
@@ -1279,6 +1283,10 @@ concepts:
       - aging buckets
       - ar over 90
       - aging report
+      - ar over 120
+      - aged over 120
+      - over 120 days
+      - deep aging
     related: [accounts_receivable, days_in_ar, ar_age_bucket_concept]
   - id: ar_age_bucket_concept
     name: A/R Age Bucket
@@ -1314,6 +1322,10 @@ concepts:
       - dso
       - days sales outstanding
       - true ar days
+      - ar days
+      - a/r days
+      - days in receivables
+      - receivable days
     sources:
       - id: src-hfma-map-keys
         title: HFMA MAP Keys
@@ -1575,3 +1587,373 @@ concepts:
       - campus
       - service location
     related: [service_mix, payer_mix]
+
+  # ------------------------------------------------------------------
+  # Coverage wave 2 (2026-08-08): vocabulary the pack could not resolve.
+  # Several of these are deliberately "governed vocabulary only" — the
+  # concept exists so the term resolves and the answer can say honestly
+  # that the quantity is not measurable here, rather than returning
+  # nothing or, worse, a lookalike number.
+  # ------------------------------------------------------------------
+  - id: bad_debt
+    name: Bad Debt
+    description: Patient balances judged uncollectible and written off.
+    definition: >-
+      Bad debt is the balance a patient was able to pay but did not, written
+      off after the collection cycle is exhausted. It is distinct from
+      charity care, which is written off because the patient was NOT able to
+      pay — the two are separated deliberately, because mixing them
+      overstates uncollectible business and understates community benefit.
+      This warehouse carries no bad-debt classification on write-off
+      transactions, so bad debt is governed vocabulary here and not a
+      measurable quantity; denial_write_off_dollars covers the
+      non-contractual write-off family as a whole without splitting it.
+    aliases:
+      - uncollectible balance
+      - agency placement
+      - collection placement
+      - bad debt write-off
+    related: [charity_care, uncompensated_care, administrative_write_off, self_pay]
+  - id: charity_care
+    name: Charity Care
+    description: Balances written off because the patient qualified for financial assistance.
+    definition: >-
+      Charity care is the portion of a bill forgiven under a provider's
+      financial assistance policy because the patient lacks the ability to
+      pay. Non-profit hospitals must maintain a written policy, publicize
+      it, and limit charges for eligible patients under IRS section 501(r);
+      presumptive eligibility screening applies the policy without a
+      completed application. Not computable in this warehouse — no financial
+      assistance classification exists on the write-off transaction.
+    aliases:
+      - financial assistance
+      - financial assistance policy
+      - "501r"
+      - 501(r)
+      - presumptive charity
+      - charity write-off
+    related: [bad_debt, uncompensated_care, administrative_write_off]
+  - id: uncompensated_care
+    name: Uncompensated Care
+    description: Charity care plus bad debt — care delivered and never paid for.
+    definition: >-
+      Uncompensated care is the sum of charity care and bad debt, reported
+      at cost rather than at charges in community-benefit filings. It is a
+      board- and community-facing figure rather than an operating metric,
+      and quoting it at gross charges overstates it several-fold. Not
+      computable here: neither component is separable in this warehouse.
+    aliases:
+      - uncompensated
+      - community benefit
+      - unreimbursed care
+    related: [bad_debt, charity_care, npsr]
+  - id: lesser_of
+    name: Lesser-Of Logic
+    description: Contract term paying the lower of billed charges or the fee-schedule rate.
+    definition: >-
+      Lesser-of logic is the near-universal contract provision that pays the
+      lower of the billed charge or the contracted rate for a service. Its
+      practical consequence is that under-pricing a chargemaster line caps
+      collection at the billed amount forever — the contracted rate never
+      applies — which makes an apparently generous contract worthless on
+      that code. It also means net_to_gross_rate moves with the chargemaster
+      as well as with the contract, so a falling ratio can be a pricing
+      change rather than a contracting failure.
+    aliases:
+      - lesser of
+      - lesser-of
+      - lesser of billed or allowed
+      - lesser of charges or fee schedule
+      - billed or contracted
+    related: [allowed_amount, expected_reimbursement, fee_schedule, cdm]
+  - id: balance_billing
+    name: Balance Billing
+    description: Billing a patient the difference between charges and payer payment.
+    definition: >-
+      Balance billing charges the patient the gap between billed charges and
+      what the payer allowed, typically after out-of-network care. The
+      federal No Surprises Act bars it for emergency services and for
+      out-of-network care delivered at in-network facilities, routing the
+      remaining payment dispute to an independent dispute resolution process
+      between provider and payer instead of to the patient. Out-of-network
+      status is not represented in this warehouse, so balance-billing
+      exposure is vocabulary here and not a measurable population.
+    aliases:
+      - balance bill
+      - surprise bill
+      - surprise billing
+      - no surprises act
+      - nsa
+      - independent dispute resolution
+      - idr
+    related: [patient_responsibility, price_transparency, self_pay]
+  - id: price_transparency
+    name: Price Transparency
+    description: Published price files and pre-service estimates required of providers and plans.
+    definition: >-
+      Price transparency rules require hospitals to publish a
+      machine-readable file of standard charges and consumer-friendly
+      pricing for shoppable services, and require good-faith estimates for
+      self-pay and uninsured patients before scheduled care. The revenue-
+      cycle consequence is operational rather than analytical: published
+      prices and delivered estimates become the reference a patient disputes
+      a bill against, so estimate accuracy feeds directly into patient
+      collections.
+    aliases:
+      - machine readable file
+      - machine-readable file
+      - mrf
+      - shoppable services
+      - good faith estimate
+      - gfe
+      - standard charges file
+    related: [cdm, patient_responsibility, balance_billing]
+  - id: prompt_pay
+    name: Prompt-Pay Requirements
+    description: Statutory deadlines for paying a clean claim, with interest for lateness.
+    definition: >-
+      Prompt-pay rules set the days a payer has to pay or deny a clean
+      claim, with interest owed past the deadline — state statute for
+      commercial and Medicaid business, federal rule for Medicare. The clock
+      starts from receipt of a claim needing no further information, which
+      is why payers dispute cleanliness rather than the deadline. The
+      symptom here is a stretching payment lag and rising aged A/R for one
+      payer while peers hold steady; the deadlines themselves are not
+      pack-governed.
+    aliases:
+      - prompt payment
+      - prompt-pay statute
+      - prompt pay law
+      - clean claim payment deadline
+      - interest penalty
+    related: [ar_aging, payer_cash, timely_filing]
+  - id: credentialing
+    name: Credentialing and Payer Enrollment
+    description: Getting a provider approved and loaded so their claims can be paid.
+    definition: >-
+      Credentialing verifies a provider's qualifications; payer enrollment
+      loads that provider into each payer's system so claims under their
+      identifier adjudicate. A provider rendering care before enrollment
+      completes generates claims that deny or reject for an unrecognized
+      provider, and the fix is usually a retroactive effective date plus a
+      rebill rather than an appeal. Revalidation cycles cause the same
+      failure on established providers. Not directly measurable here — no
+      enrollment status exists on the provider dimension.
+    aliases:
+      - payer enrollment
+      - provider enrollment
+      - revalidation
+      - caqh
+      - credentialing delay
+    related: [denial_category, rebill, provider_level_adjustment]
+  - id: utilization_review
+    name: Utilization Review
+    description: Payer review of whether care was necessary and at the right level.
+    definition: >-
+      Utilization review is the payer's assessment of medical necessity and
+      level of care — before service (prior authorization), during the stay
+      (concurrent review), or after discharge (retrospective review). Its
+      revenue-cycle output is the clinical denial family: inpatient care
+      reclassified to observation, days trimmed from an authorized stay,
+      services judged not medically necessary. Appeals here are clinical
+      arguments, which is why their overturn economics differ sharply from
+      technical denials.
+    aliases:
+      - utilization management
+      - concurrent review
+      - retrospective review
+      - level of care review
+      - observation downgrade
+    related: [clinical_denial, prior_authorization, appeal, downcoding]
+  - id: patient_statements
+    name: Patient Statement Cycle
+    description: The billing cycle that pursues a patient balance after adjudication.
+    definition: >-
+      The statement cycle is the sequence of patient bills, reminders and
+      escalations that follows adjudication once a patient-responsibility
+      balance exists. Cycle length, number of statements before escalation,
+      and the point of agency placement are policy choices that materially
+      change how much of the patient book is ever collected. Revi observes
+      the two ends of it — patient_responsibility_dollars establishes the
+      balance, patient_cash_posted records what came in — and nothing in
+      between: no statement events exist in this warehouse.
+    aliases:
+      - patient statement
+      - billing statement
+      - statement cycle
+      - dunning
+      - statement run
+    related: [patient_responsibility, patient_cash, self_pay, bad_debt]
+
+  # ------------------------------------------------------------------
+  # Coverage wave 2: named payer and service cohorts. Each states a scope
+  # over CERTIFIED dimensions in plain language, using the catalog's own
+  # declared value domains (warehouse/catalog/dimensions.yaml). Where a
+  # phrase has no legal predicate at all, the concept says so rather than
+  # approximating one.
+  #
+  # Read the scope statements as VOCABULARY, not as executable filters,
+  # and note what that costs. Nothing in the platform reads a concept
+  # definition when it plans: InterpretationService._vocabulary renders
+  # concepts as `- {id}: {name}` from concept_summaries(), which returns
+  # (id, name) pairs and nothing else — metrics and playbooks get a
+  # 160-char description clip, concepts get no description at all. So the
+  # model sees `government_payers: Government Payers` and still has to
+  # construct the payer_type predicate unaided. These definitions reach a
+  # human on the DEFINITIONAL path and serve as the review record for what
+  # a scope is supposed to mean; they do not reach the planner. The fix is
+  # a structured cohort artifact ({id, entity, predicate} validated
+  # against the catalog) — phase-2 pack schema, see NOTES.md.
+  # ------------------------------------------------------------------
+  - id: government_payers
+    name: Government Payers
+    description: Public-program coverage — Medicare, Medicare Advantage, Medicaid and Medicaid MCO.
+    definition: >-
+      Government payers are the public programs and the private plans that
+      administer them: payer_type in MEDICARE, MEDICARE_ADVANTAGE, MEDICAID
+      and MEDICAID_MCO, so an answer can name its values rather than infer
+      the group from payer names. Vocabulary, not an executable filter — a
+      plan still builds the predicate. Mind what the grouping hides:
+      Medicare Advantage and Medicaid MCO are commercially administered, so
+      they behave like commercial payers on denials and appeals while being
+      government-funded. Split them out before concluding anything about
+      "government behavior".
+    aliases:
+      - government payors
+      - govt payers
+      - public payers
+      - government business
+      - medicare and medicaid
+    related: [payer_mix, financial_class, commercial_payers, managed_care]
+  - id: commercial_payers
+    name: Commercial Payers
+    description: Commercially funded coverage — commercial carriers and Blue plans.
+    definition: >-
+      Commercial payers are privately funded plans: payer_type in COMMERCIAL
+      and BCBS. Vocabulary, not an executable filter — a plan still builds
+      the predicate. The Blue plans are held as their own value rather than
+      folded into COMMERCIAL because their contracting, filing rules and
+      remittance behavior differ enough to change a conclusion; a question
+      about "commercial" almost always means both, and any answer should say
+      which values it used.
+    aliases:
+      - commercial payors
+      - commercial business
+      - private payers
+      - private insurance
+      - non-government payers
+    related: [payer_mix, government_payers, managed_care, financial_class]
+  - id: managed_care
+    name: Managed Care
+    description: Plans that manage utilization and networks — HMO, MCO, and Medicare Advantage.
+    definition: >-
+      Managed care covers plans that steer utilization through networks,
+      authorization and medical management, as opposed to indemnity or
+      fee-for-service coverage. Two certified scopes express it and they are
+      not identical: product_type in HMO, POS, MA and MCO reads the product,
+      payer_type in MEDICARE_ADVANTAGE and MEDICAID_MCO reads the program —
+      the product view includes commercial HMOs, the program view does not.
+      Vocabulary, not an executable filter: the choice is made when the plan
+      is built, and the answer should say which one it used.
+    aliases:
+      - managed care plans
+      - managed medicaid
+      - managed medicare
+      - network plans
+    related: [medicare_advantage, medicaid_coverage, prior_authorization, utilization_review]
+  - id: medicare_advantage
+    name: Medicare Advantage
+    description: Medicare benefits administered by private plans under Part C.
+    definition: >-
+      Medicare Advantage plans deliver Medicare benefits under private
+      administration: payer_type equal to MEDICARE_ADVANTAGE, or
+      equivalently product_type equal to MA here. Vocabulary, not an
+      executable filter — a plan still builds the predicate. Operationally
+      MA behaves like commercial business — prior authorization, utilization
+      review, its own appeal ladder — while paying against Medicare rates,
+      which is why it is held apart from traditional Medicare in every
+      comparison rather than summed with it.
+    aliases:
+      - ma plans
+      - medicare part c
+      - part c
+      - ma payers
+      - medicare replacement
+    related: [traditional_medicare, managed_care, government_payers, prior_authorization]
+  - id: traditional_medicare
+    name: Traditional Medicare
+    description: Fee-for-service Medicare administered by CMS contractors.
+    definition: >-
+      Traditional Medicare is fee-for-service coverage administered by CMS
+      through its claims contractors: payer_type equal to MEDICARE.
+      Vocabulary, not an executable filter — a plan still builds the
+      predicate. It is the low-variance comparison point in almost every
+      payer analysis — published rates, a statutory one-year filing limit, a
+      defined appeal ladder — so a metric that looks bad on traditional
+      Medicare is usually about us, while the same metric on Medicare
+      Advantage is usually about the plan.
+    aliases:
+      - original medicare
+      - medicare ffs
+      - fee for service medicare
+      - part a and b
+      - straight medicare
+    related: [medicare_advantage, government_payers, timely_filing]
+  - id: medicaid_coverage
+    name: Medicaid
+    description: State Medicaid programs, direct and managed.
+    definition: >-
+      Medicaid scopes to payer_type in MEDICAID and MEDICAID_MCO — the state
+      program plus the managed-care organizations contracted to run it.
+      Vocabulary, not an executable filter — a plan still builds the
+      predicate. Two properties dominate its revenue-cycle behavior: filing
+      limits are the shortest of any payer class (90-95 days under this
+      pack's governed filing rules), and Medicaid is payer of last resort,
+      so coordination-of-benefits errors surface here first.
+    aliases:
+      - medicaid program
+      - state medicaid program
+      - managed medicaid mco
+      - medicaid business
+      # Medicaid-primacy term: it names WHICH payer pays last, so it belongs
+      # to the program, not to the generic coordination-of-benefits concept.
+      - payer of last resort
+    related: [government_payers, managed_care, timely_filing, cob]
+  - id: surgical_services
+    name: Surgical Service Lines
+    description: Service lines whose primary activity is operative care.
+    definition: >-
+      Surgical services are the service lines built around operative care —
+      in this warehouse's certified service_line domain, Orthopedic Surgery
+      and General Surgery. Vocabulary, not an executable filter: a plan
+      still builds the predicate, and a tenant overlay renames the values
+      without changing the concept. Worth naming because these lines behave
+      differently from ambulatory and diagnostic business on every axis this
+      pack measures — higher charge per claim, heavier prior-authorization
+      and medical-necessity exposure, longer adjudication, and a much larger
+      dollar consequence per denial.
+    aliases:
+      - surgical service lines
+      - surgery lines
+      - operative services
+      - or business
+    related: [service_mix, prior_authorization, clinical_denial]
+  - id: high_dollar_claims
+    name: High-Dollar Claims
+    description: The large-balance tail that concentrates financial risk.
+    definition: >-
+      High-dollar claims are the small share of accounts carrying a large
+      share of the money — the population worth working one at a time.
+      Stated honestly, no legal filter expresses it: claim value lives in
+      measures (billed_amount_cents, expected_amount_cents), never in a
+      certified dimension, so "claims over fifty thousand dollars" has no
+      predicate here and Revi will not invent one. Ranking and
+      share-of-total over a money metric answer the adjacent question —
+      where the money is concentrated.
+    aliases:
+      - large dollar claims
+      - high dollar accounts
+      - large balance accounts
+      - big ticket claims
+      - catastrophic claims
+    related: [accounts_receivable, underpayment, denial]

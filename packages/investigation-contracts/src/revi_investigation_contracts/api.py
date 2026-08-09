@@ -14,7 +14,10 @@ from typing import Annotated, Any, Literal, Protocol, Union
 
 from pydantic import Field, model_validator
 
+from revi_investigation_contracts.debug import DebugTracePayload
+from revi_investigation_contracts.evidence import EvidencePayload
 from revi_investigation_contracts.header import ContextHeaderPayload
+from revi_investigation_contracts.provenance import MetricProvenancePayload
 from revi_investigation_contracts.refinements import (
     AbsoluteWindowModel,
     AddFilterModel,
@@ -22,6 +25,10 @@ from revi_investigation_contracts.refinements import (
     ComparisonLiteral,
     RefinementOperatorModel,
     WindowSpecModel,
+)
+from revi_investigation_contracts.settings import (
+    SessionSettingsModel,
+    SettingsBoundsPayload,
 )
 
 # ---------------------------------------------------------------------------
@@ -40,6 +47,11 @@ class OpenSessionRequest(ClosedModel):
 
     tenant: str = ""
     session_id: str | None = None
+    #: Session-scoped settings (model tier, cost ceiling, depths, debug).
+    #: Validated against the deployment's bounds and REFUSED when out of
+    #: them — never clamped. Omitted leaves the session on the defaults;
+    #: re-opening an existing session with settings re-applies them.
+    settings: SessionSettingsModel | None = None
 
 
 class SessionResponse(ClosedModel):
@@ -51,6 +63,48 @@ class SessionResponse(ClosedModel):
     watermark_loaded_at: datetime
     newest_data_date: date
     epoch: int
+    #: The settings actually in force — the resolved values, so a client
+    #: can see what it got rather than what it asked for.
+    settings: SessionSettingsModel = Field(default_factory=SessionSettingsModel)
+
+
+class SessionSummary(ClosedModel):
+    """One row of ``GET /v1/sessions`` — enough to pick a session, and
+    nothing more.
+
+    ``title`` is the session's FIRST question, verbatim, or ``"New
+    session"`` when nothing has been asked yet: a session record carries no
+    name, and a generated one would be a label the analyst never wrote.
+    ``last_activity`` is derived from the session's newest investigation
+    (its own ``created_at`` when it has none), so the ordering an analyst
+    sees is when a session was last *worked*, not when it was opened.
+
+    Deliberately not a :class:`SessionResponse`: a list row must not imply
+    a pinned watermark or an epoch, both of which are facts about a session
+    you have actually joined.
+    """
+
+    session_id: str
+    title: str
+    created_at: datetime
+    last_activity: datetime
+    turn_count: int
+
+
+class SessionListResponse(ClosedModel):
+    """The caller tenant's sessions, newest activity first.
+
+    ``total`` counts every session the tenant owns, so a page truncated by
+    ``limit`` cannot be mistaken for the whole history. ``tenant`` names
+    whose list this is — the same reason :class:`PortfolioResponse` carries
+    it: "whose worklist is this?" must be answerable from the payload.
+    """
+
+    tenant: str = ""
+    sessions: list[SessionSummary] = Field(default_factory=list)
+    total: int = 0
+    #: The cap actually applied (the request's, bounded by the deployment).
+    limit: int = 0
 
 
 # ---------------------------------------------------------------------------
@@ -105,6 +159,10 @@ class TurnRequest(ClosedModel):
     re_anchor: bool = False
     idempotency_key: str | None = None
     correlation_id: str | None = None
+    #: Settings for THIS turn only. Same bounds, same refusal; the session
+    #: record is not rewritten, so a one-off debug turn or a one-off deeper
+    #: sweep does not silently become the session's new normal.
+    settings: SessionSettingsModel | None = None
 
     @model_validator(mode="after")
     def _one_typed_intent(self) -> TurnRequest:
@@ -272,6 +330,25 @@ class TurnAnswer(ClosedModel):
     plan_hash: str | None = None
     watermark_stale: bool = False
     usage: UsageSummary = Field(default_factory=UsageSummary)
+    #: The working behind the answer: probes executed, what each returned,
+    #: the reconciliation verdict, and whether the warehouse was touched at
+    #: all. Projected from the same recorded trace as :attr:`debug` and
+    #: published on **every** answer — an analyst does not need debug mode
+    #: to ask what was read. See :mod:`revi_investigation_contracts.evidence`.
+    evidence: EvidencePayload = Field(default_factory=EvidencePayload)
+    #: Whose definition produced these numbers: the governed metric
+    #: contract(s) at the versions they were read at, the playbook that
+    #: chose them, and the pack version and snapshot they came from.
+    #: Projected from the same recorded trace as :attr:`evidence` and
+    #: :attr:`debug` — see :mod:`revi_investigation_contracts.provenance`.
+    #: ``None`` only when no trace was recorded for the turn, never as a
+    #: quiet stand-in for "nothing governed ran" (that is an empty
+    #: ``metrics`` list, which is a different and stated fact).
+    metric: MetricProvenancePayload | None = None
+    #: The turn's decision trace, present only when the settings in force
+    #: asked for it (``debug=true``). Always ``None`` otherwise — the
+    #: trace is still recorded; it is simply not published.
+    debug: DebugTracePayload | None = None
 
 
 class TurnClarification(ClosedModel):
@@ -283,6 +360,9 @@ class TurnClarification(ClosedModel):
     reason: str | None = None
     watermark_stale: bool = False
     usage: UsageSummary = Field(default_factory=UsageSummary)
+    #: See :attr:`TurnAnswer.debug`. A clarification is the outcome whose
+    #: trace matters most: it names which stage stopped and why.
+    debug: DebugTracePayload | None = None
 
 
 class TurnError(ClosedModel):
@@ -312,6 +392,23 @@ class InvestigationResponse(ClosedModel):
     plan_hash: str | None = None
     findings: list[FindingPayload] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
+    #: The same bundle :attr:`TurnAnswer.evidence` carries, from the same
+    #: recorded trace, so a turn restored when a session is re-opened can
+    #: show its working instead of an empty drawer. ``None`` only when no
+    #: decision trace was recorded for this investigation (nothing to
+    #: project) — never an empty bundle standing in for one.
+    evidence: EvidencePayload | None = None
+    #: The same governed-provenance block :attr:`TurnAnswer.metric`
+    #: carries, from the same recorded trace, so a turn restored when a
+    #: session is re-opened keeps its "Governed" badge instead of losing
+    #: the one field that says whose definition its numbers are.
+    metric: MetricProvenancePayload | None = None
+    #: Rebuilt from the frames this turn persisted, so a restored turn
+    #: renders its charts rather than findings alone. Empty when the
+    #: frames are gone or the turn charted nothing. There is deliberately
+    #: no ``narrative`` here: the composed prose is not stored anywhere,
+    #: and a restored turn says what it kept instead of inventing it.
+    chart_specs: list[ChartSpec] = Field(default_factory=list)
     created_at: datetime
 
 
@@ -487,6 +584,10 @@ class CapabilitiesResponse(ClosedModel):
     pack_snapshot_id: str = ""
     newest_watermark_id: str = ""
     llm: str = "mock"
+    #: What this deployment will accept in ``SessionSettingsModel``, so a
+    #: client renders the controls it actually has rather than offering
+    #: one that will be refused (or, worse, one that changes nothing).
+    settings: SettingsBoundsPayload = Field(default_factory=SettingsBoundsPayload)
 
 
 # ---------------------------------------------------------------------------
@@ -496,9 +597,13 @@ class CapabilitiesResponse(ClosedModel):
 class InvestigationApi(Protocol):
     async def open_session(self, request: OpenSessionRequest) -> SessionResponse: ...
 
+    async def list_sessions(self, limit: int = 50) -> SessionListResponse: ...
+
     async def submit_turn(self, session_id: str, request: TurnRequest) -> TurnResponse: ...
 
     async def get_investigation(self, investigation_id: str) -> InvestigationResponse: ...
+
+    async def get_trace(self, investigation_id: str) -> DebugTracePayload: ...
 
     async def get_session_lineage(self, session_id: str) -> SessionLineageResponse: ...
 

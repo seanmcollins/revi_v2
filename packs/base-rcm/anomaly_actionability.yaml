@@ -117,3 +117,101 @@ categories:
     rationale: >-
       Working-as-designed contractual adjustments are not an error; the
       dollars are not recoverable and the anomaly is informational.
+
+  # --- coverage wave 2 (2026-08-08) ---------------------------------------
+  #
+  # Seven categories the detection feed actually emits had no governed rule
+  # and fell to the blanket 50% default: DNFB, UNWORKED_DENIALS,
+  # SUBMISSION_GAP, ELIGIBILITY_CLUSTER, POSTING_LAG, CHARGE_ENTRY_LAG and
+  # CHARGE_HOLD. Between them they are roughly half of every snapshot's
+  # portfolio, so "assume half is workable" was setting the priority order
+  # for half the worklist. Each rule below names the evidence facts the
+  # detector already publishes for that category (verified against
+  # data/answer_key.json), and each fraction is argued rather than picked.
+  DNFB:
+    mode: fraction
+    fraction: 0.95
+    rationale: >-
+      Discharged-not-final-billed dollars are not lost, only unbilled: the
+      account exists, the charges exist, and finishing the bill recovers
+      them. The small unrecoverable residue is the coding or documentation
+      gap that never closes. Deliberately below DUPLICATE's certainty and
+      above every recovery category — DNFB is the cheapest money in the
+      portfolio, which is exactly why it should outrank larger, harder items.
+  SUBMISSION_GAP:
+    mode: fraction
+    fraction: 0.90
+    rationale: >-
+      An unsubmitted claim is recovered by submitting it, so nearly all of
+      the billed value is in play. Lower than DNFB because a submission gap
+      is a claim already past its intended drop date and closer to its
+      filing limit; where the deadline evidence exists the detector files
+      the record under TIMELY_FILING instead, and that category prices the
+      deadline directly. Deadline pricing is therefore not duplicated here:
+      neither DNFB nor SUBMISSION_GAP carries days_to_deadline facts, so
+      neither can use the open_share mode.
+  UNWORKED_DENIALS:
+    mode: flag_share
+    numerator_fact: appealable_claims
+    denominator_fact: denied_claims
+    fraction: 0.45
+    rationale: >-
+      Recovery on a never-worked denial is gated first on whether an appeal
+      is still possible at all, so the assessment reads the record's own
+      appealable share — the same fact pair and mode DENIAL_SPIKE uses on
+      the same evidence. The 0.45 above is now only the fallback for a
+      record that publishes neither fact. Why the flat fraction it replaces
+      was rejected: it could not see zero. ANM-004 (14 denials, every one
+      past its 60-day appeal window, appealable_claims = 0) was priced at
+      45% of $62,035 — $27,916 of "partially recoverable" money that no
+      appeal can reach, on a card that also reports the expiry. Under
+      flag_share it assesses at 0 and is labeled not recoverable, while
+      ANM-027 (17 of 29 still appealable) prices at 58.6% and ANM-028 (17
+      of 17) at the ceiling. Read the result as an UPPER BOUND, not an
+      expectation: an appealable share gates recovery, it does not predict
+      it, and a record whose denials are all still in window prices at 100%
+      even though this pack's own appeal_overturn_rate puts a win near half.
+      Composing the gate with the win probability needs a `product` mode
+      the rule language does not have (recorded as deferred in NOTES.md).
+      Until it exists, a gate that is exactly right at the zero end beats a
+      flat fraction that is indefensibly wrong there.
+  ELIGIBILITY_CLUSTER:
+    mode: fraction
+    fraction: 0.75
+    rationale: >-
+      Eligibility denials resolve mostly through coverage correction and
+      rebill rather than appeal, which is a far higher-yield path than
+      arguing the merits. The unrecoverable quarter is the patients who
+      genuinely had no active coverage on the date of service — those
+      balances move to patient responsibility or bad debt, they do not come
+      back from the payer.
+  POSTING_LAG:
+    mode: fraction
+    fraction: 0.15
+    rationale: >-
+      Remitted-but-unpaid cash mostly arrives without anyone doing anything;
+      the impact figure is timing, not loss. The workable slice is the
+      residue where the remit never converts — unpostables, offsets and
+      takebacks — so this scores low on purpose. A payment-lag anomaly
+      belongs on the worklist for what it predicts about the payer, not for
+      dollars to go chase.
+  CHARGE_ENTRY_LAG:
+    mode: fraction
+    fraction: 0.10
+    rationale: >-
+      The charge value in a late-entry anomaly is already captured — the
+      lines are on the account, just late. What is at risk is filing runway
+      and cash timing, not the charge itself, so only a thin slice
+      represents dollars that would otherwise have been lost. Contrast
+      CHARGE_HOLD, where the charges are not on the account at all.
+  CHARGE_HOLD:
+    mode: fraction
+    fraction: 0.60
+    rationale: >-
+      Accounts sitting without charges are missing revenue, not delayed
+      revenue, so more is genuinely at stake than in CHARGE_ENTRY_LAG. The
+      fraction is middling rather than high because the detector cannot
+      value what was never entered — it publishes claims_without_charges and
+      a zero billed_cents_known, so any dollar estimate on this category is
+      the weakest in the portfolio and the priority it earns should reflect
+      that.

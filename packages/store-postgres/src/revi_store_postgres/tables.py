@@ -39,7 +39,13 @@ sessions = sa.Table(
     sa.Column("pack_id", sa.Text, nullable=False),
     sa.Column("pack_version", sa.Text, nullable=False),
     sa.Column("epochs", JSONB, nullable=False),
+    # Nullable so a row written before session settings existed reads back
+    # as "the defaults" rather than as a decode failure.
+    sa.Column("settings", JSONB, nullable=True),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    # The session list's only filter (migration 0003): without it, "which
+    # sessions does this tenant own?" scans every session in the deployment.
+    sa.Index("ix_revi_session_sessions_tenant", "tenant"),
     schema=SESSION_SCHEMA,
 )
 

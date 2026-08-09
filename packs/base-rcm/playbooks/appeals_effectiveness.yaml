@@ -1,0 +1,63 @@
+id: appeals_effectiveness
+description: >-
+  Assess the appeal function end to end: overturn rate by payer and by denial
+  category in BOTH forms (record-count and dollar-weighted, because they
+  diverge exactly when big-dollar denials behave differently from small
+  ones), the state of the filed pipeline, and the never-appealed share that
+  sits outside the pipeline entirely. The three populations are kept apart on
+  purpose — never worked, filed and pending, decided — so "we have not
+  started" is never reported as "the payer has not answered".
+triggers:
+  - how are our appeals doing
+  - appeal effectiveness
+  - are we winning appeals
+  - appeal success rate
+  - should we appeal more
+params:
+  - payer
+probes:
+  - id: overturn_by_payer
+    metric_ids: [appeal_overturn_rate, appeal_overturn_dollar_rate]
+    dimensions: [payer]
+    window: {quantity: 6, unit: month, mode: full_periods}
+    top_n: 12
+    scope_note: >-
+      Overturn rate per payer, counted and dollar-weighted. Both divide by
+      DECIDED appeals only, so pending appeals never dilute them.
+  - id: overturn_by_category
+    metric_ids: [appeal_overturn_rate, appeal_overturn_dollar_rate]
+    dimensions: [denial_category]
+    window: {quantity: 6, unit: month, mode: full_periods}
+    scope_note: >-
+      Where appeals win by root-cause category — the input to "appeal more of
+      this, prevent more of that".
+  - id: appeal_pipeline
+    metric_ids: [appeal_volume, appeals_pending_pct, denials_unworked_pct,
+                 denials_unworked_dollar_pct]
+    dimensions: [payer]
+    window: {quantity: 6, unit: month, mode: full_periods}
+    scope_note: >-
+      Pipeline size and two different failures side by side: pending share is
+      filed work awaiting a payer decision (denominator is filed appeals),
+      unworked share is denials never touched at all (denominator is workable
+      denials), given both counted and dollar-weighted because the money left
+      on the table is rarely proportional to the records left alone. Recent
+      cohorts read high on the share metrics by construction.
+  - id: recovery_dollars
+    metric_ids: [overturned_denied_dollars, denied_dollars]
+    dimensions: [payer]
+    window: {quantity: 6, unit: month, mode: full_periods}
+    top_n: 12
+    scope_note: >-
+      Dollars whose denial was reversed against total denied dollars.
+      Overturned dollars are an upper bound on recovery, not posted cash —
+      no stored linkage ties an appeal outcome to a later payment.
+transforms:
+  - operator: compare
+    args: {kind: prior_period}
+  - operator: share_of_total
+    args: {measure: overturned_denied_dollars}
+  - operator: rank
+    args: {by: overturned_denied_dollars, descending: true}
+conclusion_policies: [appeal_effectiveness_claim]
+ranking_policy: impact_first

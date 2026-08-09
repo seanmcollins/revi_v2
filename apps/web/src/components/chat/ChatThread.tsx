@@ -42,10 +42,8 @@ export function ChatThread() {
           <ReconciliationBanner
             result={{
               status: "failed",
-              detail:
-                "Payer rows sum to −$191,412.06 against a parent decline of −$193,525.79 — a $2,113.73 gap. One frame is stale or a payer mapping changed mid-window.",
-              parentCents: -19_352_579,
-              childSumCents: -19_141_206,
+              detail: "failed measures: cash_posted",
+              summary: "status=failed; failed measures: cash_posted",
             }}
           />
         </div>
@@ -110,6 +108,8 @@ function UserBubble({ submission }: { submission: TurnSubmission }) {
 function EmptyState() {
   const submit = useSessionStore((s) => s.submit);
   const streaming = useSessionStore((s) => s.streamingTurnId !== null);
+  const replaying = useSessionStore((s) => s.replaying);
+  const busy = streaming || replaying;
 
   return (
     <div className="@container relative flex flex-col items-center gap-7 pb-8 pt-10 text-center">
@@ -121,9 +121,9 @@ function EmptyState() {
         </p>
         <h2 className="text-[3.25rem] font-semibold leading-none tracking-[-0.045em]">Revi</h2>
         <p className="mx-auto max-w-md text-pretty text-[0.83rem] leading-relaxed text-muted-foreground">
-          Ask about cash, denials, AR. Every answer pins its window, scope,
-          cohort, and watermark — and every number traces to a probe you can
-          audit.
+          Ask about cash, denials, AR. Every answer states the window, scope,
+          cohort and data date it used — and every number traces back to the
+          query behind it.
         </p>
       </div>
 
@@ -141,7 +141,7 @@ function EmptyState() {
             <button
               key={question}
               type="button"
-              disabled={streaming}
+              disabled={busy}
               onClick={() => void submit({ utterance: question })}
               className="fade-up group flex items-center justify-between gap-2 rounded-lg border bg-card/55 px-3 py-2 text-left text-[0.72rem] leading-snug backdrop-blur-sm transition-all duration-150 hover:-translate-y-px hover:border-ring/40 hover:bg-card hover:shadow-sm disabled:opacity-50"
               style={{ animationDelay: `${80 + i * 40}ms` }}
@@ -157,7 +157,7 @@ function EmptyState() {
         className="fade-up relative text-[0.64rem] text-muted-foreground/80"
         style={{ animationDelay: "400ms" }}
       >
-        Deterministic kernel · governed metrics · auditable evidence
+        Same question, same answer · governed metrics · auditable evidence
         <span className="mx-2 text-muted-foreground/40">·</span>
         <kbd className="rounded border bg-surface-sunken px-1 py-0.5 font-mono text-[0.58rem]">⌘K</kbd>{" "}
         to command

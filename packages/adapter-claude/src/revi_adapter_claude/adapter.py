@@ -20,6 +20,10 @@ Every constraint in this module traces to the M2a spike
 - ``subtype == "success"`` with ``structured_output=None`` is a real outcome
   (trap #4). It is surfaced as a *non-exceptional*
   ``StructuredLlmResult(output=None)`` — callers treat it as a clarification.
+  Which *kind* of empty-handed it is rides along on ``failure``: a model that
+  ran and delivered nothing is ``DECLINED``, a shape that never validated is
+  ``SCHEMA``. The two read identically on the wire and want opposite advice
+  from the analyst ("rephrase" vs "try that again"), so the port names them.
 - On error subtypes ``query()`` yields the ``ResultMessage`` first and then
   raises a bare ``Exception`` (not a ``ClaudeSDKError`` subclass). The adapter
   consumes the message, swallows the post-result raise, and translates from
@@ -32,8 +36,9 @@ Provider outcome                                Port outcome
 ==============================================  =============================
 ``subtype == "error_max_budget_usd"``           ``QueryBudgetExceededError``
 ``subtype == "success"``, output present        ``StructuredLlmResult(output=...)``
-``subtype == "success"``, output ``None``       ``StructuredLlmResult(output=None)``
-schema-failure subtypes (max turns / retries)   ``StructuredLlmResult(output=None)``
+``subtype == "success"``, output ``None``       ``output=None, failure=DECLINED``
+``subtype == "success"``, output not an object  ``output=None, failure=SCHEMA``
+schema-failure subtypes (max turns / retries)   ``output=None, failure=SCHEMA``
 any other error subtype                         ``SourceUnavailableError``
 exception before any ``ResultMessage``          ``SourceUnavailableError``
 exception after the ``ResultMessage``           swallowed; result still used
@@ -80,6 +85,9 @@ from claude_agent_sdk import (
 from revi_adapter_claude.envelope import LlmEnvelope, default_jitter, is_transient
 from revi_investigation.application.llm.schemas import sanitize_json_schema
 from revi_investigation.application.ports import (
+    DEFAULT_LLM_CALL_POLICY,
+    LlmCallPolicy,
+    LlmFailureKind,
     LlmUsage,
     StructuredLlmRequest,
     StructuredLlmResult,
@@ -107,7 +115,20 @@ class ClaudeAgentSdkLanguageModel:
 
     Stateless per call except for the asyncio-lock-protected last-usage slot
     that backs :meth:`last_usage`; safe for concurrent use.
+
+    **Per-call policy.** A request may carry a :class:`LlmCallPolicy` — the
+    session's model tier and what is left of its turn budget. The tier
+    replaces the process pin for that call (never unpins it), the budget
+    can only *tighten* the deployment's own cap, and the model actually
+    used is what lands on ``LlmUsage.model``. Both values are bounded by
+    the API layer before they arrive: this adapter applies a decision, it
+    does not make one.
     """
+
+    #: This adapter really does vary by ``LlmCallPolicy.model``. Read by
+    #: the composition root so ``/v1/capabilities`` can tell a client
+    #: whether a tier control would change anything at all.
+    applies_call_policy = True
 
     def __init__(
         self,
@@ -155,6 +176,7 @@ class ClaudeAgentSdkLanguageModel:
             system_prompt=request.system_prompt,
             max_turns=self._max_structured_turns,
             output_format={"type": "json_schema", "schema": sanitized},
+            policy=request.policy,
         )
         raw_result, attempts = await self._collect_within_envelope(request.rendered_prompt, options)
         result = self._translate_result(raw_result, schema_failure_is_result=True)
@@ -162,10 +184,13 @@ class ClaudeAgentSdkLanguageModel:
             result,
             schema_retries=max(0, result.num_turns - _BASELINE_STRUCTURED_TURNS),
             attempts=attempts,
+            model=self._model_for(request.policy),
         )
         raw = result.structured_output
         output: Mapping[str, Any] | None = raw if isinstance(raw, Mapping) else None
-        return StructuredLlmResult(output=output, usage=usage)
+        return StructuredLlmResult(
+            output=output, usage=usage, failure=self._failure_kind(result, output)
+        )
 
     async def stream_text(self, request: TextLlmRequest) -> AsyncIterator[str]:
         """Narrative streaming: timeout and concurrency cap, but **no retry**.
@@ -178,6 +203,7 @@ class ClaudeAgentSdkLanguageModel:
             system_prompt=request.system_prompt,
             max_turns=1,
             output_format=None,
+            policy=request.policy,
         )
         deadline = time.monotonic() + self._envelope.timeout_seconds
         result: ResultMessage | None = None
@@ -209,7 +235,9 @@ class ClaudeAgentSdkLanguageModel:
             finally:
                 await self._aclose(stream)
         result = self._translate_result(result, schema_failure_is_result=False)
-        usage = self._usage_from_result(result, schema_retries=0, attempts=1)
+        usage = self._usage_from_result(
+            result, schema_retries=0, attempts=1, model=self._model_for(request.policy)
+        )
         async with self._last_usage_lock:
             self._last_usage = usage
 
@@ -219,21 +247,43 @@ class ClaudeAgentSdkLanguageModel:
 
     # -- internals -----------------------------------------------------------
 
+    def _model_for(self, policy: LlmCallPolicy) -> str:
+        """The model this call runs on: the session's tier, or the pin.
+
+        The tier arrives already checked against the deployment allowlist —
+        this adapter applies a decision, it does not make one. An empty or
+        whitespace tier is treated as absent rather than as an unpinned
+        call, because unpinned is the one thing construction refuses.
+        """
+        tier = (policy.model or "").strip()
+        return tier or self._model_pin
+
+    def _budget_for(self, policy: LlmCallPolicy) -> Decimal:
+        """The per-call cap: the tighter of the deployment's and the turn's.
+
+        ``min`` on purpose — a session budget may shrink a call's ceiling
+        and may never widen it past what the deployment configured.
+        """
+        if policy.max_cost_usd is None:
+            return self._max_budget_usd
+        return min(self._max_budget_usd, policy.max_cost_usd)
+
     def _pure_llm_options(
         self,
         *,
         system_prompt: str | None,
         max_turns: int,
         output_format: dict[str, Any] | None,
+        policy: LlmCallPolicy = DEFAULT_LLM_CALL_POLICY,
     ) -> ClaudeAgentOptions:
         return ClaudeAgentOptions(
             tools=[],  # pure-LLM mode; NEVER disallowed_tools=["*"] (kills StructuredOutput)
             allowed_tools=[],
             permission_mode="dontAsk",
             system_prompt=system_prompt,
-            model=self._model_pin,
+            model=self._model_for(policy),
             max_turns=max_turns,
-            max_budget_usd=float(self._max_budget_usd),
+            max_budget_usd=float(self._budget_for(policy)),
             output_format=output_format,
         )
 
@@ -375,13 +425,38 @@ class ClaudeAgentSdkLanguageModel:
             )
         return result
 
+    @staticmethod
+    def _failure_kind(
+        result: ResultMessage, output: Mapping[str, Any] | None
+    ) -> LlmFailureKind | None:
+        """Name the failure that ``output=None`` on its own cannot express."""
+        if output is not None:
+            return None
+        if result.subtype in _SCHEMA_FAILURE_SUBTYPES or result.structured_output is not None:
+            # Either the CLI burned its own structured-output retries, or
+            # something arrived that was not a JSON object. Both are the
+            # answer failing to take the shape the schema asked for.
+            return LlmFailureKind.SCHEMA
+        # subtype == "success" with nothing delivered (spike trap #4): the
+        # model was asked, ran to completion, and produced no structured
+        # answer. That is a statement about the question, not the plumbing.
+        return LlmFailureKind.DECLINED
+
     def _usage_from_result(
-        self, result: ResultMessage, *, schema_retries: int, attempts: int
+        self,
+        result: ResultMessage,
+        *,
+        schema_retries: int,
+        attempts: int,
+        model: str | None = None,
     ) -> LlmUsage:
         usage_map: dict[str, Any] = result.usage or {}
         cost = result.total_cost_usd
         return LlmUsage(
-            model=self._model_pin,
+            # The model the call actually ran on, not the process pin: a
+            # trace that reports the pin while a session ran a cheaper tier
+            # is a trace that cannot explain its own cost.
+            model=model if model is not None else self._model_pin,
             cost_usd=Decimal(str(cost)) if cost is not None else Decimal("0"),
             input_tokens=int(usage_map.get("input_tokens") or 0),
             output_tokens=int(usage_map.get("output_tokens") or 0),

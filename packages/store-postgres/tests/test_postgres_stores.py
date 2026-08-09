@@ -169,7 +169,37 @@ class TestMigrations:
     def test_migrated_to_head(self, engine: Engine) -> None:
         with engine.connect() as conn:
             version = conn.execute(sa.text("SELECT version_num FROM alembic_version")).scalar_one()
-        assert version == "0001"
+        assert version == "0003"
+
+    def test_the_session_list_filter_is_indexed(self, engine: Engine) -> None:
+        """Migration 0003. ``GET /v1/sessions`` filters on tenant and
+        nothing else; unindexed, every list read scanned every session in
+        the deployment rather than the asking tenant's own."""
+        with engine.connect() as conn:
+            names = set(
+                conn.execute(
+                    sa.text(
+                        "SELECT indexname FROM pg_indexes "
+                        "WHERE schemaname = 'revi_session' AND tablename = 'sessions'"
+                    )
+                ).scalars()
+            )
+        assert "ix_revi_session_sessions_tenant" in names
+
+    def test_sessions_carry_their_settings_column(self, engine: Engine) -> None:
+        """Migration 0002. Nullable, and never backfilled: a session written
+        before the column existed ran under the defaults, and NULL says
+        exactly that."""
+        with engine.connect() as conn:
+            row = conn.execute(
+                sa.text(
+                    "SELECT is_nullable, data_type FROM information_schema.columns "
+                    "WHERE table_schema = 'revi_session' AND table_name = 'sessions' "
+                    "AND column_name = 'settings'"
+                )
+            ).one()
+        assert row.is_nullable == "YES"
+        assert row.data_type == "jsonb"
 
     def test_downgrade_upgrade_cycle(self, postgres_url: str) -> None:
         """Downgrade drops the capability schemas; upgrade restores them.

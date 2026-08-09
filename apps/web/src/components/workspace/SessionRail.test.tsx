@@ -1,0 +1,216 @@
+import "@testing-library/jest-dom/vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { SessionRail } from "@/components/workspace/SessionRail";
+import { TooltipProvider } from "@/components/ui/tooltip";
+import type { TurnDriver } from "@/lib/driver";
+import { MockDriver } from "@/lib/mockDriver";
+import { useSessionStore } from "@/lib/store";
+import type { SessionListData, SessionSummary } from "@/lib/types";
+
+/**
+ * The rail used to render three hard-coded session titles behind three dead
+ * buttons. These tests hold the replacement to the two things that made it
+ * a lie: every row is a server row, and clicking one actually switches.
+ */
+
+function row(overrides: Partial<SessionSummary> = {}): SessionSummary {
+  return {
+    sessionId: "sess_a",
+    title: "Why did cash decline last week?",
+    createdAt: "2026-08-08T09:00:00Z",
+    lastActivity: "2026-08-08T09:05:00Z",
+    turnCount: 2,
+    ...overrides,
+  };
+}
+
+// jsdom implements neither of these; the rail's scroll area observes size
+// and its portfolio cards carry tooltips (both provided by the real app
+// shell in app/layout.tsx).
+beforeAll(() => {
+  globalThis.ResizeObserver ??= class {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  } as unknown as typeof ResizeObserver;
+});
+
+function renderRail() {
+  const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+  return render(
+    <QueryClientProvider client={client}>
+      <TooltipProvider>
+        <SessionRail />
+      </TooltipProvider>
+    </QueryClientProvider>,
+  );
+}
+
+/** A driver that lists sessions and resumes them, with nothing else real. */
+function listingDriver(
+  page: SessionListData,
+  resume?: TurnDriver["resumeSession"],
+): TurnDriver {
+  return {
+    submit: vi.fn().mockResolvedValue(undefined),
+    newSession: vi.fn().mockResolvedValue(undefined),
+    listSessions: vi.fn().mockResolvedValue(page),
+    ...(resume ? { resumeSession: resume } : {}),
+  };
+}
+
+describe("SessionRail — the session list is the server's, or nothing", () => {
+  beforeEach(() => {
+    useSessionStore.getState().reset();
+    useSessionStore.setState({
+      driver: null,
+      sessions: [],
+      sessionsTotal: 0,
+      sessionsState: "idle",
+      sessionsError: null,
+      switchingSessionId: null,
+      switchError: null,
+      connection: { mode: "api", state: "online" },
+    });
+  });
+
+  afterEach(() => cleanup());
+
+  it("renders the server's rows — titles and ages, not fixtures", async () => {
+    useSessionStore.getState().setDriver(
+      listingDriver({
+        sessions: [
+          row(),
+          row({ sessionId: "sess_b", title: "COB investigation", turnCount: 0 }),
+        ],
+        total: 2,
+      }),
+    );
+
+    renderRail();
+
+    expect(await screen.findByText("Why did cash decline last week?")).toBeInTheDocument();
+    expect(screen.getByText("COB investigation")).toBeInTheDocument();
+    // The retired fixtures must not come back through any other door.
+    expect(screen.queryByText(/Denial spike — Meridian Imaging/)).not.toBeInTheDocument();
+  });
+
+  it("marks the current session and switches to another one on click", async () => {
+    const resumeSession = vi.fn().mockResolvedValue({
+      sessionId: "sess_b",
+      watermark: { id: "wm_9", loadedAt: "2026-08-08 04:00", newestDataDate: "2026-08-07" },
+      pack: { packId: "base-rcm", version: "1.0.0" },
+      turns: [],
+    });
+    useSessionStore
+      .getState()
+      .setDriver(
+        listingDriver(
+          { sessions: [row(), row({ sessionId: "sess_b", title: "COB investigation" })], total: 2 },
+          resumeSession,
+        ),
+      );
+    useSessionStore.setState({ sessionId: "sess_a" });
+
+    renderRail();
+    const current = await screen.findByRole("button", {
+      name: /Why did cash decline last week\?/,
+    });
+    expect(current).toHaveAttribute("aria-current", "true");
+
+    await userEvent.click(screen.getByRole("button", { name: /COB investigation/ }));
+
+    await waitFor(() => expect(resumeSession).toHaveBeenCalledWith("sess_b"));
+    expect(useSessionStore.getState().sessionId).toBe("sess_b");
+  });
+
+  it("does not switch while a turn is streaming", async () => {
+    const resumeSession = vi.fn();
+    useSessionStore
+      .getState()
+      .setDriver(
+        listingDriver(
+          { sessions: [row(), row({ sessionId: "sess_b", title: "COB investigation" })], total: 2 },
+          resumeSession,
+        ),
+      );
+    useSessionStore.setState({ sessionId: "sess_a", streamingTurnId: "turn_1" });
+
+    renderRail();
+    const target = await screen.findByRole("button", { name: /COB investigation/ });
+    expect(target).toBeDisabled();
+
+    await userEvent.click(target);
+    expect(resumeSession).not.toHaveBeenCalled();
+  });
+
+  it("says a capped page is capped instead of implying it is the whole history", async () => {
+    useSessionStore.getState().setDriver(listingDriver({ sessions: [row()], total: 12 }));
+
+    renderRail();
+
+    expect(await screen.findByText("1 of 12")).toBeInTheDocument();
+  });
+
+  it("names the failure when the list cannot be read", async () => {
+    useSessionStore.getState().setDriver({
+      submit: vi.fn(),
+      newSession: vi.fn(),
+      listSessions: vi.fn().mockRejectedValue(new Error("HTTP 503")),
+    });
+
+    renderRail();
+
+    expect(await screen.findByText("HTTP 503")).toBeInTheDocument();
+  });
+});
+
+describe("SessionRail — the mock fixture has no sessions and says so", () => {
+  beforeEach(() => {
+    useSessionStore.getState().reset();
+    useSessionStore.setState({
+      sessions: [],
+      sessionsState: "idle",
+      sessionsError: null,
+      connection: { mode: "mock", state: "online" },
+    });
+    useSessionStore.getState().setDriver(new MockDriver(0));
+  });
+
+  afterEach(() => cleanup());
+
+  it("shows why the list is empty rather than inventing rows", async () => {
+    renderRail();
+
+    expect(
+      await screen.findByText(/no deployment to list sessions from/i),
+    ).toBeInTheDocument();
+    expect(useSessionStore.getState().sessions).toEqual([]);
+  });
+
+  it("keeps the fabricating fixture previews to mock mode only", async () => {
+    renderRail();
+
+    expect(await screen.findByText("Fixture previews")).toBeInTheDocument();
+    expect(screen.getByText("Simulate a newer data load")).toBeInTheDocument();
+
+    cleanup();
+    useSessionStore.setState({ connection: { mode: "api", state: "online" } });
+    useSessionStore.getState().setDriver({
+      submit: vi.fn(),
+      newSession: vi.fn(),
+      listSessions: vi.fn().mockResolvedValue({ sessions: [], total: 0 }),
+    });
+    renderRail();
+
+    // A simulated watermark is a watermark that does not exist. Useful
+    // against a fixture; a lie against a live deployment.
+    await waitFor(() =>
+      expect(screen.queryByText("Simulate a newer data load")).not.toBeInTheDocument(),
+    );
+  });
+});

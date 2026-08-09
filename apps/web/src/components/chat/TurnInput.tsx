@@ -9,18 +9,24 @@ import { useSessionStore } from "@/lib/store";
 
 /**
  * Multiline composer. Enter sends, Shift+Enter breaks; disabled while a
- * turn streams (the pipeline is single-flight per session).
+ * turn streams (the pipeline is single-flight per session) or while a
+ * reference-demo replay is submitting its own sequential turns.
  */
 export function TurnInput({ suggestions }: { suggestions: string[] }) {
   const [value, setValue] = useState("");
   const submit = useSessionStore((s) => s.submit);
   const streaming = useSessionStore((s) => s.streamingTurnId !== null);
+  const replaying = useSessionStore((s) => s.replaying);
+  const switching = useSessionStore((s) => s.switchingSessionId !== null);
+  // Switching is included so the composer cannot look live while the store
+  // would drop the turn: a submit mid-switch has no session to land in.
+  const busy = streaming || replaying || switching;
   const pending = useSessionStore((s) => s.pendingRefinements.length);
   const mode = useSessionStore((s) => s.connection.mode);
 
   const send = (text: string) => {
     const trimmed = text.trim();
-    if (!trimmed || streaming) return;
+    if (!trimmed || busy) return;
     setValue("");
     void submit({ utterance: trimmed });
   };
@@ -33,7 +39,7 @@ export function TurnInput({ suggestions }: { suggestions: string[] }) {
             <button
               key={s}
               type="button"
-              disabled={streaming}
+              disabled={busy}
               onClick={() => send(s)}
               className="rounded-full border bg-surface-sunken px-2.5 py-1 text-[0.68rem] text-muted-foreground transition-colors duration-150 hover:border-ring/40 hover:text-foreground disabled:opacity-50"
             >
@@ -60,20 +66,26 @@ export function TurnInput({ suggestions }: { suggestions: string[] }) {
             }
           }}
           placeholder={
-            streaming ? "Investigating…" : "Ask about cash, denials, AR… (Enter to send)"
+            replaying
+              ? "Replaying the reference demo…"
+              : switching
+                ? "Opening that session…"
+                : streaming
+                  ? "Investigating…"
+                  : "Ask about cash, denials, AR… (Enter to send)"
           }
-          disabled={streaming}
+          disabled={busy}
           rows={2}
           className="max-h-40 resize-none pr-12 text-[0.8rem]"
         />
         <Button
           type="submit"
           size="icon-sm"
-          disabled={streaming || !value.trim()}
+          disabled={busy || !value.trim()}
           aria-label="Send"
           className="absolute bottom-2 right-2"
         >
-          {streaming ? (
+          {busy ? (
             <LoaderCircle className="animate-spin" />
           ) : (
             <CornerDownLeft />
@@ -85,7 +97,7 @@ export function TurnInput({ suggestions }: { suggestions: string[] }) {
           ? mode === "api"
             ? `${pending} typed refinement${pending === 1 ? "" : "s"} queued — submitting when this turn completes`
             : `${pending} typed refinement${pending === 1 ? "" : "s"} queued (logged to console — mock driver)`
-          : "Answers are computed by the deterministic kernel; the model never invents numbers."}
+          : "Every number is computed from your data — the model reads the question and writes the answer, it never makes the numbers up."}
       </p>
     </div>
   );

@@ -1,6 +1,13 @@
 # Semantic catalog: entities and their curated base views.
 # Each entity grain maps to one pre-joined view per snapshot schema; probe
 # compilers select from these views only and never invent joins.
+#
+# `declared_columns:` is the optional escape hatch: a base-view column the
+# catalog binds for an entity that no dimension, measure, date basis or join
+# path already names. Adapters may reference base-view columns only from the
+# union of those sources (CatalogSnapshot.declared_columns), so a column an
+# adapter genuinely needs is declared here rather than living as a constant
+# inside one adapter.
 version: 1
 entities:
   claim:
@@ -19,6 +26,13 @@ entities:
       One row per claim line (procedure). Pre-joins the parent claim and its
       payer/plan/facility/service-line context. allowed_amount_cents is NULL
       until the claim has been adjudicated (first remit visible).
+    declared_columns:
+      # Charge-capture date. Not a date basis (no window rides on it) and not a
+      # dimension (nothing groups by it), but the input to the probe-time
+      # derived measures `charge_entry_lag_days` and `late_charge_cents`, which
+      # `charge_lag_days` and `late_charge_pct` sum. Declared so that column
+      # dependency is catalog-visible instead of an adapter constant.
+      - charge_entry_date
   transaction:
     grain: TRANSACTION
     base_view: v_transaction

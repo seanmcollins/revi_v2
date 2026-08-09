@@ -5,155 +5,144 @@ import {
   CheckCircle2,
   ChevronRight,
   Database,
-  EyeOff,
-  FileSearch,
+  HelpCircle,
   Zap,
 } from "lucide-react";
 import { useState } from "react";
 
 import { GradeBadge } from "@/components/answer/GradeBadge";
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from "@/components/ui/table";
-import { formatCents, formatCount } from "@/lib/format";
-import type { EvidenceBundle, ProbeEvidence } from "@/lib/types";
+import { formatCount } from "@/lib/format";
+import { useSessionStore } from "@/lib/store";
+import type { EvidenceBundle, ProbeEvidence, ReconciliationResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
 /**
- * The lineage tree behind an answer: probes (hash, cache-hit, row counts)
- * → contracts (id@version) → operators (name@version) → reconciliation →
- * masked sample rows. Truncation and suppression are surfaced, never
- * hidden. "Every aggregate auditable to a source remit."
+ * The full working behind an answer: the checks it ran (with row counts
+ * and cache reuse) → the metrics and contract versions they read → whether
+ * the parts add up. Truncation and suppression are surfaced, never hidden.
+ * "Every aggregate auditable to a source remit."
+ *
+ * Every line here is a field the server recorded and published on
+ * `answer.evidence`, projected from the same trace `GET .../trace` reads.
+ * The drawer used to show two more sections, and both were cut when it was
+ * pointed at the live API: a masked row sample (nothing stores row-level
+ * content — the planner emits no row-evidence probe, so the table had no
+ * source) and a prose "how this was answered" note (hand-written in the
+ * fixtures, with no recorded counterpart). Showing either against a real
+ * turn would have meant composing it in the browser.
+ *
+ * The labels are the analyst's; the engine's own vocabulary (probe hashes,
+ * contract versions, timings) is one disclosure away, and opens by default
+ * in debug mode.
  */
 export function EvidenceDrawer({ evidence }: { evidence: EvidenceBundle }) {
+  const debug = useSessionStore((s) => s.settings.debug);
   return (
     <div className="space-y-4 text-xs">
       {evidence.zeroProbeTurn && (
         <div className="flex items-start gap-2 rounded-md border border-verified/40 bg-verified/10 p-2.5 text-[0.7rem] leading-snug text-verified">
           <Zap className="mt-0.5 size-3.5 shrink-0" />
           <p>
-            Zero-probe turn — answered entirely from the session trace and evidence
-            cache. The execution service asserts no warehouse queries ran.
+            Answered without going back to the warehouse — everything this answer needed
+            was already computed in this session.{" "}
+            {evidence.cacheHits > 0
+              ? `${formatCount(evidence.cacheHits)} check${evidence.cacheHits === 1 ? " was" : "s were"} reused; no new query ran.`
+              : "No new query ran."}
           </p>
         </div>
       )}
 
       <section>
         <SectionTitle icon={<Database className="size-3" />}>
-          Probes ({evidence.probes.length})
+          Data checks ({evidence.probes.length})
         </SectionTitle>
         {evidence.probes.length === 0 ? (
-          <p className="text-[0.7rem] text-muted-foreground">None executed this turn.</p>
+          <p className="text-[0.7rem] text-muted-foreground">None ran this turn.</p>
         ) : (
-          <ul className="space-y-1.5">
-            {evidence.probes.map((probe) => (
-              <ProbeNode key={probe.probeId} probe={probe} />
-            ))}
-          </ul>
+          <>
+            <ul className="space-y-1.5">
+              {evidence.probes.map((probe, i) => (
+                <ProbeNode key={probe.probeId} probe={probe} index={i + 1} debug={debug} />
+              ))}
+            </ul>
+            <p className="num mt-1.5 text-[0.62rem] text-muted-foreground">
+              {formatCount(evidence.warehouseQueries)} queried the warehouse ·{" "}
+              {formatCount(evidence.cacheHits)} reused from this session
+            </p>
+          </>
         )}
       </section>
 
-      <section>
-        <SectionTitle
-          icon={
-            evidence.reconciliation.status === "failed" ? (
-              <AlertTriangle className="size-3 text-negative" />
-            ) : (
-              <CheckCircle2 className="size-3 text-verified" />
-            )
-          }
-        >
-          Reconciliation
-        </SectionTitle>
-        <div
+      <ReconciliationSection reconciliation={evidence.reconciliation} debug={debug} />
+    </div>
+  );
+}
+
+/**
+ * "Does it add up?" — with a fourth answer the engine can give and the
+ * drawer used not to have: nothing was recorded at all. A META citation or
+ * a kernel-only refinement never reaches the §7.8 check, and saying
+ * "nothing to reconcile" there would be a verdict nobody returned.
+ */
+function ReconciliationSection({
+  reconciliation,
+  debug,
+}: {
+  reconciliation?: ReconciliationResult;
+  debug: boolean;
+}) {
+  const status = reconciliation?.status;
+  const passed = status === "passed" || status === "passed_with_suppression";
+  return (
+    <section>
+      <SectionTitle
+        icon={
+          status === "failed" ? (
+            <AlertTriangle className="size-3 text-negative" />
+          ) : passed ? (
+            <CheckCircle2 className="size-3 text-verified" />
+          ) : (
+            <HelpCircle className="size-3" />
+          )
+        }
+      >
+        Does it add up?
+      </SectionTitle>
+      <div
+        className={cn(
+          "rounded-md border p-2.5 text-[0.7rem] leading-snug",
+          passed && "border-verified/40 bg-verified/5",
+          status === "failed" && "border-negative/50 bg-negative/10",
+        )}
+      >
+        <p
           className={cn(
-            "rounded-md border p-2.5 text-[0.7rem] leading-snug",
-            evidence.reconciliation.status === "passed" &&
-              "border-verified/40 bg-verified/5",
-            evidence.reconciliation.status === "failed" &&
-              "border-negative/50 bg-negative/10",
+            "mb-1 text-[0.7rem] font-semibold",
+            passed && "text-verified",
+            status === "failed" && "text-negative",
+            !passed && status !== "failed" && "text-muted-foreground",
           )}
         >
-          <p
-            className={cn(
-              "mb-1 font-mono text-[0.65rem] font-semibold uppercase tracking-wide",
-              evidence.reconciliation.status === "passed" && "text-verified",
-              evidence.reconciliation.status === "failed" && "text-negative",
-              evidence.reconciliation.status === "not_applicable" && "text-muted-foreground",
-            )}
-          >
-            {evidence.reconciliation.status === "passed"
-              ? "PASSED"
-              : evidence.reconciliation.status === "failed"
-                ? "RECONCILIATION_FAILED"
-                : "N/A"}
-          </p>
-          {evidence.reconciliation.detail && <p>{evidence.reconciliation.detail}</p>}
-          {evidence.reconciliation.parentCents !== undefined &&
-            evidence.reconciliation.childSumCents !== undefined && (
-              <p className="num mt-1 text-muted-foreground">
-                parent {formatCents(evidence.reconciliation.parentCents)} · children{" "}
-                {formatCents(evidence.reconciliation.childSumCents)}
-              </p>
-            )}
-        </div>
-      </section>
-
-      {evidence.sampleRows && (
-        <section>
-          <SectionTitle icon={<FileSearch className="size-3" />}>
-            Sample rows (masked)
-          </SectionTitle>
-          <div className="overflow-x-auto rounded-md border">
-            <Table className="text-[0.65rem]">
-              <TableHeader>
-                <TableRow className="hover:bg-transparent">
-                  {evidence.sampleRows.columns.map((col) => (
-                    <TableHead
-                      key={col}
-                      className="h-7 whitespace-nowrap px-2 font-mono text-[0.6rem]"
-                    >
-                      {col}
-                      {evidence.sampleRows?.maskedColumns.includes(col) && (
-                        <EyeOff className="ml-1 inline size-2.5 text-muted-foreground" />
-                      )}
-                    </TableHead>
-                  ))}
-                </TableRow>
-              </TableHeader>
-              <TableBody>
-                {evidence.sampleRows.rows.map((row, i) => (
-                  <TableRow key={i}>
-                    {row.map((cell, j) => (
-                      <TableCell key={j} className="num whitespace-nowrap px-2 py-1.5">
-                        {cell}
-                      </TableCell>
-                    ))}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </div>
-          <p className="mt-1 text-[0.62rem] leading-snug text-muted-foreground">
-            PHI masked; purpose: {evidence.sampleRows.purpose}.
-          </p>
-        </section>
-      )}
-
-      {evidence.traceNote && (
-        <section>
-          <SectionTitle icon={<FileSearch className="size-3" />}>Trace</SectionTitle>
-          <p className="rounded-md border bg-surface-sunken/50 p-2.5 text-[0.68rem] leading-relaxed text-muted-foreground">
-            {evidence.traceNote}
-          </p>
-        </section>
-      )}
-    </div>
+          {status === "passed"
+            ? "Yes — the parts sum to the total"
+            : status === "passed_with_suppression"
+              ? "Yes — within the allowance for hidden small cells"
+              : status === "failed"
+                ? "No — the parts don’t sum to the total"
+                : status === "not_applicable"
+                  ? "This turn ran the check and it didn’t apply"
+                  : status === "unknown"
+                    ? "The recorded verdict wasn’t in a form this build can read"
+                    : "No reconciliation check ran on this turn"}
+        </p>
+        {reconciliation?.detail && <p>{reconciliation.detail}</p>}
+        {debug && reconciliation && (
+          <code className="mt-1.5 block font-mono text-[0.6rem] text-muted-foreground">
+            {reconciliation.summary}
+          </code>
+        )}
+      </div>
+    </section>
   );
 }
 
@@ -172,8 +161,24 @@ function SectionTitle({
   );
 }
 
-function ProbeNode({ probe }: { probe: ProbeEvidence }) {
+/**
+ * One data check. The headline is what it looked up and what came back —
+ * completeness facts (cut off at the limit, small cells hidden) stay on
+ * the face of it, because those change what the answer can be used for.
+ * The ids, hashes and contract versions sit under "Technical details",
+ * open by default in debug mode.
+ */
+function ProbeNode({
+  probe,
+  index,
+  debug,
+}: {
+  probe: ProbeEvidence;
+  index: number;
+  debug: boolean;
+}) {
   const [open, setOpen] = useState(false);
+  const [showTechnical, setShowTechnical] = useState(debug);
   return (
     <li className="rounded-md border bg-card">
       <button
@@ -184,49 +189,87 @@ function ProbeNode({ probe }: { probe: ProbeEvidence }) {
         <ChevronRight
           className={cn("size-3 shrink-0 text-muted-foreground transition-transform duration-150", open && "rotate-90")}
         />
-        <code className="shrink-0 rounded bg-surface-sunken px-1 py-0.5 font-mono text-[0.62rem] text-verified">
-          {probe.probeHash}
-        </code>
+        <span className="num shrink-0 rounded bg-surface-sunken px-1 py-0.5 text-[0.62rem] text-muted-foreground">
+          {index}
+        </span>
         <span className="min-w-0 flex-1 truncate text-[0.7rem]">{probe.description}</span>
         {probe.cacheHit && (
-          <span className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-verified/10 px-1.5 py-0.5 text-[0.6rem] font-medium text-verified">
+          <span
+            className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-verified/10 px-1.5 py-0.5 text-[0.6rem] font-medium text-verified"
+            title="Reused from an earlier turn in this session instead of querying again."
+          >
             <Zap className="size-2.5" />
-            cache
+            reused
           </span>
         )}
       </button>
       {open && (
         <div className="space-y-1.5 border-t px-2.5 py-2 pl-7 text-[0.68rem]">
-          <div className="flex flex-wrap items-center gap-1.5">
-            <span className="rounded-full border px-1.5 py-0.5 font-mono text-[0.6rem] text-muted-foreground">
-              {probe.kind}
-            </span>
-            {probe.contract && (
-              <span className="rounded-full border border-verified/40 px-1.5 py-0.5 font-mono text-[0.6rem] text-verified">
-                {probe.contract.id}@{probe.contract.version}
-              </span>
-            )}
-            {probe.operators.map((op) => (
-              <span
-                key={`${op.name}@${op.version}`}
-                className="rounded-full border px-1.5 py-0.5 font-mono text-[0.6rem] text-muted-foreground"
-              >
-                {op.name}@{op.version}
-              </span>
-            ))}
-            <GradeBadge grade={probe.grade} size="xs" />
-          </div>
+          {probe.grade && (
+            <div className="flex flex-wrap items-center gap-1.5">
+              <GradeBadge grade={probe.grade} size="xs" />
+            </div>
+          )}
           <p className="num text-muted-foreground">
-            {formatCount(probe.rowCount)} row{probe.rowCount === 1 ? "" : "s"}
+            {/* No row count means the probe was planned and never ran —
+                which is not the same as coming back empty, so it says
+                that instead of printing a zero. */}
+            {probe.rowCount === undefined ? (
+              <span>planned — not executed this turn</span>
+            ) : (
+              <>
+                {formatCount(probe.rowCount)} row{probe.rowCount === 1 ? "" : "s"} returned
+              </>
+            )}
             {probe.truncated && (
-              <span className="ml-1.5 text-warning">· truncated (LIMIT reached)</span>
+              <span className="ml-1.5 text-warning">
+                · cut off at the row limit
+                {probe.limit !== undefined ? ` (${formatCount(probe.limit)})` : ""}
+              </span>
             )}
             {probe.suppressedCells > 0 && (
               <span className="ml-1.5 text-warning">
-                · {probe.suppressedCells} small cell{probe.suppressedCells === 1 ? "" : "s"} suppressed
+                · {probe.suppressedCells} small cell{probe.suppressedCells === 1 ? "" : "s"} hidden
+                for privacy
               </span>
             )}
           </p>
+          <button
+            type="button"
+            onClick={() => setShowTechnical(!showTechnical)}
+            className="text-[0.62rem] text-muted-foreground underline-offset-2 hover:underline"
+          >
+            {showTechnical ? "Hide technical details" : "Technical details"}
+          </button>
+          {showTechnical && (
+            <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
+              <code
+                className="max-w-[12rem] truncate rounded bg-surface-sunken px-1 py-0.5 font-mono text-[0.6rem] text-verified"
+                title={probe.probeHash}
+              >
+                {probe.probeHash.slice(0, 12)}
+              </code>
+              {probe.kind && (
+                <span className="rounded-full border px-1.5 py-0.5 font-mono text-[0.6rem] text-muted-foreground">
+                  {probe.kind}
+                </span>
+              )}
+              {probe.metrics.map((metric) => (
+                <span
+                  key={metric.id}
+                  className="rounded-full border border-verified/40 px-1.5 py-0.5 font-mono text-[0.6rem] text-verified"
+                >
+                  {metric.id}
+                  {metric.contractVersion !== undefined ? `@${metric.contractVersion}` : ""}
+                </span>
+              ))}
+              {probe.durationMs > 0 && (
+                <span className="num rounded-full border px-1.5 py-0.5 text-[0.6rem] text-muted-foreground">
+                  {probe.durationMs} ms
+                </span>
+              )}
+            </div>
+          )}
         </div>
       )}
     </li>

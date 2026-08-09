@@ -1,0 +1,28 @@
+# Refund dollars per dollar of payer cash posted. Same-entity ratio (both
+# families are transaction types), computed as ratio-of-sums like
+# write_off_rate — the credit-balance analogue of that contract.
+id: refund_rate
+version: 1
+kind: flow
+entity_grain: transaction
+numerator: {sum: refund_cents}
+denominator: {sum: payment_cents}
+primary_date_basis: post
+allowed_date_bases: [post, service, submission]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, facility, region,
+   service_line, claim_type]
+sign: neutral
+unit: ratio
+description: >-
+  Refund dollars posted divided by payer cash posted in the same window,
+  post-date basis — how much of what comes in goes back out as returned
+  overpayment. Sign is neutral because issuing an owed refund is correct
+  behavior; the number is a size ruler for the credit-balance function, not a
+  performance grade, and a rate of zero is a compliance question rather than
+  an achievement. Two timing notes. (1) A refund follows its overpayment by
+  weeks, so numerator and denominator are different cohorts in any short
+  window — trend it over months. (2) This warehouse's refunds are
+  provider-issued returns; payer takebacks and recoupments are not modeled,
+  so this is not a clawback rate. Pair with credit_balance_dollars: refunds
+  flat while credits rise is a backlog.

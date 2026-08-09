@@ -27,6 +27,7 @@ magnitude may not.
 
 from __future__ import annotations
 
+import time
 from collections.abc import Mapping
 from dataclasses import dataclass, replace
 
@@ -87,6 +88,11 @@ class ExecutedProbe:
     node_id: str
     frame: EvidenceFrame
     cache_hit: bool
+    #: Wall clock for this probe, cache lookup included. Recorded because
+    #: "which probe was slow?" is the first question a stalled turn raises
+    #: and the trace could not answer it: stage timings covered the whole
+    #: execute stage, whatever it contained.
+    duration_ms: int = 0
 
 
 class ExecuteInvestigationService:
@@ -116,6 +122,7 @@ class ExecuteInvestigationService:
         executed: list[ExecutedProbe] = []
         total = len(plan.nodes)
         for index, node in enumerate(plan.nodes):
+            started = time.monotonic()
             digest = node.hash
             cached = await self._cache.get(digest, watermark.id, pack_snapshot_id)
             if cached is not None:
@@ -150,5 +157,12 @@ class ExecuteInvestigationService:
                     },
                 )
             )
-            executed.append(ExecutedProbe(node_id=node.id, frame=frame, cache_hit=hit))
+            executed.append(
+                ExecutedProbe(
+                    node_id=node.id,
+                    frame=frame,
+                    cache_hit=hit,
+                    duration_ms=int((time.monotonic() - started) * 1000),
+                )
+            )
         return tuple(executed)

@@ -1,0 +1,27 @@
+# Line-grain gross charges. Same money as `charges` at a different grain —
+# authored so charge value is answerable by procedure group, which binds at
+# claim_line only.
+id: line_charges
+version: 1
+kind: flow
+entity_grain: line
+numerator: {sum: line_billed_amount_cents}
+primary_date_basis: service
+allowed_date_bases: [service, submission]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, facility, region,
+   service_line, claim_type, payer_sequence, proc_group]
+sign: neutral
+unit: money_cents
+description: >-
+  Gross billed charges at claim-line grain for the window, service-date basis
+  — the same chargemaster value the claim-grain `charges` contract reports,
+  addressed one procedure at a time so it can be cut by proc_group. Use
+  `charges` for claim-level and account-level questions and this contract
+  only when the question is about procedures. The two reconcile exactly over
+  the same set of claims, but they do NOT match window for window: a line
+  carries its own service date, which for an institutional stay can fall on a
+  different day from the claim's, so a line-dated window sweeps in a slightly
+  different population (about one percent of charge value in this warehouse).
+  Charges are undiscounted list value: never compare them to net-revenue
+  benchmarks, and pair with allowed_dollars for the contracted side.

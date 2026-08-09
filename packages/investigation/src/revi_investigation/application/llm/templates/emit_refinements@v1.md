@@ -33,7 +33,10 @@ Rules:
 - Emit the minimal operator set that captures the request; explain your
   choice in rationale.
 - If the request cannot be expressed in the closed set, emit no operators
-  and say why in rationale.
+  and say why in rationale. You may then give up to four
+  clarification_options: short follow-ups the analyst could send back
+  as-is, each expressible in the closed set against the context above.
+  Leave the list empty rather than offer a change you could not compile.
 
 Utterance:
 

@@ -25,32 +25,52 @@ import logging
 import uuid
 from typing import Any
 
-from revi_api.assembly import OnEvent, assemble_turn_response, investigation_response
+from revi_api.assembly import (
+    NARRATIVE_TRACE_SUFFIX,
+    OnEvent,
+    assemble_turn_response,
+    investigation_response,
+    restored_chart_specs,
+)
 from revi_api.auth import AuthorizationError, Principal
+from revi_api.debug_trace import build_debug_trace
 from revi_api.portfolio import build_portfolio
+from revi_api.settings_policy import DEBUG_TRACE_ENV
 from revi_api.wiring import ApiComponents
 from revi_investigation.application.dto_mapping import refinement_to_dto
+from revi_investigation.application.ports import TraceRecord
 from revi_investigation.application.submit_turn import SubmitTurnRequest
 from revi_investigation.domain.records import Session
+from revi_investigation.domain.settings import SessionSettings
 from revi_investigation_contracts.api import (
     CapabilitiesResponse,
+    DebugTracePayload,
     ErrorEnvelope,
     InvestigationResponse,
     LineageEdgePayload,
     OpenSessionRequest,
     PortfolioResponse,
     SessionLineageResponse,
+    SessionListResponse,
     SessionResponse,
+    SessionSummary,
     TurnAnswer,
     TurnClarification,
     TurnError,
     TurnRequest,
 )
-from revi_kernel.errors import ErrorCode, ReviError
+from revi_investigation_contracts.settings import SessionSettingsModel
+from revi_kernel.errors import ErrorCode, PolicyDeniedError, ReviError
 
 logger = logging.getLogger("revi.api.service")
 
 TurnResult = TurnAnswer | TurnClarification | TurnError
+
+#: Page size for ``GET /v1/sessions`` when the caller names none.
+DEFAULT_SESSION_LIST_LIMIT = 50
+#: Hard cap on that page. A list route with an unbounded page size is a
+#: denial-of-service handle a client can pull by accident.
+MAX_SESSION_LIST_LIMIT = 200
 
 
 class NotFoundError(ReviError):
@@ -64,6 +84,20 @@ class NotFoundError(ReviError):
     code = ErrorCode.REFERENT_NOT_FOUND
 
 
+def settings_payload(settings: SessionSettings) -> SessionSettingsModel:
+    """The engine's settings as the wire shape — the *effective* values, so
+    a client sees what it got rather than what it asked for."""
+    return SessionSettingsModel(
+        model_tier=settings.model_tier,
+        max_turn_cost_usd=(
+            str(settings.max_turn_cost_usd) if settings.max_turn_cost_usd is not None else None
+        ),
+        narrative_depth=settings.narrative_depth,
+        evidence_depth=settings.evidence_depth,
+        debug=settings.debug,
+    )
+
+
 def _session_response(session: Session) -> SessionResponse:
     return SessionResponse(
         session_id=session.id,
@@ -74,6 +108,7 @@ def _session_response(session: Session) -> SessionResponse:
         watermark_loaded_at=session.watermark.loaded_at,
         newest_data_date=session.watermark.newest_data_date,
         epoch=session.epochs[-1].index,
+        settings=settings_payload(session.settings),
     )
 
 
@@ -133,10 +168,49 @@ class ApiService:
                 self._assert_tenant(
                     principal, existing, resource=f"session {request.session_id!r}"
                 )
+        # Bounds-checked here, before anything is opened: a session that
+        # exists with settings the deployment would refuse is a session
+        # whose next turn fails for a reason nobody asked for.
+        settings = self._components.settings_policy.resolve(request.settings)
         session = await self._components.open_session.open(
-            tenant=principal.tenant, session_id=request.session_id
+            tenant=principal.tenant,
+            session_id=request.session_id,
+            # None means "leave this session's settings alone" — a
+            # reconnect must not silently reset the analyst's controls.
+            settings=settings if request.settings is not None else None,
         )
         return _session_response(session)
+
+    async def list_sessions(
+        self, principal: Principal, *, limit: int = DEFAULT_SESSION_LIST_LIMIT
+    ) -> SessionListResponse:
+        """The caller tenant's sessions, newest activity first.
+
+        Scoped by the *store call*, not by filtering rows after reading
+        them: the port takes the tenant, so there is no code path here that
+        could hold another tenant's session in memory long enough to leak
+        it into a response. The tenant comes from the signed token like
+        everywhere else — there is no query parameter for it.
+        """
+        bounded = min(max(limit, 1), MAX_SESSION_LIST_LIMIT)
+        page = await self._components.sessions.list_for_tenant(
+            principal.tenant, limit=bounded
+        )
+        return SessionListResponse(
+            tenant=principal.tenant,
+            sessions=[
+                SessionSummary(
+                    session_id=row.session_id,
+                    title=row.title,
+                    created_at=row.created_at,
+                    last_activity=row.last_activity,
+                    turn_count=row.turn_count,
+                )
+                for row in page.sessions
+            ],
+            total=page.total,
+            limit=bounded,
+        )
 
     async def submit_turn(
         self,
@@ -160,15 +234,28 @@ class ApiService:
             "(typed investigation)" if request.spec is not None else "(typed gesture)"
         )
         utterance = request.utterance or request.clarification_response or default_question
-        engine_request = SubmitTurnRequest(
-            tenant=principal.tenant,  # from the signed token, never from the body
-            question=utterance,
-            session_id=session_id,
-            spec=request.spec,
-            refinements=tuple(request.refinements) if request.refinements is not None else None,
-            re_anchor=request.re_anchor,
-        )
         try:
+            # A per-turn override is bounds-checked exactly like a session
+            # one, and applies to this turn alone (the session record is
+            # untouched). Inside the try on purpose: a refused setting is a
+            # turn failure, and both transports must see the same
+            # ``TurnError`` envelope for it.
+            turn_settings = (
+                self._components.settings_policy.resolve(request.settings)
+                if request.settings is not None
+                else None
+            )
+            engine_request = SubmitTurnRequest(
+                tenant=principal.tenant,  # from the signed token, never from the body
+                question=utterance,
+                session_id=session_id,
+                spec=request.spec,
+                refinements=(
+                    tuple(request.refinements) if request.refinements is not None else None
+                ),
+                re_anchor=request.re_anchor,
+                settings=turn_settings,
+            )
             outcome = await self._components.submit.submit(engine_request)
             response: TurnResult = await assemble_turn_response(
                 self._components, outcome, on_event=on_event
@@ -198,7 +285,60 @@ class ApiService:
                 details={"investigation_id": investigation_id},
             )
         await self._authorized_session(principal, investigation.session_id)
-        return investigation_response(investigation)
+        # The evidence bundle rides along whenever the turn's trace is
+        # still there, and the charts are rebuilt from the frames the turn
+        # persisted. This is the route the web calls to rebuild a re-opened
+        # session, and without them every restored turn showed an evidence
+        # drawer saying nothing was ever read, next to no charts at all.
+        trace = await self._primary_trace(investigation_id)
+        return investigation_response(
+            investigation,
+            trace,
+            await restored_chart_specs(self._components, investigation, trace),
+        )
+
+    async def _primary_trace(self, investigation_id: str) -> TraceRecord | None:
+        """The turn's decision trace, if one was recorded.
+
+        The narrative validator persists a supplementary record against
+        the same investigation; the decision trace is the other one.
+        """
+        records = await self._components.traces.for_investigation(investigation_id)
+        return next(
+            (r for r in records if not r.trace_id.endswith(NARRATIVE_TRACE_SUFFIX)), None
+        )
+
+    async def get_trace(
+        self, principal: Principal, investigation_id: str
+    ) -> DebugTracePayload:
+        """One turn's decision trace, tenant-scoped like every other read.
+
+        The trace is recorded on every turn whether or not ``debug`` was
+        on — the setting decides what is *published with the answer*, not
+        what is kept. This route is the other door onto the same record,
+        for the turn nobody thought to debug until afterwards. A
+        deployment that does not want traces served at all sets
+        ``REVI_DEBUG_TRACE=0`` and this refuses.
+        """
+        if not self._components.settings_policy.debug_available:
+            raise PolicyDeniedError(
+                f"decision traces are disabled on this deployment ({DEBUG_TRACE_ENV}=0)",
+                details={"investigation_id": investigation_id},
+            )
+        investigation = await self._components.investigations.get(investigation_id)
+        if investigation is None:
+            raise NotFoundError(
+                f"investigation {investigation_id!r} does not exist",
+                details={"investigation_id": investigation_id},
+            )
+        await self._authorized_session(principal, investigation.session_id)
+        primary = await self._primary_trace(investigation_id)
+        if primary is None:
+            raise NotFoundError(
+                f"no decision trace was recorded for investigation {investigation_id!r}",
+                details={"investigation_id": investigation_id},
+            )
+        return build_debug_trace(primary)
 
     async def get_session_lineage(
         self, principal: Principal, session_id: str
@@ -244,6 +384,10 @@ class ApiService:
             pack_snapshot_id=components.pack_port.snapshot_id,
             newest_watermark_id=newest.id,
             llm=components.llm_mode,
+            # Published so a client renders the controls this deployment
+            # actually has — and does not render one that would be refused
+            # or, worse, one that would change nothing.
+            settings=components.settings_policy.bounds_payload(),
         )
 
     async def get_portfolio(self, principal: Principal) -> PortfolioResponse:

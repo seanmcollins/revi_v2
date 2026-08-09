@@ -33,6 +33,7 @@ from decimal import Decimal
 from typing import Any
 
 from revi_investigation.application.ports import (
+    LlmFailureKind,
     LlmUsage,
     StructuredLlmRequest,
     StructuredLlmResult,
@@ -69,6 +70,12 @@ class ScriptedLanguageModel:
     with no narrator the model streams nothing, which the assembly layer
     treats as "no narrative on this turn"."""
 
+    #: The script is not a model: it cannot run on a different tier and
+    #: cannot spend a budget, so a deployment wired to it refuses a
+    #: ``model_tier`` outright instead of accepting a control that would
+    #: change nothing (``/v1/capabilities`` publishes the same fact).
+    applies_call_policy = False
+
     entries: list[ScriptEntry] = field(default_factory=list)
     narrator: NarrativeComposer | None = None
     structured_calls: list[StructuredLlmRequest] = field(default_factory=list)
@@ -81,10 +88,16 @@ class ScriptedLanguageModel:
                 continue
             if entry.contains is not None and entry.contains not in request.rendered_prompt:
                 continue
-            output = dict(entry.response) if entry.response is not None else None
-            return StructuredLlmResult(output=output, usage=_usage())
-        # honest fallback: no scripted answer means no answer, never a guess
-        return StructuredLlmResult(output=None, usage=_usage())
+            if entry.response is None:
+                # a scripted non-answer: the script matched and says nothing
+                return StructuredLlmResult(
+                    output=None, usage=_usage(), failure=LlmFailureKind.DECLINED
+                )
+            return StructuredLlmResult(output=dict(entry.response), usage=_usage())
+        # honest fallback: no scripted answer means no answer, never a guess.
+        # OFF_SCRIPT says so plainly, so the clarification the engine builds
+        # blames the script running out rather than the analyst's wording.
+        return StructuredLlmResult(output=None, usage=_usage(), failure=LlmFailureKind.OFF_SCRIPT)
 
     def stream_text(self, request: TextLlmRequest) -> AsyncIterator[str]:
         self.text_calls.append(request)

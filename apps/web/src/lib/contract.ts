@@ -34,21 +34,33 @@ import type {
   ContextHeaderData,
   DataWatermark,
   DateBasis,
+  DebugInterpretationTrace,
+  DebugLlmCallTrace,
+  DebugProbeTrace,
+  DebugTrace,
   DefinitionCardData,
+  EvidenceBundle,
   EvidenceGrade,
   FilterClause,
   Finding,
   LineageEdge,
   LineageNode,
+  MetricContractRef,
+  MetricProvenance,
   PackVersionRef,
+  ProbeEvidence,
+  ReconciliationResult,
   Refinement,
   SessionLineageData,
+  SessionListData,
+  SessionSummary,
   StageId,
   SuggestedRefinement,
   TurnClass,
   TurnEvent,
   WarningEvent,
 } from "@/lib/types";
+import { GRADE_STRENGTH } from "@/lib/types";
 import type { PortfolioItem } from "@/lib/mock/portfolio";
 
 export type ParseResult<T> = { ok: true; value: T } | { ok: false; missing: string[] };
@@ -559,6 +571,160 @@ export function mapDefinitional(raw: unknown, pin: WirePin): DefinitionCardData 
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* DebugTracePayload → DebugTrace (internal debug mode only)           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The four identity fields the payload marks `required`; everything else
+ * is defaulted server-side and read tolerantly here. A trace with no
+ * probes and no LLM calls is a real trace (a zero-probe, zero-model turn),
+ * not drift.
+ */
+export const REQUIRED_DEBUG_TRACE_FIELDS = [
+  "trace_id",
+  "session_id",
+  "investigation_id",
+  "turn_id",
+] as const;
+
+function asRecordList(value: unknown): UnknownRecord[] {
+  return asArray(value).filter(isRecord);
+}
+
+function asStringMap(value: unknown): Record<string, string> {
+  if (!isRecord(value)) return {};
+  const out: Record<string, string> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry === "string") out[key] = entry;
+  }
+  return out;
+}
+
+function asNumberMap(value: unknown): Record<string, number> {
+  if (!isRecord(value)) return {};
+  const out: Record<string, number> = {};
+  for (const [key, entry] of Object.entries(value)) {
+    if (typeof entry === "number") out[key] = entry;
+  }
+  return out;
+}
+
+function asStringList(value: unknown): string[] {
+  return asArray(value).filter((entry): entry is string => typeof entry === "string");
+}
+
+function optionalString(value: unknown): string | undefined {
+  return typeof value === "string" && value !== "" ? value : undefined;
+}
+
+function mapDebugInterpretation(raw: unknown): DebugInterpretationTrace | undefined {
+  if (!isRecord(raw)) return undefined;
+  return {
+    intentSummary: asString(raw.intent_summary),
+    metricIds: asStringList(raw.metric_ids),
+    dimensionIds: asStringList(raw.dimension_ids),
+    conceptIds: asStringList(raw.concept_ids),
+    ...(optionalString(raw.playbook_id) ? { playbookId: String(raw.playbook_id) } : {}),
+    ...(optionalString(raw.window_start) ? { windowStart: String(raw.window_start) } : {}),
+    ...(optionalString(raw.window_end) ? { windowEnd: String(raw.window_end) } : {}),
+    ...(optionalString(raw.basis) ? { basis: String(raw.basis) } : {}),
+  };
+}
+
+function mapDebugProbe(raw: UnknownRecord): DebugProbeTrace {
+  return {
+    id: asString(raw.id),
+    hash: asString(raw.hash),
+    purpose: asString(raw.purpose),
+    cacheHit: raw.cache_hit === true,
+    rows: typeof raw.rows === "number" ? raw.rows : null,
+    limit: typeof raw.limit === "number" ? raw.limit : null,
+    truncated: raw.truncated === true,
+    suppressedCells: asNumber(raw.suppressed_cells) ?? 0,
+    ...(optionalString(raw.grade) ? { grade: String(raw.grade) } : {}),
+    durationMs: asNumber(raw.duration_ms) ?? 0,
+  };
+}
+
+function mapDebugLlmCall(raw: UnknownRecord): DebugLlmCallTrace {
+  return {
+    template: asString(raw.template),
+    model: asString(raw.model),
+    inputTokens: asNumber(raw.input_tokens) ?? 0,
+    outputTokens: asNumber(raw.output_tokens) ?? 0,
+    costUsd: asString(raw.cost_usd, "0"),
+    schemaRetries: asNumber(raw.schema_retries) ?? 0,
+    attempts: asNumber(raw.attempts) ?? 1,
+    durationMs: asNumber(raw.duration_ms) ?? 0,
+    ...(optionalString(raw.failure) ? { failure: String(raw.failure) } : {}),
+  };
+}
+
+/**
+ * `DebugTracePayload` → the UI's `DebugTrace`. Returns null when the
+ * payload is absent or missing its identity fields: debug rendering is an
+ * internal explanation surface, so a half-read trace is worse than none —
+ * it would invite conclusions from fields that were never there.
+ */
+export function mapDebugTrace(raw: unknown): DebugTrace | null {
+  if (!isRecord(raw)) return null;
+  const missing: string[] = [];
+  missingAt(raw, REQUIRED_DEBUG_TRACE_FIELDS, missing);
+  if (missing.length > 0) return null;
+  const settings = isRecord(raw.settings) ? raw.settings : {};
+  return {
+    traceId: asString(raw.trace_id),
+    sessionId: asString(raw.session_id),
+    investigationId: asString(raw.investigation_id),
+    turnId: asString(raw.turn_id),
+    settings: {
+      modelTier: typeof settings.model_tier === "string" ? settings.model_tier : null,
+      maxTurnCostUsd:
+        typeof settings.max_turn_cost_usd === "string" ? settings.max_turn_cost_usd : null,
+      narrativeDepth: asString(settings.narrative_depth, "summary"),
+      evidenceDepth: asString(settings.evidence_depth, "standard"),
+      debug: settings.debug === true,
+    },
+    ...(optionalString(raw.question) ? { question: String(raw.question) } : {}),
+    ...(optionalString(raw.turn_class) ? { turnClass: String(raw.turn_class) } : {}),
+    ...(typeof raw.classification_confidence === "number"
+      ? { classificationConfidence: raw.classification_confidence }
+      : {}),
+    ...(mapDebugInterpretation(raw.interpretation) !== undefined
+      ? { interpretation: mapDebugInterpretation(raw.interpretation) }
+      : {}),
+    refinementOperators: asRecordList(raw.refinement_operators),
+    ...(optionalString(raw.refinement_rationale)
+      ? { refinementRationale: String(raw.refinement_rationale) }
+      : {}),
+    referentResolutions: asRecordList(raw.referent_resolutions),
+    ...(optionalString(raw.clarification_reason)
+      ? { clarificationReason: String(raw.clarification_reason) }
+      : {}),
+    ...(optionalString(raw.plan_hash) ? { planHash: String(raw.plan_hash) } : {}),
+    ...(optionalString(raw.playbook_id) ? { playbookId: String(raw.playbook_id) } : {}),
+    probes: asRecordList(raw.probes).map(mapDebugProbe),
+    grades: asStringMap(raw.grades),
+    ...(optionalString(raw.weakest_grade) ? { weakestGrade: String(raw.weakest_grade) } : {}),
+    findingGrades: asStringMap(raw.finding_grades),
+    calculationOperators: asRecordList(raw.calculation_operators),
+    ...(optionalString(raw.reconciliation) ? { reconciliation: String(raw.reconciliation) } : {}),
+    warnings: asStringList(raw.warnings),
+    llmCalls: asRecordList(raw.llm_calls).map(mapDebugLlmCall),
+    templateHashes: asStringMap(raw.template_hashes),
+    timingsMs: asNumberMap(raw.timings_ms),
+    watermarkId: asString(raw.watermark_id),
+    watermarkStale: raw.watermark_stale === true,
+    epoch: asNumber(raw.epoch) ?? 0,
+    reAnchored: raw.re_anchored === true,
+    packId: asString(raw.pack_id),
+    packVersion: asString(raw.pack_version),
+    packSnapshotId: asString(raw.pack_snapshot_id),
+    redactions: asStringList(raw.redactions),
+  };
+}
+
 /**
  * A `warning` SSE frame: a stable §12 code plus code-specific detail. The
  * UI needs one sentence, so the known codes get a written one and anything
@@ -600,6 +766,131 @@ export function mapAnswerWarning(sentence: string): Omit<WarningEvent, "type"> {
     return { code: head, message: rest.join(": "), severity: "caution" };
   }
   return { code: "ANSWER_NOTE", message: sentence, severity: "info" };
+}
+
+/* ------------------------------------------------------------------ */
+/* EvidencePayload → EvidenceBundle (the drawer, banner, cache chip)    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The bundle the server projects from the turn's recorded trace — the
+ * same record `GET /v1/investigations/{iid}/trace` reads, so the drawer's
+ * row counts and the debug panel's cannot disagree.
+ *
+ * This mapper renames and nothing else. Where the wire is silent the UI
+ * is silent: a probe with no `rows` (planned, never executed) gets no row
+ * count rather than a zero, an unparseable grade is dropped rather than
+ * defaulted to `direct`, and a turn with no recorded verdict gets no
+ * reconciliation object rather than a synthesized "not applicable". Every
+ * one of those defaults would have been a claim the server never made.
+ */
+const EVIDENCE_GRADES: ReadonlySet<string> = new Set(Object.keys(GRADE_STRENGTH));
+
+const RECONCILIATION_STATUSES: ReadonlySet<string> = new Set([
+  "passed",
+  "passed_with_suppression",
+  "failed",
+  "not_applicable",
+]);
+
+function asGrade(value: unknown): EvidenceGrade | undefined {
+  return typeof value === "string" && EVIDENCE_GRADES.has(value)
+    ? (value as EvidenceGrade)
+    : undefined;
+}
+
+function mapProbeEvidence(raw: UnknownRecord): ProbeEvidence {
+  const grade = asGrade(raw.grade);
+  const rowCount = asNumber(raw.rows);
+  const limit = asNumber(raw.limit);
+  return {
+    probeId: asString(raw.id),
+    probeHash: asString(raw.hash),
+    kind: asString(raw.kind),
+    description: asString(raw.purpose),
+    metrics: asRecordList(raw.metrics).map((metric) => {
+      const version = asNumber(metric.contract_version);
+      return {
+        id: asString(metric.id),
+        ...(version !== undefined ? { contractVersion: version } : {}),
+      };
+    }),
+    cacheHit: raw.cache_hit === true,
+    ...(rowCount !== undefined ? { rowCount } : {}),
+    ...(limit !== undefined ? { limit } : {}),
+    truncated: raw.truncated === true,
+    suppressedCells: asNumber(raw.suppressed_cells) ?? 0,
+    ...(grade !== undefined ? { grade } : {}),
+    durationMs: asNumber(raw.duration_ms) ?? 0,
+  };
+}
+
+function mapReconciliation(raw: unknown): ReconciliationResult | undefined {
+  if (!isRecord(raw)) return undefined;
+  const status = asString(raw.status);
+  return {
+    // A status this build does not know is reported as `unknown`, never
+    // rounded toward the reassuring end of the scale.
+    status: RECONCILIATION_STATUSES.has(status)
+      ? (status as ReconciliationResult["status"])
+      : "unknown",
+    ...(optionalString(raw.detail) ? { detail: String(raw.detail) } : {}),
+    summary: asString(raw.summary),
+  };
+}
+
+export function mapEvidence(raw: unknown): EvidenceBundle | undefined {
+  if (!isRecord(raw)) return undefined;
+  const reconciliation = mapReconciliation(raw.reconciliation);
+  const answerGrade = asGrade(raw.answer_grade);
+  return {
+    probes: asRecordList(raw.probes).map(mapProbeEvidence),
+    ...(reconciliation !== undefined ? { reconciliation } : {}),
+    warehouseQueries: asNumber(raw.warehouse_queries) ?? 0,
+    cacheHits: asNumber(raw.cache_hits) ?? 0,
+    zeroProbeTurn: raw.zero_probe_turn === true,
+    ...(answerGrade !== undefined ? { answerGrade } : {}),
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* MetricProvenancePayload → MetricProvenance (the "Governed" badge)    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * `TurnAnswer.metric` — the governed provenance of the answer's numbers,
+ * projected server-side from the same recorded trace as the evidence
+ * bundle. This mapper renames and nothing else.
+ *
+ * `undefined` in, `undefined` out: a server that published no block gets
+ * no badge, rather than a badge asserting an empty pack. A block whose
+ * `metrics` list is empty is a different fact — the turn measured nothing
+ * governed (a definitional answer, a META citation) — and is mapped
+ * through so the badge can decline to render it for the right reason.
+ */
+function mapMetricRef(raw: UnknownRecord): MetricContractRef {
+  const version = asNumber(raw.contract_version);
+  return {
+    id: asString(raw.id),
+    ...(version !== undefined ? { contractVersion: version } : {}),
+  };
+}
+
+export function mapMetricProvenance(raw: unknown): MetricProvenance | undefined {
+  if (!isRecord(raw)) return undefined;
+  const primary = isRecord(raw.primary) ? mapMetricRef(raw.primary) : undefined;
+  return {
+    ...(primary !== undefined ? { primary } : {}),
+    metrics: asRecordList(raw.metrics).map(mapMetricRef),
+    ...(optionalString(raw.playbook_id) ? { playbookId: String(raw.playbook_id) } : {}),
+    // The pack the TURN recorded, not the session pin: an answer given
+    // before a pack promotion must keep naming the version that defined
+    // it, and this is the one place the UI can tell the difference.
+    pack: { packId: asString(raw.pack_id), version: asString(raw.pack_version) },
+    ...(optionalString(raw.pack_snapshot_id)
+      ? { packSnapshotId: String(raw.pack_snapshot_id) }
+      : {}),
+  };
 }
 
 /* ------------------------------------------------------------------ */
@@ -715,6 +1006,23 @@ export type TurnResponseData =
       reconciliation?: string;
       planHash?: string;
       watermarkStale: boolean;
+      /**
+       * The answer's own working — probes, verdict, cache reuse. Present
+       * on every live answer and on a restored turn whose trace survived;
+       * absent means the server published none, which the drawer says in
+       * those words rather than drawing an empty-but-reassuring one.
+       */
+      evidence?: EvidenceBundle;
+      /**
+       * Whose definition the numbers are: the governed metric contract(s)
+       * at the versions they were read at, the playbook that chose them,
+       * and the pack the turn was pinned to. Absent means the server
+       * published no block (no trace to project) — the badge then says
+       * nothing rather than implying an ungoverned answer.
+       */
+      metric?: MetricProvenance;
+      /** Published only when the settings in force had debug on. */
+      debug?: DebugTrace;
     }
   | {
       outcome: "clarification_required";
@@ -722,6 +1030,7 @@ export type TurnResponseData =
       sessionId: string;
       clarification: ClarificationData;
       watermarkStale: boolean;
+      debug?: DebugTrace;
     }
   | { outcome: "error"; sessionId?: string; error: ErrorEnvelopeData };
 
@@ -760,6 +1069,7 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
     const drift: string[] = [];
     missingAt(raw, REQUIRED_CLARIFICATION_FIELDS, drift);
     if (drift.length > 0) return { value: null, drift };
+    const clarificationTrace = mapDebugTrace(raw.debug);
     return {
       value: {
         outcome: "clarification_required",
@@ -771,6 +1081,7 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
           ...(typeof raw.reason === "string" ? { reason: raw.reason } : {}),
         },
         watermarkStale: raw.watermark_stale === true,
+        ...(clarificationTrace !== null ? { debug: clarificationTrace } : {}),
       },
       drift: [],
     };
@@ -804,6 +1115,9 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
 
   const header = raw.context_header != null ? mapContextHeader(raw.context_header, pin) : null;
   const definition = raw.definitional != null ? mapDefinitional(raw.definitional, pin) : null;
+  const trace = mapDebugTrace(raw.debug);
+  const evidence = mapEvidence(raw.evidence);
+  const metric = mapMetricProvenance(raw.metric);
 
   return {
     value: {
@@ -824,6 +1138,9 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
       ...(typeof raw.reconciliation === "string" ? { reconciliation: raw.reconciliation } : {}),
       ...(typeof raw.plan_hash === "string" ? { planHash: raw.plan_hash } : {}),
       watermarkStale: raw.watermark_stale === true,
+      ...(evidence !== undefined ? { evidence } : {}),
+      ...(metric !== undefined ? { metric } : {}),
+      ...(trace !== null ? { debug: trace } : {}),
     },
     drift,
   };
@@ -885,6 +1202,23 @@ export function parseInvestigationResponse(raw: unknown): TurnResponseParse {
     findings.push(finding);
   });
 
+  // What the server kept, and only that: the charts are rebuilt from the
+  // frames this turn persisted and the evidence bundle is projected from
+  // its recorded trace, so both are the same objects the live answer
+  // published. The narrative is not among them — nothing stores the
+  // composed prose — and a restored turn says so rather than filling in.
+  const charts: ChartSpec[] = [];
+  asArray(raw.chart_specs).forEach((entry, index) => {
+    const spec = mapChartSpec(entry);
+    if (spec === null || spec.id === "") {
+      drift.push(`chart_specs[${index}].id`);
+      return;
+    }
+    charts.push(spec);
+  });
+  const evidence = mapEvidence(raw.evidence);
+  const metric = mapMetricProvenance(raw.metric);
+
   return {
     value: {
       outcome: "answer",
@@ -892,11 +1226,13 @@ export function parseInvestigationResponse(raw: unknown): TurnResponseParse {
       sessionId: asString(raw.session_id),
       turnClass: asString(raw.turn_class) as TurnClass,
       findings,
-      charts: [],
+      charts,
       warnings: asArray(raw.warnings)
         .filter((w): w is string => typeof w === "string")
         .map(mapAnswerWarning),
       ...(typeof raw.plan_hash === "string" ? { planHash: raw.plan_hash } : {}),
+      ...(evidence !== undefined ? { evidence } : {}),
+      ...(metric !== undefined ? { metric } : {}),
       watermarkStale: false,
     },
     drift,
@@ -1075,6 +1411,7 @@ export function turnResponseToEvents(
       type: "turn_complete",
       investigationId: response.investigationId,
       status: "clarification_required",
+      ...(response.debug ? { debug: response.debug } : {}),
     });
     return events;
   }
@@ -1110,10 +1447,26 @@ export function turnResponseToEvents(
   if (response.definition && !received.hasDefinition) {
     events.push({ type: "definition_card", definition: response.definition });
   }
+  // The bundle rides on the completed response rather than on its own SSE
+  // frame: it is only whole once the turn is (a probe's row count is not
+  // known while it runs), and the server publishes no `evidence` frame.
+  if (response.evidence) {
+    events.push({ type: "evidence", evidence: response.evidence });
+  }
   events.push({
     type: "turn_complete",
     investigationId: response.investigationId,
     status: "complete",
+    // The answer's grade is the grade law over the turn's recorded
+    // finding grades — computed server-side and read off the bundle,
+    // never re-derived here from the findings on screen.
+    ...(response.evidence?.answerGrade ? { answerGrade: response.evidence.answerGrade } : {}),
+    // Same discipline for the badge: the governed provenance rides on the
+    // completed response (there is no `metric` SSE frame — which contract
+    // a probe read is only settled once it has run) and is carried
+    // through as the server projected it.
+    ...(response.metric ? { metric: response.metric } : {}),
+    ...(response.debug ? { debug: response.debug } : {}),
   });
   return events;
 }
@@ -1227,6 +1580,60 @@ export function parseSessionLineage(raw: unknown): LineageParse {
     });
   });
   return { value: { nodes, edges }, drift };
+}
+
+/* ------------------------------------------------------------------ */
+/* GET /v1/sessions                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * What a session row cannot be drawn without. All four are `required` on
+ * the wire (`SessionSummary`), and all four are load-bearing: an id to
+ * switch to, a title to read, a timestamp to order by, and a turn count
+ * that distinguishes an empty session from a worked one. A row missing any
+ * of them is dropped and reported rather than rendered with a blank or an
+ * invented label.
+ */
+export const REQUIRED_SESSION_SUMMARY_FIELDS = [
+  "session_id",
+  "title",
+  "created_at",
+  "last_activity",
+] as const;
+
+export interface SessionListParse {
+  value: SessionListData | null;
+  drift: string[];
+}
+
+export function parseSessionList(raw: unknown): SessionListParse {
+  const drift: string[] = [];
+  if (!isRecord(raw) || !Array.isArray(raw.sessions)) {
+    return { value: null, drift: ["sessions"] };
+  }
+  const sessions: SessionSummary[] = [];
+  raw.sessions.forEach((entry, index) => {
+    const missing: string[] = [];
+    missingAt(entry, REQUIRED_SESSION_SUMMARY_FIELDS, missing);
+    if (missing.length > 0) {
+      drift.push(...missing.map((path) => `sessions[${index}].${path}`));
+      return;
+    }
+    const record = entry as UnknownRecord;
+    sessions.push({
+      sessionId: asString(record.session_id),
+      title: asString(record.title),
+      createdAt: asString(record.created_at),
+      lastActivity: asString(record.last_activity),
+      // Tolerated rather than demanded: a missing count degrades the row's
+      // subtitle, it does not make the session unopenable.
+      turnCount: asNumber(record.turn_count) ?? 0,
+    });
+  });
+  return {
+    value: { sessions, total: asNumber(raw.total) ?? sessions.length },
+    drift,
+  };
 }
 
 /* ------------------------------------------------------------------ */

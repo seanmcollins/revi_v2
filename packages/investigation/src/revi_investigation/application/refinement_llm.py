@@ -8,6 +8,12 @@ operators express the request (``AMBIGUOUS_REFINEMENT`` → clarification
 when the model can't say). Everything downstream of the validated
 operators is deterministic; the typed-gesture path enters at the converter
 with no LLM involvement at all.
+
+Both services split their empty-handed cases the way interpretation does
+(see its module docstring): a readable answer that never arrived is worth
+asking again for, a model that had no mapping is not. When the model
+proposes ways forward on the "no operators" path they ride along as
+``ClarificationRequest.options``, deterministically trimmed.
 """
 
 from __future__ import annotations
@@ -41,13 +47,19 @@ from revi_investigation.application.llm.schemas import (
     SetGrainModel,
     SetWindowModel,
     WindowSpecModel,
+    clarification_options,
     sanitize_json_schema,
 )
 from revi_investigation.application.ports import (
+    DEFAULT_LLM_CALL_POLICY,
     LanguageModelPort,
+    LlmCallPolicy,
+    LlmFailureKind,
     LlmUsage,
     RegisteredReferent,
     StructuredLlmRequest,
+    failure_note,
+    retry_may_help,
 )
 from revi_investigation.domain.refinements import (
     AddFilter,
@@ -87,6 +99,17 @@ from revi_kernel.scope import (
 _MIN_RESOLUTION_CONFIDENCE = 0.5
 _MAX_REFERENT_LINES = 60
 
+# The same split interpretation makes (see its module docstring): a model
+# that read the follow-up and could not compile it wants different words; an
+# answer that never arrived in a readable shape wants the same words again.
+_RESOLVE_REPHRASE = "Which of the shown items do you mean?"
+_RESOLVE_RETRY = "I hit a problem matching that to what I showed you — please try again."
+_EMIT_REPHRASE = (
+    "I couldn't turn that into a concrete refinement of the current answer — "
+    "could you say it another way?"
+)
+_EMIT_RETRY = "I hit a problem applying that to the current answer — please try again."
+
 
 def referent_lines(entries: tuple[RegisteredReferent, ...]) -> str:
     """Serialize the live registry for prompts: ids + labels, never data."""
@@ -109,6 +132,9 @@ class ResolutionOutcome:
     clarification: ClarificationRequest | None
     usage: LlmUsage
     template_hash: str
+    #: Why the call came back empty-handed, when it did — as data, so a
+    #: trace consumer never has to parse the clarification's English.
+    failure: LlmFailureKind | None = None
 
 
 class ResolveReferentsService:
@@ -120,7 +146,11 @@ class ResolveReferentsService:
         self._schema = sanitize_json_schema(ReferentResolutionResponse.model_json_schema())
 
     async def resolve(
-        self, question: str, entries: tuple[RegisteredReferent, ...]
+        self,
+        question: str,
+        entries: tuple[RegisteredReferent, ...],
+        *,
+        policy: LlmCallPolicy = DEFAULT_LLM_CALL_POLICY,
     ) -> ResolutionOutcome:
         prompt = render_template(
             self._template.text,
@@ -133,18 +163,25 @@ class ResolveReferentsService:
                 template_version=self._template.version,
                 rendered_prompt=prompt,
                 schema=self._schema,
+                policy=policy,
             )
         )
-        clarify = ClarificationRequest(
-            question="Which of the shown items do you mean?",
-            reason="referent resolution returned no structured output",
-        )
         if result.output is None:
-            return ResolutionOutcome((), clarify, result.usage, self._template.sha256)
+            clarify = self._unusable(
+                "referent resolution returned no structured output", result.failure
+            )
+            return ResolutionOutcome(
+                (), clarify, result.usage, self._template.sha256, result.failure
+            )
         try:
             parsed = ReferentResolutionResponse.model_validate(dict(result.output))
         except ValidationError:
-            return ResolutionOutcome((), clarify, result.usage, self._template.sha256)
+            clarify = self._unusable(
+                "referent resolution failed schema validation", LlmFailureKind.SCHEMA
+            )
+            return ResolutionOutcome(
+                (), clarify, result.usage, self._template.sha256, LlmFailureKind.SCHEMA
+            )
         by_value = {entry.referent.value: entry.referent for entry in entries}
         resolutions: list[ReferentResolution] = []
         for item in parsed.resolutions:
@@ -174,6 +211,15 @@ class ResolveReferentsService:
             )
         return ResolutionOutcome(tuple(resolutions), None, result.usage, self._template.sha256)
 
+    @staticmethod
+    def _unusable(reason: str, failure: LlmFailureKind | None) -> ClarificationRequest:
+        """Nothing resolvable came back: ask again, or ask differently."""
+        retry = retry_may_help(failure)
+        return ClarificationRequest(
+            question=_RESOLVE_RETRY if retry else _RESOLVE_REPHRASE,
+            reason=reason + failure_note(failure),
+        )
+
 
 @dataclass(frozen=True, slots=True)
 class EmissionOutcome:
@@ -182,6 +228,8 @@ class EmissionOutcome:
     clarification: ClarificationRequest | None
     usage: LlmUsage
     template_hash: str
+    #: See :attr:`ResolutionOutcome.failure`.
+    failure: LlmFailureKind | None = None
 
 
 class EmitRefinementsService:
@@ -201,6 +249,7 @@ class EmitRefinementsService:
         resolutions: tuple[ReferentResolution, ...],
         dimension_lines: str,
         metric_lines: str,
+        policy: LlmCallPolicy = DEFAULT_LLM_CALL_POLICY,
     ) -> EmissionOutcome:
         resolution_lines = (
             "\n".join(
@@ -227,37 +276,22 @@ class EmitRefinementsService:
                 template_version=self._template.version,
                 rendered_prompt=prompt,
                 schema=self._schema,
+                policy=policy,
             )
         )
         if result.output is None:
-            return EmissionOutcome(
-                operators=None,
-                rationale="",
-                clarification=ClarificationRequest(
-                    question=(
-                        "I couldn't turn that into a concrete refinement of the current "
-                        "answer — could you say it another way?"
-                    ),
-                    reason="AMBIGUOUS_REFINEMENT: no structured operator emission",
-                ),
-                usage=result.usage,
-                template_hash=self._template.sha256,
+            return self._unusable(
+                "AMBIGUOUS_REFINEMENT: no structured operator emission",
+                result.failure,
+                result.usage,
             )
         try:
             parsed = RefinementEmissionResponse.model_validate(dict(result.output))
         except ValidationError:
-            return EmissionOutcome(
-                operators=None,
-                rationale="",
-                clarification=ClarificationRequest(
-                    question=(
-                        "I couldn't turn that into a concrete refinement of the current "
-                        "answer — could you say it another way?"
-                    ),
-                    reason="AMBIGUOUS_REFINEMENT: operator emission failed schema validation",
-                ),
-                usage=result.usage,
-                template_hash=self._template.sha256,
+            return self._unusable(
+                "AMBIGUOUS_REFINEMENT: operator emission failed schema validation",
+                LlmFailureKind.SCHEMA,
+                result.usage,
             )
         if not parsed.operators:
             return EmissionOutcome(
@@ -265,6 +299,7 @@ class EmitRefinementsService:
                 rationale=parsed.rationale,
                 clarification=ClarificationRequest(
                     question="What would you like to change about the current answer?",
+                    options=clarification_options(parsed.clarification_options),
                     reason=f"AMBIGUOUS_REFINEMENT: {parsed.rationale or 'no operators emitted'}",
                 ),
                 usage=result.usage,
@@ -276,6 +311,27 @@ class EmitRefinementsService:
             clarification=None,
             usage=result.usage,
             template_hash=self._template.sha256,
+        )
+
+    def _unusable(
+        self, reason: str, failure: LlmFailureKind | None, usage: LlmUsage
+    ) -> EmissionOutcome:
+        """No operators came back at all — ask again, or ask differently.
+
+        No options on this path by construction: there is no parsed response
+        for the model to have proposed any on.
+        """
+        retry = retry_may_help(failure)
+        return EmissionOutcome(
+            operators=None,
+            rationale="",
+            clarification=ClarificationRequest(
+                question=_EMIT_RETRY if retry else _EMIT_REPHRASE,
+                reason=reason + failure_note(failure),
+            ),
+            usage=usage,
+            template_hash=self._template.sha256,
+            failure=failure,
         )
 
 

@@ -32,6 +32,7 @@ from uuid import uuid4
 import pytest
 
 from revi_investigation.application.ports import (
+    EMPTY_SESSION_TITLE,
     CohortStore,
     EvidenceCache,
     FrameStore,
@@ -56,7 +57,9 @@ from revi_investigation.domain.records import (
     Session,
 )
 from revi_investigation.domain.refinements import AddFilter, DrillInto, RankBy
+from revi_investigation.domain.settings import DEFAULT_SESSION_SETTINGS, SessionSettings
 from revi_investigation.domain.turns import TurnClass
+from revi_investigation_contracts.settings import EvidenceDepth, NarrativeDepth
 from revi_kernel.cohort import CohortDefinition, CohortMaterialization, CohortRef
 from revi_kernel.filters import And, Predicate, PredicateOp
 from revi_kernel.frame import (
@@ -120,13 +123,19 @@ def _watermark(token: str, *, offset_days: int = 0) -> DataWatermark:
     )
 
 
-def _session(token: str) -> Session:
+def _session(
+    token: str,
+    *,
+    tenant: str = "demo-tenant",
+    suffix: str = "",
+    created_at: datetime = _T0,
+) -> Session:
     return Session(
-        id=f"s_{token}",
-        tenant="demo-tenant",
+        id=f"s_{token}{suffix}",
+        tenant=tenant,
         pack_version=PackVersionRef(pack_id="rcm-base", version="1.2.0"),
         epochs=(WatermarkEpoch(index=0, watermark=_watermark(token)),),
-        created_at=_T0,
+        created_at=created_at,
     )
 
 
@@ -324,8 +333,139 @@ class ApplicationStateStoreContract:
         assert loaded is not None and len(loaded.epochs) == 2
         assert loaded.watermark == refreshed.epochs[-1].watermark
 
+    async def test_session_settings_survive_the_store(
+        self, stores: ApplicationStores
+    ) -> None:
+        """Settings persist with the session, and a decimal ceiling comes
+        back a Decimal — a budget rounded through a float is not the budget
+        the analyst set."""
+        token = _token()
+        session = _session(token).with_settings(
+            SessionSettings(
+                model_tier="claude-sonnet-5",
+                max_turn_cost_usd=Decimal("0.25"),
+                narrative_depth=NarrativeDepth.ANALYST,
+                evidence_depth=EvidenceDepth.DEEP,
+                debug=True,
+            )
+        )
+        await stores.sessions.save(session)
+
+        loaded = await stores.sessions.get(session.id)
+
+        assert loaded == session
+        assert loaded is not None
+        assert loaded.settings.max_turn_cost_usd == Decimal("0.25")
+        assert loaded.settings.narrative_depth is NarrativeDepth.ANALYST
+
+    async def test_a_session_saved_without_settings_reads_as_defaults(
+        self, stores: ApplicationStores
+    ) -> None:
+        token = _token()
+        await stores.sessions.save(_session(token))
+
+        loaded = await stores.sessions.get(f"s_{token}")
+
+        assert loaded is not None
+        assert loaded.settings == DEFAULT_SESSION_SETTINGS
+
     async def test_session_get_missing_returns_none(self, stores: ApplicationStores) -> None:
         assert await stores.sessions.get(f"s_missing_{_token()}") is None
+
+    async def test_listing_is_scoped_to_one_tenant(self, stores: ApplicationStores) -> None:
+        """Another tenant's sessions are not in the answer at all — not
+        hidden by a caller-side filter, not counted in ``total``."""
+        token = _token()
+        mine = _session(token, tenant=f"t_mine_{token}")
+        theirs = _session(token, tenant=f"t_theirs_{token}", suffix="_x")
+        await stores.sessions.save(mine)
+        await stores.sessions.save(theirs)
+
+        page = await stores.sessions.list_for_tenant(mine.tenant, limit=50)
+
+        assert [row.session_id for row in page.sessions] == [mine.id]
+        assert page.total == 1
+
+    async def test_a_session_with_no_turns_lists_with_its_own_timestamps(
+        self, stores: ApplicationStores
+    ) -> None:
+        """A session exists the moment a client connects. It has no title
+        to derive and no activity beyond being opened, and says so."""
+        token = _token()
+        session = _session(token, tenant=f"t_{token}")
+        await stores.sessions.save(session)
+
+        page = await stores.sessions.list_for_tenant(session.tenant, limit=50)
+
+        assert len(page.sessions) == 1
+        row = page.sessions[0]
+        assert row.title == EMPTY_SESSION_TITLE
+        assert row.turn_count == 0
+        assert row.created_at == _T0
+        assert row.last_activity == _T0
+
+    async def test_a_row_is_titled_by_its_first_question_and_dated_by_its_last(
+        self, stores: ApplicationStores
+    ) -> None:
+        token = _token()
+        tenant = f"t_{token}"
+        session = _session(token, tenant=tenant)
+        await stores.sessions.save(session)
+        first = _investigation(token, session.id, suffix="a")
+        second = _investigation(
+            token,
+            session.id,
+            suffix="b",
+            parent_id=first.id,
+            created_at=_T0 + timedelta(minutes=9),
+        )
+        # Saved out of chronological order: the title must come from the
+        # FIRST question asked, not the first row written.
+        await stores.investigations.save(second, None)
+        await stores.investigations.save(first, None)
+
+        page = await stores.sessions.list_for_tenant(tenant, limit=50)
+
+        assert len(page.sessions) == 1
+        row = page.sessions[0]
+        assert row.title == first.question
+        assert row.turn_count == 2
+        assert row.created_at == _T0
+        assert row.last_activity == _T0 + timedelta(minutes=9)
+
+    async def test_listing_is_newest_activity_first_and_honors_the_limit(
+        self, stores: ApplicationStores
+    ) -> None:
+        """A session that was answered five minutes ago outranks one opened
+        later but never used — activity is what an analyst is looking for.
+        ``total`` still counts every session, so a truncated page cannot be
+        mistaken for the whole list."""
+        token = _token()
+        tenant = f"t_{token}"
+        quiet = _session(token, tenant=tenant, suffix="_quiet", created_at=_T0 + timedelta(hours=1))
+        busy = _session(token, tenant=tenant, suffix="_busy", created_at=_T0)
+        stale = _session(token, tenant=tenant, suffix="_stale", created_at=_T0 - timedelta(days=1))
+        for session in (quiet, busy, stale):
+            await stores.sessions.save(session)
+        await stores.investigations.save(
+            _investigation(token, busy.id, suffix="busy", created_at=_T0 + timedelta(hours=2)),
+            None,
+        )
+
+        page = await stores.sessions.list_for_tenant(tenant, limit=50)
+        assert [row.session_id for row in page.sessions] == [busy.id, quiet.id, stale.id]
+        assert page.total == 3
+
+        capped = await stores.sessions.list_for_tenant(tenant, limit=2)
+        assert [row.session_id for row in capped.sessions] == [busy.id, quiet.id]
+        assert capped.total == 3, "total counts every session, not just the page"
+
+    async def test_listing_an_unknown_tenant_is_empty_not_an_error(
+        self, stores: ApplicationStores
+    ) -> None:
+        page = await stores.sessions.list_for_tenant(f"t_missing_{_token()}", limit=50)
+        assert page.sessions == ()
+        assert page.total == 0
 
     # -------------------------------------------------------- 2. referents
 

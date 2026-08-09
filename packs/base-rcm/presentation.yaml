@@ -65,3 +65,120 @@ recipes:
     notes: >-
       Bars by plan/facility with days-of-runway annotation from the filing
       rules; confirmation-required rules get a planning-default chip.
+  # --- coverage wave 2 (2026-08-08) ------------------------------------
+  #
+  # Renderer note, applying to every recipe below that describes more than
+  # one series: `revi_presentation.charts` charts ONE primary measure per
+  # frame (money-unit column first, else the first measure), with the
+  # series taken from a second DIMENSION — it cannot draw two measures on
+  # one chart. So a recipe asking for a companion measure states authoring
+  # INTENT for a renderer that can carry it, and today renders as the
+  # primary measure alone. That is a known gap, not a rendering bug, and it
+  # is written here so nobody spends an afternoon diagnosing one.
+  - id: deep_aging_profile
+    applies_to: ar_over_120_pct
+    chart_type: bar
+    notes: >-
+      Descending bar by payer on the over-120 share. Intent for a
+      multi-measure renderer: show the over-90 share beside it as a second
+      series and never stacked — one band contains the other, so stacking
+      would double-count 120+. Today only the over-120 series renders and
+      the over-90 comparison stays in the table. Annotate the MGMA
+      better-performer figure as a reference line only when the cohort
+      caveats travel with it.
+  - id: denied_inventory_aging
+    applies_to: denied_ar_dollars
+    chart_type: stacked_bar
+    notes: >-
+      Aging buckets stacked per payer for the standing-denied slice. This
+      one does materialize as drawn: ar_aging_review's denied_inventory_aging
+      probe cuts denied_ar_dollars by [payer, ar_age_bucket], which the
+      renderer turns into payer on the x axis and the age bucket as the
+      stacked series. Deliberately its own recipe rather than reusing the
+      ar_balance profile: this population is worked by a different team on
+      a different clock, and folding it into total A/R is what hides it.
+  - id: appeal_outcome_pair
+    applies_to: appeal_overturn_rate
+    chart_type: bar
+    notes: >-
+      Bar per payer or category on the record-count overturn rate. Intent
+      for a multi-measure renderer: pair it with dollar-weighted overturn
+      (appeal_overturn_dollar_rate) in the same frame, because a count rate
+      alone invites a where-to-spend-effort conclusion the dollar rate may
+      contradict. Today the chart carries the count rate and the dollar
+      rate rides in the table beside it — the probe emits both, so the
+      evidence is present even where the chart cannot pair them. Label the
+      denominator as DECIDED appeals on the axis, not in a footnote.
+  - id: patient_book_split
+    applies_to: patient_responsibility_dollars
+    chart_type: line
+    notes: >-
+      Line of patient responsibility established over time (claim grain,
+      service basis). Intent for a multi-measure renderer: patient cash
+      posted (transaction grain, post basis) as a second line on the same
+      time axis, with both basis chips shown. They are different grains on
+      different bases, so they are never divided into each other — and for
+      the same reason they arrive in separate frames today, which is why
+      the pairing is intent rather than a chart.
+  - id: adjustment_families
+    applies_to: contractual_adjustment_dollars
+    chart_type: line
+    notes: >-
+      Line of contractual adjustment dollars over time. Intent for a
+      multi-measure renderer: non-contractual write-off dollars as a second,
+      separate line — never a single "adjustments" series and never stacked
+      into a total, because the whole point of the pair is that one is the
+      negotiated discount and the other is failed collection. Today the
+      chart carries contractuals alone; the write-off line has to be read
+      from write_off_review's own frames until the renderer can hold two
+      measures.
+  - id: write_off_pressure
+    applies_to: write_off_rate
+    chart_type: line
+    notes: >-
+      Monthly line on the write-off rate. Intent for a multi-measure
+      renderer: the cash denominator as a faint second-axis series for
+      context; today the rate renders alone. Never a single-week level:
+      write-offs post 30-90 days after their denial while cash posts within
+      days of adjudication, so short windows pair unrelated cohorts.
+  - id: procedure_capture
+    applies_to: line_volume
+    chart_type: bar
+    notes: >-
+      Bar rank by procedure group with the parent service line's claim
+      volume as an annotation, since lines per claim vary by service line
+      and a line-count move is only a capture signal against that context.
+  - id: volume_mix_share
+    applies_to: volume_mix_shift
+    chart_type: stacked_bar
+    notes: >-
+      Share-of-total stacked bars for the mix view (payer or service line
+      against time). Charges are undiscounted list value, so the axis is
+      labeled gross and the chart never carries a net-revenue reference.
+      Bound to the PLAYBOOK id, not to the `charges` measure, and that is
+      the whole point: recipe selection matches on measure name with first
+      match winning, so an `applies_to: charges` recipe captured every
+      frame that carries charges anywhere in the platform — including bare
+      charge trends, which then rendered as single-series stacked bars. The
+      mix reading is a property of the investigation, not of the measure.
+      Same binding style as cash_decline_decomposition and scorecard_table.
+      Consequence to know: inside this playbook the recipe applies to every
+      frame, so the dimensional cuts (mix_by_payer, mix_by_service_line)
+      are the intended targets and the undimensioned volume_trend
+      degenerates to one series until the renderer can decline a recipe
+      per frame.
+  - id: payer_scorecard_table
+    applies_to: payer_scorecard
+    chart_type: table_bars
+    notes: >-
+      One row per payer, one column per metric with in-cell bars; grade
+      badge and basis chip per column, suppressed cells shown as suppressed.
+      The service-line mix cut renders as a companion panel rather than a
+      column — it is the comparability control, not another score.
+  - id: denial_category_pareto
+    applies_to: denial_category_drilldown
+    chart_type: bar
+    notes: >-
+      Descending bar by root-cause category with a cumulative-share line;
+      drilling a bar opens its group-code + CARC pairs, which is the level
+      that actually names an owner.

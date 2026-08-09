@@ -145,6 +145,26 @@ class TestApiContract:
         assert session.watermark_id == "wm_003"
         assert session.pack_id == "base-rcm" and session.epoch == 0
 
+    async def test_list_sessions_names_each_session_by_its_first_question(
+        self, client: Client
+    ) -> None:
+        """Both doors, one rule: the list is the caller's own sessions,
+        titled by what was actually asked in them."""
+        session = await client.open_session(OpenSessionRequest(tenant="demo"))
+        answer = await client.submit_turn(session.session_id, TurnRequest(utterance=T1))
+        assert isinstance(answer, TurnAnswer)
+
+        listing = await client.list_sessions()
+
+        assert listing.tenant == TENANT
+        assert listing.total >= 1
+        row = next(r for r in listing.sessions if r.session_id == session.session_id)
+        assert row.title == T1
+        assert row.turn_count == 1
+        assert row.last_activity >= row.created_at
+        # Newest activity first — the session just answered leads the list.
+        assert listing.sessions[0].session_id == session.session_id
+
     async def test_nl_turn_answers_with_full_payload(self, client: Client) -> None:
         session = await client.open_session(OpenSessionRequest(tenant="demo"))
         response = await client.submit_turn(session.session_id, TurnRequest(utterance=T1))

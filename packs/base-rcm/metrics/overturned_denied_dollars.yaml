@@ -1,0 +1,28 @@
+# Denied dollars whose denial was overturned on appeal — the dollar size of
+# the appeal win, at DENIAL grain with the code-level scope intact.
+id: overturned_denied_dollars
+version: 1
+kind: flow
+entity_grain: denial
+numerator:
+  filtered:
+    inner: {sum: denied_amount_cents}
+    where: {dimension: appeal_status, op: eq, value: OVERTURNED}
+primary_date_basis: remit
+allowed_date_bases: [remit, service, submission]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, facility, region,
+   service_line, claim_type, carc, group_code, denial_category]
+sign: higher_is_good
+unit: money_cents
+description: >-
+  Billed dollars attached to denials in the window that were later overturned
+  on appeal, remittance (denial) date basis. What it is NOT: recovered cash.
+  No stored linkage ties an appeal outcome to a subsequent payment, so this
+  is the amount whose denial was reversed — the dollars put back in play, an
+  upper bound on the recovery. Sign is higher_is_good because it measures
+  appeal effectiveness, but read it against denied_dollars: the figure rises
+  with denial volume as well as with appeal skill, and a large number over a
+  larger denial base is not a win. Appeal state reflects the snapshot
+  watermark, so recent denials show little overturn activity simply because
+  their appeals have not been decided yet.

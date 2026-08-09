@@ -1,0 +1,27 @@
+# Remittance advices received — adjudication throughput at REMIT grain. The
+# only contract on the remit entity, and the only view of "is the payer
+# answering us at all" that does not go through a denial or a payment.
+id: remit_volume
+version: 1
+kind: flow
+entity_grain: remit
+numerator: {count_distinct: remit_id}
+primary_date_basis: remit
+allowed_date_bases: [remit, service, submission]
+scope_dimensions:
+  [payer, payer_type, financial_class, facility, region, service_line]
+sign: neutral
+unit: count
+description: >-
+  Distinct remittance advices (835 adjudication events) in the window on the
+  remit-date basis — how many payer decisions landed. A drop with flat
+  submission volume is a payer that has stopped answering, which shows up
+  here weeks before it shows up in cash; a rise with flat volume is usually
+  rebill and appeal traffic rather than new business. Scope is narrower than
+  every other contract on purpose: the remit base view carries payer,
+  facility, region and service line, but NOT plan, product type or claim
+  type, so those are not legal cuts here and asking for them is a grain
+  error, not a missing number. First-pass remits and second-pass
+  rebill/appeal outcomes are distinguished on the remit record by remit_seq,
+  which is not a certified dimension — so this contract counts all
+  adjudication events together and cannot separate them.

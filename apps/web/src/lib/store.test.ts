@@ -1,6 +1,7 @@
-import { beforeEach, describe, expect, it } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { REFERENCE_TURNS } from "@/lib/mock/reference";
+import type { TurnDriver } from "@/lib/driver";
+import { REFERENCE_QUESTIONS, REFERENCE_TURNS } from "@/lib/mock/reference";
 import { chunkNarrative, MockDriver } from "@/lib/mockDriver";
 import {
   applyEventToAnswer,
@@ -76,12 +77,27 @@ describe("applyEventToAnswer (pure reducer)", () => {
     expect(answer.error).toBeUndefined();
   });
 
-  it("turn_complete finalizes stages and carries grade + metric", () => {
+  it("turn_complete finalizes stages and carries grade + governed provenance", () => {
     const answer = reduce(REFERENCE_TURNS[2].events);
     expect(answer.status).toBe("complete");
     expect(answer.answerGrade).toBe("proxy");
-    expect(answer.metric?.id).toBe("denied_dollars");
+    // T3 pivots onto two governed contracts, so there is no single
+    // headline metric — the block lists what ran and elects nothing.
+    expect(answer.metric?.primary).toBeUndefined();
+    expect(answer.metric?.metrics.map((m) => m.id)).toEqual([
+      "denied_dollars",
+      "denial_events",
+    ]);
     expect(answer.stages.some((s) => s.state === "active")).toBe(false);
+  });
+
+  it("a META turn's provenance block is empty — nothing governed was measured", () => {
+    // T5 answers from the trace: zero probes, so no contract stands behind
+    // it. The block still arrives (the pack was still pinned); what must
+    // not happen is a metric it never read appearing in it.
+    const answer = reduce(REFERENCE_TURNS[4].events);
+    expect(answer.metric?.metrics).toEqual([]);
+    expect(answer.metric?.primary).toBeUndefined();
   });
 
   it("error events set error state", () => {
@@ -112,13 +128,17 @@ describe("reference fixtures — invariants the UI depends on", () => {
     expect(headerEvent.header.watermark.loadedAt).toBe("2026-08-03 04:10");
   });
 
-  it("T2 reconciliation: payer children sum exactly to the parent delta", () => {
+  it("T2 reconciliation: the split's children reconciled to the parent", () => {
     const evidence = REFERENCE_TURNS[1].events.find((e) => e.type === "evidence");
     if (evidence?.type !== "evidence") throw new Error("missing evidence");
-    expect(evidence.evidence.reconciliation.status).toBe("passed");
-    expect(evidence.evidence.reconciliation.childSumCents).toBe(
-      evidence.evidence.reconciliation.parentCents,
-    );
+    const reconciliation = evidence.evidence.reconciliation;
+    // The verdict is a recorded status and its raw summary — the parent
+    // total and the row sum are computed inside the reconcile operator
+    // and never leave it, so the fixture no longer claims them either.
+    expect(reconciliation?.status).toBe("passed");
+    expect(reconciliation?.summary).toBe("status=passed");
+    // ...and the split reused T1's frames rather than re-querying them.
+    expect(evidence.evidence.cacheHits).toBeGreaterThan(0);
   });
 
   it("T3 carries proxy grade per the grade law (min-propagation)", () => {
@@ -200,6 +220,364 @@ describe("session store + mock driver (the real event pipeline)", () => {
     useSessionStore.getState().simulateWatermarkRefresh();
     useSessionStore.getState().resolveWatermarkBanner("re_anchor");
     expect(useSessionStore.getState().watermark.id).toBe("wm_004");
+  });
+});
+
+describe("newChat() — session lifecycle", () => {
+  beforeEach(() => {
+    useSessionStore.getState().reset();
+    useSessionStore.getState().setDriver(new MockDriver(0));
+  });
+
+  it("clears the thread and asks the driver for a new session", async () => {
+    await useSessionStore.getState().submit({ utterance: "Why did cash decline last week?" });
+    expect(useSessionStore.getState().turns).toHaveLength(1);
+
+    await useSessionStore.getState().newChat();
+
+    expect(useSessionStore.getState().turns).toHaveLength(0);
+    expect(useSessionStore.getState().referents).toEqual({});
+    expect(useSessionStore.getState().newChatPending).toBe(false);
+  });
+
+  it("resets the mock driver's reference progress, so T1 can be re-asked", async () => {
+    await useSessionStore.getState().submit({ utterance: "Why did cash decline last week?" });
+    await useSessionStore.getState().submit({ utterance: "Break that down by payer" });
+    expect(useSessionStore.getState().turns).toHaveLength(2);
+
+    await useSessionStore.getState().newChat();
+    await useSessionStore.getState().submit({ utterance: "Why did cash decline last week?" });
+
+    // T1 matched again (not a clarification) — proof the mock driver's
+    // local progress rewound along with the thread.
+    expect(useSessionStore.getState().turns[0].answer.status).toBe("complete");
+  });
+
+  it("is a no-op while a turn is streaming (single-flight)", async () => {
+    const driver = new MockDriver(0);
+    const newSessionSpy = vi.spyOn(driver, "newSession");
+    useSessionStore.getState().setDriver(driver);
+    useSessionStore.setState({ streamingTurnId: "turn_mid_flight" });
+
+    await useSessionStore.getState().newChat();
+
+    expect(newSessionSpy).not.toHaveBeenCalled();
+    expect(useSessionStore.getState().turns).toEqual([]); // reset() never ran
+  });
+
+  it("reset-routes-to-newChat in api mode: the driver is asked for a fresh session", async () => {
+    const newSession = vi.fn().mockResolvedValue(undefined);
+    const fakeDriver: TurnDriver = { submit: vi.fn().mockResolvedValue(undefined), newSession };
+    useSessionStore.getState().setDriver(fakeDriver);
+    useSessionStore.setState({
+      connection: { mode: "api", state: "online" },
+      turns: [{ id: "turn_1", index: 0, submission: {}, answer: emptyAnswer() }],
+      referents: {
+        F1: {
+          referent: { value: "F1", kind: "finding" },
+          turnId: "turn_1",
+          label: "State Medicaid cash down",
+        },
+      },
+    });
+
+    await useSessionStore.getState().newChat();
+
+    // The old backend session is never silently continued — a fresh one is
+    // requested, not just a local clear of the thread.
+    expect(newSession).toHaveBeenCalledTimes(1);
+    expect(useSessionStore.getState().turns).toEqual([]);
+    expect(useSessionStore.getState().referents).toEqual({});
+  });
+});
+
+/**
+ * A driver whose `submit` resolves each turn on a real (macro)task tick, so
+ * a test can prove calls are serialized — never in flight at the same
+ * time — rather than merely appearing ordered because nothing async
+ * separates them.
+ */
+function makeSequencedFakeDriver(outcomes: Array<"complete" | "clarification">): {
+  driver: TurnDriver;
+  calls: string[];
+  newSession: ReturnType<typeof vi.fn>;
+  maxConcurrent: () => number;
+} {
+  const calls: string[] = [];
+  let inFlight = 0;
+  let maxConcurrent = 0;
+  let next = 0;
+  const newSession = vi.fn().mockResolvedValue(undefined);
+  const driver: TurnDriver = {
+    newSession,
+    submit: async (submission, emit) => {
+      inFlight += 1;
+      maxConcurrent = Math.max(maxConcurrent, inFlight);
+      calls.push(submission.utterance ?? "");
+      await new Promise((resolve) => setTimeout(resolve, 0));
+      const outcome = outcomes[next];
+      next += 1;
+      if (outcome === "clarification") {
+        emit({
+          type: "clarification",
+          clarification: { question: "Which did you mean?", options: ["A", "B"] },
+        });
+        emit({ type: "turn_complete", investigationId: "inv_c", status: "clarification_required" });
+      } else {
+        emit({ type: "turn_complete", investigationId: "inv_ok", status: "complete" });
+      }
+      inFlight -= 1;
+    },
+  };
+  return { driver, calls, newSession, maxConcurrent: () => maxConcurrent };
+}
+
+describe("replayReference() — sequential reference-demo replay", () => {
+  beforeEach(() => {
+    useSessionStore.getState().reset();
+  });
+
+  it("starts a fresh session, then submits all five reference turns in order, one at a time", async () => {
+    const { driver, calls, newSession, maxConcurrent } = makeSequencedFakeDriver([
+      "complete",
+      "complete",
+      "complete",
+      "complete",
+      "complete",
+    ]);
+    useSessionStore.getState().setDriver(driver);
+
+    await useSessionStore.getState().replayReference();
+
+    expect(newSession).toHaveBeenCalledTimes(1); // newChat() ran first
+    expect(calls).toEqual([...REFERENCE_QUESTIONS]); // exact order, no skips/dupes
+    expect(maxConcurrent()).toBe(1); // each turn awaited before the next submits
+    expect(useSessionStore.getState().turns).toHaveLength(REFERENCE_QUESTIONS.length);
+    expect(useSessionStore.getState().turns.every((t) => t.answer.status === "complete")).toBe(
+      true,
+    );
+    expect(useSessionStore.getState().replaying).toBe(false);
+    expect(useSessionStore.getState().replayProgress).toBeNull();
+  });
+
+  it("stops at the first clarification instead of faking a continuation", async () => {
+    const { driver, calls } = makeSequencedFakeDriver(["complete", "clarification", "complete"]);
+    useSessionStore.getState().setDriver(driver);
+
+    await useSessionStore.getState().replayReference();
+
+    // Only the first two turns ran; the third (and 4th, 5th) never submitted.
+    expect(calls).toEqual([REFERENCE_QUESTIONS[0], REFERENCE_QUESTIONS[1]]);
+    expect(useSessionStore.getState().turns).toHaveLength(2);
+    expect(useSessionStore.getState().turns[0].answer.status).toBe("complete");
+    expect(useSessionStore.getState().turns[1].answer.status).toBe("clarification");
+    expect(useSessionStore.getState().replaying).toBe(false);
+    expect(useSessionStore.getState().replayProgress).toBeNull();
+  });
+
+  it("reports live progress while running (e.g. 2/5) via replayProgress", async () => {
+    const seen: Array<{ index: number; total: number } | null> = [];
+    const unsubscribe = useSessionStore.subscribe((state) => {
+      seen.push(state.replayProgress);
+    });
+    const { driver } = makeSequencedFakeDriver(Array(5).fill("complete"));
+    useSessionStore.getState().setDriver(driver);
+
+    await useSessionStore.getState().replayReference();
+    unsubscribe();
+
+    expect(seen).toContainEqual({ index: 1, total: 5 });
+    expect(seen).toContainEqual({ index: 5, total: 5 });
+  });
+
+  it("is a no-op while a turn is already streaming (single-flight)", async () => {
+    const { driver, newSession } = makeSequencedFakeDriver(["complete"]);
+    useSessionStore.getState().setDriver(driver);
+    useSessionStore.setState({ streamingTurnId: "turn_mid_flight" });
+
+    await useSessionStore.getState().replayReference();
+
+    expect(newSession).not.toHaveBeenCalled();
+    expect(useSessionStore.getState().turns).toEqual([]);
+  });
+
+  it("real reference fixtures replay clean end to end through the MockDriver", async () => {
+    useSessionStore.getState().setDriver(new MockDriver(0));
+
+    await useSessionStore.getState().replayReference();
+
+    const turns = useSessionStore.getState().turns;
+    expect(turns).toHaveLength(5);
+    expect(turns.map((t) => t.submission.utterance)).toEqual([...REFERENCE_QUESTIONS]);
+    expect(turns.every((t) => t.answer.status === "complete")).toBe(true);
+  });
+});
+
+describe("session list + switching", () => {
+  beforeEach(() => {
+    useSessionStore.getState().reset();
+    useSessionStore.setState({
+      driver: null,
+      sessions: [],
+      sessionsTotal: 0,
+      sessionsState: "idle",
+      sessionsError: null,
+      switchingSessionId: null,
+      switchError: null,
+      sessionId: "sess_current",
+      connection: { mode: "api", state: "online" },
+    });
+  });
+
+  it("a driver with no deployment reports an empty list honestly", async () => {
+    // The mock fixture implements no listSessions — the same idiom the
+    // settings panel uses for capabilities it cannot read.
+    useSessionStore.getState().setDriver(new MockDriver(0));
+
+    await useSessionStore.getState().loadSessions();
+
+    const state = useSessionStore.getState();
+    expect(state.sessions).toEqual([]);
+    expect(state.sessionsState).toBe("unavailable");
+    expect(state.sessionsError).toMatch(/no deployment/i);
+  });
+
+  it("does not blame the deployment before a driver is wired", async () => {
+    // page.tsx sets the driver in an effect, after the rail's first paint.
+    useSessionStore.setState({ driver: null });
+
+    await useSessionStore.getState().loadSessions();
+
+    expect(useSessionStore.getState().sessionsState).toBe("idle");
+    expect(useSessionStore.getState().sessionsError).toBeNull();
+  });
+
+  it("keeps the server's rows verbatim", async () => {
+    const page = {
+      sessions: [
+        {
+          sessionId: "sess_a",
+          title: "Why did cash decline last week?",
+          createdAt: "2026-08-08T09:00:00Z",
+          lastActivity: "2026-08-08T09:05:00Z",
+          turnCount: 3,
+        },
+      ],
+      total: 7,
+    };
+    useSessionStore.getState().setDriver({
+      submit: vi.fn(),
+      newSession: vi.fn(),
+      listSessions: vi.fn().mockResolvedValue(page),
+    });
+
+    await useSessionStore.getState().loadSessions();
+
+    expect(useSessionStore.getState().sessions).toEqual(page.sessions);
+    expect(useSessionStore.getState().sessionsTotal).toBe(7);
+    expect(useSessionStore.getState().sessionsState).toBe("ready");
+  });
+
+  it("rehydrates a switched-to session's thread from server events", async () => {
+    const resumeSession = vi.fn().mockResolvedValue({
+      sessionId: "sess_other",
+      watermark: { id: "wm_9", loadedAt: "2026-08-08 04:00", newestDataDate: "2026-08-07" },
+      pack: { packId: "base-rcm", version: "1.0.0" },
+      turns: [
+        {
+          investigationId: "inv_1",
+          question: "Why did cash decline last week?",
+          events: [
+            {
+              type: "finding",
+              finding: {
+                referent: { value: "F1", kind: "finding" },
+                title: "State Medicaid cash down",
+                statement: "Posted cash fell $48,940.41.",
+                grade: "direct",
+                confidence: "high",
+                metricRefs: [],
+                values: {},
+                directionOfGood: "up_is_good",
+                suggestedRefinements: [],
+              },
+            },
+            { type: "turn_complete", investigationId: "inv_1", status: "complete" },
+          ] satisfies TurnEvent[],
+        },
+      ],
+    });
+    useSessionStore.getState().setDriver({
+      submit: vi.fn(),
+      newSession: vi.fn(),
+      listSessions: vi.fn().mockResolvedValue({ sessions: [], total: 0 }),
+      resumeSession,
+    });
+
+    await useSessionStore.getState().switchSession("sess_other");
+
+    const state = useSessionStore.getState();
+    expect(resumeSession).toHaveBeenCalledWith("sess_other");
+    expect(state.sessionId).toBe("sess_other");
+    expect(state.watermark.id).toBe("wm_9");
+    expect(state.turns).toHaveLength(1);
+    const turn = state.turns[0];
+    expect(turn.submission.utterance).toBe("Why did cash decline last week?");
+    expect(turn.answer.status).toBe("complete");
+    expect(turn.answer.findings).toHaveLength(1);
+    expect(turn.answer.investigationId).toBe("inv_1");
+    // Rebuilt, not watched: the answer card must not draw a stage timeline
+    // for a pipeline nobody observed.
+    expect(turn.answer.rehydrated).toBe(true);
+    // Findings from a restored turn are addressable exactly like live ones.
+    expect(state.referents["F1"].turnId).toBe(turn.id);
+    expect(state.switchingSessionId).toBeNull();
+  });
+
+  it("clears the old thread and names the failure when a switch fails", async () => {
+    useSessionStore.getState().setDriver({
+      submit: vi.fn(),
+      newSession: vi.fn(),
+      listSessions: vi.fn().mockResolvedValue({ sessions: [], total: 0 }),
+      resumeSession: vi.fn().mockRejectedValue(new Error("HTTP 404")),
+    });
+    useSessionStore.setState({
+      turns: [{ id: "turn_1", index: 0, submission: {}, answer: emptyAnswer() }],
+    });
+
+    await useSessionStore.getState().switchSession("sess_gone");
+
+    expect(useSessionStore.getState().turns).toEqual([]);
+    expect(useSessionStore.getState().switchError).toBe("HTTP 404");
+    expect(useSessionStore.getState().switchingSessionId).toBeNull();
+  });
+
+  it("is a no-op mid-stream, mid-replay, and for the session already open", async () => {
+    const resumeSession = vi.fn();
+    useSessionStore.getState().setDriver({
+      submit: vi.fn(),
+      newSession: vi.fn(),
+      listSessions: vi.fn().mockResolvedValue({ sessions: [], total: 0 }),
+      resumeSession,
+    });
+
+    useSessionStore.setState({ streamingTurnId: "turn_1" });
+    await useSessionStore.getState().switchSession("sess_other");
+    useSessionStore.setState({ streamingTurnId: null, replaying: true });
+    await useSessionStore.getState().switchSession("sess_other");
+    useSessionStore.setState({ replaying: false });
+    await useSessionStore.getState().switchSession("sess_current"); // already open
+
+    expect(resumeSession).not.toHaveBeenCalled();
+  });
+
+  it("refuses to switch through a driver that cannot re-open sessions", async () => {
+    useSessionStore.getState().setDriver(new MockDriver(0));
+
+    await useSessionStore.getState().switchSession("sess_other");
+
+    expect(useSessionStore.getState().switchError).toMatch(/cannot re-open/i);
+    expect(useSessionStore.getState().sessionId).toBe("sess_current");
   });
 });
 

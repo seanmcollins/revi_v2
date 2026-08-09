@@ -116,6 +116,31 @@ class RowEvidenceProbe:
 
 EvidenceProbe = Union[AggregationProbe, SnapshotProbe, RowEvidenceProbe]  # noqa: UP007
 
+
+class ProbeShape(StrEnum):
+    """Which member of the probe union a retrieval is.
+
+    Named as a value because *shape* is a thing sources have opinions
+    about: a snapshot-time age has no meaning inside a flow aggregation,
+    and a source that can compute one may be unable to compute the other.
+    Capability negotiation (§6.3) trades in these values, so plan-time and
+    execute-time can speak about probe shapes in one vocabulary instead of
+    two ad-hoc string constants.
+    """
+
+    AGGREGATION = "aggregation"
+    SNAPSHOT = "snapshot"
+    ROW_EVIDENCE = "row_evidence"
+
+
+def probe_shape(probe: EvidenceProbe) -> ProbeShape:
+    """The shape of one probe."""
+    if isinstance(probe, AggregationProbe):
+        return ProbeShape.AGGREGATION
+    if isinstance(probe, SnapshotProbe):
+        return ProbeShape.SNAPSHOT
+    return ProbeShape.ROW_EVIDENCE
+
 # Fields excluded from canonical serialization: volatile bookkeeping that does
 # not change what a probe *retrieves* at a given (watermark, pack version).
 _CANONICAL_EXCLUDED_FIELDS = frozenset({"created_at", "ttl_seconds"})

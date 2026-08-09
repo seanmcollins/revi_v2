@@ -513,11 +513,53 @@ describe("TurnResponse contract (parseTurnResponse)", () => {
       "warning",
       "warning",
       "narrative_delta",
+      "evidence",
       "turn_complete",
     ]);
     expect(events.filter((e) => e.type === "warning").map((e) => e.code)).toEqual(
       Array(5).fill("ANSWER_NOTE"),
     );
+  });
+
+  it("reads the governed provenance the badge renders, and invents none of it", () => {
+    // The captured T1 answer runs the `cash_decline` playbook, which names
+    // no governing metric and reads several. The badge must therefore get
+    // NO primary and the full list — electing one would assert a contract
+    // the turn never designated.
+    const { value } = parseTurnResponse(SAMPLES.turn_complete, PIN);
+    if (value?.outcome !== "answer") throw new Error("expected an answer");
+    const wire = SAMPLES.turn_complete.metric;
+    expect(value.metric?.primary).toBeUndefined();
+    expect(wire.primary).toBeNull();
+    expect(value.metric?.metrics).toEqual(
+      wire.metrics.map((m: any) => ({ id: m.id, contractVersion: m.contract_version })),
+    );
+    expect(value.metric?.playbookId).toBe(wire.playbook_id);
+    // The pack the TURN recorded, not the session pin the header renders
+    // against: those come apart across a pack promotion, and this is the
+    // one field that can tell an analyst which definition they are reading.
+    expect(value.metric?.pack).toEqual({
+      packId: wire.pack_id,
+      version: wire.pack_version,
+    });
+    expect(value.metric?.packSnapshotId).toBe(wire.pack_snapshot_id);
+  });
+
+  it("carries the provenance onto turn_complete, where the badge reads it", () => {
+    const { value } = parseTurnResponse(SAMPLES.turn_complete, PIN);
+    if (value?.outcome !== "answer") throw new Error("expected an answer");
+    const complete = turnResponseToEvents(value).at(-1);
+    expect(complete?.type).toBe("turn_complete");
+    expect(complete?.type === "turn_complete" ? complete.metric : null).toEqual(value.metric);
+  });
+
+  it("publishes no badge data at all when the server published none", () => {
+    // Not an empty block standing in for one: a server that sent nothing
+    // must leave the badge silent rather than assert an unnamed pack.
+    const body = withoutPath(SAMPLES.turn_complete, "metric");
+    const { value } = parseTurnResponse(body, PIN);
+    if (value?.outcome !== "answer") throw new Error("expected an answer");
+    expect(value.metric).toBeUndefined();
   });
 
   it("replays a clarification as a clarification, never as a complete answer", () => {
@@ -559,10 +601,59 @@ describe("InvestigationResponse contract (parseInvestigationResponse)", () => {
     if (value?.outcome !== "answer") throw new Error("expected an answer");
     expect(value.investigationId).toBe(SAMPLES.investigation.investigation_id);
     expect(value.findings.map((f) => f.referent.value)).toEqual(["F1"]);
-    // This route keeps findings and warnings, not charts or a header — a
-    // recovered turn renders what the server actually stored.
-    expect(value.charts).toEqual([]);
+    // This route keeps what the server stored: findings, warnings, the
+    // evidence bundle projected from the turn's trace, and charts rebuilt
+    // from the frames it persisted. Not the header, and not the narrative
+    // — nothing stores the composed prose, so nothing pretends to.
+    expect(value.charts.length).toBeGreaterThan(0);
     expect(value.header).toBeUndefined();
+    expect(value.narrative).toBeUndefined();
+    expect(value.evidence?.probes.length).toBeGreaterThan(0);
+  });
+
+  it("carries the same evidence bundle a live answer publishes", () => {
+    const { value } = parseInvestigationResponse(SAMPLES.investigation);
+    if (value?.outcome !== "answer") throw new Error("expected an answer");
+    const wire = SAMPLES.investigation.evidence;
+    const probe = value.evidence!.probes[0];
+    // Renamed, never re-derived: every field traces to the wire bundle,
+    // which the server projected from the turn's recorded trace.
+    expect(probe.probeId).toBe(wire.probes[0].id);
+    expect(probe.probeHash).toBe(wire.probes[0].hash);
+    expect(probe.description).toBe(wire.probes[0].purpose);
+    expect(probe.rowCount).toBe(wire.probes[0].rows);
+    expect(value.evidence!.warehouseQueries).toBe(wire.warehouse_queries);
+    expect(value.evidence!.zeroProbeTurn).toBe(wire.zero_probe_turn);
+    expect(value.evidence!.reconciliation?.summary).toBe(wire.reconciliation.summary);
+  });
+
+  it("keeps its governed badge when the turn is restored from history", () => {
+    // A re-opened session rebuilds its thread from this route. Without the
+    // block here every restored turn would read as ungoverned — the one
+    // regression the by-id read has to be immune to.
+    const { value } = parseInvestigationResponse(SAMPLES.investigation);
+    if (value?.outcome !== "answer") throw new Error("expected an answer");
+    const wire = SAMPLES.investigation.metric;
+    // A typed first turn names its own governing metric, so there IS a
+    // single contract to point at here.
+    expect(value.metric?.primary).toEqual({
+      id: wire.primary.id,
+      contractVersion: wire.primary.contract_version,
+    });
+    expect(value.metric?.playbookId).toBeUndefined();
+    expect(value.metric?.pack.packId).toBe(wire.pack_id);
+    const complete = turnResponseToEvents(value).at(-1);
+    expect(complete?.type === "turn_complete" ? complete.metric : null).toEqual(value.metric);
+  });
+
+  it("emits the restored bundle as an evidence event, so the drawer opens", () => {
+    const { value } = parseInvestigationResponse(SAMPLES.investigation);
+    if (value?.outcome !== "answer") throw new Error("expected an answer");
+    const events = turnResponseToEvents(value);
+    const evidence = events.find((e) => e.type === "evidence");
+    expect(evidence && evidence.type === "evidence" ? evidence.evidence : null).toEqual(
+      value.evidence,
+    );
   });
 
   for (const path of REQUIRED_INVESTIGATION_FIELDS) {

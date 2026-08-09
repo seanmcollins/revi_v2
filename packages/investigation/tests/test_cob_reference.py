@@ -158,6 +158,10 @@ class TestCobInvestigation:
         assert trace.payload["grades"] == {
             "cob_mismatch_by_payer": "direct",
             "cob_code_proxy": "proxy",
+            # The playbook's rebill-timing probe sums the derived
+            # `submission_lag_days`; §6.6 pruned it until the repository
+            # began advertising what it computes (§6.3).
+            "cob_rebill_timing": "direct",
         }
         assert trace.payload["interpretation"]["playbook_id"] == "cob_investigation"
         assert trace.payload["watermark"]["id"] == "wm_003"

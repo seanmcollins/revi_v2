@@ -1,0 +1,76 @@
+id: ar_aging_review
+description: >-
+  Deep-dive the receivable: profile open A/R by age bucket, rank payers on
+  both the over-90 and the over-120 share (separate contracts because the
+  bands are not interchangeable), isolate the standing-denied slice that a
+  combined A/R view hides, and read inflow (charges, claim volume) against
+  outflow (posted cash) so a growing balance is attributed to more business,
+  slower payment, or unworked denials rather than left as one number.
+triggers:
+  - how is my ar aging
+  - ar aging review
+  - accounts receivable health
+  - why is ar going up
+  - aged receivables
+  - ar over 90
+params:
+  - payer
+probes:
+  - id: ar_profile
+    metric_ids: [ar_balance]
+    dimensions: [ar_age_bucket]
+    scope_note: >-
+      Open A/R by derived age bucket as of the snapshot (0-30 through 120+),
+      aged from the newest data date on the service basis. Gross-billed
+      valuation — this warehouse stores no per-claim net open balance.
+  - id: ar_aging_by_payer
+    metric_ids: [ar_over_90_pct, ar_over_120_pct]
+    dimensions: [payer]
+    top_n: 12
+    scope_note: >-
+      Both aging shares per payer, side by side. They are separate contracts
+      on purpose: 91-120 is often ordinary payer float while 120+ is where
+      recovery probability collapses, and a payer that looks average on
+      over-90 can be the worst on over-120.
+  - id: denied_inventory
+    metric_ids: [denied_ar_dollars]
+    dimensions: [payer]
+    top_n: 12
+    scope_note: >-
+      The standing-denied slice of A/R, which ar_balance folds in with open
+      claims and cannot separate (status is not one of its legal cuts).
+      Denied inventory ages differently and is worked by a different team.
+  - id: denied_inventory_aging
+    metric_ids: [denied_ar_dollars]
+    dimensions: [payer, ar_age_bucket]
+    scope_note: >-
+      The denied inventory by payer AND age bucket — how old the standing
+      denials are, per payer. The total in denied_inventory says how big
+      the queue is; this says whether it is being worked, because a queue
+      whose weight sits in 120+ is not a backlog, it is abandonment in
+      progress. Deliberately carries no top_n, unlike the other cuts here:
+      the grid is bounded (payers x five buckets) and a truncated stack
+      would drop segments rather than rows, so a payer missing its 120+
+      band would read as having no aged denials. Same gross-billed
+      valuation caveat as ar_balance, and the buckets age from the newest
+      data date on the service basis.
+  - id: ar_inflow
+    metric_ids: [charges, claim_volume]
+    dimensions: [payer]
+    window: {quantity: 6, unit: month, mode: full_periods}
+    scope_note: >-
+      Inflow context by payer — A/R that grows with charges is business, not
+      a collection failure. Service basis.
+  - id: ar_outflow
+    metric_ids: [cash_posted]
+    window: {quantity: 6, unit: month, mode: full_periods}
+    scope_note: Outflow context — posted payer cash over the same months, POST basis.
+transforms:
+  - operator: compare
+    args: {kind: prior_period}
+  - operator: share_of_total
+    args: {measure: ar_balance}
+  - operator: rank
+    args: {by: denied_ar_dollars, descending: true}
+conclusion_policies: [ar_aging_claim]
+ranking_policy: impact_first

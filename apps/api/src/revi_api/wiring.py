@@ -16,6 +16,12 @@ Wiring matrix (each choice is logged loudly at startup):
 - **LLM**: the Claude Agent SDK adapter when ``REVI_MODEL_PIN`` is set and
   ``REVI_LLM_MOCK`` != 1, else the scripted demo model (the reference
   conversation script; unmatched calls clarify, never guess).
+- **Settings bounds**: :class:`~revi_api.settings_policy.SettingsPolicy`
+  from ``REVI_MODEL_TIERS`` / ``REVI_LLM_MAX_BUDGET_USD`` /
+  ``REVI_DEBUG_TRACE``. It is told whether the chosen language model
+  actually applies a per-call model override, so a deployment running the
+  scripted script refuses a model tier rather than accepting a control
+  that would change nothing.
 """
 
 from __future__ import annotations
@@ -41,6 +47,7 @@ from revi_api.memory_stores import (
 )
 from revi_api.portfolio import DrillabilityProbe, PriorityPolicy, priority_policy_from_pack
 from revi_api.scripted_llm import demo_language_model
+from revi_api.settings_policy import SettingsPolicy
 from revi_catalog import load_catalog
 from revi_catalog_contracts.model import CatalogSnapshot
 from revi_connector_duckdb import DuckDbAnalyticalRepository, DuckDbAnomalySource
@@ -120,6 +127,14 @@ class ApiComponents:
     drillability: DrillabilityProbe
     store_mode: str
     llm_mode: str
+    #: Whether the wired language model applies ``LlmCallPolicy`` — the
+    #: session's model tier and per-call budget. False for the scripted
+    #: demo model, which is not a model and cannot honor either; the
+    #: settings policy refuses a tier rather than pretending.
+    llm_applies_call_policy: bool
+    #: Admin bounds for session settings, and the resolver that enforces
+    #: them (out-of-bounds is refused, never clamped).
+    settings_policy: SettingsPolicy
 
 
 @dataclass(frozen=True)
@@ -238,6 +253,10 @@ def build_components(
         llm_mode = "injected"
     else:
         llm, llm_mode = _build_llm(env)
+    # Asked of the object itself rather than inferred from the mode string:
+    # an adapter that applies per-call policy declares it, and anything
+    # that does not is treated as not applying it.
+    applies_call_policy = bool(getattr(llm, "applies_call_policy", False))
     event_bus = ContextTurnEventBus()
     transforms = CalculationTransforms()
 
@@ -325,4 +344,8 @@ def build_components(
         drillability=drillability,
         store_mode=stores.mode,
         llm_mode=llm_mode,
+        llm_applies_call_policy=applies_call_policy,
+        settings_policy=SettingsPolicy.from_env(
+            env, model_tier_effective=applies_call_policy
+        ),
     )

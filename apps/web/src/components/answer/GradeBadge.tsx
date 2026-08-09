@@ -28,11 +28,14 @@ const GRADE_META: Record<
       "Correlated with the concept but does not prove it. Treat as indicative.",
   },
   discovery: {
-    label: "Discovery",
+    // The engine calls this grade "discovery"; on the badge it says what it
+    // means. The engine's own token is in the tooltip and in debug mode's
+    // decision trace, so the mapping stays auditable both ways.
+    label: "Uncertified",
     dotClass: "bg-grade-discovery",
     textClass: "text-grade-discovery",
     explanation:
-      "Involves uncertified catalog fields — scoping over them downgrades the whole chain.",
+      "Uses catalog fields nobody has certified for this purpose (the engine grades this “discovery”) — scoping over them downgrades the whole chain.",
   },
   unavailable: {
     label: "Unavailable",
@@ -43,7 +46,7 @@ const GRADE_META: Record<
 };
 
 const GRADE_LAW =
-  "Grade law: every transform output carries the weakest grade among its inputs — proxy evidence cannot launder into a certified conclusion through arithmetic.";
+  "A result is only as strong as its weakest input: combining weak evidence with strong evidence cannot turn it into a certified conclusion.";
 
 export function GradeBadge({
   grade,

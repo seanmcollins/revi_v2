@@ -1,0 +1,33 @@
+# Distinct claims carrying at least one denial record, at DENIAL grain so
+# code-level cuts (CARC, group code, category) are legal. denial_rate answers
+# "what share?" and cannot be cut by code; denied_dollars answers "how much?";
+# this contract answers "how many claims?", the question an operations lead
+# actually staffs against.
+id: denied_claims
+version: 1
+kind: flow
+entity_grain: denial
+numerator: {count_distinct: claim_id}
+primary_date_basis: remit
+allowed_date_bases: [remit, service, submission]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, facility, region,
+   service_line, claim_type, carc, group_code, denial_category,
+   appeal_status]
+sign: higher_is_bad
+unit: count
+description: >-
+  Distinct claims with at least one denial record in the window, remittance
+  (denial) date basis — denial workload in claims rather than in records or
+  dollars. Additivity caveat, and it matters: a claim denied under two CARCs
+  appears in both CARC cells, so cells cut by code, category or appeal status
+  do NOT sum to the ungrouped total and a share-of-total over those cuts can
+  exceed 100 percent. Read cell values on their own terms, or use
+  denied_dollars (additive) when a decomposition has to reconcile. Data note
+  for this warehouse specifically: the mock generator emits at most one
+  denial record per claim, so here the additivity caveat never actually
+  bites and this contract equals denial_volume — the caveat is governed
+  meaning for production remittances, not an observed effect in the
+  reference data. The denominator question — denied claims over all claims —
+  is denial_rate, at claim grain, where code-level cuts are illegal by
+  design.

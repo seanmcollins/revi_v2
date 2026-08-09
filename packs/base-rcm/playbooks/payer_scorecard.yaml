@@ -1,0 +1,101 @@
+id: payer_scorecard
+description: >-
+  Payer scorecard — the payer-specific alternative to the generic
+  dimension_scorecard: pick this one when the question names payers, that
+  one for any other dimension. Fixing the dimension to payer is what buys
+  the payer-only evidence the generic shape has no room for — denial code
+  profile, appeal outcomes, write-off pressure — and it rates payers on the
+  four things a contracting conversation actually turns on: what they pay
+  (realization and contracted richness), how fast they pay (receivable
+  pressure), how much they deny and how those denials end, and what it
+  costs to work them. Comparison caution carried throughout: payers differ
+  in service mix, so cross-payer levels are only meaningful on a shared mix
+  — the service-line cut is required evidence, not decoration.
+triggers:
+  - payer scorecard
+  - which payer is worst
+  - compare our payers
+  - rank payers
+  - how do payers compare
+  - payer performance review
+  - which payer should we renegotiate
+params:
+  - payer
+  - service_line
+probes:
+  - id: payer_flow
+    metric_ids: [charges, expected_reimbursement, net_to_gross_rate, claim_volume]
+    dimensions: [payer]
+    window: {quantity: 3, unit: month, mode: full_periods}
+    top_n: 12
+    scope_note: >-
+      Volume, gross charges, contract-expected reimbursement and the
+      net-to-gross ratio per payer, service basis. Net-to-gross is contract
+      richness, NOT a collection result — it moves with chargemaster changes
+      too, so it is read as context for the receivable columns.
+  - id: payer_cash
+    metric_ids: [cash_posted, denial_write_off_dollars, write_off_rate]
+    dimensions: [payer]
+    window: {quantity: 3, unit: month, mode: full_periods}
+    top_n: 12
+    scope_note: >-
+      Posted payer cash, non-contractual write-offs and write-offs per dollar
+      collected, POST basis. Transaction grain, so this is a separate probe
+      from the claim-grain flow row and the two are not divided into each
+      other cell by cell.
+  - id: payer_receivable
+    metric_ids: [ar_balance, ar_over_90_pct, ar_over_120_pct, denied_ar_dollars]
+    dimensions: [payer]
+    top_n: 12
+    scope_note: >-
+      Snapshot receivable pressure per payer: total open A/R, both aging
+      shares (the bands are not interchangeable) and the standing-denied
+      slice that a combined A/R view hides.
+  - id: payer_denial_profile
+    metric_ids: [initial_denial_rate, clean_claim_rate, claim_resolution_rate]
+    dimensions: [payer]
+    window: {quantity: 3, unit: month, mode: full_periods}
+    top_n: 12
+    scope_note: >-
+      First-pass behavior per payer on the submission basis. The three
+      populations are NOT the same and the row has to be read that way:
+      only clean_claim_rate is adjudicated-only (it removes status OPEN).
+      initial_denial_rate and claim_resolution_rate both divide by every
+      claim in the window, so both read low on recent cohorts purely
+      because adjudication has not caught up — nothing about the payer.
+      Over 2026-05-01..2026-08-02 the denominators are 15,068
+      (clean_claim_rate), 18,410 (initial_denial_rate) and 19,672
+      (claim_resolution_rate on its service basis) against 18,410 claims
+      submitted. Two consequences: clean rate and initial denial rate do
+      not sum to one (they sum to 98.38% here, the gap being the
+      un-adjudicated tail), and every cohort-age-sensitive column is only
+      comparable payer-against-payer at equal cohort age, never as a
+      standalone level.
+  - id: payer_denial_dollars
+    metric_ids: [denied_dollars, denials_unworked_pct, appeal_overturn_rate]
+    dimensions: [payer]
+    window: {quantity: 3, unit: month, mode: full_periods}
+    top_n: 12
+    scope_note: >-
+      Denial grain: denied dollars, the never-worked share and the decided
+      overturn rate per payer. A payer with a high overturn rate AND a high
+      unworked share is the clearest renegotiation-or-staffing case in the
+      scorecard.
+  - id: payer_mix_control
+    metric_ids: [charges, claim_volume]
+    dimensions: [payer, service_line]
+    window: {quantity: 3, unit: month, mode: full_periods}
+    top_n: 20
+    scope_note: >-
+      The mix control. Payer levels above are only comparable where the
+      service mix is comparable; this cut is what lets a conclusion say
+      "worse on like business" instead of "worse".
+transforms:
+  - operator: pivot
+    args: {rows: payer, columns: metric}
+  - operator: compare
+    args: {kind: prior_period}
+  - operator: rank
+    args: {by: denied_dollars, descending: true}
+conclusion_policies: [payer_scorecard_claim]
+ranking_policy: impact_first

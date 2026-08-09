@@ -10,6 +10,7 @@ from collections.abc import AsyncIterator, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
+from enum import StrEnum
 from typing import Any, Protocol
 
 from revi_investigation.domain.records import (
@@ -28,6 +29,27 @@ from revi_kernel.watermark import DataWatermark
 
 
 @dataclass(frozen=True, slots=True)
+class LlmCallPolicy:
+    """Per-turn overrides an adapter must apply to one call.
+
+    Both fields are bounded before they get here (a deployment allowlist
+    for the model, an admin ceiling for the money), so an adapter applies
+    them rather than re-judging them. ``None`` on either means "the
+    deployment's own default", which is what every call did before session
+    settings existed.
+    """
+
+    #: Model id for this call; ``None`` keeps the adapter's pin.
+    model: str | None = None
+    #: Ceiling for THIS call, derived from what is left of the turn's
+    #: budget. An adapter never widens its own cap with it.
+    max_cost_usd: Decimal | None = None
+
+
+DEFAULT_LLM_CALL_POLICY = LlmCallPolicy()
+
+
+@dataclass(frozen=True, slots=True)
 class StructuredLlmRequest:
     """A stateless, schema-constrained call. The prompt is already
     payload-guarded and PHI-masked by the caller; the schema is a JSON
@@ -38,6 +60,8 @@ class StructuredLlmRequest:
     rendered_prompt: str
     schema: Mapping[str, Any]
     system_prompt: str | None = None
+    #: Session-scoped model/budget overrides for this call (§7.1).
+    policy: LlmCallPolicy = DEFAULT_LLM_CALL_POLICY
 
 
 @dataclass(frozen=True, slots=True)
@@ -48,6 +72,8 @@ class TextLlmRequest:
     template_version: str
     rendered_prompt: str
     system_prompt: str | None = None
+    #: Session-scoped model/budget overrides for this call (§7.1).
+    policy: LlmCallPolicy = DEFAULT_LLM_CALL_POLICY
 
 
 @dataclass(frozen=True, slots=True)
@@ -68,10 +94,62 @@ class LlmUsage:
     attempts: int = 1
 
 
+class LlmFailureKind(StrEnum):
+    """Why a structured call produced no usable output.
+
+    The distinction call sites need is *what the analyst can do about it*.
+    ``DECLINED`` and ``OFF_SCRIPT`` mean the model was asked and had no
+    mapping to give — rephrasing is the recovery. ``SCHEMA`` means an
+    answer never arrived in a readable shape; the question may have been
+    perfectly good and simply asking again can work. Until this existed the
+    port collapsed both into a bare ``output=None``, so a plumbing failure
+    told the analyst to reword a question that was never the problem.
+    """
+
+    #: The model ran to completion and delivered nothing to parse.
+    DECLINED = "declined"
+    #: What came back did not satisfy the response schema — including the
+    #: provider exhausting its own structured-output retries.
+    SCHEMA = "schema"
+    #: The scripted demo model has no entry for this call. Not a model
+    #: judgement at all: the script simply stops there.
+    OFF_SCRIPT = "off_script"
+
+
+def retry_may_help(failure: LlmFailureKind | None) -> bool:
+    """Is repeating the identical call a plausible recovery?
+
+    True only for ``SCHEMA``: a well-formed question whose answer was mangled
+    on the way back can come back clean. A model that declined, or a script
+    with no entry, will decline identically forever — and an adapter that did
+    not say which it was gets the conservative reading, because telling an
+    analyst "try again" on a question the model will never answer is the more
+    expensive of the two mistakes.
+    """
+    return failure is LlmFailureKind.SCHEMA
+
+
+def failure_note(failure: LlmFailureKind | None) -> str:
+    """Trace suffix naming why a structured call came back empty-handed.
+
+    Lives beside the enum so every clarification reason spells the kind the
+    same way, and so a trace query can grep one token.
+    """
+    return f" (llm_failure={failure.value if failure is not None else 'unspecified'})"
+
+
 @dataclass(frozen=True, slots=True)
 class StructuredLlmResult:
-    output: Mapping[str, Any] | None  # None = the model failed to satisfy the schema
+    output: Mapping[str, Any] | None  # None = no usable structured output
     usage: LlmUsage
+    #: Why ``output`` is None. ``None`` alongside a ``None`` output means the
+    #: adapter did not say; call sites then assume the conservative reading
+    #: (the model declined) rather than blaming infrastructure they cannot see.
+    failure: LlmFailureKind | None = None
+
+    def __post_init__(self) -> None:
+        if self.output is not None and self.failure is not None:
+            raise ValueError("a structured result cannot carry both an output and a failure")
 
 
 class LanguageModelPort(Protocol):
@@ -88,10 +166,63 @@ class LanguageModelPort(Protocol):
 # --- persistence ------------------------------------------------------------
 
 
+#: Title for a session that exists but has answered no turn yet — a
+#: session is created the moment a client connects, so the list must be
+#: able to name one that has nothing in it. Spelled once here because both
+#: store adapters derive it and a client compares against it.
+EMPTY_SESSION_TITLE = "New session"
+
+
+@dataclass(frozen=True, slots=True)
+class SessionSummary:
+    """One row of a tenant's session list (design §7.1).
+
+    ``title`` is the session's FIRST question, verbatim — the session
+    record itself has no name, and inventing one would be a label the
+    analyst never wrote. A session with no turns yet gets
+    :data:`EMPTY_SESSION_TITLE`.
+
+    ``last_activity`` is the newest investigation's ``created_at``, falling
+    back to the session's own ``created_at`` when nothing has been asked.
+    It is derived rather than stored: a column would be a second copy of a
+    fact the investigations already carry, and the two would drift the
+    first time a turn was written without touching the session row.
+    """
+
+    session_id: str
+    title: str
+    created_at: datetime
+    last_activity: datetime
+    turn_count: int
+
+
+@dataclass(frozen=True, slots=True)
+class SessionPage:
+    """One page of :meth:`SessionStore.list_for_tenant`.
+
+    ``total`` counts every session the tenant owns, not just the page, so a
+    client can say "showing 50 of 214" instead of implying the list is
+    complete when it is truncated.
+    """
+
+    sessions: tuple[SessionSummary, ...]
+    total: int
+
+
 class SessionStore(Protocol):
     async def get(self, session_id: str) -> Session | None: ...
 
     async def save(self, session: Session) -> None: ...
+
+    async def list_for_tenant(self, tenant: str, *, limit: int) -> SessionPage:
+        """The tenant's sessions, newest activity first.
+
+        Tenant-scoped by signature, not by a filter a caller may forget:
+        there is no "list all sessions" on this port, because the only
+        caller is an authenticated request and the only correct answer is
+        the caller's own sessions.
+        """
+        ...
 
 
 @dataclass(frozen=True, slots=True)

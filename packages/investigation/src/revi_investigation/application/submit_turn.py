@@ -84,6 +84,8 @@ from revi_investigation.application.planning import (
 from revi_investigation.application.ports import (
     FrameStore,
     InvestigationStore,
+    LlmCallPolicy,
+    LlmFailureKind,
     LlmUsage,
     ReferentRegistryStore,
     RegisteredReferent,
@@ -123,15 +125,18 @@ from revi_investigation.domain.refinements import (
     apply_refinements,
     detect_conflict,
 )
+from revi_investigation.domain.settings import DEFAULT_SESSION_SETTINGS, SessionSettings
 from revi_investigation.domain.turns import ClarificationRequest, TurnClass
 from revi_investigation_contracts.api import TypedInvestigationSpec
 from revi_investigation_contracts.header import ContextHeaderPayload, build_header_payload
+from revi_investigation_contracts.settings import EvidenceDepth
 from revi_kernel.capabilities import AnalyticalRepository
 from revi_kernel.cohort import CohortRef
 from revi_kernel.errors import ContextConflictError, DataLoadingError, ReferentNotFoundError
 from revi_kernel.filters import EMPTY_SCOPE, Predicate, iter_predicates
 from revi_kernel.frame import EvidenceFrame
-from revi_kernel.refs import SERVICE, DimensionRef, EntityGrain, Grain, ReferentId
+from revi_kernel.probes import AggregationProbe, EvidenceProbe, SnapshotProbe
+from revi_kernel.refs import SERVICE, DimensionRef, EntityGrain, Grain, MetricRef, ReferentId
 from revi_kernel.scope import (
     ComparisonKind,
     RangeMode,
@@ -143,6 +148,44 @@ from revi_kernel.scope import (
 from revi_kernel.watermark import DataWatermark, WatermarkEpoch
 
 _FALLBACK_WINDOW = RelativeRange(Decimal(1), TimeUnit.MONTH, RangeMode.FULL_PERIODS)
+
+
+def _probe_kind(probe: EvidenceProbe) -> str:
+    """Which member of the §6.2 probe union this node is.
+
+    Recorded rather than left to be re-derived from a hash: "we read an
+    aggregate" and "we read rows" are different promises to an analyst,
+    and only the plan knows which was made.
+    """
+    if isinstance(probe, AggregationProbe):
+        return "aggregation"
+    if isinstance(probe, SnapshotProbe):
+        return "snapshot"
+    return "row_evidence"
+
+
+def _probe_metrics(
+    probe: EvidenceProbe, frame: EvidenceFrame | None
+) -> list[dict[str, Any]]:
+    """The metrics a probe read, with the contract version it read them at.
+
+    Taken off the *executed* frame's schema when there is one — the
+    connector stamps the version it actually compiled against, which is
+    the version an audit needs. A probe that never executed falls back to
+    the metric ids the plan asked for, with no version claimed.
+    """
+    out: dict[str, dict[str, Any]] = {}
+    if frame is not None:
+        for column in frame.schema.columns:
+            if isinstance(column.ref, MetricRef):
+                out.setdefault(
+                    column.ref.id,
+                    {"id": column.ref.id, "contract_version": column.contract_version},
+                )
+    if not out and isinstance(probe, (AggregationProbe, SnapshotProbe)):
+        for measure in probe.measures:
+            out.setdefault(measure.id, {"id": measure.id, "contract_version": None})
+    return list(out.values())
 
 
 def _not_applicable(reason: str) -> str:
@@ -157,6 +200,12 @@ def _not_applicable(reason: str) -> str:
 
 _KERNEL_ONLY = (RankBy, Expand)
 _REFERENT_TOKEN = re.compile(r"\b([FD]\d+)\b", re.IGNORECASE)
+
+#: The smallest per-call budget worth handing to a provider. Below it a
+#: call cannot complete, so the turn stops here and says so — an honest
+#: "this turn hit its cost ceiling" beats a provider budget refusal that
+#: reads like an outage, and beats far worse: quietly answering with less.
+_MIN_CALL_BUDGET_USD = Decimal("0.001")
 
 
 def _new_id(prefix: str) -> str:
@@ -174,11 +223,30 @@ class SubmitTurnRequest:
     refinements: tuple[AnyRefinementOperator, ...] | None = None
     # Watermark epochs (§7.1): opt into re-anchoring on a newer load.
     re_anchor: bool = False
+    # Settings for THIS turn only, already bounds-checked by the API layer.
+    # None runs the session's own settings; a per-turn override never
+    # rewrites the session record, so one deep sweep or one debug turn does
+    # not quietly become the session's new normal.
+    settings: SessionSettings | None = None
 
 
 # The canonical header shape and its builder live in the contracts package
 # (single source of truth for API payloads, traces, and outcomes — §7.2).
 ContextHeader = ContextHeaderPayload
+
+
+#: Depth values a stored trace may legitimately carry (an unknown string
+#: reads as STANDARD rather than crashing a replay of an older trace).
+_EVIDENCE_DEPTHS = frozenset(depth.value for depth in EvidenceDepth)
+
+
+@dataclass(frozen=True, slots=True)
+class _PlanContext:
+    """How one turn was planned, recovered from its trace record."""
+
+    playbook_id: str | None = None
+    window_explicit: bool = True
+    evidence_depth: EvidenceDepth = EvidenceDepth.STANDARD
 
 
 @dataclass(frozen=True, slots=True)
@@ -219,6 +287,11 @@ class TurnOutcome:
     #: and unreachable until now: the engine had no field to carry them and
     #: the API passed a literal empty tuple to the narrative composer.
     benchmarks: tuple[BenchmarkSpec, ...] = ()
+    #: The controls this turn actually ran under — the presentation stage
+    #: reads its narrative depth and remaining budget from here rather than
+    #: re-deriving them from the session (which a per-turn override would
+    #: have made wrong).
+    settings: SessionSettings = DEFAULT_SESSION_SETTINGS
 
 
 def build_context_header(spec: AnalysisSpec, session: Session) -> ContextHeaderPayload:
@@ -250,10 +323,26 @@ class OpenSessionService:
         self._repository = repository
         self._pack = pack
 
-    async def open(self, *, tenant: str, session_id: str | None) -> Session:
+    async def open(
+        self,
+        *,
+        tenant: str,
+        session_id: str | None,
+        settings: SessionSettings | None = None,
+    ) -> Session:
+        """Open or re-join a session, optionally (re-)applying settings.
+
+        ``settings=None`` leaves an existing session's controls exactly as
+        they were: a turn re-opens its own session on every call, and a
+        reconnect that quietly reset the analyst's model tier to the
+        deployment default would be the worst kind of silent downgrade.
+        """
         if session_id is not None:
             existing = await self._sessions.get(session_id)
             if existing is not None:
+                if settings is not None and settings != existing.settings:
+                    existing = existing.with_settings(settings)
+                    await self._sessions.save(existing)
                 return existing
         newest = await self.newest_watermark()
         session = Session(
@@ -262,6 +351,7 @@ class OpenSessionService:
             pack_version=PackVersionRef(self._pack.pack_id, self._pack.pack_version),
             epochs=(WatermarkEpoch(index=0, watermark=newest),),
             created_at=datetime.now(UTC),
+            settings=settings if settings is not None else DEFAULT_SESSION_SETTINGS,
         )
         await self._sessions.save(session)
         return session
@@ -289,9 +379,12 @@ class _TurnState:
     investigation_id: str
     trace_id: str
     question: str
+    #: The controls in force for this turn (session settings, or the
+    #: per-turn override the caller sent).
+    settings: SessionSettings = DEFAULT_SESSION_SETTINGS
     started: float = field(default_factory=time.monotonic)
     timings_ms: dict[str, int] = field(default_factory=dict)
-    llm_usages: list[tuple[str, LlmUsage]] = field(default_factory=list)
+    llm_usages: list[tuple[str, LlmUsage, LlmFailureKind | None]] = field(default_factory=list)
     template_hashes: dict[str, str] = field(default_factory=dict)
     watermark_stale: bool = False
     epoch_transition: bool = False
@@ -300,6 +393,35 @@ class _TurnState:
         now = time.monotonic()
         self.timings_ms[stage] = int((now - self.started) * 1000)
         self.started = now
+
+    # -- the per-turn cost ledger (design §7.1 settings, §14 trace) --------
+
+    def record_llm(
+        self, template: str, usage: LlmUsage, failure: LlmFailureKind | None = None
+    ) -> None:
+        self.llm_usages.append((template, usage, failure))
+
+    @property
+    def llm_spend(self) -> Decimal:
+        """What this turn's model calls have cost so far."""
+        return sum((usage.cost_usd for _, usage, _ in self.llm_usages), Decimal(0))
+
+    @property
+    def budget_remaining(self) -> Decimal | None:
+        """What is left of the turn's ceiling, or ``None`` when unset.
+
+        ``None`` is not "unlimited spending" — it is "no per-turn ledger",
+        which leaves every call bounded by the deployment's own per-call
+        cap exactly as it was before this control existed.
+        """
+        ceiling = self.settings.max_turn_cost_usd
+        return None if ceiling is None else ceiling - self.llm_spend
+
+    def call_policy(self) -> LlmCallPolicy:
+        """Model tier + what is left of the budget, for the next call."""
+        return LlmCallPolicy(
+            model=self.settings.model_tier, max_cost_usd=self.budget_remaining
+        )
 
 
 class SubmitTurnService:
@@ -359,6 +481,9 @@ class SubmitTurnService:
             investigation_id=_new_id("inv"),
             trace_id=_new_id("trace"),
             question=request.question,
+            # a per-turn override applies to this turn only; the session's
+            # own settings are the default and are never rewritten here
+            settings=request.settings if request.settings is not None else session.settings,
         )
         session = await self._check_watermark(session, state, request)
 
@@ -373,9 +498,15 @@ class SubmitTurnService:
                 session, state, None, dto_ops=tuple(request.refinements)
             )
 
+        exhausted = self._budget_stop(state, "reading your question")
+        if exhausted is not None:
+            return await self._clarification_outcome(session, state, None, exhausted)
+
         await self._stage(state, "classify")
-        classified = await self._classifier.classify(request.question)
-        state.llm_usages.append(("classify_turn", classified.usage))
+        classified = await self._classifier.classify(
+            request.question, policy=state.call_policy()
+        )
+        state.record_llm("classify_turn", classified.usage, classified.failure)
         state.template_hashes["classify_turn@v1"] = classified.template_hash
         state.time_stage("classify")
 
@@ -406,6 +537,35 @@ class SubmitTurnService:
             reason=f"turn class {turn_class.value} is not actionable here",
         )
         return await self._clarification_outcome(session, state, classified, clarification)
+
+    # --------------------------------------------------- the per-turn budget
+
+    @staticmethod
+    def _budget_stop(state: _TurnState, stage_label: str) -> ClarificationRequest | None:
+        """Stop the turn when its cost ceiling leaves nothing to spend.
+
+        Called before every model call. The alternative — carrying on with
+        a budget too small to complete — buys a provider refusal that looks
+        like an outage, and the alternative to *that* is worse: answering
+        with fewer model calls and not saying so. A turn that ran out of
+        money says it ran out of money, and the ceiling is the analyst's
+        own setting, so the recovery is in their hands.
+        """
+        remaining = state.budget_remaining
+        if remaining is None or remaining >= _MIN_CALL_BUDGET_USD:
+            return None
+        ceiling = state.settings.max_turn_cost_usd
+        return ClarificationRequest(
+            question=(
+                f"This turn reached its ${ceiling} cost ceiling while {stage_label}. "
+                "Raise the per-turn ceiling and ask again, or ask something narrower."
+            ),
+            options=("Raise the per-turn cost ceiling", "Ask a narrower question"),
+            reason=(
+                f"TURN_BUDGET_EXHAUSTED: spent ${state.llm_spend} of a ${ceiling} "
+                f"per-turn ceiling before {stage_label}"
+            ),
+        )
 
     # ------------------------------------------------------ watermark epochs
 
@@ -438,11 +598,15 @@ class SubmitTurnService:
     async def _new_investigation_turn(
         self, session: Session, state: _TurnState, classified: ClassificationOutcome
     ) -> TurnOutcome:
+        exhausted = self._budget_stop(state, "working out what to measure")
+        if exhausted is not None:
+            return await self._clarification_outcome(session, state, classified, exhausted)
+
         await self._stage(state, "interpret")
         interpretation = await self._interpreter.interpret(
-            state.question, session=session, turn_id=state.turn_id
+            state.question, session=session, turn_id=state.turn_id, policy=state.call_policy()
         )
-        state.llm_usages.append(("interpret_question", interpretation.usage))
+        state.record_llm("interpret_question", interpretation.usage, interpretation.failure)
         state.template_hashes["interpret_question@v1"] = interpretation.template_hash
         state.time_stage("interpret")
 
@@ -542,15 +706,23 @@ class SubmitTurnService:
                     reason="refinement without a parent investigation",
                 ),
             )
-        playbook_id, window_explicit = await self._plan_context_of(parent.id)
+        parent_plan_context = await self._plan_context_of(parent.id)
+        playbook_id = parent_plan_context.playbook_id
+        window_explicit = parent_plan_context.window_explicit
         entries = await self._referents.list_for_session(session.id)
         resolutions: tuple[ReferentResolution, ...] = ()
         rationale = ""
 
         if dto_ops is None:
+            exhausted = self._budget_stop(state, "resolving what you referred to")
+            if exhausted is not None:
+                return await self._clarification_outcome(session, state, classified, exhausted)
+
             await self._stage(state, "resolve_referents")
-            resolved = await self._referent_resolver.resolve(state.question, entries)
-            state.llm_usages.append(("resolve_referents", resolved.usage))
+            resolved = await self._referent_resolver.resolve(
+                state.question, entries, policy=state.call_policy()
+            )
+            state.record_llm("resolve_referents", resolved.usage, resolved.failure)
             state.template_hashes["resolve_referents@v1"] = resolved.template_hash
             state.time_stage("resolve_referents")
             if resolved.clarification is not None:
@@ -558,6 +730,10 @@ class SubmitTurnService:
                     session, state, classified, resolved.clarification
                 )
             resolutions = resolved.resolutions
+
+            exhausted = self._budget_stop(state, "compiling your follow-up")
+            if exhausted is not None:
+                return await self._clarification_outcome(session, state, classified, exhausted)
 
             await self._stage(state, "emit_refinements")
             emission = await self._refinement_emitter.emit(
@@ -567,8 +743,9 @@ class SubmitTurnService:
                 resolutions=resolutions,
                 dimension_lines=self._dimension_lines(),
                 metric_lines=self._metric_lines(),
+                policy=state.call_policy(),
             )
-            state.llm_usages.append(("emit_refinements", emission.usage))
+            state.record_llm("emit_refinements", emission.usage, emission.failure)
             state.template_hashes["emit_refinements@v1"] = emission.template_hash
             state.time_stage("emit_refinements")
             if emission.clarification is not None or emission.operators is None:
@@ -639,6 +816,7 @@ class SubmitTurnService:
             spec=new_spec,
             playbook_id=playbook_id,
             window_explicit=window_explicit,
+            parent_evidence_depth=parent_plan_context.evidence_depth,
             turn_class=TurnClass.REFINEMENT,
             parent=parent,
             operators=domain_ops,
@@ -680,18 +858,30 @@ class SubmitTurnService:
         refinement_extra: Mapping[str, Any] | None = None,
         trace_extra: Mapping[str, Any] | None = None,
         prelude_warnings: tuple[str, ...] = (),
+        parent_evidence_depth: EvidenceDepth | None = None,
     ) -> TurnOutcome:
         effective_playbook = playbook_id if not spec.measures else None
+        evidence_depth = state.settings.evidence_depth
 
         await self._stage(state, "plan")
         plan = self._planner.build(
-            spec, playbook_id=effective_playbook, window_explicit=window_explicit
+            spec,
+            playbook_id=effective_playbook,
+            window_explicit=window_explicit,
+            evidence_depth=evidence_depth,
         )
         diff: PlanDiff | None = None
         if parent is not None:
             parent_playbook = playbook_id if not parent.spec.measures else None
             parent_plan = self._planner.build(
-                parent.spec, playbook_id=parent_playbook, window_explicit=window_explicit
+                parent.spec,
+                playbook_id=parent_playbook,
+                window_explicit=window_explicit,
+                # the depth the PARENT ran at, so the diff compares this
+                # plan against the one that actually produced the parent
+                evidence_depth=(
+                    parent_evidence_depth if parent_evidence_depth is not None else evidence_depth
+                ),
             )
             diff = self._differ.diff(parent_plan, plan)
         state.time_stage("plan")
@@ -786,7 +976,19 @@ class SubmitTurnService:
         await self._investigations.save(investigation, edge)
 
         extra: dict[str, Any] = {
-            "plan_context": {"playbook_id": playbook_id, "window_explicit": window_explicit}
+            "plan_context": {
+                "playbook_id": playbook_id,
+                "window_explicit": window_explicit,
+                "evidence_depth": evidence_depth.value,
+            },
+            # Recorded for every analytical turn, not only refinements.
+            # It used to live under ``refinement`` alone, which meant a
+            # first turn's verdict — "not_applicable, there is no parent"
+            # — was computed, returned on the wire, and then lost: a
+            # rehydrated turn had no way to say whether anything had been
+            # checked. The ``refinement`` copy stays for readers that
+            # already know where to look.
+            "reconciliation": reconciliation,
         }
         if trace_extra is not None:
             extra.update(dict(trace_extra))
@@ -830,6 +1032,7 @@ class SubmitTurnService:
             reconciliation=reconciliation,
             diff=diff,
             benchmarks=benchmarks,
+            settings=state.settings,
         )
 
     def _benchmarks_for(self, findings: FindingsResult) -> tuple[BenchmarkSpec, ...]:
@@ -959,6 +1162,7 @@ class SubmitTurnService:
             definitional=None,
             trace_id=state.trace_id,
             watermark_stale=state.watermark_stale,
+            settings=state.settings,
         )
 
     async def _meta_turn(
@@ -994,7 +1198,9 @@ class SubmitTurnService:
             probes=tuple(payload.get("probes", ())),
             operators=tuple(payload.get("operators", ())),
             grades=dict(payload.get("grades", {})),
-            reconciliation=refinement_payload.get("reconciliation"),
+            reconciliation=(
+                payload.get("reconciliation") or refinement_payload.get("reconciliation")
+            ),
             finding_values=tuple(entry.finding.values) if entry.finding is not None else (),
             warnings=tuple(payload.get("warnings", ())),
         )
@@ -1036,6 +1242,7 @@ class SubmitTurnService:
             trace_id=state.trace_id,
             watermark_stale=state.watermark_stale,
             meta=meta,
+            settings=state.settings,
         )
 
     async def _context_control_turn(
@@ -1045,6 +1252,10 @@ class SubmitTurnService:
         base_spec = parent.spec if parent is not None else self._fallback_spec(session)
         entries = await self._referents.list_for_session(session.id)
 
+        exhausted = self._budget_stop(state, "applying that context change")
+        if exhausted is not None:
+            return await self._clarification_outcome(session, state, classified, exhausted)
+
         await self._stage(state, "emit_refinements")
         emission = await self._refinement_emitter.emit(
             state.question,
@@ -1053,8 +1264,9 @@ class SubmitTurnService:
             resolutions=(),
             dimension_lines=self._dimension_lines(),
             metric_lines=self._metric_lines(),
+            policy=state.call_policy(),
         )
-        state.llm_usages.append(("emit_refinements", emission.usage))
+        state.record_llm("emit_refinements", emission.usage, emission.failure)
         state.template_hashes["emit_refinements@v1"] = emission.template_hash
         state.time_stage("emit_refinements")
         if emission.clarification is not None or emission.operators is None:
@@ -1140,6 +1352,7 @@ class SubmitTurnService:
             definitional=None,
             trace_id=state.trace_id,
             watermark_stale=state.watermark_stale,
+            settings=state.settings,
         )
 
     async def _kernel_only_turn(
@@ -1227,6 +1440,7 @@ class SubmitTurnService:
             definitional=None,
             trace_id=state.trace_id,
             watermark_stale=state.watermark_stale,
+            settings=state.settings,
         )
 
     # ------------------------------------------------------- outcome shapes
@@ -1269,6 +1483,7 @@ class SubmitTurnService:
             definitional=None,
             trace_id=state.trace_id,
             watermark_stale=state.watermark_stale,
+            settings=state.settings,
         )
 
     async def _definitional_outcome(
@@ -1311,6 +1526,7 @@ class SubmitTurnService:
             definitional=answer,
             trace_id=state.trace_id,
             watermark_stale=state.watermark_stale,
+            settings=state.settings,
         )
 
     # -------------------------------------------------------------- helpers
@@ -1331,17 +1547,30 @@ class SubmitTurnService:
             return None
         return max(candidates, key=lambda inv: inv.created_at)
 
-    async def _plan_context_of(self, investigation_id: str) -> tuple[str | None, bool]:
+    async def _plan_context_of(self, investigation_id: str) -> _PlanContext:
+        """How the parent turn was planned, read back from its trace.
+
+        The evidence depth belongs here for the same reason the playbook id
+        does: the parent's plan is *rebuilt* to diff against, and rebuilding
+        it under this turn's depth would produce a plan the parent never
+        ran — every rescaled probe would read as unchanged.
+        """
         traces = await self._traces.for_investigation(investigation_id)
         for record in traces:
             plan_context = record.payload.get("plan_context")
             if isinstance(plan_context, Mapping):
                 playbook_id = plan_context.get("playbook_id")
-                return (
-                    playbook_id if isinstance(playbook_id, str) else None,
-                    bool(plan_context.get("window_explicit", True)),
+                raw_depth = plan_context.get("evidence_depth")
+                return _PlanContext(
+                    playbook_id=playbook_id if isinstance(playbook_id, str) else None,
+                    window_explicit=bool(plan_context.get("window_explicit", True)),
+                    evidence_depth=(
+                        EvidenceDepth(raw_depth)
+                        if isinstance(raw_depth, str) and raw_depth in _EVIDENCE_DEPTHS
+                        else EvidenceDepth.STANDARD
+                    ),
                 )
-        return None, True
+        return _PlanContext()
 
     async def _inherited_pins(self, session: Session) -> tuple[ContextPin, ...]:
         latest = await self._latest_investigation(session, analytical=False)
@@ -1517,21 +1746,56 @@ class SubmitTurnService:
                     "basis": interpreted.spec.context.window.basis.id,
                 },
             }
-        cache_hits = {item.node_id: item.cache_hit for item in executed}
+        # Executed probes carry what the plan alone cannot: how many rows
+        # came back, whether the frame was truncated or suppressed, what
+        # grade it earned, and how long it took. A debug view that reported
+        # only the plan would answer "what did you intend to read?" while
+        # the question is always "what did you actually read?".
+        by_node = {item.node_id: item for item in executed}
         probes_payload = []
         if validated is not None:
+            grades = dict(validated.grades)
             for node in validated.plan.nodes:
+                item = by_node.get(node.id)
+                probe = node.probe
+                grade = grades.get(node.id)
                 probes_payload.append(
                     {
                         "id": node.id,
                         "hash": node.hash,
                         "purpose": node.purpose,
-                        "cache_hit": cache_hits.get(node.id, False),
+                        "kind": _probe_kind(probe),
+                        "metrics": _probe_metrics(
+                            probe, item.frame if item is not None else None
+                        ),
+                        "cache_hit": item.cache_hit if item is not None else False,
+                        "rows": len(item.frame.rows) if item is not None else None,
+                        "limit": probe.limit if isinstance(probe, AggregationProbe) else None,
+                        "truncated": item.frame.truncated if item is not None else False,
+                        "suppressed_cells": (
+                            item.frame.suppressed_cells if item is not None else 0
+                        ),
+                        "grade": grade.value if grade is not None else None,
+                        "duration_ms": item.duration_ms if item is not None else 0,
                     }
                 )
         payload: dict[str, Any] = {
             "tenant": session.tenant,
             "question": state.question,
+            # The controls this turn ran under, recorded with the turn: a
+            # trace that cannot say which model tier or evidence depth
+            # produced it cannot explain the answer it belongs to.
+            "settings": {
+                "model_tier": state.settings.model_tier,
+                "max_turn_cost_usd": (
+                    str(state.settings.max_turn_cost_usd)
+                    if state.settings.max_turn_cost_usd is not None
+                    else None
+                ),
+                "narrative_depth": state.settings.narrative_depth.value,
+                "evidence_depth": state.settings.evidence_depth.value,
+                "debug": state.settings.debug,
+            },
             "pack": {
                 "id": session.pack_version.pack_id,
                 "version": session.pack_version.version,
@@ -1569,8 +1833,18 @@ class SubmitTurnService:
             "findings": [
                 finding.referent.value for finding in (findings.findings if findings else ())
             ],
+            # Referent → grade: the derivation the answer's caveats rest on,
+            # recorded beside the per-node grades it was taken from.
+            "finding_grades": {
+                finding.referent.value: finding.grade.value
+                for finding in (findings.findings if findings else ())
+            },
             "warnings": list(warnings),
             "clarification": clarification.question if clarification is not None else None,
+            # The reason carries the stage that stopped and, for a model
+            # call, which kind of empty-handed it was — the half of a
+            # clarification a debug reader is actually looking for.
+            "clarification_reason": clarification.reason if clarification is not None else None,
             "definitional": (
                 {
                     "terms": [term.term for term in definitional.terms],
@@ -1592,8 +1866,10 @@ class SubmitTurnService:
                     # schema are different diagnoses.
                     "attempts": usage.attempts,
                     "duration_ms": usage.duration_ms,
+                    # Why the call produced nothing usable, when it did.
+                    "failure": failure.value if failure is not None else None,
                 }
-                for template, usage in state.llm_usages
+                for template, usage, failure in state.llm_usages
             ],
             "template_hashes": dict(state.template_hashes),
             "timings_ms": dict(state.timings_ms),

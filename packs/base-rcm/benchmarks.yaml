@@ -399,3 +399,33 @@ benchmarks:
         url: https://www.hfma.org/revenue-cycle/denials-management/61778/
         authority: industry association guidance
         last_verified_at: 2026-08-07
+
+  # -- coverage wave 2 (2026-08-08) -------------------------------------
+  # No new research: this figure was already carried as narrative inside
+  # ops.map_keys_measurement and was recorded in NOTES.md as "dropped for
+  # want of a Revi metric" because only ar_over_90_pct existed. The
+  # ar_over_120_pct contract now gives it an honest home, so it is
+  # promoted to a benchmark artifact with its original source intact. See
+  # NOTES.md, "Coverage wave 2", for what was NOT promoted and why.
+  - id: benchmark.ar_over_120_pct.mgma_better_performers
+    metric_id: ar_over_120_pct
+    cohort_label: MGMA better-performing medical group practices - A/R aged over 120 days
+    value_low: "8.1"
+    value_high: "8.1"
+    unit: percent of A/R aged over 120 days
+    period: MGMA Data Mine, 2021 report on 2020 data
+    authority: professional association survey
+    review_status: machine_researched
+    cautions:
+      - Physician group practice cohort, not hospitals; the same report puts over 70 percent of better-performer A/R under 30 days
+      - Dated - 2021 report on 2020 data, a year when deferred care distorted aging; treat as a directional target, not a current median
+      - Better-performer figure, not a median; a typical practice sits materially above it
+      - Revi's ar_over_120_pct denominator is gross-billed open A/R including unbilled claims, and the source does not state its denominator convention
+      - Never read against ar_over_90_pct - the bands are not interchangeable and the 91-120 band is often ordinary payer float
+    sources:
+      - id: mgma-data-mine
+        title: "Data Mine: Measuring success - Finding the right metrics to optimize the revenue cycle"
+        publisher: MGMA
+        url: https://www.mgma.com/articles/data-mine-measuring-success-finding-the-right-metrics-to-optimize-the-revenue-cycle
+        authority: professional association
+        last_verified_at: 2026-08-07

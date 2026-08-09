@@ -2,9 +2,13 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import {
   ApiDriver,
+  fetchCapabilities,
   fetchHealth,
+  fetchHealthDetail,
   fetchPortfolioLatest,
   fetchSessionLineage,
+  fetchSessionList,
+  fetchTrace,
   resolveDriverKind,
 } from "@/lib/apiDriver";
 import type { TurnEvent } from "@/lib/types";
@@ -143,9 +147,9 @@ afterEach(() => {
 /* ------------------------------------------------------------------ */
 
 describe("resolveDriverKind", () => {
-  it("defaults to mock unless NEXT_PUBLIC_REVI_DRIVER is exactly 'api'", () => {
+  it("defaults to api unless NEXT_PUBLIC_REVI_DRIVER is exactly 'mock'", () => {
     // The env var is inlined at build time; in tests it is unset.
-    expect(resolveDriverKind()).toBe("mock");
+    expect(resolveDriverKind()).toBe("api");
   });
 });
 
@@ -198,6 +202,62 @@ describe("ApiDriver session bootstrap", () => {
     expect(turn?.body).not.toHaveProperty("refinements");
     expect(turn?.body).not.toHaveProperty("clarification_response");
     expect(turn?.body).not.toHaveProperty("re_anchor");
+    // No settings key at all with the controls at their defaults — the
+    // pre-settings body, byte for byte.
+    expect(turn?.body).not.toHaveProperty("settings");
+  });
+
+  it("puts chosen session settings on the turn, in the published spelling", async () => {
+    const { fetchImpl, calls } = scriptedFetch((call) =>
+      call.url.endsWith("/v1/sessions")
+        ? fakeResponse({ json: SESSION_WIRE })
+        : fakeResponse({ stream: streamOf(COMPLETE_FRAMES) }),
+    );
+    const driver = makeDriver(fetchImpl);
+    await collectSubmit(driver, {
+      utterance: "Why did cash decline last week?",
+      settings: {
+        modelTier: "claude-sonnet-5",
+        // Above a 0.50 deployment ceiling on purpose: the client sends what
+        // was chosen and the server refuses it by name. Clamping here would
+        // hide the refusal the analyst needs to see.
+        maxTurnCostUsd: "5.00",
+        narrativeDepth: "analyst",
+        evidenceDepth: "deep",
+        debug: true,
+      },
+    });
+
+    const turn = calls.find((c) => c.url.includes("/turns"));
+    expect(turn?.body?.settings).toEqual({
+      model_tier: "claude-sonnet-5",
+      max_turn_cost_usd: "5.00",
+      narrative_depth: "analyst",
+      evidence_depth: "deep",
+      debug: true,
+    });
+  });
+
+  it("omits the settings key when the submission carries the defaults", async () => {
+    const { fetchImpl, calls } = scriptedFetch((call) =>
+      call.url.endsWith("/v1/sessions")
+        ? fakeResponse({ json: SESSION_WIRE })
+        : fakeResponse({ stream: streamOf(COMPLETE_FRAMES) }),
+    );
+    const driver = makeDriver(fetchImpl);
+    await collectSubmit(driver, {
+      utterance: "Why did cash decline last week?",
+      settings: {
+        modelTier: null,
+        maxTurnCostUsd: null,
+        narrativeDepth: "summary",
+        evidenceDepth: "standard",
+        debug: false,
+      },
+    });
+
+    const turn = calls.find((c) => c.url.includes("/turns"));
+    expect(turn?.body).not.toHaveProperty("settings");
   });
 
   it("maps typed refinements, clarification responses, and re_anchor onto the wire", async () => {
@@ -275,6 +335,93 @@ describe("ApiDriver session bootstrap", () => {
 });
 
 /* ------------------------------------------------------------------ */
+/* "New chat" — newSession()                                           */
+/* ------------------------------------------------------------------ */
+
+describe("ApiDriver.newSession", () => {
+  it("discards the cached session and eagerly mints a fresh one for the NEXT turn", async () => {
+    const onSession = vi.fn();
+    let sessionCalls = 0;
+    const { fetchImpl, calls } = scriptedFetch((call) => {
+      if (call.url.endsWith("/v1/sessions")) {
+        sessionCalls += 1;
+        return fakeResponse({
+          json: { ...SESSION_WIRE, session_id: `sess_live_${sessionCalls}` },
+        });
+      }
+      return fakeResponse({ stream: streamOf(COMPLETE_FRAMES) });
+    });
+    const driver = makeDriver(fetchImpl, { onSession });
+
+    // First turn lazily bootstraps sess_live_1.
+    await collectSubmit(driver, { utterance: "q1" });
+    expect(onSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sessionId: "sess_live_1" }),
+    );
+
+    // newSession() eagerly mints sess_live_2 with no turn in flight.
+    await driver.newSession();
+    expect(onSession).toHaveBeenLastCalledWith(
+      expect.objectContaining({ sessionId: "sess_live_2" }),
+    );
+    expect(calls.filter((c) => c.url.endsWith("/v1/sessions"))).toHaveLength(2);
+
+    // The NEXT turn reuses the FRESH session, not the abandoned one.
+    await collectSubmit(driver, { utterance: "q2" });
+    const turnCalls = calls.filter((c) => c.url.includes("/turns"));
+    expect(turnCalls[turnCalls.length - 1]?.url).toBe(
+      "http://api.test/v1/sessions/sess_live_2/turns",
+    );
+    // Still only 2 session POSTs — the second turn did NOT bootstrap again.
+    expect(calls.filter((c) => c.url.endsWith("/v1/sessions"))).toHaveLength(2);
+  });
+
+  it("tolerates an unreachable API — the cache stays cleared for lazy retry on the next turn", async () => {
+    const onConnectionState = vi.fn();
+    const onSession = vi.fn();
+    let sessionAttempt = 0;
+    const fetchImpl = ((input: RequestInfo | URL) => {
+      if (String(input).endsWith("/v1/sessions")) {
+        sessionAttempt += 1;
+        if (sessionAttempt === 1) return Promise.reject(new TypeError("offline"));
+        return Promise.resolve(fakeResponse({ json: SESSION_WIRE }));
+      }
+      return Promise.resolve(fakeResponse({ stream: streamOf(COMPLETE_FRAMES) }));
+    }) as typeof fetch;
+    const driver = makeDriver(fetchImpl, { onConnectionState, onSession });
+
+    // Does not throw — offline is tolerated.
+    await expect(driver.newSession()).resolves.toBeUndefined();
+    expect(onConnectionState).toHaveBeenCalledWith("offline", "new session failed");
+    expect(onSession).not.toHaveBeenCalled();
+
+    // The next turn lazily retries from a clean slate and succeeds.
+    const events = await collectSubmit(driver, { utterance: "q" });
+    expect(onSession).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "sess_live_1" }),
+    );
+    expect(events.some((e) => e.type === "error")).toBe(false);
+  });
+
+  it("does not flip offline when the fresh session response merely fails contract validation", async () => {
+    const onConnectionState = vi.fn();
+    const onContractDrift = vi.fn();
+    const broken = structuredClone(SESSION_WIRE) as Record<string, unknown>;
+    delete broken.pack;
+    const { fetchImpl } = scriptedFetch(() => fakeResponse({ json: broken }));
+    const driver = makeDriver(fetchImpl, { onConnectionState, onContractDrift });
+
+    await driver.newSession();
+
+    expect(onContractDrift).toHaveBeenCalledWith(
+      expect.arrayContaining(["pack.pack_id", "pack.version"]),
+      "POST /v1/sessions",
+    );
+    expect(onConnectionState).not.toHaveBeenCalledWith("offline", expect.anything());
+  });
+});
+
+/* ------------------------------------------------------------------ */
 /* Streaming + drift gating                                            */
 /* ------------------------------------------------------------------ */
 
@@ -346,6 +493,58 @@ describe("ApiDriver streaming", () => {
     expect(events[events.length - 1]).toMatchObject({ type: "error", code: "CONTRACT_DRIFT" });
     // Terminal frame arrived (however broken) — no recovery replay.
     expect(calls.filter((c) => c.url.includes("/turns"))).toHaveLength(1);
+  });
+
+  it("carries the debug block off the turn_complete frame — no new frame kind", async () => {
+    // Verified against a live API: with `debug: true` in the turn's
+    // settings the whole DebugTracePayload rides inside `turn_complete`,
+    // so the stream parser learns no new ordering rules.
+    const frames = [
+      sse("stage", { stage: "classify" }),
+      sse("turn_complete", {
+        ...ANSWER_BODY,
+        debug: {
+          trace_id: "trace_9f2c",
+          session_id: "sess_a1b2",
+          investigation_id: "inv_1",
+          turn_id: "turn_1",
+          turn_class: "new_investigation",
+          classification_confidence: 0.94,
+          probes: [{ id: "cash_by_payer", hash: "8094abae", rows: 12 }],
+          llm_calls: [{ template: "classify_turn", model: "claude-opus-5", cost_usd: "0.0182" }],
+        },
+      }),
+    ];
+    const { fetchImpl } = scriptedFetch((call) =>
+      call.url.endsWith("/v1/sessions")
+        ? fakeResponse({ json: SESSION_WIRE })
+        : fakeResponse({ stream: streamOf(frames) }),
+    );
+    const driver = makeDriver(fetchImpl);
+
+    const events = await collectSubmit(driver, { utterance: "q" });
+    const complete = events.find((e) => e.type === "turn_complete");
+    expect(complete).toMatchObject({
+      type: "turn_complete",
+      debug: {
+        traceId: "trace_9f2c",
+        turnClass: "new_investigation",
+        classificationConfidence: 0.94,
+      },
+    });
+  });
+
+  it("omits the debug block entirely when the turn ran without it", async () => {
+    const { fetchImpl } = scriptedFetch((call) =>
+      call.url.endsWith("/v1/sessions")
+        ? fakeResponse({ json: SESSION_WIRE })
+        : fakeResponse({ stream: streamOf(COMPLETE_FRAMES) }),
+    );
+    const driver = makeDriver(fetchImpl);
+
+    const events = await collectSubmit(driver, { utterance: "q" });
+    const complete = events.find((e) => e.type === "turn_complete");
+    expect(complete).not.toHaveProperty("debug");
   });
 
   it("surfaces an ErrorEnvelope on a rejected turn without flipping offline", async () => {
@@ -574,6 +773,87 @@ describe("GET endpoint fetchers", () => {
     await expect(fetchHealth({ baseUrl: "http://api.test", fetchImpl: down })).resolves.toBe(false);
   });
 
+  it("fetchHealthDetail reads llm_mode off a healthy response", async () => {
+    const { fetchImpl } = scriptedFetch(() =>
+      fakeResponse({ json: { status: "ok", llm_mode: "scripted-demo" } }),
+    );
+    await expect(fetchHealthDetail({ baseUrl: "http://api.test", fetchImpl })).resolves.toEqual({
+      ok: true,
+      llmMode: "scripted-demo",
+    });
+  });
+
+  it("fetchHealthDetail reports unreachable with no llmMode", async () => {
+    const down = (() => Promise.reject(new TypeError("refused"))) as typeof fetch;
+    await expect(
+      fetchHealthDetail({ baseUrl: "http://api.test", fetchImpl: down }),
+    ).resolves.toEqual({ ok: false });
+  });
+
+  it("fetchCapabilities reads the deployment's published settings bounds", async () => {
+    const { fetchImpl, calls } = scriptedFetch(() =>
+      fakeResponse({
+        json: {
+          llm: "claude-agent-sdk",
+          pack_id: "base-rcm",
+          pack_version: "1.0.0",
+          newest_watermark_id: "wm_003",
+          settings: {
+            model_tiers: ["claude-opus-5", "claude-sonnet-5"],
+            default_model_tier: "claude-opus-5",
+            model_tier_effective: true,
+            max_turn_cost_usd: "0.50",
+            narrative_depths: ["summary", "analyst"],
+            evidence_depths: ["standard", "deep"],
+            evidence_depth_deep_multiplier: 4,
+            debug_available: true,
+          },
+        },
+      }),
+    );
+    const capabilities = await fetchCapabilities({ baseUrl: "http://api.test", fetchImpl });
+
+    expect(calls[0]?.url).toBe("http://api.test/v1/capabilities");
+    expect(capabilities.settings.modelTiers).toEqual(["claude-opus-5", "claude-sonnet-5"]);
+    expect(capabilities.settings.evidenceDepthDeepMultiplier).toBe(4);
+  });
+
+  it("fetchTrace reads a recorded decision trace", async () => {
+    const { fetchImpl, calls } = scriptedFetch(() =>
+      fakeResponse({
+        json: {
+          trace_id: "trace_1",
+          session_id: "sess_1",
+          investigation_id: "inv_1",
+          turn_id: "turn_1",
+          turn_class: "new_investigation",
+          probes: [{ id: "cash_by_payer", hash: "abc123", rows: 12 }],
+        },
+      }),
+    );
+    const trace = await fetchTrace("inv_1", { baseUrl: "http://api.test", fetchImpl });
+
+    expect(calls[0]?.url).toBe("http://api.test/v1/investigations/inv_1/trace");
+    expect(trace?.turnClass).toBe("new_investigation");
+    expect(trace?.probes[0]).toMatchObject({ id: "cash_by_payer", rows: 12 });
+  });
+
+  it("fetchTrace propagates the deployment's refusal instead of returning null", async () => {
+    const { fetchImpl } = scriptedFetch(() =>
+      fakeResponse({
+        status: 400,
+        json: {
+          code: "POLICY_DENIED",
+          message: "debug traces are disabled on this deployment (REVI_DEBUG_TRACE=0)",
+          correlation_id: "corr_1",
+        },
+      }),
+    );
+    await expect(fetchTrace("inv_1", { baseUrl: "http://api.test", fetchImpl })).rejects.toThrow(
+      /REVI_DEBUG_TRACE=0/,
+    );
+  });
+
   it("fetchPortfolioLatest treats 501 as gracefully unavailable", async () => {
     const { fetchImpl } = scriptedFetch(() => fakeResponse({ status: 501, bodyText: "{}" }));
     await expect(
@@ -640,5 +920,208 @@ describe("GET endpoint fetchers", () => {
       expect.arrayContaining(["nodes[1].investigationId"]),
       expect.stringContaining("lineage"),
     );
+  });
+
+  it("fetchSessionList reads the wire spelling and drops rows it cannot draw", async () => {
+    const onDrift = vi.fn();
+    const { fetchImpl, calls } = scriptedFetch(() =>
+      fakeResponse({
+        json: {
+          tenant: "demo",
+          total: 9,
+          limit: 50,
+          sessions: [
+            {
+              session_id: "sess_a",
+              title: "Why did cash decline last week?",
+              created_at: "2026-08-08T09:00:00Z",
+              last_activity: "2026-08-08T09:05:00Z",
+              turn_count: 3,
+            },
+            { session_id: "sess_b" }, // broken: no title, no timestamps
+          ],
+        },
+      }),
+    );
+
+    const page = await fetchSessionList(25, {
+      baseUrl: "http://api.test",
+      fetchImpl,
+      onDrift,
+    });
+
+    expect(calls[0]?.url).toBe("http://api.test/v1/sessions?limit=25");
+    expect(page.sessions).toEqual([
+      {
+        sessionId: "sess_a",
+        title: "Why did cash decline last week?",
+        createdAt: "2026-08-08T09:00:00Z",
+        lastActivity: "2026-08-08T09:05:00Z",
+        turnCount: 3,
+      },
+    ]);
+    // `total` is the server's, not the page length: a truncated list must
+    // not be able to claim it is the whole history.
+    expect(page.total).toBe(9);
+    expect(onDrift).toHaveBeenCalledWith(
+      expect.arrayContaining(["sessions[1].title"]),
+      "GET /v1/sessions",
+    );
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Session switching (re-join + thread rebuild)                        */
+/* ------------------------------------------------------------------ */
+
+describe("ApiDriver.resumeSession", () => {
+  const LINEAGE_WIRE = {
+    investigations: [
+      {
+        turn_id: "t1",
+        investigation_id: "inv_1",
+        turn_class: "new_investigation",
+        question: "Why did cash decline last week?",
+      },
+      {
+        turn_id: "t2",
+        investigation_id: "inv_2",
+        turn_class: "refinement",
+        question: "Break that down by payer",
+      },
+    ],
+    edges: [],
+  };
+
+  const investigationWire = (id: string, question: string) => ({
+    investigation_id: id,
+    session_id: "sess_live_1",
+    turn_id: "t",
+    turn_class: "new_investigation",
+    status: "complete",
+    question,
+    created_at: "2026-08-08T09:00:00Z",
+    findings: [
+      {
+        referent: `F_${id}`,
+        title: "State Medicaid cash down",
+        statement: "Posted cash fell $48,940.41.",
+        grade: "direct",
+        confidence: "high",
+        metric_ids: [],
+        values: [],
+        suggested_refinements: [],
+      },
+    ],
+    warnings: [],
+    // The server projects the bundle from the turn's recorded trace on
+    // this route too, so a restored turn opens a drawer with real working
+    // in it instead of an empty one.
+    evidence: {
+      probes: [
+        {
+          id: "cash_by_payer",
+          hash: "d94855a5",
+          purpose: "Decline week versus prior week by payer",
+          kind: "aggregation",
+          metrics: [{ id: "cash_posted", contract_version: 1 }],
+          cache_hit: false,
+          rows: 12,
+          limit: 12,
+          truncated: false,
+          suppressed_cells: 0,
+          grade: "direct",
+          duration_ms: 31,
+        },
+      ],
+      reconciliation: { status: "passed", detail: null, summary: "status=passed" },
+      warehouse_queries: 1,
+      cache_hits: 0,
+      zero_probe_turn: false,
+      answer_grade: "direct",
+    },
+    chart_specs: [],
+  });
+
+  function scriptResume() {
+    return scriptedFetch((call) => {
+      if (call.url.endsWith("/v1/sessions")) return fakeResponse({ json: SESSION_WIRE });
+      if (call.url.includes("/lineage")) return fakeResponse({ json: LINEAGE_WIRE });
+      if (call.url.includes("/v1/investigations/inv_1")) {
+        return fakeResponse({ json: investigationWire("inv_1", "Why did cash decline last week?") });
+      }
+      if (call.url.includes("/v1/investigations/inv_2")) {
+        return fakeResponse({ json: investigationWire("inv_2", "Break that down by payer") });
+      }
+      return fakeResponse({ status: 404, json: {} });
+    });
+  }
+
+  it("re-joins the named session and rebuilds its thread from stored turns", async () => {
+    const onSession = vi.fn();
+    const { fetchImpl, calls } = scriptResume();
+    const driver = makeDriver(fetchImpl, { onSession });
+
+    const resumed = await driver.resumeSession("sess_live_1");
+
+    // Re-join carries the session id — the server's re-join semantics keep
+    // the session's ORIGINAL watermark pin instead of re-pinning it.
+    const open = calls.find((c) => c.url.endsWith("/v1/sessions"));
+    expect(open?.method).toBe("POST");
+    expect(open?.body).toMatchObject({ session_id: "sess_live_1" });
+    expect(resumed.sessionId).toBe("sess_live_1");
+    expect(resumed.watermark.id).toBe("wm_010");
+    expect(onSession).toHaveBeenCalledTimes(1);
+
+    expect(resumed.turns.map((t) => t.question)).toEqual([
+      "Why did cash decline last week?",
+      "Break that down by payer",
+    ]);
+    const first = resumed.turns[0];
+    expect(first.investigationId).toBe("inv_1");
+    expect(first.events.some((e) => e.type === "finding")).toBe(true);
+    expect(first.events.at(-1)).toMatchObject({ type: "turn_complete", status: "complete" });
+
+    // A restored turn carries its working: the drawer, the reconciliation
+    // banner and the "no new queries" chip all read this one event, and
+    // before the bundle reached this route they had nothing to read.
+    const evidence = first.events.find((e) => e.type === "evidence");
+    if (evidence?.type !== "evidence") throw new Error("no evidence event");
+    expect(evidence.evidence.probes[0]).toMatchObject({
+      probeId: "cash_by_payer",
+      description: "Decline week versus prior week by payer",
+      rowCount: 12,
+      cacheHit: false,
+      grade: "direct",
+    });
+    expect(evidence.evidence.reconciliation?.status).toBe("passed");
+    expect(evidence.evidence.zeroProbeTurn).toBe(false);
+  });
+
+  it("fails the switch visibly rather than serving a thread with a turn missing", async () => {
+    const { fetchImpl } = scriptedFetch((call) => {
+      if (call.url.endsWith("/v1/sessions")) return fakeResponse({ json: SESSION_WIRE });
+      if (call.url.includes("/lineage")) return fakeResponse({ json: LINEAGE_WIRE });
+      if (call.url.includes("/v1/investigations/inv_1")) {
+        return fakeResponse({ json: investigationWire("inv_1", "Why did cash decline last week?") });
+      }
+      return fakeResponse({ status: 500, bodyText: "" }); // inv_2 unreadable
+    });
+    const driver = makeDriver(fetchImpl);
+
+    await expect(driver.resumeSession("sess_live_1")).rejects.toBeInstanceOf(Error);
+  });
+
+  it("resumes an empty session as an empty thread", async () => {
+    const { fetchImpl } = scriptedFetch((call) =>
+      call.url.endsWith("/v1/sessions")
+        ? fakeResponse({ json: SESSION_WIRE })
+        : fakeResponse({ json: { investigations: [], edges: [] } }),
+    );
+    const driver = makeDriver(fetchImpl);
+
+    const resumed = await driver.resumeSession("sess_live_1");
+
+    expect(resumed.turns).toEqual([]);
   });
 });

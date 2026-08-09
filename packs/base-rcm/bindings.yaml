@@ -114,3 +114,131 @@ bindings:
     rationale: >-
       Synthetic remark codes are uncertified placeholders populated on a
       minority of denials; any cut by them downgrades to discovery grade.
+
+  # --- coverage wave 2 (2026-08-08): named cohorts ------------------------
+  # Each cohort concept binds to the CERTIFIED dimension whose declared
+  # value domain expresses it. The binding is what makes "government
+  # payers" a checkable predicate rather than a phrase Revi has to guess
+  # its way through; the concept's definition names the exact values.
+  - concept_id: government_payers
+    dimension_or_measure_id: payer_type
+    state: certified
+    strength: direct
+    rationale: >-
+      payer_type is a certified dimension with a declared value domain, and
+      the four public-program values (MEDICARE, MEDICARE_ADVANTAGE,
+      MEDICAID, MEDICAID_MCO) are the concept exactly — no inference from
+      payer names is involved.
+  - concept_id: commercial_payers
+    dimension_or_measure_id: payer_type
+    state: certified
+    strength: direct
+    rationale: >-
+      COMMERCIAL plus BCBS on the certified payer_type domain. Direct rather
+      than derived because the values ARE the concept; the only judgment is
+      whether Blue plans are included, which the concept states.
+  - concept_id: managed_care
+    dimension_or_measure_id: product_type
+    state: certified
+    strength: derived
+    rationale: >-
+      Product type (HMO, POS, MA, MCO) identifies network-managed products
+      deterministically, but "managed care" is a behavior family rather than
+      a stored attribute — the mapping is a governed rule over certified
+      values, not a stamped flag.
+  - concept_id: managed_care
+    dimension_or_measure_id: payer_type
+    state: certified
+    strength: derived
+    rationale: >-
+      The program-side reading: MEDICARE_ADVANTAGE and MEDICAID_MCO are the
+      privately administered public programs. Deliberately a second binding
+      rather than a merge — it selects a different population from the
+      product-type reading and an answer must say which it used.
+  - concept_id: medicare_advantage
+    dimension_or_measure_id: payer_type
+    state: certified
+    strength: direct
+    rationale: MEDICARE_ADVANTAGE is a declared value of the certified payer_type domain.
+  - concept_id: medicare_advantage
+    dimension_or_measure_id: product_type
+    state: certified
+    strength: derived
+    rationale: >-
+      product_type MA coincides with payer_type MEDICARE_ADVANTAGE in this
+      warehouse; derived rather than direct because that coincidence is a
+      property of the generated data, not a guaranteed identity.
+  - concept_id: traditional_medicare
+    dimension_or_measure_id: payer_type
+    state: certified
+    strength: direct
+    rationale: >-
+      MEDICARE on the certified payer_type domain — fee-for-service
+      Medicare, held apart from MEDICARE_ADVANTAGE by the domain itself.
+  - concept_id: medicaid_coverage
+    dimension_or_measure_id: payer_type
+    state: certified
+    strength: direct
+    rationale: >-
+      MEDICAID plus MEDICAID_MCO on the certified payer_type domain: the
+      state program and the managed-care organizations that run it.
+  - concept_id: surgical_services
+    dimension_or_measure_id: service_line
+    state: validated
+    strength: derived
+    rationale: >-
+      The operative service lines are named values of the certified
+      service_line dimension. Validated rather than certified because the
+      membership list is a clinical judgment about which lines count as
+      surgical, and a tenant overlay may hold a different one.
+  - concept_id: high_dollar_claims
+    dimension_or_measure_id: billed_amount_cents
+    state: observed
+    strength: unavailable
+    rationale: >-
+      Claim value exists only as a MEASURE, never as a certified dimension,
+      so there is no legal predicate for a dollar-threshold cohort and none
+      will be invented. Ranking and share-of-total over a money metric are
+      the available substitute and answer a related but different question.
+  - concept_id: utilization_review
+    dimension_or_measure_id: denial_category
+    state: certified
+    strength: proxy
+    rationale: >-
+      MEDICAL_NECESSITY and AUTH category denials are the visible OUTPUT of
+      utilization review, not a measurement of it — the review itself, its
+      timing and its level-of-care determinations leave no record here.
+  - concept_id: bad_debt
+    dimension_or_measure_id: other_adj_cents
+    state: observed
+    strength: unavailable
+    rationale: >-
+      Non-contractual write-offs exist as a single undifferentiated family;
+      no bad-debt, charity or small-balance reason code is stored, so the
+      bad-debt share of them is not measurable and must not be estimated
+      from the total.
+  - concept_id: charity_care
+    dimension_or_measure_id: other_adj_cents
+    state: observed
+    strength: unavailable
+    rationale: >-
+      Same undifferentiated write-off family as bad debt, and the same
+      answer: financial-assistance classification is absent, so charity care
+      cannot be separated out.
+  - concept_id: patient_statements
+    dimension_or_measure_id: patient_payment_cents
+    state: observed
+    strength: unavailable
+    rationale: >-
+      Patient cash records the outcome of the statement cycle; no statement,
+      reminder or placement event exists, so cycle effectiveness is not
+      measurable and only the two endpoints are.
+  - concept_id: prompt_pay
+    dimension_or_measure_id: ar_age_bucket
+    state: observed
+    strength: proxy
+    rationale: >-
+      Receivable aging is a symptom of slow payment, not a measurement of
+      statutory prompt-pay compliance: the clock starts at the payer's
+      receipt of a clean claim, which this warehouse does not record, and
+      the deadlines themselves are state law rather than pack content.

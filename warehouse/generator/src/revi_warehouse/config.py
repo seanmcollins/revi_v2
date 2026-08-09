@@ -30,7 +30,18 @@ NEVER = 10**8
 SERVICE_START = day("2025-01-01")
 SERVICE_END = day("2026-08-02")
 
-CALENDAR_START = day("2025-01-01")
+ORGANIC_ERA_START = SERVICE_START
+"""First service date of the organic world.
+
+Everything the five scenarios and the anomaly population describe happens in the
+organic era. The 2024 comparison backfill (backfill.py) sits entirely before it,
+so scenario and anomaly *baseline* windows are bounded below by this date: a
+prior-year cohort must not retroactively redefine "the period before the break".
+No pre-existing row carries a service, remit or denial date before it, so the
+bound is value-preserving for every published number.
+"""
+
+CALENDAR_START = day("2024-01-01")
 CALENDAR_END = day("2026-12-31")
 
 
@@ -360,6 +371,60 @@ ANOMALY_SPECS: tuple[AnomalySpec, ...] = (
 
 SELF_RESOLVING_IDS: frozenset[str] = frozenset(s.spec_id for s in ANOMALY_SPECS if s.self_resolving)
 
+BACKFILL_STREAM = 0xB1FF
+"""Seed-sequence tag for the 2024-backfill streams (independent of every other draw)."""
+
+
+@dataclass(frozen=True)
+class BackfillSpec:
+    """Shape of the additive 2024 prior year (backfill.py).
+
+    Volume, seasonality, payer mix and denial propensity are declared here so
+    the "how did 2025 compare with 2024?" answer has one auditable source. The
+    resolution deadline is the load-bearing constant: every backfill claim is
+    closed before it, which is what keeps watermark-time point metrics (A/R,
+    DNFB, credit balances, timely-filing risk) exactly where they were.
+    """
+
+    service_start: int = day("2024-01-01")
+    service_end: int = day("2024-12-31")  # 2024 is a leap year: 366 days
+    resolved_by: int = day("2025-06-30")
+    volume_ratio: float = 0.86
+    """2024 claims per day as a share of the 2025 rate — the growth story."""
+    denial_factor: float = 0.88
+    """2024 denial propensity as a share of each payer's 2025 rate."""
+    # Per-month multiplier on the daily claim rate (Jan..Dec), mean ~1.0.
+    seasonality: tuple[float, ...] = (
+        1.04, 0.95, 1.05, 1.02, 1.03, 0.98, 0.94, 0.96, 1.01, 1.06, 0.97, 0.99,
+    )
+    # Multiplicative tilt on each payer's 2025 share, in PAYERS order, applied
+    # before renormalisation. The story: commercial and Medicare Advantage
+    # volume grew into 2025 while the Medicaid book receded.
+    payer_mix_tilt: tuple[float, ...] = (
+        0.90,  # Atlas Commercial
+        1.05,  # Meridian Health
+        0.85,  # Silverline Medicare Advantage
+        1.00,  # Northbridge Commercial
+        1.15,  # State Medicaid
+        1.10,  # State Medicaid MCO
+        1.05,  # Federal Medicare
+        0.95,  # Bluestone Mutual
+        1.00,  # Pinnacle Health Plan
+        1.10,  # Veritas Comp Fund
+        1.10,  # Lakewood Medicaid MCO
+        0.80,  # Summit Peak Medicare Advantage
+    )
+    # Lifecycle clips, tightened from the organic world's so that the whole year
+    # closes by `resolved_by`. Each bound sits far enough into the tail of the
+    # organic distribution (>2.4 sigma) that mean cycle times are unchanged, so
+    # 2024-vs-2025 lag comparisons stay honest.
+    max_submission_lag: int = 22  # organic: 45
+    max_adjudication_lag: int = 40  # organic: 60
+    max_post_lag: int = 12  # organic: 15
+
+
+BACKFILL = BackfillSpec()
+
 
 @dataclass(frozen=True)
 class GeneratorConfig:
@@ -377,6 +442,7 @@ class GeneratorConfig:
     refund_frac: float = 0.004
     timely_cluster_size: int = 400  # scenario 5: July claims left unsubmitted at Eastside
     carc29_count: int = 15  # scenario 5: late-filed claims already denied CARC 29
+    include_backfill: bool = True  # append the closed 2024 comparison year (backfill.py)
 
     @staticmethod
     def small() -> GeneratorConfig:

@@ -1,19 +1,21 @@
 "use client";
 
-import { Command } from "lucide-react";
+import { Command, Settings2 } from "lucide-react";
 import { useEffect, useMemo, useState, useSyncExternalStore } from "react";
 
 import { ChatThread } from "@/components/chat/ChatThread";
 import { TurnInput } from "@/components/chat/TurnInput";
 import { CommandPalette } from "@/components/command/CommandPalette";
-import { ConnectionPill } from "@/components/workspace/ConnectionPill";
+import { SettingsPanel } from "@/components/settings/SettingsPanel";
+import { ConnectionPill, DegradedModeBadge } from "@/components/workspace/ConnectionPill";
 import { ContextPanel } from "@/components/workspace/ContextPanel";
 import { SessionRail } from "@/components/workspace/SessionRail";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { ApiDriver, fetchHealth, resolveDriverKind } from "@/lib/apiDriver";
+import { ApiDriver, fetchHealthDetail, resolveDriverKind } from "@/lib/apiDriver";
 import type { DriverKind, TurnDriver } from "@/lib/driver";
 import { mediumDate } from "@/lib/format";
-import { REFERENCE_QUESTIONS, MockDriver } from "@/lib/mockDriver";
+import { REFERENCE_QUESTIONS } from "@/lib/mock/reference";
+import { MockDriver } from "@/lib/mockDriver";
 import { useSessionStore } from "@/lib/store";
 
 /**
@@ -21,14 +23,16 @@ import { useSessionStore } from "@/lib/store";
  * right contextual panel (evidence + lineage). Desktop tool — designed
  * down to 1280px. Keyboard-first: ⌘K opens the command palette.
  *
- * Driver selection: NEXT_PUBLIC_REVI_DRIVER=mock|api (default mock), with
- * a client-side localStorage override from the palette. Both drivers speak
- * the same TurnEvent seam; api mode adds session bootstrap, the health-
- * checked connection pill, and live portfolio/lineage fetches.
+ * Driver selection: NEXT_PUBLIC_REVI_DRIVER=mock|api (default api — the
+ * live product; mock is a dev/test fixture, not a user-facing mode). A
+ * client-side localStorage override exists for tooling but is no longer
+ * written by any casual user-facing control. Both drivers speak the same
+ * TurnEvent seam; api mode adds session bootstrap, the health-checked
+ * connection pill, and live portfolio/lineage fetches.
  */
 const noopSubscribe = () => () => {};
 const envDriverKind = (): DriverKind =>
-  process.env.NEXT_PUBLIC_REVI_DRIVER === "api" ? "api" : "mock";
+  process.env.NEXT_PUBLIC_REVI_DRIVER === "mock" ? "mock" : "api";
 
 export default function Workspace() {
   // Hydration-safe driver selection: the server snapshot is the env
@@ -52,17 +56,36 @@ export default function Workspace() {
     return new MockDriver();
   }, [driverKind]);
   const setDriver = useSessionStore((s) => s.setDriver);
-  const submit = useSessionStore((s) => s.submit);
-  const streaming = useSessionStore((s) => s.streamingTurnId !== null);
   const turns = useSessionStore((s) => s.turns);
   const watermark = useSessionStore((s) => s.watermark);
   const pack = useSessionStore((s) => s.pack);
-  const [replaying, setReplaying] = useState(false);
+  const openSettings = useSessionStore((s) => s.openSettings);
+  const hydrateSettings = useSessionStore((s) => s.hydrateSettings);
+  const debug = useSessionStore((s) => s.settings.debug);
+  const sessionId = useSessionStore((s) => s.sessionId);
+  const sessions = useSessionStore((s) => s.sessions);
+  const llmMode = useSessionStore((s) => s.connection.llmMode);
   const [paletteOpen, setPaletteOpen] = useState(false);
+
+  // What this session is called: the first question asked in it — the
+  // same derivation the server uses for the rail. The thread's own first
+  // turn is preferred because it is already on screen (no waiting on a
+  // list refresh); the server's title covers a rejoined or gesture-only
+  // session, and one with no turns at all is honestly nameless.
+  const sessionTitle =
+    turns[0]?.submission.utterance ??
+    sessions.find((s) => s.sessionId === sessionId)?.title ??
+    "New session";
 
   useEffect(() => {
     setDriver(driver);
   }, [driver, setDriver]);
+
+  // Persisted settings are read on the CLIENT only: the server render has
+  // no localStorage, and hydrating from it during render would mismatch.
+  useEffect(() => {
+    hydrateSettings();
+  }, [hydrateSettings]);
 
   // Connection state machine (api mode): connecting → online ⇄ offline,
   // driven by a health heartbeat — fast retries while offline, slow while
@@ -77,10 +100,16 @@ export default function Workspace() {
     let cancelled = false;
     let timer: number | undefined;
     const probe = async (): Promise<void> => {
-      const healthy = await fetchHealth();
+      const health = await fetchHealthDetail();
       if (cancelled) return;
-      setConnection({ state: healthy ? "online" : "offline" });
-      timer = window.setTimeout(() => void probe(), healthy ? 30_000 : 5_000);
+      setConnection({
+        state: health.ok ? "online" : "offline",
+        llmMode: health.llmMode,
+        storeMode: health.storeMode,
+        authMode: health.authMode,
+        newestWatermarkId: health.watermarkId,
+      });
+      timer = window.setTimeout(() => void probe(), health.ok ? 30_000 : 5_000);
     };
     void probe();
     return () => {
@@ -93,20 +122,15 @@ export default function Workspace() {
     REFERENCE_QUESTIONS.includes(t.submission.utterance ?? ""),
   ).length;
 
-  const replay = async () => {
-    if (replaying || streaming) return;
-    setReplaying(true);
-    try {
-      for (const question of REFERENCE_QUESTIONS.slice(answeredReference)) {
-        await submit({ utterance: question });
-      }
-    } finally {
-      setReplaying(false);
-    }
-  };
-
+  // Composer suggestions are the reference drill-down, so they belong
+  // where that script is what actually answers: the mock fixture, or a
+  // deployment running the scripted stub LLM. Against a live model they
+  // were a fixed script pointer dressed as a contextual follow-up — the
+  // real follow-ups are the typed refinements each finding carries, which
+  // the answer card already renders next to the number they came from.
+  const scriptedAnswers = driverKind === "mock" || llmMode === "scripted-demo";
   const suggestions =
-    turns.length === 0
+    turns.length === 0 || !scriptedAnswers
       ? []
       : answeredReference < REFERENCE_QUESTIONS.length
         ? [REFERENCE_QUESTIONS[answeredReference]]
@@ -117,24 +141,49 @@ export default function Workspace() {
       <div aria-hidden className="page-glow pointer-events-none absolute inset-0" />
 
       <div className="relative grid h-full grid-cols-[16.5rem_minmax(0,1fr)_21rem] min-[1440px]:grid-cols-[17.5rem_minmax(0,1fr)_23rem]">
-        <SessionRail onReplay={() => void replay()} replayDisabled={replaying || streaming} />
+        <SessionRail />
 
         <main className="flex h-full min-h-0 flex-col">
           <header className="flex shrink-0 items-center justify-between gap-4 border-b bg-background/55 px-6 py-2.5 backdrop-blur-md">
             <div className="min-w-0">
+              {/* The session's own name: the first question asked in it, as
+                  the server derives it for the rail. It used to be a fixed
+                  string ("Cash decline — week of Jul 27") that outlived
+                  whatever was actually on screen. */}
               <h1 className="truncate text-[0.85rem] font-semibold tracking-tight">
-                Cash decline — week of Jul 27
+                {sessionTitle}
               </h1>
+              {/* Default: the two facts an analyst acts on — how fresh the
+                  data is and how far it runs. The pinned watermark id and
+                  pack version are engine vocabulary and live in debug mode
+                  and the settings panel's effective-configuration block. */}
               <p className="num truncate text-[0.62rem] text-muted-foreground">
-                Session pinned · watermark {watermark.loadedAt} · data through{" "}
-                {mediumDate(watermark.newestDataDate)} · {pack.packId}@{pack.version}
+                Data through {mediumDate(watermark.newestDataDate)} · loaded{" "}
+                {watermark.loadedAt}
+                {debug && ` · ${watermark.id} · ${pack.packId}@${pack.version}`}
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2.5">
               <ConnectionPill />
+              <DegradedModeBadge />
               <p className="num whitespace-nowrap text-[0.62rem] text-muted-foreground">
                 {turns.length} turn{turns.length === 1 ? "" : "s"}
               </p>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <button
+                    type="button"
+                    onClick={openSettings}
+                    aria-label="Open settings"
+                    className="flex items-center rounded-md border bg-surface-sunken/70 px-1.5 py-1 text-[0.62rem] font-medium text-muted-foreground transition-colors duration-150 hover:border-ring/40 hover:text-foreground"
+                  >
+                    <Settings2 className="size-3" />
+                  </button>
+                </TooltipTrigger>
+                <TooltipContent side="bottom" className="text-[0.65rem]">
+                  Settings · internal
+                </TooltipContent>
+              </Tooltip>
               <Tooltip>
                 <TooltipTrigger asChild>
                   <button
@@ -168,12 +217,8 @@ export default function Workspace() {
         <ContextPanel />
       </div>
 
-      <CommandPalette
-        open={paletteOpen}
-        onOpenChange={setPaletteOpen}
-        onReplay={() => void replay()}
-        replayDisabled={replaying || streaming}
-      />
+      <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
+      <SettingsPanel />
     </div>
   );
 }

@@ -1,0 +1,34 @@
+# Share of a claim cohort worked all the way to a resolved standing (paid or
+# closed) as of the snapshot. The zero-balance question, asked of a cohort
+# rather than of the whole ledger: ar_balance says how much is still open,
+# this says what fraction of the business ever got finished.
+id: claim_resolution_rate
+version: 1
+kind: flow
+entity_grain: claim
+numerator:
+  filtered:
+    inner: {count_distinct: claim_id}
+    where: {dimension: status, op: in, values: [PAID, CLOSED]}
+denominator: {count_distinct: claim_id}
+primary_date_basis: service
+allowed_date_bases: [service, submission, discharge]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, provider,
+   provider_specialty, facility, region, service_line, claim_type,
+   payer_sequence]
+sign: higher_is_good
+unit: ratio
+description: >-
+  Claims that have reached a resolved standing — PAID or CLOSED — as a share
+  of all claims in the window, service-date basis. Population caveat, and it
+  is the whole reading: this is a flow cohort measured against a snapshot
+  watermark, so a claim's status is "as of today" while its cohort is "as of
+  service", and recent cohorts read low purely because they have not had time
+  to resolve. The number is only interpretable as a curve across cohort age
+  or as a payer-versus-payer comparison at equal age — never as a single
+  level. CLOSED counts as resolved even when it closed on a write-off rather
+  than a payment, so a high rate is not by itself good news: read it against
+  denial_write_off_dollars, and against net_to_gross_rate for what the
+  resolutions were worth. What remains unresolved is exactly ar_balance's
+  population (OPEN plus DENIED).

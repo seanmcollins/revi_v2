@@ -282,6 +282,150 @@
       "input_tokens": 2,
       "output_tokens": 2,
       "schema_retries": 0
+    },
+    "evidence": {
+      "probes": [
+        {
+          "id": "weekly_cash_trend",
+          "hash": "3e3fff9593ae392ad21cdc40d5d5a13c13f6629e3c676ea6893dca320701b66c",
+          "purpose": "Weekly buckets on the POST basis with a prior-period comparison; the decline week is identified here.",
+          "kind": "aggregation",
+          "metrics": [
+            {
+              "id": "cash_posted",
+              "contract_version": 1
+            }
+          ],
+          "cache_hit": false,
+          "rows": 1,
+          "limit": null,
+          "truncated": false,
+          "suppressed_cells": 0,
+          "grade": "direct",
+          "duration_ms": 24
+        },
+        {
+          "id": "cash_by_payer",
+          "hash": "d94855a5d2c7f34cecb07ae11d31f8e6f60dda655f8050b23422921fe5562f22",
+          "purpose": "Decline week versus prior week by payer; the decomposition input. Complete payer set \u2014 top_n covers the full cardinality.",
+          "kind": "aggregation",
+          "metrics": [
+            {
+              "id": "cash_posted",
+              "contract_version": 1
+            }
+          ],
+          "cache_hit": false,
+          "rows": 12,
+          "limit": 12,
+          "truncated": false,
+          "suppressed_cells": 0,
+          "grade": "direct",
+          "duration_ms": 20
+        },
+        {
+          "id": "submission_volume_by_payer",
+          "hash": "b14c108a2db748e68b227b2b2d867c2e003e98504ea66a1c2b2945c5786f0d63",
+          "purpose": "Weekly submitted volume by payer \u2014 volume-driven declines show up here one to three weeks before the cash effect.",
+          "kind": "aggregation",
+          "metrics": [
+            {
+              "id": "claim_volume",
+              "contract_version": 1
+            }
+          ],
+          "cache_hit": false,
+          "rows": 12,
+          "limit": null,
+          "truncated": false,
+          "suppressed_cells": 0,
+          "grade": "direct",
+          "duration_ms": 21
+        },
+        {
+          "id": "weekly_cash_trend__prior",
+          "hash": "ce1e812897e6ec94b0e759db1eaaa11a26dae3132ee95f7422c983b81668403a",
+          "purpose": "comparison baseline",
+          "kind": "aggregation",
+          "metrics": [
+            {
+              "id": "cash_posted",
+              "contract_version": 1
+            }
+          ],
+          "cache_hit": false,
+          "rows": 1,
+          "limit": null,
+          "truncated": false,
+          "suppressed_cells": 0,
+          "grade": "direct",
+          "duration_ms": 16
+        },
+        {
+          "id": "cash_by_payer__prior",
+          "hash": "ee0dfca333d7134d2aa74c0c38d89f115e6cdbce669f7dc19bf4d1ec636e5cdd",
+          "purpose": "comparison baseline",
+          "kind": "aggregation",
+          "metrics": [
+            {
+              "id": "cash_posted",
+              "contract_version": 1
+            }
+          ],
+          "cache_hit": false,
+          "rows": 12,
+          "limit": 12,
+          "truncated": false,
+          "suppressed_cells": 0,
+          "grade": "direct",
+          "duration_ms": 18
+        },
+        {
+          "id": "submission_volume_by_payer__prior",
+          "hash": "d7a8eeadc0f9822b70530a871cb107c0a3844b159cf7e2445162a2cd87f54c1b",
+          "purpose": "comparison baseline",
+          "kind": "aggregation",
+          "metrics": [
+            {
+              "id": "claim_volume",
+              "contract_version": 1
+            }
+          ],
+          "cache_hit": false,
+          "rows": 12,
+          "limit": null,
+          "truncated": false,
+          "suppressed_cells": 0,
+          "grade": "direct",
+          "duration_ms": 21
+        }
+      ],
+      "reconciliation": {
+        "status": "not_applicable",
+        "detail": "this is a first turn; there is no parent answer to reconcile to",
+        "summary": "status=not_applicable; reason=this is a first turn; there is no parent answer to reconcile to"
+      },
+      "warehouse_queries": 6,
+      "cache_hits": 0,
+      "zero_probe_turn": false,
+      "answer_grade": "direct"
+    },
+    "metric": {
+      "primary": null,
+      "metrics": [
+        {
+          "id": "cash_posted",
+          "contract_version": 1
+        },
+        {
+          "id": "claim_volume",
+          "contract_version": 1
+        }
+      ],
+      "playbook_id": "cash_decline",
+      "pack_id": "base-rcm",
+      "pack_version": "1.0.0",
+      "pack_snapshot_id": "25bffc62987b11ebff6d3088ed3945082eba114fd73100303202f1e674f4c0f7"
     }
   },
   "drill_turn_complete": {
@@ -567,6 +711,77 @@
     ],
     "warnings": [
       "suppression: cells counting fewer than 11 entities are suppressed before results leave the engine"
+    ],
+    "evidence": {
+      "probes": [
+        {
+          "id": "main",
+          "hash": "8f3c1df09ac14b55c94b40be6cbb37df33b86937e1f257559c6597c753aaa91e",
+          "purpose": "direct metric query",
+          "kind": "aggregation",
+          "metrics": [
+            {
+              "id": "denied_dollars",
+              "contract_version": 2
+            }
+          ],
+          "cache_hit": false,
+          "rows": 1,
+          "limit": null,
+          "truncated": false,
+          "suppressed_cells": 0,
+          "grade": "direct",
+          "duration_ms": 22
+        }
+      ],
+      "reconciliation": {
+        "status": "not_applicable",
+        "detail": "this is a first turn; there is no parent answer to reconcile to",
+        "summary": "status=not_applicable; reason=this is a first turn; there is no parent answer to reconcile to"
+      },
+      "warehouse_queries": 1,
+      "cache_hits": 0,
+      "zero_probe_turn": false,
+      "answer_grade": "direct"
+    },
+    "metric": {
+      "primary": {
+        "id": "denied_dollars",
+        "contract_version": 2
+      },
+      "metrics": [
+        {
+          "id": "denied_dollars",
+          "contract_version": 2
+        }
+      ],
+      "playbook_id": null,
+      "pack_id": "base-rcm",
+      "pack_version": "1.0.0",
+      "pack_snapshot_id": "25bffc62987b11ebff6d3088ed3945082eba114fd73100303202f1e674f4c0f7"
+    },
+    "chart_specs": [
+      {
+        "id": "chart_main",
+        "chart_type": "stacked_bar",
+        "title": "denied dollars \u2014 main",
+        "frame_id": "main",
+        "x": "payer",
+        "series": "service_line",
+        "value": "denied_dollars",
+        "unit": "money_cents",
+        "grade": "direct",
+        "rows": [
+          {
+            "x": "Federal Medicare",
+            "series": "Imaging",
+            "value": 3551530,
+            "referent_id": null
+          }
+        ],
+        "annotations": [],
+        "recipe_id": "denial_code_mix"
+      }
     ],
     "created_at": "2026-08-08T06:06:36.939765Z"
   }

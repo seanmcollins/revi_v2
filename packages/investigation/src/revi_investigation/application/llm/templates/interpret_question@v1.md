@@ -38,6 +38,11 @@ Guidance:
   definitional_terms and leave the analytical fields empty.
 - If the question cannot be mapped to this vocabulary, set clarification to
   one short question instead of guessing.
+- With a clarification you may also give up to four clarification_options:
+  short questions the analyst could send back as-is, each naming metrics,
+  dimensions, playbooks or concepts from the vocabulary above so that
+  choosing one produces a question you CAN map. Leave the list empty rather
+  than offer something this vocabulary cannot answer.
 
 Question:
 

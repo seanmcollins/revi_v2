@@ -2,15 +2,20 @@
 
 import { AlertTriangle } from "lucide-react";
 
-import { formatCents } from "@/lib/format";
 import type { ReconciliationResult } from "@/lib/types";
 
 /**
  * The failure case is never hidden: when children do not sum to the
- * parent, the answer is flagged loudly and the numbers are shown.
+ * parent, the answer is flagged loudly.
+ *
+ * What it no longer prints is the parent total and the row sum. The
+ * engine records the §7.8 verdict as a status and a reason — the two
+ * totals are computed inside the reconcile operator and not carried out
+ * of it — so those figures had no source on a live turn. The recorded
+ * reason is shown instead, and the raw summary sits in the drawer.
  */
-export function ReconciliationBanner({ result }: { result: ReconciliationResult }) {
-  if (result.status !== "failed") return null;
+export function ReconciliationBanner({ result }: { result?: ReconciliationResult }) {
+  if (result?.status !== "failed") return null;
   return (
     <div
       role="alert"
@@ -18,20 +23,16 @@ export function ReconciliationBanner({ result }: { result: ReconciliationResult 
     >
       <AlertTriangle className="mt-0.5 size-4 shrink-0 text-negative" />
       <div className="min-w-0">
-        <p className="font-mono text-[0.7rem] font-semibold uppercase tracking-wide text-negative">
-          RECONCILIATION_FAILED
+        {/* Softened wording, identical meaning: the breakdown is still
+            called out loudly and the numbers are still shown. The stable
+            §12 code stays available in debug mode's decision trace. */}
+        <p className="text-[0.75rem] font-semibold text-negative">
+          These rows don&rsquo;t add up to the total
         </p>
         <p className="mt-0.5 text-[0.75rem] leading-snug">
           {result.detail ??
-            "The decomposition does not sum to its parent. Do not act on these rows until resolved."}
+            "The breakdown does not sum to the number it came from. Don't act on these rows until it's resolved."}
         </p>
-        {result.parentCents !== undefined && result.childSumCents !== undefined && (
-          <p className="num mt-1 text-[0.7rem] text-muted-foreground">
-            parent {formatCents(result.parentCents)} · children sum{" "}
-            {formatCents(result.childSumCents)} · gap{" "}
-            {formatCents(result.childSumCents - result.parentCents)}
-          </p>
-        )}
       </div>
     </div>
   );

@@ -1,8 +1,10 @@
 /**
- * Mock TurnDriver — replays the reference five-turn conversation through the
- * SAME typed TurnEvent pipeline the real POST-SSE driver will use (see
- * lib/sse.ts). Swapping in the real API later means replacing this class
- * with one that calls `streamTurnEvents` — nothing else changes.
+ * Mock TurnDriver — a dev/test fixture, not a user-facing mode. It replays
+ * the reference five-turn conversation through the SAME typed TurnEvent
+ * pipeline the real POST-SSE driver (lib/apiDriver.ts) uses, which is what
+ * lets vitest exercise the store's event pipeline without a live backend.
+ * The live API is the product; this class exists for local dev without a
+ * running server and for tests.
  *
  * Pacing mimics the real system's tens-of-seconds latency at demo scale:
  * stage events arrive with visible gaps and the narrative streams in
@@ -118,6 +120,9 @@ export class MockDriver implements TurnDriver {
   resetProgress(): void {
     this.referenceProgress = 0;
   }
-}
 
-export const REFERENCE_QUESTIONS: string[] = REFERENCE_TURNS.map((t) => t.question);
+  /** "New chat": local only — rewind the reference drill-down to T1. */
+  async newSession(): Promise<void> {
+    this.resetProgress();
+  }
+}

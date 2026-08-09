@@ -16,6 +16,7 @@ from typing import Any
 
 from revi_warehouse.anomalies import inject_anomalies
 from revi_warehouse.answer_key import compute_answer_key, write_answer_key
+from revi_warehouse.backfill import apply_backfill
 from revi_warehouse.config import GeneratorConfig, make_rng
 from revi_warehouse.dims import build_dims
 from revi_warehouse.verify import Check, run_verification
@@ -42,6 +43,7 @@ def run_generation(
     dims = build_dims(config, rng)
     world = build_world(config, rng, dims)
     world = inject_anomalies(world, config)  # own RNG streams; base arrays untouched
+    world = apply_backfill(world, config)  # own RNG streams; appended after everything
     row_counts = write_warehouse(out_path, config, world)
     key = compute_answer_key(out_path, config)
     write_answer_key(key, ak_path)

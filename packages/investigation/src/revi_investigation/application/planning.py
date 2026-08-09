@@ -20,7 +20,10 @@ same grouping. Template semantics:
 - ``basis_override`` wins over the spec basis; otherwise the spec basis
   applies when the contract allows it, else the contract's primary basis.
 - ``top_n`` becomes the probe ``limit`` plus a server-side ordering by the
-  group's first additive measure (descending) when one exists.
+  group's first additive measure (descending) when one exists. At
+  ``evidence_depth=deep`` that pack-authored cutoff is scaled by
+  :data:`DEEP_TOP_N_MULTIPLIER` — a wider sweep of the same probe, never a
+  different or weaker check.
 - ``$dimension`` placeholders bind to the spec's interpreted dimensions;
   templates needing a dimension parameter are skipped (with a surfaced
   note) when the spec names none.
@@ -65,6 +68,7 @@ from revi_investigation.application.capability_ports import (
     TransformStepSpec,
 )
 from revi_investigation.domain.context import AnalysisSpec
+from revi_investigation_contracts.settings import EvidenceDepth
 from revi_kernel.cohort import CohortDefinition, CohortRef
 from revi_kernel.errors import UnsupportedConceptError
 from revi_kernel.filters import (
@@ -105,7 +109,31 @@ _DIMENSION_PARAM = "$dimension"
 _IMPACT_ARG = "impact_cents"
 _PRIOR_SUFFIX = "__prior"
 
+#: What ``evidence_depth=deep`` multiplies a *pack-authored* ``top_n`` by.
+#:
+#: A playbook's ``top_n`` is the platform's own cutoff — the pack author's
+#: judgement about how many payers are worth looking at by default, not a
+#: number the analyst asked for. Deep mode widens that judgement so fewer
+#: probes come back truncated, which is a real change in how much evidence
+#: the answer rests on: more rows retrieved, a different probe hash, a
+#: different cache entry, and the §6.6 truncation warning either narrowed
+#: or gone. An analyst's OWN limit (``spec.limit``, set by an ``Expand``
+#: gesture) is never rescaled — "show me the top 5" means five.
+DEEP_TOP_N_MULTIPLIER = 4
+
 _NORMALIZED_ORIGIN = ReferentId(value="__cohort__", kind=ReferentKind.COHORT)
+
+
+def _scaled_top_n(top_n: int | None, depth: EvidenceDepth) -> int | None:
+    """A pack-authored cutoff at the requested evidence depth.
+
+    ``None`` (no cutoff) stays ``None``: there is nothing to widen, and
+    inventing a limit where the pack asked for none would *narrow* the
+    evidence in the name of deepening it.
+    """
+    if top_n is None or depth is EvidenceDepth.STANDARD:
+        return top_n
+    return top_n * DEEP_TOP_N_MULTIPLIER
 
 
 def _normalize_scope(expr: FilterExpr) -> FilterExpr:
@@ -227,6 +255,7 @@ class BuildInvestigationPlanService:
         *,
         playbook_id: str | None = None,
         window_explicit: bool = True,
+        evidence_depth: EvidenceDepth = EvidenceDepth.STANDARD,
     ) -> InvestigationPlan:
         # Explicit measures win: a spec that names metrics (first-turn
         # interpretation or a Pivot refinement) plans a direct query even
@@ -237,7 +266,9 @@ class BuildInvestigationPlanService:
                 raise UnsupportedConceptError(
                     f"unknown playbook {playbook_id!r}", details={"playbook": playbook_id}
                 )
-            return self._build_playbook(spec, playbook, window_explicit=window_explicit)
+            return self._build_playbook(
+                spec, playbook, window_explicit=window_explicit, evidence_depth=evidence_depth
+            )
         if not spec.measures and playbook_id is None:
             raise UnsupportedConceptError(
                 "the question resolved to no governed measures or playbook",
@@ -322,7 +353,12 @@ class BuildInvestigationPlanService:
     # ------------------------------------------------------------- playbook
 
     def _build_playbook(
-        self, spec: AnalysisSpec, playbook: PlaybookSpec, *, window_explicit: bool
+        self,
+        spec: AnalysisSpec,
+        playbook: PlaybookSpec,
+        *,
+        window_explicit: bool,
+        evidence_depth: EvidenceDepth = EvidenceDepth.STANDARD,
     ) -> InvestigationPlan:
         notes: list[str] = []
         nodes: list[ProbeNode] = []
@@ -357,7 +393,7 @@ class BuildInvestigationPlanService:
                         spec,
                         dimensions=dimensions,
                         window=window,
-                        limit=template.top_n,
+                        limit=_scaled_top_n(template.top_n, evidence_depth),
                         rank_by=None,
                         rank_descending=True,
                         purpose=template.purpose or f"playbook probe {template.id}",

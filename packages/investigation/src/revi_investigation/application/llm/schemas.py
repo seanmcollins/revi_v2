@@ -19,10 +19,16 @@ Pydantic emits beside ``oneOf`` for discriminated unions: the Claude CLI's
 strict JSON-Schema validator rejects the keyword (SDK spike RESULTS.md,
 trap #1). The strip is lossless — ``oneOf`` plus each variant's ``const``
 ``op`` still pins the union.
+
+``clarification_options`` trims the recovery options a model may propose
+alongside a clarification. They are the only free text here that reaches a
+UI affordance rather than a sentence, so the trim is deterministic and
+tight — see the function.
 """
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from typing import Any, Literal
 
 from pydantic import BaseModel, ConfigDict, Field
@@ -54,6 +60,7 @@ from revi_investigation_contracts.refinements import (
 )
 
 __all__ = [
+    "MAX_CLARIFICATION_OPTIONS",
     "AbsoluteWindowModel",
     "AddFilterModel",
     "AnyRefinementOperator",
@@ -85,6 +92,7 @@ __all__ = [
     "TurnClassLiteral",
     "TurnClassificationResponse",
     "WindowSpecModel",
+    "clarification_options",
     "sanitize_json_schema",
 ]
 
@@ -108,6 +116,36 @@ class _Closed(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
 
+#: Chips on a clarification card, not a menu. Four is what fits before the
+#: analyst is reading a list instead of choosing from one.
+MAX_CLARIFICATION_OPTIONS = 4
+_OPTION_MAX_CHARS = 120
+
+
+def clarification_options(raw: Sequence[str]) -> tuple[str, ...]:
+    """Deterministically trim the recovery options a model proposed.
+
+    A model that asks for clarification may also propose ways forward —
+    restatements it could answer, or governed concepts it thinks were meant.
+    They are suggestions, so they stay free text (exactly like the
+    clarification question itself); what is *not* left to the model is how
+    many arrive or how long they are. Options are whitespace-flattened,
+    clipped, emptied of blanks, de-duplicated case-insensitively in
+    first-seen order, and cut to :data:`MAX_CLARIFICATION_OPTIONS`.
+    """
+    seen: set[str] = set()
+    options: list[str] = []
+    for candidate in raw:
+        flat = " ".join(candidate.split())[:_OPTION_MAX_CHARS].strip()
+        if not flat or flat.casefold() in seen:
+            continue
+        seen.add(flat.casefold())
+        options.append(flat)
+        if len(options) == MAX_CLARIFICATION_OPTIONS:
+            break
+    return tuple(options)
+
+
 # ---------------------------------------------------------------------------
 # classify_turn
 
@@ -116,6 +154,9 @@ class TurnClassificationResponse(_Closed):
     turn_class: TurnClassLiteral
     confidence: float = Field(ge=0.0, le=1.0)
     clarification_question: str | None = None
+    #: Optional recovery chips beside the question — trimmed by
+    #: :func:`clarification_options` before anything renders them.
+    clarification_options: list[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------
@@ -139,6 +180,9 @@ class InterpretationResponse(_Closed):
     comparison: ComparisonLiteral | None = None
     scope: list[ScopePredicateModel] = Field(default_factory=list)
     clarification: str | None = None
+    #: Optional recovery chips beside ``clarification`` — trimmed by
+    #: :func:`clarification_options` before anything renders them.
+    clarification_options: list[str] = Field(default_factory=list)
     definitional_terms: list[str] = Field(default_factory=list)
 
 
@@ -163,6 +207,9 @@ class ReferentResolutionResponse(_Closed):
 class RefinementEmissionResponse(_Closed):
     operators: list[RefinementOperatorModel]
     rationale: str
+    #: Optional recovery chips for the "no operators" case — trimmed by
+    #: :func:`clarification_options` before anything renders them.
+    clarification_options: list[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

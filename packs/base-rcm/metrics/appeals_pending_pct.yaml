@@ -1,0 +1,34 @@
+# Share of the filed-appeal pipeline still awaiting a decision. The middle
+# term between denials_unworked_pct (never touched) and appeal_overturn_rate
+# (already decided): work that was started and has not landed.
+id: appeals_pending_pct
+version: 1
+kind: flow
+entity_grain: denial
+numerator:
+  filtered:
+    inner: {count_distinct: denial_id}
+    where: {dimension: appeal_status, op: eq, value: APPEALED}
+denominator:
+  filtered:
+    inner: {count_distinct: denial_id}
+    where: {dimension: appeal_status, op: in, values: [APPEALED, OVERTURNED, UPHELD]}
+primary_date_basis: remit
+allowed_date_bases: [remit, service]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, facility, region,
+   service_line, claim_type, carc, group_code, denial_category]
+sign: higher_is_bad
+unit: ratio
+description: >-
+  Filed appeals still awaiting a decision as a share of all filed appeals
+  (pending plus decided) for denials in the window, remittance-date basis.
+  Denials never appealed at all are excluded from both sides — that
+  population is denials_unworked_pct, and mixing the two turns "we have not
+  started" into "the payer has not answered". Watermark caveat, and it is the
+  whole story near the data edge: a recently filed appeal is legitimately
+  pending, so trailing windows read high by construction; the signal is a
+  rising pending share on OLDER denial cohorts, which is payer stalling or an
+  appeal backlog rather than normal turnaround. This warehouse records no
+  appeal filing date, so pipeline AGE is not computable — only the pending
+  share (see pack NOTES).

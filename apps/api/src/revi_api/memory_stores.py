@@ -12,7 +12,10 @@ from __future__ import annotations
 from datetime import datetime, timedelta
 
 from revi_investigation.application.ports import (
+    EMPTY_SESSION_TITLE,
     RegisteredReferent,
+    SessionPage,
+    SessionSummary,
     TraceRecord,
 )
 from revi_investigation.domain.records import (
@@ -29,12 +32,56 @@ from revi_kernel.refs import ReferentId
 class MemorySessionStore:
     def __init__(self) -> None:
         self.sessions: dict[str, Session] = {}
+        # The other half of the list join. A session row carries no title
+        # and no last-activity of its own: both come from the turns the
+        # investigation store holds, exactly as the Postgres adapter reads
+        # them out of ``revi_trace.investigations``. Bound at construction
+        # by MemoryInvestigationStore so the pair cannot be assembled with
+        # only one side wired.
+        self._investigations: MemoryInvestigationStore | None = None
+
+    def bind_investigations(self, investigations: MemoryInvestigationStore) -> None:
+        self._investigations = investigations
 
     async def get(self, session_id: str) -> Session | None:
         return self.sessions.get(session_id)
 
     async def save(self, session: Session) -> None:
         self.sessions[session.id] = session
+
+    async def list_for_tenant(self, tenant: str, *, limit: int) -> SessionPage:
+        owned = [s for s in self.sessions.values() if s.tenant == tenant]
+        rows = [self._summarize(session) for session in owned]
+        # Stable two-pass sort: newest activity first, ties broken by id
+        # ASCENDING (a single reverse=True sort would reverse the tiebreak
+        # too, and the Postgres adapter orders the same way).
+        rows.sort(key=lambda row: row.session_id)
+        rows.sort(key=lambda row: row.last_activity, reverse=True)
+        return SessionPage(sessions=tuple(rows[:limit]), total=len(owned))
+
+    def _summarize(self, session: Session) -> SessionSummary:
+        turns = sorted(
+            (
+                inv
+                for inv in (
+                    self._investigations.investigations.values()
+                    if self._investigations is not None
+                    else ()
+                )
+                if inv.session_id == session.id
+            ),
+            key=lambda inv: (inv.created_at, inv.id),
+        )
+        first_question = next(
+            (inv.question for inv in turns if inv.question), None
+        )
+        return SessionSummary(
+            session_id=session.id,
+            title=first_question or EMPTY_SESSION_TITLE,
+            created_at=session.created_at,
+            last_activity=turns[-1].created_at if turns else session.created_at,
+            turn_count=len(turns),
+        )
 
 
 class MemoryReferentRegistryStore:
@@ -60,6 +107,10 @@ class MemoryInvestigationStore:
         self.investigations: dict[str, Investigation] = {}
         self.edges: list[RefinementEdge] = []
         self._sessions = sessions
+        # Listing sessions joins the two stores; binding here means the
+        # join is wired wherever the pair is built, never forgotten at one
+        # of several call sites.
+        sessions.bind_investigations(self)
 
     async def save(self, investigation: Investigation, edge: RefinementEdge | None) -> None:
         self.investigations[investigation.id] = investigation
@@ -144,4 +195,9 @@ class MemoryEvidenceCache:
     async def put(
         self, probe_hash: str, watermark_id: str, pack_snapshot_id: str, frame: EvidenceFrame
     ) -> None:
-        self.entries[(probe_hash, watermark_id, pack_snapshot_id)] = frame
+        # First write wins, exactly like the Postgres cache's ON CONFLICT
+        # DO NOTHING: the key already asserts (probe, watermark, pack), so
+        # a second frame under the same key is either identical or wrong,
+        # and overwriting would let the wrong one replace a cached answer
+        # other turns already cited.
+        self.entries.setdefault((probe_hash, watermark_id, pack_snapshot_id), frame)

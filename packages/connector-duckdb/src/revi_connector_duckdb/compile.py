@@ -20,9 +20,36 @@ metric id. Ratio metrics produce exactly two component columns
 kernel computes ratio-of-sums downstream — the adapter performs **zero
 arithmetic beyond aggregates**. ``Sum``/``CountDistinct`` fields resolve via
 catalog ``MeasureDef`` first (inheriting the measure's governed row filter as
-a ``FILTER (WHERE …)`` clause), then as a catalog-declared view column.
-Contract-internal ``Filtered`` scopes and contract ``exclusions`` also become
-``FILTER`` clauses.
+a ``FILTER (WHERE …)`` clause), then the probe-time derived registry below,
+then as a catalog-declared view column. Contract-internal ``Filtered`` scopes
+and contract ``exclusions`` also become ``FILTER`` clauses.
+
+**Probe-time derived measures.** Seven fields are computed by this compiler
+rather than stored (``_DERIVED_MEASURES``; the same list the base pack's
+NOTES.md declares, plus the snapshot's ``open_balance_cents``). Each is a
+deterministic expression over the entity's curated base view — a date
+difference, a floored variance, or a per-claim rollup joined on the certified
+``claim_id`` path. They are *adapter conventions over the catalog*, in the
+same sense as ``resolved_date`` and the ``ar_age_bucket`` CASE arms: the
+catalog governs every column, row filter and join they touch, and each one
+declares the probe shapes it is valid for (a snapshot-time age cannot be
+computed inside a flow aggregation, and the compiler says so rather than
+inventing an as-of).
+
+**Cross-entity ratio-of-sums.** A ratio metric may name a numerator and a
+denominator that live at different entity grains (``net_collection_rate``:
+transaction cash over claim expected). This is legal precisely when both
+sides aggregate to the *same scope* — same window on the same date basis,
+same scope filter, same group keys — which the pre-joined base views make
+true, since a transaction's payer/facility/service dates are its parent
+claim's. Such a probe compiles to one aggregate **block per entity**, each
+selecting the identical group columns from its own base view, joined
+``FULL OUTER … IS NOT DISTINCT FROM`` on those keys so neither side can drop
+a cell the other has. Both sides therefore remain plain SUMs over a shared
+population and the kernel still computes the ratio (slicing law, design
+§5.3): the adapter never divides, and never fans out a claim across its
+transactions. ``HAVING`` is rejected on cross-entity probes rather than
+silently applied to one side.
 
 **Determinism.** When a probe specifies no ordering, results are ordered by
 the group columns ascending so identical probes yield identical frames.
@@ -79,8 +106,10 @@ from revi_catalog_contracts.model import (
     DimensionKind,
     EntityDef,
     MeasureAggregation,
+    MeasureDef,
     PhiClass,
 )
+from revi_kernel.capabilities import DerivedMeasure
 from revi_kernel.cohort import CohortDefinition
 from revi_kernel.errors import (
     BindingAmbiguousError,
@@ -99,6 +128,7 @@ from revi_kernel.probes import (
     EvidenceProbe,
     MeasurePredicate,
     Ordering,
+    ProbeShape,
     RowEvidenceProbe,
     SnapshotProbe,
 )
@@ -119,10 +149,34 @@ _Fragment = tuple[str, list[SqlParam]]
 
 # Adapter conventions over the catalog for the claim-grain snapshot builder.
 _RESOLVED_DATE_COLUMN = "resolved_date"  # derived status field on the claim base view
-_OPEN_BALANCE_FIELD = "open_balance_cents"
+#: Charge-capture date on the line base view. Declared in the catalog under
+#: `claim_line.declared_columns` (warehouse/catalog/entities.yaml) and checked
+#: against it before use, so this name is a lookup key, not a private constant.
+_CHARGE_ENTRY_DATE_COLUMN = "charge_entry_date"
 _APPLIED_MEASURE_IDS = ("payment_cents", "patient_payment_cents", "contractual_adj_cents", "other_adj_cents")
+_CASH_IN_MEASURE_IDS = ("payment_cents", "patient_payment_cents")
 _REVERSAL_MEASURE_IDS = ("refund_cents",)
 _UNIT_BY_CATALOG_UNIT = {"cents": "money_cents", "count": "count"}
+
+#: Late-charge threshold, per the base pack's derived-measure registry: a line
+#: entered more than this many days after its service date is a late charge.
+_LATE_CHARGE_THRESHOLD_DAYS = 3
+
+#: Claim statuses that count as unresolved A/R, per the same registry
+#: (`ar_age_days_billed_cents` ages these and zeroes everything else). Values
+#: are from the catalog `status` dimension's declared domain.
+_UNRESOLVED_STATUSES = ("OPEN", "DENIED")
+
+# Rollup column names produced by the per-claim LEFT JOINs (double underscore
+# so they can never collide with a curated base-view column).
+_APPLIED_CENTS = "__applied_cents"
+_CASH_IN_CENTS = "__cash_in_cents"
+_REFUND_CENTS = "__refund_cents"
+_LINE_ALLOWED_CENTS = "__line_allowed_cents"
+_AGE_DAYS = "__age_days"
+
+_MONEY_ROLLUP = "claim_money"  # claim ← transaction, as-of (snapshot only)
+_LINE_ROLLUP = "claim_lines"  # claim ← claim_line (flow aggregation)
 
 _LIKE_SPECIALS = ("\\", "%", "_")
 
@@ -151,18 +205,144 @@ class CompiledQuery:
     single_thread: bool = False  # force threads=1 (deterministic sampling)
 
 
+#: Probe shapes a derived measure can be computed for (the kernel's own
+#: vocabulary, so the shape this compiler enforces and the shape the
+#: planner negotiates in §6.6 are the same value, never two spellings).
+AGGREGATION_SHAPE = ProbeShape.AGGREGATION
+SNAPSHOT_SHAPE = ProbeShape.SNAPSHOT
+
+
+@dataclass(frozen=True, slots=True)
+class _DerivedSpec:
+    """One probe-time derived measure: what it means, where it lives, and which
+    probe shapes can compute it. The SQL is built by
+    :meth:`ProbeCompiler._derived_binding`; this table is the governed
+    declaration the pack's NOTES.md registry mirrors, and
+    :func:`derived_measure_capabilities` publishes it across the repository
+    port so the planner refuses exactly what this compiler would refuse."""
+
+    id: str
+    entity: str  # catalog entity name
+    unit: str | None  # frame-column unit ("days", "money_cents", None)
+    shapes: frozenset[ProbeShape]
+    formula: str
+
+
+_DERIVED_MEASURES: Mapping[str, _DerivedSpec] = {
+    spec.id: spec
+    for spec in (
+        _DerivedSpec(
+            "payment_lag_days",
+            "transaction",
+            "days",
+            frozenset({AGGREGATION_SHAPE}),
+            "PAYMENT transactions only (the catalog's payment_cents row filter): "
+            "post date minus the parent claim's submission date, in days.",
+        ),
+        _DerivedSpec(
+            "submission_lag_days",
+            "claim",
+            "days",
+            frozenset({AGGREGATION_SHAPE}),
+            "Submission date minus service date, in days; NULL (contributes "
+            "nothing) for a claim that was never submitted.",
+        ),
+        _DerivedSpec(
+            "charge_entry_lag_days",
+            "claim_line",
+            "days",
+            frozenset({AGGREGATION_SHAPE}),
+            "Charge-entry date minus the line's service date, in days.",
+        ),
+        _DerivedSpec(
+            "late_charge_cents",
+            "claim_line",
+            "money_cents",
+            frozenset({AGGREGATION_SHAPE}),
+            f"Line billed cents when charge entry is more than "
+            f"{_LATE_CHARGE_THRESHOLD_DAYS} days after the line's service date, else 0.",
+        ),
+        _DerivedSpec(
+            "underpayment_cents",
+            "claim",
+            "money_cents",
+            frozenset({AGGREGATION_SHAPE}),
+            "Adjudicated claims only (the claim has visible line allowed "
+            "amounts): max(0, expected cents minus summed line allowed cents). "
+            "Floored per claim, so underpayments never net against overpayments.",
+        ),
+        _DerivedSpec(
+            "ar_age_days_billed_cents",
+            "claim",
+            None,  # cents x days — a weighting product, not a reportable unit
+            frozenset({SNAPSHOT_SHAPE}),
+            "Unresolved claims (status OPEN or DENIED) only: billed cents times "
+            "the claim's age in days at the snapshot's as-of date; else 0.",
+        ),
+        _DerivedSpec(
+            "credit_balance_cents",
+            "claim",
+            "money_cents",
+            frozenset({SNAPSHOT_SHAPE}),
+            "max(0, max(0, payer + patient cash posted on/before as-of minus "
+            "expected cents) minus refunds already posted).",
+        ),
+        _DerivedSpec(
+            "open_balance_cents",
+            "claim",
+            "money_cents",
+            frozenset({SNAPSHOT_SHAPE}),
+            "Billed cents minus money applied on/before as-of (payments, patient "
+            "payments and adjustments; refunds added back).",
+        ),
+    )
+}
+
+_OPEN_BALANCE_FIELD = "open_balance_cents"
+
+_DERIVED_CAPABILITIES: tuple[DerivedMeasure, ...] = tuple(
+    DerivedMeasure(field=spec.id, entity=spec.entity, shapes=spec.shapes)
+    for spec in _DERIVED_MEASURES.values()
+)
+
+
+def derived_measure_capabilities() -> tuple[DerivedMeasure, ...]:
+    """The registry above, stated in the repository port's vocabulary.
+
+    This is the whole of what §6.6 is told about probe-time derivation:
+    which field, at which catalog entity, in which probe shapes. Built
+    from ``_DERIVED_MEASURES`` rather than written out again, so a
+    derivation added, moved or restricted here changes what the planner
+    validates in the same edit — the two verdicts cannot drift apart
+    because there is only one list.
+    """
+    return _DERIVED_CAPABILITIES
+
+
 @dataclass
 class _CompileState:
     """Mutable accumulation across the fragments of one probe compilation."""
 
     watermark: DataWatermark
+    schema: str = ""
+    shape: ProbeShape = AGGREGATION_SHAPE
+    as_of: date | None = None
     uncertified: bool = False
     # Extra dimension-id → SQL expression bindings (snapshot derived buckets).
     bindings: dict[str, str] = field(default_factory=dict)
+    # (entity name, rollup id) → LEFT JOIN clause required by a derived measure.
+    rollups: dict[tuple[str, str], _Fragment] = field(default_factory=dict)
 
     @property
     def grade(self) -> EvidenceGrade:
         return EvidenceGrade.DISCOVERY if self.uncertified else EvidenceGrade.DIRECT
+
+    def joins_for(self, entity_name: str) -> tuple[_Fragment, ...]:
+        """Rollup LEFT JOINs this compilation needs on one entity, deterministically
+        ordered by rollup id."""
+        return tuple(
+            fragment for (name, _rollup), fragment in sorted(self.rollups.items()) if name == entity_name
+        )
 
 
 @dataclass(frozen=True)
@@ -171,6 +351,18 @@ class _ValueBinding:
     filter_sql: str | None
     unit: str | None
     aggregation: MeasureAggregation | None
+
+
+@dataclass(frozen=True, slots=True)
+class _MetricComponent:
+    """One aggregate column of one metric, with the entity it aggregates over."""
+
+    alias: str
+    ref: MetricRef
+    contract: MetricContract
+    expr: MeasureExpr
+    entity: EntityDef
+    additive: bool  # a metric with no denominator: one column, contract unit
 
 
 class ProbeCompiler:
@@ -354,9 +546,6 @@ class ProbeCompiler:
     # ------------------------------------------------------------- measures
 
     def _value_binding(self, field_id: str, entity: EntityDef, state: _CompileState) -> _ValueBinding:
-        extra = state.bindings.get(field_id)
-        if extra is not None:
-            return _ValueBinding(expr=extra, filter_sql=None, unit="money_cents", aggregation=None)
         measure = self._catalog.measure(field_id)
         if measure is not None:
             if measure.entity != entity.name:
@@ -371,13 +560,236 @@ class ProbeCompiler:
                 unit=_UNIT_BY_CATALOG_UNIT.get(measure.unit),
                 aggregation=measure.aggregation,
             )
+        derived = _DERIVED_MEASURES.get(field_id)
+        if derived is not None:
+            return self._derived_binding(derived, entity, state)
         if field_id in self._catalog.declared_columns(entity.name):
             return _ValueBinding(expr=_ident(field_id), filter_sql=None, unit=None, aggregation=None)
         raise UnsupportedConceptError(
-            f"field {field_id!r} does not resolve to a catalog measure or declared column "
-            f"of entity {entity.name!r}",
+            f"field {field_id!r} does not resolve to a catalog measure, a probe-time "
+            f"derived measure, or a declared column of entity {entity.name!r}",
             details={"field": field_id, "entity": entity.name},
         )
+
+    # ----------------------------------------------- probe-time derived measures
+
+    def _derived_binding(
+        self, spec: _DerivedSpec, entity: EntityDef, state: _CompileState
+    ) -> _ValueBinding:
+        """SQL for one registered derived measure, built from catalog bindings.
+
+        Raises rather than improvising when the measure is asked for at the
+        wrong grain or in a probe shape that cannot compute it (a snapshot-time
+        age has no meaning inside a flow aggregation)."""
+        if spec.entity != entity.name:
+            raise GrainIncompatibleError(
+                f"derived measure {spec.id!r} is defined at the {spec.entity!r} grain, "
+                f"not {entity.name!r}",
+                details={"measure": spec.id, "entity": entity.name},
+            )
+        if state.shape not in spec.shapes:
+            raise SourceCapabilityUnsupportedError(
+                f"derived measure {spec.id!r} is computable only in "
+                f"{sorted(shape.value for shape in spec.shapes)} probes, not "
+                f"{state.shape.value!r}",
+                details={"measure": spec.id, "shape": state.shape.value},
+            )
+        builder = getattr(self, f"_derive_{spec.id}")
+        expr, filter_sql = builder(entity, state)
+        return _ValueBinding(
+            expr=expr, filter_sql=filter_sql, unit=spec.unit, aggregation=MeasureAggregation.SUM
+        )
+
+    def _derive_payment_lag_days(
+        self, entity: EntityDef, state: _CompileState
+    ) -> tuple[str, str | None]:
+        submission = _ident(self._basis_column(entity, SUBMISSION))
+        post = _ident(self._basis_column(entity, POST))
+        payment = self._require_measure("payment_cents", entity)
+        return f"datediff('day', {submission}, {post})", payment.filter_sql
+
+    def _derive_submission_lag_days(
+        self, entity: EntityDef, state: _CompileState
+    ) -> tuple[str, str | None]:
+        service = _ident(self._basis_column(entity, SERVICE))
+        submission = _ident(self._basis_column(entity, SUBMISSION))
+        return f"datediff('day', {service}, {submission})", None
+
+    def _derive_charge_entry_lag_days(
+        self, entity: EntityDef, state: _CompileState
+    ) -> tuple[str, str | None]:
+        service = _ident(self._basis_column(entity, SERVICE))
+        entry = _ident(self._require_declared_column(_CHARGE_ENTRY_DATE_COLUMN, entity))
+        return f"datediff('day', {service}, {entry})", None
+
+    def _derive_late_charge_cents(
+        self, entity: EntityDef, state: _CompileState
+    ) -> tuple[str, str | None]:
+        service = _ident(self._basis_column(entity, SERVICE))
+        entry = _ident(self._require_declared_column(_CHARGE_ENTRY_DATE_COLUMN, entity))
+        billed = _ident(self._require_measure("line_billed_amount_cents", entity).column)
+        late = f"datediff('day', {service}, {entry}) > {_LATE_CHARGE_THRESHOLD_DAYS}"
+        return f"CASE WHEN {late} THEN {billed} ELSE 0 END", None
+
+    def _derive_underpayment_cents(
+        self, entity: EntityDef, state: _CompileState
+    ) -> tuple[str, str | None]:
+        expected = _ident(self._require_measure("expected_amount_cents", entity).column)
+        self._require_line_rollup(entity, state)
+        return (
+            f"GREATEST({expected} - {_LINE_ALLOWED_CENTS}, 0)",
+            f"{_LINE_ALLOWED_CENTS} IS NOT NULL",  # adjudicated claims only
+        )
+
+    def _derive_ar_age_days_billed_cents(
+        self, entity: EntityDef, state: _CompileState
+    ) -> tuple[str, str | None]:
+        billed = _ident(self._require_measure("billed_amount_cents", entity).column)
+        status = self._dimension_expr("status", entity, state)
+        self._check_status_domain(_UNRESOLVED_STATUSES)
+        unresolved = ", ".join(f"'{value}'" for value in _UNRESOLVED_STATUSES)
+        return f"{billed} * {_AGE_DAYS}", f"{status} IN ({unresolved})"
+
+    def _check_status_domain(self, values: tuple[str, ...]) -> None:
+        """A derived measure may only name statuses the catalog declares — a
+        renamed status must break the build, not silently age nothing."""
+        dim = self._catalog.dimension("status")
+        domain = dim.value_domain if dim is not None else None
+        if domain is not None and not set(values) <= set(domain):
+            raise UnsupportedConceptError(
+                f"claim statuses {sorted(set(values) - set(domain))} are not in the catalog's "
+                "declared status domain",
+                details={"dimension": "status", "values": sorted(values)},
+            )
+
+    def _derive_credit_balance_cents(
+        self, entity: EntityDef, state: _CompileState
+    ) -> tuple[str, str | None]:
+        expected = _ident(self._require_measure("expected_amount_cents", entity).column)
+        self._require_money_rollup(entity, state)
+        # A claim with no posted transactions at all misses the rollup entirely;
+        # zero cash and zero refunds is what that means.
+        overpaid = f"GREATEST(COALESCE({_CASH_IN_CENTS}, 0) - {expected}, 0)"
+        return f"GREATEST({overpaid} - COALESCE({_REFUND_CENTS}, 0), 0)", None
+
+    def _derive_open_balance_cents(
+        self, entity: EntityDef, state: _CompileState
+    ) -> tuple[str, str | None]:
+        billed = _ident(self._require_measure("billed_amount_cents", entity).column)
+        self._require_money_rollup(entity, state)
+        return f"({billed} - COALESCE({_APPLIED_CENTS}, 0))", None
+
+    def _require_measure(self, measure_id: str, entity: EntityDef) -> MeasureDef:
+        measure = self._catalog.measure(measure_id)
+        if measure is None or measure.entity != entity.name:
+            raise UnsupportedConceptError(
+                f"probe-time derived measures on {entity.name!r} require catalog measure "
+                f"{measure_id!r}",
+                details={"measure": measure_id, "entity": entity.name},
+            )
+        return measure
+
+    def _require_declared_column(self, column: str, entity: EntityDef) -> str:
+        """A base-view column a derived measure reads, checked against the
+        catalog's declared set for the entity (``declared_columns:`` in
+        ``entities.yaml``). Keeps an adapter constant from silently outrunning
+        the catalog: if the declaration is dropped, the derivation refuses
+        rather than emitting SQL for a column the catalog never bound."""
+        if column not in self._catalog.declared_columns(entity.name):
+            raise UnsupportedConceptError(
+                f"probe-time derived measures on {entity.name!r} require declared "
+                f"column {column!r}",
+                details={"column": column, "entity": entity.name},
+            )
+        return column
+
+    def _child_entity(self, grain: EntityGrain, claim_entity: EntityDef) -> tuple[EntityDef, str]:
+        """A child entity plus the certified column joining it to the claim grain.
+
+        Both halves come from the catalog: no rollup is built over a path the
+        catalog has not certified."""
+        child = self._catalog.entity(grain)
+        if child is None:
+            raise UnsupportedConceptError(
+                f"no catalog entity is bound to grain {grain.value!r} for the per-claim rollup",
+                details={"grain": grain.value},
+            )
+        join_column = self._catalog.join_column(child.name, claim_entity.name)
+        if join_column != claim_entity.primary_key:
+            raise UnsupportedConceptError(
+                f"catalog declares no {child.name!r} → {claim_entity.name!r} join for the rollup",
+                details={"from": child.name, "to": claim_entity.name},
+            )
+        return child, join_column
+
+    def _require_line_rollup(self, entity: EntityDef, state: _CompileState) -> None:
+        """Per-claim summed line allowed cents (NULL when no line carries one,
+        which is exactly "not adjudicated yet")."""
+        key = (entity.name, _LINE_ROLLUP)
+        if key in state.rollups:
+            return
+        line_entity, join_column = self._child_entity(EntityGrain.LINE, entity)
+        allowed = self._catalog.measure("allowed_amount_cents")
+        if allowed is None or allowed.entity != line_entity.name:
+            raise UnsupportedConceptError(
+                "the per-claim line rollup requires catalog measure 'allowed_amount_cents'",
+                details={"measure": "allowed_amount_cents"},
+            )
+        inner = (
+            f"SELECT {_ident(join_column)}, SUM({_ident(allowed.column)}) AS {_LINE_ALLOWED_CENTS} "
+            f"FROM {_ident(state.schema)}.{_ident(line_entity.base_view)} "
+            f"GROUP BY {_ident(join_column)}"
+        )
+        state.rollups[key] = (
+            f"LEFT JOIN ({inner}) AS {_ident(_LINE_ROLLUP)} USING ({_ident(join_column)})",
+            [],
+        )
+
+    def _require_money_rollup(self, entity: EntityDef, state: _CompileState) -> None:
+        """Per-claim money posted on/before the snapshot's as-of date, built from
+        the catalog's governed transaction measures.
+
+        One rollup serves both money-derived fields: ``open_balance_cents``
+        reads the applied total (payments and adjustments reduce the balance,
+        refunds add back), ``credit_balance_cents`` reads payer + patient cash
+        and refunds separately."""
+        key = (entity.name, _MONEY_ROLLUP)
+        if key in state.rollups:
+            return
+        if state.as_of is None:  # pragma: no cover - snapshot-only fields are gated above
+            raise SourceCapabilityUnsupportedError(
+                "the per-claim money rollup needs a snapshot as-of date",
+                details={"entity": entity.name},
+            )
+        txn_entity, join_column = self._child_entity(EntityGrain.TRANSACTION, entity)
+        post_column = self._basis_column(txn_entity, POST)
+        applied: list[str] = []
+        for measure_id in _APPLIED_MEASURE_IDS + _REVERSAL_MEASURE_IDS:
+            term = self._txn_term(measure_id, txn_entity)
+            applied.append(("-" if measure_id in _REVERSAL_MEASURE_IDS else "+") + " " + term)
+        cash_in = " + ".join(self._txn_term(m, txn_entity) for m in _CASH_IN_MEASURE_IDS)
+        refunds = " + ".join(self._txn_term(m, txn_entity) for m in _REVERSAL_MEASURE_IDS)
+        inner = (
+            f"SELECT {_ident(join_column)}, "
+            f"{' '.join(applied).removeprefix('+ ')} AS {_APPLIED_CENTS}, "
+            f"{cash_in} AS {_CASH_IN_CENTS}, "
+            f"{refunds} AS {_REFUND_CENTS} "
+            f"FROM {_ident(state.schema)}.{_ident(txn_entity.base_view)} "
+            f"WHERE {_ident(post_column)} <= ? GROUP BY {_ident(join_column)}"
+        )
+        state.rollups[key] = (
+            f"LEFT JOIN ({inner}) AS {_ident(_MONEY_ROLLUP)} USING ({_ident(join_column)})",
+            [state.as_of],
+        )
+
+    def _txn_term(self, measure_id: str, txn_entity: EntityDef) -> str:
+        measure = self._catalog.measure(measure_id)
+        if measure is None or measure.entity != txn_entity.name or measure.filter_sql is None:
+            raise UnsupportedConceptError(
+                f"the per-claim money rollup requires catalog measure {measure_id!r}",
+                details={"measure": measure_id},
+            )
+        return f"COALESCE(SUM({_ident(measure.column)}) FILTER (WHERE {measure.filter_sql}), 0)"
 
     def _measure_expr_sql(
         self,
@@ -455,47 +867,94 @@ class ProbeCompiler:
                 details={"metric": contract.id, "probe_grain": probe.grain.entity.value},
             )
 
-    def _metric_select_fragments(
+    def _component_entity(self, expr: MeasureExpr, entity: EntityDef) -> EntityDef:
+        """The entity one ratio component aggregates over.
+
+        Almost always the probe's own entity. A component whose field is a
+        catalog measure (or derived measure) declared at *another* grain is a
+        cross-entity component: legal, and compiled as its own same-scope
+        aggregate block (see the module docstring)."""
+        inner = expr.inner if isinstance(expr, Filtered) else expr
+        if isinstance(inner, (Sum, CountDistinct)):
+            measure = self._catalog.measure(inner.field.id)
+            home = measure.entity if measure is not None else None
+            if home is None:
+                derived = _DERIVED_MEASURES.get(inner.field.id)
+                home = derived.entity if derived is not None else None
+            if home is not None and home != entity.name:
+                foreign = self._catalog.entity_named(home)
+                if foreign is None:  # pragma: no cover - catalog integrity forbids it
+                    raise UnsupportedConceptError(
+                        f"measure {inner.field.id!r} names unknown entity {home!r}",
+                        details={"measure": inner.field.id, "entity": home},
+                    )
+                return foreign
+        return entity
+
+    def _metric_components(
         self,
         measures: tuple[MetricRef, ...],
         probe: AggregationProbe | SnapshotProbe,
         entity: EntityDef,
-        state: _CompileState,
         expected_kind: MetricKind,
-    ) -> tuple[list[_Fragment], list[FrameColumn], set[str]]:
-        """SELECT fragments for the probe's metrics (additive → one column,
-        ratio → ``__num``/``__den`` component columns)."""
-        fragments: list[_Fragment] = []
-        columns: list[FrameColumn] = []
-        additive_aliases: set[str] = set()
+    ) -> list[_MetricComponent]:
+        """The probe's metrics flattened into aggregate components in frame-column
+        order (additive → one column, ratio → ``__num``/``__den``)."""
+        components: list[_MetricComponent] = []
         for ref in measures:
             contract = self._resolve_contract(ref.id)
             self._check_contract(contract, probe, expected_kind)
             if contract.denominator is None:
-                sql, params, _ = self._measure_expr_sql(
-                    contract.numerator, entity, state, contract.exclusions
-                )
-                fragments.append((f"{sql} AS {_ident(ref.id)}", params))
-                columns.append(
-                    FrameColumn(
-                        name=ref.id,
+                components.append(
+                    _MetricComponent(
+                        alias=ref.id,
                         ref=ref,
-                        contract_version=contract.version,
-                        unit=contract.unit.value,
+                        contract=contract,
+                        expr=contract.numerator,
+                        entity=self._component_entity(contract.numerator, entity),
+                        additive=True,
                     )
                 )
-                additive_aliases.add(ref.id)
-            else:
-                for alias, expr in (
-                    (numerator_column(ref.id), contract.numerator),
-                    (denominator_column(ref.id), contract.denominator),
-                ):
-                    sql, params, unit = self._measure_expr_sql(expr, entity, state, contract.exclusions)
-                    fragments.append((f"{sql} AS {_ident(alias)}", params))
-                    columns.append(
-                        FrameColumn(name=alias, ref=ref, contract_version=contract.version, unit=unit)
+                continue
+            for alias, expr in (
+                (numerator_column(ref.id), contract.numerator),
+                (denominator_column(ref.id), contract.denominator),
+            ):
+                components.append(
+                    _MetricComponent(
+                        alias=alias,
+                        ref=ref,
+                        contract=contract,
+                        expr=expr,
+                        entity=self._component_entity(expr, entity),
+                        additive=False,
                     )
-        return fragments, columns, additive_aliases
+                )
+        return components
+
+    def _compile_components(
+        self, components: list[_MetricComponent], state: _CompileState
+    ) -> tuple[dict[str, list[_Fragment]], list[FrameColumn]]:
+        """Compile every component against its own entity; SELECT fragments come
+        back grouped by entity, frame columns stay in component order."""
+        fragments: dict[str, list[_Fragment]] = {}
+        columns: list[FrameColumn] = []
+        for component in components:
+            sql, params, unit = self._measure_expr_sql(
+                component.expr, component.entity, state, component.contract.exclusions
+            )
+            fragments.setdefault(component.entity.name, []).append(
+                (f"{sql} AS {_ident(component.alias)}", params)
+            )
+            columns.append(
+                FrameColumn(
+                    name=component.alias,
+                    ref=component.ref,
+                    contract_version=component.contract.version,
+                    unit=component.contract.unit.value if component.additive else unit,
+                )
+            )
+        return fragments, columns
 
     # ---------------------------------------------------------- aggregation
 
@@ -503,62 +962,167 @@ class ProbeCompiler:
         self, probe: AggregationProbe, *, schema: str, watermark: DataWatermark
     ) -> CompiledQuery:
         entity = self._entity_for(probe)
-        state = _CompileState(watermark=watermark)
-        basis_column = self._basis_column(entity, probe.window.basis)
+        state = _CompileState(watermark=watermark, schema=schema, shape=AGGREGATION_SHAPE)
 
-        select_fragments: list[_Fragment] = []
+        components = self._metric_components(probe.measures, probe, entity, MetricKind.FLOW)
+        metric_fragments, columns = self._compile_components(components, state)
+        additive_aliases = {c.alias for c in components if c.additive}
+
+        # Entity order: the probe's own entity first, then any cross-entity
+        # component's entity in first-appearance order (deterministic SQL).
+        entities: list[EntityDef] = [entity]
+        for component in components:
+            if all(component.entity.name != known.name for known in entities):
+                entities.append(component.entity)
+
+        group_fragments, group_columns, group_aliases = self._group_fragments(probe, entity, state)
+        columns = group_columns + columns
+
+        if len(entities) == 1:
+            select_fragments = group_fragments + metric_fragments.get(entity.name, [])
+            where_fragments = self._window_and_scope(probe, entity, state)
+            having_fragments = [self._having_fragment(pred, probe, entity, state) for pred in probe.having]
+            sql_parts = [
+                "SELECT " + ", ".join(sql for sql, _ in select_fragments),
+                self._from_clause(entity, state),
+                "WHERE " + " AND ".join(sql for sql, _ in where_fragments),
+            ]
+            if group_aliases:
+                sql_parts.append("GROUP BY " + ", ".join(_ident(a) for a in group_aliases))
+            if having_fragments:
+                sql_parts.append("HAVING " + " AND ".join(sql for sql, _ in having_fragments))
+            order_sql = self._order_by_sql(probe.order_by, group_aliases, additive_aliases)
+            if order_sql:
+                sql_parts.append(order_sql)
+            if probe.limit is not None:
+                sql_parts.append(f"LIMIT {probe.limit + 1}")
+            join_params = [p for _, params in state.joins_for(entity.name) for p in params]
+            params = [
+                *(p for _, fragment_params in group_fragments for p in fragment_params),
+                *(p for _, fragment_params in metric_fragments.get(entity.name, []) for p in fragment_params),
+                *join_params,
+                *(p for _, fragment_params in where_fragments for p in fragment_params),
+                *(p for _, fragment_params in having_fragments for p in fragment_params),
+            ]
+            return CompiledQuery(
+                sql="\n".join(sql_parts),
+                params=tuple(params),
+                columns=tuple(columns),
+                grade=state.grade,
+                row_limit=probe.limit,
+            )
+
+        if probe.having:
+            raise SourceCapabilityUnsupportedError(
+                "HAVING is not supported on a cross-entity ratio probe: the predicate "
+                "would filter one side of the ratio only",
+                details={"metrics": sorted({c.ref.id for c in components})},
+            )
+        return self._compile_cross_entity(
+            probe, entities, components, metric_fragments, columns, group_aliases, additive_aliases, state
+        )
+
+    def _group_fragments(
+        self, probe: AggregationProbe, entity: EntityDef, state: _CompileState
+    ) -> tuple[list[_Fragment], list[FrameColumn], list[str]]:
+        """Group-by SELECT fragments (dimensions, then the optional time bucket)
+        for one entity, plus their frame columns and aliases."""
+        fragments: list[_Fragment] = []
         columns: list[FrameColumn] = []
-        group_aliases: list[str] = []
-
+        aliases: list[str] = []
         for dim_ref in probe.dimensions:
             expr = self._dimension_expr(dim_ref.id, entity, state)
-            select_fragments.append((f"{expr} AS {_ident(dim_ref.id)}", []))
+            fragments.append((f"{expr} AS {_ident(dim_ref.id)}", []))
             columns.append(FrameColumn(name=dim_ref.id, ref=dim_ref))
-            group_aliases.append(dim_ref.id)
-
+            aliases.append(dim_ref.id)
         bucket = probe.grain.time_bucket
         if bucket is not None:
             alias = bucket.value  # "day" | "week" | "month"
+            basis_column = self._basis_column(entity, probe.window.basis)
             expr = f"CAST(date_trunc('{bucket.value}', {_ident(basis_column)}) AS DATE)"
-            select_fragments.append((f"{expr} AS {_ident(alias)}", []))
+            fragments.append((f"{expr} AS {_ident(alias)}", []))
             columns.append(FrameColumn(name=alias, ref=DimensionRef(f"time_bucket:{bucket.value}")))
-            group_aliases.append(alias)
+            aliases.append(alias)
+        return fragments, columns, aliases
 
-        metric_fragments, metric_columns, additive_aliases = self._metric_select_fragments(
-            probe.measures, probe, entity, state, MetricKind.FLOW
-        )
-        select_fragments.extend(metric_fragments)
-        columns.extend(metric_columns)
-
-        where_fragments: list[_Fragment] = [
+    def _window_and_scope(
+        self, probe: AggregationProbe, entity: EntityDef, state: _CompileState
+    ) -> list[_Fragment]:
+        basis_column = self._basis_column(entity, probe.window.basis)
+        fragments: list[_Fragment] = [
             (f"{_ident(basis_column)} BETWEEN ? AND ?", [probe.window.range.start, probe.window.range.end])
         ]
         if not is_empty(probe.scope):
-            where_fragments.append(self._compile_filter(probe.scope, entity, state))
+            fragments.append(self._compile_filter(probe.scope, entity, state))
+        return fragments
 
-        having_fragments = [self._having_fragment(pred, probe, entity, state) for pred in probe.having]
+    def _from_clause(self, entity: EntityDef, state: _CompileState) -> str:
+        parts = [f"FROM {_ident(state.schema)}.{_ident(entity.base_view)}"]
+        parts.extend(sql for sql, _ in state.joins_for(entity.name))
+        return " ".join(parts)
+
+    def _compile_cross_entity(
+        self,
+        probe: AggregationProbe,
+        entities: list[EntityDef],
+        components: list[_MetricComponent],
+        metric_fragments: dict[str, list[_Fragment]],
+        columns: list[FrameColumn],
+        group_aliases: list[str],
+        additive_aliases: set[str],
+        state: _CompileState,
+    ) -> CompiledQuery:
+        """Ratio-of-sums across entity grains: one same-scope aggregate per
+        entity, FULL OUTER joined on the shared group keys.
+
+        Each block repeats the identical window, scope and group-by against its
+        own base view — which is why the sides remain comparable — and the join
+        uses ``IS NOT DISTINCT FROM`` so a NULL group value matches itself and
+        neither side can silently drop a cell the other has."""
+        block_sql: list[str] = []
+        params: list[SqlParam] = []
+        block_alias: dict[str, str] = {}
+        for index, block_entity in enumerate(entities):
+            alias = f"b{index}"
+            block_alias[block_entity.name] = alias
+            group_frags, _, _ = self._group_fragments(probe, block_entity, state)
+            selects = group_frags + metric_fragments.get(block_entity.name, [])
+            where_frags = self._window_and_scope(probe, block_entity, state)
+            parts = [
+                "SELECT " + ", ".join(sql for sql, _ in selects),
+                self._from_clause(block_entity, state),
+                "WHERE " + " AND ".join(sql for sql, _ in where_frags),
+            ]
+            if group_aliases:
+                parts.append("GROUP BY " + ", ".join(_ident(a) for a in group_aliases))
+            block_sql.append(" ".join(parts))
+            params.extend(p for _, fragment_params in selects for p in fragment_params)
+            joins = state.joins_for(block_entity.name)
+            params.extend(p for _, fragment_params in joins for p in fragment_params)
+            params.extend(p for _, fragment_params in where_frags for p in fragment_params)
+
+        outer_selects: list[str] = []
+        for alias in group_aliases:
+            coalesced = ", ".join(f"{_ident(block_alias[e.name])}.{_ident(alias)}" for e in entities)
+            outer_selects.append(f"COALESCE({coalesced}) AS {_ident(alias)}")
+        for component in components:
+            owner = _ident(block_alias[component.entity.name])
+            outer_selects.append(f"{owner}.{_ident(component.alias)} AS {_ident(component.alias)}")
+
+        sql_parts = ["SELECT " + ", ".join(outer_selects), f"FROM ({block_sql[0]}) AS b0"]
+        for index in range(1, len(entities)):
+            conditions = [
+                f"{_ident(f'b{index}')}.{_ident(alias)} IS NOT DISTINCT FROM "
+                f"COALESCE({', '.join(f'b{j}.{_ident(alias)}' for j in range(index))})"
+                for alias in group_aliases
+            ]
+            on_sql = " AND ".join(conditions) if conditions else "TRUE"
+            sql_parts.append(f"FULL OUTER JOIN ({block_sql[index]}) AS b{index} ON {on_sql}")
         order_sql = self._order_by_sql(probe.order_by, group_aliases, additive_aliases)
-
-        sql_parts = [
-            "SELECT " + ", ".join(sql for sql, _ in select_fragments),
-            f"FROM {_ident(schema)}.{_ident(entity.base_view)}",
-            "WHERE " + " AND ".join(sql for sql, _ in where_fragments),
-        ]
-        if group_aliases:
-            sql_parts.append("GROUP BY " + ", ".join(_ident(a) for a in group_aliases))
-        if having_fragments:
-            sql_parts.append("HAVING " + " AND ".join(sql for sql, _ in having_fragments))
         if order_sql:
             sql_parts.append(order_sql)
         if probe.limit is not None:
             sql_parts.append(f"LIMIT {probe.limit + 1}")
-
-        params = [
-            p
-            for fragments in (select_fragments, where_fragments, having_fragments)
-            for _, fragment_params in fragments
-            for p in fragment_params
-        ]
         return CompiledQuery(
             sql="\n".join(sql_parts),
             params=tuple(params),
@@ -666,18 +1230,14 @@ class ProbeCompiler:
                 f"{watermark.id!r} (newest data {watermark.newest_data_date.isoformat()})",
                 details={"as_of": probe.as_of.isoformat(), "watermark": watermark.id},
             )
-        state = _CompileState(watermark=watermark)
+        state = _CompileState(
+            watermark=watermark, schema=schema, shape=SNAPSHOT_SHAPE, as_of=probe.as_of
+        )
         aging_basis = probe.aging_basis if probe.aging_basis is not None else SERVICE
         aging_column = self._basis_column(entity, aging_basis)
         service_column = self._basis_column(entity, SERVICE)
         submission_column = self._basis_column(entity, SUBMISSION)
 
-        needs_balance = any(
-            self._references_open_balance(self._resolve_contract(ref.id)) for ref in probe.measures
-        )
-        if needs_balance:
-            billed = self._value_binding("billed_amount_cents", entity, state)
-            state.bindings[_OPEN_BALANCE_FIELD] = f"({billed.expr} - __applied_cents)"
         state.bindings.update(self._ar_bucket_binding())
 
         # -- outer SELECT (text order first: its params precede the inner ones)
@@ -689,26 +1249,29 @@ class ProbeCompiler:
             select_fragments.append((f"{expr} AS {_ident(dim_ref.id)}", []))
             columns.append(FrameColumn(name=dim_ref.id, ref=dim_ref))
             group_aliases.append(dim_ref.id)
-        metric_fragments, metric_columns, _ = self._metric_select_fragments(
-            probe.measures, probe, entity, state, MetricKind.SNAPSHOT
-        )
-        select_fragments.extend(metric_fragments)
+        components = self._metric_components(probe.measures, probe, entity, MetricKind.SNAPSHOT)
+        cross_entity = [c for c in components if c.entity.name != entity.name]
+        if cross_entity:
+            raise GrainIncompatibleError(
+                f"snapshot metric {cross_entity[0].ref.id!r} names a component at the "
+                f"{cross_entity[0].entity.name!r} grain; snapshots aggregate one entity as-of",
+                details={"metric": cross_entity[0].ref.id, "entity": cross_entity[0].entity.name},
+            )
+        metric_fragments, metric_columns = self._compile_components(components, state)
+        select_fragments.extend(metric_fragments.get(entity.name, []))
         columns.extend(metric_columns)
 
         # -- inner subquery
         as_of = probe.as_of
-        inner_parts: list[str] = ["SELECT c.*"]
+        rollups = state.joins_for(entity.name)
+        inner_parts: list[str] = ["SELECT *" if rollups else "SELECT c.*"]
         inner_params: list[SqlParam] = []
-        if needs_balance:
-            inner_parts[0] += ", COALESCE(t.__applied_cents, 0) AS __applied_cents"
-        inner_parts[0] += f", datediff('day', c.{_ident(aging_column)}, ?) AS __age_days"
+        inner_parts[0] += f", datediff('day', c.{_ident(aging_column)}, ?) AS {_AGE_DAYS}"
         inner_params.append(as_of)
         inner_parts.append(f"FROM {_ident(schema)}.{_ident(entity.base_view)} AS c")
-        if needs_balance:
-            applied_sql, applied_params = self._applied_subquery(schema, entity)
-            inner_parts.append(f"LEFT JOIN ({applied_sql}) AS t USING ({_ident(entity.primary_key)})")
-            inner_params.extend(applied_params)
-            inner_params.append(as_of)  # post_date <= as_of inside the subquery
+        for join_sql, join_params in rollups:
+            inner_parts.append(join_sql)
+            inner_params.extend(join_params)
         open_inventory = (
             f"WHERE c.{_ident(service_column)} <= ? "
             f"AND (c.{_ident(submission_column)} IS NULL OR c.{_ident(submission_column)} <= ?) "
@@ -737,50 +1300,6 @@ class ProbeCompiler:
             columns=tuple(columns),
             grade=state.grade,
         )
-
-    def _references_open_balance(self, contract: MetricContract) -> bool:
-        def walk(expr: MeasureExpr | None) -> bool:
-            if expr is None:
-                return False
-            if isinstance(expr, Filtered):
-                return walk(expr.inner)
-            if isinstance(expr, (Sum, CountDistinct)):
-                return expr.field.id == _OPEN_BALANCE_FIELD
-            return False
-
-        return walk(contract.numerator) or walk(contract.denominator)
-
-    def _applied_subquery(self, schema: str, claim_entity: EntityDef) -> _Fragment:
-        """Per-claim money applied on/before as-of, from the catalog's governed
-        transaction measures (payments and adjustments reduce the balance;
-        refunds add back). Emits one trailing ``?`` for the as-of post date."""
-        txn_entity = self._catalog.entity(EntityGrain.TRANSACTION)
-        if txn_entity is None:
-            raise UnsupportedConceptError("no transaction entity in catalog for balance computation")
-        join_column = self._catalog.join_column(txn_entity.name, claim_entity.name)
-        if join_column != claim_entity.primary_key:
-            raise UnsupportedConceptError(
-                "catalog declares no transaction → claim join for balance computation"
-            )
-        post_column = self._basis_column(txn_entity, POST)
-        terms: list[str] = []
-        for measure_id in _APPLIED_MEASURE_IDS + _REVERSAL_MEASURE_IDS:
-            measure = self._catalog.measure(measure_id)
-            if measure is None or measure.entity != txn_entity.name or measure.filter_sql is None:
-                raise UnsupportedConceptError(
-                    f"open-balance computation requires catalog measure {measure_id!r}",
-                    details={"measure": measure_id},
-                )
-            term = f"COALESCE(SUM({_ident(measure.column)}) FILTER (WHERE {measure.filter_sql}), 0)"
-            sign = "-" if measure_id in _REVERSAL_MEASURE_IDS else "+"
-            terms.append(f"{sign} {term}")
-        applied = " ".join(terms).removeprefix("+ ")
-        sql = (
-            f"SELECT {_ident(join_column)}, {applied} AS __applied_cents "
-            f"FROM {_ident(schema)}.{_ident(txn_entity.base_view)} "
-            f"WHERE {_ident(post_column)} <= ? GROUP BY {_ident(join_column)}"
-        )
-        return sql, []  # the trailing as-of param is appended by the caller
 
     def _ar_bucket_binding(self) -> Mapping[str, str]:
         """``ar_age_bucket`` → CASE expression over ``__age_days``, with bucket

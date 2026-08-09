@@ -42,7 +42,7 @@ from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, Request
+from fastapi import Depends, FastAPI, Query, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -57,17 +57,25 @@ from revi_api.auth import (
     cors_origins_from_env,
 )
 from revi_api.cohort_sweep import CohortSweepScheduler, sweep_interval_seconds
-from revi_api.service import ApiService, NotFoundError, TurnResult
+from revi_api.service import (
+    DEFAULT_SESSION_LIST_LIMIT,
+    MAX_SESSION_LIST_LIMIT,
+    ApiService,
+    NotFoundError,
+    TurnResult,
+)
 from revi_api.wiring import build_components
 from revi_investigation.application.ports import TurnEvent
 from revi_investigation_contracts.api import (
     TURN_EVENT_PAYLOADS,
     CapabilitiesResponse,
+    DebugTracePayload,
     ErrorEnvelope,
     InvestigationResponse,
     OpenSessionRequest,
     PortfolioResponse,
     SessionLineageResponse,
+    SessionListResponse,
     SessionResponse,
     TurnRequest,
     TurnResponse,
@@ -303,6 +311,27 @@ def create_app(
         deciding which tenant a session belonged to."""
         return await _service().open_session(caller, request)
 
+    @app.get("/v1/sessions", response_model=SessionListResponse, responses=ERROR_RESPONSES)
+    async def list_sessions(
+        caller: CallerPrincipal,
+        limit: Annotated[
+            int,
+            Query(
+                ge=1,
+                le=MAX_SESSION_LIST_LIMIT,
+                description="Page size, newest activity first.",
+            ),
+        ] = DEFAULT_SESSION_LIST_LIMIT,
+    ) -> SessionListResponse:
+        """The caller tenant's sessions, newest activity first.
+
+        Every row is derived, never stored: the title is the session's
+        first question verbatim, and `last_activity` is its newest
+        investigation. There is no tenant parameter — the token decides
+        whose sessions these are, so no request can ask for another
+        tenant's list at all."""
+        return await _service().list_sessions(caller, limit=limit)
+
     @app.post(
         "/v1/sessions/{session_id}/turns",
         summary="Submit one turn (utterance OR typed refinement operators)",
@@ -375,6 +404,26 @@ def create_app(
     ) -> InvestigationResponse:
         """Re-fetch a completed turn (reconnect / refresh recovery)."""
         return await _service().get_investigation(caller, investigation_id)
+
+    @app.get(
+        "/v1/investigations/{investigation_id}/trace",
+        response_model=DebugTracePayload,
+        responses=ERROR_RESPONSES,
+    )
+    async def get_trace(
+        investigation_id: str, caller: CallerPrincipal
+    ) -> DebugTracePayload:
+        """One turn's decision breakdown: classification and confidence,
+        the ids interpretation chose, refinement operators, plan hash and
+        §6.6 outcomes, per-probe rows/timings, per-call model spend and
+        failure kind, watermark epoch and pack version.
+
+        The same projection the `debug` block on a turn response carries —
+        this route is for the turn nobody thought to debug until after it
+        answered. Free text is filtered by the outbound-payload guard and
+        anything withheld is named in `redactions`. `REVI_DEBUG_TRACE=0`
+        turns the whole surface off (POLICY_DENIED)."""
+        return await _service().get_trace(caller, investigation_id)
 
     @app.get(
         "/v1/sessions/{session_id}/lineage",

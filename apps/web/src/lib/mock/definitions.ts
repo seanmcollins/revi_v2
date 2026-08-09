@@ -72,11 +72,13 @@ export const PR3_EVENTS: TurnEvent[] = [
   {
     type: "evidence",
     evidence: {
+      // A definitional turn computes no numbers: no probes, and no
+      // reconciliation verdict is ever reached — the same absence the
+      // live engine records for this path.
       zeroProbeTurn: true,
+      warehouseQueries: 0,
+      cacheHits: 0,
       probes: [],
-      reconciliation: { status: "not_applicable", detail: "Definitional turn — no numbers computed." },
-      traceNote:
-        "Resolved via alias normalization against pack knowledge entries (group_codes.yaml, carc_paraphrases.yaml) at base-rcm@1.0.0. Zero warehouse queries.",
     },
   },
   {

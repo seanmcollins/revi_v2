@@ -1,0 +1,31 @@
+# Standing-denied inventory — SNAPSHOT of A/R sitting in DENIED status. The
+# stock complement to denial_rate's flow: a denial rate can fall while the
+# denied pile grows, and ar_balance (OPEN + DENIED together) cannot show it
+# because `status` is not one of that contract's legal cuts.
+id: denied_ar_dollars
+version: 1
+kind: snapshot
+entity_grain: claim
+numerator:
+  filtered:
+    inner: {sum: billed_amount_cents}
+    where: {dimension: status, op: eq, value: DENIED}
+primary_date_basis: service
+allowed_date_bases: [service, submission]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, provider,
+   provider_specialty, facility, region, service_line, claim_type,
+   payer_sequence, ar_age_bucket]
+sign: higher_is_bad
+unit: money_cents
+description: >-
+  Billed value of claims standing in DENIED status as of the snapshot —
+  denied inventory that has neither been resolved nor written off, i.e. the
+  work sitting in the denial queue right now. Valuation caveat: like
+  ar_balance, this warehouse keeps no per-claim net open balance, so the
+  inventory is valued at gross billed charges, not at the denied amount the
+  payer named (denied_dollars carries that, at denial grain, as a flow).
+  A claim leaves this population the moment a payment posts (PAID) or a
+  write-off closes it (CLOSED), so a falling number is ambiguous on its own:
+  pair it with denial_write_off_dollars to tell recovery from abandonment.
+  Cut by ar_age_bucket for the denied-aging profile.

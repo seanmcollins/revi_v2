@@ -51,9 +51,20 @@ export function ContextPanel() {
                   <EvidenceDrawer evidence={selected.answer.evidence} />
                 </>
               ) : (
+                /*
+                 * One empty state for both modes now. It used to fork:
+                 * api mode said "this deployment does not publish the
+                 * evidence bundle yet", which was true — `answer.evidence`
+                 * was never populated — and mock mode promised "a masked
+                 * sample of the underlying rows", which the platform has
+                 * never stored. The server publishes the bundle on every
+                 * answer now, so the first branch is gone; the sample-rows
+                 * promise went with it rather than being carried over.
+                 */
                 <p className="py-6 text-center text-[0.7rem] leading-relaxed text-muted-foreground">
-                  No evidence yet. Every analytical answer carries a full lineage:
-                  probes → contracts → operators → reconciliation → masked rows.
+                  No evidence yet. Every answer keeps its full working: the checks it
+                  ran, what each one returned, which of them were reused rather than
+                  re-queried, and whether the parts add up.
                 </p>
               )}
             </div>

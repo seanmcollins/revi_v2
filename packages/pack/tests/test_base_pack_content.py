@@ -17,6 +17,8 @@ from revi_calculation_contracts.contract import (
     MetricKind,
     Sum,
 )
+from revi_kernel.filters import And, Not, Predicate, PredicateOp, iter_predicates
+from revi_kernel.grades import EvidenceGrade
 from revi_kernel.refs import DateBasisRef, EntityGrain
 from revi_pack.domain import (
     CodeDefinition,
@@ -95,16 +97,16 @@ def test_snapshot_composes_base_plus_tenant(snapshot: PackSnapshot) -> None:
 
 
 def test_concept_breadth(snapshot: PackSnapshot) -> None:
-    assert len(snapshot.concepts) >= 60
+    assert len(snapshot.concepts) >= 100
 
 
 def test_metric_breadth(snapshot: PackSnapshot) -> None:
-    assert len(snapshot.metric_contracts) >= 22
+    assert len(snapshot.metric_contracts) >= 45
 
 
 def test_knowledge_and_benchmark_breadth(snapshot: PackSnapshot) -> None:
     assert len(snapshot.knowledge_cards) >= 40
-    assert len(snapshot.benchmarks) >= 15
+    assert len(snapshot.benchmarks) >= 20
 
 
 def test_playbooks_policies_rules_present(snapshot: PackSnapshot) -> None:
@@ -160,6 +162,81 @@ def test_measure_fields_exist_in_catalog_or_derived_set(
                         f"{contract.id}: count_distinct field {field_id!r} is not a "
                         "catalog count-measure column"
                     )
+
+
+def test_numerator_filter_dimensions_are_certified_catalog_dimensions(
+    snapshot: PackSnapshot, catalog_dimension_ids: frozenset[str]
+) -> None:
+    """The gap that kept `dnfb_dollars` and `timely_filing_at_risk_dollars`
+    dark for four milestones.
+
+    ``validate_pack_catalog_conformance`` walks a contract's ``exclusions:``
+    only, and the two tests above walk measure *fields* and scope dimensions.
+    Nothing walked the predicates inside a ``filtered:`` numerator — so both
+    contracts could name `submission_date` / `discharge_date`, which are date
+    BASES and not dimensions, and every content test stayed green while the
+    probe raised UNSUPPORTED_CONCEPT the first time anyone asked. This closes
+    that hole for every shipped contract, not only the two that had it.
+    """
+    document = yaml.safe_load((CATALOG_DIR / "dimensions.yaml").read_text(encoding="utf-8"))
+    certified = {name for name, spec in document["dimensions"].items() if spec["certified"]}
+    seen = 0
+    for contract in snapshot.metric_contracts:
+        for expr in (contract.numerator, contract.denominator):
+            if not isinstance(expr, Filtered):
+                continue
+            for predicate in iter_predicates(expr.where):
+                seen += 1
+                dimension_id = predicate.dimension.id
+                assert dimension_id in catalog_dimension_ids, (
+                    f"{contract.id}: filter dimension {dimension_id!r} is not a catalog "
+                    "dimension (a date basis is not a dimension)"
+                )
+                assert dimension_id in certified, (
+                    f"{contract.id}: filter dimension {dimension_id!r} is uncertified, "
+                    "which would downgrade every answer built on this contract"
+                )
+    # Guards the guard: a walk that examined nothing would also report nothing.
+    assert seen >= 25
+
+
+def test_unbilled_inventory_contracts_filter_on_the_certified_flags(
+    snapshot: PackSnapshot,
+) -> None:
+    """Closed-set pin, spelled out with polarity.
+
+    A ``filtered:`` predicate names the population to KEEP (the opposite of
+    ``exclusions:``), so DNFB is discharged AND NOT billed, and getting either
+    polarity backwards is structurally invisible — both forms compile, and both
+    return a plausible dollar figure. `billed_flag` / `discharged_flag` are the
+    certified boolean dimensions standing in for `submission_date IS NULL` /
+    `discharge_date IS NOT NULL`; the dates stay date bases (a window rides on
+    them) and are not dimensions.
+    """
+    expected = {
+        "dnfb_dollars": {
+            ("discharged_flag", PredicateOp.EQ, (True,)),
+            ("billed_flag", PredicateOp.EQ, (False,)),
+        },
+        "timely_filing_at_risk_dollars": {
+            ("billed_flag", PredicateOp.EQ, (False,)),
+            ("status", PredicateOp.EQ, ("OPEN",)),
+        },
+    }
+    for metric_id, predicates in expected.items():
+        contract = snapshot.metric(metric_id)
+        assert contract is not None, metric_id
+        numerator = contract.numerator
+        assert isinstance(numerator, Filtered), metric_id
+        assert isinstance(numerator.where, And), metric_id
+        actual = {
+            (p.dimension.id, p.op, p.values)
+            for p in numerator.where.clauses
+            if isinstance(p, Predicate)
+        }
+        assert actual == predicates, metric_id
+        # No `not:` wrapper survives: the flags express both halves directly.
+        assert not any(isinstance(clause, Not) for clause in numerator.where.clauses), metric_id
 
 
 def test_metric_date_bases_exist_in_catalog(snapshot: PackSnapshot) -> None:
@@ -220,6 +297,304 @@ def test_planned_metric_set_present(snapshot: PackSnapshot) -> None:
     }
     present = {m.id for m in snapshot.metric_contracts}
     assert expected <= present, f"missing metrics: {sorted(expected - present)}"
+
+
+# ---------------------------------------------------------------------------
+# coverage wave 2 (2026-08-08) — the widened governed surface
+#
+# Closed sets, per packs/base-rcm/NOTES.md: growing the pack means growing
+# these, and a removal has to be argued rather than noticed later.
+
+WAVE_2_METRICS = frozenset(
+    {
+        # dollars and volume rulers the catalog could always compute
+        "allowed_dollars",
+        "expected_reimbursement",
+        "line_charges",
+        "line_volume",
+        "patient_responsibility_dollars",
+        "contractual_adjustment_dollars",
+        "refund_dollars",
+        "denied_ar_dollars",
+        "denied_claims",
+        "denial_volume",
+        "appeal_volume",
+        "overturned_denied_dollars",
+        "remit_volume",
+        # ratios
+        "net_to_gross_rate",
+        "patient_responsibility_rate",
+        "write_off_rate",
+        "refund_rate",
+        "claim_resolution_rate",
+        "ar_over_120_pct",
+        "appeal_overturn_dollar_rate",
+        "appeals_pending_pct",
+        "denials_unworked_dollar_pct",
+    }
+)
+
+WAVE_2_PLAYBOOKS = frozenset(
+    {
+        "ar_aging_review",
+        "appeals_effectiveness",
+        "credit_balance_review",
+        "clean_claim_review",
+        "patient_responsibility_review",
+        "charge_capture_review",
+        "payer_scorecard",
+        "denial_category_drilldown",
+        "volume_mix_shift",
+        "write_off_review",
+    }
+)
+
+# Named scopes: each resolves to a predicate over ONE certified catalog
+# dimension, named in the concept's definition. `high_dollar_claims` is the
+# deliberate exception — it binds `unavailable` because claim value lives in
+# measures, never in a dimension, so no legal predicate exists (NOTES.md).
+WAVE_2_COHORT_CONCEPTS: dict[str, str] = {
+    "government_payers": "payer_type",
+    "commercial_payers": "payer_type",
+    "managed_care": "product_type",
+    "medicare_advantage": "payer_type",
+    "traditional_medicare": "payer_type",
+    "medicaid_coverage": "payer_type",
+    "surgical_services": "service_line",
+}
+
+
+def test_wave_2_metrics_present_and_versioned_from_one(snapshot: PackSnapshot) -> None:
+    present = {m.id for m in snapshot.metric_contracts}
+    assert present >= WAVE_2_METRICS, f"missing: {sorted(WAVE_2_METRICS - present)}"
+    for metric_id in WAVE_2_METRICS:
+        contract = snapshot.metric(metric_id)
+        assert contract is not None
+        # New contracts, never a revision of an existing meaning: a v1 here
+        # is the evidence that nothing shipped was redefined underneath.
+        assert contract.version == 1, metric_id
+        assert contract.description.strip(), f"{metric_id}: a contract without prose is not governed"
+
+
+def test_wave_2_playbooks_resolve_their_policies_and_metrics(snapshot: PackSnapshot) -> None:
+    playbooks = {p.id: p for p in snapshot.playbooks}
+    assert playbooks.keys() >= WAVE_2_PLAYBOOKS, f"missing: {sorted(WAVE_2_PLAYBOOKS - playbooks.keys())}"
+    policy_ids = {p.id for p in snapshot.conclusion_policies}
+    metric_ids = {m.id for m in snapshot.metric_contracts}
+    for playbook_id in sorted(WAVE_2_PLAYBOOKS):
+        playbook = playbooks[playbook_id]
+        assert playbook.triggers, f"{playbook_id}: a playbook with no triggers is unreachable"
+        assert playbook.probes, playbook_id
+        assert playbook.conclusion_policies, f"{playbook_id}: no conclusion policy"
+        assert set(playbook.conclusion_policies) <= policy_ids, playbook_id
+        for probe in playbook.probes:
+            assert set(probe.metric_ids) <= metric_ids, f"{playbook_id}/{probe.id}"
+            assert probe.scope_note.strip(), f"{playbook_id}/{probe.id}: probes state their scope"
+
+
+def test_wave_2_conclusion_policies_require_evidence_their_playbook_produces(
+    snapshot: PackSnapshot,
+) -> None:
+    """A required-evidence id that no probe template emits is a conclusion
+    that can never be reached — and nothing else would report it."""
+    policies = {p.id: p for p in snapshot.conclusion_policies}
+    for playbook in snapshot.playbooks:
+        if playbook.id not in WAVE_2_PLAYBOOKS:
+            continue
+        probe_ids = {probe.id for probe in playbook.probes}
+        for policy_id in playbook.conclusion_policies:
+            required = set(policies[policy_id].required_evidence)
+            assert required, f"{policy_id}: a conclusion policy must require evidence"
+            missing = required - probe_ids
+            assert not missing, f"{playbook.id}/{policy_id}: no probe emits {sorted(missing)}"
+
+
+def test_wave_2_cohort_concepts_bind_to_certified_dimensions(
+    snapshot: PackSnapshot, catalog_dimension_ids: frozenset[str]
+) -> None:
+    concept_ids = {c.id for c in snapshot.concepts}
+    bindings: dict[str, set[str]] = {}
+    for binding in snapshot.bindings:
+        bindings.setdefault(binding.concept_id, set()).add(binding.dimension_or_measure_id)
+    for concept_id, dimension_id in WAVE_2_COHORT_CONCEPTS.items():
+        assert concept_id in concept_ids, concept_id
+        assert dimension_id in catalog_dimension_ids, dimension_id
+        assert dimension_id in bindings.get(concept_id, set()), (
+            f"{concept_id}: no binding to {dimension_id!r} — a named scope without a "
+            "binding is a phrase, not a governed filter"
+        )
+
+
+def test_high_dollar_cohort_is_declared_unavailable_rather_than_approximated(
+    snapshot: PackSnapshot,
+) -> None:
+    """Claim value is a measure, not a dimension, so no dollar-threshold
+    predicate is legal. The concept exists so the term resolves and the
+    answer can say that, instead of quietly filtering on something else."""
+    concept = snapshot.concept("high_dollar_claims")
+    assert concept is not None
+    binding = next(b for b in snapshot.bindings if b.concept_id == "high_dollar_claims")
+    assert binding.strength is EvidenceGrade.UNAVAILABLE
+    assert binding.dimension_or_measure_id == "billed_amount_cents"
+
+
+def test_anomaly_actionability_covers_every_emitted_category() -> None:
+    """Pack-adjacent governed content (read by the API composition root, not
+    by the pack loader) and therefore otherwise untested here. Every category
+    the warehouse's detection feed emits must have an argued rule: falling to
+    the blanket 50% default sets the worklist order by accident."""
+    document = yaml.safe_load((BASE_PACK_DIR / "anomaly_actionability.yaml").read_text(encoding="utf-8"))
+    rules = document["categories"]
+    emitted = {
+        "DENIAL_SPIKE",
+        "UNWORKED_DENIALS",
+        "ELIGIBILITY_CLUSTER",
+        "DUPLICATE",
+        "UNDERPAYMENT",
+        "CONTRACTUAL",
+        "POSTING_LAG",
+        "SUBMISSION_GAP",
+        "TIMELY_FILING",
+        "DNFB",
+        "CREDIT_BALANCE",
+        "CHARGE_ENTRY_LAG",
+        "CHARGE_HOLD",
+    }
+    assert emitted <= rules.keys(), f"no governed rule for {sorted(emitted - rules.keys())}"
+    for category, rule in rules.items():
+        assert rule["mode"] in ("fraction", "open_share", "flag_share"), category
+        assert Decimal(0) <= Decimal(str(rule["fraction"])) <= Decimal(1), category
+        assert rule.get("rationale", "").strip(), f"{category}: a fraction without an argument"
+        if rule["mode"] == "open_share":
+            assert rule.get("open_fact") and rule.get("expired_fact"), category
+        if rule["mode"] == "flag_share":
+            assert rule.get("numerator_fact") and rule.get("denominator_fact"), category
+
+
+# ---------------------------------------------------------------------------
+# audit response (2026-08-08) — the wave-2 corrections, pinned
+#
+# Each of these existed as a claim in prose that turned out to be false or
+# as a binding whose blast radius nobody had measured. Prose cannot fail a
+# test; these can. See packs/base-rcm/NOTES.md, "Audit response".
+
+
+def test_unworked_denials_prices_zero_appealable_at_zero() -> None:
+    """The flat 0.45 could not see zero: ANM-004 (14 denials, all past the
+    appeal window, appealable_claims = 0) was published as $27,916
+    "partially recoverable" — money no appeal can reach. flag_share over
+    the record's own appealable share is exactly right at that end."""
+    document = yaml.safe_load((BASE_PACK_DIR / "anomaly_actionability.yaml").read_text(encoding="utf-8"))
+    rule = document["categories"]["UNWORKED_DENIALS"]
+    assert rule["mode"] == "flag_share"
+    assert rule["numerator_fact"] == "appealable_claims"
+    assert rule["denominator_fact"] == "denied_claims"
+    # the same fact pair and mode DENIAL_SPIKE already uses on this evidence
+    spike = document["categories"]["DENIAL_SPIKE"]
+    assert (rule["numerator_fact"], rule["denominator_fact"]) == (
+        spike["numerator_fact"],
+        spike["denominator_fact"],
+    )
+    # arithmetic of the mode, over the answer-key facts for ANM-004/027/028
+    for appealable, denied, expected in ((0, 14, 0.0), (17, 29, 17 / 29), (17, 17, 1.0)):
+        assert appealable / denied == pytest.approx(expected)
+
+
+def test_no_recipe_binds_a_shared_measure_that_would_hijack_bare_frames(
+    snapshot: PackSnapshot,
+) -> None:
+    """`_pick_recipe` matches on measure name with first match winning, so a
+    recipe bound to a measure several playbooks report captures every frame
+    carrying it — `volume_mix_share` on `charges` turned bare charge trends
+    into single-series stacked bars. Mix is a property of the investigation,
+    so the binding is the playbook id."""
+    playbook_ids = {p.id for p in snapshot.playbooks}
+    mix = next(r for r in snapshot.presentation_recipes if r.id == "volume_mix_share")
+    assert mix.applies_to == "volume_mix_shift"
+    assert mix.applies_to in playbook_ids
+    assert not [r.id for r in snapshot.presentation_recipes if r.applies_to == "charges"]
+
+
+def test_bare_charges_trend_falls_back_to_the_line_heuristic(snapshot: PackSnapshot) -> None:
+    """The behavior the rebinding restores, driven through the real
+    presentation layer with the real pack recipes: a weekly charges frame
+    outside the mix playbook takes no recipe and charts as a line."""
+    from datetime import date, datetime
+
+    from revi_kernel.frame import EvidenceFrame, FrameColumn, FrameSchema, ProbeProvenance
+    from revi_kernel.grades import EvidenceGrade
+    from revi_kernel.refs import DimensionRef, MetricRef
+    from revi_kernel.watermark import DataWatermark
+    from revi_presentation import RecipeSpec, build_chart_spec
+
+    recipes = tuple(
+        RecipeSpec(id=r.id, applies_to=r.applies_to, chart_type=r.chart_type, notes=r.notes)
+        for r in snapshot.presentation_recipes
+    )
+    frame = EvidenceFrame(
+        schema=FrameSchema(
+            (
+                FrameColumn("week", DimensionRef("time_bucket:week")),
+                FrameColumn("charges", MetricRef("charges"), 1, "money_cents"),
+            )
+        ),
+        rows=((date(2026, 7, 27), 100), (date(2026, 8, 3), 120)),
+        watermark=DataWatermark(
+            id="wm_test", loaded_at=datetime(2026, 8, 3, 4, 10), newest_data_date=date(2026, 8, 2)
+        ),
+        provenance=ProbeProvenance(probe_id="p", probe_hash="h" * 64),
+        evidence_grade=EvidenceGrade.DIRECT,
+    )
+    bare = build_chart_spec("charge_trend", frame, recipes=recipes)
+    assert bare is not None
+    assert bare.recipe_id is None, f"a recipe captured a bare charges frame: {bare.recipe_id}"
+    assert bare.chart_type == "line"
+    # ...and inside the mix playbook the recipe still applies, by playbook id
+    in_playbook = build_chart_spec(
+        "charge_trend", frame, recipes=recipes, playbook_id="volume_mix_shift"
+    )
+    assert in_playbook is not None
+    assert in_playbook.recipe_id == "volume_mix_share"
+    assert in_playbook.chart_type == "stacked_bar"
+
+
+def test_denied_inventory_aging_probe_materializes_the_stacked_recipe(
+    snapshot: PackSnapshot, catalog_dimension_ids: frozenset[str]
+) -> None:
+    """The `denied_inventory_aging` recipe describes buckets stacked per
+    payer. A recipe whose shape no probe emits is decoration, so the probe
+    that produces it is pinned here: two certified dimensions, both legal
+    cuts of the contract, which the renderer turns into x=payer with the
+    age bucket as the series."""
+    playbook = next(p for p in snapshot.playbooks if p.id == "ar_aging_review")
+    probe = next(p for p in playbook.probes if p.id == "denied_inventory_aging")
+    assert probe.metric_ids == ("denied_ar_dollars",)
+    assert probe.dimensions == ("payer", "ar_age_bucket")
+    assert set(probe.dimensions) <= catalog_dimension_ids
+    contract = snapshot.metric("denied_ar_dollars")
+    assert contract is not None
+    scope = {d.id for d in contract.scope_dimensions}
+    assert set(probe.dimensions) <= scope, "the probe cuts a dimension the contract does not allow"
+    recipe = next(r for r in snapshot.presentation_recipes if r.id == "denied_inventory_aging")
+    assert recipe.applies_to == "denied_ar_dollars" and recipe.chart_type == "stacked_bar"
+
+
+def test_playbook_descriptions_front_load_within_the_selection_clip(
+    snapshot: PackSnapshot,
+) -> None:
+    """Playbook selection reads `playbook_summaries()` clipped to 160 chars
+    and nothing else — `triggers:` has no runtime consumer. So a
+    disambiguation past the clip is a disambiguation nobody reads:
+    `payer_scorecard`'s tiebreak against the pre-existing generic
+    `dimension_scorecard` has to land inside it."""
+    clip = 160
+    payer = next(p for p in snapshot.playbooks if p.id == "payer_scorecard")
+    head = " ".join(payer.description.split())[:clip]
+    assert "dimension_scorecard" in head
+    assert "payer" in head.lower()
+    # the pre-existing generic playbook is untouched by this pass
+    generic = next(p for p in snapshot.playbooks if p.id == "dimension_scorecard")
+    assert generic.description.startswith("Generic multi-metric assessment across ANY certified dimension")
 
 
 def test_snapshot_metrics_are_snapshot_kind(snapshot: PackSnapshot) -> None:

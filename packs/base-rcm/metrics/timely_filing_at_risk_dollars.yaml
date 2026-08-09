@@ -10,7 +10,7 @@ numerator:
     inner: {sum: billed_amount_cents}
     where:
       and:
-        - {dimension: submission_date, op: is_null}
+        - {dimension: billed_flag, op: eq, value: false}
         - {dimension: status, op: eq, value: OPEN}
 primary_date_basis: service
 allowed_date_bases: [service]

@@ -121,6 +121,29 @@ export function mediumDate(iso: string): string {
   return `${MONTHS[m - 1]} ${d}, ${y}`;
 }
 
+/**
+ * An ISO timestamp as an age: "now", "12m", "3h", "5d", then a calendar
+ * date. Coarse on purpose — a session list is scanned, not read, and the
+ * exact instant is one `title` attribute away.
+ *
+ * `now` is a parameter so the output is a pure function of its inputs
+ * (tests pin an instant; the caller passes `Date.now()`).
+ */
+export function relativeTime(iso: string, now: number = Date.now()): string {
+  const at = Date.parse(iso);
+  if (Number.isNaN(at)) return iso;
+  const seconds = Math.max(0, Math.round((now - at) / 1000));
+  if (seconds < 60) return "now";
+  const minutes = Math.floor(seconds / 60);
+  if (minutes < 60) return `${minutes}m`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `${days}d`;
+  const date = new Date(at);
+  return `${MONTHS[date.getMonth()]} ${date.getDate()}`;
+}
+
 export const DATE_BASIS_LABELS: Record<DateBasis, string> = {
   service: "service date",
   post: "post date",

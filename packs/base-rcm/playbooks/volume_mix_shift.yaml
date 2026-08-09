@@ -1,0 +1,82 @@
+id: volume_mix_shift
+description: >-
+  Separate "we did more business" from "we did different business" from "the
+  same business is worth less". Volume, charge value and contracted richness
+  are probed together at claim and at procedure grain, then cut by payer,
+  service line and procedure group, because any two of the three cannot tell
+  mix from rate: charges up with volume flat is intensity or price, charges
+  up with net-to-gross down is a mix shift toward leaner contracts, and both
+  flat with cash down is a collection problem this playbook does not claim.
+triggers:
+  - volume is down
+  - why did charges change
+  - payer mix shift
+  - service line mix
+  - are we seeing different patients
+  - volume and mix
+  - is our business changing
+params:
+  - payer
+  - service_line
+probes:
+  - id: volume_trend
+    metric_ids: [claim_volume, charges, expected_reimbursement]
+    window: {quantity: 12, unit: month, mode: full_periods}
+    scope_note: >-
+      Monthly claim volume, gross charges and contract-expected
+      reimbursement on the service basis with a prior-period compare. Twelve
+      months so seasonality is visible rather than mistaken for a trend.
+  - id: mix_by_payer
+    metric_ids: [claim_volume, charges]
+    dimensions: [payer]
+    window: {quantity: 6, unit: month, mode: full_periods}
+    top_n: 12
+    scope_note: >-
+      Volume and charge value by payer; the share-of-total transform over
+      charges turns this into payer mix. Mix is a share view, never a
+      standalone metric — payer_mix resolves to this shape by governed
+      binding.
+  - id: mix_by_service_line
+    metric_ids: [claim_volume, charges]
+    dimensions: [service_line]
+    window: {quantity: 6, unit: month, mode: full_periods}
+    scope_note: >-
+      The same shares by clinical service line. A payer-mix move and a
+      service-mix move look identical in a single total and have completely
+      different owners.
+  - id: contract_richness
+    metric_ids: [net_to_gross_rate]
+    dimensions: [payer, service_line]
+    window: {quantity: 6, unit: month, mode: full_periods}
+    top_n: 20
+    scope_note: >-
+      Contract-expected per dollar of charge, by payer and service line. This
+      is what makes a mix shift financial rather than cosmetic: moving volume
+      toward a leaner cell lowers expected revenue at constant charges.
+      Neutral sign — it also moves with chargemaster changes.
+  - id: procedure_mix
+    metric_ids: [line_volume, line_charges]
+    dimensions: [proc_group]
+    window: {quantity: 6, unit: month, mode: full_periods}
+    top_n: 13
+    scope_note: >-
+      Procedure-level intensity. Line grain because proc_group binds at
+      claim_line only; lines per claim varies by service line, so this series
+      is read against claim_volume rather than instead of it.
+  - id: patient_share_context
+    metric_ids: [patient_responsibility_rate]
+    dimensions: [payer_type]
+    window: {quantity: 6, unit: month, mode: full_periods}
+    scope_note: >-
+      Benefit-design context by payer type: a mix shift toward high-deductible
+      business moves the collection profile even when volume and charges are
+      flat.
+transforms:
+  - operator: compare
+    args: {kind: prior_period}
+  - operator: share_of_total
+    args: {measure: charges}
+  - operator: rank
+    args: {by: charges, descending: true}
+conclusion_policies: [volume_mix_claim]
+ranking_policy: impact_first

@@ -291,6 +291,7 @@ ZIP_CODES = (
 )
 
 SYNTHETIC_HOLIDAYS = (
+    "2024-01-01", "2024-05-27", "2024-07-04", "2024-09-02", "2024-11-28", "2024-12-25",
     "2025-01-01", "2025-05-26", "2025-07-04", "2025-09-01", "2025-11-27", "2025-12-25",
     "2026-01-01", "2026-05-25", "2026-07-03", "2026-09-07", "2026-11-26", "2026-12-25",
 )
@@ -396,7 +397,12 @@ def build_dims(config: GeneratorConfig, rng: np.random.Generator) -> Dims:
 
 
 def calendar_rows() -> dict[str, list[object]]:
-    """dim_calendar content 2025-01-01..2026-12-31 with business-day flags."""
+    """dim_calendar content 2024-01-01..2026-12-31 with business-day flags.
+
+    Spans the 2024 backfill year as well as the organic era so that
+    business-day period alignment works on either side of a year-over-year
+    comparison.
+    """
     holidays = {dt.date.fromisoformat(h) for h in SYNTHETIC_HOLIDAYS}
     dates: list[object] = []
     business: list[object] = []

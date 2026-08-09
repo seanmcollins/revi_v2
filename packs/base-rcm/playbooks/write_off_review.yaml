@@ -1,0 +1,82 @@
+id: write_off_review
+description: >-
+  Govern the write-off line: how many non-contractual dollars were written
+  off, per dollar collected, by whom, and against what denial activity. The
+  contractual series runs beside it throughout for one reason — a
+  contractual adjustment is the negotiated discount and belongs in no
+  write-off total, and an "adjustments" number that mixes the two hides
+  every leakage story inside a much larger, entirely expected figure.
+triggers:
+  - write offs
+  - why are write offs up
+  - adjustment review
+  - how much are we writing off
+  - bad debt and write offs
+  - are we writing off too much
+params:
+  - payer
+  - service_line
+probes:
+  - id: write_off_trend
+    metric_ids: [denial_write_off_dollars, write_off_rate, cash_posted]
+    window: {quantity: 12, unit: month, mode: full_periods}
+    scope_note: >-
+      Monthly non-contractual write-off dollars, write-offs per dollar of
+      payer cash, and the cash itself, POST basis. Trend it: write-offs post
+      30-90 days after the denial that caused them while cash posts within
+      days of adjudication, so a single short window pairs cohorts that have
+      nothing to do with each other.
+  - id: write_off_by_payer
+    metric_ids: [denial_write_off_dollars, write_off_rate]
+    dimensions: [payer]
+    window: {quantity: 6, unit: month, mode: full_periods}
+    top_n: 12
+    scope_note: >-
+      Dollars and rate per payer. Rate answers "is this payer expensive to
+      collect from"; dollars answer "where is the money" — a small payer with
+      a terrible rate is a process defect, a large payer with an average rate
+      is just large.
+  - id: contractual_context
+    metric_ids: [contractual_adjustment_dollars, cash_posted]
+    dimensions: [payer]
+    window: {quantity: 6, unit: month, mode: full_periods}
+    top_n: 12
+    scope_note: >-
+      The contractual series beside it, same grain and basis. Contractuals
+      are the charge-to-allowed haircut working as designed; they are never
+      added to the write-off total and a rising contractual usually means
+      charge growth or mix, not leakage.
+  - id: write_off_by_service_line
+    metric_ids: [denial_write_off_dollars]
+    dimensions: [service_line]
+    window: {quantity: 6, unit: month, mode: full_periods}
+    scope_note: Where write-offs sit clinically — the prevention worklist cut.
+  - id: denial_pressure
+    metric_ids: [denied_dollars, denials_unworked_dollar_pct, appeal_overturn_rate]
+    dimensions: [payer]
+    window: {quantity: 6, unit: month, mode: full_periods}
+    top_n: 12
+    scope_note: >-
+      The upstream denial activity by payer. Attribution caveat: transaction
+      rows carry no stored denial linkage, so pairing write-offs with denials
+      is scope-level (same payer, same window) and never a join — a
+      conclusion may say the two move together, not that these dollars came
+      from those denials.
+  - id: realization_context
+    metric_ids: [net_to_gross_rate, expected_reimbursement]
+    dimensions: [payer]
+    window: {quantity: 6, unit: month, mode: full_periods}
+    top_n: 12
+    scope_note: >-
+      Contract-expected context, so a write-off total can be read as a share
+      of what the business was ever going to collect rather than of gross
+      charges.
+transforms:
+  - operator: compare
+    args: {kind: prior_period}
+  - operator: share_of_total
+    args: {measure: denial_write_off_dollars}
+  - operator: rank
+    args: {by: denial_write_off_dollars, descending: true}
+conclusion_policies: [write_off_claim]
+ranking_policy: impact_first

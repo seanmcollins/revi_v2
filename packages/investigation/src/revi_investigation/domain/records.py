@@ -9,6 +9,7 @@ from enum import StrEnum
 
 from revi_investigation.domain.context import AnalysisSpec, PackVersionRef
 from revi_investigation.domain.refinements import Refinement
+from revi_investigation.domain.settings import DEFAULT_SESSION_SETTINGS, SessionSettings
 from revi_investigation.domain.turns import TurnClass
 from revi_kernel.filters import Scalar
 from revi_kernel.grades import EvidenceGrade
@@ -23,6 +24,10 @@ class Session:
     pack_version: PackVersionRef
     epochs: tuple[WatermarkEpoch, ...]
     created_at: datetime
+    #: The controls this session runs under. Persisted with the session
+    #: record, like the epochs beside it: a setting that survives one
+    #: request and not a reconnect is a setting the analyst cannot trust.
+    settings: SessionSettings = DEFAULT_SESSION_SETTINGS
 
     def __post_init__(self) -> None:
         if not self.epochs:
@@ -41,6 +46,19 @@ class Session:
             pack_version=self.pack_version,
             epochs=(*self.epochs, epoch),
             created_at=self.created_at,
+            settings=self.settings,
+        )
+
+    def with_settings(self, settings: SessionSettings) -> Session:
+        """Re-apply settings to an existing session (an explicit act on
+        session open, never a side effect of a turn)."""
+        return Session(
+            id=self.id,
+            tenant=self.tenant,
+            pack_version=self.pack_version,
+            epochs=self.epochs,
+            created_at=self.created_at,
+            settings=settings,
         )
 
 

@@ -126,7 +126,9 @@ def _parse_entities(directory: Path) -> tuple[list[EntityDef], tuple[JoinPath, .
     for name, raw in _mapping(doc["entities"], f"{ctx}: entities").items():
         ectx = f"{ctx}: entity {name!r}"
         body = _mapping(raw, ectx)
-        _check_keys(body, {"grain", "base_view", "primary_key"}, {"description"}, ectx)
+        _check_keys(
+            body, {"grain", "base_view", "primary_key"}, {"description", "declared_columns"}, ectx
+        )
         grain_name = _str(body["grain"], f"{ectx}.grain")
         try:
             grain = EntityGrain[grain_name]
@@ -139,6 +141,9 @@ def _parse_entities(directory: Path) -> tuple[list[EntityDef], tuple[JoinPath, .
                 base_view=_str(body["base_view"], f"{ectx}.base_view"),
                 primary_key=_str(body["primary_key"], f"{ectx}.primary_key"),
                 description=_str(body.get("description", ""), f"{ectx}.description"),
+                extra_columns=_str_tuple(
+                    body.get("declared_columns", []), f"{ectx}.declared_columns"
+                ),
             )
         )
     join_paths: list[JoinPath] = []
@@ -350,6 +355,7 @@ def load_catalog(path: str | Path) -> CatalogSnapshot:
             primary_key=e.primary_key,
             description=e.description,
             date_basis_columns=tuple(sorted(by_entity[e.name])),
+            extra_columns=e.extra_columns,
         )
         for e in entities
     )

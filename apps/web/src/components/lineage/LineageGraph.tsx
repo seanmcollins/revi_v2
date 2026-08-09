@@ -100,8 +100,8 @@ export function LineageGraph() {
   if (nodes.length === 0) {
     return (
       <p className="text-[0.7rem] leading-relaxed text-muted-foreground">
-        No turns yet. The lineage graph records each investigation as an immutable
-        node linked by typed refinement edges.
+        No turns yet. Every question you ask is recorded here, linked to the one it
+        came from, so you can see how the investigation got where it did.
       </p>
     );
   }

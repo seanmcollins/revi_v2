@@ -400,19 +400,22 @@ service_line eq [Imaging] · watermark wm_003`, finding
 following `remove_filter` landing on that investigation as an ordinary
 refinement.
 
-**Residue, stated plainly: 6 of the 33 cards answer today.** The other 27
-return typed §12 errors — and every one of them is a pre-existing pack↔catalog
-content gap the anchor made visible rather than a defect in the anchor:
+**Residue, stated plainly: 29 of the 33 cards answer today** (re-measured
+2026-08-08 after the §6.3 capability negotiation; it read 21 of 33 earlier the
+same day, and 6 of 33 when this section was written). The other 4 return typed
+§12 errors — and every one of them is a pre-existing gap the anchor made
+visible rather than a defect in the anchor:
 
 | Cards | Metric(s) | Refusal |
 |---|---|---|
-| 9 | `denial_rate` | `DATE_BASIS_INVALID` — its primary basis `remit` is not bound at its own `claim` grain (`warehouse/catalog/date_bases.yaml`), so it can never be probed on it. Pinned by `test_denial_rate_cannot_be_probed_on_its_own_primary_basis`. |
-| 12 | `avg_days_to_pay`, `bill_lag_days`, `charge_lag_days`, `credit_balance_dollars`, `gross_collection_rate`, `late_charge_pct`, `underpayment_variance` | `UNSUPPORTED_CONCEPT` — measure fields (`payment_lag_days`, `submission_lag_days`, `charge_entry_lag_days`, `credit_balance_cents`, `payment_cents`, `late_charge_cents`, `underpayment_cents`) that the catalog does not define at those entities. |
-| 6 | `dnfb_dollars`, `timely_filing_at_risk_dollars` | `UNSUPPORTED_CONCEPT` — contract-internal `filtered:` predicates over `discharge_date` / `submission_date`, which are base-view columns, not catalog dimensions (the same class as the exclusions defect; see follow-up 3). |
+| ~~9~~ 0 | `denial_rate` | **CLOSED.** Its primary basis `remit` is still not bound at its own `claim` grain, so the contract still cannot be probed on it (pinned by `test_denial_rate_cannot_be_probed_on_its_own_primary_basis`). The cards no longer hit it: all nine are repointed by governed content to `denied_dollars`, which is the contract that can express the impact they publish, and each card declares the substitution (`drill_repoints` in `packs/base-rcm/anomaly_actionability.yaml`). |
+| ~~12~~ 0 | `avg_days_to_pay`, `bill_lag_days`, `charge_lag_days`, `credit_balance_dollars`, `gross_collection_rate`, `late_charge_pct`, `underpayment_variance` | **CLOSED 2026-08-08 (capability negotiation, §6.3).** The DuckDB adapter had grown all seven probe-time derived measures and cross-entity ratio-of-sums, and §6.6 plan validation was still deciding answerability from the catalog alone plus one hardcoded field name (`open_balance_cents`) — so it pruned the plan to empty and reported `no probe in the plan is answerable at the source`, a claim about the source the source disproved. The repository now advertises what it computes (`RepositoryCapabilities.derived_measures`, each with its entity and legal probe shapes, plus `cross_entity_ratio_of_sums`) and the validator reads the advertisement instead of a second hardcoded list. A source that advertises nothing still gets the old refusal, word for word (`test_unanswerable_measures_prune_with_warning`). |
+| 4 | `gross_collection_rate`, `underpayment_variance` | `GRAIN_INCOMPATIBLE` — **the real, pre-existing gap, now visible as itself.** These four cards are detected on `proc_group`, which binds at `claim_line` only, so a claim-grain drill cannot be cut by it (and `proc_group` is not a legal scope dimension for `gross_collection_rate`'s ratio in any case). Recorded under "Drill scope reduction" in `packs/base-rcm/NOTES.md`; it was hidden behind `UNSUPPORTED_CONCEPT` until the capability gap above was closed. Catalog/content work, not platform work. |
+| ~~6~~ 0 | `dnfb_dollars`, `timely_filing_at_risk_dollars` | **CLOSED 2026-08-08.** Both contracts' `filtered:` predicates were renamed off the base-view columns `discharge_date` / `submission_date` onto the certified boolean dimensions `discharged_flag` / `billed_flag`, which are materialized from exactly those columns. Population unchanged and asserted so: `test_dnfb_dollars_reads_the_certified_flags_not_the_raw_dates` and `test_timely_filing_at_risk_dollars_values_open_unbilled_inventory` each execute the probe and reproduce the figure twice in SQL, once from the flags and once from the raw dates. All six cards drill. |
 
-All three rows are catalog work, deliberately out of scope for this pass.
-A refusal with a stable code is the designed behaviour; an empty answer would
-not be.
+The one remaining row is content work: a detected cell whose dimension does not
+bind at the grain its metric is defined at. A refusal with a stable code is the
+designed behaviour; an empty answer would not be.
 
 ## 11. Any combination of certified dimensions, filter algebra, and time windows executes with no new code
 
@@ -525,7 +528,11 @@ changed".)
   cohort id and size, and watermark. Asserted verbatim across all five turns
   by `test_every_answer_carries_the_context_header_at_wm003`. Live sample from
   T3, including the pinned cohort:
-  `2026-07-27..2026-08-02 (post) · vs 2026-07-20..2026-07-26 · cohort: cohort_6710faef64de (55722 claims) · watermark wm_003`.
+  `2026-07-27..2026-08-02 (post) · vs 2026-07-20..2026-07-26 · cohort: cohort_f35d90b18482b2ea (86415 claims) · watermark wm_003`.
+  (T3's cohort is an unbounded payer predicate, so it spans the 2024 comparison
+  year added in `warehouse/backfill.py`; it held 55,722 claims before that year
+  existed. The windowed numbers T3 reports are unchanged — see "The 2024
+  comparison backfill" in `warehouse/ANSWER_KEY.md`.)
 - **Stored.** `test_trace_record_persisted_per_design_14` (item 4).
 - **Qualifications travel with the number.** Alternate date bases are labelled
   (`alternate_basis_used: probe 'submission_volume_by_payer' reads
@@ -558,7 +565,7 @@ scripted.
 | `POST /v1/sessions` | pinned `wm_003 @ 2026-08-03T04:10:00`, epoch 0 |
 | **T1 over SSE** | 24 frames: `stage`×12, `context_header`, `finding`×3, `chart_spec`×4, `narrative_delta`×3, `turn_complete`. F1 State Medicaid −$99,093 · F2 Atlas Commercial −$48,940 · F3 Meridian Health −$38,064 (= answer key) |
 | T2 `Break that down by payer` | refinement; F4–F6, same impacts (session-monotonic handles) |
-| T3 `…top three payers — CARC mix?` | cohort pinned (`55,722` claims), denial-grain CARC cut, header shows the cohort |
+| T3 `…top three payers — CARC mix?` | cohort pinned (`86,415` claims), denial-grain CARC cut, header shows the cohort |
 | T4 `Compare that to Q1` | comparison re-derived to `2026-01-01..2026-03-31`, cohort retained |
 | T5 `Why do you say F2?` | META, `llm_calls=1`, cites 6 recorded probes + 5 operators + per-probe grades |
 | `GET …/lineage` | 5 investigations, 4 typed edges: `set_dimensions` → `drill_into×3 + pivot + set_dimensions` → `set_comparison` → (meta, no operators) |
@@ -713,12 +720,26 @@ matters as much as that there was one.
    (rebind `denial_rate` to denial grain, or bind REMIT on claim) and belongs
    with the catalog work, not with a guard that would fail startup on content
    nobody can fix in this pass.
-9. **Six metric contracts reference measure fields the catalog does not
-   define** at their entity (`payment_lag_days`, `submission_lag_days`,
-   `charge_entry_lag_days`, `credit_balance_cents`, `payment_cents`,
-   `late_charge_cents`, `underpayment_cents`, plus `first_pass_paid` as a
-   filter dimension). They prune to `UNSUPPORTED_CONCEPT` rather than
-   answering. Enumerated in `packs/base-rcm/NOTES.md`; all catalog work.
+9. **Nine metric contracts prune to `UNSUPPORTED_CONCEPT` on the product
+   path** (`avg_days_to_pay`, `bill_lag_days`, `charge_lag_days`,
+   `late_charge_pct`, `underpayment_variance`, `days_in_ar`,
+   `credit_balance_dollars`, `net_collection_rate`, `gross_collection_rate`).
+   *(Restated 2026-08-08 — the original wording said the catalog does not
+   define their measure fields, and that `first_pass_paid` was not a
+   certified filter dimension. Both are now false.)* `first_pass_paid`,
+   `billed_flag` and `discharged_flag` are certified, and the DuckDB adapter
+   implements all seven probe-time derived measures plus cross-entity
+   ratio-of-sums, so **all nine compile and execute against snap_003** —
+   measured, with each figure reproduced by independent SQL, in
+   `packs/base-rcm/NOTES.md` Appendix B (48 of 49 contracts execute at the
+   source; only `denial_rate` on its own primary basis does not). What prunes
+   them is §6.6 plan validation:
+   `PlanValidationService._field_resolves` requires a catalog measure at the
+   probe's own entity or a member of `_SNAPSHOT_DERIVED_FIELDS`, which holds
+   one entry. So the validator refuses nine contracts, three of the ten wave-2
+   playbooks' probe groups, and twelve portfolio cards that the source can in
+   fact answer. No longer catalog work: the fix is a capability declaration
+   the adapter publishes and the validator consults.
 10. **`FindingPayload` publishes no direction-of-good.** It lives on the
     metric contract (`sign:`), so the UI cannot tone-colour a delta in API
     mode and withholds the colour rather than inferring it from the sign of

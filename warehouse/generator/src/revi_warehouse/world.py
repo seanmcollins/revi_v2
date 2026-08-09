@@ -37,6 +37,23 @@ TXN_TYPES = ("PAYMENT", "CONTRACTUAL_ADJ", "OTHER_ADJ", "PATIENT_PAYMENT", "REFU
 APPEAL_NONE, APPEAL_APPEALED = 0, 1
 PROC_GROUP_INDEX = {g[0]: i for i, g in enumerate(PROC_GROUPS)}
 
+# The per-claim and per-line array names every append-only stage (anomalies.py,
+# backfill.py) has to supply. Kept here so a new World field cannot be forgotten
+# by one appender and remembered by the other.
+CLAIM_ARRAY_FIELDS = (
+    "svc_day", "discharge_day", "patient_i", "payer_i", "plan_i", "provider_i",
+    "facility_i", "svcline_i", "is_institutional", "pseq", "oins", "cobm",
+    "sub_day", "remit1_day", "remit2_day", "denied", "den_carc", "den_group",
+    "den_level_line", "den_line_pos", "den_amount", "den_rarc", "appealed",
+    "appeal_file_day", "appeal_dec_day", "overturned", "writeoff_day",
+    "billed_total", "allowed_total", "expected_total", "pr_amount",
+    "pr_known_day", "first_pay_post", "resolved_day", "fpp", "n_lines_per_claim",
+)
+LINE_ARRAY_FIELDS = (
+    "line_claim", "line_num", "line_group_i", "line_code_i", "line_units",
+    "line_svc_day", "line_charge_day", "line_billed", "line_allowed", "line_expected",
+)
+
 
 @dataclass
 class World:
@@ -46,8 +63,11 @@ class World:
     dims: Dims
     # claims (N). n_base_claims counts the organic world; claims appended by the
     # anomaly injector (anomalies.py) occupy indices n_base_claims..n_claims-1.
+    # The 2024 backfill (backfill.py) appends after those, from
+    # n_pre_backfill_claims onward.
     n_claims: int = 0
     n_base_claims: int = 0
+    n_pre_backfill_claims: int = 0
     svc_day: Any = None
     discharge_day: Any = None  # NEVER for professional claims
     patient_i: Any = None

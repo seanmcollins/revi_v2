@@ -1,0 +1,62 @@
+id: patient_responsibility_review
+description: >-
+  Size and stage the patient book: how many dollars adjudication assigns to
+  patients, what share of the net collectible that is, how it splits by payer
+  type and financial class, and how much of it actually posts as patient
+  cash. The billed-out side and the collected side are separate contracts and
+  stay separate — a rising patient balance with flat patient cash is a
+  collection problem, while both rising together is benefit-design drift.
+triggers:
+  - patient responsibility
+  - how much do patients owe
+  - patient collections
+  - self pay balances
+  - patient portion is growing
+params:
+  - payer
+probes:
+  - id: pr_dollars
+    metric_ids: [patient_responsibility_dollars, expected_reimbursement]
+    dimensions: [payer_type]
+    window: {quantity: 6, unit: month, mode: full_periods}
+    scope_note: >-
+      Patient-responsibility dollars against contract-expected reimbursement
+      by payer type, service basis. Expected is the whole allowed quantity,
+      so it includes the patient's share; the difference is payer-expected.
+  - id: pr_share
+    metric_ids: [patient_responsibility_rate]
+    dimensions: [payer_type]
+    window: {quantity: 6, unit: month, mode: full_periods}
+    scope_note: >-
+      Share of the net collectible falling to patients, adjudicated claims
+      only (un-adjudicated claims carry expected dollars but no assigned
+      responsibility yet and would drag the share toward zero).
+  - id: pr_by_financial_class
+    metric_ids: [patient_responsibility_dollars]
+    dimensions: [financial_class]
+    window: {quantity: 6, unit: month, mode: full_periods}
+    scope_note: Where the patient book sits by financial class — the worklist cut.
+  - id: patient_cash_trend
+    metric_ids: [patient_cash_posted]
+    window: {quantity: 6, unit: month, mode: full_periods}
+    scope_note: >-
+      Patient cash posted monthly, POST basis. In this warehouse patient
+      payments post only after adjudication establishes responsibility, so no
+      point-of-service split is supportable (see pack NOTES).
+  - id: patient_cash_by_class
+    metric_ids: [patient_cash_posted]
+    dimensions: [financial_class]
+    window: {quantity: 6, unit: month, mode: full_periods}
+    scope_note: >-
+      Collected side by the same cut as the billed-out side. The two are
+      different entities and different date bases, so they are compared as
+      trends, never divided cell by cell into a collection rate.
+transforms:
+  - operator: compare
+    args: {kind: prior_period}
+  - operator: share_of_total
+    args: {measure: patient_responsibility_dollars}
+  - operator: rank
+    args: {by: patient_responsibility_dollars, descending: true}
+conclusion_policies: [patient_responsibility_claim]
+ranking_policy: impact_first

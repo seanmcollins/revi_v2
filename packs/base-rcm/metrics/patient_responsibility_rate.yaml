@@ -1,0 +1,40 @@
+# Share of contract-expected reimbursement that lands on the patient. Both
+# components are claim-entity measures, so this is a same-grain ratio.
+# Excludes un-adjudicated claims, which carry their full expected dollars
+# but almost none of the patient responsibility that adjudication assigns,
+# and would therefore drag the share down toward zero. The exclusion is not
+# about tidiness: it is about an asymmetry measured on this warehouse and
+# stated in the description below.
+id: patient_responsibility_rate
+version: 1
+kind: flow
+entity_grain: claim
+numerator: {sum: patient_responsibility_cents}
+denominator: {sum: expected_amount_cents}
+exclusions: {dimension: status, op: eq, value: OPEN}
+primary_date_basis: service
+allowed_date_bases: [service, submission, discharge]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, provider,
+   provider_specialty, facility, region, service_line, claim_type,
+   payer_sequence]
+sign: neutral
+unit: ratio
+description: >-
+  Patient-responsibility dollars as a share of contract-expected
+  reimbursement for adjudicated claims in the window — how much of the net
+  collectible the benefit design pushes onto the patient, and therefore how
+  much of it has to be collected one statement at a time. Population caveat:
+  claims still awaiting their first remittance (status OPEN) are removed
+  from both sides, because they enter the denominator at their full expected
+  value while adjudication has not yet assigned them a patient share. That
+  asymmetry is what the exclusion is for, and it is large here: over
+  2026-05-01..2026-08-02 the window's 6,272 OPEN claims carry 30.3% of its
+  expected dollars ($7.95M of $26.23M) but 2.8% of its patient
+  responsibility ($61,164 of $2.22M), so including them moves the published
+  share from 11.81% to 8.46% — a third of the reading, produced entirely by
+  claims nobody has decided yet. Standing-denied and written-off claims stay
+  in, and they legitimately pull the share down since a denied claim assigns
+  nothing to the patient. Sign is neutral — a high share is a collection-risk
+  profile, not a failure. Rising deductible exposure shows up here first and
+  in patient_cash_posted second.

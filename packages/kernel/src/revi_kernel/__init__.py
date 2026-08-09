@@ -6,7 +6,11 @@ money, and the stable error codes. Everything here is frozen, typed, and
 free of vendor or framework imports (enforced by import-linter).
 """
 
-from revi_kernel.capabilities import AnalyticalRepository, RepositoryCapabilities
+from revi_kernel.capabilities import (
+    AnalyticalRepository,
+    DerivedMeasure,
+    RepositoryCapabilities,
+)
 from revi_kernel.cohort import CohortDefinition, CohortMaterialization, CohortRef
 from revi_kernel.errors import ERROR_TYPES, ErrorCode, ReviError
 from revi_kernel.filters import (
@@ -41,12 +45,14 @@ from revi_kernel.probes import (
     EvidenceProbe,
     MeasurePredicate,
     Ordering,
+    ProbeShape,
     RowEvidenceProbe,
     SampleMethod,
     SamplePolicy,
     SnapshotProbe,
     canonical_json,
     probe_hash,
+    probe_shape,
 )
 from revi_kernel.refs import (
     DISCHARGE,
@@ -109,6 +115,7 @@ __all__ = [
     "ComparisonKind",
     "DataWatermark",
     "DateBasisRef",
+    "DerivedMeasure",
     "DimensionRef",
     "EntityGrain",
     "ErrorCode",
@@ -130,6 +137,7 @@ __all__ = [
     "Predicate",
     "PredicateOp",
     "ProbeProvenance",
+    "ProbeShape",
     "ProvenanceRef",
     "RangeMode",
     "ReferentId",
@@ -159,6 +167,7 @@ __all__ = [
     "iter_predicates",
     "min_grade",
     "probe_hash",
+    "probe_shape",
     "resolve_relative",
     "resolve_window",
     "shift_months",

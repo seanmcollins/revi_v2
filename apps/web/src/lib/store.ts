@@ -13,19 +13,30 @@ import type {
   TurnDriver,
   TurnSubmission,
 } from "@/lib/driver";
+import { REFERENCE_QUESTIONS } from "@/lib/mock/reference";
+import {
+  DEFAULT_SETTINGS,
+  isDefaultSettings,
+  loadSettings,
+  saveSettings,
+  type DeploymentCapabilities,
+  type SessionSettings,
+} from "@/lib/settings";
 import {
   STAGE_ORDER,
+  type SessionSummary,
   type PackVersionRef,
   type ChartSpec,
   type ClarificationData,
   type ContextHeaderData,
   type DataWatermark,
+  type DebugTrace,
   type DefinitionCardData,
   type EvidenceBundle,
   type EvidenceGrade,
   type Finding,
   type InterpretationData,
-  type MetricContractSummary,
+  type MetricProvenance,
   type Refinement,
   type ReferentId,
   type StageEvent,
@@ -50,9 +61,19 @@ export interface StageStatus {
 
 export type AnswerStatus = "streaming" | "complete" | "clarification" | "error";
 
+/** How this turn's decision trace was obtained (debug mode only). */
+export type TraceFetchState = "idle" | "loading" | "error";
+
 export interface AnswerState {
   turnClass?: TurnClass;
   stages: StageStatus[];
+  /** Server id for the turn — the handle `GET .../trace` is read by. */
+  investigationId?: string;
+  /** The turn's decision trace, when debug was on (or fetched afterwards). */
+  debug?: DebugTrace;
+  traceFetch?: TraceFetchState;
+  /** The server's own words when a trace read was refused. */
+  traceError?: string;
   header?: ContextHeaderData;
   interpretation?: InterpretationData;
   findings: Finding[];
@@ -63,10 +84,21 @@ export interface AnswerState {
   evidence?: EvidenceBundle;
   definition?: DefinitionCardData;
   answerGrade?: EvidenceGrade;
-  metric?: MetricContractSummary;
+  /** Whose definition these numbers are — see `MetricProvenance`. */
+  metric?: MetricProvenance;
   cacheHits: number;
   status: AnswerStatus;
   error?: { code: string; message: string };
+  /**
+   * Rebuilt from stored server state when this session was re-opened,
+   * rather than watched as it streamed. What the server kept comes back —
+   * findings, warnings, the evidence bundle projected from the turn's
+   * recorded trace, and charts rebuilt from the frames it persisted. The
+   * stage timeline and the composed narrative were never stored, so this
+   * turn says where it came from instead of replaying a pipeline nobody
+   * observed or inventing prose nobody wrote.
+   */
+  rehydrated?: boolean;
 }
 
 export function emptyAnswer(): AnswerState {
@@ -137,6 +169,8 @@ export function applyEventToAnswer(answer: AnswerState, event: TurnEvent): Answe
       return {
         ...answer,
         stages,
+        investigationId: event.investigationId || answer.investigationId,
+        debug: event.debug ?? answer.debug,
         answerGrade: event.answerGrade ?? answer.answerGrade,
         metric: event.metric ?? answer.metric,
         status:
@@ -196,7 +230,21 @@ export interface ConnectionStatus {
   mode: DriverKind;
   state: ConnectionState;
   detail?: string;
+  /** From `GET /v1/health`'s `llm_mode` — "scripted-demo" | "claude-agent-sdk". */
+  llmMode?: string;
+  /** `store_mode` — "memory" | "postgres". */
+  storeMode?: string;
+  /** `auth_mode` — a dev-tenant bypass is visible, not inferred. */
+  authMode?: string;
+  /** `watermark` — the newest load the deployment can see. */
+  newestWatermarkId?: string;
 }
+
+/** Lifecycle of the `GET /v1/capabilities` read the settings panel needs. */
+export type CapabilitiesState = "idle" | "loading" | "ready" | "unavailable";
+
+/** Lifecycle of the `GET /v1/sessions` read the session rail renders. */
+export type SessionListState = "idle" | "loading" | "ready" | "unavailable";
 
 interface SessionState {
   sessionId: string;
@@ -219,10 +267,67 @@ interface SessionState {
   drawerTurnId: string | null;
   focusedReferent: string | null;
   streamingTurnId: string | null;
+  /** True for the whole "Replay reference demo" run — newChat() through the last turn. */
   replaying: boolean;
+  /** 1-indexed position in the reference conversation while replaying (e.g. "2/5"). */
+  replayProgress: { index: number; total: number } | null;
+  /** True while `newChat()`'s `driver.newSession()` call is in flight. */
+  newChatPending: boolean;
   driver: TurnDriver | null;
 
+  /* -- the session list (GET /v1/sessions) ------------------------- */
+  /** The tenant's sessions as the server lists them — never local guesses. */
+  sessions: SessionSummary[];
+  /** Every session the tenant owns, so a capped list can say it is capped. */
+  sessionsTotal: number;
+  sessionsState: SessionListState;
+  /** Why the list could not be read — shown instead of inventing rows. */
+  sessionsError: string | null;
+  /** The session being switched to, while its thread is rebuilding. */
+  switchingSessionId: string | null;
+  /** The server's own words when a switch failed. */
+  switchError: string | null;
+
+  /* -- internal settings (see lib/settings.ts) --------------------- */
+  /** What the NEXT turn will be submitted under. Persisted in localStorage. */
+  settings: SessionSettings;
+  settingsOpen: boolean;
+  /** The deployment's published bounds; null until read (or if unreadable). */
+  capabilities: DeploymentCapabilities | null;
+  capabilitiesState: CapabilitiesState;
+  /** Why the bounds could not be read — shown instead of inventing controls. */
+  capabilitiesError: string | null;
+  /**
+   * The most recent `POLICY_DENIED` refusal, verbatim. Settings are refused
+   * loudly, never clamped, so the panel repeats the server's own sentence
+   * next to the control that caused it.
+   */
+  lastPolicyDenial: string | null;
+
   setDriver: (driver: TurnDriver) => void;
+  /** Hydrate persisted settings on the client (never during SSR). */
+  hydrateSettings: () => void;
+  patchSettings: (patch: Partial<SessionSettings>) => void;
+  resetSettings: () => void;
+  openSettings: () => void;
+  closeSettings: () => void;
+  /** Read `GET /v1/capabilities` through the driver seam; never rejects. */
+  loadCapabilities: () => Promise<void>;
+  /** Read `GET /v1/sessions` through the driver seam; never rejects. */
+  loadSessions: () => Promise<void>;
+  /**
+   * Switch to another session: re-join it server-side and rebuild its
+   * thread from the lineage plus each turn's stored investigation. A no-op
+   * while a turn is streaming, a replay is running, or a switch is already
+   * in flight — and for the session already open. Never rejects: a failed
+   * switch leaves the thread cleared and names the failure.
+   */
+  switchSession: (sessionId: string) => Promise<void>;
+  /**
+   * Fetch a turn's decision trace after the fact (`GET .../trace`) — how
+   * debug mode explains a turn answered before the toggle was flipped.
+   */
+  loadTrace: (turnId: string) => Promise<void>;
   setConnection: (patch: Partial<ConnectionStatus>) => void;
   adoptSession: (session: {
     sessionId: string;
@@ -244,6 +349,25 @@ interface SessionState {
   resolveWatermarkBanner: (decision: "stay_pinned" | "re_anchor") => void;
   toggleFailurePreview: () => void;
   reset: () => void;
+  /**
+   * "New chat": clear the thread (§`reset`) AND abandon the driver's
+   * cached session so the next turn opens a genuinely new one — a bare
+   * `reset()` clears the thread but NOT the api driver's cached session,
+   * which would silently continue the OLD backend session (inherited
+   * referents/lineage). Single-flight: a no-op while a turn is streaming
+   * or another `newChat()` is already in flight.
+   */
+  newChat: () => Promise<void>;
+  /**
+   * "Replay reference demo": starts a genuinely fresh session (`newChat()`)
+   * and submits the reference conversation's five utterances one at a time
+   * through the normal `submit` path, awaiting each turn's full completion
+   * before sending the next — they are follow-ups, so order matters and
+   * nothing is pre-computed. If a turn lands on a clarification or an
+   * error, the replay stops there; it never fakes a continuation. Single-
+   * flight, like `newChat()`.
+   */
+  replayReference: () => Promise<void>;
 }
 
 export const INITIAL_WATERMARK: DataWatermark = {
@@ -318,9 +442,212 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   focusedReferent: null,
   streamingTurnId: null,
   replaying: false,
+  replayProgress: null,
+  newChatPending: false,
   driver: null,
 
+  sessions: [],
+  sessionsTotal: 0,
+  sessionsState: "idle",
+  sessionsError: null,
+  switchingSessionId: null,
+  switchError: null,
+
+  settings: DEFAULT_SETTINGS,
+  settingsOpen: false,
+  capabilities: null,
+  capabilitiesState: "idle",
+  capabilitiesError: null,
+  lastPolicyDenial: null,
+
   setDriver: (driver) => set({ driver }),
+
+  hydrateSettings: () => set({ settings: loadSettings() }),
+
+  patchSettings: (patch) => {
+    const next = { ...get().settings, ...patch };
+    saveSettings(next);
+    // A control just changed; the last refusal was about the OLD value and
+    // repeating it would misattribute it to the new one.
+    set({ settings: next, lastPolicyDenial: null });
+  },
+
+  resetSettings: () => {
+    saveSettings(DEFAULT_SETTINGS);
+    set({ settings: DEFAULT_SETTINGS, lastPolicyDenial: null });
+  },
+
+  openSettings: () => {
+    set({ settingsOpen: true });
+    void get().loadCapabilities();
+  },
+
+  closeSettings: () => set({ settingsOpen: false }),
+
+  loadCapabilities: async () => {
+    const { driver, capabilitiesState } = get();
+    if (capabilitiesState === "loading") return;
+    if (!driver?.capabilities) {
+      // The mock fixture has no deployment to describe. Saying so is the
+      // honest answer; rendering controls anyway would offer knobs with
+      // nothing behind them.
+      set({
+        capabilities: null,
+        capabilitiesState: "unavailable",
+        capabilitiesError:
+          "This driver has no deployment to read bounds from — settings apply to the live API only.",
+      });
+      return;
+    }
+    set({ capabilitiesState: "loading", capabilitiesError: null });
+    try {
+      const capabilities = await driver.capabilities();
+      set({ capabilities, capabilitiesState: "ready", capabilitiesError: null });
+    } catch (error) {
+      set({
+        capabilities: null,
+        capabilitiesState: "unavailable",
+        capabilitiesError:
+          error instanceof Error
+            ? error.message
+            : "Could not read this deployment's settings bounds.",
+      });
+    }
+  },
+
+  loadSessions: async () => {
+    const { driver } = get();
+    // No driver yet (the first paint, before page.tsx wires one): that is
+    // "not asked", not "unavailable" — claiming the latter would blame the
+    // deployment for the app's own startup order.
+    if (!driver) {
+      set({ sessionsState: "idle" });
+      return;
+    }
+    if (!driver.listSessions) {
+      // The mock fixture has no deployment, so it has no sessions. Saying
+      // that is the honest empty state; three plausible titles would not be.
+      set({
+        sessions: [],
+        sessionsTotal: 0,
+        sessionsState: "unavailable",
+        sessionsError:
+          "This driver has no deployment to list sessions from — the session list is the live API's.",
+      });
+      return;
+    }
+    if (get().sessionsState !== "ready") set({ sessionsState: "loading" });
+    try {
+      const page = await driver.listSessions();
+      set({
+        sessions: page.sessions,
+        sessionsTotal: page.total,
+        sessionsState: "ready",
+        sessionsError: null,
+      });
+    } catch (error) {
+      set({
+        sessions: [],
+        sessionsTotal: 0,
+        sessionsState: "unavailable",
+        sessionsError:
+          error instanceof Error ? error.message : "Could not read this tenant's sessions.",
+      });
+    }
+  },
+
+  switchSession: async (sessionId) => {
+    const { driver, streamingTurnId, replaying, newChatPending, switchingSessionId } = get();
+    if (!driver || streamingTurnId || replaying || newChatPending || switchingSessionId) return;
+    if (sessionId === get().sessionId) return;
+    if (!driver.resumeSession) {
+      set({
+        switchError: "This driver cannot re-open a session — the live API can.",
+      });
+      return;
+    }
+    set({ switchingSessionId: sessionId, switchError: null });
+    // Clear the thread BEFORE the fetch: the rail already shows the target
+    // as selected, and leaving the old session's answers on screen under a
+    // new title would attribute them to a session that never asked them.
+    get().reset();
+    if (get().connection.mode === "api") get().setConnection({ state: "connecting" });
+    try {
+      const resumed = await driver.resumeSession(sessionId);
+      get().adoptSession({
+        sessionId: resumed.sessionId,
+        watermark: resumed.watermark,
+        pack: resumed.pack,
+      });
+      set((state) => {
+        let referents = state.referents;
+        const turns: TurnRecord[] = resumed.turns.map((turn, index) => {
+          const id = nextTurnId();
+          let answer = emptyAnswer();
+          for (const event of turn.events) {
+            answer = applyEventToAnswer(answer, event);
+            referents = registerReferents(referents, id, event);
+          }
+          return {
+            id,
+            index,
+            submission: { utterance: turn.question },
+            // Everything below the answer card keys off this: a rebuilt
+            // turn shows its real findings and skips the stage timeline it
+            // cannot honestly draw.
+            answer: { ...answer, rehydrated: true },
+          };
+        });
+        return { turns, referents };
+      });
+    } catch (error) {
+      set({
+        switchError:
+          error instanceof Error
+            ? error.message
+            : "Could not re-open that session. Its turns stay on the server.",
+      });
+    } finally {
+      set({ switchingSessionId: null });
+      void get().loadSessions();
+    }
+  },
+
+  loadTrace: async (turnId) => {
+    const { driver, turns } = get();
+    const turn = turns.find((t) => t.id === turnId);
+    const investigationId = turn?.answer.investigationId;
+    if (!investigationId) return;
+    const patch = (answer: Partial<AnswerState>): void =>
+      set((state) => ({
+        turns: state.turns.map((t) =>
+          t.id === turnId ? { ...t, answer: { ...t.answer, ...answer } } : t,
+        ),
+      }));
+    if (!driver?.getTrace) {
+      patch({
+        traceFetch: "error",
+        traceError: "This driver cannot read recorded traces — the live API can.",
+      });
+      return;
+    }
+    patch({ traceFetch: "loading", traceError: undefined });
+    try {
+      const trace = await driver.getTrace(investigationId);
+      if (trace === null) {
+        patch({ traceFetch: "error", traceError: "The server has no recorded trace for this turn." });
+        return;
+      }
+      patch({ debug: trace, traceFetch: "idle", traceError: undefined });
+    } catch (error) {
+      // The deployment's own refusal (REVI_DEBUG_TRACE=0 → POLICY_DENIED)
+      // is the useful message here — repeated verbatim.
+      patch({
+        traceFetch: "error",
+        traceError: error instanceof Error ? error.message : "Could not read this turn's trace.",
+      });
+    }
+  },
 
   setConnection: (patch) =>
     set((state) => ({ connection: { ...state.connection, ...patch } })),
@@ -341,11 +668,19 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   dismissContractDrift: () => set({ contractDrift: [] }),
 
   submit: async (submission) => {
-    const { driver, streamingTurnId, pendingReAnchor } = get();
-    if (!driver || streamingTurnId) return;
-    const effective: TurnSubmission = pendingReAnchor
-      ? { ...submission, reAnchor: true }
-      : submission;
+    const { driver, streamingTurnId, pendingReAnchor, settings, switchingSessionId } = get();
+    // A turn submitted mid-switch would land in whichever session won the
+    // race — the one being left or the one being joined.
+    if (!driver || streamingTurnId || switchingSessionId) return;
+    // Settings ride on the turn, not the session record: the refusal for an
+    // out-of-bounds value lands on the turn that used it. At their defaults
+    // the key is dropped entirely by `settingsToWire`, so the default path
+    // is unchanged.
+    const effective: TurnSubmission = {
+      ...submission,
+      ...(pendingReAnchor ? { reAnchor: true } : {}),
+      ...(isDefaultSettings(settings) ? {} : { settings }),
+    };
     if (pendingReAnchor) set({ pendingReAnchor: false });
     const id = nextTurnId();
     const record: TurnRecord = {
@@ -362,6 +697,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
             t.id === id ? { ...t, answer: applyEventToAnswer(t.answer, event) } : t,
           ),
           referents: registerReferents(state.referents, id, event),
+          // A settings bound was broken. The server's sentence names the
+          // bound and what would satisfy it, so it is kept verbatim and
+          // shown next to the controls as well as on the answer.
+          lastPolicyDenial:
+            event.type === "error" && event.code === "POLICY_DENIED"
+              ? event.message
+              : state.lastPolicyDenial,
         }));
       });
     } finally {
@@ -374,6 +716,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         set({ pendingRefinements: [] });
         void after.submit({ refinements });
       }
+      // The turn just changed this session's title (if it was the first),
+      // its turn count and its last activity — every column the rail
+      // renders. One small GET per turn keeps the list from claiming
+      // yesterday's state about the session in front of the analyst.
+      if (after.connection.mode === "api") void after.loadSessions();
     }
   },
 
@@ -443,9 +790,57 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       // A live API session stays pinned to its real watermark across a
       // thread reset; only the mock demo rewinds to the seed watermark.
       watermark: state.sessionLive ? state.watermark : INITIAL_WATERMARK,
-      replaying: false,
+      // NOT `replaying`/`replayProgress` — `replayReference()` calls this
+      // via `newChat()` mid-run and owns that flag's lifecycle itself; a
+      // plain reset() outside a replay never has it set in the first place.
       contractDrift: [],
       pendingReAnchor: false,
+      // Tied to the turns being cleared, not to the controls — the chosen
+      // settings themselves survive a reset, as any preference should.
+      lastPolicyDenial: null,
+      // A failed switch's message is about the thread that is being
+      // cleared; carrying it into the next one would misattribute it.
+      switchError: null,
     }));
+  },
+
+  newChat: async () => {
+    const { driver, streamingTurnId, newChatPending, connection, switchingSessionId } = get();
+    if (!driver || streamingTurnId || newChatPending || switchingSessionId) return;
+    set({ newChatPending: true });
+    get().reset();
+    // Mock mode's connection state is always "online" — only the live api
+    // driver has a real request to reflect while it bootstraps.
+    if (connection.mode === "api") get().setConnection({ state: "connecting" });
+    try {
+      await driver.newSession();
+    } finally {
+      set({ newChatPending: false });
+      // The fresh session exists server-side the moment newSession()
+      // resolves, so the rail must show it — including as the selected row.
+      if (connection.mode === "api") void get().loadSessions();
+    }
+  },
+
+  replayReference: async () => {
+    const { driver, streamingTurnId, replaying, newChatPending, switchingSessionId } = get();
+    if (!driver || streamingTurnId || replaying || newChatPending || switchingSessionId) return;
+    set({ replaying: true, replayProgress: null });
+    try {
+      await get().newChat();
+      const total = REFERENCE_QUESTIONS.length;
+      for (let i = 0; i < total; i += 1) {
+        set({ replayProgress: { index: i + 1, total } });
+        await get().submit({ utterance: REFERENCE_QUESTIONS[i] });
+        const turns = get().turns;
+        const last = turns[turns.length - 1];
+        // A turn that didn't land on "complete" — clarification, error, or
+        // (defensively) anything else — stops the replay right there. The
+        // turns already answered stay on screen; nothing fakes onward.
+        if (last?.answer.status !== "complete") break;
+      }
+    } finally {
+      set({ replaying: false, replayProgress: null });
+    }
   },
 }));

@@ -1,0 +1,38 @@
+# Aged A/R over 120 days as a share of open A/R. Deliberately a separate
+# contract from ar_over_90_pct rather than a scope filter on it: the buckets
+# are not interchangeable and the published guidance differs (MGMA's better-
+# performer figure is a 120-day figure and must never be read against a
+# 90-day number).
+id: ar_over_120_pct
+version: 1
+kind: snapshot
+entity_grain: claim
+numerator:
+  filtered:
+    inner: {sum: billed_amount_cents}
+    where:
+      and:
+        - {dimension: status, op: in, values: [OPEN, DENIED]}
+        - {dimension: ar_age_bucket, op: eq, value: "120+"}
+denominator:
+  filtered:
+    inner: {sum: billed_amount_cents}
+    where: {dimension: status, op: in, values: [OPEN, DENIED]}
+primary_date_basis: service
+allowed_date_bases: [service, submission]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, facility, region,
+   service_line, claim_type]
+sign: higher_is_bad
+unit: ratio
+description: >-
+  Share of open A/R older than 120 days as of the snapshot, using the derived
+  ar_age_bucket over the same open population — numerator and denominator
+  share the population per the denominator law. This is the deep-aging tail
+  that ar_over_90_pct folds into a single bucket: the 91-120 band is often
+  ordinary payer float, while the 120+ band is where recovery probability
+  collapses, so the two contracts answer different questions and their values
+  must never be compared to each other's benchmarks. Denominator is total
+  open A/R including unbilled claims, valued at gross billed charges (same
+  convention as ar_balance and ar_over_90_pct); a billed-only variant is a
+  scope filter, not a new contract.

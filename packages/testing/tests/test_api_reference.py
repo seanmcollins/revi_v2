@@ -106,7 +106,10 @@ class TestReferenceOverHttp:
         t5 = http_answers[4]
         assert t5.meta_answer is not None
         assert t5.meta_answer.referent == "F2"
-        assert len(t5.meta_answer.probes) == 6
+        # 4 flow probes + 4 comparison twins: `lag_distribution_compare`
+        # joined the plan when §6.6 started negotiating derived measures
+        # with the repository instead of guessing from the catalog (§6.3).
+        assert len(t5.meta_answer.probes) == 8
 
 
 class TestGovernedBenchmarksReachTheWire:
@@ -357,3 +360,100 @@ class TestPortfolioDrillDown:
         [edge] = lineage.edges
         assert edge.parent_id == drilled.investigation_id
         assert edge.child_id == widened.investigation_id
+
+
+class TestEvidenceReachesTheWire:
+    """The gap this closes: ``answer.evidence`` was never populated, so the
+    web's evidence drawer, reconciliation banner and "no new queries" chip
+    only ever rendered against mock fixtures. Everything they need was
+    already recorded — per-probe purpose, rows, truncation, suppression,
+    cache hits, grades, the §7.8 verdict — and reachable only through the
+    debug-trace door.
+
+    So the assertions are about *agreement*, not presence: the analyst's
+    bundle and the operator's trace are two projections of one stored
+    record, and if they can disagree the drawer is decoration. The same
+    bundle must also come back from ``GET /v1/investigations/{id}``, or a
+    turn restored when a session is re-opened shows an empty drawer and
+    implies the answer read nothing.
+    """
+
+    async def test_the_bundle_agrees_with_the_trace_for_the_same_turn(self) -> None:
+        transport = httpx.ASGITransport(app=_app(_service()))
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as raw:
+            client = HttpInvestigationClient(raw, _token())
+            answers = await _run_conversation(client)
+            traces = [await client.get_trace(a.investigation_id) for a in answers]
+            restored = [await client.get_investigation(a.investigation_id) for a in answers]
+
+        for turn, (answer, trace, stored) in enumerate(
+            zip(answers, traces, restored, strict=True), start=1
+        ):
+            evidence = answer.evidence
+            assert len(evidence.probes) == len(trace.probes), f"turn {turn} probe count"
+            for shown, traced in zip(evidence.probes, trace.probes, strict=True):
+                assert shown.id == traced.id, f"turn {turn}"
+                assert shown.hash == traced.hash, f"turn {turn} {shown.id}"
+                assert shown.purpose == traced.purpose, f"turn {turn} {shown.id}"
+                assert shown.rows == traced.rows, f"turn {turn} {shown.id} rows"
+                assert shown.cache_hit == traced.cache_hit, f"turn {turn} {shown.id}"
+                assert shown.truncated == traced.truncated, f"turn {turn} {shown.id}"
+                assert shown.suppressed_cells == traced.suppressed_cells, f"turn {turn}"
+                assert shown.grade == traced.grade, f"turn {turn} {shown.id} grade"
+            # the verdict is one recorded string, split for display, not re-judged
+            if evidence.reconciliation is not None:
+                assert evidence.reconciliation.summary == trace.reconciliation
+                assert evidence.reconciliation.summary == answer.reconciliation
+            else:
+                assert answer.reconciliation is None, f"turn {turn} verdict dropped"
+            # and the restored turn carries the identical bundle
+            assert stored.evidence == evidence, f"turn {turn} rehydrated evidence"
+            # ...and its charts, rebuilt from the frames the turn persisted.
+            # Identical objects, not merely similar: they are built by the
+            # same function over the same frames. The narrative is the one
+            # thing that cannot come back — nothing stores the prose.
+            assert stored.chart_specs == answer.chart_specs, f"turn {turn} restored charts"
+
+    async def test_the_reference_turns_publish_real_working(self) -> None:
+        """Anchors on the answer key's own conversation: T1 plans the cash
+        playbook against the warehouse, T2 decomposes it by payer and
+        reconciles to T1's totals while reusing T1's frames, and T5 (META)
+        answers out of the session trace without touching the warehouse."""
+        transport = httpx.ASGITransport(app=_app(_service()))
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as raw:
+            answers = await _run_conversation(HttpInvestigationClient(raw, _token()))
+
+        t1 = answers[0].evidence
+        assert t1.probes, "the cash-decline playbook runs probes; the drawer must show them"
+        assert t1.warehouse_queries > 0 and t1.zero_probe_turn is False
+        assert all(p.purpose for p in t1.probes), "a probe with no stated purpose is a black box"
+        assert all(p.kind == "aggregation" for p in t1.probes)
+        assert {m.id for p in t1.probes for m in p.metrics} >= {"cash_posted"}
+        assert all(
+            m.contract_version is not None for p in t1.probes for m in p.metrics
+        ), "an aggregate without its contract version is not auditable"
+        # a first turn HAS a verdict: "nothing to reconcile to, and here is why"
+        assert t1.reconciliation is not None
+        assert t1.reconciliation.status == "not_applicable"
+        assert "first turn" in (t1.reconciliation.detail or "")
+
+        t2 = answers[1].evidence
+        assert t2.reconciliation is not None and t2.reconciliation.status == "passed"
+        assert t2.cache_hits > 0, "the split reuses T1's frames; the drawer says so"
+
+        t5 = answers[4].evidence
+        assert t5.probes == [] and t5.zero_probe_turn is True
+        assert t5.warehouse_queries == 0
+        # a META turn reached no reconciliation check at all — recorded as
+        # absence, never as a reassuring "not applicable"
+        assert t5.reconciliation is None
+
+    async def test_the_published_spec_models_the_bundle(self) -> None:
+        spec = _app(_service()).openapi()
+        schemas = spec["components"]["schemas"]
+        assert "EvidencePayload" in schemas
+        assert "evidence" in schemas["TurnAnswer"]["properties"]
+        assert "evidence" in schemas["InvestigationResponse"]["properties"]
+        probe = schemas["EvidenceProbePayload"]["properties"]
+        for field in ("purpose", "kind", "rows", "truncated", "suppressed_cells", "grade"):
+            assert field in probe, field

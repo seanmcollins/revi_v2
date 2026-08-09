@@ -38,7 +38,9 @@ from revi_investigation.domain.refinements import (
     SetGrain,
     SetWindow,
 )
+from revi_investigation.domain.settings import SessionSettings
 from revi_investigation.domain.turns import TurnClass
+from revi_investigation_contracts.settings import EvidenceDepth, NarrativeDepth
 from revi_kernel.cohort import CohortDefinition, CohortMaterialization, CohortRef
 from revi_kernel.filters import And, FilterExpr, InCohort, Not, Or, Predicate, PredicateOp, Scalar
 from revi_kernel.frame import (
@@ -433,6 +435,22 @@ def test_session_and_investigation_round_trip() -> None:
     )
     assert round_trip(session) == session
 
+    # Settings ride with the session record: a model tier or cost ceiling
+    # that survived one request and not a reconnect would be a control the
+    # analyst could not trust.
+    configured = session.with_settings(
+        SessionSettings(
+            model_tier="claude-sonnet-5",
+            max_turn_cost_usd=Decimal("0.25"),
+            narrative_depth=NarrativeDepth.ANALYST,
+            evidence_depth=EvidenceDepth.DEEP,
+            debug=True,
+        )
+    )
+    restored = round_trip(configured)
+    assert restored == configured
+    assert restored.settings.max_turn_cost_usd == Decimal("0.25")  # not a float
+
     finding = Finding(
         referent=ReferentId("F1", ReferentKind.FINDING),
         title="Spike",
@@ -469,6 +487,51 @@ def test_session_and_investigation_round_trip() -> None:
         warnings=("truncated to top 20",),
     )
     assert round_trip(investigation) == investigation
+
+
+def test_enum_members_survive_the_json_hop_as_members() -> None:
+    """Equality is not enough for a ``StrEnum``.
+
+    ``InvestigationStatus.COMPLETE == "complete"`` is True, so a round-trip
+    that decoded the bare string passed every ``==`` assertion in this file
+    while handing the application a plain ``str``. The application compares
+    enums with ``is`` (``inv.status is InvestigationStatus.COMPLETE`` picks
+    the parent investigation a refinement turn refines), and ``is`` against
+    a string is False — so a Postgres deployment lost the parent of every
+    follow-up turn while the in-memory stores worked fine.
+    """
+    watermark = DataWatermark("wm_1", datetime(2026, 8, 7, 3, 0, tzinfo=UTC), date(2026, 8, 2))
+    investigation = Investigation(
+        id="inv_1",
+        session_id="s_1",
+        parent_id=None,
+        turn_id="t1",
+        turn_class=TurnClass.NEW_INVESTIGATION,
+        question="why?",
+        spec=AnalysisSpec(
+            context=InvestigationContext(
+                window=TimeWindow(basis=SERVICE, range=AbsoluteRange(date(2026, 5, 1), date(2026, 7, 31))),
+                comparison=None,
+                scope=And(()),
+                cohort=None,
+                grain=Grain(EntityGrain.CLAIM),
+                watermark=watermark,
+                pack_version=PackVersionRef("rcm-base", "1.2.0"),
+            ),
+            measures=(),
+        ),
+        plan_hash=None,
+        status=InvestigationStatus.COMPLETE,
+        findings=(),
+        created_at=datetime(2026, 8, 7, 12, 5, tzinfo=UTC),
+    )
+
+    restored = round_trip(investigation)
+
+    assert isinstance(restored, Investigation)
+    assert restored.status is InvestigationStatus.COMPLETE
+    assert restored.turn_class is TurnClass.NEW_INVESTIGATION
+    assert restored.spec.context.grain.entity is EntityGrain.CLAIM
 
 
 def test_registered_referent_round_trip() -> None:

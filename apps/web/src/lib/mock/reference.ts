@@ -15,7 +15,7 @@ import type {
   ContextHeaderData,
   DataWatermark,
   Finding,
-  MetricContractSummary,
+  MetricProvenance,
   PackVersionRef,
   TurnEvent,
 } from "@/lib/types";
@@ -28,30 +28,67 @@ export const WATERMARK: DataWatermark = {
 
 export const PACK: PackVersionRef = { packId: "base-rcm", version: "1.0.0" };
 
-export const CASH_POSTED_CONTRACT: MetricContractSummary = {
-  id: "cash_posted",
-  version: 3,
-  name: "Cash posted (payer)",
-  kind: "FLOW",
-  numerator: "Σ fact_transaction.amount_cents where txn_type = PAYMENT",
-  primaryDateBasis: "post",
-  exclusions: ["patient payments", "refunds"],
-  unit: "cents",
-  directionOfGood: "up_is_good",
-  fingerprint: "9c41f2ab",
+const PACK_SNAPSHOT = "5addeaac0d12ca413c72a9eff4b4812fe85124917d5d95ee2d9bf96ef0908910";
+
+/**
+ * `TurnAnswer.metric` per turn — the governed provenance the server
+ * projects from the turn's own recorded trace.
+ *
+ * Each block mirrors the probes in the SAME turn's evidence bundle below,
+ * because that is exactly how the server builds it: metric ids and the
+ * contract versions the connector stamped, deduplicated in plan order. A
+ * mock that named a metric its own probes never read would be the drift
+ * these fixtures exist to catch.
+ *
+ * `primary` appears only where ONE contract stands behind the turn. T1
+ * runs the `cash_decline` playbook across four metrics and T3 pivots onto
+ * two, so neither elects a headline — the badge lists them. T5 is a META
+ * citation: it plans nothing, reads nothing, and publishes an empty block,
+ * which renders no badge at all rather than a governed claim.
+ */
+export const T1_PROVENANCE: MetricProvenance = {
+  metrics: [
+    { id: "cash_posted", contractVersion: 3 },
+    { id: "patient_cash_posted", contractVersion: 2 },
+    { id: "remit_post_lag_days", contractVersion: 1 },
+    { id: "claim_volume", contractVersion: 1 },
+  ],
+  playbookId: "cash_decline",
+  pack: PACK,
+  packSnapshotId: PACK_SNAPSHOT,
 };
 
-export const DENIED_DOLLARS_CONTRACT: MetricContractSummary = {
-  id: "denied_dollars",
-  version: 2,
-  name: "Denied dollars",
-  kind: "FLOW",
-  numerator: "Σ fact_denial.denied_amount_cents (group code + CARC pair)",
-  primaryDateBasis: "remit",
-  exclusions: ["reversed denials"],
-  unit: "cents",
-  directionOfGood: "down_is_good",
-  fingerprint: "5e88d0c3",
+export const T2_PROVENANCE: MetricProvenance = {
+  primary: { id: "cash_posted", contractVersion: 3 },
+  metrics: [{ id: "cash_posted", contractVersion: 3 }],
+  playbookId: "cash_decline",
+  pack: PACK,
+  packSnapshotId: PACK_SNAPSHOT,
+};
+
+export const T3_PROVENANCE: MetricProvenance = {
+  metrics: [
+    { id: "denied_dollars", contractVersion: 2 },
+    { id: "denial_events", contractVersion: 1 },
+  ],
+  playbookId: "cash_decline",
+  pack: PACK,
+  packSnapshotId: PACK_SNAPSHOT,
+};
+
+export const T4_PROVENANCE: MetricProvenance = {
+  primary: { id: "denied_dollars", contractVersion: 2 },
+  metrics: [{ id: "denied_dollars", contractVersion: 2 }],
+  playbookId: "cash_decline",
+  pack: PACK,
+  packSnapshotId: PACK_SNAPSHOT,
+};
+
+/** A META turn cites the trace and measures nothing — no badge. */
+export const T5_PROVENANCE: MetricProvenance = {
+  metrics: [],
+  pack: PACK,
+  packSnapshotId: PACK_SNAPSHOT,
 };
 
 /* ------------------------------------------------------------------ */
@@ -458,86 +495,68 @@ const T1_EVENTS: TurnEvent[] = [
     type: "evidence",
     evidence: {
       zeroProbeTurn: false,
+      warehouseQueries: 4,
+      cacheHits: 0,
+      answerGrade: "direct",
       probes: [
         {
           probeId: "p_t1_1",
           probeHash: "a3f2c9d1",
           kind: "aggregation",
           description: "Payer cash, decline week vs prior week (post basis)",
-          contract: { id: "cash_posted", version: 3 },
-          operators: [
-            { name: "compare", version: "1.2.0" },
-            { name: "delta", version: "1.0.0" },
-          ],
+          metrics: [{ id: "cash_posted", contractVersion: 3 }],
           cacheHit: false,
           rowCount: 2,
           truncated: false,
           suppressedCells: 0,
           grade: "direct",
+          durationMs: 41,
         },
         {
           probeId: "p_t1_2",
           probeHash: "b7e40a52",
           kind: "aggregation",
           description: "Patient cash, both weeks",
-          contract: { id: "patient_cash_posted", version: 2 },
-          operators: [{ name: "compare", version: "1.2.0" }],
+          metrics: [{ id: "patient_cash_posted", contractVersion: 2 }],
           cacheHit: false,
           rowCount: 2,
           truncated: false,
           suppressedCells: 0,
           grade: "direct",
+          durationMs: 28,
         },
         {
           probeId: "p_t1_3",
           probeHash: "c91d3e08",
           kind: "aggregation",
           description: "State Medicaid remit→post lag distribution, Jul 6 – Aug 2",
-          operators: [{ name: "lag_distribution", version: "0.3.0" }],
+          metrics: [{ id: "remit_post_lag_days", contractVersion: 1 }],
           cacheHit: false,
           rowCount: 2,
           truncated: false,
           suppressedCells: 0,
           grade: "derived",
+          durationMs: 63,
         },
         {
           probeId: "p_t1_4",
           probeHash: "77b1e0aa",
           kind: "aggregation",
           description: "Atlas Commercial submission volume by week, Jun 15 – Aug 2",
-          operators: [{ name: "trend", version: "1.0.0" }],
+          metrics: [{ id: "claim_volume", contractVersion: 1 }],
           cacheHit: false,
           rowCount: 7,
           truncated: false,
           suppressedCells: 0,
           grade: "direct",
-        },
-        {
-          probeId: "p_t1_5",
-          probeHash: "912fc6b3",
-          kind: "row_evidence",
-          description: "Masked transaction sample, decline week",
-          operators: [{ name: "reservoir_sample", version: "1.0.0" }],
-          cacheHit: false,
-          rowCount: 3,
-          truncated: false,
-          suppressedCells: 0,
-          grade: "direct",
+          durationMs: 35,
         },
       ],
       reconciliation: {
         status: "not_applicable",
-        detail: "Single-measure comparison — no decomposition to reconcile this turn.",
-      },
-      sampleRows: {
-        columns: ["txn_id", "claim_id", "patient", "payer", "amount", "post_date"],
-        maskedColumns: ["patient"],
-        purpose: "analyst spot-check of posted payments (purpose recorded in trace)",
-        rows: [
-          ["TXN-4471982", "CLM-008841…", "▒▒▒▒▒▒", "State Medicaid", "$412.18", "2026-07-28"],
-          ["TXN-4472136", "CLM-011209…", "▒▒▒▒▒▒", "Atlas Commercial", "$1,286.44", "2026-07-29"],
-          ["TXN-4473055", "CLM-009476…", "▒▒▒▒▒▒", "Federal Medicare", "$734.02", "2026-07-31"],
-        ],
+        detail: "this is a first turn; there is no parent answer to reconcile to",
+        summary:
+          "status=not_applicable; reason=this is a first turn; there is no parent answer to reconcile to",
       },
     },
   },
@@ -552,7 +571,7 @@ const T1_EVENTS: TurnEvent[] = [
     investigationId: "inv_t1",
     status: "complete",
     answerGrade: "direct",
-    metric: CASH_POSTED_CONTRACT,
+    metric: T1_PROVENANCE,
   },
 ];
 
@@ -622,43 +641,38 @@ const T2_EVENTS: TurnEvent[] = [
     type: "evidence",
     evidence: {
       zeroProbeTurn: false,
+      warehouseQueries: 1,
+      cacheHits: 1,
+      answerGrade: "direct",
       probes: [
         {
           probeId: "p_t2_1",
           probeHash: "d4a91b77",
           kind: "aggregation",
           description: "Payer cash by payer × week (both windows)",
-          contract: { id: "cash_posted", version: 3 },
-          operators: [
-            { name: "compare", version: "1.2.0" },
-            { name: "reconcile", version: "1.1.0" },
-          ],
+          metrics: [{ id: "cash_posted", contractVersion: 3 }],
           cacheHit: false,
           rowCount: 24,
           truncated: false,
           suppressedCells: 0,
           grade: "direct",
+          durationMs: 52,
         },
         {
           probeId: "p_t1_1",
           probeHash: "a3f2c9d1",
           kind: "aggregation",
           description: "Parent totals (reused from T1)",
-          contract: { id: "cash_posted", version: 3 },
-          operators: [{ name: "compare", version: "1.2.0" }],
+          metrics: [{ id: "cash_posted", contractVersion: 3 }],
           cacheHit: true,
           rowCount: 2,
           truncated: false,
           suppressedCells: 0,
           grade: "direct",
+          durationMs: 0,
         },
       ],
-      reconciliation: {
-        status: "passed",
-        detail: "12 payer deltas sum to the parent decline exactly (tolerance 0¢).",
-        parentCents: -19_352_579,
-        childSumCents: -19_352_579,
-      },
+      reconciliation: { status: "passed", summary: "status=passed" },
     },
   },
   { type: "stage", stage: "narrating", status: "started" },
@@ -672,7 +686,7 @@ const T2_EVENTS: TurnEvent[] = [
     investigationId: "inv_t2",
     status: "complete",
     answerGrade: "direct",
-    metric: CASH_POSTED_CONTRACT,
+    metric: T2_PROVENANCE,
   },
 ];
 
@@ -744,52 +758,38 @@ const T3_EVENTS: TurnEvent[] = [
     type: "evidence",
     evidence: {
       zeroProbeTurn: false,
+      warehouseQueries: 2,
+      cacheHits: 0,
+      answerGrade: "proxy",
       probes: [
         {
           probeId: "p_t3_1",
           probeHash: "e8c02f19",
           kind: "aggregation",
           description: "Denied dollars by group+CARC — cohort c1, decline week (remit basis)",
-          contract: { id: "denied_dollars", version: 2 },
-          operators: [
-            { name: "top_k", version: "1.0.0" },
-            { name: "share_of_total", version: "1.1.0" },
-          ],
+          metrics: [{ id: "denied_dollars", contractVersion: 2 }],
           cacheHit: false,
           rowCount: 17,
           truncated: false,
           suppressedCells: 0,
           grade: "proxy",
+          durationMs: 58,
         },
         {
           probeId: "p_t3_2",
           probeHash: "6b5d20e4",
-          kind: "row_evidence",
-          description: "Masked denial sample, cohort c1",
-          operators: [{ name: "reservoir_sample", version: "1.0.0" }],
+          kind: "aggregation",
+          description: "Denial event counts by group+CARC — cohort c1, decline week",
+          metrics: [{ id: "denial_events", contractVersion: 1 }],
           cacheHit: false,
-          rowCount: 3,
+          rowCount: 17,
           truncated: false,
           suppressedCells: 0,
           grade: "direct",
+          durationMs: 33,
         },
       ],
-      reconciliation: {
-        status: "passed",
-        detail: "17 CARC rows sum to the cohort denial total $52,028.78 (tolerance 0¢).",
-        parentCents: 5_202_878,
-        childSumCents: 5_202_878,
-      },
-      sampleRows: {
-        columns: ["denial_id", "claim_id", "patient", "payer", "group·CARC", "denied"],
-        maskedColumns: ["patient"],
-        purpose: "verify CARC coding of cohort denials (purpose recorded in trace)",
-        rows: [
-          ["DNL-220148", "CLM-004182…", "▒▒▒▒▒▒", "State Medicaid", "CO·27", "$5,120.33"],
-          ["DNL-220305", "CLM-007751…", "▒▒▒▒▒▒", "Meridian Health", "CO·96", "$2,251.09"],
-          ["DNL-220419", "CLM-002960…", "▒▒▒▒▒▒", "Atlas Commercial", "CO·197", "$197.58"],
-        ],
-      },
+      reconciliation: { status: "passed", summary: "status=passed" },
     },
   },
   { type: "stage", stage: "narrating", status: "started" },
@@ -803,7 +803,7 @@ const T3_EVENTS: TurnEvent[] = [
     investigationId: "inv_t3",
     status: "complete",
     answerGrade: "proxy",
-    metric: DENIED_DOLLARS_CONTRACT,
+    metric: T3_PROVENANCE,
   },
 ];
 
@@ -883,37 +883,42 @@ const T4_EVENTS: TurnEvent[] = [
     type: "evidence",
     evidence: {
       zeroProbeTurn: false,
+      warehouseQueries: 1,
+      cacheHits: 1,
+      answerGrade: "proxy",
       probes: [
         {
           probeId: "p_t4_1",
           probeHash: "f19ab3c4",
           kind: "aggregation",
           description: "Denied dollars by group+CARC — cohort c1, Q1 2026 (comparison side)",
-          contract: { id: "denied_dollars", version: 2 },
-          operators: [{ name: "share_of_total", version: "1.1.0" }],
+          metrics: [{ id: "denied_dollars", contractVersion: 2 }],
           cacheHit: false,
           rowCount: 19,
           truncated: false,
           suppressedCells: 0,
           grade: "direct",
+          durationMs: 71,
         },
         {
           probeId: "p_t3_1",
           probeHash: "e8c02f19",
           kind: "aggregation",
           description: "Primary side (decline week) — evidence cache hit",
-          contract: { id: "denied_dollars", version: 2 },
-          operators: [{ name: "share_of_total", version: "1.1.0" }],
+          metrics: [{ id: "denied_dollars", contractVersion: 2 }],
           cacheHit: true,
           rowCount: 17,
           truncated: false,
           suppressedCells: 0,
           grade: "proxy",
+          durationMs: 0,
         },
       ],
       reconciliation: {
-        status: "passed",
-        detail: "Shares sum to 100% on both comparison sides (mod rounding).",
+        status: "not_applicable",
+        detail: "this turn neither split nor drilled the parent's population",
+        summary:
+          "status=not_applicable; reason=this turn neither split nor drilled the parent's population",
       },
     },
   },
@@ -928,7 +933,7 @@ const T4_EVENTS: TurnEvent[] = [
     investigationId: "inv_t4",
     status: "complete",
     answerGrade: "proxy",
-    metric: DENIED_DOLLARS_CONTRACT,
+    metric: T4_PROVENANCE,
   },
 ];
 
@@ -967,14 +972,13 @@ const T5_EVENTS: TurnEvent[] = [
   {
     type: "evidence",
     evidence: {
+      // A META turn cites recorded evidence and plans nothing, so it
+      // reaches no reconciliation check at all — recorded as absence,
+      // which is what the live engine publishes here too.
       zeroProbeTurn: true,
+      warehouseQueries: 0,
+      cacheHits: 0,
       probes: [],
-      reconciliation: {
-        status: "not_applicable",
-        detail: "META turn — cites T1/T2 evidence; nothing new to reconcile.",
-      },
-      traceNote:
-        "Answered from the session trace: probe a3f2c9d1 (cash_posted@3, compare@1.2.0), probe d4a91b77 (payer decomposition, reconciliation PASSED at 0¢ tolerance), probe 77b1e0aa (Atlas submission trend). Zero warehouse queries executed — asserted by the execution service.",
     },
   },
   { type: "stage", stage: "narrating", status: "started" },
@@ -988,7 +992,7 @@ const T5_EVENTS: TurnEvent[] = [
     investigationId: "inv_t5",
     status: "complete",
     answerGrade: "direct",
-    metric: CASH_POSTED_CONTRACT,
+    metric: T5_PROVENANCE,
   },
 ];
 
@@ -1024,3 +1028,10 @@ export const REFERENCE_TURNS: ScriptedTurn[] = [
     events: T5_EVENTS,
   },
 ];
+
+/**
+ * The reference conversation's utterances, in order — the single canonical
+ * source other modules (the mock driver, the session store's replay
+ * action, the command palette) reuse rather than duplicating the strings.
+ */
+export const REFERENCE_QUESTIONS: readonly string[] = REFERENCE_TURNS.map((t) => t.question);

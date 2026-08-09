@@ -1,0 +1,28 @@
+# Net-to-gross: contract-expected reimbursement per dollar of gross charges.
+# Its complement (1 - rate) is the contractual allowance rate, which is why
+# no separate "contractual adjustment rate" contract exists.
+id: net_to_gross_rate
+version: 1
+kind: flow
+entity_grain: claim
+numerator: {sum: expected_amount_cents}
+denominator: {sum: billed_amount_cents}
+primary_date_basis: service
+allowed_date_bases: [service, submission, discharge]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, provider,
+   provider_specialty, facility, region, service_line, claim_type,
+   payer_sequence]
+sign: neutral
+unit: ratio
+description: >-
+  Contract-expected reimbursement divided by gross billed charges for claims
+  in the window, service-date basis — the share of chargemaster value the
+  contracts are modeled to pay, and one minus this is the contractual
+  allowance rate. Sign is neutral: the number moves with contract terms AND
+  with chargemaster changes, so a fall can mean worse rates or simply higher
+  list prices, and the two look identical here. Read it as mix and contract
+  context, never as a collection result — actual realization against
+  expectation is net_collection_rate, and this contract deliberately says
+  nothing about cash. Comparisons across payers are only meaningful on a
+  shared service mix.

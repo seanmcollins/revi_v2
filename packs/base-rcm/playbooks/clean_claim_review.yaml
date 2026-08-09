@@ -1,0 +1,80 @@
+id: clean_claim_review
+description: >-
+  Investigate first-pass quality: trend the clean-claim rate, rank payers on
+  clean rate against initial denial rate, and attribute the failures to
+  root-cause categories and to billing timing. The two rates read the same
+  outcome flag with opposite polarity but over DIFFERENT populations, so
+  they do not sum to one and the gap between them is a finding rather than
+  a discrepancy — see the clean_by_payer scope note. Honesty note carried
+  throughout: this warehouse has no scrubber events, so "clean" is
+  outcome-derived (resolved with zero denials) rather than an edit-pass
+  measurement — the number answers "did it land cleanly", not "did it pass
+  our edits".
+triggers:
+  - clean claim rate is falling
+  - first pass rate
+  - why are claims failing first pass
+  - clean claim review
+  - front end quality
+params:
+  - payer
+probes:
+  - id: clean_trend
+    metric_ids: [clean_claim_rate]
+    window: {quantity: 12, unit: week, mode: full_periods}
+    scope_note: >-
+      Weekly clean-claim rate on the SUBMISSION basis with a prior-period
+      compare. Adjudicated claims only — claims still awaiting a first remit
+      are excluded from both sides, or the data edge reads as a quality drop.
+  - id: clean_by_payer
+    metric_ids: [clean_claim_rate, initial_denial_rate]
+    dimensions: [payer]
+    window: {quantity: 3, unit: month, mode: full_periods}
+    top_n: 12
+    scope_note: >-
+      Clean rate and initial denial rate per payer. They read the same
+      outcome flag with opposite polarity but over DIFFERENT denominators,
+      so they do NOT sum to one: clean_claim_rate removes claims still
+      awaiting a first remit (status OPEN), while initial_denial_rate
+      divides by every claim in the window per the Task Force convention.
+      The shortfall from 100% is exactly the un-adjudicated tail, so it
+      measures how much of a payer's recent business is still undecided —
+      a finding about adjudication speed, not a data question. Executed
+      over 2026-05-01..2026-08-02 the pair sums to 98.38% portfolio-wide
+      (13,725/15,068 + 1,343/18,410) and to between 97.5% and 99.2% per
+      payer; the payers at the low end are the slow adjudicators. For the
+      pair that genuinely partitions one population, read clean_claim_rate
+      against denial_rate — both carry the OPEN exclusion, and over this
+      window their numerators sum to the shared denominator exactly
+      (13,725 + 1,343 = 15,068).
+  - id: first_pass_detail
+    metric_ids: [first_pass_yield]
+    dimensions: [payer]
+    window: {quantity: 3, unit: month, mode: full_periods}
+    scope_note: >-
+      First-pass yield (paid on the first remit with no denial) per payer —
+      a stricter bar than clean, since a claim can be clean on the second
+      pass.
+  - id: failure_reasons
+    metric_ids: [denied_claims, denied_dollars]
+    dimensions: [denial_category]
+    window: {quantity: 3, unit: month, mode: full_periods}
+    scope_note: >-
+      What the first pass failed on, by root-cause category, in claims and in
+      dollars. Claim counts do not sum across code-level cuts (a claim denied
+      under two categories appears in both) — read the cells, not the total.
+  - id: bill_timing
+    metric_ids: [bill_lag_days]
+    dimensions: [facility]
+    window: {quantity: 3, unit: month, mode: full_periods}
+    scope_note: >-
+      Service-to-submission lag by facility: slow billing and dirty billing
+      have different fixes, and a rate that falls while lag stretches points
+      upstream of the scrubber.
+transforms:
+  - operator: compare
+    args: {kind: prior_period}
+  - operator: rank
+    args: {by: denied_dollars, descending: true}
+conclusion_policies: [clean_claim_claim]
+ranking_policy: impact_first

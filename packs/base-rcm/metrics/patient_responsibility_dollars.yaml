@@ -1,0 +1,31 @@
+# Patient responsibility assigned at adjudication (deductible, copay,
+# coinsurance accumulated onto the claim). The billed-out side of patient
+# collections; patient_cash_posted is the collected side.
+id: patient_responsibility_dollars
+version: 1
+kind: flow
+entity_grain: claim
+numerator: {sum: patient_responsibility_cents}
+primary_date_basis: service
+allowed_date_bases: [service, submission, discharge]
+scope_dimensions:
+  [payer, payer_type, financial_class, plan, product_type, provider,
+   provider_specialty, facility, region, service_line, claim_type,
+   payer_sequence]
+sign: neutral
+unit: money_cents
+description: >-
+  Patient-responsibility dollars established at adjudication for claims in
+  the window (deductible, copay and coinsurance accumulated onto the claim),
+  service-date basis. Population caveat: the amount is assigned at
+  adjudication, so it is near-zero — not exactly zero — until the claim's
+  first remittance lands, and recent service cohorts under-read until the
+  remittances catch up; the watermark header carries that edge. Measured
+  over 2026-05-01..2026-08-02, 555 of the window's 6,272 OPEN claims carry
+  any patient responsibility at all, $61,164 of the window's $2.22M (2.8%),
+  so "un-adjudicated contributes nothing" is close enough to reason with and
+  wrong to assert. Sign is
+  neutral: the amount is benefit-design driven, not a performance result;
+  what is actionable is what happens next, so read it with
+  patient_cash_posted (collected) and patient_responsibility_rate (share of
+  the net collectible that falls to the patient).

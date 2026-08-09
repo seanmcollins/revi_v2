@@ -55,7 +55,11 @@ import duckdb
 from revi_calculation_contracts.contract import MetricContract
 from revi_catalog_contracts.masking import mask_value
 from revi_catalog_contracts.model import CatalogSnapshot, PhiClass
-from revi_connector_duckdb.compile import CompiledQuery, ProbeCompiler
+from revi_connector_duckdb.compile import (
+    CompiledQuery,
+    ProbeCompiler,
+    derived_measure_capabilities,
+)
 from revi_kernel.capabilities import RepositoryCapabilities
 from revi_kernel.cohort import CohortDefinition, CohortMaterialization
 from revi_kernel.errors import (
@@ -184,12 +188,21 @@ class DuckDbAnalyticalRepository:
     # ----------------------------------------------------------------- port
 
     def capabilities(self) -> RepositoryCapabilities:
+        """What this source can do, including what it can *compute* (§6.3).
+
+        The derived-measure list and the cross-entity flag are read from
+        the compiler's own registry, so what the planner validates and
+        what this adapter will actually build SQL for are one statement,
+        not two that have to be kept in step by hand.
+        """
         return RepositoryCapabilities(
             as_of_reads=True,
             cohort_semijoin=True,
             max_cohort_size=self._max_cohort_size,
             having_pushdown=True,
             server_side_top_n=True,
+            derived_measures=derived_measure_capabilities(),
+            cross_entity_ratio_of_sums=True,
         )
 
     async def list_watermarks(self) -> tuple[DataWatermark, ...]:

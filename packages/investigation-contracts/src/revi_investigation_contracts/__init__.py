@@ -28,6 +28,18 @@ from revi_investigation_contracts.api import (
     TurnResponse,
     UsageSummary,
 )
+from revi_investigation_contracts.debug import (
+    DebugInterpretation,
+    DebugLlmCall,
+    DebugProbe,
+    DebugTracePayload,
+)
+from revi_investigation_contracts.evidence import (
+    EvidenceMetricRef,
+    EvidencePayload,
+    EvidenceProbePayload,
+    EvidenceReconciliation,
+)
 from revi_investigation_contracts.header import (
     ContextHeaderPayload,
     FilterChip,
@@ -39,6 +51,7 @@ from revi_investigation_contracts.narrative import (
     NarrativeRedaction,
     NarrativeValidation,
 )
+from revi_investigation_contracts.provenance import MetricProvenancePayload
 from revi_investigation_contracts.refinements import (
     AbsoluteWindowModel,
     AddFilterModel,
@@ -58,6 +71,12 @@ from revi_investigation_contracts.refinements import (
     SetWindowModel,
     WindowSpecModel,
 )
+from revi_investigation_contracts.settings import (
+    EvidenceDepth,
+    NarrativeDepth,
+    SessionSettingsModel,
+    SettingsBoundsPayload,
+)
 
 __all__ = [
     "AbsoluteWindowModel",
@@ -71,9 +90,18 @@ __all__ = [
     "ChartType",
     "ClosedModel",
     "ContextHeaderPayload",
+    "DebugInterpretation",
+    "DebugLlmCall",
+    "DebugProbe",
+    "DebugTracePayload",
     "DefinitionalPayload",
     "DrillIntoModel",
     "ErrorEnvelope",
+    "EvidenceDepth",
+    "EvidenceMetricRef",
+    "EvidencePayload",
+    "EvidenceProbePayload",
+    "EvidenceReconciliation",
     "ExpandModel",
     "ExplainModel",
     "FilterChip",
@@ -83,6 +111,8 @@ __all__ = [
     "InvestigationResponse",
     "LineageEdgePayload",
     "MetaAnswerPayload",
+    "MetricProvenancePayload",
+    "NarrativeDepth",
     "NarrativeFacts",
     "NarrativeRedaction",
     "NarrativeValidation",
@@ -96,10 +126,12 @@ __all__ = [
     "ResetContextModel",
     "SessionLineageResponse",
     "SessionResponse",
+    "SessionSettingsModel",
     "SetComparisonModel",
     "SetDimensionsModel",
     "SetGrainModel",
     "SetWindowModel",
+    "SettingsBoundsPayload",
     "TermPayload",
     "TurnAnswer",
     "TurnClarification",

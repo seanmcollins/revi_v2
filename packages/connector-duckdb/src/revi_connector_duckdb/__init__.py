@@ -5,6 +5,7 @@ the detected-anomaly source behind the portfolio surface.
 """
 
 from revi_connector_duckdb.anomalies import DuckDbAnomalySource
+from revi_connector_duckdb.compile import derived_measure_capabilities
 from revi_connector_duckdb.repository import (
     CohortInventory,
     CohortSweepResult,
@@ -16,4 +17,5 @@ __all__ = [
     "CohortSweepResult",
     "DuckDbAnalyticalRepository",
     "DuckDbAnomalySource",
+    "derived_measure_capabilities",
 ]

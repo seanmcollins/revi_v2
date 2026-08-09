@@ -3,7 +3,9 @@
  * seam the mock driver uses. Nothing outside this file (and the thin
  * wiring in page.tsx) knows which driver is live.
  *
- *   POST /v1/sessions                  → session bootstrap (lazy, on first turn)
+ *   POST /v1/sessions                  → session bootstrap (lazy, on first turn);
+ *                                        with session_id it RE-JOINS that session
+ *   GET  /v1/sessions                  → this tenant's sessions (the rail's list)
  *   POST /v1/sessions/{sid}/turns      → SSE TurnEvent stream (Accept: text/event-stream)
  *                                        or blocking TurnResponse (Accept: application/json)
  *   GET  /v1/investigations/{iid}      → completed turn (reconnect recovery)
@@ -21,11 +23,13 @@
  */
 
 import {
+  mapDebugTrace,
   newReceivedState,
   parseErrorEnvelope,
   parseInvestigationResponse,
   parsePortfolioSnapshot,
   parseSessionLineage,
+  parseSessionList,
   parseSessionResponse,
   parseTurnFrame,
   parseTurnResponse,
@@ -42,11 +46,19 @@ import {
 import type {
   ConnectionState,
   DriverKind,
+  ResumedSession,
+  ResumedTurn,
   TurnDriver,
   TurnSubmission,
 } from "@/lib/driver";
+import { parseCapabilities, settingsToWire, type DeploymentCapabilities } from "@/lib/settings";
 import { SseHttpError, streamTurnEvents } from "@/lib/sse";
-import type { SessionLineageData, TurnEvent } from "@/lib/types";
+import type {
+  DebugTrace,
+  SessionLineageData,
+  SessionListData,
+  TurnEvent,
+} from "@/lib/types";
 
 export type { SessionBootstrap } from "@/lib/contract";
 
@@ -55,9 +67,9 @@ export type { SessionBootstrap } from "@/lib/contract";
 /* ------------------------------------------------------------------ */
 
 /**
- * `NEXT_PUBLIC_REVI_DRIVER=mock|api` — default mock. A localStorage
- * override ("revi-driver", set by the ⌘K palette) wins on the client so
- * the driver can be switched without a rebuild.
+ * `NEXT_PUBLIC_REVI_DRIVER=mock|api` — default api (the live product). A
+ * localStorage override ("revi-driver", set by the ⌘K palette) wins on the
+ * client so the driver can be switched without a rebuild.
  */
 export function resolveDriverKind(): DriverKind {
   if (typeof window !== "undefined") {
@@ -68,7 +80,7 @@ export function resolveDriverKind(): DriverKind {
       // Storage unavailable (privacy mode) — fall through to the env default.
     }
   }
-  return process.env.NEXT_PUBLIC_REVI_DRIVER === "api" ? "api" : "mock";
+  return process.env.NEXT_PUBLIC_REVI_DRIVER === "mock" ? "mock" : "api";
 }
 
 /** `NEXT_PUBLIC_REVI_API_URL` — default the API dev origin. */
@@ -145,17 +157,84 @@ async function requestJson(
 /* GET endpoints (TanStack Query fetchers)                             */
 /* ------------------------------------------------------------------ */
 
-export async function fetchHealth(options: RequestOptions = {}): Promise<boolean> {
+/** `GET /v1/health` body, loosely read — see app.py's health() for the field names. */
+export interface HealthDetail {
+  ok: boolean;
+  /** "scripted-demo" | "claude-agent-sdk" (or absent — untyped on the wire). */
+  llmMode?: string;
+  /** "memory" | "postgres" — which stores this deployment is actually running. */
+  storeMode?: string;
+  /** "dev-tenant" bypass vs a signed-token policy. */
+  authMode?: string;
+  /** Newest watermark the deployment can see (not necessarily this session's pin). */
+  watermarkId?: string;
+}
+
+/**
+ * `GET /v1/health` — liveness plus the wiring actually in effect. The
+ * payload is untyped on the wire (no published schema), so every field is
+ * read best-effort rather than treating a missing one as drift.
+ */
+export async function fetchHealthDetail(options: RequestOptions = {}): Promise<HealthDetail> {
   const doFetch = options.fetchImpl ?? fetch;
   try {
     const response = await doFetch(`${options.baseUrl ?? apiBaseUrl()}/v1/health`, {
       headers: { Accept: "application/json" },
       signal: options.signal,
     });
-    return response.ok;
+    if (!response.ok) return { ok: false };
+    const body = (await response.json().catch(() => null)) as Record<string, unknown> | null;
+    const readString = (key: string): string | undefined =>
+      typeof body?.[key] === "string" ? (body[key] as string) : undefined;
+    return {
+      ok: true,
+      ...(readString("llm_mode") ? { llmMode: readString("llm_mode") } : {}),
+      ...(readString("store_mode") ? { storeMode: readString("store_mode") } : {}),
+      ...(readString("auth_mode") ? { authMode: readString("auth_mode") } : {}),
+      ...(readString("watermark") ? { watermarkId: readString("watermark") } : {}),
+    };
   } catch {
-    return false;
+    return { ok: false };
   }
+}
+
+/**
+ * `GET /v1/capabilities` — the deployment's pinned pack, newest watermark,
+ * LLM mode AND the admin bounds for session settings. The settings panel
+ * renders controls from this and ONLY from this: a deployment that
+ * publishes no model tiers gets no model tier control, rather than a
+ * control whose every value would be refused.
+ */
+export async function fetchCapabilities(
+  options: RequestOptions = {},
+): Promise<DeploymentCapabilities> {
+  const base = options.baseUrl ?? apiBaseUrl();
+  const raw = await requestJson(`${base}/v1/capabilities`, { method: "GET" }, options);
+  return parseCapabilities(raw);
+}
+
+/**
+ * `GET /v1/investigations/{iid}/trace` — a recorded turn's decision
+ * breakdown. `null` means the server answered but the payload is not a
+ * usable trace; a refused (`REVI_DEBUG_TRACE=0` → 400 POLICY_DENIED) or
+ * unknown investigation throws `ApiRequestError`, so the caller can show
+ * the deployment's own refusal instead of an empty panel.
+ */
+export async function fetchTrace(
+  investigationId: string,
+  options: RequestOptions = {},
+): Promise<DebugTrace | null> {
+  const base = options.baseUrl ?? apiBaseUrl();
+  const raw = await requestJson(
+    `${base}/v1/investigations/${encodeURIComponent(investigationId)}/trace`,
+    { method: "GET" },
+    options,
+  );
+  return mapDebugTrace(raw);
+}
+
+export async function fetchHealth(options: RequestOptions = {}): Promise<boolean> {
+  return (await fetchHealthDetail(options)).ok;
 }
 
 export type PortfolioFetchResult =
@@ -178,6 +257,27 @@ export async function fetchPortfolioLatest(
   if (drift.length > 0) reportDriftToConsole(drift, "GET /v1/portfolio/latest", options.onDrift);
   if (!value) throw new Error("portfolio response failed contract validation");
   return { kind: "ok", snapshot: value };
+}
+
+/**
+ * `GET /v1/sessions` — the caller tenant's sessions. The route takes no
+ * tenant parameter: the token decides whose list this is, so there is
+ * nothing here to scope and nothing a client could get wrong.
+ */
+export async function fetchSessionList(
+  limit: number,
+  options: RequestOptions = {},
+): Promise<SessionListData> {
+  const base = options.baseUrl ?? apiBaseUrl();
+  const raw = await requestJson(
+    `${base}/v1/sessions?limit=${encodeURIComponent(String(limit))}`,
+    { method: "GET" },
+    options,
+  );
+  const { value, drift } = parseSessionList(raw);
+  if (drift.length > 0) reportDriftToConsole(drift, "GET /v1/sessions", options.onDrift);
+  if (!value) throw new Error("session list response failed contract validation");
+  return value;
 }
 
 export async function fetchSessionLineage(
@@ -278,6 +378,97 @@ export class ApiDriver implements TurnDriver {
     return fetchHealth({ baseUrl: this.baseUrl, fetchImpl: this.fetchImpl });
   }
 
+  /**
+   * "New chat": discard whatever session is cached and eagerly mint a
+   * fresh one (`POST /v1/sessions`, no session_id) — the SAME
+   * onSession/onConnectionState path a lazy bootstrap uses, so the
+   * watermark pill updates the moment this resolves. Never rejects:
+   * unreachable/malformed is tolerated by leaving the cache cleared, so
+   * the NEXT turn's `ensureSession()` retries from scratch instead of
+   * silently continuing the old backend session.
+   */
+  async newSession(): Promise<void> {
+    this.session = null;
+    this.sessionPromise = null;
+    try {
+      await this.createSession();
+    } catch (error) {
+      this.session = null;
+      this.sessionPromise = null;
+      if (!(error instanceof ApiRequestError) && !(error instanceof ContractDriftError)) {
+        // The server never answered — genuinely unreachable. A rejected or
+        // drift-y response already reported itself inside createSession()
+        // without implying the connection is down.
+        this.options.onConnectionState?.("offline", "new session failed");
+      }
+    }
+  }
+
+  /**
+   * A recorded turn's decision breakdown. Errors propagate: a deployment
+   * with `REVI_DEBUG_TRACE=0` refuses with POLICY_DENIED and that refusal
+   * is what debug mode should show, not a silent empty panel.
+   */
+  async getTrace(investigationId: string): Promise<DebugTrace | null> {
+    return fetchTrace(investigationId, this.requestOptions());
+  }
+
+  /** `GET /v1/capabilities` — the deployment's bounds for the settings panel. */
+  async capabilities(): Promise<DeploymentCapabilities> {
+    return fetchCapabilities({ baseUrl: this.baseUrl, fetchImpl: this.fetchImpl });
+  }
+
+  /** `GET /v1/sessions` — this tenant's sessions, newest activity first. */
+  async listSessions(limit = 50): Promise<SessionListData> {
+    return fetchSessionList(limit, this.requestOptions());
+  }
+
+  /**
+   * Switch to an existing session and rebuild its thread.
+   *
+   * Three published reads, in order: re-join (`POST /v1/sessions` carrying
+   * `session_id`, which returns the session with its ORIGINAL pin rather
+   * than re-pinning it to today's watermark), the lineage DAG for the
+   * questions and their order, then each node's stored investigation for
+   * its findings. Errors propagate: a thread missing one of its turns
+   * misrepresents the session, so a failed read fails the switch visibly
+   * instead of quietly serving a shorter history.
+   */
+  async resumeSession(sessionId: string): Promise<ResumedSession> {
+    // Drop the cached session first: if any step below fails, the next
+    // turn must bootstrap cleanly rather than continue a half-switched one.
+    this.session = null;
+    this.sessionPromise = null;
+    const session = await this.openSession({
+      tenant: resolveTenant(),
+      session_id: sessionId,
+    });
+    const options = this.requestOptions();
+    const lineage = await fetchSessionLineage(sessionId, options);
+    const parses = await Promise.all(
+      lineage.nodes.map((node) => fetchInvestigation(node.investigationId, options)),
+    );
+    const turns: ResumedTurn[] = [];
+    lineage.nodes.forEach((node, index) => {
+      const parse = parses[index];
+      if (!parse.value) return; // drift already reported against its path
+      turns.push({
+        investigationId: node.investigationId,
+        question: node.question || node.label,
+        events: turnResponseToEvents(parse.value),
+      });
+    });
+    return { ...session, turns };
+  }
+
+  private requestOptions(): RequestOptions {
+    return {
+      baseUrl: this.baseUrl,
+      fetchImpl: this.fetchImpl,
+      onDrift: (paths, context) => this.reportDrift(paths, context),
+    };
+  }
+
   private reportDrift(paths: string[], context: string): void {
     reportDriftToConsole(paths, context, this.options.onContractDrift);
   }
@@ -295,12 +486,25 @@ export class ApiDriver implements TurnDriver {
   }
 
   private async createSession(signal?: AbortSignal): Promise<SessionBootstrap> {
+    return this.openSession({ tenant: resolveTenant() }, signal);
+  }
+
+  /**
+   * `POST /v1/sessions`. With no `session_id` this mints a fresh session;
+   * with one it RE-JOINS that session — the server's own semantics, which
+   * return the existing record and its original watermark pin rather than
+   * opening a second session over the same id.
+   */
+  private async openSession(
+    body: Record<string, unknown>,
+    signal?: AbortSignal,
+  ): Promise<SessionBootstrap> {
     const raw = await requestJson(
       `${this.baseUrl}/v1/sessions`,
       {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ tenant: resolveTenant() }),
+        body: JSON.stringify(body),
       },
       {
         fetchImpl: this.fetchImpl,
@@ -324,9 +528,15 @@ export class ApiDriver implements TurnDriver {
     idempotencyKey: string,
     correlationId: string,
   ): Record<string, unknown> {
+    // `settingsToWire` returns null when every control sits at its default,
+    // and the key is then omitted entirely — the pre-settings body, byte
+    // for byte. Out-of-bounds values go out verbatim: the server refuses
+    // with POLICY_DENIED and the analyst reads the bound they broke.
+    const settings = submission.settings ? settingsToWire(submission.settings) : null;
     return {
       idempotency_key: idempotencyKey,
       correlation_id: correlationId,
+      ...(settings !== null ? { settings } : {}),
       ...(submission.utterance !== undefined ? { utterance: submission.utterance } : {}),
       // The UI names operators in PascalCase; the wire does not. Posting
       // the UI spelling is a 422, so translate at the boundary.

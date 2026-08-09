@@ -4,11 +4,13 @@ import {
   ArrowUpRight,
   CircleHelp,
   FileSearch,
+  MessageSquarePlus,
   MessageSquareText,
   Play,
   Repeat,
   RotateCcw,
   Search,
+  Settings2,
   Sparkles,
   SunMoon,
 } from "lucide-react";
@@ -18,7 +20,7 @@ import { Dialog as DialogPrimitive } from "radix-ui";
 
 import { resolveDriverKind } from "@/lib/apiDriver";
 import { GUIDE_QUESTIONS } from "@/lib/guideQuestions";
-import { REFERENCE_QUESTIONS } from "@/lib/mockDriver";
+import { REFERENCE_QUESTIONS } from "@/lib/mock/reference";
 import { useSessionStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -40,21 +42,24 @@ interface PaletteAction {
 export function CommandPalette({
   open,
   onOpenChange,
-  onReplay,
-  replayDisabled,
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
-  onReplay: () => void;
-  replayDisabled: boolean;
 }) {
   const { resolvedTheme, setTheme } = useTheme();
   const submit = useSessionStore((s) => s.submit);
   const streaming = useSessionStore((s) => s.streamingTurnId !== null);
+  const newChatPending = useSessionStore((s) => s.newChatPending);
   const turns = useSessionStore((s) => s.turns);
   const referents = useSessionStore((s) => s.referents);
-  const reset = useSessionStore((s) => s.reset);
+  const newChat = useSessionStore((s) => s.newChat);
   const openDrawer = useSessionStore((s) => s.openDrawer);
+  const replayReference = useSessionStore((s) => s.replayReference);
+  const replaying = useSessionStore((s) => s.replaying);
+  const replayProgress = useSessionStore((s) => s.replayProgress);
+  const openSettings = useSessionStore((s) => s.openSettings);
+  const debug = useSessionStore((s) => s.settings.debug);
+  const newChatBusy = streaming || newChatPending || replaying;
 
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
@@ -102,6 +107,11 @@ export function CommandPalette({
 
   const actions = useMemo<PaletteAction[]>(() => {
     const driverKind = resolveDriverKind();
+    // `NEXT_PUBLIC_REVI_DRIVER=mock` forced by env — the only case where the
+    // palette still offers a driver switch. The mock driver is a dev/test
+    // fixture, not a user-facing mode: with the default env (live API), no
+    // casual control writes the `revi-driver` localStorage override.
+    const envForcedMock = process.env.NEXT_PUBLIC_REVI_DRIVER === "mock";
     const list: PaletteAction[] = [];
 
     if (nextQuestion) {
@@ -128,11 +138,13 @@ export function CommandPalette({
       {
         id: "replay",
         group: "Investigate",
-        label: "Replay reference demo",
+        label: replayProgress
+          ? `Replaying reference demo (${replayProgress.index}/${replayProgress.total})`
+          : "Replay reference demo",
         hint: "five turns",
         icon: <Play className="size-3.5" />,
-        disabled: replayDisabled,
-        run: onReplay,
+        disabled: replaying || streaming,
+        run: () => void replayReference(),
       },
       {
         id: "focus-composer",
@@ -199,6 +211,23 @@ export function CommandPalette({
 
     list.push(
       {
+        id: "new-chat",
+        group: "Workspace",
+        label: "New chat",
+        hint: driverKind === "api" ? "opens a fresh backend session" : "restarts the demo script",
+        icon: <MessageSquarePlus className="size-3.5" />,
+        disabled: newChatBusy,
+        run: () => void newChat(),
+      },
+      {
+        id: "settings",
+        group: "Workspace",
+        label: "Settings",
+        hint: debug ? "internal · debug on" : "internal",
+        icon: <Settings2 className="size-3.5" />,
+        run: openSettings,
+      },
+      {
         id: "theme",
         group: "Workspace",
         label: `Switch to ${resolvedTheme === "dark" ? "light" : "dark"} theme`,
@@ -206,6 +235,21 @@ export function CommandPalette({
         run: () => setTheme(resolvedTheme === "dark" ? "light" : "dark"),
       },
       {
+        id: "reset",
+        group: "Workspace",
+        label: "Reset session",
+        hint: "same as New chat",
+        icon: <RotateCcw className="size-3.5" />,
+        disabled: newChatBusy,
+        run: () => void newChat(),
+      },
+    );
+    // The mock driver is a dev/test fixture, not a casual toggle — this
+    // action only exists when the env itself already forces mock, i.e. a
+    // dev build where flipping to the live API for a spot-check is a
+    // reasonable ⌘K action. On the default (live API) env it disappears.
+    if (envForcedMock) {
+      list.push({
         id: "driver",
         group: "Workspace",
         label: `Switch to ${driverKind === "api" ? "mock" : "live API"} driver`,
@@ -215,29 +259,25 @@ export function CommandPalette({
           window.localStorage.setItem("revi-driver", driverKind === "api" ? "mock" : "api");
           window.location.reload();
         },
-      },
-      {
-        id: "reset",
-        group: "Workspace",
-        label: "Reset session",
-        icon: <RotateCcw className="size-3.5" />,
-        disabled: turns.length === 0,
-        run: reset,
-      },
-    );
+      });
+    }
     return list;
   }, [
     nextQuestion,
     streaming,
-    replayDisabled,
-    onReplay,
+    newChatBusy,
+    replaying,
+    replayProgress,
+    replayReference,
     submit,
     turns,
     referents,
     openDrawer,
     resolvedTheme,
     setTheme,
-    reset,
+    newChat,
+    openSettings,
+    debug,
   ]);
 
   const filtered = useMemo(() => {

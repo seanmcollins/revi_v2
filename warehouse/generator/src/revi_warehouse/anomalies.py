@@ -36,6 +36,7 @@ from revi_warehouse.config import (
     ANOMALY_SPECS,
     ANOMALY_STREAM,
     NEVER,
+    ORGANIC_ERA_START,
     REVI_SEED,
     SCENARIOS,
     AnomalySpec,
@@ -44,23 +45,24 @@ from revi_warehouse.config import (
     day,
 )
 from revi_warehouse.dims import FACILITIES, PAYERS, PLANS, SERVICE_LINES, Dims
-from revi_warehouse.world import PROC_GROUP_INDEX, World
+from revi_warehouse.world import (
+    CLAIM_ARRAY_FIELDS,
+    LINE_ARRAY_FIELDS,
+    PROC_GROUP_INDEX,
+    World,
+)
 
 _GROUP_CO = 0  # ("CO", "PR", "OA", "PI") — injected CARCs are all CO-group
 
-_CLAIM_FIELDS = (
-    "svc_day", "discharge_day", "patient_i", "payer_i", "plan_i", "provider_i",
-    "facility_i", "svcline_i", "is_institutional", "pseq", "oins", "cobm",
-    "sub_day", "remit1_day", "remit2_day", "denied", "den_carc", "den_group",
-    "den_level_line", "den_line_pos", "den_amount", "den_rarc", "appealed",
-    "appeal_file_day", "appeal_dec_day", "overturned", "writeoff_day",
-    "billed_total", "allowed_total", "expected_total", "pr_amount",
-    "pr_known_day", "first_pay_post", "resolved_day", "fpp", "n_lines_per_claim",
-)
-_LINE_FIELDS = (
-    "line_claim", "line_num", "line_group_i", "line_code_i", "line_units",
-    "line_svc_day", "line_charge_day", "line_billed", "line_allowed", "line_expected",
-)
+_CLAIM_FIELDS = CLAIM_ARRAY_FIELDS
+_LINE_FIELDS = LINE_ARRAY_FIELDS
+
+_ERA_START = str(np.datetime64(ORGANIC_ERA_START, "D"))
+"""Baseline cohorts start here: the 2024 backfill is not part of any anomaly's
+'before the onset' comparison. Bounding is on the claim's service date (a
+December-2024 claim adjudicates in January 2025); every organic and injected
+claim is serviced on or after this day, so the bound leaves every published
+figure unchanged."""
 
 _REFERENCE_CASH_START = SCENARIOS.s3_week_prior_start  # 2026-07-20
 _REFERENCE_CASH_END = SCENARIOS.s3_week_decline_end  # 2026-08-02
@@ -672,12 +674,16 @@ def _stat(value: Any) -> float | int | None:
 def _cell_rates(
     con: duckdb.DuckDBPyConnection, sch: str, spec: AnomalySpec,
 ) -> dict[str, Any]:
-    """Cell denial rate for the spec CARC, before the onset vs inside the window."""
+    """Cell denial rate for the spec CARC, before the onset vs inside the window.
+
+    'Before the onset' means earlier in the organic era, not the 2024 backfill.
+    """
     scope = _scope_where(spec)
     pre_n, pre_d, win_n, win_d = _one(
         con,
         f"""
-        WITH cell AS (SELECT claim_id FROM {sch}.v_claim WHERE {scope}),
+        WITH cell AS (SELECT claim_id FROM {sch}.v_claim
+                      WHERE {scope} AND service_date >= DATE '{_ERA_START}'),
         fr AS (SELECT claim_id, MIN(remit_date) AS fr FROM {sch}.fact_remit GROUP BY claim_id),
         dx AS (SELECT DISTINCT claim_id FROM {sch}.v_denial
                WHERE {scope} AND carc_code = {spec.carc})
@@ -839,13 +845,15 @@ def _detect_allowed_shift(
         (b_billed, b_allowed) = _one(
             con,
             f"""
-            WITH fr AS (SELECT claim_id, MIN(remit_date) AS fr FROM {sch}.fact_remit GROUP BY claim_id),
+            WITH fr AS (SELECT claim_id, MIN(remit_date) AS fr FROM {sch}.fact_remit
+                        GROUP BY claim_id),
             scoped AS (
                 SELECT c.claim_id, c.billed_amount_cents,
                        (SELECT SUM(l.allowed_amount_cents) FROM {sch}.fact_claim_line l
                         WHERE l.claim_id = c.claim_id) AS allowed
                 FROM {sch}.v_claim c JOIN fr USING (claim_id)
                 WHERE {scope} {pg_filter} AND fr.fr < DATE '{spec.onset}'
+                  AND c.service_date >= DATE '{_ERA_START}'
             )
             SELECT COALESCE(SUM(billed_amount_cents), 0), COALESCE(SUM(allowed), 0)
             FROM scoped WHERE allowed IS NOT NULL
