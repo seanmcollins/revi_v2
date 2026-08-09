@@ -1,7 +1,7 @@
 """Findings evaluation (design §8.1 steps 12-13): certified, referent-
 addressable results built from the final frames, with drillable cohorts.
 
-Two finding shapes, tried in order — both generic, neither keyed to any
+Three finding shapes, tried in order — all generic, none keyed to any
 question or playbook id:
 
 **Movement** (preferred). The primary findings frame is the first
@@ -23,7 +23,26 @@ ranked measure is money (a claim count is not dollars, and pretending
 otherwise would invent an impact). Share-of-total columns ride along when
 the playbook computed them.
 
-Either way each finding gets — via the referent registry — a drillable
+**Scalar** (the ungrouped answer). The plainest question there is — "what
+is our net collection rate over the last 90 days?" — plans one probe, no
+dimensions, no comparison, and produces one frame with one row and one
+cell. It has no dimension column, so neither shape above could see it:
+``find_primary_compare`` and ``find_primary_concentration`` both begin by
+requiring ``_dimension_columns(frame)`` to be non-empty and return ``None``
+when it is. The probe executed, the number was computed, the grade was
+DIRECT, the chart drew it — and ``findings`` came back empty, which also
+meant the narrative stage short-circuited and the answer was silent. A
+computed number the analyst never saw is the same failure the concentration
+path was added to fix, one shape further down. So a frame with no
+dimension columns and exactly one row publishes its metric cells as
+findings: the level, the window, the grade, and — when the turn carried a
+comparison, so the frame also holds ``__prior``/``__delta``/``__pct_change``
+— the movement. Both sides are rendered in the metric contract's own unit,
+so a ratio reads as a percentage and money as dollars; ``impact_cents`` is
+set only for money, exactly as in the concentration path. A suppressed cell
+publishes no finding: "suppressed" is not a level.
+
+Whichever shape applies, each finding gets — via the referent registry — a drillable
 :class:`CohortDefinition` at the CLAIM entity scoped to the finding's
 dimension values plus the analysis window, so a later ``DrillInto``
 refinement can pin the exact population shown.
@@ -80,6 +99,7 @@ from revi_kernel.refs import (
 )
 
 _TIME_BUCKET_PREFIX = "time_bucket:"
+_PRIOR_SUFFIX = "__prior"
 _QUALIFIED_GRADES = (EvidenceGrade.PROXY, EvidenceGrade.DISCOVERY, EvidenceGrade.UNAVAILABLE)
 
 
@@ -176,6 +196,88 @@ def find_primary_concentration(
     return None
 
 
+@dataclass(frozen=True, slots=True)
+class ScalarShape:
+    """One ungrouped metric cell: the whole answer to a direct question.
+
+    ``prior_column``/``delta_column``/``pct_column`` are set only when the
+    turn carried a comparison and the ``compare`` operator produced them,
+    which is what separates "the rate is 5.2%" from "the rate is 5.2%, up
+    from 4.9%".
+    """
+
+    frame_id: str
+    frame: EvidenceFrame
+    measure: str
+    #: the metric contract's declared unit, as stamped on the frame column
+    unit: str | None
+    prior_column: str | None
+    delta_column: str | None
+    pct_column: str | None
+
+    @property
+    def is_money(self) -> bool:
+        return self.unit == _MONEY_UNIT
+
+    @property
+    def compared(self) -> bool:
+        return self.prior_column is not None and self.delta_column is not None
+
+
+def find_scalar_shapes(
+    plan: InvestigationPlan, calculation: CalculationResult
+) -> tuple[ScalarShape, ...]:
+    """Every ungrouped single-row metric cell this plan produced.
+
+    Reads the *final* logical frame for each probe node — the node's
+    ``compare`` output when it has one, else the probe frame itself — so a
+    scalar with a comparison is described by its movement rather than twice
+    by its level. Prior-window twins are skipped: they are an input to the
+    comparison, never an answer.
+
+    A frame with more than one row is not a scalar. That is deliberate:
+    an ungrouped frame with several rows is a time-bucketed series, which
+    is a trend and wants a trend's treatment, not N headline levels.
+    """
+    compare_of: dict[str, str] = {}
+    for step in plan.transforms.steps:
+        if step.operator == "compare" and step.inputs:
+            compare_of[step.inputs[0]] = step.id
+
+    shapes: list[ScalarShape] = []
+    for node in plan.nodes:
+        if node.id.endswith(_PRIOR_SUFFIX):
+            continue
+        frame_id = compare_of.get(node.id, node.id)
+        try:
+            frame = calculation.frame(frame_id)
+        except KeyError:  # pragma: no cover - pruned steps never execute
+            continue
+        if _dimension_columns(frame) or len(frame.rows) != 1:
+            continue
+        names = set(frame.schema.names)
+        for column in frame.schema.columns:
+            if not isinstance(column.ref, MetricRef) or "__" in column.name:
+                continue
+            measure = column.name
+            prior = f"{measure}__prior"
+            delta = f"{measure}__delta"
+            pct = f"{measure}__pct_change"
+            compared = prior in names and delta in names
+            shapes.append(
+                ScalarShape(
+                    frame_id=frame_id,
+                    frame=frame,
+                    measure=measure,
+                    unit=column.unit,
+                    prior_column=prior if compared else None,
+                    delta_column=delta if compared else None,
+                    pct_column=pct if pct in names else None,
+                )
+            )
+    return tuple(shapes)
+
+
 def _dimension_columns(frame: EvidenceFrame) -> tuple[str, ...]:
     return tuple(
         col.name
@@ -222,6 +324,22 @@ def _as_int(value: Scalar) -> int | None:
     return value
 
 
+def _direction(delta: Scalar) -> str | None:
+    """"up from" / "down from" / "unchanged from", or ``None`` when the
+    delta is not a number and there is therefore no movement to name.
+
+    Read off the delta in whatever numeric type the operator produced —
+    money deltas are integer cents, ratio deltas are ``Decimal``. Deciding
+    direction from an int-only coercion published a *rate* that rose 1.0
+    point as "unchanged", which is the one thing a headline must never be.
+    """
+    if delta is None or isinstance(delta, bool) or not isinstance(delta, (int, Decimal)):
+        return None
+    if delta == 0:
+        return "unchanged from"
+    return "down from" if delta < 0 else "up from"
+
+
 class EvaluateFindingsService:
     def __init__(self, registry: ReferentRegistryStore, *, top_n: int = 3) -> None:
         self._registry = registry
@@ -241,10 +359,20 @@ class EvaluateFindingsService:
         shape = find_primary_compare(plan, calculation)
         if shape is None:
             concentration = find_primary_concentration(plan, calculation)
-            if concentration is None:
+            if concentration is not None:
+                return await self._evaluate_concentration(
+                    shape=concentration,
+                    spec=spec,
+                    pack=pack,
+                    playbook=playbook,
+                    session_id=session_id,
+                    investigation_id=investigation_id,
+                )
+            scalars = find_scalar_shapes(plan, calculation)
+            if not scalars:
                 return FindingsResult(findings=(), referents=())
-            return await self._evaluate_concentration(
-                shape=concentration,
+            return await self._evaluate_scalars(
+                shapes=scalars,
                 spec=spec,
                 pack=pack,
                 playbook=playbook,
@@ -453,6 +581,127 @@ class EvaluateFindingsService:
             cohort_definition=self._cohort_definition(row, frame, dimension_columns, spec),
             dimension_value=self._single_dim(row, frame, dimension_columns),
         )
+
+    # --------------------------------------------------------- scalar shape
+
+    async def _evaluate_scalars(
+        self,
+        *,
+        shapes: tuple[ScalarShape, ...],
+        spec: AnalysisSpec,
+        pack: PackPort,
+        playbook: PlaybookSpec | None,
+        session_id: str,
+        investigation_id: str,
+    ) -> FindingsResult:
+        """Findings from ungrouped metric cells — the direct answer."""
+        comparison = render_comparison(spec)
+        existing = await self._registry.list_for_session(session_id)
+        finding_offset = sum(1 for e in existing if e.referent.kind is ReferentKind.FINDING)
+
+        findings: list[Finding] = []
+        referents: list[RegisteredReferent] = []
+        for shape in shapes[: self._top_n]:
+            row = shape.frame.rows[0]
+            value = row[shape.frame.schema.index_of(shape.measure)]
+            # A suppressed cell has no level to publish. Saying so is the
+            # frame's job (suppressed_cells) and the warning's; a finding
+            # titled "net collection rate: suppressed" would be a headline
+            # asserting a measurement that was withheld.
+            if value is None:
+                continue
+            qualified = self._requires_qualification(shape.frame.evidence_grade, pack, playbook)
+            n = finding_offset + len(findings) + 1
+            finding, referent = self._build_scalar_finding(
+                f"F{n}", shape, value, spec, comparison, qualified, session_id, investigation_id
+            )
+            findings.append(finding)
+            referents.append(referent)
+
+        await self._registry.register(tuple(referents))
+        return FindingsResult(findings=tuple(findings), referents=tuple(referents))
+
+    def _build_scalar_finding(
+        self,
+        referent_value: str,
+        shape: ScalarShape,
+        value: Scalar,
+        spec: AnalysisSpec,
+        comparison: ComparisonRendering | None,
+        qualified: bool,
+        session_id: str,
+        investigation_id: str,
+    ) -> tuple[Finding, RegisteredReferent]:
+        schema = shape.frame.schema
+        row = shape.frame.rows[0]
+        label = metric_label(shape.measure)
+        current_text = format_value(value, shape.unit)
+        window = spec.context.window.range
+        window_text = f"{window.start.isoformat()}..{window.end.isoformat()}"
+
+        values: list[tuple[str, Scalar]] = [(shape.measure, value)]
+        prior: Scalar = None
+        delta: Scalar = None
+        pct: Scalar = None
+        if shape.compared:
+            assert shape.prior_column is not None and shape.delta_column is not None
+            prior = row[schema.index_of(shape.prior_column)]
+            delta = row[schema.index_of(shape.delta_column)]
+            pct = row[schema.index_of(shape.pct_column)] if shape.pct_column else None
+            values.extend(
+                [(f"{shape.measure}__prior", prior), (f"{shape.measure}__delta", delta)]
+            )
+            if pct is not None:
+                values.append(("pct_change", pct))
+
+        mismatched = comparison is not None and comparison.length_mismatch
+        movement = _direction(delta)
+        # Both sides are stated in the contract's unit rather than the delta
+        # being rendered in it: "up 3.2%" on a *rate* is ambiguous between
+        # relative change and percentage points, and there is no reason to
+        # publish an ambiguity when "5.2%, up from 4.9%" is available. A
+        # delta that is not a number (a suppressed prior cell) publishes the
+        # level alone — there is no movement to name.
+        if prior is not None and movement is not None:
+            period_phrase = comparison.phrase if comparison is not None else "vs prior period"
+            prior_text = format_value(prior, shape.unit)
+            title = f"{label}: {current_text}, {movement} {prior_text} {period_phrase}"
+            pct_text = f" ({ratio_pct(pct)} change)" if isinstance(pct, Decimal) else ""
+            statement = (
+                f"{label} is {current_text} over {window_text}, {movement} {prior_text} "
+                f"{period_phrase}{pct_text}."
+            )
+        else:
+            title = f"{label}: {current_text} ({window_text})"
+            statement = f"{label} is {current_text} over {window_text}."
+
+        referent = ReferentId(value=referent_value, kind=ReferentKind.FINDING)
+        finding = Finding(
+            referent=referent,
+            title=title,
+            statement=statement,
+            metric_refs=(MetricRef(shape.measure),),
+            values=tuple(values),
+            grade=shape.frame.evidence_grade,
+            # A rate is not dollars, and a length-mismatched difference is
+            # not an impact — the same two rules the other shapes apply.
+            impact_cents=(
+                _as_int(delta) if (shape.is_money and not mismatched) else None
+            ),
+            confidence="qualified" if (qualified or mismatched) else "high",
+            suggested_refinements=(f"drill into {referent_value}",),
+        )
+        registered = RegisteredReferent(
+            referent=referent,
+            session_id=session_id,
+            investigation_id=investigation_id,
+            label=title,
+            # No dimension values to pin: the drillable cohort is the
+            # answer's own population over the analysis window.
+            cohort_definition=self._cohort_definition(row, shape.frame, (), spec),
+            finding=finding,
+        )
+        return finding, registered
 
     # -------------------------------------------------- concentration shape
 

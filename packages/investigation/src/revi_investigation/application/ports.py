@@ -6,7 +6,7 @@ on the Protocols. In-memory fakes for every port live in ``revi_testing``.
 
 from __future__ import annotations
 
-from collections.abc import AsyncIterator, Mapping
+from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
@@ -74,12 +74,34 @@ class TextLlmRequest:
     system_prompt: str | None = None
     #: Session-scoped model/budget overrides for this call (§7.1).
     policy: LlmCallPolicy = DEFAULT_LLM_CALL_POLICY
+    #: Called once with this call's usage when the stream completes.
+    #:
+    #: A streamed call cannot return its usage — the generator yields text —
+    #: so the port has always exposed :meth:`LanguageModelPort.last_usage`
+    #: instead. That is a *process-wide* slot: two turns narrating at once
+    #: overwrite each other, and a caller reading it back can attribute
+    #: another session's tokens to this one. The narrative was therefore
+    #: left out of the turn envelope entirely, which published a turn cost
+    #: missing its single largest generation. This sink is per request, so
+    #: the usage lands on the turn that spent it and nowhere else.
+    usage_sink: Callable[[LlmUsage], None] | None = None
 
 
 @dataclass(frozen=True, slots=True)
 class LlmUsage:
     model: str
     cost_usd: Decimal
+    #: **Every** prompt token the call read, cached or not — the sum of the
+    #: uncached remainder, the tokens written to the prompt cache, and the
+    #: tokens served from it.
+    #:
+    #: The provider reports those three separately, and its ``input_tokens``
+    #: is only the *uncached remainder*. Copying that field straight across
+    #: published turns reading ``input_tokens: 4`` beside
+    #: ``output_tokens: 953`` — a governed pipeline that sends a multi-
+    #: thousand-token vocabulary in every prompt, reporting four. The split
+    #: is not lost: it rides on the two fields below, so a reader can still
+    #: see what was cached and what it cost.
     input_tokens: int
     output_tokens: int
     #: Turns the *model* burned failing to satisfy the output schema. A model
@@ -92,6 +114,12 @@ class LlmUsage:
     #: different causes and different fixes, and averaging them would hide
     #: a degrading provider behind a well-behaved model (or the reverse).
     attempts: int = 1
+    #: Prompt tokens served from the provider's cache (billed at a fraction
+    #: of the base rate). Included in :attr:`input_tokens`.
+    cache_read_tokens: int = 0
+    #: Prompt tokens written to the provider's cache on this call (billed at
+    #: a premium). Included in :attr:`input_tokens`.
+    cache_creation_tokens: int = 0
 
 
 class LlmFailureKind(StrEnum):

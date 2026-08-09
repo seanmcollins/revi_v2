@@ -13,13 +13,19 @@ whole route a user takes — typed first turn → interpretation → planning �
 §6.6 validation → execution against ``data/revi_warehouse.duckdb`` — and
 require a number to come back.
 
-Two refusals are pinned as *still* refused, because neither is a
-capability gap and neither should be routed around by this work:
+Anything a source does not advertise keeps the old refusal text: silence
+is not permission, and no capability declaration may launder a gap.
 
-- ``denial_rate`` on its primary ``remit`` basis, which is unbound at the
-  claim entity: a catalog modelling decision (rebind to denial grain, or
-  bind REMIT on claim), recorded in ``packs/base-rcm/NOTES.md``.
-- Anything a source does not advertise, which keeps the old refusal text.
+``denial_rate`` on its primary ``remit`` basis was pinned here as refused
+too — ``remit`` is unbound at the claim entity, a catalog modelling
+decision recorded in ``packs/base-rcm/NOTES.md``. It is no longer a
+refusal but a labeled substitution (§5.3: an allowed alternate is
+permitted, and labeled in output and provenance), because the refusal was
+being raised by the SQL compiler *past* §6.6 and the question — "what was
+our denial rate this year versus last?" — is one this warehouse can
+answer on a basis the contract already declares legal. The catalog gap
+itself is unchanged; what changed is that it is now visible in the answer
+rather than fatal to it. See ``TestBasisFallback``.
 """
 
 from __future__ import annotations
@@ -149,22 +155,57 @@ class TestPreviouslyUnreachableContracts:
             )
 
 
-class TestStillRefused:
-    async def test_denial_rate_on_its_primary_basis_is_still_refused(
+class TestBasisFallback:
+    async def test_denial_rate_falls_back_from_its_unbound_primary_basis(
         self, engine: WiredEngine
     ) -> None:
-        """The one true holdout, and a capability declaration must not
-        launder it: ``remit`` is not bound at the claim entity, so the
-        probe cannot be dated. A catalog gap, refused as one."""
-        with pytest.raises(DateBasisInvalidError) as excinfo:
-            await _typed_turn(engine, "denial_rate", basis="remit")
-        assert "remit" in str(excinfo.value)
+        """The catalog gap is answered on a declared alternate, and said so.
 
-    async def test_denial_rate_still_answers_on_an_allowed_basis(
+        ``remit`` is denial_rate's primary basis and this warehouse binds
+        it on the remit/transaction/denial views only — not on claim, the
+        contract's own grain. That used to be a refusal raised by the SQL
+        compiler, one layer past §6.6. §5.3 already provides for it: an
+        allowed alternate may be used, *labeled in output and provenance*.
+        So the probe reads ``service``, the header says ``service``, and
+        the warning names both bases and the grain that forced the swap.
+        """
+        outcome = await _typed_turn(engine, "denial_rate", basis="remit")
+        assert outcome.clarification is None
+        assert outcome.header is not None
+        assert outcome.header.basis == "service"
+        [(_, frame)] = [(name, f) for name, f in outcome.frames if name == "main"]
+        assert frame.rows
+        [warning] = [w for w in outcome.warnings if w.startswith("alternate_basis_used:")]
+        assert "'service'" in warning
+        assert "'remit'" in warning
+        assert "'claim'" in warning
+
+    async def test_the_fallback_never_leaves_the_contract(
         self, engine: WiredEngine
     ) -> None:
-        """...and the refusal is basis-specific, not contract-wide."""
+        """A basis the contract forbids is still ``DATE_BASIS_INVALID``.
+
+        The fallback chooses only among ``allowed_date_bases``; it is a
+        binding decision, not a licence to date a metric however the
+        warehouse finds convenient. ``post`` is not an allowed basis for
+        denial_rate, and asking for it is refused as it always was."""
+        with pytest.raises(DateBasisInvalidError) as excinfo:
+            await _typed_turn(engine, "denial_rate", basis="post")
+        assert "post" in str(excinfo.value)
+
+    async def test_denial_rate_answers_on_an_explicitly_allowed_basis(
+        self, engine: WiredEngine
+    ) -> None:
+        """Asking for the alternate outright reads it, and is labeled the same.
+
+        The label is a property of the *answer*, not of who picked the
+        basis: a reader comparing this number against a published denial
+        rate needs to know it is not the MAP AR-5 remittance-dated one,
+        whether the substitution happened silently upstream or because
+        they typed ``service`` themselves.
+        """
         outcome = await _typed_turn(engine, "denial_rate", basis="service")
         assert outcome.clarification is None
         [(_, frame)] = [(name, f) for name, f in outcome.frames if name == "main"]
         assert frame.rows
+        assert any(w.startswith("alternate_basis_used:") for w in outcome.warnings)

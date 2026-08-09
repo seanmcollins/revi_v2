@@ -19,6 +19,7 @@ import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 
 import { resolveDriverKind } from "@/lib/apiDriver";
+import { untitledTurnLabel } from "@/lib/format";
 import { GUIDE_QUESTIONS } from "@/lib/guideQuestions";
 import { REFERENCE_QUESTIONS } from "@/lib/mock/reference";
 import { useSessionStore } from "@/lib/store";
@@ -59,7 +60,11 @@ export function CommandPalette({
   const replayProgress = useSessionStore((s) => s.replayProgress);
   const openSettings = useSessionStore((s) => s.openSettings);
   const debug = useSessionStore((s) => s.settings.debug);
-  const newChatBusy = streaming || newChatPending || replaying;
+  const switchingSessionId = useSessionStore((s) => s.switchingSessionId);
+  // Mirrors SessionRail's identical guard: any of a turn streaming, a new
+  // chat bootstrapping, a replay running, or a session switch in flight
+  // means `submit()` either no-ops or would race whichever session wins.
+  const newChatBusy = streaming || newChatPending || replaying || switchingSessionId !== null;
 
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
@@ -121,7 +126,7 @@ export function CommandPalette({
         label: `Ask: ${nextQuestion}`,
         hint: "next in the reference drill-down",
         icon: <MessageSquareText className="size-3.5" />,
-        disabled: streaming,
+        disabled: newChatBusy,
         run: () => void submit({ utterance: nextQuestion }),
       });
     }
@@ -132,7 +137,7 @@ export function CommandPalette({
         label: "Ask: What is PR3?",
         hint: "definitional",
         icon: <CircleHelp className="size-3.5" />,
-        disabled: streaming,
+        disabled: newChatBusy,
         run: () => void submit({ utterance: "What is PR3?" }),
       },
       {
@@ -143,7 +148,7 @@ export function CommandPalette({
           : "Replay reference demo",
         hint: "five turns",
         icon: <Play className="size-3.5" />,
-        disabled: replaying || streaming,
+        disabled: newChatBusy,
         run: () => void replayReference(),
       },
       {
@@ -164,7 +169,7 @@ export function CommandPalette({
         group: "Guide questions",
         label: `Ask: ${question}`,
         icon: <Sparkles className="size-3.5" />,
-        disabled: streaming,
+        disabled: newChatBusy,
         run: () => void submit({ utterance: question }),
       });
     }
@@ -173,7 +178,7 @@ export function CommandPalette({
       const label =
         turn.submission.utterance ??
         turn.submission.clarificationResponse ??
-        "(typed refinement)";
+        untitledTurnLabel(turn.submission);
       list.push({
         id: `turn-${turn.id}`,
         group: "Navigate",
@@ -264,9 +269,7 @@ export function CommandPalette({
     return list;
   }, [
     nextQuestion,
-    streaming,
     newChatBusy,
-    replaying,
     replayProgress,
     replayReference,
     submit,

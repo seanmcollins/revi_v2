@@ -106,8 +106,10 @@ def _validator(
 
 
 @pytest.fixture
-def planner(pack_port: PackSnapshotPort) -> BuildInvestigationPlanService:
-    return BuildInvestigationPlanService(pack_port)
+def planner(
+    pack_port: PackSnapshotPort, catalog: CatalogSnapshot
+) -> BuildInvestigationPlanService:
+    return BuildInvestigationPlanService(pack_port, catalog)
 
 
 @pytest.fixture
@@ -547,7 +549,7 @@ class TestCapabilityNegotiation:
                 )
             ),
         )
-        planner = BuildInvestigationPlanService(pack)  # type: ignore[arg-type]
+        planner = BuildInvestigationPlanService(pack, catalog)  # type: ignore[arg-type]
         spec = make_spec(measures=("credit_balance_dollars",), basis=SERVICE)
         plan = planner.build(spec)
         assert isinstance(plan.nodes[0].probe, AggregationProbe)  # the mis-authoring
@@ -593,7 +595,7 @@ class TestCapabilityNegotiation:
             pack,  # type: ignore[arg-type]
             _capabilities(cross_entity_ratio_of_sums=True),
         )
-        planner = BuildInvestigationPlanService(pack)  # type: ignore[arg-type]
+        planner = BuildInvestigationPlanService(pack, catalog)  # type: ignore[arg-type]
         spec = make_spec(measures=("net_collection_rate",), basis=SERVICE)
         plan = planner.build(spec)
         with pytest.raises(UnsupportedConceptError):
@@ -644,7 +646,7 @@ class TestCapabilityNegotiation:
             pack,  # type: ignore[arg-type]
             _capabilities(cross_entity_ratio_of_sums=True),
         )
-        planner = BuildInvestigationPlanService(pack)  # type: ignore[arg-type]
+        planner = BuildInvestigationPlanService(pack, catalog)  # type: ignore[arg-type]
         spec = make_spec(measures=("net_collection_rate",), basis=DISCHARGE)
         with pytest.raises(DateBasisInvalidError) as excinfo:
             validator.validate(planner.build(spec), spec)

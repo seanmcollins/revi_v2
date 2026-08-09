@@ -112,10 +112,48 @@ async def test_structured_success(monkeypatch: pytest.MonkeyPatch) -> None:
     assert result.failure is None
     assert result.usage.model == PIN
     assert result.usage.cost_usd == Decimal("0.0123")
-    assert result.usage.input_tokens == 7
+    # Every prompt token, not the uncached remainder: the provider's own
+    # `input_tokens` is 7 here and its cache holds the other 2500. Publishing
+    # the 7 is what produced live turns reading `input_tokens: 4` beside 953
+    # output tokens — see LlmUsage.
+    assert result.usage.input_tokens == 2507
+    assert result.usage.cache_read_tokens == 2500
+    assert result.usage.cache_creation_tokens == 0
     assert result.usage.output_tokens == 431
     assert result.usage.schema_retries == 0
     assert result.usage.duration_ms == 4200
+
+
+async def test_usage_counts_cache_creation_as_input_too(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The first call of a session WRITES the cache instead of reading it.
+
+    Both buckets are prompt tokens the call actually read, and both are
+    billed — the write at a premium. Counting one and not the other would
+    make a cold turn look ~free and a warm one expensive.
+    """
+    _install_query(
+        monkeypatch,
+        [
+            _result(
+                usage={
+                    "input_tokens": 4,
+                    "output_tokens": 953,
+                    "cache_creation_input_tokens": 3120,
+                    "cache_read_input_tokens": 0,
+                }
+            )
+        ],
+    )
+    adapter = ClaudeAgentSdkLanguageModel(PIN)
+
+    result = await adapter.structured(_structured_request())
+
+    assert result.usage.input_tokens == 3124
+    assert result.usage.cache_creation_tokens == 3120
+    assert result.usage.cache_read_tokens == 0
+    assert result.usage.output_tokens == 953
 
 
 async def test_structured_output_none_is_a_result_not_an_error(

@@ -3027,7 +3027,18 @@
       },
       "UsageSummary": {
         "additionalProperties": false,
+        "description": "What this turn spent on the model.\n\n``input_tokens`` is EVERY prompt token the turn read \u2014 the uncached\nremainder plus what was written to and served from the provider's\nprompt cache. The provider reports those three separately and names\nonly the first ``input_tokens``; publishing that one field made turns\nread ``input_tokens: 4`` against ``output_tokens: 953``. The cached\nsplit rides on the two fields below rather than being lost, so a reader\ncan still tell a cheap cached prompt from an expensive cold one.",
         "properties": {
+          "cache_creation_tokens": {
+            "default": 0,
+            "title": "Cache Creation Tokens",
+            "type": "integer"
+          },
+          "cache_read_tokens": {
+            "default": 0,
+            "title": "Cache Read Tokens",
+            "type": "integer"
+          },
           "cost_usd": {
             "default": "0",
             "title": "Cost Usd",

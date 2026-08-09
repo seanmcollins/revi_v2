@@ -19,7 +19,11 @@ Window resolution happens exactly once, here: the anchor is the session
 watermark's ``loaded_at.date()`` and the concrete dates are stored on the
 spec (replay uses the stored dates). The date basis defaults to the
 primary governing metric's primary basis; an explicit basis is validated
-against the contract's ``allowed_date_bases`` (``DATE_BASIS_INVALID``).
+against the contract's ``allowed_date_bases`` (``DATE_BASIS_INVALID``) and
+then against what this warehouse actually binds at the metric's grain —
+see :mod:`revi_investigation.application.date_basis`, which is why the
+window's basis (and therefore the context header) can never name a basis
+no probe was able to read.
 
 The DEFINITIONAL path answers from governed pack content with provenance
 and ZERO probes: lead-in phrases are stripped deterministically and the
@@ -46,6 +50,7 @@ from pydantic import ValidationError
 from revi_calculation_contracts.contract import MetricContract
 from revi_catalog_contracts.model import CatalogSnapshot
 from revi_investigation.application.capability_ports import PackPort, TermDefinition
+from revi_investigation.application.date_basis import resolve_answerable_basis
 from revi_investigation.application.llm.guard import assert_safe_payload
 from revi_investigation.application.llm.render import (
     LoadedTemplate,
@@ -77,7 +82,7 @@ from revi_investigation_contracts.refinements import (
     AddFilterModel,
     WindowSpecModel,
 )
-from revi_kernel.errors import DateBasisInvalidError, UnsupportedConceptError
+from revi_kernel.errors import UnsupportedConceptError
 from revi_kernel.filters import (
     EMPTY_SCOPE,
     FilterExpr,
@@ -193,6 +198,46 @@ def strip_definitional_lead_in(question: str) -> str:
     return text
 
 
+@dataclass(frozen=True, slots=True)
+class PendingClarification:
+    """A clarification this session asked and has not had answered yet.
+
+    Classification without it is classification without the one fact that
+    decides the answer: an utterance is only "an answer to a question I
+    haven't asked" if no question is outstanding. Live, a session that
+    replied to a clarification with a VERBATIM option string was read fresh
+    each time and clarified four turns running — the model was never told
+    it had asked anything.
+    """
+
+    #: The question the platform put to the analyst.
+    question: str
+    #: The options it offered, if any — a verbatim reply is the strongest
+    #: possible signal that this turn is an answer.
+    options: tuple[str, ...] = ()
+    #: The analyst's own question that the clarification interrupted, so a
+    #: resolved turn can resume it rather than dropping it.
+    original_question: str | None = None
+    #: How many clarifications this thread has issued back-to-back.
+    streak: int = 0
+
+
+def render_pending_clarification(pending: PendingClarification | None) -> str:
+    """The pending-clarification block for the classification prompt."""
+    if pending is None:
+        return "No clarification is pending; this utterance stands on its own."
+    lines = [
+        "A clarification IS pending. The platform asked the analyst:",
+        f"  {pending.question}",
+    ]
+    if pending.options:
+        lines.append("and offered these options:")
+        lines.extend(f"  - {option}" for option in pending.options)
+    if pending.original_question:
+        lines.append(f"The question it interrupted was: {pending.original_question}")
+    return "\n".join(lines)
+
+
 class ClassifyTurnService:
     """LLM turn classification against the closed §7.3 taxonomy."""
 
@@ -202,9 +247,16 @@ class ClassifyTurnService:
         self._schema = sanitize_json_schema(TurnClassificationResponse.model_json_schema())
 
     async def classify(
-        self, question: str, *, policy: LlmCallPolicy = DEFAULT_LLM_CALL_POLICY
+        self,
+        question: str,
+        *,
+        pending: PendingClarification | None = None,
+        policy: LlmCallPolicy = DEFAULT_LLM_CALL_POLICY,
     ) -> ClassificationOutcome:
-        prompt = render_template(self._template.text, {"question": question})
+        prompt = render_template(
+            self._template.text,
+            {"question": question, "pending": render_pending_clarification(pending)},
+        )
         assert_safe_payload(prompt)
         result = await self._llm.structured(
             StructuredLlmRequest(
@@ -585,18 +637,18 @@ class InterpretQuestionService:
                         contracts.append(contract)
         return tuple(contracts)
 
-    @staticmethod
-    def _resolve_basis(raw: str | None, primary: MetricContract) -> DateBasisRef:
-        if raw is None:
-            return primary.primary_date_basis
-        basis = DateBasisRef(raw.strip().lower())
-        if not primary.allows_date_basis(basis):
-            raise DateBasisInvalidError(
-                f"date basis {basis.id!r} is not allowed for metric {primary.id!r} "
-                f"(allowed: {[b.id for b in primary.allowed_date_bases]})",
-                details={"metric": primary.id, "basis": basis.id},
-            )
-        return basis
+    def _resolve_basis(self, raw: str | None, primary: MetricContract) -> DateBasisRef:
+        """The basis this window will be read on (§5.3, §6.6 step 3).
+
+        A basis the contract forbids is still ``DATE_BASIS_INVALID``. A
+        basis the contract allows but this warehouse does not bind at the
+        metric's grain falls back to an allowed basis it does bind — here
+        rather than in the planner alone, because the window's basis is
+        what the context header publishes, and a header naming a basis
+        nothing read is a header that misstates the answer.
+        """
+        requested = DateBasisRef(raw.strip().lower()) if raw is not None else None
+        return resolve_answerable_basis(primary, requested, self._catalog).basis
 
     @staticmethod
     def _relative_range(parsed: InterpretationResponse) -> RelativeRange:

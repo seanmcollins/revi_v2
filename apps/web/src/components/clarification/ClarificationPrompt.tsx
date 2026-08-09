@@ -57,7 +57,12 @@ export function ClarificationPrompt({ clarification }: { clarification: Clarific
                 variant="outline"
                 size="sm"
                 disabled={streaming}
-                className="h-7 rounded-full text-xs font-normal"
+                // Options are model-proposed sentences, not fixed short
+                // labels — h-auto/whitespace-normal let a long one wrap
+                // to a second line inside the pill instead of overflowing
+                // it (the fixed-height, no-wrap default is for icon-sized
+                // button text, not this).
+                className="h-auto min-h-7 whitespace-normal rounded-full py-1.5 text-left text-xs font-normal leading-snug"
                 onClick={() => choose(option)}
               >
                 {option}

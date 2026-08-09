@@ -34,6 +34,7 @@ from revi_api.assembly import (
 )
 from revi_api.auth import AuthorizationError, Principal
 from revi_api.debug_trace import build_debug_trace
+from revi_api.error_copy import plain_message
 from revi_api.portfolio import build_portfolio
 from revi_api.settings_policy import DEBUG_TRACE_ENV
 from revi_api.wiring import ApiComponents
@@ -261,12 +262,24 @@ class ApiService:
                 self._components, outcome, on_event=on_event
             )
         except ReviError as exc:
+            # The engine's own sentence, always, in the log: the plain
+            # message below is for the analyst, and this is the copy an
+            # operator greps for. Nothing published is the only record.
             logger.warning("turn failed with %s: %s", exc.code.value, exc.message)
             response = TurnError(
                 outcome="error",
                 session_id=session_id,
                 error=ErrorEnvelope(
-                    code=exc.code.value, message=exc.message, correlation_id=correlation_id
+                    code=exc.code.value,
+                    # Plain language for the user; the technical message
+                    # rides along in debug mode (§12 shape unchanged).
+                    message=plain_message(
+                        exc.code,
+                        exc.message,
+                        debug=await self._debug_in_force(session_id, request),
+                        details=exc.details,
+                    ),
+                    correlation_id=correlation_id,
                 ),
             )
             if on_event is not None:
@@ -274,6 +287,24 @@ class ApiService:
         if request.idempotency_key is not None:
             self._idempotent[(principal.tenant, session_id, request.idempotency_key)] = response
         return response
+
+    async def _debug_in_force(self, session_id: str, request: TurnRequest) -> bool:
+        """Was this turn asked to show its working?
+
+        Read the same way the turn itself resolves it: a per-turn override
+        first, then the session's own setting. Best-effort on purpose — a
+        store hiccup while assembling an error must not replace the error
+        with a different one, so an unreadable session simply means "not
+        debug" and the analyst still gets the plain sentence.
+        """
+        if request.settings is not None:
+            return bool(request.settings.debug)
+        try:
+            session = await self._components.sessions.get(session_id)
+        except Exception:  # pragma: no cover - defensive; see docstring
+            logger.debug("could not read session settings for error copy", exc_info=True)
+            return False
+        return session is not None and session.settings.debug
 
     async def get_investigation(
         self, principal: Principal, investigation_id: str

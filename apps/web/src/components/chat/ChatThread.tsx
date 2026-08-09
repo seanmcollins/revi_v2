@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowUpRight } from "lucide-react";
+import { ArrowUpRight, Loader2 } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 import { AnswerCard } from "@/components/answer/AnswerCard";
@@ -16,6 +16,7 @@ import { useSessionStore } from "@/lib/store";
 export function ChatThread() {
   const turns = useSessionStore((s) => s.turns);
   const showFailurePreview = useSessionStore((s) => s.showFailurePreview);
+  const switchingSessionId = useSessionStore((s) => s.switchingSessionId);
   const endRef = useRef<HTMLDivElement>(null);
   const lastEventCount = useRef(0);
 
@@ -49,7 +50,8 @@ export function ChatThread() {
         </div>
       )}
 
-      {turns.length === 0 && <EmptyState />}
+      {turns.length === 0 &&
+        (switchingSessionId ? <SwitchingState /> : <EmptyState />)}
 
       {turns.map((turn, i) => (
         <article key={turn.id} id={`lineage-turn-${turn.id}`} className="fade-up space-y-3">
@@ -109,7 +111,11 @@ function EmptyState() {
   const submit = useSessionStore((s) => s.submit);
   const streaming = useSessionStore((s) => s.streamingTurnId !== null);
   const replaying = useSessionStore((s) => s.replaying);
-  const busy = streaming || replaying;
+  // A brand-new session bootstrapping (newChat()) shows this same hero —
+  // there is nothing to switch to yet — but its guide questions stay
+  // disabled until the fresh session exists server-side to submit into.
+  const newChatPending = useSessionStore((s) => s.newChatPending);
+  const busy = streaming || replaying || newChatPending;
 
   return (
     <div className="@container relative flex flex-col items-center gap-7 pb-8 pt-10 text-center">
@@ -162,6 +168,26 @@ function EmptyState() {
         <kbd className="rounded border bg-surface-sunken px-1 py-0.5 font-mono text-[0.58rem]">⌘K</kbd>{" "}
         to command
       </p>
+    </div>
+  );
+}
+
+/**
+ * Between `switchSession()` clearing the thread and the re-opened session's
+ * turns landing, `turns.length` is briefly 0 — the same signal the empty
+ * hero renders on. Showing the hero there would read as "no turns yet, ask
+ * something", which is false: the turns exist, they are just still
+ * loading. This says the true thing instead, and never invites a click the
+ * store would have to no-op.
+ */
+function SwitchingState() {
+  return (
+    <div
+      role="status"
+      className="flex flex-col items-center gap-3 pb-8 pt-24 text-center text-muted-foreground"
+    >
+      <Loader2 className="size-5 animate-spin" />
+      <p className="text-[0.78rem]">Opening that session…</p>
     </div>
   );
 }

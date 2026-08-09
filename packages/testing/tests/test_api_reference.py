@@ -24,7 +24,11 @@ from revi_investigation_contracts.api import (
     TurnRequest,
     TypedInvestigationSpec,
 )
-from revi_investigation_contracts.refinements import AbsoluteWindowModel, RemoveFilterModel
+from revi_investigation_contracts.refinements import (
+    AbsoluteWindowModel,
+    RemoveFilterModel,
+    WindowSpecModel,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WAREHOUSE = REPO_ROOT / "data" / "revi_warehouse.duckdb"
@@ -243,7 +247,12 @@ class TestPortfolioDrillDown:
 
         assert isinstance(response, TurnAnswer), response
         assert response.turn_class == "new_investigation"
-        assert response.usage.llm_calls == 0  # typed in, typed out: no model
+        # Typed in, typed out: the INVESTIGATION took no model call. The one
+        # counted call is the narrative — a real generation this turn paid
+        # for, which the envelope used to drop entirely (it runs after the
+        # engine writes its trace, and the summary was read from that trace).
+        assert response.usage.llm_calls == 1
+        assert response.usage.output_tokens > 0
         assert response.plan_hash is not None  # a real plan really executed
 
         header = response.context_header
@@ -457,3 +466,78 @@ class TestEvidenceReachesTheWire:
         probe = schemas["EvidenceProbePayload"]["properties"]
         for field in ("purpose", "kind", "rows", "truncated", "suppressed_cells", "grade"):
             assert field in probe, field
+
+
+class TestScalarQuestionsAnswer:
+    """The plainest shape there is, over HTTP, on the real warehouse.
+
+    "What is our net collection rate over the last 90 days?" plans one
+    probe with no dimensions and no comparison. That frame has no dimension
+    column, so both older finding shapes declined it, `findings` came back
+    empty, the narrative stage short-circuits on no findings, and the whole
+    answer was a chart of a number nobody was told. Typed in so the model
+    is out of the loop entirely: what is asserted here is the engine's
+    behaviour, not a script's.
+    """
+
+    @staticmethod
+    def _spec(metric_id: str, comparison: str | None = None) -> TypedInvestigationSpec:
+        return TypedInvestigationSpec(
+            metric_ids=[metric_id],
+            window=WindowSpecModel(quantity="90", unit="day", mode="trailing"),
+            comparison=comparison,
+        )
+
+    async def _answer(self, spec: TypedInvestigationSpec) -> TurnAnswer:
+        transport = httpx.ASGITransport(app=_app(_service()))
+        async with httpx.AsyncClient(transport=transport, base_url="http://test") as raw:
+            client = HttpInvestigationClient(raw, _token())
+            session = await client.open_session(OpenSessionRequest(tenant="demo"))
+            response = await client.submit_turn(
+                session.session_id, TurnRequest(spec=spec)
+            )
+        assert isinstance(response, TurnAnswer), response
+        return response
+
+    async def test_an_ungrouped_metric_question_yields_a_finding(self) -> None:
+        response = await self._answer(self._spec("net_collection_rate"))
+        assert response.usage.llm_calls == 1  # the narrative only; the spec was typed
+        assert response.findings, "a computed scalar must reach the user as a finding"
+        finding = response.findings[0]
+        assert finding.referent == "F1"
+        assert finding.metric_ids == ["net_collection_rate"]
+        assert finding.grade == "direct"
+        # unit-honest per the metric contract: a ratio is a percentage
+        assert "%" in finding.title
+        assert "Decimal" not in finding.title
+
+    async def test_the_scalar_finding_reaches_the_narrative_stage(self) -> None:
+        """The second half of the same defect: the narrative composer is
+        skipped when a turn has no findings, so a findingless scalar was
+        also a silent one."""
+        response = await self._answer(self._spec("net_collection_rate"))
+        assert response.narrative, "a turn with findings must compose a narrative"
+        assert response.findings[0].referent in response.narrative
+
+    async def test_a_scalar_with_a_comparison_states_both_sides(self) -> None:
+        response = await self._answer(
+            self._spec("net_collection_rate", comparison="prior_period")
+        )
+        assert response.findings
+        title = response.findings[0].title
+        assert "from" in title  # "…, up from X vs prior period"
+        names = {value.name for value in response.findings[0].values}
+        assert "net_collection_rate__prior" in names
+
+    async def test_a_metric_whose_primary_basis_is_unbound_still_answers(self) -> None:
+        """``denial_rate`` asks for the ``remit`` basis, which this
+        warehouse binds nowhere on the claim entity. §5.3 permits an
+        allowed alternate, labeled — so the answer exists and says which
+        basis produced it, instead of erroring out of the SQL compiler."""
+        response = await self._answer(self._spec("denial_rate", comparison="prior_year"))
+        assert response.findings, "the flagship comparison must answer"
+        assert response.context_header is not None
+        assert response.context_header.basis == "service"
+        assert any(
+            w.startswith("alternate_basis_used:") and "remit" in w for w in response.warnings
+        ), response.warnings

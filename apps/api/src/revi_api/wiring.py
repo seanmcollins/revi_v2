@@ -262,7 +262,7 @@ def build_components(
 
     open_session = OpenSessionService(stores.sessions, repository, pack_port)
     interpreter = InterpretQuestionService(llm, pack_port, catalog)
-    planner = BuildInvestigationPlanService(pack_port)
+    planner = BuildInvestigationPlanService(pack_port, catalog)
     validator = PlanValidationService(catalog, pack_port, repository)
     submit = SubmitTurnService(
         open_session=open_session,

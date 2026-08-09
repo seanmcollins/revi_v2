@@ -13,7 +13,7 @@ import { SessionRail } from "@/components/workspace/SessionRail";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ApiDriver, fetchHealthDetail, resolveDriverKind } from "@/lib/apiDriver";
 import type { DriverKind, TurnDriver } from "@/lib/driver";
-import { mediumDate } from "@/lib/format";
+import { displaySessionTitle, mediumDate, untitledTurnLabel } from "@/lib/format";
 import { REFERENCE_QUESTIONS } from "@/lib/mock/reference";
 import { MockDriver } from "@/lib/mockDriver";
 import { useSessionStore } from "@/lib/store";
@@ -70,12 +70,16 @@ export default function Workspace() {
   // What this session is called: the first question asked in it — the
   // same derivation the server uses for the rail. The thread's own first
   // turn is preferred because it is already on screen (no waiting on a
-  // list refresh); the server's title covers a rejoined or gesture-only
-  // session, and one with no turns at all is honestly nameless.
-  const sessionTitle =
-    turns[0]?.submission.utterance ??
-    sessions.find((s) => s.sessionId === sessionId)?.title ??
-    "New session";
+  // list refresh) and because its submission says plainly whether it was
+  // typed or a gesture; the server's title covers a rejoined session, and
+  // one with no turns at all is honestly nameless.
+  const firstTurn = turns[0];
+  const serverTitle = sessions.find((s) => s.sessionId === sessionId)?.title;
+  const sessionTitle = firstTurn
+    ? (firstTurn.submission.utterance ?? untitledTurnLabel(firstTurn.submission))
+    : serverTitle
+      ? displaySessionTitle(serverTitle)
+      : "New session";
 
   useEffect(() => {
     setDriver(driver);

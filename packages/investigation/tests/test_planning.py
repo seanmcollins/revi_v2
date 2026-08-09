@@ -9,6 +9,7 @@ from typing import TYPE_CHECKING
 
 import pytest
 
+from revi_catalog_contracts.model import CatalogSnapshot
 from revi_investigation.application.planning import (
     BuildInvestigationPlanService,
     DiffPlanService,
@@ -25,8 +26,10 @@ if TYPE_CHECKING:
 
 
 @pytest.fixture
-def planner(pack_port: PackSnapshotPort) -> BuildInvestigationPlanService:
-    return BuildInvestigationPlanService(pack_port)
+def planner(
+    pack_port: PackSnapshotPort, catalog: CatalogSnapshot
+) -> BuildInvestigationPlanService:
+    return BuildInvestigationPlanService(pack_port, catalog)
 
 
 def _node_ids(plan: InvestigationPlan) -> list[str]:

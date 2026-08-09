@@ -25,9 +25,12 @@
    a metric whose components live at a *second* entity, at that entity too,
    since each side aggregates the identical keys against its own base view.
 3. **Date basis.** The probe's basis (window basis for flow, aging basis
-   for snapshots) must be allowed by every referenced contract
-   (``DATE_BASIS_INVALID``); a legal non-primary basis yields an
-   ``alternate_basis_used`` warning so the header can label it.
+   for snapshots) must be allowed by every referenced contract **and bound
+   by the catalog at that contract's entity grain**
+   (``DATE_BASIS_INVALID`` either way); a legal non-primary basis yields an
+   ``alternate_basis_used`` warning so the header can label it, and when
+   the primary was passed over because this warehouse does not bind it,
+   the warning says that rather than implying a preference.
 4. **Cardinality budget.** The product of catalog cardinality estimates
    over the probe's dimensions must fit the cell budget, or the probe must
    carry a top-N limit (``QUERY_BUDGET_EXCEEDED``); a limited over-budget
@@ -647,6 +650,21 @@ class PlanValidationService:
     # -------------------------------------------------------- step 3: basis
 
     def _check_basis(self, node: ProbeNode, warnings: list[str]) -> None:
+        """Contract legality *and* warehouse bindability, then the label.
+
+        Legality was always checked here; bindability was not, and the gap
+        was a live P0: ``denial_rate`` declares ``remit`` primary at the
+        CLAIM grain, this warehouse binds ``remit`` only on the
+        remit/transaction/denial views, and the year-over-year denial-rate
+        question passed this pass and then died inside the SQL compiler
+        with ``DATE_BASIS_INVALID``. A §12 code raised past the pass that
+        exists to raise it is a §6.6 bypass, whatever the message says.
+
+        The planner now reduces every basis to one the catalog binds
+        (:mod:`revi_investigation.application.date_basis`); this step is the
+        independent check that it did, so a hand-built plan, a replayed
+        one, or a future planner change cannot slip past.
+        """
         probe = node.probe
         if isinstance(probe, SnapshotProbe):
             basis: DateBasisRef = probe.aging_basis if probe.aging_basis is not None else SERVICE
@@ -663,7 +681,37 @@ class PlanValidationService:
                     f"(allowed: {[b.id for b in contract.allowed_date_bases]})",
                     details={"metric": contract.id, "basis": basis.id, "probe": node.id},
                 )
-            if basis != contract.primary_date_basis:
+            entity = self._catalog.entity(contract.entity_grain)
+            if entity is not None and entity.date_basis_column(basis) is None:
+                raise DateBasisInvalidError(
+                    f"probe '{node.id}' reads {contract.id!r} on the {basis.id!r} {label}, but "
+                    f"that basis is not bound at the {entity.name!r} grain in this warehouse "
+                    f"(bound here: {[b for b, _ in entity.date_basis_columns]})",
+                    details={
+                        "metric": contract.id,
+                        "basis": basis.id,
+                        "entity": entity.name,
+                        "probe": node.id,
+                    },
+                )
+            if basis == contract.primary_date_basis:
+                continue
+            # An alternate basis is permitted and labeled (§5.3). When the
+            # primary was passed over because the warehouse cannot read it,
+            # the label says so — otherwise "primary is 'remit'" reads as a
+            # choice somebody made rather than a binding that does not exist.
+            primary_unbound = (
+                entity is not None
+                and entity.date_basis_column(contract.primary_date_basis) is None
+            )
+            if primary_unbound:
+                assert entity is not None
+                warnings.append(
+                    f"alternate_basis_used: probe '{node.id}' computes {contract.id!r} on the "
+                    f"{basis.id!r} {label} — its primary {contract.primary_date_basis.id!r} "
+                    f"basis is not available at the {entity.name!r} grain in this warehouse"
+                )
+            else:
                 warnings.append(
                     f"alternate_basis_used: probe '{node.id}' reads {contract.id!r} on the "
                     f"{basis.id!r} {label} (primary is {contract.primary_date_basis.id!r})"

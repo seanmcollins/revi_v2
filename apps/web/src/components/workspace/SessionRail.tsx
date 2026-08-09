@@ -17,7 +17,7 @@ import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { apiBaseUrl } from "@/lib/apiDriver";
-import { relativeTime } from "@/lib/format";
+import { displaySessionTitle, relativeTime } from "@/lib/format";
 import { useSessionStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -196,14 +196,19 @@ function SessionList() {
       </h3>
 
       {switchError && (
-        <p className="flex items-start gap-1.5 px-1 text-[0.62rem] leading-snug text-negative">
+        <p
+          role="alert"
+          className="flex items-start gap-1.5 px-1 text-[0.62rem] leading-snug text-negative"
+        >
           <AlertTriangle className="mt-0.5 size-3 shrink-0" />
           {switchError}
         </p>
       )}
 
       {state === "unavailable" ? (
-        <p className="px-1 text-[0.62rem] leading-snug text-muted-foreground">{error}</p>
+        <p role="alert" className="px-1 text-[0.62rem] leading-snug text-muted-foreground">
+          {error}
+        </p>
       ) : state !== "ready" && sessions.length === 0 ? (
         // Includes "idle" — before the read has answered, "no sessions" is
         // a claim the app has not earned yet.
@@ -217,13 +222,14 @@ function SessionList() {
           {sessions.map((session) => {
             const active = session.sessionId === currentSessionId;
             const pending = session.sessionId === switchingSessionId;
+            const title = displaySessionTitle(session.title);
             return (
               <li key={session.sessionId}>
                 <button
                   type="button"
                   disabled={busy && !pending}
                   aria-current={active ? "true" : undefined}
-                  title={`${session.title} · ${session.turnCount} turn${
+                  title={`${title} · ${session.turnCount} turn${
                     session.turnCount === 1 ? "" : "s"
                   } · last activity ${session.lastActivity}`}
                   onClick={() => void switchSession(session.sessionId)}
@@ -235,7 +241,7 @@ function SessionList() {
                     busy && !pending && "cursor-not-allowed opacity-50",
                   )}
                 >
-                  <span className="truncate">{session.title}</span>
+                  <span className="truncate">{title}</span>
                   <span className="num flex shrink-0 items-center gap-1 text-[0.6rem] text-muted-foreground/70">
                     {pending ? (
                       <Loader2 className="size-2.5 animate-spin" />

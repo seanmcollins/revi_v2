@@ -23,6 +23,19 @@ Rules:
   as-is, each resolving the ambiguity a different way. Leave the list empty
   when you cannot honestly propose one — an invented option costs the
   analyst a turn.
+- If a clarification is shown as pending below, the utterance is very
+  likely an answer to it — especially when it repeats one of the options,
+  or is a short phrase that only makes sense as a choice between them.
+  Classify those as clarification_response with high confidence. An
+  utterance that plainly abandons the pending question and asks something
+  new is a new_investigation instead; use your judgement, but do not treat
+  a direct answer as a fresh request.
+- Never respond to a clarification with another clarification about the
+  same ambiguity. If the answer still does not fully resolve it, classify
+  it as clarification_response anyway and let the next stage proceed on
+  what it has.
+
+{pending}
 
 Utterance:
 

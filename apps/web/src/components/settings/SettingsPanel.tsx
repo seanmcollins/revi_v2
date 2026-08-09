@@ -107,7 +107,10 @@ export function SettingsPanel() {
             )}
 
             {capabilitiesState === "unavailable" && (
-              <div className="rounded-md border bg-surface-sunken/60 px-3 py-2.5 text-[0.72rem] leading-snug text-muted-foreground">
+              <div
+                role="alert"
+                className="rounded-md border bg-surface-sunken/60 px-3 py-2.5 text-[0.72rem] leading-snug text-muted-foreground"
+              >
                 <p className="font-medium text-secondary-foreground">
                   No controls — this deployment&rsquo;s bounds could not be read.
                 </p>

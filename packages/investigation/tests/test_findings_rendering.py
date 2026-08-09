@@ -35,6 +35,7 @@ from revi_investigation.application.comparison import (
 from revi_investigation.application.findings import EvaluateFindingsService
 from revi_investigation.application.planning import (
     InvestigationPlan,
+    ProbeNode,
     TransformPlan,
     TransformPlanStep,
 )
@@ -51,7 +52,7 @@ from revi_investigation.domain.context import (
 )
 from revi_investigation.domain.records import Finding
 from revi_investigation_contracts.header import build_header_payload
-from revi_kernel.filters import EMPTY_SCOPE
+from revi_kernel.filters import EMPTY_SCOPE, Scalar
 from revi_kernel.frame import (
     EvidenceFrame,
     FrameColumn,
@@ -59,6 +60,7 @@ from revi_kernel.frame import (
     ProbeProvenance,
 )
 from revi_kernel.grades import EvidenceGrade
+from revi_kernel.probes import AggregationProbe
 from revi_kernel.refs import POST, DimensionRef, EntityGrain, Grain, MetricRef
 from revi_kernel.scope import (
     AbsoluteRange,
@@ -413,3 +415,244 @@ class TestDenialCodeRendering:
         spec = _spec(_comparison_of(ComparisonKind.PRIOR_PERIOD), dimensions=("group_code", "carc"))
         [finding] = await _evaluate(_compare_plan(), "c", frame, spec, pack_port)
         assert finding.title.startswith("CO / 16 — ")
+
+
+# ---------------------------------------------------------------------------
+# the scalar shape: the ungrouped answer
+#
+# A direct question with no breakdown — "what is our net collection rate
+# over the last 90 days?" — plans one probe and produces one frame with one
+# row and one cell. It has no dimension column, and both older shapes open
+# by requiring one, so the probe executed, the number was computed, the
+# grade was DIRECT, and `findings` came back EMPTY. The narrative stage
+# short-circuits on no findings, so the answer was silent over correct
+# evidence. These tests pin the third shape that closes it.
+
+
+def _scalar_frame(
+    *,
+    measure: str = "net_collection_rate",
+    unit: str = "ratio",
+    value: Scalar = Decimal("0.558468"),
+    prior: Scalar | None = None,
+    grade: EvidenceGrade = EvidenceGrade.DIRECT,
+) -> EvidenceFrame:
+    """One ungrouped cell, with or without its comparison columns."""
+    columns = [FrameColumn(measure, MetricRef(measure), 1, unit)]
+    row: list[Scalar] = [value]
+    if prior is not None:
+        delta = value - prior  # type: ignore[operator]
+        columns += [
+            FrameColumn(f"{measure}__prior", MetricRef(measure), 1, unit),
+            FrameColumn(f"{measure}__delta", MetricRef(measure), 1, unit),
+            FrameColumn(f"{measure}__pct_change", MetricRef(measure), 1, "ratio"),
+        ]
+        row += [prior, delta, Decimal(delta) / Decimal(prior)]  # type: ignore[arg-type]
+    return EvidenceFrame(
+        schema=FrameSchema(tuple(columns)),
+        rows=(tuple(row),),
+        watermark=WATERMARK,
+        provenance=ProbeProvenance(probe_id="main", probe_hash="h" * 64),
+        evidence_grade=grade,
+    )
+
+
+def _probe_node(node_id: str, measure: str) -> ProbeNode:
+    return ProbeNode(
+        id=node_id,
+        probe=AggregationProbe(
+            measures=(MetricRef(measure),),
+            dimensions=(),
+            scope=EMPTY_SCOPE,
+            window=WEEK,
+            grain=Grain(EntityGrain.CLAIM),
+        ),
+        purpose="direct metric query",
+    )
+
+
+def _scalar_plan(*, measure: str = "net_collection_rate", compared: bool = False) -> InvestigationPlan:
+    nodes = [_probe_node("main", measure)]
+    steps: tuple[TransformPlanStep, ...] = ()
+    if compared:
+        nodes.append(_probe_node("main__prior", measure))
+        steps = (
+            TransformPlanStep(
+                id="main__compare", operator="compare", inputs=("main", "main__prior")
+            ),
+        )
+    return InvestigationPlan(nodes=tuple(nodes), transforms=TransformPlan(steps=steps))
+
+
+class TestScalarShape:
+    async def test_a_single_cell_frame_publishes_a_finding(
+        self, pack_port: PackSnapshotPort
+    ) -> None:
+        """The P0: one probe, one row, one cell — and an answer."""
+        findings = await _evaluate(
+            _scalar_plan(), "main", _scalar_frame(), _spec(None, dimensions=()), pack_port
+        )
+        [finding] = findings
+        assert finding.referent.value == "F1"
+        assert finding.grade is EvidenceGrade.DIRECT
+        assert finding.confidence == "high"
+
+    async def test_the_level_is_rendered_in_the_contracts_unit(
+        self, pack_port: PackSnapshotPort
+    ) -> None:
+        """A ratio is a percentage, never ``Decimal('0.558468')``."""
+        [finding] = await _evaluate(
+            _scalar_plan(), "main", _scalar_frame(), _spec(None, dimensions=()), pack_port
+        )
+        assert "55.8%" in finding.title
+        assert "0.558468" not in finding.title
+        assert "0.558468" not in finding.statement
+
+    async def test_money_scalars_read_as_dollars_and_carry_no_impact_without_a_comparison(
+        self, pack_port: PackSnapshotPort
+    ) -> None:
+        frame = _scalar_frame(measure="cash_posted", unit="money_cents", value=8812843)
+        [finding] = await _evaluate(
+            _scalar_plan(measure="cash_posted"),
+            "main",
+            frame,
+            _spec(None, dimensions=()),
+            pack_port,
+        )
+        assert "$88,128.43" in finding.title
+        # a level is not a movement, so there is nothing to call an impact
+        assert finding.impact_cents is None
+
+    async def test_the_window_is_named(self, pack_port: PackSnapshotPort) -> None:
+        """A level without its window is a number without a claim."""
+        [finding] = await _evaluate(
+            _scalar_plan(), "main", _scalar_frame(), _spec(None, dimensions=()), pack_port
+        )
+        assert "2026-07-27..2026-08-02" in finding.statement
+
+    async def test_a_suppressed_cell_publishes_no_finding(
+        self, pack_port: PackSnapshotPort
+    ) -> None:
+        """"suppressed" is not a level, and a headline may not assert one."""
+        findings = await _evaluate(
+            _scalar_plan(),
+            "main",
+            _scalar_frame(value=None),
+            _spec(None, dimensions=()),
+            pack_port,
+        )
+        assert findings == ()
+
+    async def test_a_weak_grade_qualifies_the_scalar_finding(
+        self, pack_port: PackSnapshotPort
+    ) -> None:
+        [finding] = await _evaluate(
+            _scalar_plan(),
+            "main",
+            _scalar_frame(grade=EvidenceGrade.PROXY),
+            _spec(None, dimensions=()),
+            pack_port,
+        )
+        assert finding.confidence == "qualified"
+
+    async def test_a_multi_row_ungrouped_frame_is_not_a_scalar(
+        self, pack_port: PackSnapshotPort
+    ) -> None:
+        """A time-bucketed series is a trend, not N headline levels."""
+        frame = _scalar_frame()
+        two_rows = replace(frame, rows=(frame.rows[0], frame.rows[0]))
+        findings = await _evaluate(
+            _scalar_plan(), "main", two_rows, _spec(None, dimensions=()), pack_port
+        )
+        assert findings == ()
+
+
+class TestScalarComparison:
+    """Two-cell shapes: the metric and its prior-period twin."""
+
+    async def test_a_compared_scalar_states_both_sides_and_its_direction(
+        self, pack_port: PackSnapshotPort
+    ) -> None:
+        frame = _scalar_frame(value=Decimal("0.070418"), prior=Decimal("0.060335"))
+        spec = _spec(_comparison_of(ComparisonKind.PRIOR_YEAR), dimensions=())
+        [finding] = await _evaluate(
+            _scalar_plan(compared=True), "main__compare", frame, spec, pack_port
+        )
+        assert "7.0%" in finding.title
+        assert "up from 6.0%" in finding.title
+        assert comparison_phrase(spec) in finding.title
+
+    async def test_a_ratio_delta_is_never_published_as_the_movement(
+        self, pack_port: PackSnapshotPort
+    ) -> None:
+        """A rate that moved 0.010083 rose by one percentage POINT, not by
+        1.0%. Rendering that delta in the metric's own unit would publish
+        an ambiguity, so both levels are stated instead and the relative
+        change is labelled as a change."""
+        frame = _scalar_frame(value=Decimal("0.070418"), prior=Decimal("0.060335"))
+        spec = _spec(_comparison_of(ComparisonKind.PRIOR_YEAR), dimensions=())
+        [finding] = await _evaluate(
+            _scalar_plan(compared=True), "main__compare", frame, spec, pack_port
+        )
+        assert "1.0%" not in finding.title
+        assert "16.7% change" in finding.statement
+
+    async def test_a_rising_rate_is_never_reported_as_unchanged(
+        self, pack_port: PackSnapshotPort
+    ) -> None:
+        """The direction is read off the delta in whatever numeric type the
+        operator produced. An int-only coercion reported every ``Decimal``
+        movement as "unchanged" — a headline stating the opposite of the
+        evidence directly beneath it."""
+        frame = _scalar_frame(value=Decimal("0.070418"), prior=Decimal("0.060335"))
+        spec = _spec(_comparison_of(ComparisonKind.PRIOR_YEAR), dimensions=())
+        [finding] = await _evaluate(
+            _scalar_plan(compared=True), "main__compare", frame, spec, pack_port
+        )
+        assert "unchanged" not in finding.title
+
+    async def test_a_money_movement_carries_its_impact(
+        self, pack_port: PackSnapshotPort
+    ) -> None:
+        frame = _scalar_frame(
+            measure="cash_posted", unit="money_cents", value=8812843, prior=18722151
+        )
+        spec = _spec(_comparison_of(ComparisonKind.PRIOR_PERIOD), dimensions=())
+        [finding] = await _evaluate(
+            _scalar_plan(measure="cash_posted", compared=True), "main__compare", frame, spec, pack_port
+        )
+        assert finding.impact_cents == 8812843 - 18722151
+        assert "down from $187,221.51" in finding.title
+
+    async def test_a_length_mismatched_comparison_withholds_impact(
+        self, pack_port: PackSnapshotPort
+    ) -> None:
+        """The same rule the grouped shape applies (see comparison.py)."""
+        frame = _scalar_frame(
+            measure="cash_posted", unit="money_cents", value=8812843, prior=18722151
+        )
+        spec = _spec(_comparison_of(ComparisonKind.CUSTOM), dimensions=())
+        [finding] = await _evaluate(
+            _scalar_plan(measure="cash_posted", compared=True), "main__compare", frame, spec, pack_port
+        )
+        assert finding.impact_cents is None
+        assert finding.confidence == "qualified"
+
+    async def test_findings_values_ground_every_number_the_text_states(
+        self, pack_port: PackSnapshotPort
+    ) -> None:
+        """The narrative validator trusts ``values`` and nothing else, so a
+        figure in the title that is not in ``values`` is a sentence the
+        composer can never legally write."""
+        frame = _scalar_frame(value=Decimal("0.070418"), prior=Decimal("0.060335"))
+        spec = _spec(_comparison_of(ComparisonKind.PRIOR_YEAR), dimensions=())
+        [finding] = await _evaluate(
+            _scalar_plan(compared=True), "main__compare", frame, spec, pack_port
+        )
+        names = {name for name, _ in finding.values}
+        assert names == {
+            "net_collection_rate",
+            "net_collection_rate__prior",
+            "net_collection_rate__delta",
+            "pct_change",
+        }

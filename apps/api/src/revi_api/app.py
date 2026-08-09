@@ -57,6 +57,7 @@ from revi_api.auth import (
     cors_origins_from_env,
 )
 from revi_api.cohort_sweep import CohortSweepScheduler, sweep_interval_seconds
+from revi_api.error_copy import plain_message
 from revi_api.service import (
     DEFAULT_SESSION_LIST_LIMIT,
     MAX_SESSION_LIST_LIMIT,
@@ -293,9 +294,14 @@ def create_app(
             status = 404
         else:
             status = _STATUS_BY_CODE.get(exc.code, _DEFAULT_ERROR_STATUS)
+        # The engine's own words in the log; plain language on the wire.
+        # Route-level errors have no session settings to consult, so the
+        # technical message stays in the log and the trace rather than
+        # riding along — a GET has no debug switch to have been thrown.
+        logger.warning("request failed with %s: %s", exc.code.value, exc.message)
         envelope = ErrorEnvelope(
             code=exc.code.value,
-            message=exc.message,
+            message=plain_message(exc.code, exc.message, details=exc.details),
             correlation_id=request.headers.get("x-correlation-id", "unset"),
         )
         return JSONResponse(status_code=status, content=envelope.model_dump(mode="json"))

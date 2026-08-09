@@ -16,7 +16,7 @@ record persisted).
 
 from __future__ import annotations
 
-from collections.abc import Awaitable, Callable, Sequence
+from collections.abc import Awaitable, Callable, Mapping, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
@@ -27,7 +27,12 @@ from revi_api.metric_provenance import build_metric_provenance
 from revi_api.wiring import ApiComponents
 from revi_investigation.application.capability_ports import BenchmarkSpec
 from revi_investigation.application.llm.guard import assert_safe_payload
-from revi_investigation.application.ports import LlmCallPolicy, TextLlmRequest, TraceRecord
+from revi_investigation.application.ports import (
+    LlmCallPolicy,
+    LlmUsage,
+    TextLlmRequest,
+    TraceRecord,
+)
 from revi_investigation.application.submit_turn import TurnOutcome
 from revi_investigation.domain.records import Finding, Investigation
 from revi_investigation_contracts.api import (
@@ -210,23 +215,62 @@ async def restored_chart_specs(
 
 
 def _usage_from_trace(trace: TraceRecord | None) -> UsageSummary:
+    """The turn's model spend, summed from the recorded per-call entries.
+
+    ``input_tokens`` on each entry is the *whole* prompt — the engine's port
+    folds the provider's cached and uncached buckets together (see
+    :class:`~revi_investigation.application.ports.LlmUsage`), so summing it
+    here yields a prompt-token total rather than the uncached remainder that
+    published turns reading ``input_tokens: 4`` beside 953 output tokens.
+    """
     if trace is None:
         return UsageSummary()
     entries = trace.payload.get("llm", [])
-    cost = Decimal(0)
-    input_tokens = output_tokens = retries = 0
+    return _add_usage(UsageSummary(), entries)
+
+
+def _add_usage(summary: UsageSummary, entries: Sequence[Mapping[str, Any]]) -> UsageSummary:
+    """Fold recorded LLM-call entries into a running usage summary."""
+    cost = Decimal(summary.cost_usd)
+    calls = summary.llm_calls
+    input_tokens = summary.input_tokens
+    output_tokens = summary.output_tokens
+    cache_read = summary.cache_read_tokens
+    cache_creation = summary.cache_creation_tokens
+    retries = summary.schema_retries
     for entry in entries:
+        calls += 1
         cost += Decimal(str(entry.get("cost_usd", "0")))
         input_tokens += int(entry.get("input_tokens", 0))
         output_tokens += int(entry.get("output_tokens", 0))
+        cache_read += int(entry.get("cache_read_tokens", 0))
+        cache_creation += int(entry.get("cache_creation_tokens", 0))
         retries += int(entry.get("schema_retries", 0))
     return UsageSummary(
-        llm_calls=len(entries),
+        llm_calls=calls,
         cost_usd=str(cost),
         input_tokens=input_tokens,
         output_tokens=output_tokens,
+        cache_read_tokens=cache_read,
+        cache_creation_tokens=cache_creation,
         schema_retries=retries,
     )
+
+
+def usage_entry(template: str, usage: LlmUsage) -> dict[str, Any]:
+    """One recorded LLM call, in the shape :func:`_add_usage` reads."""
+    return {
+        "template": template,
+        "model": usage.model,
+        "cost_usd": str(usage.cost_usd),
+        "input_tokens": usage.input_tokens,
+        "output_tokens": usage.output_tokens,
+        "cache_read_tokens": usage.cache_read_tokens,
+        "cache_creation_tokens": usage.cache_creation_tokens,
+        "schema_retries": usage.schema_retries,
+        "attempts": usage.attempts,
+        "duration_ms": usage.duration_ms,
+    }
 
 
 def _narrative_budget(outcome: TurnOutcome, spent: Decimal) -> Decimal | None:
@@ -249,7 +293,18 @@ async def _compose_narrative(
     warnings: list[str],
     on_event: OnEvent | None,
     spent: Decimal = Decimal(0),
+    usage_out: list[LlmUsage] | None = None,
 ) -> str | None:
+    """Compose the answer's prose, and report what it cost.
+
+    ``usage_out`` collects this call's usage. It exists because the
+    narrative is the last stage of the turn and runs *after* the engine
+    wrote the decision trace, so its tokens were absent from the recorded
+    ``llm`` entries the envelope is summed from — the single largest
+    generation on most turns, missing from the turn's own cost. The port's
+    per-request sink hands it back here rather than through
+    ``last_usage()``, which two concurrent turns would race on.
+    """
     header = outcome.header
     if header is None or not findings:
         return None
@@ -283,6 +338,7 @@ async def _compose_narrative(
             policy=LlmCallPolicy(
                 model=outcome.settings.model_tier, max_cost_usd=remaining
             ),
+            usage_sink=None if usage_out is None else usage_out.append,
         )
     )
     async for delta in stream:
@@ -310,7 +366,14 @@ async def _compose_narrative(
                     "provisional_chars": len(provisional),
                     "redactions": [r.model_dump() for r in validation.redactions],
                     "validated": True,
-                }
+                },
+                # Recorded in the same shape as the engine's own entries, so
+                # the narrative call is visible to a trace reader instead of
+                # being a cost the turn paid and never wrote down.
+                "llm": [
+                    usage_entry(f"{NARRATIVE_TEMPLATE_ID}@{NARRATIVE_TEMPLATE_VERSION}", u)
+                    for u in (usage_out or ())
+                ],
             },
         )
     )
@@ -399,9 +462,20 @@ async def assemble_turn_response(
             await on_event("chart_spec", spec.model_dump(mode="json"))
 
     warnings = list(outcome.warnings)
+    narrative_usage: list[LlmUsage] = []
     narrative = await _compose_narrative(
-        components, outcome, findings, warnings, on_event, spent=Decimal(usage.cost_usd)
+        components,
+        outcome,
+        findings,
+        warnings,
+        on_event,
+        spent=Decimal(usage.cost_usd),
+        usage_out=narrative_usage,
     )
+    # The last model call of the turn, folded in after it ran. Everything
+    # else was summed from the trace the engine wrote before this stage
+    # existed, which is exactly why the narrative was missing from it.
+    usage = _add_usage(usage, [usage_entry("compose_narrative", u) for u in narrative_usage])
 
     definitional: DefinitionalPayload | None = None
     if outcome.definitional is not None:

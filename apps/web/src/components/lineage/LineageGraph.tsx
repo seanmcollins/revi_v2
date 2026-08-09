@@ -2,6 +2,7 @@
 
 import { CornerLeftUp } from "lucide-react";
 
+import { untitledTurnLabel } from "@/lib/format";
 import { useSessionLineageQuery } from "@/lib/queries";
 import { useSessionStore } from "@/lib/store";
 import type { TurnClass } from "@/lib/types";
@@ -71,7 +72,10 @@ export function LineageGraph() {
         scrollTurnId: t.id,
         label: `T${i + 1}`,
         turnClass: t.answer.turnClass as TurnClass,
-        question: t.submission.utterance ?? t.submission.clarificationResponse ?? "(typed refinement)",
+        question:
+          t.submission.utterance ??
+          t.submission.clarificationResponse ??
+          untitledTurnLabel(t.submission),
         operators,
         ...citation(operators),
       };

@@ -73,6 +73,7 @@ from revi_investigation.application.interpretation import (
     InterpretationOutcome,
     InterpretedInvestigation,
     InterpretQuestionService,
+    PendingClarification,
 )
 from revi_investigation.application.llm.schemas import AnyRefinementOperator
 from revi_investigation.application.planning import (
@@ -371,6 +372,30 @@ class OpenSessionService:
         return updated
 
 
+#: How many clarifications one thread may issue back-to-back before the
+#: engine commits to its best reading and answers (design §2.8).
+#:
+#: Two, because the first is a legitimate dialogue move and the second is
+#: the follow-up that should have landed. A third is the platform talking
+#: to itself: the live transcript that motivated this ran to four, and the
+#: turn that finally executed had dropped the analyst's question entirely.
+MAX_CONSECUTIVE_CLARIFICATIONS = 2
+
+
+def _join_question_and_answer(question: str | None, answer: str) -> str:
+    """One utterance from the analyst's question and their clarifying reply.
+
+    Both halves are the analyst's own words and the join is deterministic —
+    nothing is paraphrased or invented, and the combined text is recorded
+    on the trace so the resolution is auditable.
+    """
+    original = (question or "").strip()
+    reply = answer.strip()
+    if not original or original == reply or reply in original:
+        return reply
+    return f"{original} — {reply}"
+
+
 @dataclass
 class _TurnState:
     """Mutable per-turn bookkeeping feeding the §14 trace."""
@@ -388,6 +413,12 @@ class _TurnState:
     template_hashes: dict[str, str] = field(default_factory=dict)
     watermark_stale: bool = False
     epoch_transition: bool = False
+    #: The clarification this turn is answering, when there is one.
+    pending: PendingClarification | None = None
+    #: What the engine decided on the analyst's behalf, in their words —
+    #: surfaced as turn warnings and recorded on the trace. A committed
+    #: interpretation that is not stated is a guess.
+    assumptions: list[str] = field(default_factory=list)
 
     def time_stage(self, stage: str) -> None:
         now = time.monotonic()
@@ -502,19 +533,32 @@ class SubmitTurnService:
         if exhausted is not None:
             return await self._clarification_outcome(session, state, None, exhausted)
 
+        # What (if anything) this session already asked and has not had
+        # answered. Classification without it cannot tell an answer from a
+        # fresh question — see PendingClarification.
+        pending = await self._pending_clarification(session)
+        state.pending = pending
+
         await self._stage(state, "classify")
         classified = await self._classifier.classify(
-            request.question, policy=state.call_policy()
+            request.question, pending=pending, policy=state.call_policy()
         )
         state.record_llm("classify_turn", classified.usage, classified.failure)
         state.template_hashes["classify_turn@v1"] = classified.template_hash
         state.time_stage("classify")
 
         if classified.clarification is not None or classified.classification is None:
-            clarification = classified.clarification or ClarificationRequest(
-                question="Could you rephrase that?", reason="unclassifiable turn"
-            )
-            return await self._clarification_outcome(session, state, classified, clarification)
+            committed = self._commit_instead_of_clarifying(state, pending)
+            if committed is None:
+                clarification = classified.clarification or ClarificationRequest(
+                    question="Could you rephrase that?", reason="unclassifiable turn"
+                )
+                return await self._clarification_outcome(
+                    session, state, classified, clarification
+                )
+            # §2.8 convergence: stop asking, commit, and say what was assumed.
+            state.assumptions.append(committed)
+            return await self._new_investigation_turn(session, state, classified)
 
         turn_class = classified.classification.turn_class
         if turn_class is TurnClass.DEFINITIONAL:
@@ -529,6 +573,8 @@ class SubmitTurnService:
             return await self._meta_turn(session, state, classified)
         if turn_class is TurnClass.CONTEXT_CONTROL:
             return await self._context_control_turn(session, state, classified)
+        if turn_class is TurnClass.CLARIFICATION_RESPONSE:
+            return await self._clarification_response_turn(session, state, classified, pending)
         clarification = ClarificationRequest(
             question=(
                 "That reads like an answer to a question I haven't asked — what would "
@@ -537,6 +583,162 @@ class SubmitTurnService:
             reason=f"turn class {turn_class.value} is not actionable here",
         )
         return await self._clarification_outcome(session, state, classified, clarification)
+
+    # -------------------------------------------- answering a clarification
+
+    async def _clarification_response_turn(
+        self,
+        session: Session,
+        state: _TurnState,
+        classified: ClassificationOutcome,
+        pending: PendingClarification | None,
+    ) -> TurnOutcome:
+        """The analyst answered the question the platform asked.
+
+        ``CLARIFICATION_RESPONSE`` has been in the §7.3 taxonomy since the
+        beginning and had no branch here: it fell through to "that reads
+        like an answer to a question I haven't asked", *which was returned
+        as another clarification*. So a correctly-classified answer — even
+        a verbatim option string — produced the loop it was meant to end.
+
+        Resolution is deterministic and invents nothing: the analyst's
+        original question and their answer are both their own words, joined
+        and re-entered as one utterance. The original comes from the turn
+        the clarification interrupted, so answering "just the imaging
+        service line" resumes the denial-rate question instead of becoming
+        a standalone request to look at imaging.
+        """
+        if pending is None:
+            # Nothing outstanding: the old honest fallback still applies,
+            # because there genuinely is no question this answers.
+            return await self._clarification_outcome(
+                session,
+                state,
+                classified,
+                ClarificationRequest(
+                    question=(
+                        "That reads like an answer to a question I haven't asked — what "
+                        "would you like to investigate?"
+                    ),
+                    reason="clarification_response with no clarification pending",
+                ),
+            )
+        resolved = _join_question_and_answer(pending.original_question, state.question)
+        if resolved != state.question:
+            state.assumptions.append(
+                f"Read as an answer to the question above: {pending.question!r} → "
+                f"{state.question!r}. Answering the original question with that applied."
+            )
+            state.question = resolved
+        return await self._new_investigation_turn(session, state, classified)
+
+    async def _pending_clarification(
+        self, session: Session
+    ) -> PendingClarification | None:
+        """The clarification this session is still waiting on, if any.
+
+        Read back off the lineage rather than held in memory: a turn is a
+        stateless request, and the session may be resumed in another
+        process. The streak counts *consecutive* clarification turns at the
+        tail, which is what §2.8 convergence is measured in.
+        """
+        lineage = await self._investigations.lineage(session.id)
+        if lineage is None or not lineage.investigations:
+            return None
+        ordered = sorted(lineage.investigations, key=lambda inv: inv.created_at, reverse=True)
+        streak: list[Investigation] = []
+        for investigation in ordered:
+            if investigation.status is not InvestigationStatus.CLARIFICATION_REQUIRED:
+                break
+            streak.append(investigation)
+        if not streak:
+            return None
+        latest = streak[0]
+        # The oldest turn in the run is the analyst's actual question; the
+        # ones after it are their replies to us.
+        oldest = streak[-1]
+        question, options = await self._recorded_clarification(latest.id)
+        if question is None:
+            return None
+        return PendingClarification(
+            question=question,
+            options=options,
+            original_question=oldest.question,
+            streak=len(streak),
+        )
+
+    async def _recorded_clarification(
+        self, investigation_id: str
+    ) -> tuple[str | None, tuple[str, ...]]:
+        """The clarification question and options a turn actually published."""
+        for record in await self._traces.for_investigation(investigation_id):
+            question = record.payload.get("clarification")
+            if isinstance(question, str) and question:
+                raw = record.payload.get("clarification_options") or ()
+                options = tuple(str(option) for option in raw)
+                return question, options
+        return None, ()
+
+    @staticmethod
+    def _bounded_clarification(
+        state: _TurnState, clarification: ClarificationRequest
+    ) -> ClarificationRequest:
+        """The same clarification, said once more and then differently.
+
+        Interpretation clarifies when the question maps onto no governed
+        metric — and there the §2.8 convergence rule must NOT force an
+        answer: committing would mean inventing a metric, which is exactly
+        the "confident no-issue answer over missing coverage" §2.8 forbids.
+        What it can do is stop reissuing near-identical questions. Past the
+        allowance the ask becomes a plain statement of the impasse, naming
+        the question that started it, so the thread has an exit instead of
+        a cycle.
+        """
+        pending = state.pending
+        if pending is None or pending.streak < MAX_CONSECUTIVE_CLARIFICATIONS:
+            return clarification
+        original = pending.original_question or state.question
+        return ClarificationRequest(
+            question=(
+                f"We're going in circles — I've asked {pending.streak} questions about this "
+                f"and still can't map it onto anything I measure. Rather than ask again: "
+                f"state the whole question in one sentence, naming the metric and the period "
+                f"you want. The thread started with {original!r}."
+            ),
+            options=clarification.options,
+            reason=(
+                f"CLARIFICATION_NOT_CONVERGING: {pending.streak} consecutive clarifications; "
+                f"original reason: {clarification.reason}"
+            ),
+        )
+
+    @staticmethod
+    def _commit_instead_of_clarifying(
+        state: _TurnState, pending: PendingClarification | None
+    ) -> str | None:
+        """Should this turn stop asking and answer? (§2.8)
+
+        A clarification is a dialogue move, not an error — but a dialogue
+        that only ever asks is not a dialogue. After
+        :data:`MAX_CONSECUTIVE_CLARIFICATIONS` in one thread the engine
+        commits to its best reading and answers, stating the assumption
+        prominently instead of asking a third time. Returns the assumption
+        to publish, or ``None`` to clarify as usual.
+
+        The rule is deliberately narrow. It fires on *ambiguity* loops —
+        "which of these did you mean?" — and never converts a refusal into
+        a guess: a question that maps onto no governed content still comes
+        back as an honest non-answer, because there is nothing there to
+        commit to.
+        """
+        if pending is None or pending.streak < MAX_CONSECUTIVE_CLARIFICATIONS:
+            return None
+        return (
+            f"Assumed: this is a fresh question, asked as written. I had asked "
+            f"{pending.streak} clarifying questions in a row without converging, so rather "
+            f"than ask again I answered {state.question!r} on my best reading of it. If "
+            "that is not what you meant, say what to change and I will re-run it."
+        )
 
     # --------------------------------------------------- the per-turn budget
 
@@ -612,7 +814,11 @@ class SubmitTurnService:
 
         if interpretation.clarification is not None:
             return await self._clarification_outcome(
-                session, state, classified, interpretation.clarification, interpretation
+                session,
+                state,
+                classified,
+                self._bounded_clarification(state, interpretation.clarification),
+                interpretation,
             )
         if interpretation.definitional is not None:
             return await self._definitional_outcome(
@@ -944,7 +1150,17 @@ class SubmitTurnService:
             else _not_applicable("this is a first turn; there is no parent answer to reconcile to")
         )
 
-        warnings = (*validated.warnings, *validated.plan.notes, *extra_warnings)
+        # Assumptions lead: when the engine committed to a reading rather
+        # than asking again (§2.8), or read an utterance as an answer to its
+        # own question, the analyst must meet that decision BEFORE the
+        # numbers it produced — not below a stack of basis and suppression
+        # notes they will not scroll to.
+        warnings = (
+            *state.assumptions,
+            *validated.warnings,
+            *validated.plan.notes,
+            *extra_warnings,
+        )
         benchmarks = self._benchmarks_for(findings_result)
         header = build_context_header(spec, session)
         frame_refs = await self._persist_frames(state, calculation)
@@ -1841,10 +2057,30 @@ class SubmitTurnService:
             },
             "warnings": list(warnings),
             "clarification": clarification.question if clarification is not None else None,
+            # The options the analyst was offered. Recorded because the NEXT
+            # turn reads them back: a reply that repeats one verbatim is the
+            # strongest signal a turn is an answer, and without them the
+            # classifier was told nothing had been asked at all.
+            "clarification_options": (
+                list(clarification.options) if clarification is not None else []
+            ),
             # The reason carries the stage that stopped and, for a model
             # call, which kind of empty-handed it was — the half of a
             # clarification a debug reader is actually looking for.
             "clarification_reason": clarification.reason if clarification is not None else None,
+            # The dialogue state this turn ran under, and what (if anything)
+            # the engine decided on the analyst's behalf.
+            "pending_clarification": (
+                {
+                    "question": state.pending.question,
+                    "options": list(state.pending.options),
+                    "original_question": state.pending.original_question,
+                    "streak": state.pending.streak,
+                }
+                if state.pending is not None
+                else None
+            ),
+            "assumptions": list(state.assumptions),
             "definitional": (
                 {
                     "terms": [term.term for term in definitional.terms],
@@ -1858,8 +2094,13 @@ class SubmitTurnService:
                     "template": template,
                     "model": usage.model,
                     "cost_usd": str(usage.cost_usd),
+                    # Every prompt token, cached or not (see LlmUsage) —
+                    # with the cached split beside it so a cost reader can
+                    # tell a warm prompt from a cold one.
                     "input_tokens": usage.input_tokens,
                     "output_tokens": usage.output_tokens,
+                    "cache_read_tokens": usage.cache_read_tokens,
+                    "cache_creation_tokens": usage.cache_creation_tokens,
                     "schema_retries": usage.schema_retries,
                     # Transport attempts (1 = clean). Distinct from
                     # schema_retries: a retried connection and a retried

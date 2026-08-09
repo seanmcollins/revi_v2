@@ -19,6 +19,10 @@ same grouping. Template semantics:
   always wins over playbook defaults.
 - ``basis_override`` wins over the spec basis; otherwise the spec basis
   applies when the contract allows it, else the contract's primary basis.
+  Whatever that choice is, it is then reduced to a basis this warehouse
+  actually binds at the metric's grain
+  (:mod:`revi_investigation.application.date_basis`) — a plan may not name
+  a basis no probe can read.
 - ``top_n`` becomes the probe ``limit`` plus a server-side ordering by the
   group's first additive measure (descending) when one exists. At
   ``evidence_depth=deep`` that pack-authored cutoff is scaled by
@@ -61,12 +65,14 @@ import hashlib
 from dataclasses import dataclass, replace
 
 from revi_calculation_contracts.contract import MetricContract, MetricKind, MetricUnit
+from revi_catalog_contracts.model import CatalogSnapshot
 from revi_investigation.application.capability_ports import (
     PackPort,
     PlaybookSpec,
     ProbeTemplateSpec,
     TransformStepSpec,
 )
+from revi_investigation.application.date_basis import resolve_answerable_basis
 from revi_investigation.domain.context import AnalysisSpec
 from revi_investigation_contracts.settings import EvidenceDepth
 from revi_kernel.cohort import CohortDefinition, CohortRef
@@ -244,8 +250,14 @@ class _MetricGroup:
 class BuildInvestigationPlanService:
     """Compile an AnalysisSpec (plus optional playbook) into a typed plan."""
 
-    def __init__(self, pack: PackPort) -> None:
+    def __init__(self, pack: PackPort, catalog: CatalogSnapshot) -> None:
         self._pack = pack
+        # The planner needs the catalog for one decision only: which of a
+        # contract's declared date bases this warehouse actually binds at
+        # the metric's grain (§5.3). Without it a plan can name a basis
+        # the source cannot read, and the refusal surfaces as a SQL
+        # compile error past every governed checkpoint.
+        self._catalog = catalog
 
     # ------------------------------------------------------------------ api
 
@@ -434,11 +446,13 @@ class BuildInvestigationPlanService:
         for metric_id in metric_ids:
             contract = self._contract(metric_id)
             if basis_override is not None:
-                basis = DateBasisRef(basis_override.lower())
+                requested = DateBasisRef(basis_override.lower())
             elif contract.allows_date_basis(spec_basis):
-                basis = spec_basis
+                requested = spec_basis
             else:
-                basis = contract.primary_date_basis
+                requested = contract.primary_date_basis
+            # …and then the basis this warehouse can actually read it on.
+            basis = resolve_answerable_basis(contract, requested, self._catalog).basis
             key = (contract.kind, contract.entity_grain.value, basis.id)
             if key not in grouped:
                 grouped[key] = []
@@ -518,11 +532,15 @@ class BuildInvestigationPlanService:
 
     def _aging_basis(self, group: _MetricGroup, spec: AnalysisSpec) -> DateBasisRef:
         """Snapshot aging basis: the spec basis when every snapshot contract
-        allows it, else the group's primary basis."""
+        allows it, else the group's primary basis — and in either case one
+        this warehouse binds at the entity (§5.3)."""
         spec_basis = spec.context.window.basis
-        if all(contract.allows_date_basis(spec_basis) for contract in group.contracts):
-            return spec_basis
-        return group.contracts[0].primary_date_basis
+        requested = (
+            spec_basis
+            if all(contract.allows_date_basis(spec_basis) for contract in group.contracts)
+            else group.contracts[0].primary_date_basis
+        )
+        return resolve_answerable_basis(group.contracts[0], requested, self._catalog).basis
 
     def _ordering(
         self,

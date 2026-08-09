@@ -53,7 +53,11 @@ export function DebugTracePanel({ turnId, answer }: { turnId: string; answer: An
           {answer.traceFetch === "loading" ? "Loading trace…" : "Load decision trace"}
         </Button>
         <span>answered before debug mode was on — the server recorded it anyway</span>
-        {answer.traceError && <span className="w-full text-warning">{answer.traceError}</span>}
+        {answer.traceError && (
+          <span role="alert" className="w-full text-warning">
+            {answer.traceError}
+          </span>
+        )}
       </div>
     );
   }

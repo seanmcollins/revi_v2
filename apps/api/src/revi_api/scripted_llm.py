@@ -42,13 +42,25 @@ from revi_investigation.application.ports import (
 
 
 def _usage() -> LlmUsage:
+    """One scripted call's usage.
+
+    The prompt-token split mirrors the real adapter's shape — a mostly
+    cached prefix plus a small uncached remainder — so a test that asserts
+    on the turn envelope exercises the *summing*, which is where the live
+    defect was (the provider's ``input_tokens`` is the uncached remainder
+    alone, and publishing it as the total reported 4 input tokens against
+    953 output). Totals here are deliberately tiny and deliberately unequal
+    across the three buckets, so a fix that dropped one would show.
+    """
     return LlmUsage(
         model="scripted-demo",
         cost_usd=Decimal("0"),
-        input_tokens=1,
+        input_tokens=7,  # 1 uncached + 4 cache read + 2 cache creation
         output_tokens=1,
         schema_retries=0,
         duration_ms=1,
+        cache_read_tokens=4,
+        cache_creation_tokens=2,
     )
 
 
@@ -106,6 +118,11 @@ class ScriptedLanguageModel:
         async def iterate() -> AsyncIterator[str]:
             for chunk in chunks:
                 yield chunk
+            # The narrative is a real call and costs real tokens; the script
+            # reports its usage the same way the live adapter does, so the
+            # turn envelope is assembled by the same code path in both modes.
+            if request.usage_sink is not None:
+                request.usage_sink(_usage())
 
         return iterate()
 

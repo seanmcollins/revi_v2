@@ -1585,8 +1585,29 @@ export interface components {
             /** Window */
             window: components["schemas"]["WindowSpecModel"] | components["schemas"]["AbsoluteWindowModel"];
         };
-        /** UsageSummary */
+        /**
+         * UsageSummary
+         * @description What this turn spent on the model.
+         *
+         *     ``input_tokens`` is EVERY prompt token the turn read — the uncached
+         *     remainder plus what was written to and served from the provider's
+         *     prompt cache. The provider reports those three separately and names
+         *     only the first ``input_tokens``; publishing that one field made turns
+         *     read ``input_tokens: 4`` against ``output_tokens: 953``. The cached
+         *     split rides on the two fields below rather than being lost, so a reader
+         *     can still tell a cheap cached prompt from an expensive cold one.
+         */
         UsageSummary: {
+            /**
+             * Cache Creation Tokens
+             * @default 0
+             */
+            cache_creation_tokens: number;
+            /**
+             * Cache Read Tokens
+             * @default 0
+             */
+            cache_read_tokens: number;
             /**
              * Cost Usd
              * @default 0

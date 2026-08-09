@@ -112,7 +112,7 @@ def build_engine(
     event_bus = FakeTurnEventBus()
 
     open_session = OpenSessionService(session_store, spy, pack_port)
-    planner = BuildInvestigationPlanService(pack_port)
+    planner = BuildInvestigationPlanService(pack_port, catalog)
     validator = PlanValidationService(
         catalog, pack_port, spy, limits if limits is not None else ValidationLimits()
     )

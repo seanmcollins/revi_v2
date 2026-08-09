@@ -15,6 +15,7 @@ from pathlib import Path
 
 import pytest
 
+from revi_catalog_contracts.model import CatalogSnapshot
 from revi_investigation.application.planning import (
     DEEP_TOP_N_MULTIPLIER,
     BuildInvestigationPlanService,
@@ -160,9 +161,9 @@ class TestTurnBudget:
 
 class TestEvidenceDepth:
     def test_deep_widens_the_pack_authored_top_n(
-        self, pack_port: PackSnapshotPort, make_spec: object
+        self, pack_port: PackSnapshotPort, catalog: CatalogSnapshot, make_spec: object
     ) -> None:
-        planner = BuildInvestigationPlanService(pack_port)
+        planner = BuildInvestigationPlanService(pack_port, catalog)
         spec = make_spec(dimensions=("payer",), comparison=None)  # type: ignore[operator]
 
         standard = planner.build(spec, playbook_id="cash_decline", window_explicit=True)
@@ -190,11 +191,11 @@ class TestEvidenceDepth:
         assert deep.plan_hash != standard.plan_hash
 
     def test_an_analyst_limit_is_never_rescaled(
-        self, pack_port: PackSnapshotPort, make_spec: object
+        self, pack_port: PackSnapshotPort, catalog: CatalogSnapshot, make_spec: object
     ) -> None:
         """``spec.limit`` is what the analyst asked for (an ``Expand``
         gesture). "Show me the top 5" means five at either depth."""
-        planner = BuildInvestigationPlanService(pack_port)
+        planner = BuildInvestigationPlanService(pack_port, catalog)
         spec = make_spec(measures=("cash_posted",), dimensions=("payer",), limit=5)  # type: ignore[operator]
 
         deep = planner.build(spec, evidence_depth=EvidenceDepth.DEEP)

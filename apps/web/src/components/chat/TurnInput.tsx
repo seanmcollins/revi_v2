@@ -18,9 +18,13 @@ export function TurnInput({ suggestions }: { suggestions: string[] }) {
   const streaming = useSessionStore((s) => s.streamingTurnId !== null);
   const replaying = useSessionStore((s) => s.replaying);
   const switching = useSessionStore((s) => s.switchingSessionId !== null);
+  const newChatPending = useSessionStore((s) => s.newChatPending);
   // Switching is included so the composer cannot look live while the store
   // would drop the turn: a submit mid-switch has no session to land in.
-  const busy = streaming || replaying || switching;
+  // newChatPending too: the bootstrap for a fresh backend session is brief
+  // but real, and a turn sent into it would race newSession() for which
+  // session it lands in.
+  const busy = streaming || replaying || switching || newChatPending;
   const pending = useSessionStore((s) => s.pendingRefinements.length);
   const mode = useSessionStore((s) => s.connection.mode);
 
@@ -70,9 +74,11 @@ export function TurnInput({ suggestions }: { suggestions: string[] }) {
               ? "Replaying the reference demo…"
               : switching
                 ? "Opening that session…"
-                : streaming
-                  ? "Investigating…"
-                  : "Ask about cash, denials, AR… (Enter to send)"
+                : newChatPending
+                  ? "Starting a new chat…"
+                  : streaming
+                    ? "Investigating…"
+                    : "Ask about cash, denials, AR… (Enter to send)"
           }
           disabled={busy}
           rows={2}

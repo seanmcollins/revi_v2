@@ -238,6 +238,11 @@ class ClaudeAgentSdkLanguageModel:
         usage = self._usage_from_result(
             result, schema_retries=0, attempts=1, model=self._model_for(request.policy)
         )
+        # Per-request first: ``last_usage`` is a process-wide slot two
+        # concurrent narrations overwrite, so a caller that needs *this*
+        # call's tokens gets them handed over directly.
+        if request.usage_sink is not None:
+            request.usage_sink(usage)
         async with self._last_usage_lock:
             self._last_usage = usage
 
@@ -452,17 +457,30 @@ class ClaudeAgentSdkLanguageModel:
     ) -> LlmUsage:
         usage_map: dict[str, Any] = result.usage or {}
         cost = result.total_cost_usd
+        # The provider splits prompt tokens three ways and calls only the
+        # UNCACHED remainder ``input_tokens``; the cached halves live in
+        # ``cache_read_input_tokens`` and ``cache_creation_input_tokens``.
+        # Copying the one field across published turns reading
+        # ``input_tokens: 4`` beside ``output_tokens: 953`` — this pipeline
+        # sends the whole governed vocabulary in every prompt, so almost all
+        # of it is cache, and almost all of it was being dropped. The port's
+        # ``input_tokens`` is the total; the split rides alongside it.
+        uncached = int(usage_map.get("input_tokens") or 0)
+        cache_read = int(usage_map.get("cache_read_input_tokens") or 0)
+        cache_creation = int(usage_map.get("cache_creation_input_tokens") or 0)
         return LlmUsage(
             # The model the call actually ran on, not the process pin: a
             # trace that reports the pin while a session ran a cheaper tier
             # is a trace that cannot explain its own cost.
             model=model if model is not None else self._model_pin,
             cost_usd=Decimal(str(cost)) if cost is not None else Decimal("0"),
-            input_tokens=int(usage_map.get("input_tokens") or 0),
+            input_tokens=uncached + cache_read + cache_creation,
             output_tokens=int(usage_map.get("output_tokens") or 0),
             schema_retries=schema_retries,
             duration_ms=int(result.duration_ms or 0),
             attempts=attempts,
+            cache_read_tokens=cache_read,
+            cache_creation_tokens=cache_creation,
         )
 
     @staticmethod

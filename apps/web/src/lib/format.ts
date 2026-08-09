@@ -5,6 +5,7 @@
  * tabular numerals.
  */
 
+import type { TurnSubmission } from "@/lib/driver";
 import type { DateBasis, DirectionOfGood, Refinement, ResolvedWindow } from "@/lib/types";
 
 export const MINUS = "−";
@@ -221,5 +222,45 @@ export function describeRefinement(refinement: Refinement): string {
       return "Expand";
     case "ResetContext":
       return `ResetContext(keepPins=${String(refinement.keepPins)})`;
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Turns with no freeform text of their own                            */
+/* ------------------------------------------------------------------ */
+
+const DIRECT_QUERY_LABEL = "Direct query";
+const DRILL_DOWN_LABEL = "Drill-down";
+
+/**
+ * A turn's display label when it carries no utterance and no
+ * clarification reply — a typed investigation spec (a portfolio card's
+ * drill handle, or a click with no prior answer to refine) or refinement
+ * operators alone (a click on a chart, finding or portfolio card that
+ * narrows an existing answer — see the `emitRefinement` callers). Both
+ * are legitimate ways to ask a question without typing one; this says
+ * what happened in plain language.
+ */
+export function untitledTurnLabel(submission: Pick<TurnSubmission, "spec">): string {
+  return submission.spec ? DIRECT_QUERY_LABEL : DRILL_DOWN_LABEL;
+}
+
+/**
+ * Session titles arrive verbatim from the server — the session's first
+ * question, unedited (`SessionSummary.title`). Two exact strings are the
+ * server's own placeholders for a first turn that carried no freeform
+ * text (see `untitledTurnLabel`), and read as internal shorthand in a
+ * list meant to be scanned at a glance. This is a display-only
+ * substitution for those two strings; every other title still renders
+ * exactly as the server sent it.
+ */
+export function displaySessionTitle(title: string): string {
+  switch (title) {
+    case "(typed investigation)":
+      return DIRECT_QUERY_LABEL;
+    case "(typed gesture)":
+      return DRILL_DOWN_LABEL;
+    default:
+      return title;
   }
 }

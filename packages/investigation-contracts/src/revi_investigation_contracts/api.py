@@ -293,10 +293,25 @@ class MetaAnswerPayload(ClosedModel):
 
 
 class UsageSummary(ClosedModel):
+    """What this turn spent on the model.
+
+    ``input_tokens`` is EVERY prompt token the turn read — the uncached
+    remainder plus what was written to and served from the provider's
+    prompt cache. The provider reports those three separately and names
+    only the first ``input_tokens``; publishing that one field made turns
+    read ``input_tokens: 4`` against ``output_tokens: 953``. The cached
+    split rides on the two fields below rather than being lost, so a reader
+    can still tell a cheap cached prompt from an expensive cold one.
+    """
+
     llm_calls: int = 0
     cost_usd: str = "0"
     input_tokens: int = 0
     output_tokens: int = 0
+    #: Prompt tokens served from the provider's cache. Part of `input_tokens`.
+    cache_read_tokens: int = 0
+    #: Prompt tokens written to the provider's cache. Part of `input_tokens`.
+    cache_creation_tokens: int = 0
     schema_retries: int = 0
 
 
