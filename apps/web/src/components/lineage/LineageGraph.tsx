@@ -6,6 +6,7 @@ import { untitledTurnLabel } from "@/lib/format";
 import { useSessionLineageQuery } from "@/lib/queries";
 import { useSessionStore } from "@/lib/store";
 import type { TurnClass } from "@/lib/types";
+import { scrollIntoViewRespectingMotion } from "@/lib/useReducedMotion";
 import { cn } from "@/lib/utils";
 
 const TURN_CLASS_LABELS: Record<TurnClass, string> = {
@@ -144,9 +145,10 @@ export function LineageGraph() {
             type="button"
             onClick={() => {
               if (node.scrollTurnId) {
-                document
-                  .getElementById(`lineage-turn-${node.scrollTurnId}`)
-                  ?.scrollIntoView({ behavior: "smooth", block: "start" });
+                scrollIntoViewRespectingMotion(
+                  document.getElementById(`lineage-turn-${node.scrollTurnId}`),
+                  { block: "start" },
+                );
               }
             }}
             className="group flex w-full items-start gap-2.5 rounded-md border bg-card p-2 text-left transition-colors duration-150 hover:border-ring/40"

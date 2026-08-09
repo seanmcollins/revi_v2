@@ -60,6 +60,9 @@ class InProcessInvestigationClient:
     async def list_sessions(self, limit: int = 50) -> SessionListResponse:
         return await self._service.list_sessions(self._principal, limit=limit)
 
+    async def archive_session(self, session_id: str) -> None:
+        await self._service.archive_session(self._principal, session_id)
+
     async def submit_turn(self, session_id: str, request: TurnRequest) -> TurnResult:
         return await self._service.submit_turn(self._principal, session_id, request)
 
@@ -93,6 +96,12 @@ class HttpInvestigationClient:
         )
         response.raise_for_status()
         return SessionResponse.model_validate(response.json())
+
+    async def archive_session(self, session_id: str) -> None:
+        response = await self._client.delete(
+            f"/v1/sessions/{session_id}", headers=self._headers
+        )
+        response.raise_for_status()
 
     async def list_sessions(self, limit: int = 50) -> SessionListResponse:
         response = await self._client.get(

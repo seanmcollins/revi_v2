@@ -1,0 +1,60 @@
+# Governed routing for the ranked anomaly worklist (round-2 deferred P1).
+#
+# The platform already computes a prioritised, reconciled worklist — 33
+# detected cards, two lanes, a published priority decomposition and a
+# recoverable estimate per card — and serves it at GET /v1/portfolio/latest.
+# The conversation could not reach it: "what should my denial team work
+# first this week to recover the most cash?" returned a clarification
+# offering four ranking bases, none of which was the worklist, and the
+# portfolio was never mentioned. Two products in one shell.
+#
+# This file is the MAPPING, not the machinery. It names the governed
+# artifacts that mean "the analyst is asking which work to pick up" —
+# playbook ids and concept ids that interpretation already resolves against
+# the pack — and the API attaches the ranked card list to the answer of any
+# turn that resolved one of them. Nothing here matches on question text:
+# the platform never pattern-matches an utterance, and adding a hardcoded
+# question string is the failure this file exists to avoid. Interpretation
+# does the mapping, from the playbook's own triggers and description and
+# from the concept's aliases; this says which of its outputs mean the
+# worklist.
+#
+# The cards published are the SAME AnomalyCard objects the portfolio rail
+# renders, from the same build: same anomaly_priority version, same
+# priority decomposition, same reconciliation state, same recoverable
+# estimates. A chat answer and the rail cannot disagree about the order or
+# the money, because there is one computation behind both.
+
+# Governed playbook ids whose answers carry the worklist.
+#
+# daily_portfolio is the metric side of the same question ("what are my top
+# issues today?"): it measures the denial, cash, underpayment, filing-risk,
+# A/R and unbilled families. The cards are the other half — the detection
+# feed's specific, dated, dollar-stated, drillable items — and an analyst
+# who asked what to work first is owed both.
+playbook_ids:
+  - daily_portfolio
+
+# Governed concept ids that mean the same thing. Interpretation validates
+# every concept id it returns against the pack, so this is a closed set by
+# construction; work_prioritization exists in concepts.yaml for exactly this
+# purpose and carries the analyst vocabulary as aliases.
+concept_ids:
+  - work_prioritization
+
+# How many cards ride on a conversational answer, and the ceiling a typed
+# query may raise it to. The chat answer is a worklist READ, not a second
+# portfolio: the full ranked array is one authenticated GET away and the
+# payload says how many were withheld.
+default_limit: 8
+max_limit: 33
+
+label: What to work first
+description: >-
+  The ranked anomaly worklist at this watermark: detected cards ordered by
+  the governed priority formula (normalised impact, recency, and the
+  governed recoverable estimate), split into the compliance lane that must
+  be worked regardless of size and the value lane ranked on the money. Each
+  card carries its own arithmetic, the figure that ranked it, this
+  platform's re-derivation of the detector's number where it has one, and
+  whether the card can be opened at this catalog and pack version.

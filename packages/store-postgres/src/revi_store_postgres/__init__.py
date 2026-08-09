@@ -12,6 +12,7 @@ from revi_store_postgres.stores import (
     PostgresReferentRegistryStore,
     PostgresSessionStore,
     PostgresTraceStore,
+    PostgresTurnReceiptStore,
 )
 
 __all__ = [
@@ -23,6 +24,7 @@ __all__ = [
     "PostgresReferentRegistryStore",
     "PostgresSessionStore",
     "PostgresTraceStore",
+    "PostgresTurnReceiptStore",
     "create_engine",
     "database_url",
 ]

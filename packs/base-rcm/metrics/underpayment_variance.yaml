@@ -1,7 +1,16 @@
 # Underpayment variance — expected minus allowed, floored at zero per claim.
 # NEVER nets underpayments against overpayments.
 id: underpayment_variance
-version: 1
+# v2 (2026-08-09): SCOPE WIDENING ONLY — `primary_proc_group` added below.
+# The formula is untouched: still max(0, expected - allowed) per claim,
+# still never netted. Underpayment is negotiated BY procedure group, and a
+# claim-grain contract had no legal procedure cut at all, so the three
+# planted payer-times-procedure cards could be detected and not opened.
+# Read the cut as an ATTRIBUTION, not a decomposition: a claim lands in the
+# group carrying the largest share of its billed charges, so the cut
+# reconciles to the ungrouped total, and it is NOT the line-grain
+# `proc_group` cut.
+version: 2
 kind: flow
 entity_grain: claim
 numerator: {sum: underpayment_cents}
@@ -10,7 +19,7 @@ allowed_date_bases: [service, submission]
 scope_dimensions:
   [payer, payer_type, financial_class, plan, product_type, provider,
    provider_specialty, facility, region, service_line, claim_type,
-   payer_sequence]
+   payer_sequence, primary_proc_group]
 sign: higher_is_bad
 unit: money_cents
 description: >-

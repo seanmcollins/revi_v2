@@ -207,6 +207,7 @@ def _parse_dimensions(directory: Path) -> tuple[DimensionDef, ...]:
                 "kind",
                 "description",
                 "buckets",
+                "companion_dimensions",
                 "uncertified_reason",
             },
             dctx,
@@ -237,6 +238,9 @@ def _parse_dimensions(directory: Path) -> tuple[DimensionDef, ...]:
                 kind=kind,
                 value_domain=None if raw_domain is None else _str_tuple(raw_domain, f"{dctx}.value_domain"),
                 buckets=None if raw_buckets is None else _str_tuple(raw_buckets, f"{dctx}.buckets"),
+                companion_dimensions=_str_tuple(
+                    body.get("companion_dimensions", []), f"{dctx}.companion_dimensions"
+                ),
                 description=_str(body.get("description", ""), f"{dctx}.description"),
                 uncertified_reason=_str(body.get("uncertified_reason", ""), f"{dctx}.uncertified_reason"),
             )

@@ -29,10 +29,14 @@ def rules():
 
 def test_the_overclaiming_id_has_a_governed_display_name(rules) -> None:
     name = rules.name_for(TIMELY)
-    assert name == "Unbilled open inventory (timely-filing watch proxy)"
+    assert name == "Unbilled open inventory on a running filing clock"
     # The correction has to be visible in the name itself: a reader who
     # sees only the label must not still believe it measures exposure.
-    assert "inventory" in name.lower() and "proxy" in name.lower()
+    # "proxy" came off when the filing-rule join landed (2026-08-09) —
+    # the number is no longer standing in for something unmeasurable —
+    # but it is still an INVENTORY, and the label must still say so.
+    assert "inventory" in name.lower()
+    assert "at risk" not in name.lower()
 
 
 def test_the_contract_emits_the_same_caveat_the_display_file_carries(rules) -> None:
@@ -48,23 +52,28 @@ def test_the_contract_emits_the_same_caveat_the_display_file_carries(rules) -> N
     entry = rules.by_metric[TIMELY]
     assert entry.caveat is not None
     # Same substance, checked on the load-bearing tokens rather than by
-    # string equality — the two are written for different lengths.
-    for token in ("deadline", "filing_rules", "upper bound"):
-        assert token in caveat.lower() or token in caveat, token
-        assert token in entry.caveat.lower() or token in entry.caveat, token
-    assert "NOT" in caveat  # the negation is the whole point
-    assert "NOT" in entry.caveat
+    # string equality — the two are written for different lengths. Since
+    # the filing-rule join landed the shared claim is a POPULATION
+    # statement: the total counts every unbilled open claim whatever its
+    # runway, and the runway cut is what separates them.
+    for token in ("regardless of runway", "filing_runway_bucket"):
+        assert token in caveat.lower(), token
+        assert token in entry.caveat.lower(), token
 
 
 def test_the_contract_caveat_names_what_the_formula_does_not_do(rules) -> None:
     contract = load_base_pack().metric(TIMELY)
     assert contract is not None
     caveat = population_caveat(contract.description) or ""
-    assert "no deadline predicate" in caveat.lower()
+    # The caveat must say what the TOTAL does not separate — a claim with
+    # runway left and one already past its deadline are both in it — and
+    # name the cut that does.
+    assert "regardless of runway" in caveat.lower()
+    assert "expired" in caveat.lower()
     # And the description must no longer promise filing exposure in its
     # own voice. "at risk" survives only inside the id itself.
     body = contract.description.lower().replace(TIMELY, "")
-    assert "dollars at risk of a timely-filing denial" not in body.split("read it as")[0]
+    assert "dollars at risk of a timely-filing denial" not in body
 
 
 def test_every_entry_records_why_it_exists(rules) -> None:

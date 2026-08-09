@@ -78,6 +78,7 @@ from revi_investigation.domain.context import (
     AnalysisSpec,
     AskedDirection,
     AskedMagnitude,
+    descending_for_order,
     wanted_delta_sign,
 )
 from revi_investigation_contracts.settings import EvidenceDepth
@@ -333,6 +334,7 @@ class BuildInvestigationPlanService:
                     purpose="direct metric query",
                 )
             )
+        nodes.extend(self._premise_nodes(spec, nodes))
         steps = self._pair_comparisons(nodes, spec)
         if not steps and dimensions:
             steps.extend(self._rank_uncompared(nodes, spec))
@@ -371,8 +373,54 @@ class BuildInvestigationPlanService:
             if ref.id not in planned
         ]
 
-    @staticmethod
-    def _rank_uncompared(nodes: list[ProbeNode], spec: AnalysisSpec) -> list[TransformPlanStep]:
+    #: Node-id prefix for the premise-verification probe. Distinct from any
+    #: playbook template id (those never start with an underscore) so the
+    #: findings layer can recognize it structurally.
+    PREMISE_PREFIX = "premise"
+
+    def _premise_nodes(self, spec: AnalysisSpec, nodes: list[ProbeNode]) -> list[ProbeNode]:
+        """The aggregate probe a stated movement has to be checked against.
+
+        "Why did denials at Federal Medicare double in July?" asserts a
+        movement. Answered as a query it returns the cells that rose — live,
+        three CARC cells totalling $3,204 of increases, presented as the
+        explanation, inside a move from $58,983.54 to $10,915.24. Every
+        number was right and the answer was false, because nothing had
+        computed the thing the question took for granted.
+
+        So an asserted direction plans ONE extra probe, cloned from the
+        probe whose breakdown the findings layer will publish from: the same
+        measures, scope, window and basis, **ungrouped** and unlimited.
+        Paired with its prior twin by :meth:`_pair_comparisons` it yields the
+        aggregate movement, and the findings layer compares that movement's
+        sign against what was asserted before anything is offered as a
+        cause.
+
+        Cloned rather than re-derived so the aggregate is the same
+        measurement as the cells it contextualizes — a premise checked on a
+        different basis, window or population would be its own kind of wrong
+        answer. Direct queries and playbooks go through the same clone,
+        which is why both are covered by one rule. Only turns that assert
+        something get it; every other plan is byte-identical.
+        """
+        if not spec.direction_asserted:
+            return []
+        for node in nodes:
+            probe = node.probe
+            if not isinstance(probe, AggregationProbe) or not probe.dimensions:
+                # With no breakdown the probe IS the aggregate: there is
+                # nothing to verify against that the turn does not compute.
+                continue
+            return [
+                ProbeNode(
+                    id=self.PREMISE_PREFIX,
+                    probe=replace(probe, dimensions=(), limit=None, order_by=()),
+                    purpose="premise check: the aggregate movement the question asserts",
+                )
+            ]
+        return []
+
+    def _rank_uncompared(self, nodes: list[ProbeNode], spec: AnalysisSpec) -> list[TransformPlanStep]:
         """Rank a grouped query that has nothing to compare.
 
         A direct query cut by dimensions with no comparison window is a
@@ -386,8 +434,14 @@ class BuildInvestigationPlanService:
         rather than a second finding shape being invented.
 
         Ranked by the group's first measure, descending — biggest first,
-        whatever the unit. ``impact_cents`` still only appears when that
-        measure is money (the findings layer owns that rule).
+        whatever the unit — unless the analyst asked for an order, in which
+        case "best" and "worst" are resolved against the metric contract's
+        own sign convention. "Rank payers best to worst" on a higher-is-bad
+        rate sorts ASCENDING, and rank #1 is then the payer the question
+        called best; ranking it descending and narrating row one as "ranks
+        first" is how the worst payer got published as the best.
+        ``impact_cents`` still only appears when that measure is money (the
+        findings layer owns that rule).
         """
         steps: list[TransformPlanStep] = []
         for node in nodes:
@@ -396,9 +450,16 @@ class BuildInvestigationPlanService:
             # there is nothing to rank and nothing to conclude from them.
             if not isinstance(probe, (AggregationProbe, SnapshotProbe)) or not probe.measures:
                 continue
+            measure_id = probe.measures[0].id
+            asked = descending_for_order(spec.order, self._contract(measure_id).sign)
+            descending = (
+                asked
+                if asked is not None
+                else spec.magnitude is not AskedMagnitude.SMALLEST
+            )
             args: tuple[tuple[str, str], ...] = (
-                ("by", probe.measures[0].id),
-                ("descending", "false" if spec.magnitude is AskedMagnitude.SMALLEST else "true"),
+                ("by", measure_id),
+                ("descending", "true" if descending else "false"),
             )
             if spec.direction is not None:
                 args = (*args, ("direction", spec.direction.value))
@@ -463,6 +524,7 @@ class BuildInvestigationPlanService:
                 )
                 node_contracts[node_id] = group.contracts
 
+        nodes.extend(self._premise_nodes(spec, nodes))
         prior_steps = self._pair_comparisons(nodes, spec)
         steps, transform_notes = self._playbook_transforms(
             playbook, nodes, node_contracts, prior_steps, spec
@@ -521,6 +583,44 @@ class BuildInvestigationPlanService:
             for key in order
         )
 
+    def _with_companions(
+        self, dimensions: tuple[DimensionRef, ...], contracts: tuple[MetricContract, ...]
+    ) -> tuple[DimensionRef, ...]:
+        """Add the dimensions a requested cut is only meaningful alongside.
+
+        The catalog declares companionship (``companion_dimensions``); this
+        applies it. A breakdown "by CARC" that cuts by ``carc`` alone puts
+        CO-50 — a contractual write-off nobody can appeal — in the same row
+        as PI-50, which is disputable money: $21,234 and $5,752 merged under
+        one label, with the rendering layer left to disclose "(all
+        adjustment groups)" over a number that had already lost the
+        distinction. Every pack playbook that cuts by ``carc`` conjoins
+        ``group_code`` by hand; a free-form question got the merged version,
+        so the same product answered the same question two ways.
+
+        A companion is added only when the governing contracts actually
+        allow that cut — a metric that cannot be sliced by ``group_code``
+        would turn an answerable question into ``GRAIN_INCOMPATIBLE``, and
+        the disclosure the renderer already makes is the honest fallback.
+        The companion is placed BEFORE the dimension it completes, so a row
+        reads "CO / 50" in the order the domain says it.
+        """
+        resolved: list[DimensionRef] = []
+        for ref in dimensions:
+            declared = self._catalog.dimension(ref.id)
+            for companion_id in declared.companion_dimensions if declared else ():
+                companion = DimensionRef(companion_id)
+                if companion in resolved or companion in dimensions:
+                    continue
+                if self._catalog.dimension(companion_id) is None:
+                    continue
+                if any(not c.allows_dimension(companion) for c in contracts):
+                    continue
+                resolved.append(companion)
+            if ref not in resolved:
+                resolved.append(ref)
+        return tuple(resolved)
+
     def _template_dimensions(
         self, template: ProbeTemplateSpec, spec: AnalysisSpec
     ) -> tuple[DimensionRef, ...] | None:
@@ -552,6 +652,10 @@ class BuildInvestigationPlanService:
         purpose: str,
     ) -> ProbeNode:
         measures = tuple(MetricRef(contract.id) for contract in group.contracts)
+        # …plus any dimension the catalog says these cuts are only
+        # meaningful alongside (``carc`` without ``group_code`` merges a
+        # contractual write-off with a disputable reduction).
+        dimensions = self._with_companions(dimensions, group.contracts)
         scope = spec.context.effective_scope()
         if spec.context.cohort is not None:
             # the active cohort is part of every probe's population (§7.5)
@@ -813,6 +917,7 @@ class BuildInvestigationPlanService:
             )
             if money is None:
                 return None, True
+            asked_order = descending_for_order(spec.order, money.sign)
             if not has_compare:
                 # "Rank by impact" with nothing to compare against means
                 # rank by SIZE — the dollars standing there, not a movement.
@@ -823,14 +928,16 @@ class BuildInvestigationPlanService:
                 # ``compare`` had no comparison window to work from, and
                 # published two ungrouped scalars as the whole answer to
                 # "what should I work first today".
-                return money.id, True
+                return money.id, asked_order if asked_order is not None else True
             wanted = wanted_delta_sign(spec.direction, money.sign)
             if wanted is None:
                 return f"{money.id}__delta", False
             biggest_first = spec.magnitude is not AskedMagnitude.SMALLEST
             return f"{money.id}__delta", (wanted > 0) == biggest_first
-        if any(c.id == by for c in node_contracts.get(node_id, ())):
-            return by, descending
+        ranked = next((c for c in node_contracts.get(node_id, ()) if c.id == by), None)
+        if ranked is not None:
+            asked_order = descending_for_order(spec.order, ranked.sign)
+            return by, descending if asked_order is None else asked_order
         return None, True
 
 

@@ -23,6 +23,7 @@ import { untitledTurnLabel } from "@/lib/format";
 import { GUIDE_QUESTIONS } from "@/lib/guideQuestions";
 import { REFERENCE_QUESTIONS } from "@/lib/mock/reference";
 import { useSessionStore } from "@/lib/store";
+import { scrollIntoViewRespectingMotion } from "@/lib/useReducedMotion";
 import { cn } from "@/lib/utils";
 
 interface PaletteAction {
@@ -65,6 +66,18 @@ export function CommandPalette({
   // chat bootstrapping, a replay running, or a session switch in flight
   // means `submit()` either no-ops or would race whichever session wins.
   const newChatBusy = streaming || newChatPending || replaying || switchingSessionId !== null;
+  // Why the actions that ask a question are inert right now, in the words
+  // of whichever condition is actually holding them. Rendered as hint text
+  // on the disabled rows: dimming says "not now" and nothing says why.
+  const busyReason = streaming
+    ? "wait — a turn is running"
+    : replaying
+      ? "wait — the demo is replaying"
+      : switchingSessionId !== null
+        ? "wait — a session is opening"
+        : newChatPending
+          ? "wait — a new chat is opening"
+          : undefined;
 
   const [query, setQuery] = useState("");
   const [selected, setSelected] = useState(0);
@@ -105,9 +118,9 @@ export function CommandPalette({
   const close = () => handleOpenChange(false);
 
   const scrollToTurn = (turnId: string) => {
-    document
-      .getElementById(`lineage-turn-${turnId}`)
-      ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    scrollIntoViewRespectingMotion(document.getElementById(`lineage-turn-${turnId}`), {
+      block: "start",
+    });
   };
 
   const actions = useMemo<PaletteAction[]>(() => {
@@ -196,9 +209,10 @@ export function CommandPalette({
         icon: <Search className="size-3.5" />,
         run: () => {
           useSessionStore.getState().focusReferent(entry.referent.value);
-          document
-            .getElementById(`referent-${entry.referent.value}`)
-            ?.scrollIntoView({ behavior: "smooth", block: "center" });
+          scrollIntoViewRespectingMotion(
+            document.getElementById(`referent-${entry.referent.value}`),
+            { block: "center" },
+          );
         },
       });
     }
@@ -412,14 +426,25 @@ export function CommandPalette({
                       i === clampedSelected && !action.disabled
                         ? "border-l-ring bg-accent font-medium text-foreground"
                         : "text-secondary-foreground",
-                      action.disabled && "opacity-40",
+                      // Disabled content is exempt from the contrast
+                      // floor, and these rows earn no benefit from the
+                      // exemption: they are the ones a user reads to find
+                      // out why the palette went inert mid-turn. At 40%
+                      // `--secondary-foreground` measured 2.36:1 light /
+                      // 2.96:1 dark on the overlay; at 65% it is 4.76:1 /
+                      // 5.66:1 and still visibly a step down.
+                      action.disabled && "opacity-65",
                     )}
                   >
                     <span className="text-muted-foreground">{action.icon}</span>
                     <span className="min-w-0 flex-1 truncate">{action.label}</span>
-                    {action.hint && (
+                    {/* An inert row says WHY it is inert. Dimming alone
+                        put the answer entirely in a colour difference —
+                        and these are the rows a user most needs to read,
+                        because they are the ones that did not respond. */}
+                    {(action.disabled ? busyReason : action.hint) && (
                       <span className="shrink-0 text-[0.6rem] text-muted-foreground">
-                        {action.hint}
+                        {action.disabled ? busyReason : action.hint}
                       </span>
                     )}
                   </button>

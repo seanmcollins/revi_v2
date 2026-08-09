@@ -153,3 +153,105 @@ describe("ContextHeader — the scope chip states the predicate that ran", () =>
     expect(screen.queryByText(/you typed/)).not.toBeInTheDocument();
   });
 });
+
+/**
+ * A SNAPSHOT contract states a balance AT a moment.
+ *
+ * Live: "Show me percent of A/R over 90 days by payer" answers as of
+ * 2026-08-02 and publishes `as_of: "2026-08-02"` — while STILL carrying
+ * `window_start: 2026-07-01, window_end: 2026-07-31` on the same payload.
+ * Rendering that range is how the header, the caution and the prose came
+ * to describe a July scope the calculation never applied, over an all-time
+ * aging figure. When `as_of` is present the chip states it and nothing
+ * else: a range the number does not honour is not a smaller error than no
+ * range at all.
+ */
+describe("ContextHeader — snapshot metrics (as_of)", () => {
+  const SNAPSHOT: ContextHeaderData = {
+    ...BASE,
+    window: { start: "2026-07-01", end: "2026-07-31", basis: "service" },
+    asOf: "2026-08-02",
+  };
+
+  it("states the as-of date instead of the window the payload also carries", () => {
+    render(<ContextHeader header={SNAPSHOT} />);
+    expect(screen.getByText("Aug 2, 2026 (service date)")).toBeInTheDocument();
+    expect(screen.getByText("As of")).toBeInTheDocument();
+    expect(screen.queryByText(/Jul 1–Jul 31/)).not.toBeInTheDocument();
+    expect(screen.queryByText("Window")).not.toBeInTheDocument();
+  });
+
+  it("says in words that no start–end window applies", async () => {
+    render(<ContextHeader header={SNAPSHOT} />);
+    await userEvent.click(screen.getByRole("button", { name: /As of/ }));
+    expect(
+      await screen.findByText(/a level at that moment, not a total accumulated over a period/),
+    ).toBeInTheDocument();
+    expect(screen.getByText(/No start–end window applies to this number/)).toBeInTheDocument();
+  });
+
+  it("renders the window exactly as before for a flow metric", () => {
+    render(<ContextHeader header={BASE} />);
+    expect(screen.getByText("Window")).toBeInTheDocument();
+    expect(screen.getByText("Jun 1–Jul 31 (service date)")).toBeInTheDocument();
+  });
+});
+
+/**
+ * A turn rebuilt from the store, and the difference between "this turn had
+ * no context" and "this turn's context was not kept".
+ */
+describe("ContextHeader — a restored turn", () => {
+  it("marks the header as restored and says what a restore keeps", async () => {
+    render(<ContextHeader header={{ ...BASE, restored: true }} />);
+    const chip = screen.getByRole("button", { name: /Restored/ });
+    await userEvent.click(chip);
+    expect(
+      await screen.findByText(/rebuilt from the record the server kept for it/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/anything missing below is missing because it was not stored/),
+    ).toBeInTheDocument();
+  });
+
+  it("says nothing about restoration on a live turn", () => {
+    render(<ContextHeader header={BASE} />);
+    expect(screen.queryByRole("button", { name: /Restored/ })).not.toBeInTheDocument();
+  });
+
+  /**
+   * `InvestigationResponse.restoration_notes`, verbatim from a live
+   * `GET /v1/investigations/{iid}`. The server states two things this
+   * component cannot know: that the window, scope, cohort and watermark
+   * were rebuilt from the turn's stored spec rather than re-computed, and
+   * that the narrative trace keeps its template, redactions and length but
+   * not its sentences — which is a far more precise account of the limit
+   * than the static copy's "the write-up was not stored".
+   */
+  it("prefers the server's own account of the restore over the static copy", async () => {
+    const notes = [
+      "Restored context: the window, scope, cohort and watermark below are rebuilt from this turn's stored investigation spec at watermark wm_003, not re-computed — the figures are the ones this turn published when it ran.",
+      "The composed narrative is not stored anywhere — the narrative trace keeps its template, redactions and length, not its sentences — so this turn restores without prose. Its findings, warnings and charts are its own record.",
+    ];
+    render(<ContextHeader header={{ ...BASE, restored: true, restorationNotes: notes }} />);
+    await userEvent.click(screen.getByRole("button", { name: /Restored/ }));
+
+    expect(await screen.findByText(/not re-computed/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/keeps its template, redactions and length, not its sentences/),
+    ).toBeInTheDocument();
+    // The client's approximation gives way rather than being printed
+    // beside the server's more precise sentence.
+    expect(
+      screen.queryByText(/rebuilt from the record the server kept for it/),
+    ).not.toBeInTheDocument();
+  });
+
+  it("keeps explaining itself when the server published no notes", async () => {
+    render(<ContextHeader header={{ ...BASE, restored: true, restorationNotes: [] }} />);
+    await userEvent.click(screen.getByRole("button", { name: /Restored/ }));
+    expect(
+      await screen.findByText(/rebuilt from the record the server kept for it/),
+    ).toBeInTheDocument();
+  });
+});

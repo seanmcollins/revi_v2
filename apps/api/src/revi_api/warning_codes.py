@@ -72,6 +72,10 @@ def _rule(code: str, severity: str, pattern: str) -> _Rule:
 _RULES: tuple[_Rule, ...] = (
     # -- how the number was scoped or qualified (changes the reading) -----
     _rule("EMPTY_RESULT", CAUTION, r"^empty_result:"),
+    _rule("PREMISE_FALSE", CAUTION, r"^premise_false:"),
+    _rule("SUPPRESSION_BOUNDED", CAUTION, r"^suppression_bounded:"),
+    _rule("WINDOW_OUT_OF_RANGE", CAUTION, r"^window_out_of_range:"),
+    _rule("COMPARISON_ASSUMED", INFO, r"^comparison_assumed:"),
     _rule("VALUE_CORRECTED", CAUTION, r"^value_corrected:"),
     _rule("DIRECTION_UNMATCHED", CAUTION, r"^direction_unmatched:"),
     _rule("WINDOW_ASSUMED", CAUTION, r"^window_assumed:"),
@@ -106,6 +110,19 @@ _RULES: tuple[_Rule, ...] = (
         CAUTION,
         r"^\d+ of \d+ ranked cards name a governed contract that is not comparable",
     ),
+    _rule(
+        "PORTFOLIO_RANKED_ON_PLATFORM",
+        CAUTION,
+        r"ranked on this platform's re-derived figure",
+    ),
+    _rule(
+        "PORTFOLIO_RANKED_ON_DETECTOR",
+        INFO,
+        r"ranked on the detection system's figure because",
+    ),
+    # -- the worklist, read into a conversation ---------------------------
+    _rule("WORKLIST_ATTACHED", INFO, r"^worklist_attached:"),
+    _rule("WORKLIST_UNAVAILABLE", CAUTION, r"^the ranked anomaly worklist was requested"),
     # -- coverage the pipeline measured and did not publish ---------------
     _rule("PROBE_FAMILIES_EMPTY", CAUTION, r"^probe_families_empty:"),
 )

@@ -27,6 +27,7 @@
 
 import type {
   AnomalyReconciliation,
+  Benchmark,
   ChartRow,
   ChartSpec,
   ClarificationData,
@@ -47,6 +48,7 @@ import type {
   Finding,
   LineageEdge,
   LineageNode,
+  MeasuredValue,
   MetricContractRef,
   MetricDisplay,
   MetricProvenance,
@@ -570,6 +572,14 @@ export interface FindingContext {
    * one answer cannot call the same number two different things.
    */
   metricDisplay?: Record<string, MetricDisplay>;
+  /**
+   * `TurnAnswer.benchmarks` — the turn-level list. A finding publishes its
+   * own `benchmarks` array today; this is the fallback for a payload
+   * generation that publishes them only once, at the answer level, and it
+   * is filtered per finding by metric id so a range is never quoted under
+   * a number it does not describe.
+   */
+  benchmarks?: Benchmark[];
 }
 
 /** Values that are comparison anatomy, not standalone measures. */
@@ -580,6 +590,41 @@ const COMPARISON_VALUE_NAMES = new Set([
   "pct_change",
   "rank",
 ]);
+
+/**
+ * `FindingPayload.benchmarks` / `TurnAnswer.benchmarks` → the governed
+ * external ranges, whole.
+ *
+ * Nothing is dropped and nothing is rounded: `value_low`/`value_high` stay
+ * the decimal strings the source published, and an entry missing its
+ * cohort label, period, authority or review status is still mapped — the
+ * card renders what is there and says nothing about what is not, which is
+ * the only honest reading of a partial quotation.
+ */
+export function mapBenchmarks(raw: unknown): Benchmark[] {
+  const out: Benchmark[] = [];
+  for (const entry of asArray(raw)) {
+    if (!isRecord(entry)) continue;
+    const low = asString(alias(entry, "valueLow", "value_low"));
+    const high = asString(alias(entry, "valueHigh", "value_high"));
+    // A range with neither end is not a range; there is nothing to show.
+    if (low === "" && high === "") continue;
+    out.push({
+      id: asString(entry.id),
+      metricId: asString(alias(entry, "metricId", "metric_id")),
+      cohortLabel: asString(alias(entry, "cohortLabel", "cohort_label")),
+      valueLow: low,
+      valueHigh: high,
+      unit: asString(entry.unit),
+      period: asString(entry.period),
+      authority: asString(entry.authority),
+      reviewStatus: asString(alias(entry, "reviewStatus", "review_status")),
+      cautions: asStringList(entry.cautions),
+      sources: asStringList(entry.sources),
+    });
+  }
+  return out;
+}
 
 export function mapFinding(raw: unknown, context: FindingContext = {}): Finding | null {
   if (!isRecord(raw)) return null;
@@ -596,38 +641,41 @@ export function mapFinding(raw: unknown, context: FindingContext = {}): Finding 
   const pctChange = asNumber(values.pct_change);
   const hasComparison = currentCents !== undefined && priorCents !== undefined;
 
-  // The headline number when no dollar impact was published: the finding's
-  // own measure, in the unit the turn's charts declare for it. Nothing is
-  // invented — an unknown unit yields no stat rather than a bare float.
-  let impactDisplay: string | undefined;
-  let impactLabel: string | undefined;
-  if (impactCents === undefined && !hasComparison) {
-    for (const metricId of metricRefs) {
-      const value = asNumber(values[metricId]);
-      const display = context.unitByMetric?.[metricId];
-      if (value === undefined || display === undefined) continue;
-      // Same scaling as the chart rows, from the same table: a `ratio`
-      // metric publishes 0.121361 and the card must read "12.1%".
-      impactDisplay = formatMeasure(value * display.scale, display.unit);
-      impactLabel = measureLabel(metricId, context.metricDisplay);
-      break;
-    }
-    if (impactDisplay === undefined) {
-      // Fall back to the sole non-anatomy value only when the payload
-      // leaves no ambiguity about which number the finding is about.
-      const named = Object.entries(values).filter(
-        ([name, value]) => typeof value === "number" && !COMPARISON_VALUE_NAMES.has(name),
-      );
-      if (named.length === 1) {
-        const [name, value] = named[0];
-        const display = context.unitByMetric?.[name];
-        if (display !== undefined) {
-          impactDisplay = formatMeasure((value as number) * display.scale, display.unit);
-          impactLabel = measureLabel(name, context.metricDisplay);
-        }
+  // The finding's own measure as a NUMBER in its display unit, scaled the
+  // same way the chart rows are (a `ratio` metric publishes 0.121361 and
+  // reads 12.1%). Resolved whether or not a dollar impact was published,
+  // because a benchmark range is quoted against this figure and a money
+  // finding can carry one too. Nothing is invented — an unknown unit
+  // yields nothing rather than a bare float.
+  let measured: MeasuredValue | undefined;
+  for (const metricId of metricRefs) {
+    const value = asNumber(values[metricId]);
+    const display = context.unitByMetric?.[metricId];
+    if (value === undefined || display === undefined) continue;
+    measured = { metricId, value: value * display.scale, unit: display.unit };
+    break;
+  }
+  if (measured === undefined) {
+    // Fall back to the sole non-anatomy value only when the payload
+    // leaves no ambiguity about which number the finding is about.
+    const named = Object.entries(values).filter(
+      ([name, value]) => typeof value === "number" && !COMPARISON_VALUE_NAMES.has(name),
+    );
+    if (named.length === 1) {
+      const [name, value] = named[0];
+      const display = context.unitByMetric?.[name];
+      if (display !== undefined) {
+        measured = { metricId: name, value: (value as number) * display.scale, unit: display.unit };
       }
     }
   }
+
+  // The headline number when no dollar impact was published.
+  const headline = impactCents === undefined && !hasComparison ? measured : undefined;
+  const impactDisplay = headline ? formatMeasure(headline.value, headline.unit) : undefined;
+  const impactLabel = headline
+    ? measureLabel(headline.metricId, context.metricDisplay)
+    : undefined;
 
   const withheld =
     impactCents === undefined && hasComparison ? context.impactWithheldReason : undefined;
@@ -684,6 +732,21 @@ export function mapFinding(raw: unknown, context: FindingContext = {}): Finding 
     confidence: asString(raw.confidence, "high") as Confidence,
     suggestedRefinements: mapSuggestedRefinements(raw.suggested_refinements),
     ...(correction !== undefined ? { metricDisplay: correction } : {}),
+    // The governed external ranges, from the finding's own list when it
+    // carries one and from the turn-level list otherwise (both are
+    // published; a restored investigation carries neither). Filtered to
+    // this finding's measures so a two-metric answer never quotes one
+    // metric's peer range under the other's number.
+    ...(() => {
+      const own = mapBenchmarks(raw.benchmarks);
+      const pool = own.length > 0 ? own : (context.benchmarks ?? []);
+      const mine =
+        metricRefs.length > 0
+          ? pool.filter((b) => b.metricId === "" || metricRefs.includes(b.metricId))
+          : pool;
+      return mine.length > 0 ? { benchmarks: mine } : {};
+    })(),
+    ...(measured !== undefined ? { measured } : {}),
   };
 }
 
@@ -767,13 +830,34 @@ export function mapChartSpec(
   if (seriesKeys.length === 0) seriesKeys.push(valueColumn);
   const rows = [...rowsByX.values()];
 
-  // The published `chart_type` is a hint, not a fact about the axis: the
-  // engine sends `line` for a payer-by-payer ranking. A line between
-  // twelve unordered payers asserts a trend that does not exist, so the
-  // axis decides — categorical x draws bars.
+  // The published `chart_type` is a hint, not a fact about the axis, and
+  // it is unreliable in BOTH directions — so the axis decides, both ways.
+  //
+  // Downwards: the engine sends `line` for a payer-by-payer ranking, and a
+  // line between twelve unordered payers asserts a trend that does not
+  // exist. Categorical x draws bars.
+  //
+  // Upwards: the `by month` grain publishes its six-month series as
+  // `stacked_bar` (live: `chart_main`, x `month`, rows 2026-02-01 …
+  // 2026-07-01), which drew a genuine trend as six disconnected bars
+  // beside a finding whose own title reads "$885,721.50 → $1,193,126.92".
+  // The rule only ever fired on a declared `line`, so an ordered time axis
+  // could never earn one. It can now — but only for a SINGLE series: a
+  // real multi-series stacked bar over time is a composition, and
+  // unstacking it into lines would change what it claims. A comparison
+  // frame folded in later by `selectRenderableCharts` adds its baseline to
+  // an already-decided line, which is current-vs-prior over time and
+  // exactly right.
   const declared = CHART_KIND_BY_WIRE[wireType] ?? "bar";
+  const temporal = isTemporalAxis(rows.map((row) => row.label));
   const kind: ChartSpec["kind"] =
-    declared === "line" && !isTemporalAxis(rows.map((row) => row.label)) ? "bar" : declared;
+    declared === "line"
+      ? temporal
+        ? "line"
+        : "bar"
+      : temporal && seriesKeys.length === 1
+        ? "line"
+        : declared;
 
   return {
     id: asString(raw.id),
@@ -932,8 +1016,21 @@ export function mapContextHeader(raw: unknown, pin: WirePin): ContextHeaderData 
     });
   }
 
+  // `as_of` is published (and non-null) exactly when the turn's measure is
+  // a SNAPSHOT contract — an as-of balance at the watermark, to which no
+  // start..end range is applied. The payload still carries a window on
+  // those turns and it is NOT what was measured: an A/R-aging answer
+  // computed as of 2026-08-02 shipped under "2026-07-01..2026-07-31
+  // (service)", and header, caution and prose all named a scope the
+  // calculation never used. Carried through so the chip can state the
+  // as-of date instead of a range the number does not honour. A payload
+  // generation that publishes no such field leaves it undefined and the
+  // header renders exactly as before.
+  const asOf = optionalString(raw.as_of);
+
   return {
     window: { start: asString(raw.window_start), end: asString(raw.window_end), basis },
+    ...(asOf !== undefined ? { asOf } : {}),
     ...(typeof comparisonStart === "string" && typeof comparisonEnd === "string"
       ? {
           comparison: {
@@ -1548,8 +1645,8 @@ function metricPhrase(metricId: string): string {
  * Apply governed display names to one server-composed string.
  *
  * A finding title reads `… : $22.4M timely filing at risk dollars`; the
- * pack says that measure is "Unbilled open inventory (timely-filing watch
- * proxy)". The substitution is whole-phrase and case-insensitive, and
+ * pack says that measure is "Unbilled open inventory on a running filing
+ * clock". The substitution is whole-phrase and case-insensitive, and
  * touches nothing it was not asked to: a metric with no correction, or a
  * title that never names its measure, comes back byte-identical.
  *
@@ -1779,6 +1876,12 @@ export type TurnResponseData =
       anomalyReconciliation?: AnomalyReconciliation;
       /** The pack's governed display-name corrections for this turn's measures. */
       metricDisplay?: MetricDisplay[];
+      /**
+       * The ranked worklist, when this turn's interpretation resolved the
+       * pack's governed worklist routing (or the caller asked outright).
+       * Rides alongside the findings and never replaces them.
+       */
+      worklist?: WorklistData;
       /** Published only when the settings in force had debug on. */
       debug?: DebugTrace;
     }
@@ -1788,6 +1891,14 @@ export type TurnResponseData =
       sessionId: string;
       clarification: ClarificationData;
       watermarkStale: boolean;
+      /**
+       * A clarification carries it too. That is the whole point of the
+       * bridge: the question that USED to end here — "what should my
+       * denial team work first" answered with four ranking bases and no
+       * mention of the 33-card list — can now hand over the list while it
+       * asks.
+       */
+      worklist?: WorklistData;
       debug?: DebugTrace;
     }
   | {
@@ -1836,11 +1947,13 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
     missingAt(raw, REQUIRED_CLARIFICATION_FIELDS, drift);
     if (drift.length > 0) return { value: null, drift };
     const clarificationTrace = mapDebugTrace(raw.debug);
+    const clarificationWorklist = mapWorklist(raw.worklist, drift);
     return {
       value: {
         outcome: "clarification_required",
         investigationId: asString(raw.investigation_id),
         sessionId: asString(raw.session_id),
+        ...(clarificationWorklist !== undefined ? { worklist: clarificationWorklist } : {}),
         clarification: {
           question: asString(raw.question),
           options: asArray(raw.options).map((o) => String(o)),
@@ -1862,12 +1975,14 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
   const warningSentences = asArray(raw.warnings).filter((w): w is string => typeof w === "string");
   const metricDisplay = mapMetricDisplay(raw.metric_display);
   const displayIndex = metricDisplayIndex(metricDisplay);
+  const turnBenchmarks = mapBenchmarks(raw.benchmarks);
   const findingContext: FindingContext = {
     unitByMetric: unitsFromChartSpecs(raw.chart_specs),
     ...(impactWithheldReason(warningSentences) !== undefined
       ? { impactWithheldReason: impactWithheldReason(warningSentences) }
       : {}),
     ...(metricDisplay.length > 0 ? { metricDisplay: displayIndex } : {}),
+    ...(turnBenchmarks.length > 0 ? { benchmarks: turnBenchmarks } : {}),
   };
 
   const findings: Finding[] = [];
@@ -1892,6 +2007,7 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
 
   const cohort = mapCohort(raw.cohort);
   const anomalyReconciliation = mapAnomalyReconciliation(raw.anomaly_reconciliation);
+  const worklist = mapWorklist(raw.worklist, drift);
   const headerOnly = raw.context_header != null ? mapContextHeader(raw.context_header, pin) : null;
   // The header's own cohort block is an id and a size; the full definition
   // travels beside it on the answer. Merged here, once, so no component
@@ -1925,6 +2041,7 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
       ...(cohort !== undefined ? { cohort } : {}),
       ...(anomalyReconciliation !== undefined ? { anomalyReconciliation } : {}),
       ...(metricDisplay.length > 0 ? { metricDisplay } : {}),
+      ...(worklist !== undefined ? { worklist } : {}),
       ...(trace !== null ? { debug: trace } : {}),
     },
     drift,
@@ -1934,11 +2051,18 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
 /**
  * Parse `GET /v1/investigations/{iid}` — a different shape from the turn
  * body and the only recovery path when the stream dropped after the
- * investigation id was known. It carries findings and warnings but no
- * header, charts or narrative, so a recovered turn renders what the server
+ * investigation id was known. A recovered turn renders what the server
  * actually kept rather than pretending the rest arrived.
+ *
+ * `pin` is optional because this response carries no watermark load time
+ * or pack version of its own: those are the SESSION's, and a caller with
+ * no session to hand (a test, a bare recovery read) gets the same parse
+ * minus the context header rather than a header pinned to invented dates.
  */
-export function parseInvestigationResponse(raw: unknown): TurnResponseParse {
+export function parseInvestigationResponse(
+  raw: unknown,
+  pin?: WirePin,
+): TurnResponseParse {
   const drift: string[] = [];
   if (!isRecord(raw)) return { value: null, drift: [...REQUIRED_INVESTIGATION_FIELDS] };
   missingAt(raw, REQUIRED_INVESTIGATION_FIELDS, drift);
@@ -1978,15 +2102,22 @@ export function parseInvestigationResponse(raw: unknown): TurnResponseParse {
   }
 
   const restoredWarnings = asArray(raw.warnings).filter((w): w is string => typeof w === "string");
-  // `InvestigationResponse` publishes no `metric_display` block, so a
-  // restored turn's titles keep the engine's raw spelling. That is the
-  // honest read of what the store kept — inventing corrections here from
-  // today's pack would caption an older answer with names it never used.
+  // `metric_display` IS published on `InvestigationResponse` now, so a
+  // restored turn's titles get the same governed correction the live turn
+  // got — read from the stored record rather than re-derived from today's
+  // pack, which is the distinction that makes it safe: this is the block
+  // the turn itself carried, not a re-captioning of an older answer with
+  // names it never used. A payload generation that publishes none leaves
+  // the list empty and the titles keep the engine's raw spelling.
+  const restoredDisplay = mapMetricDisplay(raw.metric_display);
+  const restoredBenchmarks = mapBenchmarks(raw.benchmarks);
   const restoredContext: FindingContext = {
     unitByMetric: unitsFromChartSpecs(raw.chart_specs),
     ...(impactWithheldReason(restoredWarnings) !== undefined
       ? { impactWithheldReason: impactWithheldReason(restoredWarnings) }
       : {}),
+    ...(restoredDisplay.length > 0 ? { metricDisplay: metricDisplayIndex(restoredDisplay) } : {}),
+    ...(restoredBenchmarks.length > 0 ? { benchmarks: restoredBenchmarks } : {}),
   };
 
   const findings: Finding[] = [];
@@ -2015,11 +2146,50 @@ export function parseInvestigationResponse(raw: unknown): TurnResponseParse {
   });
   const evidence = mapEvidence(raw.evidence);
   const metric = mapMetricProvenance(raw.metric);
-  // `InvestigationResponse.cohort` is published and deliberately not read
-  // here: the cohort chip lives in the context header, and a restored
-  // investigation carries no header (no window, no scope, no data-load
-  // chip either). A lone cohort chip floating above findings with none of
-  // the context beside it would claim a header this turn does not have.
+  const cohort = mapCohort(raw.cohort);
+  // The stated context of a restored answer, when the store kept one.
+  //
+  // Re-opening a session used to rebuild a thread of dollar figures with
+  // NO window, NO scope, NO cohort and NO data-load chip — because
+  // `AnswerCard` gates the whole header on its presence and this parser
+  // published none. What survived a restore was the caveats and the bare
+  // numbers, so yesterday's answers came back disproportionately
+  // caveat-heavy with the context they were bounded by missing, which
+  // falsifies the one promise the landing page makes in writing.
+  //
+  // Read defensively on purpose: two payload generations are in flight
+  // and only one publishes `context_header` on `InvestigationResponse`.
+  // When it is absent the header stays absent and the card says the
+  // context was not stored — a stated absence, not a silent one.
+  const headerOnly =
+    raw.context_header != null && pin !== undefined
+      ? mapContextHeader(raw.context_header, pin)
+      : null;
+  // The server's OWN account of the restore, published per investigation
+  // (`restoration_notes`). It names what was rebuilt from the stored spec
+  // rather than re-computed, and states the store's limits precisely —
+  // "the narrative trace keeps its template, redactions and length, not
+  // its sentences" is a fact this client cannot derive and would only
+  // approximate. Rendered verbatim in the Restored popover.
+  const restorationNotes = asArray(raw.restoration_notes).filter(
+    (note): note is string => typeof note === "string" && note !== "",
+  );
+  // `context_header_restored` is the server saying so, rather than this
+  // parser asserting it from the fact that it is the one doing the
+  // reading. Defaulted to true when the field is absent, which preserves
+  // the previous behaviour for the payload generation that does not
+  // publish it — a header reached through THIS function was restored by
+  // construction, so the default is the honest one either way.
+  const restored = raw.context_header_restored !== false;
+  const header =
+    headerOnly !== null
+      ? {
+          ...headerOnly,
+          ...(cohort !== undefined ? { cohort } : {}),
+          restored,
+          ...(restorationNotes.length > 0 ? { restorationNotes } : {}),
+        }
+      : null;
 
   return {
     value: {
@@ -2027,8 +2197,15 @@ export function parseInvestigationResponse(raw: unknown): TurnResponseParse {
       investigationId,
       sessionId: asString(raw.session_id),
       turnClass: asString(raw.turn_class) as TurnClass,
+      ...(header !== null ? { header } : {}),
       findings,
       charts,
+      // The composed prose, when the store kept it. Nothing is
+      // reconstructed: a payload that publishes no narrative leaves this
+      // undefined and the card says the write-up was not stored.
+      ...(typeof raw.narrative === "string" && raw.narrative !== ""
+        ? { narrative: raw.narrative }
+        : {}),
       // Structured when the stored investigation has them; the prose
       // strings when it does not — which is exactly the case this
       // fallback exists for, since investigations stored before
@@ -2037,6 +2214,8 @@ export function parseInvestigationResponse(raw: unknown): TurnResponseParse {
       ...(typeof raw.plan_hash === "string" ? { planHash: raw.plan_hash } : {}),
       ...(evidence !== undefined ? { evidence } : {}),
       ...(metric !== undefined ? { metric } : {}),
+      ...(cohort !== undefined ? { cohort } : {}),
+      ...(restoredDisplay.length > 0 ? { metricDisplay: restoredDisplay } : {}),
       watermarkStale: false,
     },
     drift,
@@ -2226,6 +2405,7 @@ export function turnResponseToEvents(
       type: "turn_complete",
       investigationId: response.investigationId,
       status: "clarification_required",
+      ...(response.worklist ? { worklist: response.worklist } : {}),
       ...(response.debug ? { debug: response.debug } : {}),
     });
     return events;
@@ -2304,6 +2484,10 @@ export function turnResponseToEvents(
       ? { anomalyReconciliation: response.anomalyReconciliation }
       : {}),
     ...(response.metricDisplay ? { metricDisplay: response.metricDisplay } : {}),
+    // Rides on the terminal frame like the reconciliation and the grade:
+    // it is only whole once the turn is, and the server publishes no
+    // `worklist` SSE frame.
+    ...(response.worklist ? { worklist: response.worklist } : {}),
     ...(response.debug ? { debug: response.debug } : {}),
   });
   return events;
@@ -2533,6 +2717,16 @@ export interface PortfolioSnapshotData {
   watermark?: string;
   rankingPolicy?: string;
   /**
+   * `PortfolioResponse.status` — the snapshot's own word for itself,
+   * `"ok"` or `"empty"`. The endpoint is unconditional and always answers
+   * 200, so "there is no worklist here" is a fact about the DATA LOAD
+   * (nothing was detected at this watermark), never about the deployment.
+   * The client used to infer emptiness from `items.length === 0`, which
+   * cannot tell a quiet load apart from a snapshot whose cards all failed
+   * to parse; the server says which, so it is read rather than guessed.
+   */
+  status?: "ok" | "empty";
+  /**
    * `PortfolioResponse.warnings_v2` (falling back to the prose
    * `warnings`) — snapshot-level truth about the list itself ("4 of 33
    * detected anomalies (36% of ranked impact) are not investigable at
@@ -2557,6 +2751,88 @@ export interface PortfolioParse {
 }
 
 /**
+ * `TurnAnswer.worklist` — the ranked worklist, answered into a conversation.
+ *
+ * The bridge that closes the "two products in one shell" gap: the platform
+ * computed a prioritised, reconciled worklist that the rail rendered, and
+ * asking for it in words ("what should my denial team work on first this
+ * week") reached a clarification offering four ranking bases, none of
+ * which was the list. Live, that question now routes to the governed
+ * concept `work_prioritization` and the turn carries the worklist beside
+ * its findings.
+ *
+ * `items` are the SAME `AnomalyCard` objects the rail draws, from the same
+ * build, parsed by the same `mapAnomalyCard` — a chat answer and the rail
+ * cannot disagree about the order or the money because there is one
+ * computation and one parser behind both.
+ *
+ * Two facts the rendering must not lose. `items` is a PAGE (live: 8 of 33,
+ * with `limit`), while `lanes` carry the membership of the WHOLE
+ * population — so a lane naming 31 cards over a page holding 8 is normal
+ * and a renderer that trusts `lane.itemCount` as its row count would
+ * invent 23 rows. And these cards are the detection feed's ranked work,
+ * not findings this turn computed, which is what the WORKLIST_ATTACHED
+ * warning exists to say.
+ */
+export interface WorklistData {
+  /** Which governed artifact routed this: playbook, concept, or an explicit ask. */
+  matchedOn: "playbook" | "concept" | "typed_query";
+  matchedId: string;
+  /** The server's own prose summary of the list. Rendered, never re-derived. */
+  statement: string;
+  label: string;
+  description: string;
+  formulaVersion: string;
+  watermarkId: string;
+  items: PortfolioItem[];
+  /** Lane membership over the WHOLE population, not just this page. */
+  lanes: PortfolioLane[];
+  /** How many cards exist (33) versus how many this page carries (8). */
+  totalItems: number;
+  limit: number;
+  totalRecoverableCentsEstimate: number;
+  warnings: Omit<WarningEvent, "type">[];
+}
+
+/**
+ * `WorklistPayload` → `WorklistData`, or undefined when the turn carried
+ * none. `matched_on` is the one required field; everything else defaults,
+ * because a worklist that arrives thin should render thin rather than
+ * vanish.
+ */
+export function mapWorklist(raw: unknown, drift: string[] = []): WorklistData | undefined {
+  if (!isRecord(raw)) return undefined;
+  const matchedOn = raw.matched_on;
+  if (matchedOn !== "playbook" && matchedOn !== "concept" && matchedOn !== "typed_query") {
+    drift.push("worklist.matched_on");
+    return undefined;
+  }
+  const items: PortfolioItem[] = [];
+  asArray(raw.items).forEach((item, index) => {
+    const card = mapAnomalyCard(item, index, drift, "worklist.items");
+    if (card !== null) items.push(card);
+  });
+  return {
+    matchedOn,
+    matchedId: asString(raw.matched_id),
+    statement: asString(raw.statement),
+    label: asString(raw.label),
+    description: asString(raw.description),
+    formulaVersion: asString(raw.formula_version),
+    watermarkId: asString(raw.watermark_id),
+    items,
+    lanes: mapPortfolioLanes(raw.lanes),
+    totalItems: asNumber(raw.total_items) ?? items.length,
+    limit: asNumber(raw.limit) ?? items.length,
+    totalRecoverableCentsEstimate: asNumber(raw.total_recoverable_cents_estimate) ?? 0,
+    warnings: readTurnWarnings(
+      raw.warnings_v2,
+      asArray(raw.warnings).filter((w): w is string => typeof w === "string"),
+    ),
+  };
+}
+
+/**
  * `AnomalyCard.priority` — the formula's terms, or `undefined` when the
  * server published none. Read tolerantly: the decomposition annotates the
  * ranking, so a partial one should degrade the badge, not blank the card.
@@ -2575,6 +2851,23 @@ function mapPriorityDecomposition(raw: unknown): PriorityDecomposition | undefin
     floorApplied: raw.floor_applied === true,
     floorValue: asNumber(raw.floor_value) ?? 0,
     floorBasis: asString(raw.floor_basis),
+    // The two numbers that make the FIRST term checkable, plus which
+    // figure they came from. `impact_norm = ranked_impact_cents /
+    // impact_normalizer_cents`, and without the normalizer the reader
+    // could verify every term of the formula except the one carrying the
+    // money. Optional on purpose: a payload generation that publishes none
+    // leaves the badge showing exactly what it showed before.
+    ...(raw.ranked_on === "detector" ||
+    raw.ranked_on === "platform" ||
+    raw.ranked_on === "not_comparable"
+      ? { rankedOn: raw.ranked_on }
+      : {}),
+    ...(asNumber(raw.ranked_impact_cents) !== undefined
+      ? { rankedImpactCents: asNumber(raw.ranked_impact_cents) }
+      : {}),
+    ...(asNumber(raw.impact_normalizer_cents) !== undefined
+      ? { impactNormalizerCents: asNumber(raw.impact_normalizer_cents) }
+      : {}),
   };
 }
 
@@ -2605,18 +2898,34 @@ function mapPortfolioLanes(raw: unknown): PortfolioLane[] {
   return lanes;
 }
 
-export function parsePortfolioSnapshot(raw: unknown): PortfolioParse {
-  const drift: string[] = [];
-  if (!isRecord(raw) || !Array.isArray(raw.items)) return { value: null, drift: ["items"] };
-  const items: PortfolioItem[] = [];
-  raw.items.forEach((item, index) => {
+/**
+ * One `AnomalyCard` → the shape both surfaces render.
+ *
+ * Extracted from `parsePortfolioSnapshot` because the SAME cards now
+ * arrive by a second route: `TurnAnswer.worklist.items` carries the very
+ * objects the rail draws, from the same build — same `anomaly_priority`
+ * version, same decomposition, same `ranked_on`, same reconciliation
+ * state. Two parsers over one payload is how a chat answer and a rail come
+ * to disagree about the order or the money, so there is one.
+ *
+ * Returns null and appends to `drift` when a card is missing a field
+ * without which it cannot be drawn at all; every other absence is
+ * tolerated as "the server did not say".
+ */
+function mapAnomalyCard(
+  item: unknown,
+  index: number,
+  drift: string[],
+  driftPrefix: string,
+): PortfolioItem | null {
+  {
     const missing: string[] = [];
     for (const path of REQUIRED_PORTFOLIO_ITEM_FIELDS) {
       pickAliased(item, path, PORTFOLIO_ITEM_ALIASES, missing);
     }
     if (missing.length > 0) {
-      drift.push(...missing.map((path) => `items[${index}].${path}`));
-      return;
+      drift.push(...missing.map((path) => `${driftPrefix}[${index}].${path}`));
+      return null;
     }
     const record = item as UnknownRecord;
     const referent = (record.referent ?? record.anomaly_id) as string;
@@ -2653,8 +2962,19 @@ export function parsePortfolioSnapshot(raw: unknown): PortfolioParse {
           (id): id is string => typeof id === "string" && id !== "",
         )
       : undefined;
+    // A governed substitution for the detector's CUT. All three fields are
+    // required together: a repoint with no rationale is a column swap the
+    // card cannot justify, and showing it without the reasoning is worse
+    // than not showing it — so it is dropped rather than half-rendered.
+    const dimensionRepoints = asRecordList(record.drill_dimension_repoints)
+      .map((entry) => ({
+        fromDimension: asString(entry.from_dimension),
+        toDimension: asString(entry.to_dimension),
+        rationale: asString(entry.rationale),
+      }))
+      .filter((r) => r.fromDimension !== "" && r.toDimension !== "" && r.rationale !== "");
 
-    items.push({
+    return {
       rank: typeof record.rank === "number" ? record.rank : index + 1,
       referent,
       title: record.title as string,
@@ -2680,6 +3000,24 @@ export function parsePortfolioSnapshot(raw: unknown): PortfolioParse {
         : {}),
       ...(num("priority_score") !== undefined ? { priorityScore: num("priority_score") } : {}),
       ...(record.compliance_floor_applied === true ? { complianceFloorApplied: true } : {}),
+      // WHICH figure the ordering was computed from — the detector's or
+      // this platform's re-derivation — the figure itself, and the
+      // server's sentence explaining the choice. Live this is not one
+      // answer across the list (19 detector / 9 platform / 5
+      // not_comparable), so a rail that shows only the number is showing
+      // a ranking whose basis varies card by card without saying so.
+      // Absent still means the server has not said, never a guess.
+      ...(record.ranked_on === "detector" ||
+      record.ranked_on === "platform" ||
+      record.ranked_on === "not_comparable"
+        ? { rankedOn: record.ranked_on }
+        : {}),
+      ...(num("ranked_impact_cents") !== undefined
+        ? { rankedImpactCents: num("ranked_impact_cents") }
+        : {}),
+      ...(str("ranked_on_note") !== undefined
+        ? { rankedOnNote: str("ranked_on_note") }
+        : {}),
       ...(mapPriorityDecomposition(record.priority) !== undefined
         ? { priority: mapPriorityDecomposition(record.priority) }
         : {}),
@@ -2696,8 +3034,18 @@ export function parsePortfolioSnapshot(raw: unknown): PortfolioParse {
       ...(str("reconciled_impact_metric_id") !== undefined
         ? { reconciledImpactMetricId: str("reconciled_impact_metric_id") }
         : {}),
+      // FOUR states, not three. `not_comparable` was added when the
+      // reconciler learned to refuse a snapshot-vs-window or a
+      // ratio-vs-money comparison instead of coercing one, and this
+      // filter still listed three — so the top live card (ANM-021,
+      // `not_comparable`, with a written explanation of exactly why the
+      // two figures are different KINDS of measurement) published its
+      // agreement to a client that dropped it on the floor, and the rail
+      // and the export both went silent about the most interesting
+      // verdict the reconciler makes.
       ...(record.impact_agreement === "agreed" ||
       record.impact_agreement === "diverged" ||
+      record.impact_agreement === "not_comparable" ||
       record.impact_agreement === "unavailable"
         ? { impactAgreement: record.impact_agreement }
         : {}),
@@ -2734,6 +3082,13 @@ export function parsePortfolioSnapshot(raw: unknown): PortfolioParse {
       ...(str("drill_repoint_rationale") !== undefined
         ? { drillRepointRationale: str("drill_repoint_rationale") }
         : {}),
+      // The card's CUT was substituted, not just its measure. Kept as a
+      // list because the payload publishes one, and dropped entirely when
+      // a repoint arrives without its reasoning: the rationale IS the
+      // disclosure — "drills primary_proc_group, not proc_group" without
+      // the sentence explaining that one counts claims and the other
+      // counts lines is a raw column swap shown to an analyst.
+      ...(dimensionRepoints.length > 0 ? { drillDimensionRepoints: dimensionRepoints } : {}),
       ...(drillMetricId !== undefined ? { drillMetricId } : {}),
 
       // The card's typed first turn, carried through verbatim: it is
@@ -2746,7 +3101,17 @@ export function parsePortfolioSnapshot(raw: unknown): PortfolioParse {
       ...(isRecord(record.drill)
         ? { drill: record.drill as unknown as PortfolioItem["drill"] }
         : {}),
-    });
+    };
+  }
+}
+
+export function parsePortfolioSnapshot(raw: unknown): PortfolioParse {
+  const drift: string[] = [];
+  if (!isRecord(raw) || !Array.isArray(raw.items)) return { value: null, drift: ["items"] };
+  const items: PortfolioItem[] = [];
+  raw.items.forEach((item, index) => {
+    const card = mapAnomalyCard(item, index, drift, "items");
+    if (card !== null) items.push(card);
   });
   const value: PortfolioSnapshotData = {
     items,
@@ -2763,5 +3128,6 @@ export function parsePortfolioSnapshot(raw: unknown): PortfolioParse {
   const rankingPolicy =
     alias(raw, "rankingPolicy", "ranking_policy") ?? raw.formula_version;
   if (typeof rankingPolicy === "string") value.rankingPolicy = rankingPolicy;
+  if (raw.status === "ok" || raw.status === "empty") value.status = raw.status;
   return { value, drift };
 }

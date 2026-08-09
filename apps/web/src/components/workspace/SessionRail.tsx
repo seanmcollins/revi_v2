@@ -2,6 +2,7 @@
 
 import {
   AlertTriangle,
+  Archive,
   FlaskConical,
   Loader2,
   MessagesSquare,
@@ -255,12 +256,19 @@ function SessionList() {
   const currentSessionId = useSessionStore((s) => s.sessionId);
   const switchingSessionId = useSessionStore((s) => s.switchingSessionId);
   const switchSession = useSessionStore((s) => s.switchSession);
+  const archiveSession = useSessionStore((s) => s.archiveSession);
+  const driver = useSessionStore((s) => s.driver);
   const streaming = useSessionStore((s) => s.streamingTurnId !== null);
   const replaying = useSessionStore((s) => s.replaying);
   const newChatPending = useSessionStore((s) => s.newChatPending);
+  const [confirmingArchiveId, setConfirmingArchiveId] = useState<string | null>(null);
   // Switching mid-turn would abandon a stream whose answer is still
   // arriving, so the rows are inert until the pipeline is free.
   const busy = streaming || replaying || newChatPending || switchingSessionId !== null;
+  // Offered only by a driver that can actually do it. The mock fixture has
+  // no deployment behind it, and a control that would silently do nothing
+  // is worse than one that is not there.
+  const canArchive = driver?.archiveSession !== undefined;
 
   return (
     <section className="space-y-1">
@@ -304,12 +312,36 @@ function SessionList() {
             const active = session.sessionId === currentSessionId;
             const pending = session.sessionId === switchingSessionId;
             const title = displaySessionTitle(session.title);
+            const confirming = session.sessionId === confirmingArchiveId;
+            if (confirming) {
+              return (
+                <li key={session.sessionId}>
+                  <ArchiveConfirm
+                    title={title}
+                    onCancel={() => setConfirmingArchiveId(null)}
+                    onConfirm={() => {
+                      setConfirmingArchiveId(null);
+                      void archiveSession(session.sessionId);
+                    }}
+                  />
+                </li>
+              );
+            }
             return (
-              <li key={session.sessionId}>
+              <li key={session.sessionId} className="group/row relative">
                 <button
                   type="button"
                   disabled={busy && !pending}
                   aria-current={active ? "true" : undefined}
+                  // The turn count and the exact last-activity instant are
+                  // the two facts the row shows nowhere on screen, and
+                  // they lived only in a native `title` — mouse-only, with
+                  // no keyboard path and no touch equivalent. On the
+                  // accessible name they reach everyone; the `title` stays
+                  // for the pointer.
+                  aria-label={`${title} — ${session.turnCount} turn${
+                    session.turnCount === 1 ? "" : "s"
+                  }, last activity ${session.lastActivity}`}
                   title={`${title} · ${session.turnCount} turn${
                     session.turnCount === 1 ? "" : "s"
                   } · last activity ${session.lastActivity}`}
@@ -323,6 +355,10 @@ function SessionList() {
                     // 10.22:1 dark. Every row reserves the 2px so
                     // selecting one never nudges the text.
                     "flex w-full items-baseline justify-between gap-2 rounded-md border-l-2 border-l-transparent px-2 py-1.5 text-left text-[0.7rem] transition-colors duration-150 focus-ring",
+                    // Room for the archive control, which sits over the
+                    // row's right edge rather than in its flow — so
+                    // revealing it never re-flows the title.
+                    "pr-7",
                     active
                       ? "border-l-ring bg-accent font-medium"
                       : "text-muted-foreground hover:bg-accent/50 hover:text-foreground",
@@ -338,11 +374,83 @@ function SessionList() {
                     )}
                   </span>
                 </button>
+                {/* Quiet on purpose: this is a tidying gesture beside
+                    somebody's work, not a peer of "open it". It appears on
+                    hover and on keyboard focus — `focus-visible:opacity-100`
+                    is what keeps it reachable without a mouse, which is the
+                    failure mode every hover-only control has. It is a
+                    sibling of the row button, never nested inside it: a
+                    button inside a button is invalid, and a click here must
+                    not also open the session. */}
+                {canArchive && (
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    disabled={busy}
+                    aria-label={`Archive ${title}`}
+                    title="Remove this session from the list. Nothing is deleted — it keeps its answers and stays reachable by link."
+                    onClick={() => setConfirmingArchiveId(session.sessionId)}
+                    className="absolute right-0.5 top-1/2 size-5 -translate-y-1/2 rounded p-0 text-muted-foreground opacity-0 transition-opacity duration-150 hover:text-foreground focus-visible:opacity-100 group-hover/row:opacity-100"
+                  >
+                    <Archive className="size-3" />
+                  </Button>
+                )}
               </li>
             );
           })}
         </ul>
       )}
     </section>
+  );
+}
+
+/**
+ * The confirm, in the row's own place.
+ *
+ * Two words this control has to get right. It says ARCHIVE, not delete,
+ * because the server's DELETE is a soft archive: the session keeps its
+ * investigations, traces, frames and cohorts and stays fetchable by id, so
+ * a link pasted into a ticket still resolves. And it says what actually
+ * changes — the row leaves this list — rather than implying an
+ * investigation was retracted.
+ *
+ * It replaces the row rather than opening over it: there is no undo behind
+ * the button, and a confirmation that can be dismissed by clicking
+ * anywhere is not one.
+ */
+function ArchiveConfirm({
+  title,
+  onConfirm,
+  onCancel,
+}: {
+  title: string;
+  onConfirm: () => void;
+  onCancel: () => void;
+}) {
+  return (
+    <div className="space-y-1.5 rounded-md border border-warning/40 bg-warning/10 p-2">
+      <p className="text-[0.62rem] leading-snug">
+        Remove <span className="font-medium">{title}</span> from this list? Its answers are
+        kept and it stays reachable by link — only the row goes.
+      </p>
+      <div className="flex gap-1.5">
+        <Button
+          size="xs"
+          variant="secondary"
+          className="h-6 flex-1 text-[0.65rem] font-medium"
+          onClick={onConfirm}
+        >
+          Archive
+        </Button>
+        <Button
+          size="xs"
+          variant="ghost"
+          className="h-6 flex-1 text-[0.65rem] font-normal"
+          onClick={onCancel}
+        >
+          Keep it
+        </Button>
+      </div>
+    </div>
   );
 }

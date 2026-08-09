@@ -5,6 +5,7 @@ import {
   Database,
   Filter,
   GitCompareArrows,
+  History,
   Pin,
   Users,
 } from "lucide-react";
@@ -36,29 +37,67 @@ export function ContextHeader({
   header: ContextHeaderData;
   pinnedEpoch?: boolean;
 }) {
+  // A SNAPSHOT contract states a balance AT a moment. The payload still
+  // publishes window_start/window_end on those turns and they are not what
+  // was measured: an A/R-aging answer computed as of 2026-08-02 shipped
+  // under "2026-07-01..2026-07-31 (service)", and the header, the caution
+  // and the prose all named a scope the calculation never applied. When
+  // `as_of` is present the chip states it and nothing else — a range this
+  // number does not honour is not a smaller error than no range at all.
+  const asOf = header.asOf;
+
   return (
     <div className="flex flex-wrap items-center gap-1.5">
+      {header.restored && (
+        <RestoredChip
+          {...(header.restorationNotes && header.restorationNotes.length > 0
+            ? { notes: header.restorationNotes }
+            : {})}
+        />
+      )}
       <Chip
         icon={<CalendarRange className="size-3" />}
-        name="Window"
-        label={windowChipLabel(header.window)}
+        name={asOf ? "As of" : "Window"}
+        label={asOf ? asOfChipLabel(asOf, header.window.basis) : windowChipLabel(header.window)}
       >
-        <ChipDoc title="Analysis window">
-          <p>
-            {formatWindow(header.window)}
-            {header.window.requested && header.window.requested !== "n/a" && (
-              <>
-                {" "}
-                — resolved from “{header.window.requested}” at plan time and stored as
-                concrete dates; it never silently re-resolves.
-              </>
-            )}
-          </p>
-          <p className="mt-1.5 text-muted-foreground">
-            Basis <span className="font-medium text-foreground">{DATE_BASIS_LABELS[header.window.basis]}</span>:
-            {" "}
-            {BASIS_DOCS[header.window.basis]}
-          </p>
+        <ChipDoc title={asOf ? "As-of date" : "Analysis window"}>
+          {asOf ? (
+            <>
+              <p>
+                A balance measured as of{" "}
+                <span className="font-medium">{safeMediumDate(asOf)}</span> — a level at
+                that moment, not a total accumulated over a period.
+              </p>
+              <p className="mt-1.5 text-muted-foreground">
+                No start–end window applies to this number, so none is shown. Aging is
+                counted on the{" "}
+                <span className="font-medium text-foreground">
+                  {DATE_BASIS_LABELS[header.window.basis]}
+                </span>
+                : {BASIS_DOCS[header.window.basis]}
+              </p>
+            </>
+          ) : (
+            <>
+              <p>
+                {formatWindow(header.window)}
+                {header.window.requested && header.window.requested !== "n/a" && (
+                  <>
+                    {" "}
+                    — resolved from “{header.window.requested}” at plan time and stored as
+                    concrete dates; it never silently re-resolves.
+                  </>
+                )}
+              </p>
+              <p className="mt-1.5 text-muted-foreground">
+                Basis{" "}
+                <span className="font-medium text-foreground">
+                  {DATE_BASIS_LABELS[header.window.basis]}
+                </span>
+                : {BASIS_DOCS[header.window.basis]}
+              </p>
+            </>
+          )}
         </ChipDoc>
       </Chip>
 
@@ -155,6 +194,86 @@ export function ContextHeader({
   );
 }
 
+/** "as of Aug 2, 2026 (service date)" — the snapshot chip's own label. */
+function asOfChipLabel(asOf: string, basis: ContextHeaderData["window"]["basis"]): string {
+  return `${safeMediumDate(asOf)} (${DATE_BASIS_LABELS[basis]})`;
+}
+
+/** `mediumDate` throws on anything that is not an ISO date; a payload that
+ *  publishes something else is printed verbatim rather than crashing the
+ *  header whose job is to state what this answer was measured under. */
+function safeMediumDate(iso: string): string {
+  try {
+    return mediumDate(iso);
+  } catch {
+    return iso;
+  }
+}
+
+/**
+ * Where this header came from.
+ *
+ * Re-opening a session rebuilds a thread from the turns the server stored,
+ * and what it stores is not what streamed: the stage timings and the
+ * composed prose were never persisted. The chips beside this one are the
+ * same facts the live turn published — the marker says they were read back
+ * rather than watched, so a reader can tell the difference between "this
+ * turn had no narrative" and "this turn's narrative was not kept".
+ */
+function RestoredChip({ notes }: { notes?: readonly string[] }) {
+  return (
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="focus-ring inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full border bg-surface-sunken px-2.5 text-[0.7rem] font-medium text-muted-foreground transition-colors duration-150 hover:border-ring/40 hover:text-foreground"
+        >
+          <History className="size-3 shrink-0 opacity-70" />
+          <span className="text-[0.55rem] font-semibold uppercase tracking-[0.14em]">Restored</span>
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="start" className="w-80 p-3.5 text-xs leading-snug">
+        <ChipDoc title="Restored from history">
+          {/*
+            The SERVER's own account of the restore, when it published one
+            (`InvestigationResponse.restoration_notes`). It says things this
+            component cannot know and must not guess — which parts were
+            rebuilt from the stored spec rather than re-computed, and
+            exactly what the store does not hold. Live, that is two
+            sentences, and the second one ("the narrative trace keeps its
+            template, redactions and length, not its sentences") is a
+            precise statement of a limit the paragraph below can only
+            gesture at.
+
+            The static copy is the fallback, not the default: a payload
+            generation that publishes no notes still explains itself.
+          */}
+          {notes && notes.length > 0 ? (
+            notes.map((note, index) => (
+              <p key={note} className={cn(index > 0 && "mt-1.5 text-muted-foreground")}>
+                {note}
+              </p>
+            ))
+          ) : (
+            <>
+              <p>
+                This turn was rebuilt from the record the server kept for it, not watched as
+                it ran. The window, scope, cohort and data load beside this chip are the ones
+                the turn itself published and were stored with it.
+              </p>
+              <p className="mt-1.5 text-muted-foreground">
+                Its stage timings were never persisted, and neither was the streamed
+                write-up — anything missing below is missing because it was not stored, not
+                because this turn did not have it.
+              </p>
+            </>
+          )}
+        </ChipDoc>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
 /**
  * The pinned population, said in words instead of shown as a hash.
  *
@@ -184,7 +303,14 @@ function CohortChip({ cohort }: { cohort: NonNullable<ContextHeaderData["cohort"
       name="Cohort"
       label={cohort.detailed ? cohort.definition : cohort.id}
       trailing={
-        <span className="num shrink-0 text-[0.6rem] font-normal text-verified/70">{sized}</span>
+        // Solid `--verified`, not `/70`. At 70% over the chip's own
+        // `bg-verified/10` tint this measured 2.76:1 in light at 9.6px —
+        // less than a third of the AA floor, on the population figure
+        // that says what the number beside it counts. Solid on the same
+        // tint is 5.58:1 (light) / 8.51:1 (dark) once `--verified` is the
+        // darkened light-theme token; the size distinction that the
+        // opacity was carrying is already carried by the type scale.
+        <span className="num shrink-0 text-[0.6rem] font-normal text-verified">{sized}</span>
       }
       accent
     >
@@ -291,8 +417,12 @@ function Chip({
           <span className="shrink-0 opacity-70">{icon}</span>
           <span
             className={cn(
+              // Same correction as the size figure above: `/70` on the
+              // accent tint measured 2.76:1 at 8.8px in light. The
+              // micro-label is the smallest text in the header and was
+              // the least legible thing in the product.
               "shrink-0 text-[0.55rem] font-semibold uppercase tracking-[0.14em]",
-              accent ? "text-verified/70" : "text-muted-foreground",
+              accent ? "text-verified" : "text-muted-foreground",
             )}
           >
             {name}

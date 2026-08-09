@@ -78,6 +78,91 @@ class TestSuppressionRule:
         frame = _frame((("Payer A", 1),), with_count=False)
         assert apply_small_cell_suppression(frame, THRESHOLD) is frame
 
+
+def _ratio_frame(rows: tuple[tuple[object, ...], ...]) -> EvidenceFrame:
+    """A payer breakdown of a ratio, as the adapter emits it: the metric's
+    numerator and denominator as separate count columns."""
+    return EvidenceFrame(
+        schema=FrameSchema(
+            (
+                FrameColumn("payer", DimensionRef("payer")),
+                FrameColumn("denial_rate__num", MetricRef("denial_rate"), 2, "count"),
+                FrameColumn("denial_rate__den", MetricRef("denial_rate"), 2, "count"),
+            )
+        ),
+        rows=rows,  # type: ignore[arg-type]
+        watermark=WATERMARK,
+        provenance=ProbeProvenance(probe_id="p", probe_hash="h" * 64),
+        evidence_grade=EvidenceGrade.DIRECT,
+    )
+
+
+class TestNumeratorIsBoundedNotDropped:
+    """Round-3 FN-1: the §15 subject is the population, not the numerator.
+
+    Live, "which payer had the lowest denial rate in July 2026" answered
+    *Atlas Commercial at 8.2%* while Federal Medicare sat at 4.21% over 214
+    adjudicated claims — 9 denials, under the threshold, so the whole row
+    was censored. Four of twelve payers vanished and all four were among the
+    best. Suppression that removes the good cells from a ranking is not a
+    privacy control, it is a lie with a policy attached.
+    """
+
+    def test_small_numerator_over_a_large_population_is_bounded(self) -> None:
+        frame = _ratio_frame(
+            (
+                ("Federal Medicare", 9, 214),  # the censored best performer
+                ("Atlas Commercial", 41, 500),  # measured, unchanged
+            )
+        )
+        out = apply_small_cell_suppression(frame, THRESHOLD)
+        # present, not dropped — and at the tight upper bound (10/214)
+        assert out.rows[0] == ("Federal Medicare", THRESHOLD - 1, 214)
+        assert out.rows[1] == ("Atlas Commercial", 41, 500)
+        assert out.suppressed_cells == 1  # the true numerator was withheld
+        # …and the bound beats the measured payer, so the ranking is right
+        assert (THRESHOLD - 1) / 214 < 41 / 500
+
+    def test_a_genuinely_small_population_is_still_fully_suppressed(self) -> None:
+        frame = _ratio_frame((("Tiny Plan", 2, 4),))
+        out = apply_small_cell_suppression(frame, THRESHOLD)
+        assert out.rows[0] == ("Tiny Plan", None, None)
+        assert out.suppressed_cells == 2
+
+    def test_the_policy_is_idempotent_so_cached_frames_are_stable(self) -> None:
+        frame = _ratio_frame((("Federal Medicare", 9, 214),))
+        once = apply_small_cell_suppression(frame, THRESHOLD)
+        twice = apply_small_cell_suppression(once, THRESHOLD)
+        assert twice.rows == once.rows
+        assert twice.suppressed_cells == once.suppressed_cells
+
+    def test_bounds_are_recoverable_from_the_policed_frame(self) -> None:
+        """The evidence cache stores post-policy frames, so the warning has
+        to be derivable from one — otherwise the same question is honest on
+        a cache miss and silent on a hit."""
+        from revi_investigation.application.execution import (
+            bounded_cells_of,
+            bounded_cells_warning,
+        )
+
+        out = apply_small_cell_suppression(
+            _ratio_frame((("Federal Medicare", 9, 214), ("Atlas Commercial", 41, 500))),
+            THRESHOLD,
+        )
+        [cell] = bounded_cells_of(out, THRESHOLD)
+        assert cell.label == "Federal Medicare"
+        assert cell.metric_id == "denial_rate"
+        assert cell.population == 214
+        warning = bounded_cells_warning((cell,), THRESHOLD)
+        assert warning is not None
+        assert warning.startswith("suppression_bounded:")
+        assert "Federal Medicare" in warning and "4.7%" in warning
+
+    def test_nothing_bounded_says_nothing(self) -> None:
+        from revi_investigation.application.execution import bounded_cells_warning
+
+        assert bounded_cells_warning((), THRESHOLD) is None
+
     def test_no_small_cells_returns_same_frame(self) -> None:
         frame = _frame((("Payer A", 100, 5),))
         assert apply_small_cell_suppression(frame, THRESHOLD) is frame

@@ -537,7 +537,7 @@ describe("AnswerCard — a governed name's caveat travels with it (FN-5)", () =>
 
   const FINDING = {
     referent: { value: "F1", kind: "finding" as const },
-    title: "Unbilled open inventory (timely-filing watch proxy): $22,426,000.28",
+    title: "Unbilled open inventory on a running filing clock: $22,426,000.28",
     statement: "Unbilled open inventory is $22,426,000.28 over the window.",
     metricRefs: ["timely_filing_at_risk_dollars"],
     values: {},
@@ -547,11 +547,18 @@ describe("AnswerCard — a governed name's caveat travels with it (FN-5)", () =>
     suggestedRefinements: [],
     impactCents: 2_242_600_028,
     impactLabel: "at this data load",
+    // The pack's live entry. The "watch proxy" label came off when
+    // `timely_filing_at_risk_dollars` grew its claim → plan → filing-rule
+    // join: the runway is real and measurable now, so the number is no
+    // longer standing in for a measurement nobody could make. What is left
+    // is a population statement, which is a different and permanent kind
+    // of caveat — the total still counts every unbilled open claim
+    // regardless of runway. The figure itself did not move.
     metricDisplay: {
       metricId: "timely_filing_at_risk_dollars",
-      displayName: "Unbilled open inventory (timely-filing watch proxy)",
+      displayName: "Unbilled open inventory on a running filing clock",
       caveat:
-        "No deadline predicate is applied — never read this as dollars at risk of a timely-filing denial.",
+        "Counts every unbilled open claim regardless of runway, so claims a year from their deadline and claims already past it are both in the total; cut by filing_runway_bucket to separate them.",
     },
   };
 
@@ -560,16 +567,16 @@ describe("AnswerCard — a governed name's caveat travels with it (FN-5)", () =>
     // the label and leaves its bound behind.
     renderCard(bareTurn({ findings: [FINDING] }));
 
-    expect(screen.getByText(/No deadline predicate is applied/)).toBeVisible();
+    expect(screen.getByText(/regardless of runway/)).toBeVisible();
   });
 
   it("does not re-substitute a title the server already composed", () => {
     renderCard(bareTurn({ findings: [FINDING] }));
 
     // The governed name contains no raw id and appears exactly once — the
-    // double-substitution shape is "…(timely-filing watch proxy) (timely-…".
+    // double-substitution shape is "…running filing clock on a running…".
     expect(
-      screen.getByText("Unbilled open inventory (timely-filing watch proxy): $22,426,000.28"),
+      screen.getByText("Unbilled open inventory on a running filing clock: $22,426,000.28"),
     ).toBeInTheDocument();
     expect(screen.queryByText(/timely filing at risk dollars/)).not.toBeInTheDocument();
   });
@@ -654,5 +661,176 @@ describe("AnswerCard — debug mode", () => {
 
     expect(screen.getByText("Decision trace")).toBeInTheDocument();
     expect(screen.getByText(/new_investigation \(0\.94\)/)).toBeInTheDocument();
+  });
+});
+
+/**
+ * Sellable analysts take numbers to meetings.
+ *
+ * The copy action is client-side only and composed from payload already on
+ * screen — and the one thing it must never do is hand over the findings
+ * without the caveats that bound them. `answerToText` is unit-tested in
+ * `lib/export.test.ts`; what is asserted here is that the card offers it
+ * on a finished answer, does not offer it on a turn with nothing to take
+ * away, and tells the reader what it is going to include.
+ */
+describe("AnswerCard — taking the answer out of the browser", () => {
+  it("offers a copy action on a finished answer, and says the caveats travel", () => {
+    renderCard(turn());
+    const button = screen.getByRole("button", { name: /Copy answer/ });
+    expect(button).toBeInTheDocument();
+    expect(button).toHaveAttribute("title", expect.stringContaining("every caveat"));
+    expect(button).toHaveAttribute("title", expect.stringContaining("Nothing leaves this browser"));
+  });
+
+  it("offers nothing to copy while the turn is still streaming", () => {
+    const streaming: TurnRecord = {
+      ...turn(),
+      answer: { ...turn().answer, status: "streaming" },
+    };
+    renderCard(streaming);
+    expect(screen.queryByRole("button", { name: /Copy answer/ })).not.toBeInTheDocument();
+  });
+
+  it("offers nothing to copy on a turn with no findings and no prose", () => {
+    const bare: TurnRecord = {
+      ...turn(),
+      answer: { ...turn().answer, narrative: "", findings: [] },
+    };
+    renderCard(bare);
+    expect(screen.queryByRole("button", { name: /Copy answer/ })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * What a restored turn is allowed to leave silent.
+ *
+ * Re-opening a session replays what the server kept. On the payload
+ * generations that do not persist the composed prose, the write-up is
+ * simply absent — and because what DOES survive a restore is the caveats,
+ * a silent gap leaves yesterday's answer looking like caveats with the
+ * answer removed. The absence is stated instead.
+ */
+describe("AnswerCard — a turn rebuilt from history", () => {
+  function restored(overrides: Partial<TurnRecord["answer"]> = {}): TurnRecord {
+    return {
+      id: "turn_restored",
+      index: 0,
+      submission: { utterance: "What is our denial rate by payer for July 2026?" },
+      answer: {
+        ...emptyAnswer(),
+        status: "complete",
+        rehydrated: true,
+        narrative: "",
+        findings: [
+          {
+            referent: { value: "F1", kind: "finding" },
+            title: "State Medicaid MCO: 29.5% denial rate",
+            statement: "State Medicaid MCO ranks #1 by denial rate.",
+            metricRefs: ["denial_rate"],
+            values: { denial_rate: 0.295082 },
+            grade: "direct",
+            directionOfGood: "neutral",
+            confidence: "high",
+            suggestedRefinements: [],
+          },
+        ],
+        ...overrides,
+      },
+    };
+  }
+
+  it("says the write-up was not stored rather than leaving a gap", () => {
+    renderCard(restored());
+    expect(
+      screen.getByText(/The written analysis was not stored for this turn/),
+    ).toBeInTheDocument();
+  });
+
+  it("says nothing of the sort when the store did keep the prose", () => {
+    renderCard(restored({ narrative: "Among the payers that cleared reporting…" }));
+    expect(
+      screen.queryByText(/The written analysis was not stored for this turn/),
+    ).not.toBeInTheDocument();
+    expect(screen.getByText(/Among the payers that cleared reporting/)).toBeInTheDocument();
+  });
+});
+
+/**
+ * The governed conversation→worklist bridge, on the answer card.
+ *
+ * `WORKLIST_ATTACHED` is the sentence that says the ranked cards are the
+ * detection feed's work and NOT findings this turn computed. Left in the
+ * turn's general warning list it renders above the findings and far from
+ * the cards it is about — so a reader meets eight ranked dollar figures
+ * and finds the disclaimer somewhere else entirely. It is MOVED to open
+ * the worklist block, and moved rather than duplicated.
+ */
+describe("AnswerCard — a turn carrying the ranked worklist", () => {
+  const WORKLIST = {
+    matchedOn: "concept" as const,
+    matchedId: "work_prioritization",
+    statement: "8 of 33 ranked cards at watermark wm_003, highest governed priority first.",
+    label: "What to work first",
+    description: "The ranked anomaly worklist at this watermark.",
+    formulaVersion: "anomaly_priority@3",
+    watermarkId: "wm_003",
+    items: [],
+    lanes: [],
+    totalItems: 33,
+    limit: 8,
+    totalRecoverableCentsEstimate: 83_050_193,
+    warnings: [],
+  };
+
+  const ATTACHED = {
+    type: "warning" as const,
+    code: "WORKLIST_ATTACHED",
+    severity: "info" as const,
+    message:
+      "worklist_attached: this answer also carries the ranked anomaly worklist (8 of 33 cards). The cards are the detection feed's; they are not findings this turn computed.",
+    structured: true,
+  };
+
+  it("opens the worklist with the attachment sentence, exactly once", () => {
+    renderCard(bareTurn({ worklist: WORKLIST, warnings: [ATTACHED] }));
+
+    const matches = screen.getAllByText(/they are not findings this turn computed/);
+    expect(matches).toHaveLength(1);
+    expect(screen.getByText(/8 of 33 ranked cards at watermark wm_003/)).toBeInTheDocument();
+  });
+
+  it("leaves the turn's other warnings in the warning list", () => {
+    renderCard(
+      bareTurn({
+        worklist: WORKLIST,
+        warnings: [
+          ATTACHED,
+          {
+            type: "warning",
+            code: "POPULATION_CAVEAT",
+            severity: "caution",
+            message: "population_caveat: this total counts every unbilled open claim",
+            structured: true,
+          },
+        ],
+      }),
+    );
+
+    expect(screen.getByText("How to read this number")).toBeInTheDocument();
+    expect(
+      screen.getByText(/this total counts every unbilled open claim/),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the sentence in the warning list when there is no worklist to move it to", () => {
+    renderCard(bareTurn({ warnings: [ATTACHED] }));
+
+    // Nothing is ever silently dropped: with no worklist block to open,
+    // the warning renders where every other warning does.
+    expect(screen.getByText("Worklist attached")).toBeInTheDocument();
+    expect(
+      screen.getByText(/they are not findings this turn computed/),
+    ).toBeInTheDocument();
   });
 });

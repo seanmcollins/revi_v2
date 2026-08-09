@@ -466,14 +466,28 @@ def build_narrative_facts(
 #: Codes that must be said BEFORE anything else. A refusal — "nothing moved
 #: the way the question asked about; what follows is context, not an
 #: answer" — cannot sit beneath two paragraphs about the movement that was
-#: found instead. There is deliberately only one family here: leading with
-#: everything is the same as leading with nothing.
-LEAD_DISCLOSURE_CODES: tuple[str, ...] = ("DIRECTION_UNMATCHED", "EMPTY_RESULT")
+#: found instead. Kept to one family: leading with everything is the same as
+#: leading with nothing.
+#:
+#: ``PREMISE_FALSE`` joins it because it is the same family one level up.
+#: "Why did denials double?" answered with the three cells that rose, inside
+#: an 81% fall nobody mentioned, is not a caveated answer — it is a
+#: confirmation of something that did not happen. The correction leads or it
+#: does not work.
+LEAD_DISCLOSURE_CODES: tuple[str, ...] = (
+    "PREMISE_FALSE",
+    "DIRECTION_UNMATCHED",
+    "EMPTY_RESULT",
+)
 
 #: Codes that must be said, after the prose, in this order. These bound how
 #: the figures may be read rather than whether they answer the question.
 TRAILING_DISCLOSURE_CODES: tuple[str, ...] = (
     "SUPPRESSION_APPLIED",
+    # Which cells carry an upper bound instead of a measurement. A ranking
+    # that silently mixes the two is as misleading as one that drops the
+    # bounded rows, so the bound is said, not merely available.
+    "SUPPRESSION_BOUNDED",
     "RECONCILIATION_FAILED",
     "SNAPSHOT_AS_OF",
     "PROBE_FAMILIES_EMPTY",
@@ -505,6 +519,33 @@ def _strip_code_prefix(message: str) -> str:
     if sep and " " not in head and head.lower() == head:
         return tail
     return message
+
+
+#: The classification the API's warning table publishes for a sentence no
+#: rule of its recognizes.
+_UNCLASSIFIED = "UNCLASSIFIED"
+
+
+def recovered_code(code: str, message: str) -> str:
+    """The code to disclose under, when the classifier had no rule for it.
+
+    Classification lives in one place — the API's warning table — and this
+    does not move it. It covers exactly one gap, in one direction: a
+    *mandatory* disclosure that arrives as ``UNCLASSIFIED`` because a new
+    engine warning family shipped before the table learned its name would
+    otherwise be silently demoted out of the lead, which is the one failure
+    mandatory disclosures exist to prevent. The engine's own prefix
+    convention (``lowercase_token: sentence``) is what identifies it, the
+    recovery only ever fires for codes already listed as mandatory, and the
+    table wins wherever it has an opinion.
+    """
+    if code != _UNCLASSIFIED:
+        return code
+    head, sep, _ = message.partition(": ")
+    if not sep or " " in head or head.lower() != head:
+        return code
+    candidate = head.upper()
+    return candidate if candidate in MANDATORY_DISCLOSURE_CODES else code
 
 
 def reconciliation_disclosure(
@@ -593,7 +634,7 @@ def mandatory_disclosures(
     """
     by_code: dict[str, str] = {}
     for code, message in classified_warnings:
-        by_code.setdefault(code, message)
+        by_code.setdefault(recovered_code(code, message), message)
 
     def stated(codes: Sequence[str]) -> list[str]:
         out: list[str] = []
@@ -609,11 +650,22 @@ def mandatory_disclosures(
     if "SUPPRESSION_APPLIED" in by_code and suppressed_cells > 0:
         scope = f" of {total_cells}" if total_cells else ""
         noun = "cell" if suppressed_cells == 1 else "cells"
+        # Two policies, two readings. Where every withheld cell was dropped,
+        # the surviving figures describe only what survived. Where some were
+        # BOUNDED instead, the cell is still here and its figure is a
+        # ceiling — saying "only the cells that survived" over a published
+        # bound would be the old censorship story told about a fixed one.
+        rest = (
+            "some of them are published as upper bounds rather than dropped, so a figure "
+            "marked as a bound is a ceiling and not a measurement"
+            if "SUPPRESSION_BOUNDED" in by_code
+            else "so every figure and count here describes only the cells that survived it "
+            "— never the whole population"
+        )
         trail.append(
             _sentence(
-                f"Small-cell suppression withheld {suppressed_cells}{scope} {noun} on this "
-                "answer, so every figure and count here describes only the cells that "
-                "survived it — never the whole population"
+                f"Small-cell suppression withheld the true value of {suppressed_cells}{scope} "
+                f"{noun} on this answer, {rest}"
             )
         )
     failed = by_code.get("RECONCILIATION_FAILED")
@@ -646,7 +698,8 @@ def empty_narrative(classified_warnings: Sequence[tuple[str, str]]) -> str | Non
     sentences = [
         _sentence(_strip_code_prefix(message))
         for code, message in classified_warnings
-        if code in ("EMPTY_RESULT", "DIRECTION_UNMATCHED", "PROBE_FAMILIES_EMPTY")
+        if recovered_code(code, message)
+        in ("PREMISE_FALSE", "EMPTY_RESULT", "DIRECTION_UNMATCHED", "PROBE_FAMILIES_EMPTY")
     ]
     if not sentences:
         return None

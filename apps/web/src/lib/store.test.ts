@@ -317,11 +317,63 @@ describe("newChat() — session lifecycle", () => {
 
     await useSessionStore.getState().newChat();
 
-    // The old backend session is never silently continued — a fresh one is
-    // requested, not just a local clear of the thread.
+    // The old backend session is never silently continued — the driver's
+    // cache is dropped, not just the local thread.
     expect(newSession).toHaveBeenCalledTimes(1);
     expect(useSessionStore.getState().turns).toEqual([]);
     expect(useSessionStore.getState().referents).toEqual({});
+  });
+
+  /**
+   * The gap between "New chat" and the first question.
+   *
+   * Nothing is minted by the button — the server creates a session when a
+   * turn arrives — so for that whole interval there is no session. What the
+   * store must NOT do is keep the abandoned session's identity sitting in
+   * state, because the header reads its watermark straight out of there:
+   * a specific data-load date and load time, in the analyst's most-trusted
+   * line, pinned by a thread that was just discarded.
+   */
+  it("holds no session across the gap, and claims no pin it cannot stand behind", async () => {
+    const newSession = vi.fn().mockResolvedValue(undefined);
+    const fakeDriver: TurnDriver = { submit: vi.fn().mockResolvedValue(undefined), newSession };
+    useSessionStore.getState().setDriver(fakeDriver);
+    useSessionStore.getState().adoptSession({
+      sessionId: "sess_live_1",
+      watermark: { id: "wm_9", loadedAt: "2026-08-08 04:00", newestDataDate: "2026-08-07" },
+      pack: { packId: "base-rcm", version: "1.0.0" },
+    });
+    useSessionStore.setState({ connection: { mode: "api", state: "online" } });
+    expect(useSessionStore.getState().sessionLive).toBe(true);
+
+    await useSessionStore.getState().newChat();
+
+    // `sessionLive` is what every surface gates the pin on.
+    expect(useSessionStore.getState().sessionLive).toBe(false);
+    // The connection is untouched: no request was made, so "connecting" —
+    // which is what this used to set — would be the same fabrication one
+    // layer down. Pressing a button is not a network event.
+    expect(useSessionStore.getState().connection.state).toBe("online");
+  });
+
+  it("takes a real pin again the moment the first turn brings one back", async () => {
+    const newSession = vi.fn().mockResolvedValue(undefined);
+    const fakeDriver: TurnDriver = { submit: vi.fn().mockResolvedValue(undefined), newSession };
+    useSessionStore.getState().setDriver(fakeDriver);
+    useSessionStore.setState({ connection: { mode: "api", state: "online" } });
+
+    await useSessionStore.getState().newChat();
+    expect(useSessionStore.getState().sessionLive).toBe(false);
+
+    // What `ApiDriver.onSession` does once the first turn bootstraps.
+    useSessionStore.getState().adoptSession({
+      sessionId: "sess_live_2",
+      watermark: { id: "wm_10", loadedAt: "2026-08-09 04:00", newestDataDate: "2026-08-08" },
+      pack: { packId: "base-rcm", version: "1.0.0" },
+    });
+
+    expect(useSessionStore.getState().sessionLive).toBe(true);
+    expect(useSessionStore.getState().watermark.id).toBe("wm_10");
   });
 });
 

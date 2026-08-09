@@ -47,6 +47,32 @@ class AbsoluteWindowModel(ClosedModel):
     end: date
 
 
+#: The calendar units a *named* period can be stated in, mirroring
+#: :data:`revi_kernel.scope.ANCHORED_UNITS` exactly.
+AnchoredUnitLiteral = Literal["month", "quarter", "year"]
+
+
+class AnchoredWindowModel(ClosedModel):
+    """A calendar period the analyst named: June 2026, Q2 2026, 2025.
+
+    The third window shape, and the one the chat box had no way to say.
+    ``WindowSpecModel`` is relative ("the last 6 months") and
+    ``AbsoluteWindowModel`` is a pair of dates — so "denial rate for June
+    2026" was unmappable, and a portfolio card's published window could not
+    be re-run by hand. This shape is neither a guess nor free-form dates:
+    the period is *named* and the concrete dates are derived by
+    :func:`revi_kernel.scope.resolve_anchored`, so the calendar arithmetic
+    stays in one deterministic place instead of being asked of a model.
+
+    ``index`` is the 1-based period within the year — month 1..12, quarter
+    1..4 — and must be omitted for ``unit="year"``.
+    """
+
+    unit: AnchoredUnitLiteral
+    year: int = Field(ge=1, le=9999)
+    index: int | None = Field(default=None, ge=1, le=12)
+
+
 class SetDimensionsModel(ClosedModel):
     op: Literal["set_dimensions"]
     dimensions: list[str]
@@ -66,7 +92,7 @@ class RemoveFilterModel(ClosedModel):
 
 class SetWindowModel(ClosedModel):
     op: Literal["set_window"]
-    window: WindowSpecModel | AbsoluteWindowModel
+    window: WindowSpecModel | AnchoredWindowModel | AbsoluteWindowModel
     basis: str | None = None
 
 

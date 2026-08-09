@@ -1,25 +1,27 @@
-# Unbilled open inventory — the population whose filing clocks are running.
+# Unbilled open inventory — the population whose filing clocks are running,
+# and (since 2026-08-09) a population that can be cut by how much runway is
+# left on each clock.
 #
-# NAME WARNING (round-1 review F9). This contract's id says "timely filing
-# at risk" and its formula applies NO DEADLINE PREDICATE. It sums billed
-# charges on open, never-submitted claims: an upper bound on filing
-# exposure, not a measure of it. The gap is three orders of magnitude —
-# $22.4M served against ~$62K of genuine filing cards in this warehouse.
+# WHAT CHANGED IN v2, AND WHAT DELIBERATELY DID NOT (round-1 review F9).
+# v1 applied no deadline predicate and had no way to express one: the
+# claim -> plan -> filing rule join did not exist, so the id promised filing
+# exposure over a number that measured inventory. That join is now delivered
+# as catalog surface — the certified `filing_runway_bucket` dimension and the
+# `days_to_filing_deadline` derived measure, both computed from the filing
+# limit each plan configures (warehouse/catalog/dimensions.yaml).
 #
-# The id is deliberately NOT renamed: it is a reference anchor across the
-# playbooks, the answer key, the web fixtures and the review record, and
-# renaming it would break more than it fixes. What changes instead is
-# everything the reader sees — the description below, the mandatory
-# population caveat it now carries (emitted as a warning on EVERY answer
-# that reads this metric), and the governed display name in
-# `../metric_display.yaml`. The formula, version, grain, bases and scope
-# dimensions are untouched, so nothing that cites this contract moves.
-#
-# The real fix — joining each claim's payer/plan to the pack's
-# filing_rules at probe time and aging from the snapshot's newest data
-# date — is a named milestone in ../NOTES.md, not a promise made here.
+# v2 adds `filing_runway_bucket` to `scope_dimensions` and nothing else. The
+# numerator is UNTOUCHED, on purpose: narrowing the population to "claims
+# inside a bounded runway" would silently drop the already-expired dollars,
+# which are not at risk of a filing denial — they are lost to one — and those
+# are 47% of this warehouse's total. Hiding the worst half of a number is not
+# a fix. So the total still values the whole unbilled open population, the
+# reader is told that in a mandatory caveat, and the decomposition that makes
+# the total actionable is one cut away. The id, kind, grain, bases, sign and
+# unit are unchanged, so every playbook, card and fixture that cites this
+# contract still cites the same number.
 id: timely_filing_at_risk_dollars
-version: 1
+version: 2
 kind: snapshot
 entity_grain: claim
 numerator:
@@ -33,19 +35,23 @@ primary_date_basis: service
 allowed_date_bases: [service]
 scope_dimensions:
   [payer, payer_type, financial_class, plan, product_type, provider,
-   provider_specialty, facility, region, service_line, claim_type]
+   provider_specialty, facility, region, service_line, claim_type,
+   filing_runway_bucket]
 sign: higher_is_bad
 unit: money_cents
 description: >-
   Billed value of open, never-submitted claims as of the snapshot — the
   unbilled inventory whose filing clocks are running. The contract defines
   the population (open AND not billed) and the valuation (gross billed
-  charges) and nothing else: it is the denominator a timely-filing watch
-  starts from, and the watch itself is not yet built.
-  Population caveat: this figure applies NO deadline predicate. Deadline
-  proximity from the pack's filing_rules (limit days, basis, authority,
-  confirmation requirement) is NOT yet joined at probe time, so this is
-  total unbilled open inventory — an UPPER BOUND on filing exposure, not a
-  measure of it. Claims with a year of runway are counted identically to
-  claims a week from their limit. Read it as "the population a filing
-  watch would age", never as "dollars at risk of a timely-filing denial".
+  charges); how close each claim is to its deadline is a cut, not a filter.
+  Population caveat: this total counts every unbilled open claim regardless of
+  runway, so a claim with a year left and a claim already past its deadline
+  are both in it. Cut it by filing_runway_bucket before acting on it: that
+  dimension joins each claim to the filing limit its PLAN configures and
+  separates `expired` (deadline gone, dollars lost) from the day bands still
+  workable. The limit is the plan record, which is the pack's
+  plan_configuration tier and the most specific rule available; only 7 of the
+  30 plans in this warehouse match a filing_rules entry that needs no
+  confirmation, so for the rest the deadline is a planning default to confirm
+  against the payer contract before you work the list. Read the total as "the
+  population a filing watch ages", and the runway cut as the exposure.

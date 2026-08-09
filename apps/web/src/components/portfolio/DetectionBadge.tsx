@@ -3,6 +3,7 @@
 import { Radar } from "lucide-react";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { formatWholeDollars } from "@/lib/format";
 import type { PriorityDecomposition } from "@/lib/mock/portfolio";
 import { cn } from "@/lib/utils";
 
@@ -90,6 +91,27 @@ export function DetectionBadge({
                 {(priorityScore ?? priority.scoreBeforeFloor).toFixed(3)}
               </dd>
             </div>
+            {/* The arithmetic behind the FIRST term, which was the one
+                term a reader could not check. `impact_norm` is a bare
+                ratio — 0.361299 beside an impact of $178,216.82 — and the
+                two numbers that produce it (the figure that ranked this
+                card, over the largest ranked figure in the population)
+                were published and shown nowhere. The normalizer is the
+                same for every card, which is what makes these scores
+                comparable rather than a list of unrelated numbers. */}
+            {priority.rankedImpactCents !== undefined &&
+              priority.impactNormalizerCents !== undefined && (
+                <p className="pt-0.5 font-sans opacity-90">
+                  Impact term is {formatWholeDollars(priority.rankedImpactCents)} over{" "}
+                  {formatWholeDollars(priority.impactNormalizerCents)}, the largest ranked
+                  figure on this list ({priority.impactNorm.toFixed(3)})
+                  {priority.rankedOn === "platform"
+                    ? " — on this platform's re-derived figure, not the detector's."
+                    : priority.rankedOn === "not_comparable"
+                      ? " — on the detector's figure, because this platform's re-derivation is not a comparable quantity."
+                      : " — on the detection system's own figure."}
+                </p>
+              )}
             {priority.floorApplied && (
               <p className="pt-0.5 font-sans opacity-90">
                 Raised to the compliance floor ({priority.floorValue.toFixed(3)},{" "}

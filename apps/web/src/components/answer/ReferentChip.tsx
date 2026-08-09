@@ -7,6 +7,7 @@ import {
 } from "@/components/ui/hover-card";
 import { formatSignedCents } from "@/lib/format";
 import { useSessionStore } from "@/lib/store";
+import { scrollIntoViewRespectingMotion } from "@/lib/useReducedMotion";
 import { cn } from "@/lib/utils";
 
 /**
@@ -28,9 +29,9 @@ export function ReferentChip({
       type="button"
       onClick={() => {
         focusReferent(value);
-        document
-          .getElementById(`referent-${value}`)
-          ?.scrollIntoView({ behavior: "smooth", block: "center" });
+        scrollIntoViewRespectingMotion(document.getElementById(`referent-${value}`), {
+          block: "center",
+        });
       }}
       className={cn(
         "inline-flex h-[1.15rem] items-center rounded border border-verified/40 bg-verified/10 px-1 font-mono text-[0.68rem] font-medium leading-none text-verified transition-colors duration-150 hover:bg-verified/20",

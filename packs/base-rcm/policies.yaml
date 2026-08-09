@@ -40,15 +40,22 @@ conclusion_policies:
     estimate_label_required: false
   - id: timely_filing_risk_claim
     claim: >-
-      Identified unsubmitted OPEN inventory is the population a filing watch
-      would age. No claim of material risk against a filing limit is
-      licensed: the governing metric applies no deadline predicate, so any
-      answer citing it states that it is an upper bound. When the probe-time
-      filing_rules join lands (see NOTES.md), this policy tightens to the
-      risk claim it was written for, and rules requiring confirmation are
-      labeled planning defaults.
+      Unsubmitted OPEN inventory of a stated size stands against named
+      plans, and a stated share of it is inside — or already past — the
+      filing limit its plan configures. This is the risk claim the policy
+      was written for and could not license until the claim -> plan ->
+      filing-rule join landed (NOTES.md, 2026-08-09). Two conditions hold
+      it honest. The claim must rest on the runway CUT, not the total: the
+      ungrouped figure is the population a filing watch would age, never an
+      exposure, and an answer citing it without the runway breakdown is
+      still making the upper-bound claim. And any runway stated for a plan
+      whose rule carries requires_confirmation must be labeled a planning
+      default to confirm against the payer contract — only 7 of the 30
+      plans in this warehouse match a rule that needs no confirmation, so
+      most rows are defaults and saying otherwise would assert a deadline
+      the pack does not know.
     required_grade: derived
-    required_evidence: [at_risk_by_plan]
+    required_evidence: [at_risk_by_plan, filing_runway_profile]
     estimate_label_required: false
   - id: scorecard_claim
     claim: >-
@@ -222,11 +229,20 @@ detector_policies:
     threshold_max: 0.10
   # --- anomaly portfolio prioritization (governed parameters) --------------
   # The priority formula itself is versioned platform code
-  # (revi_api.portfolio, anomaly_priority@1); these bounded parameters are
+  # (revi_api.portfolio, anomaly_priority@3); these bounded parameters are
   # the tunable pack content it combines. Weights are relative shares of
   # the three components (normalized in code); the half-life drives the
-  # recency decay 0.5^(age_days / half_life); the compliance floor is the
-  # minimum priority score a compliance-mandatory category may sink to.
+  # recency decay 0.5^(age_days / half_life); the compliance floor below is
+  # now the FALLBACK floor (since @2 the floor applied is the median score
+  # of the non-floored population, and the response says which basis was
+  # used).
+  #
+  # What the formula normalizes changed in @3: the impact and recoverable
+  # terms are computed from the figure the platform is prepared to defend —
+  # its own re-derivation where that DIVERGES from the detector's, the
+  # detector's otherwise — and every card publishes which one ranked it
+  # (`ranked_on`), the figure itself, and the population's normalizer. The
+  # weights below are unchanged and still mean the same thing.
   - id: anomaly_priority_impact_weight
     description: >-
       Weight of the dollar-weighted component (raw impact_cents) in the

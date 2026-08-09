@@ -928,6 +928,70 @@ describe("chart shape and duplicates (F20)", () => {
     expect(spec?.kind).toBe("line");
   });
 
+  /**
+   * The `by month` grain, exactly as it arrives.
+   *
+   * Live capture (`POST /v1/sessions/{sid}/turns`, "show me denied dollars
+   * by month for the last 6 months"): the six-month series is published as
+   * `chart_type: "stacked_bar"` with `x: "month"` and ISO first-of-month
+   * labels, alongside a trend finding titled "denied dollars by month,
+   * 2026-02-01..2026-07-31: $885,721.50 → $1,193,126.92 (up $307,405.42)".
+   *
+   * The axis rule only ever fired on a DECLARED line, so an ordered time
+   * axis could not earn one: a genuine six-month trend drew as six
+   * disconnected bars directly beneath a finding whose own title has an
+   * arrow in it. The wire type is a hint in both directions.
+   */
+  const LIVE_MONTHLY_TREND = {
+    id: "chart_main",
+    chart_type: "stacked_bar",
+    title: "denied dollars — main",
+    frame_id: "main",
+    x: "month",
+    series: null,
+    value: "denied_dollars",
+    unit: "money_cents",
+    grade: "direct",
+    rows: [
+      { x: "2026-02-01", series: null, value: 88_572_150, referent_id: null },
+      { x: "2026-03-01", series: null, value: 97_289_576, referent_id: null },
+      { x: "2026-04-01", series: null, value: 82_252_958, referent_id: null },
+      { x: "2026-05-01", series: null, value: 107_059_856, referent_id: null },
+      { x: "2026-06-01", series: null, value: 99_090_358, referent_id: null },
+      { x: "2026-07-01", series: null, value: 119_312_692, referent_id: null },
+    ],
+    annotations: [],
+  };
+
+  it("draws an ordered time axis as a line even when the wire says stacked_bar", () => {
+    const spec = mapChartSpec(LIVE_MONTHLY_TREND);
+    expect(spec?.kind).toBe("line");
+    // Nothing is thrown away: the published type still travels.
+    expect(spec?.wireChartType).toBe("stacked_bar");
+    // Money arrives in cents and is NOT rescaled — only `ratio` is.
+    expect(spec?.unit).toBe("cents");
+    expect(spec?.rows[0]?.values.denied_dollars).toBe(88_572_150);
+    expect(spec?.rows).toHaveLength(6);
+    expect(spec?.title).toBe("Denied dollars by month");
+  });
+
+  it("leaves a genuinely multi-series stacked bar over time stacked", () => {
+    // A composition over time is not a trend line per component: unstacking
+    // it would change what the chart claims. Only the single-series case
+    // is promoted.
+    const spec = mapChartSpec({
+      ...LIVE_MONTHLY_TREND,
+      series: "payer",
+      rows: [
+        { x: "2026-06-01", series: "Atlas", value: 10 },
+        { x: "2026-06-01", series: "Bluestone", value: 20 },
+        { x: "2026-07-01", series: "Atlas", value: 12 },
+        { x: "2026-07-01", series: "Bluestone", value: 22 },
+      ],
+    });
+    expect(spec?.kind).toBe("grouped_bar");
+  });
+
   it("composes a human title from the frame's columns", () => {
     const spec = mapChartSpec({
       ...LIVE_RATIO_CHART,

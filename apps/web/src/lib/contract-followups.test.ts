@@ -154,9 +154,14 @@ describe("structured warnings", () => {
     // fails here rather than reaching an analyst as a bare code.
     const published = [
       "EMPTY_RESULT",
+      "PREMISE_FALSE",
+      "SUPPRESSION_BOUNDED",
+      "WINDOW_OUT_OF_RANGE",
+      "COMPARISON_ASSUMED",
       "VALUE_CORRECTED",
       "DIRECTION_UNMATCHED",
       "WINDOW_ASSUMED",
+      "SNAPSHOT_AS_OF",
       "DROPPED_GRAIN",
       "FILTER_REDUNDANT",
       "COMPARISON_WINDOW_LENGTH",
@@ -176,10 +181,16 @@ describe("structured warnings", () => {
       "PROBE_TEMPLATE_SKIPPED",
       "TRANSFORM_NOT_EXECUTABLE",
       "TRANSFORM_SKIPPED",
+      "PROBE_FAMILIES_EMPTY",
       "PORTFOLIO_CARDS_NOT_INVESTIGABLE",
       "PORTFOLIO_FEED_EMPTY",
       "PORTFOLIO_IMPACT_UNRECONCILED",
       "PORTFOLIO_IMPACT_DIVERGED",
+      "PORTFOLIO_IMPACT_NOT_COMPARABLE",
+      "PORTFOLIO_RANKED_ON_PLATFORM",
+      "PORTFOLIO_RANKED_ON_DETECTOR",
+      "WORKLIST_ATTACHED",
+      "WORKLIST_UNAVAILABLE",
     ];
     for (const code of published) {
       expect(warningTitle(code), `${code} needs a plain-language title`).toBeTruthy();
@@ -390,18 +401,18 @@ describe("metric display names", () => {
       mapMetricDisplay([
         {
           metric_id: "timely_filing_at_risk_dollars",
-          display_name: "Unbilled open inventory (timely-filing watch proxy)",
-          caveat: "No deadline predicate is applied.",
+          display_name: "Unbilled open inventory on a running filing clock",
+          caveat: "Counts every unbilled open claim regardless of runway.",
         },
       ]),
     );
     expect(applyMetricDisplayNames("timely filing at risk dollars: $22.4M", display)).toBe(
-      "Unbilled open inventory (timely-filing watch proxy): $22.4M",
+      "Unbilled open inventory on a running filing clock: $22.4M",
     );
     // The raw id spelling is corrected too — a debug surface should not
     // disagree with the card beside it.
     expect(applyMetricDisplayNames("timely_filing_at_risk_dollars", display)).toBe(
-      "Unbilled open inventory (timely-filing watch proxy)",
+      "Unbilled open inventory on a running filing clock",
     );
   });
 

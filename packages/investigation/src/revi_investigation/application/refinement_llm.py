@@ -33,6 +33,7 @@ from revi_investigation.application.llm.render import (
 from revi_investigation.application.llm.schemas import (
     AbsoluteWindowModel,
     AddFilterModel,
+    AnchoredWindowModel,
     AnyRefinementOperator,
     DrillIntoModel,
     ExpandModel,
@@ -91,10 +92,12 @@ from revi_kernel.refs import (
 )
 from revi_kernel.scope import (
     AbsoluteRange,
+    AnchoredRange,
     ComparisonKind,
     RangeMode,
     RelativeRange,
     TimeUnit,
+    resolve_anchored,
 )
 
 _MIN_RESOLUTION_CONFIDENCE = 0.5
@@ -146,8 +149,9 @@ def resolve_referent_tokens(
     ``resolutions`` for the ones the registry knows, ``unknown`` for the
     ones it does not (a handle that never existed, or one from a session
     whose registry was rebuilt: the caller says so rather than guessing).
-    Utterances with no handle at all resolve to nothing and still need the
-    model, which is what anaphora ("that payer", "the second row") is for.
+    Named entities the platform itself printed resolve here too — see
+    :func:`resolve_named_referents`. Everything else ("the second row", "the
+    one above") is anaphora over presentation and still needs the model.
     """
     by_value = {entry.referent.value: entry for entry in entries}
     resolutions: list[ReferentResolution] = []
@@ -160,7 +164,83 @@ def resolve_referent_tokens(
         resolutions.append(
             ReferentResolution(mention=token, referent=entry.referent, confidence=1.0)
         )
+    if not resolutions and not unknown:
+        resolutions.extend(resolve_named_referents(question, entries))
     return tuple(resolutions), tuple(unknown)
+
+
+def _mentions(question: str, needle: str) -> bool:
+    """Whole-token, case-insensitive containment ("Summit Peak" in …)."""
+    if not needle.strip():
+        return False
+    return re.search(rf"(?<!\w){re.escape(needle.strip())}(?!\w)", question, re.IGNORECASE) is not None
+
+
+def resolve_named_referents(
+    question: str, entries: tuple[RegisteredReferent, ...]
+) -> tuple[ReferentResolution, ...]:
+    """Bind a follow-up to an entity THIS SESSION named, deterministically.
+
+    One turn after publishing "Summit Peak Medicare Advantage initial denial
+    rate up 2.1 points" as F1, the same session asked the analyst whether
+    "Summit Peak" was a facility, a payer or a provider. It had just said so
+    itself: the row is in the registry with its ``(dimension, value)`` pair
+    attached. Asking a model — or asking the analyst — to recover a fact the
+    platform published one turn earlier is not caution, it is amnesia.
+
+    Two deterministic shapes, both requiring the answer to be *unambiguous*:
+
+    * the value itself ("Summit Peak Medicare Advantage", or the exact text
+      of the row label), and
+    * a demonstrative over the dimension ("that payer", "this payer"), which
+      binds only when the session has shown exactly one distinct value for
+      that dimension.
+
+    Ambiguity is left to the model on purpose. Two payers on screen and
+    "that payer" means the model (or the analyst) has to say which — and a
+    deterministic guess there would be the confident-wrong answer this rule
+    exists to prevent.
+    """
+    named: dict[str, list[RegisteredReferent]] = {}
+    by_dimension: dict[str, set[str]] = {}
+    for entry in entries:
+        if entry.dimension_value is None:
+            continue
+        dimension, value = entry.dimension_value
+        named.setdefault(value, []).append(entry)
+        by_dimension.setdefault(dimension, set()).add(value)
+
+    for value, matches in named.items():
+        if not _mentions(question, value):
+            continue
+        distinct = {entry.dimension_value for entry in matches}
+        if len(distinct) != 1:
+            continue  # the same text under two dimensions: say which
+        # The most recently published row wins: handles are monotonic, so
+        # the last one is the one the analyst just read.
+        entry = matches[-1]
+        return (
+            ReferentResolution(mention=value, referent=entry.referent, confidence=1.0),
+        )
+
+    for dimension, values in by_dimension.items():
+        if len(values) != 1:
+            continue
+        if not any(
+            _mentions(question, f"{word} {dimension}") for word in ("that", "this", "the")
+        ):
+            continue
+        value = next(iter(values))
+        entry = next(
+            e for e in reversed(entries)
+            if e.dimension_value is not None and e.dimension_value[1] == value
+        )
+        return (
+            ReferentResolution(
+                mention=f"that {dimension}", referent=entry.referent, confidence=1.0
+            ),
+        )
+    return ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -401,9 +481,23 @@ def _scalar(value: str | int | float | bool | None) -> Scalar:
     return value
 
 
-def _window(model: WindowSpecModel | AbsoluteWindowModel) -> RelativeRange | AbsoluteRange:
+def _window(
+    model: WindowSpecModel | AnchoredWindowModel | AbsoluteWindowModel,
+) -> RelativeRange | AbsoluteRange:
+    """A window DTO → the kernel shape a ``SetWindow`` operator carries.
+
+    A NAMED period resolves to concrete dates here, exactly as
+    interpretation resolves one: the calendar arithmetic lives in
+    :func:`revi_kernel.scope.resolve_anchored` and nowhere else, so
+    "set the window to Q2 2026" means the same dates whether it arrived as
+    a sentence, a typed gesture or a replayed trace.
+    """
     if isinstance(model, AbsoluteWindowModel):
         return AbsoluteRange(start=model.start, end=model.end)
+    if isinstance(model, AnchoredWindowModel):
+        return resolve_anchored(
+            AnchoredRange(unit=TimeUnit(model.unit), year=model.year, index=model.index)
+        )
     return RelativeRange(
         quantity=Decimal(model.quantity), unit=TimeUnit(model.unit), mode=RangeMode(model.mode)
     )

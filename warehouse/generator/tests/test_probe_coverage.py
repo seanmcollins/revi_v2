@@ -135,6 +135,62 @@ def test_derived_ar_age_buckets_are_all_reachable(con: Any) -> None:
     assert set(buckets) <= populated, sorted(set(buckets) - populated)
 
 
+def test_derived_filing_runway_buckets_are_all_reachable(con: Any) -> None:
+    """filing_runway_bucket is computed at probe time over the snapshot's open
+    inventory; every declared bucket — including the two non-numeric arms —
+    needs rows, or a filter on it silently returns nothing.
+
+    The arithmetic here is written out from the catalog's own description
+    (service date + the plan's limit, minus the as-of) rather than imported, so
+    it disagrees with the compiler if either drifts.
+    """
+    buckets = _load("dimensions.yaml")["dimensions"]["filing_runway_bucket"]["buckets"]
+    rows = con.execute(
+        f"""
+        SELECT CASE
+                 WHEN billed_flag THEN 'filed'
+                 WHEN runway < 0 THEN 'expired'
+                 WHEN runway <= 30 THEN '0-30' WHEN runway <= 60 THEN '31-60'
+                 WHEN runway <= 90 THEN '61-90' ELSE '90+' END AS bucket,
+               count(*)
+        FROM (SELECT billed_flag,
+                     datediff('day', DATE '{WATERMARK}',
+                              service_date + timely_filing_days) AS runway
+              FROM {SCHEMA}.v_claim
+              WHERE service_date <= DATE '{WATERMARK}'
+                AND (submission_date IS NULL OR submission_date <= DATE '{WATERMARK}')
+                AND (resolved_date IS NULL OR resolved_date > DATE '{WATERMARK}'))
+        GROUP BY 1
+        """
+    ).fetchall()
+    populated = {b for b, n in rows if n > 0}
+    assert set(buckets) <= populated, sorted(set(buckets) - populated)
+
+
+def test_primary_proc_group_partitions_claims_without_losing_dollars(con: Any) -> None:
+    """The claim-grain procedure attribution is a partition: each claim lands in
+    exactly one bucket, so a claim-grain sum cut by it reconciles to the
+    ungrouped total. The only NULLs are claims with no lines, and they carry no
+    dollars — the property that makes the attribution safe for money metrics.
+    """
+    total, grouped, null_claims, null_cents = con.execute(
+        f"""
+        SELECT (SELECT SUM(billed_amount_cents) FROM {SCHEMA}.v_claim),
+               (SELECT SUM(s) FROM (SELECT SUM(billed_amount_cents) AS s
+                                    FROM {SCHEMA}.v_claim GROUP BY primary_proc_group)),
+               (SELECT count(*) FROM {SCHEMA}.v_claim WHERE primary_proc_group IS NULL),
+               (SELECT COALESCE(SUM(billed_amount_cents), 0) FROM {SCHEMA}.v_claim
+                WHERE primary_proc_group IS NULL)
+        """
+    ).fetchone()
+    assert total == grouped
+    assert null_cents == 0, f"{null_claims} line-less claims carry {null_cents} cents"
+    (groups,) = con.execute(
+        f"SELECT count(DISTINCT primary_proc_group) FROM {SCHEMA}.v_claim"
+    ).fetchone()
+    assert int(groups) >= 10
+
+
 def _measure_sql(spec: dict[str, Any]) -> str:
     column = spec["column"]
     inner = (

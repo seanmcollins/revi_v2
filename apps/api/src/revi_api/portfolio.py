@@ -1,16 +1,19 @@
 """The anomaly portfolio: governed prioritization over detected anomalies.
 
-Priority formula ``anomaly_priority@2`` (versioned platform code, like an
+Priority formula ``anomaly_priority@3`` (versioned platform code, like an
 operator — the pack supplies only bounded parameters):
 
-    impact_norm      = |impact_cents| / max(|impact_cents|) over the population
+    ranked_cents     = the RECONCILED figure when this platform's
+                       re-derivation diverged from the detector's, else the
+                       detector's (see "Ranking the disputed figure" below)
+    impact_norm      = |ranked_cents| / max(|ranked_cents|) over the population
     age_days         = (watermark.loaded_at - onset).days, onset = the
                        evidence fact ``onset_date`` when present, else
                        ``detected_at``
     recency          = 0.5 ** (age_days / half_life_days)
-    recoverable      = |impact_cents| x recoverable_fraction  (governed
+    recoverable      = |ranked_cents| x recoverable_fraction  (governed
                        actionability rules over the record's evidence facts)
-    recoverable_norm = recoverable / max(|impact_cents|)
+    recoverable_norm = recoverable / max(|ranked_cents|)
     priority         = (w_i·impact_norm + w_r·recency + w_a·recoverable_norm)
                        / (w_i + w_r + w_a)
     floor            = compliance-mandatory categories never score below
@@ -23,6 +26,40 @@ desc, ties by |impact| desc, then id — and every card carries the
 decomposed components so the ranking is never a black box. Resolved /
 self-resolved records are excluded (and absent-at-watermark anomalies
 never appear, because the source reads per snapshot).
+
+Ranking the disputed figure (``@3``, round-2 deferred P1)
+=========================================================
+``@2`` published two figures per card and ranked on one of them without
+saying which: ``impact_norm`` came from ``impact_cents``, the DETECTOR's
+assertion, including on the six cards whose re-derivation the same
+payload calls a divergence. So the order of the Monday worklist was set
+by the side of the platform's own disagreement it does not stand behind
+— a card re-derived 39.3% higher sorted on the lower number, and the
+recoverable estimate beside it was a governed fraction of that same
+disputed figure ("this platform: $151" one line above "~$3,750
+recoverable").
+
+``@3`` ranks each card on the figure the platform is prepared to defend:
+
+* ``impact_agreement == "diverged"`` and a re-derivation exists →
+  ``reconciled_impact_cents`` ranks the card (``ranked_on="platform"``);
+* ``impact_agreement == "not_comparable"`` → the DETECTOR's figure ranks
+  it (``ranked_on="not_comparable"``), because the platform's number is a
+  balance and the card's is a flow, and substituting one for the other
+  would be a different claim rather than a better one;
+* ``agreed`` / ``unavailable`` → the detector's figure ranks it
+  (``ranked_on="detector"``), which is what it always was.
+
+Nothing is overwritten. ``impact_cents`` remains the detection system's
+assertion — the card's provenance — and ``reconciled_impact_cents``
+remains this platform's. What is new is that every card now says WHICH of
+them ordered it (``ranked_on``), what that figure was
+(``ranked_impact_cents``), why (``ranked_on_note``), and what the
+population's normalizer was (``priority.impact_normalizer_cents``). The
+recoverable estimate follows the same figure, the normalizer is taken
+over the same figures, and the relative compliance floor is the median of
+the resulting scores — so the whole worklist is priced on one consistent
+basis instead of two.
 
 What changed in ``@2`` (round-1 review F17)
 ===========================================
@@ -97,13 +134,13 @@ Two things changed, neither of which touches the formula:
 from __future__ import annotations
 
 import statistics
-from collections.abc import Callable, Mapping
+from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
-from revi_api.actionability import ActionabilityRules, assess
+from revi_api.actionability import ActionabilityRules, DimensionRepoint, assess
 from revi_api.metric_display import MetricDisplayRules
-from revi_api.rederive import ReDerivedImpact, compare_impact
+from revi_api.rederive import ImpactComparison, ReDerivedImpact, compare_impact
 from revi_api.warning_codes import structured_warnings
 from revi_investigation.application.ports import AnomalyRecord
 from revi_investigation_contracts.api import (
@@ -114,11 +151,14 @@ from revi_investigation_contracts.api import (
     PriorityDecompositionPayload,
     TypedInvestigationSpec,
 )
+from revi_investigation_contracts.api import (
+    DrillDimensionRepoint as DrillDimensionRepointPayload,
+)
 from revi_investigation_contracts.refinements import AbsoluteWindowModel, AddFilterModel
 from revi_kernel.watermark import DataWatermark
 from revi_pack.domain import PackSnapshot
 
-PRIORITY_FORMULA_VERSION = "anomaly_priority@2"
+PRIORITY_FORMULA_VERSION = "anomaly_priority@3"
 
 _RESOLVED_STATUSES = frozenset({"resolved", "self_resolved", "closed", "dismissed"})
 
@@ -211,7 +251,19 @@ def _age_days(record: AnomalyRecord, watermark: DataWatermark) -> int:
 DrillabilityProbe = Callable[[TypedInvestigationSpec, DataWatermark], str | None]
 
 
-def _drill_spec(record: AnomalyRecord, metric_id: str | None = None) -> TypedInvestigationSpec:
+#: Answers "which dimensions may this governed contract be cut by?" — the
+#: pack's own ``scope_dimensions``, taken structurally so this module does
+#: not import the pack adapter. Absent, no dimension repoint is applied:
+#: substituting a cut without checking the contract accepts it would trade
+#: one refusal for another.
+ScopeDimensions = Callable[[str], frozenset[str]]
+
+
+def _drill_spec(
+    record: AnomalyRecord,
+    metric_id: str | None = None,
+    dimensions: Sequence[tuple[str, str]] | None = None,
+) -> TypedInvestigationSpec:
     """The card's drill handle: a complete, executable typed investigation.
 
     The detector asserts a *level* about one cell — this metric, these
@@ -231,13 +283,20 @@ def _drill_spec(record: AnomalyRecord, metric_id: str | None = None) -> TypedInv
     No comparison is set. An anomaly card claims a level, not a movement;
     ``set_comparison`` is one ordinary refinement away, and — this being
     the point of the typed first turn — it now has a parent to land on.
+
+    ``dimensions`` overrides the record's own cut, which is how a governed
+    dimension repoint reaches the spec (see :func:`drill_spec_for`). The
+    VALUES are carried across unchanged: the repointed dimension shares the
+    source's value domain, and inventing a value would be a different claim
+    rather than a wider one.
     """
+    cut = record.dimensions if dimensions is None else tuple(dimensions)
     return TypedInvestigationSpec(
         metric_ids=[metric_id or record.metric_id],
-        dimensions=[dimension for dimension, _ in record.dimensions],
+        dimensions=[dimension for dimension, _ in cut],
         filters=[
             AddFilterModel(op="add_filter", dimension=dimension, predicate_op="eq", values=[value])
-            for dimension, value in record.dimensions
+            for dimension, value in cut
         ],
         window=AbsoluteWindowModel(start=record.window_start, end=record.window_end),
     )
@@ -253,17 +312,69 @@ def is_active(record: AnomalyRecord) -> bool:
     return record.status.lower() not in _RESOLVED_STATUSES
 
 
-def drill_spec_for(record: AnomalyRecord, rules: ActionabilityRules) -> TypedInvestigationSpec:
+def dimension_repoints_for(
+    record: AnomalyRecord,
+    rules: ActionabilityRules,
+    metric_id: str,
+    scope_dimensions: ScopeDimensions | None,
+) -> tuple[DimensionRepoint, ...]:
+    """Governed cut substitutions this card's drill needs — and may make.
+
+    Both conditions are required, and both are checked against the pack
+    rather than assumed:
+
+    * **needed** — the drilled contract does not accept the detector's own
+      dimension (a denial-grain or line-grain contract that already accepts
+      ``proc_group`` keeps it, and nothing is substituted);
+    * **legal** — the contract does accept the replacement.
+
+    Without ``scope_dimensions`` nothing is substituted at all: swapping a
+    cut without checking the contract takes it would trade one
+    ``GRAIN_INCOMPATIBLE`` for another, and the card would say the drill
+    was repointed while still refusing to open.
+    """
+    if scope_dimensions is None:
+        return ()
+    allowed = scope_dimensions(metric_id)
+    if not allowed:
+        return ()
+    out: list[DimensionRepoint] = []
+    for dimension, _ in record.dimensions:
+        if dimension in allowed:
+            continue
+        repoint = rules.dimension_repoint_for(dimension)
+        if repoint is not None and repoint.to_dimension in allowed:
+            out.append(repoint)
+    return tuple(out)
+
+
+def drill_spec_for(
+    record: AnomalyRecord,
+    rules: ActionabilityRules,
+    scope_dimensions: ScopeDimensions | None = None,
+) -> TypedInvestigationSpec:
     """The drill handle a card will publish, including any governed repoint.
 
     Exported so a caller can re-derive a card's figure BEFORE the portfolio
     is built (re-derivation reads the warehouse and is therefore async,
     while this builder stays synchronous and testable). Both paths call
     this one function, so the spec that gets re-derived is always the spec
-    the card publishes.
+    the card publishes — including its dimension repoints, or the
+    re-derived figure would belong to a different population from the one
+    the card offers to open.
     """
     repoint = rules.repoint_for(record.metric_id)
-    return _drill_spec(record, repoint.to_metric_id if repoint else None)
+    metric_id = repoint.to_metric_id if repoint else record.metric_id
+    swaps = {
+        r.from_dimension: r.to_dimension
+        for r in dimension_repoints_for(record, rules, metric_id, scope_dimensions)
+    }
+    cut = (
+        tuple((swaps.get(dimension, dimension), value) for dimension, value in record.dimensions)
+        if swaps
+        else None
+    )
+    return _drill_spec(record, repoint.to_metric_id if repoint else None, cut)
 
 
 #: What the platform can honestly say when it never attempted a
@@ -287,22 +398,23 @@ SNAPSHOT_NOT_COMPARABLE = (
 )
 
 
-def _reconciliation_fields(
+def _comparison_for(
     record: AnomalyRecord,
     rederived: ReDerivedImpact | None,
     *,
     drillable: bool,
     snapshot_drill: bool = False,
-) -> dict[str, object]:
-    """Card fields for "does the platform's own number agree with this?"
+) -> ImpactComparison:
+    """"Does the platform's own number agree with this card's?"
 
-    Always populated. A card that says nothing about the relationship
+    Always answered. A card that says nothing about the relationship
     between its figure and the drill's is the exact defect this closes.
     The comparison itself lives in :func:`revi_api.rederive.compare_impact`,
     shared with the drill answer's strip so the two cannot word the same
-    pair of numbers differently.
+    pair of numbers differently. Computed once per card, BEFORE the score,
+    because under ``@3`` the verdict decides which figure ranks it.
     """
-    comparison = compare_impact(
+    return compare_impact(
         detector_cents=record.impact_cents,
         window_start=record.window_start,
         window_end=record.window_end,
@@ -315,14 +427,105 @@ def _reconciliation_fields(
         ),
         not_comparable_reason=SNAPSHOT_NOT_COMPARABLE if snapshot_drill else None,
     )
+
+
+def _reconciliation_fields(
+    comparison: ImpactComparison,
+    dimension_repoints: Sequence[DimensionRepoint] = (),
+) -> dict[str, object]:
+    """The card's reconciliation block, from the comparison already made.
+
+    A repointed CUT is named in the note. The shared sentence says the gap
+    is that "the detector's window, population or valuation basis is not
+    the contract's" — true in general, and a misattribution on a card whose
+    population differs because THIS PLATFORM substituted the dimension: the
+    detector counted lines in a procedure group and the drill counts claims
+    whose dominant group is that one. Laying that at the detector's door is
+    the same defect the snapshot guard closed, wearing a different mask.
+    """
+    note = comparison.note
+    if dimension_repoints and comparison.status in ("diverged", "unavailable"):
+        swaps = "; ".join(
+            f"{r.from_dimension} → {r.to_dimension}" for r in dimension_repoints
+        )
+        note = (
+            f"{note} Part of this gap is this platform's own doing, not the "
+            f"detector's: the drill was repointed onto a different cut ({swaps}) "
+            "because the governed contract has no legal cut at the detector's "
+            "dimension, so the two figures are measured over related — not "
+            "identical — populations. See drill_dimension_repoints."
+        ).strip()
     return {
         "reconciled_impact_cents": comparison.platform_cents,
         "reconciled_impact_metric_id": comparison.measure_id,
         "impact_agreement": comparison.status,
         "impact_delta_cents": comparison.delta_cents,
         "impact_delta_fraction": comparison.delta_fraction,
-        "impact_reconciliation_note": comparison.note,
+        "impact_reconciliation_note": note,
     }
+
+
+@dataclass(frozen=True, slots=True)
+class RankedFigure:
+    """Which of a card's two figures the ranking is computed from, and why.
+
+    See the module docstring ("Ranking the disputed figure"). ``basis`` is
+    the value published as :attr:`AnomalyCard.ranked_on`.
+    """
+
+    cents: int
+    basis: str  # detector | platform | not_comparable
+    note: str
+
+
+def ranked_figure(record: AnomalyRecord, comparison: ImpactComparison) -> RankedFigure:
+    """The figure that will order this card — the reconciled one when the
+    platform disputes the detector's, the detector's otherwise, and never
+    silently either way."""
+    if comparison.status == "diverged" and comparison.platform_cents is not None:
+        return RankedFigure(
+            cents=comparison.platform_cents,
+            basis="platform",
+            note=(
+                "ranked on this platform's re-derived figure "
+                f"(${comparison.platform_cents / 100:,.2f} from the governed "
+                f"{comparison.measure_id or 'metric'} contract), not the detector's "
+                f"${record.impact_cents / 100:,.2f}: the two diverge, and ordering the "
+                "worklist by a number this payload disputes would rank the work on the "
+                "side of the disagreement the platform does not stand behind. The "
+                "detector's figure is kept above as its own assertion."
+            ),
+        )
+    if comparison.status == "not_comparable":
+        return RankedFigure(
+            cents=record.impact_cents,
+            basis="not_comparable",
+            note=(
+                "ranked on the detection system's figure "
+                f"(${record.impact_cents / 100:,.2f}): this platform's re-derivation is "
+                "not a comparable quantity (an as-of balance against a windowed flow), so "
+                "substituting it would change the claim rather than correct it."
+            ),
+        )
+    if comparison.status == "agreed":
+        return RankedFigure(
+            cents=record.impact_cents,
+            basis="detector",
+            note=(
+                "ranked on the detection system's figure "
+                f"(${record.impact_cents / 100:,.2f}); this platform re-derived the same "
+                "cell within half a percent, so the two figures rank it identically."
+            ),
+        )
+    return RankedFigure(
+        cents=record.impact_cents,
+        basis="detector",
+        note=(
+            "ranked on the detection system's figure "
+            f"(${record.impact_cents / 100:,.2f}): this platform has no re-derived figure "
+            "for this card, so there is no reconciled number to rank it on instead."
+        ),
+    )
 
 
 def build_portfolio(
@@ -337,6 +540,7 @@ def build_portfolio(
     rederived: Mapping[str, ReDerivedImpact] | None = None,
     metric_display: MetricDisplayRules | None = None,
     snapshot_metric_ids: frozenset[str] = frozenset(),
+    scope_dimensions: ScopeDimensions | None = None,
 ) -> PortfolioResponse:
     """Rank the anomaly population by the governed priority formula, then
     float the cards the platform can actually investigate to the top.
@@ -365,34 +569,85 @@ def build_portfolio(
             warnings_v2=structured_warnings(all_warnings),
         )
 
-    max_impact = max(abs(r.impact_cents) for r in active) or 1
     weight_sum = policy.impact_weight + policy.recency_weight + policy.actionability_weight
 
-    # ---- pass 1: the formula, before any floor -----------------------------
+    # ---- pass 1: which figure ranks each card ------------------------------
     #
-    # Two passes because the floor is now RELATIVE: it is the median of the
-    # scores of everything that is not floored, which cannot be known until
-    # every score exists. Nothing else about the arithmetic changed.
+    # Reconciliation and drillability both run before any arithmetic, and
+    # neither reads the warehouse here: the re-derivations were computed by
+    # the caller and the drill probe is a planning + §6.6 pass. The verdict
+    # decides the figure (``@3``), the figure decides the normalizer, and
+    # the normalizer cannot be known until every card has one.
     @dataclass(frozen=True, slots=True)
-    class _Scored:
+    class _Ranked:
         record: AnomalyRecord
-        raw: Decimal
-        impact_norm: Decimal
-        recency: Decimal
-        recoverable_norm: Decimal
+        comparison: ImpactComparison
+        figure: RankedFigure
+        drill_spec: TypedInvestigationSpec
+        drill_reason: str | None
+        dimension_repoints: tuple[DimensionRepoint, ...]
         recoverable_cents: int
         label: str
         rationale: str
         compliance: bool
         age: int
 
-    scored: list[_Scored] = []
+    ranked: list[_Ranked] = []
     for record in active:
-        assessment = assess(rules.rule_for(record.category), record)
-        age = _age_days(record, watermark)
-        recency = Decimal(str(0.5 ** (age / float(policy.half_life_days))))
-        impact_norm = Decimal(abs(record.impact_cents)) / Decimal(max_impact)
-        recoverable_norm = Decimal(assessment.recoverable_cents) / Decimal(max_impact)
+        drill_spec = drill_spec_for(record, rules, scope_dimensions)
+        drill_reason = drillability(drill_spec, watermark) if drillability is not None else None
+        repointed_dimensions = dimension_repoints_for(
+            record, rules, drill_spec.metric_ids[0], scope_dimensions
+        )
+        comparison = _comparison_for(
+            record,
+            (rederived or {}).get(record.anomaly_id),
+            drillable=drill_reason is None,
+            snapshot_drill=any(mid in snapshot_metric_ids for mid in drill_spec.metric_ids),
+        )
+        figure = ranked_figure(record, comparison)
+        # The recoverable estimate is a governed fraction OF a figure, so it
+        # follows the figure that ranked the card: pricing the work off a
+        # number the same payload disputes is how a card came to read "this
+        # platform: $151" beside "~$3,750 recoverable".
+        assessment = assess(
+            rules.rule_for(record.category), record, impact_cents=figure.cents
+        )
+        ranked.append(
+            _Ranked(
+                record=record,
+                comparison=comparison,
+                figure=figure,
+                drill_spec=drill_spec,
+                drill_reason=drill_reason,
+                dimension_repoints=repointed_dimensions,
+                recoverable_cents=assessment.recoverable_cents,
+                label=assessment.label,
+                rationale=assessment.rationale,
+                compliance=assessment.compliance_floor,
+                age=_age_days(record, watermark),
+            )
+        )
+
+    # The normalizer is taken over the SAME figures the scores are computed
+    # from — a max mixing detector and platform figures would normalize each
+    # card against a denominator no card was measured on.
+    max_impact = max(abs(entry.figure.cents) for entry in ranked) or 1
+
+    # ---- pass 2: the formula, before any floor -----------------------------
+    @dataclass(frozen=True, slots=True)
+    class _Scored:
+        ranked: _Ranked
+        raw: Decimal
+        impact_norm: Decimal
+        recency: Decimal
+        recoverable_norm: Decimal
+
+    scored: list[_Scored] = []
+    for entry in ranked:
+        recency = Decimal(str(0.5 ** (entry.age / float(policy.half_life_days))))
+        impact_norm = Decimal(abs(entry.figure.cents)) / Decimal(max_impact)
+        recoverable_norm = Decimal(entry.recoverable_cents) / Decimal(max_impact)
         raw = (
             policy.impact_weight * impact_norm
             + policy.recency_weight * recency
@@ -400,21 +655,16 @@ def build_portfolio(
         ) / weight_sum
         scored.append(
             _Scored(
-                record=record,
+                ranked=entry,
                 raw=raw,
                 impact_norm=impact_norm,
                 recency=recency,
                 recoverable_norm=recoverable_norm,
-                recoverable_cents=assessment.recoverable_cents,
-                label=assessment.label,
-                rationale=assessment.rationale,
-                compliance=assessment.compliance_floor,
-                age=age,
             )
         )
 
     # ---- the relative floor ------------------------------------------------
-    value_scores = [s.raw for s in scored if not s.compliance]
+    value_scores = [s.raw for s in scored if not s.ranked.compliance]
     if value_scores:
         floor = Decimal(str(statistics.median(float(s) for s in value_scores)))
         floor_basis = "relative_median"
@@ -425,17 +675,18 @@ def build_portfolio(
         floor = policy.compliance_floor
         floor_basis = "governed_absolute"
 
-    # ---- pass 2: cards -----------------------------------------------------
+    # ---- pass 3: cards -----------------------------------------------------
     cards: list[AnomalyCard] = []
     for entry in scored:
-        record = entry.record
+        source = entry.ranked
+        record = source.record
         repoint = rules.repoint_for(record.metric_id)
-        drill_spec = drill_spec_for(record, rules)
-        reason = drillability(drill_spec, watermark) if drillability is not None else None
+        drill_spec = source.drill_spec
+        reason = source.drill_reason
         drillable = reason is None
         score = entry.raw
         floored = False
-        if entry.compliance and score < floor:
+        if source.compliance and score < floor:
             score = floor
             floored = True
         cards.append(
@@ -460,10 +711,15 @@ def build_portfolio(
                     AnomalyDimension(dimension=d, value=v) for d, v in record.dimensions
                 ],
                 impact_cents=record.impact_cents,
-                age_days=entry.age,
-                recoverable_cents_estimate=entry.recoverable_cents,
-                actionability_label=entry.label,
-                actionability_rationale=entry.rationale,
+                # Which figure ordered this card, what it was, and why —
+                # published on every card, agreed or not (``@3``).
+                ranked_on=source.figure.basis,  # type: ignore[arg-type]
+                ranked_impact_cents=source.figure.cents,
+                ranked_on_note=source.figure.note,
+                age_days=source.age,
+                recoverable_cents_estimate=source.recoverable_cents,
+                actionability_label=source.label,
+                actionability_rationale=source.rationale,
                 priority_score=round(float(score), 6),
                 compliance_floor_applied=floored,
                 # The whole computation, publishable because it is trivially
@@ -482,38 +738,56 @@ def build_portfolio(
                     floor_applied=floored,
                     floor_value=round(float(floor), 6),
                     floor_basis=floor_basis,
+                    # The two facts that make ``impact_norm`` checkable with
+                    # a calculator: which figure it came from, and what the
+                    # population's denominator was.
+                    ranked_on=source.figure.basis,  # type: ignore[arg-type]
+                    ranked_impact_cents=source.figure.cents,
+                    impact_normalizer_cents=max_impact,
                 ),
                 # Lane membership is the CATEGORY, not the mechanism: a
                 # compliance-mandatory card that already scored above the
                 # floor is still worked because the rule says so, and
                 # belongs in the same section as its floored siblings.
-                lane=COMPLIANCE_LANE if entry.compliance else VALUE_LANE,
+                lane=COMPLIANCE_LANE if source.compliance else VALUE_LANE,
                 drill_spec=drill_spec,
                 drillable=drillable,
                 drill_unavailable_reason=reason,
                 drill_repointed_from=repoint.from_metric_id if repoint else None,
                 drill_repoint_rationale=repoint.rationale if repoint else None,
+                # The detector's CUT, where the drilled contract has no
+                # legal cut at the detector's dimension. Published for the
+                # same reason as the metric repoint: a repointed drill
+                # measures a related population, not the same rows.
+                drill_dimension_repoints=[
+                    DrillDimensionRepointPayload(
+                        from_dimension=r.from_dimension,
+                        to_dimension=r.to_dimension,
+                        rationale=r.rationale,
+                    )
+                    for r in source.dimension_repoints
+                ],
                 # honest provenance in place of an evidence grade: this row
                 # is an external detector's assertion read at a watermark,
                 # ordered by a versioned platform formula (see AnomalyCard)
                 provenance="external_detection",
                 priority_formula_version=PRIORITY_FORMULA_VERSION,
                 source_watermark_id=watermark.id,
-                **_reconciliation_fields(
-                    record,
-                    (rederived or {}).get(record.anomaly_id),
-                    drillable=drillable,
-                    snapshot_drill=any(
-                        mid in snapshot_metric_ids for mid in drill_spec.metric_ids
-                    ),
-                ),
+                **_reconciliation_fields(source.comparison, source.dimension_repoints),
             )
         )
     # Governed priority still decides the order; drillability decides which
     # half of the list you are in. A worklist whose first sixteen rows all
-    # open an error dialog is not a worklist.
+    # open an error dialog is not a worklist. The tiebreak reads the same
+    # figure the score did (``@3``), so two cards on equal scores are not
+    # separated by a number neither was ranked on.
     cards.sort(
-        key=lambda c: (not c.drillable, -c.priority_score, -abs(c.impact_cents), c.anomaly_id)
+        key=lambda c: (
+            not c.drillable,
+            -c.priority_score,
+            -abs(c.ranked_impact_cents),
+            c.anomaly_id,
+        )
     )
     blocked = [c for c in cards if not c.drillable]
     if blocked:
@@ -557,6 +831,13 @@ def _lanes(cards: list[AnomalyCard]) -> list[PortfolioLanePayload]:
                 anomaly_ids=[c.anomaly_id for c in members],
                 item_count=len(members),
                 impact_cents=sum(abs(c.impact_cents) for c in members),
+                # Totalled on the same figures that ranked the members, so a
+                # lane header and the cards under it cannot be priced on two
+                # different bases (``@3``).
+                ranked_impact_cents=sum(abs(c.ranked_impact_cents) for c in members),
+                recoverable_cents_estimate=sum(
+                    c.recoverable_cents_estimate for c in members
+                ),
             )
         )
     return lanes
@@ -602,5 +883,26 @@ def _reconciliation_warnings(cards: list[AnomalyCard]) -> list[str]:
             f"the same cell (largest gap {worst:.1%}); each card publishes both figures, "
             "the delta, and the reason the detector's window, population or valuation "
             "basis is not the contract's"
+        )
+    # Which basis ordered the worklist, counted. A reader who is about to
+    # work the top of this list is entitled to know that some of its order
+    # and some of its recoverable estimates come from the platform's figure
+    # rather than the detector's, without opening every card.
+    on_platform = [c for c in cards if c.ranked_on == "platform"]
+    if on_platform:
+        out.append(
+            f"{len(on_platform)} of {len(cards)} cards are ranked on this platform's "
+            "re-derived figure rather than the detection system's, because the two "
+            "diverge (anomaly_priority@3); their recoverable estimates follow the same "
+            "figure, and each card publishes both numbers, which one ranked it, and why"
+        )
+    not_comparable_ranked = [c for c in cards if c.ranked_on == "not_comparable"]
+    if not_comparable_ranked:
+        out.append(
+            f"{len(not_comparable_ranked)} of {len(cards)} cards are ranked on the "
+            "detection system's figure because this platform's re-derivation of them is "
+            "not a comparable quantity (an as-of balance against a windowed flow); the "
+            "re-derived figure is published on each card and is not treated as a "
+            "correction to the one that ranked it"
         )
     return out

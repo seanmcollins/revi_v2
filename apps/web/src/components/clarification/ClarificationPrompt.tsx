@@ -57,6 +57,16 @@ export function ClarificationPrompt({ clarification }: { clarification: Clarific
     <div
       role="group"
       aria-label={`Clarification: ${clarification.question}`}
+      // Announced whether or not the focus move above wins.
+      //
+      // Two effects fire in the same commit when a clarification lands:
+      // the one below, which focuses the first option, and the composer's
+      // own refocus when `busy` falls. Effect order follows tree position
+      // and the composer is later in the tree, so it takes the focus back
+      // microseconds later — leaving a question on screen that nothing
+      // announced. A polite live region does not compete for focus and
+      // reads the prompt either way.
+      aria-live="polite"
       className="rounded-lg border border-grade-derived/40 bg-grade-derived/5 p-3.5"
     >
       <div className="flex items-start gap-2.5">

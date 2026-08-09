@@ -145,6 +145,12 @@ dimensions:
       denial: carc_code
     synonyms: [reason code, denial code, adjustment reason, carc code, remark reason, rc]
     cardinality_estimate: 20
+    # A CARC is half an identity: CO-50 is a contractual write-off and PI-50
+    # is a disputable payer-initiated reduction (codes.yaml: "denial
+    # analytics key on the group code + CARC pair"). Pack playbooks already
+    # conjoin the pair; declaring it here makes a FREE-FORM "by CARC" cut do
+    # the same instead of merging two different liabilities into one row.
+    companion_dimensions: [group_code]
     phi: none
   group_code:
     label: Adjustment group code
@@ -173,6 +179,46 @@ dimensions:
     synonyms: [procedure category, proc category, cpt group, service group, procedure family]
     cardinality_estimate: 13
     phi: none
+  primary_proc_group:
+    label: Primary procedure group
+    certified: true
+    description: >
+      The claim's DOMINANT procedure group: among that claim's own lines, the
+      proc_group carrying the largest share of billed charges, ties broken by
+      proc_group name ascending so the value is a deterministic function of the
+      data rather than of aggregate ordering. Materialized in v_claim
+      (writer.py) so the compiler reads a column and never invents a rollup.
+      Why it exists: procedures bind at claim_line, so claim-grain contracts
+      (gross_collection_rate, underpayment_variance, and every other claim-grain
+      money metric) had NO legal procedure cut at all — the drill-scope gap the
+      base pack's NOTES.md records. This dimension gives them one, by a stated
+      rule instead of by fanning a claim out across its lines.
+      READ IT AS AN ATTRIBUTION, NOT A DECOMPOSITION. Each claim lands in
+      exactly one bucket, so a claim-grain measure cut by this dimension
+      reconciles to its ungrouped total to the cent. It is NOT the same number
+      as the line-grain `proc_group` cut: the non-dominant lines of a
+      multi-procedure claim are attributed to the dominant group along with
+      everything else on that claim. Ask "which procedures cost us" of a
+      line-grain metric cut by `proc_group`; ask "which claims" of a claim-grain
+      metric cut by this one.
+      Bound at the claim AND transaction grains, because the claim-grain
+      cross-entity ratios (gross_collection_rate, net_collection_rate) put cash
+      at the transaction grain against charges at the claim grain, and a
+      cross-entity probe needs its group keys bound at both. A transaction's
+      attribution is its parent claim's — the same rollup, materialized twice.
+      NULL for a claim that carries no lines. In this warehouse that is 201
+      claims at snap_003, every one of them zero-billed and carrying no
+      transactions, so no money metric moves; verify.py pins both halves of
+      that (the value is the dominant group, and NULL happens exactly when the
+      claim has no lines).
+    entities:
+      claim: primary_proc_group
+      transaction: primary_proc_group
+    synonyms: [primary procedure group, dominant procedure group,
+               claim procedure group, primary proc group, dominant proc group,
+               claim level procedure group]
+    cardinality_estimate: 13
+    phi: none
   ar_age_bucket:
     label: AR age bucket
     certified: true
@@ -185,6 +231,50 @@ dimensions:
       claim: service_date # default aging basis; SUBMISSION also legal
     synonyms: [aging bucket, ar bucket, age bucket, aging category, days out bucket]
     cardinality_estimate: 5
+    phi: none
+  filing_runway_bucket:
+    label: Filing runway bucket
+    certified: true
+    kind: derived_bucket
+    description: >
+      How much timely-filing runway a claim has left at the snapshot's as-of
+      date, bucketed. Derived at probe time from the claim -> plan -> filing
+      rule join, not stored: the deadline is the claim's SERVICE date plus the
+      filing limit its plan configures (dim_plan.timely_filing_days, pre-joined
+      into v_claim and declared on the claim entity), and the runway is that
+      deadline minus the as-of date. `days_to_filing_deadline` is the same
+      arithmetic as a summable measure.
+      Buckets. `filed` is a claim that has already been submitted: its initial
+      filing clock is closed, and no runway statement about it would mean
+      anything. `expired` is an unsubmitted claim whose deadline has already
+      passed — those dollars are not at risk, they are lost, and they must not
+      be read as the same thing as a claim with a week left. The numeric
+      buckets are days of runway remaining, inclusive upper bound.
+      WHY THE ANCHOR IS SERVICE DATE, stated because it is a modelling choice.
+      All seven governed rules in the base pack's filing_rules.yaml declare
+      `date_basis: service`, and the shipped TIMELY_FILING anomaly detector
+      computes `service_date + timely_filing_days` (anomalies.py). dim_plan also
+      carries a per-plan `timely_filing_basis`, and 10 of the 30 plans set it to
+      SUBMISSION — which cannot start a filing clock, because the submission is
+      the event the clock bounds. It changes nothing here either way: this
+      dimension only distinguishes runway on UNSUBMITTED claims, and an
+      unsubmitted claim has no submission date to anchor on.
+      CONFIRMATION REQUIREMENT. The limit comes from the plan record, which is
+      the pack's `plan_configuration` tier — the system of record, and the most
+      specific rule available (the pack's own precedence is "most specific
+      first, first match wins"). The pack's filing_rules ladder carries a
+      no-confirmation rule for only 7 of the 30 plans (Federal Medicare, the
+      Medicaid MCO plans, State Medicaid HMO); the other 23 fall through to a
+      payer-pattern default marked `requires_confirmation: true`, so a runway
+      computed for those plans is a planning default to confirm against the
+      payer contract before acting on it. `timely_filing_at_risk_dollars`
+      carries that sentence as a mandatory population caveat on every answer.
+    buckets: ["expired", "0-30", "31-60", "61-90", "90+", "filed"]
+    entities:
+      claim: service_date # the filing-clock anchor; the limit is the plan's
+    synonyms: [filing runway, days to filing deadline bucket, timely filing bucket,
+               filing deadline bucket, runway bucket, filing window bucket]
+    cardinality_estimate: 6
     phi: none
   appeal_status:
     label: Appeal status
@@ -255,17 +345,17 @@ dimensions:
       still open", and a DNFB population is discharged_flag = true AND
       billed_flag = false, scoped to INSTITUTIONAL. Structural, not
       outcome-derived. `discharge_date` remains a date basis, not a dimension.
-      KNOWN LIMITATION — the flag is NOT as-of aware. It is materialized from
-      the CURRENT discharge_date at snapshot build time, so a back-dated
-      snapshot query (as_of earlier than the watermark) reads it as true for
-      claims discharged AFTER that as_of, where `discharge_date <= as_of`
-      would read false. Measured on snap_003 at as_of 2026-06-01: 5 claims
-      worth 3,028,611 cents fall inside the as-of open-inventory population
-      with discharged_flag true and a discharge date past 2026-06-01, which
-      moves dnfb_dollars there from 651,695,123 to 654,723,734. At the
-      watermark itself (as_of = newest data date) the two readings are
-      identical, which is the case every shipped probe takes. A back-dated
-      DNFB reading is therefore slightly high; state it rather than trust it.
+      AS-OF AWARE (fixed 2026-08-09). The stored view column restates the
+      CURRENT discharge date, but the snapshot compiler projects the flag at the
+      probe's as-of — `discharge_date IS NOT NULL AND discharge_date <= as_of` —
+      the same treatment `resolved_date` already got, so a back-dated snapshot
+      no longer counts claims discharged after the as-of. The previously
+      documented divergence is what closed: on snap_003 at as_of 2026-06-01,
+      5 claims worth 3,028,611 cents read discharged with a discharge date past
+      that as-of, moving dnfb_dollars from 654,723,734 (flag as stored) to
+      651,695,123 (as-of correct, the value the compiler now returns). At the
+      watermark itself no claim carries a discharge date beyond the cutoff in
+      any snapshot, so every shipped probe returns exactly what it did before.
     entities:
       claim: discharged_flag
     synonyms: [discharged, has discharge, discharge flag, stay closed]
@@ -294,6 +384,16 @@ dimensions:
       exclusion; (c) `first_pass_paid` needs only the remit, so it reads
       TRUE on those 593 and they belong in first_pass_yield's numerator.
       PAID and CLOSED are resolved; DENIED is standing-denied inventory.
+      NOT AS-OF AWARE, unlike `resolved_date` and `discharged_flag`. Status is
+      derived at snapshot build time from everything visible at the WATERMARK,
+      so a back-dated snapshot (as_of earlier than the newest data date) reads
+      each claim's status as of the watermark, not as of the probe. Measured on
+      snap_003 at as_of 2026-06-01: the as-of open-inventory population holds
+      9,907 claims, of which 3,827 read PAID, 472 CLOSED and 214 DENIED because
+      that is what they became later. Contracts whose population filters on
+      status (timely_filing_at_risk_dollars, denied_ar_dollars) are therefore
+      exact at the watermark — the as-of every shipped probe uses — and
+      approximate when back-dated. Stated here rather than left to be found.
     entities:
       claim: status
     synonyms: [claim status, adjudication status, claim state, acct status, status code]

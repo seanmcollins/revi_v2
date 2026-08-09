@@ -63,14 +63,18 @@ recipes:
     applies_to: timely_filing_at_risk_dollars
     chart_type: bar
     notes: >-
-      Bars by plan/facility of UNBILLED OPEN inventory. The days-of-runway
-      annotation this recipe was authored for requires the probe-time
-      filing_rules join, which does not exist yet (see NOTES.md, "Named next
-      milestone"), so today the bars carry no deadline information at all and
-      must not be captioned as filing exposure. Until the join lands, label
-      the axis as unbilled inventory and let the metric's mandatory caveat
-      ride with the chart; when it lands, add the runway annotation and the
-      planning-default chip for confirmation-required rules.
+      Bars of UNBILLED OPEN inventory, seriesed by filing_runway_bucket —
+      the annotation this recipe was authored for and could not have until
+      the claim → plan → filing-rule join landed (NOTES.md, "Delivered:
+      timely-filing runway", 2026-08-09). The runway cut is the caption:
+      `expired` is dollars whose deadline has already passed (47% of the
+      total at wm_003), `0-30` is what a filing watch must work this month.
+      Two things the chart must still say, because the join made them
+      visible rather than untrue: the TOTAL remains a population and not an
+      exposure (the metric's mandatory caveat rides with the chart), and
+      only 7 of 30 plans match a rule with requires_confirmation false — so
+      every bar outside those plans is a PLANNING DEFAULT and wants the
+      planning-default chip rather than a deadline stated as fact.
   # --- coverage wave 2 (2026-08-08) ------------------------------------
   #
   # Renderer note, applying to every recipe below that describes more than

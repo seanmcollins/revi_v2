@@ -25,6 +25,7 @@ from revi_presentation.narrative import (
     empty_narrative,
     mandatory_disclosures,
     reconciliation_disclosure,
+    recovered_code,
     template_hash,
     validate_narrative,
 )
@@ -50,6 +51,7 @@ __all__ = [
     "empty_narrative",
     "mandatory_disclosures",
     "reconciliation_disclosure",
+    "recovered_code",
     "template_hash",
     "validate_narrative",
 ]

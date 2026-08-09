@@ -49,7 +49,9 @@ from revi_investigation.application.rendering import magnitude, points
 from revi_investigation.domain.context import (
     AskedDirection,
     AskedMagnitude,
+    AskedOrder,
     adverse_delta_sign,
+    descending_for_order,
     wanted_delta_sign,
 )
 from revi_kernel.frame import EvidenceFrame, FrameColumn, FrameSchema, ProbeProvenance
@@ -476,3 +478,207 @@ class TestRankByImpactWithoutAComparison:
         ranks = [s for s in plan.transforms.steps if s.operator == "rank"]
         assert ranks
         assert any("__delta" in (s.arg("by") or "") for s in ranks)
+
+
+# ---------------------------------------------------------------------------
+# round 3: premises, ordering, and series
+
+
+def _scalar_compare_frame(
+    current: int, prior: int, *, measure: str = "denied_dollars", probe_id: str = "premise"
+) -> EvidenceFrame:
+    """The ungrouped aggregate the premise probe produces, compared."""
+    columns = (
+        FrameColumn(measure, MetricRef(measure), 1, "money_cents"),
+        FrameColumn(f"{measure}__prior", MetricRef(measure), 1, "money_cents"),
+        FrameColumn(f"{measure}__delta", MetricRef(measure), 1, "money_cents"),
+        FrameColumn(f"{measure}__pct_change", MetricRef(measure), 1, "ratio"),
+    )
+    pct = (Decimal(current - prior) / Decimal(prior)).quantize(Decimal("0.0001"))
+    return EvidenceFrame(
+        schema=FrameSchema(columns),
+        rows=((current, prior, current - prior, pct),),
+        watermark=WATERMARK,
+        provenance=ProbeProvenance(probe_id=probe_id, probe_hash="p" * 64),
+        evidence_grade=EvidenceGrade.DIRECT,
+    )
+
+
+def _premise_plan() -> InvestigationPlan:
+    return InvestigationPlan(
+        nodes=(),
+        transforms=TransformPlan(
+            steps=(
+                TransformPlanStep(id="c", operator="compare", inputs=("main", "main__prior")),
+                TransformPlanStep(
+                    id="premise__compare",
+                    operator="compare",
+                    inputs=("premise", "premise__prior"),
+                ),
+            )
+        ),
+    )
+
+
+async def _findings_with_premise(
+    grouped: EvidenceFrame, aggregate: EvidenceFrame, spec: object, pack: PackSnapshotPort
+) -> tuple[tuple[str, ...], tuple[str, ...]]:
+    service = EvaluateFindingsService(FakeReferentRegistryStore())
+    result = await service.evaluate(
+        plan=_premise_plan(),
+        calculation=CalculationResult(
+            frames=(("c", grouped), ("premise__compare", aggregate)), operations=()
+        ),
+        spec=spec,  # type: ignore[arg-type]
+        pack=pack,
+        playbook=None,
+        session_id="sess",
+        investigation_id="inv",
+    )
+    return tuple(f.title for f in result.findings), result.warnings
+
+
+class TestAssertedPremises:
+    """Round-3 FN-2: "why did denials double" inside an 81% decline.
+
+    The live answer was three CARC cells totalling $3,204 of increases,
+    framed as the explanation, over a move from $58,983.54 to $10,915.24.
+    Every cell was real. The answer was false, because the movement the
+    question took for granted was never measured.
+    """
+
+    async def test_a_refuted_premise_leads_the_answer(
+        self, pack_port: PackSnapshotPort, make_spec: SpecFactory
+    ) -> None:
+        spec = make_spec(measures=("denied_dollars",), dimensions=("payer",), watermark=WATERMARK)
+        spec = replace(spec, direction=AskedDirection.INCREASE, direction_asserted=True)
+
+        titles, warnings = await _findings_with_premise(
+            _compare_frame(),
+            _scalar_compare_frame(1_091_524, 5_898_354),  # the 81% fall
+            spec,
+            pack_port,
+        )
+
+        assert warnings and warnings[0].startswith("premise_false:")
+        assert "fell" in warnings[0]
+        # the correction is F1, with the aggregate figures behind it
+        assert titles[0].startswith("Premise not supported:")
+        assert "$58,983.54" in titles[0] and "$10,915.24" in titles[0]
+        # …and the rising cells still follow, as context
+        assert any("Meridian Health" in title for title in titles[1:])
+
+    async def test_a_premise_that_holds_says_nothing_extra(
+        self, pack_port: PackSnapshotPort, make_spec: SpecFactory
+    ) -> None:
+        spec = make_spec(measures=("denied_dollars",), dimensions=("payer",), watermark=WATERMARK)
+        spec = replace(spec, direction=AskedDirection.INCREASE, direction_asserted=True)
+
+        titles, warnings = await _findings_with_premise(
+            _compare_frame(),
+            _scalar_compare_frame(5_898_354, 1_091_524),  # denials really did rise
+            spec,
+            pack_port,
+        )
+
+        assert not [w for w in warnings if w.startswith("premise_false:")]
+        assert titles[0].startswith("Meridian Health")
+
+    async def test_a_question_that_asserts_nothing_is_never_corrected(
+        self, pack_port: PackSnapshotPort, make_spec: SpecFactory
+    ) -> None:
+        """The distinction is asserted-vs-asked, not confident-sounding
+        wording: "which payers rose most" is a query and its aggregate is
+        nobody's premise."""
+        spec = make_spec(measures=("denied_dollars",), dimensions=("payer",), watermark=WATERMARK)
+        spec = replace(spec, direction=AskedDirection.INCREASE, direction_asserted=False)
+
+        titles, warnings = await _findings_with_premise(
+            _compare_frame(), _scalar_compare_frame(1_091_524, 5_898_354), spec, pack_port
+        )
+
+        assert not warnings
+        assert titles[0].startswith("Meridian Health")
+
+    def test_the_premise_probe_is_planned_only_when_something_is_asserted(
+        self, pack_port: PackSnapshotPort, catalog: CatalogSnapshot, make_spec: SpecFactory
+    ) -> None:
+        from revi_kernel.scope import ComparisonKind
+
+        planner = BuildInvestigationPlanService(pack_port, catalog)
+        base = make_spec(
+            measures=("denied_dollars",),
+            dimensions=("payer",),
+            comparison=ComparisonKind.PRIOR_PERIOD,
+            watermark=WATERMARK,
+        )
+
+        plain = planner.build(base)
+        assert not [n for n in plain.nodes if n.id.startswith("premise")]
+
+        asserted = planner.build(
+            replace(base, direction=AskedDirection.INCREASE, direction_asserted=True)
+        )
+        premise_nodes = [n for n in asserted.nodes if n.id.startswith("premise")]
+        assert premise_nodes, "an asserted movement has to be measurable"
+        # ungrouped: the aggregate, not another breakdown
+        assert all(getattr(n.probe, "dimensions", ()) == () for n in premise_nodes)
+        assert any(
+            s.inputs[0].startswith("premise")
+            for s in asserted.transforms.steps
+            if s.operator == "compare"
+        )
+        # …and every other plan is byte-identical
+        assert plain.plan_hash != asserted.plan_hash
+
+
+class TestAskedOrder:
+    """Round-3 FN-4: "ranked best to worst" returned worst-first and
+    narrated the worst payer as "ranks first"."""
+
+    @pytest.mark.parametrize(
+        ("order", "sign", "expected"),
+        [
+            (AskedOrder.BEST_FIRST, SignConvention.HIGHER_IS_BAD, False),
+            (AskedOrder.BEST_FIRST, SignConvention.HIGHER_IS_GOOD, True),
+            (AskedOrder.WORST_FIRST, SignConvention.HIGHER_IS_BAD, True),
+            (AskedOrder.WORST_FIRST, SignConvention.HIGHER_IS_GOOD, False),
+            (AskedOrder.BEST_FIRST, SignConvention.NEUTRAL, None),
+            (None, SignConvention.HIGHER_IS_BAD, None),
+        ],
+    )
+    def test_best_and_worst_resolve_against_the_contract_not_the_word(
+        self, order: AskedOrder | None, sign: SignConvention, expected: bool | None
+    ) -> None:
+        assert descending_for_order(order, sign) is expected
+
+    def test_the_planner_sorts_a_higher_is_bad_rate_ascending_for_best_first(
+        self, pack_port: PackSnapshotPort, catalog: CatalogSnapshot, make_spec: SpecFactory
+    ) -> None:
+        spec = make_spec(measures=("denial_rate",), dimensions=("payer",), watermark=WATERMARK)
+        planner = BuildInvestigationPlanService(pack_port, catalog)
+
+        worst_first = planner.build(replace(spec, order=AskedOrder.WORST_FIRST))
+        best_first = planner.build(replace(spec, order=AskedOrder.BEST_FIRST))
+
+        def descending(plan: InvestigationPlan) -> set[str | None]:
+            return {s.arg("descending") for s in plan.transforms.steps if s.operator == "rank"}
+
+        assert descending(worst_first) == {"true"}  # higher denial rate is worse
+        assert descending(best_first) == {"false"}
+
+    async def test_movement_rows_honor_the_asked_order(
+        self, pack_port: PackSnapshotPort, make_spec: SpecFactory
+    ) -> None:
+        spec = make_spec(measures=("denied_dollars",), dimensions=("payer",), watermark=WATERMARK)
+
+        best_first, _ = await _findings(
+            _compare_frame(), replace(spec, order=AskedOrder.BEST_FIRST), pack_port
+        )
+        worst_first, _ = await _findings(
+            _compare_frame(), replace(spec, order=AskedOrder.WORST_FIRST), pack_port
+        )
+
+        # denied_dollars is higher_is_bad: the best movement is the biggest fall
+        assert best_first[0].startswith("State Medicaid")  # -800k
+        assert worst_first[0].startswith("Meridian Health")  # +400k

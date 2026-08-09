@@ -8,7 +8,7 @@ import {
   HelpCircle,
   Zap,
 } from "lucide-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import { GradeBadge } from "@/components/answer/GradeBadge";
 import { formatCount } from "@/lib/format";
@@ -179,11 +179,17 @@ function ProbeNode({
 }) {
   const [open, setOpen] = useState(false);
   const [showTechnical, setShowTechnical] = useState(debug);
+  const detailId = useId();
   return (
     <li className="rounded-md border bg-card">
       <button
         type="button"
         onClick={() => setOpen(!open)}
+        // A disclosure whose state is drawn by a rotating chevron and
+        // announced by nothing: a screen-reader user heard the probe's
+        // description and had no way to know it opened.
+        aria-expanded={open}
+        aria-controls={detailId}
         className="flex w-full items-center gap-2 px-2.5 py-2 text-left"
       >
         <ChevronRight
@@ -204,7 +210,7 @@ function ProbeNode({
         )}
       </button>
       {open && (
-        <div className="space-y-1.5 border-t px-2.5 py-2 pl-7 text-[0.68rem]">
+        <div id={detailId} className="space-y-1.5 border-t px-2.5 py-2 pl-7 text-[0.68rem]">
           {probe.grade && (
             <div className="flex flex-wrap items-center gap-1.5">
               <GradeBadge grade={probe.grade} size="xs" />

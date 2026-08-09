@@ -169,7 +169,38 @@ class TestMigrations:
     def test_migrated_to_head(self, engine: Engine) -> None:
         with engine.connect() as conn:
             version = conn.execute(sa.text("SELECT version_num FROM alembic_version")).scalar_one()
-        assert version == "0003"
+        assert version == "0004"
+
+    def test_sessions_can_be_soft_archived(self, engine: Engine) -> None:
+        """Migration 0004. The rail had no way to dismiss a session, and a
+        hard delete would have orphaned its investigations, traces, frames
+        and cohorts — so the column is a nullable timestamp and the list
+        filters on it."""
+        with engine.connect() as conn:
+            columns = set(
+                conn.execute(
+                    sa.text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema = 'revi_session' AND table_name = 'sessions'"
+                    )
+                ).scalars()
+            )
+        assert "archived_at" in columns
+
+    def test_turn_receipts_outlive_the_process(self, engine: Engine) -> None:
+        """Migration 0004. The idempotency key was honored from a
+        process-local dict, so a restart between a client's POST and its
+        retry executed the turn a second time."""
+        with engine.connect() as conn:
+            columns = set(
+                conn.execute(
+                    sa.text(
+                        "SELECT column_name FROM information_schema.columns "
+                        "WHERE table_schema = 'revi_session' AND table_name = 'turn_receipts'"
+                    )
+                ).scalars()
+            )
+        assert {"tenant", "session_id", "idempotency_key", "response"} <= columns
 
     def test_the_session_list_filter_is_indexed(self, engine: Engine) -> None:
         """Migration 0003. ``GET /v1/sessions`` filters on tenant and

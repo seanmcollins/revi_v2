@@ -47,6 +47,29 @@ so a ratio reads as a percentage and money as dollars; ``impact_cents`` is
 set only for money, exactly as in the concentration path. A suppressed cell
 publishes no finding: "suppressed" is not a level.
 
+**Trend** (the series). An ungrouped frame with a *time bucket* column and
+more than one row is neither a scalar nor a breakdown — it is a series, and
+the scalar path refuses it by construction ("a frame with more than one row
+is not a scalar"). Before this shape existed, "denial rate by month for the
+last 6 months" either collapsed into one six-month number (grain dropped,
+silently) or published nothing at all (grain honored, nothing to say). One
+finding per measure states it as a series: where it started, where it
+ended, and its extremes with the bucket each fell in. ``impact_cents``
+stays unset — the end-to-end movement of a series is a description, not a
+recoverable figure.
+
+**Premise** (before all of them). A question that *states* a movement
+("why did denials double") is answered honestly only once that movement has
+been measured: the planner adds an ungrouped premise probe
+(``BuildInvestigationPlanService.PREMISE_PREFIX``) and :func:`verify_premise`
+checks the asserted direction against the aggregate. When the aggregate
+moved the other way the correction leads — a ``premise_false`` warning
+first, and F1 is the correction itself with the aggregate figures behind it
+— and the direction-matched cells follow as context. Live, that path was
+answering "why did denials at Federal Medicare double in July" with the
+three CARC cells that rose, totalling $3,204, inside a fall from $58,983.54
+to $10,915.24 that no sentence mentioned.
+
 Whichever shape applies, each finding gets — via the referent registry — a drillable
 :class:`CohortDefinition` at the CLAIM entity scoped to the finding's
 dimension values plus the analysis window, so a later ``DrillInto``
@@ -82,6 +105,7 @@ from revi_investigation.application.calculation_glue import (
 )
 from revi_investigation.application.capability_ports import PackPort, PlaybookSpec
 from revi_investigation.application.comparison import ComparisonRendering, render_comparison
+from revi_investigation.application.gestures import suggested_refinements_for
 from revi_investigation.application.planning import InvestigationPlan
 from revi_investigation.application.ports import ReferentRegistryStore, RegisteredReferent
 from revi_investigation.application.rendering import (
@@ -102,6 +126,7 @@ from revi_investigation.domain.context import (
     AnalysisSpec,
     AskedMagnitude,
     adverse_delta_sign,
+    descending_for_order,
     wanted_delta_sign,
 )
 from revi_investigation.domain.records import Finding
@@ -118,6 +143,11 @@ from revi_kernel.refs import (
 )
 
 _TIME_BUCKET_PREFIX = "time_bucket:"
+
+#: Node-id prefix of the premise-verification probe (see
+#: ``BuildInvestigationPlanService.PREMISE_PREFIX``). Compared as a string
+#: so this module keeps its existing import surface.
+_PREMISE_PREFIX = "premise"
 
 #: The contract ``kind`` that reports a balance standing at a moment rather
 #: than a quantity accumulated over a window (round-2 FN-2). Compared as a
@@ -443,6 +473,69 @@ def _dimension_columns(frame: EvidenceFrame) -> tuple[str, ...]:
     )
 
 
+def _time_bucket_column(frame: EvidenceFrame) -> str | None:
+    """The frame's time axis, when it has one (``time_bucket:month``)."""
+    for col in frame.schema.columns:
+        if isinstance(col.ref, DimensionRef) and col.ref.id.startswith(_TIME_BUCKET_PREFIX):
+            return col.name
+    return None
+
+
+@dataclass(frozen=True, slots=True)
+class TrendShape:
+    """An ungrouped series over time: the answer to "…by month".
+
+    The shape that had nowhere to go. ``find_scalar_shapes`` deliberately
+    refuses a frame with more than one row — "an ungrouped frame with
+    several rows is a time-bucketed series, which is a trend and wants a
+    trend's treatment" — and until now nothing gave it one, so a monthly
+    breakdown either collapsed into a single scalar (when the grain was
+    dropped) or published nothing at all (when it was honored). One
+    finding per measure states the series as a series: where it started,
+    where it ended, and its extremes, each with the bucket it fell in.
+    """
+
+    frame_id: str
+    frame: EvidenceFrame
+    bucket_column: str
+    measure: str
+    unit: str | None
+
+    @property
+    def is_money(self) -> bool:
+        return self.unit == _MONEY_UNIT
+
+
+def find_trend_shapes(
+    plan: InvestigationPlan, calculation: CalculationResult
+) -> tuple[TrendShape, ...]:
+    """Every ungrouped multi-row series this plan produced, in plan order."""
+    shapes: list[TrendShape] = []
+    for node in plan.nodes:
+        if node.id.endswith(_PRIOR_SUFFIX):
+            continue
+        try:
+            frame = calculation.frame(node.id)
+        except KeyError:  # pragma: no cover - pruned steps never execute
+            continue
+        bucket = _time_bucket_column(frame)
+        if bucket is None or _dimension_columns(frame) or len(frame.rows) < 2:
+            continue
+        for column in frame.schema.columns:
+            if not isinstance(column.ref, MetricRef) or "__" in column.name:
+                continue
+            shapes.append(
+                TrendShape(
+                    frame_id=node.id,
+                    frame=frame,
+                    bucket_column=bucket,
+                    measure=column.name,
+                    unit=column.unit,
+                )
+            )
+    return tuple(shapes)
+
+
 def _unit_of(frame: EvidenceFrame, name: str) -> str | None:
     for col in frame.schema.columns:
         if col.name == name:
@@ -512,6 +605,146 @@ def _direction(delta: Scalar) -> str | None:
     return "down from" if delta < 0 else "up from"
 
 
+@dataclass(frozen=True, slots=True)
+class PremiseCheck:
+    """Whether the movement a question STATED actually happened.
+
+    The aggregate the premise probe measured, and the verdict. ``holds`` is
+    false when the aggregate moved the other way (or not at all) — the case
+    where every cell-level number can be correct and the answer still
+    false, because the question's premise was never checked.
+    """
+
+    frame_id: str
+    frame: EvidenceFrame
+    measure: str
+    unit: str | None
+    current: Scalar
+    prior: Scalar
+    delta: Decimal
+    pct: Scalar
+    holds: bool
+
+    @property
+    def is_money(self) -> bool:
+        return self.unit == _MONEY_UNIT
+
+
+def verify_premise(
+    plan: InvestigationPlan,
+    calculation: CalculationResult,
+    spec: AnalysisSpec,
+    pack: PackPort,
+    *,
+    premise_prefix: str,
+) -> PremiseCheck | None:
+    """Check the asserted aggregate movement, before anything explains it.
+
+    Returns ``None`` when the question asserted nothing (the overwhelming
+    majority of turns), or when the premise probe produced no comparable
+    aggregate — an unverifiable premise is not a refuted one, and claiming
+    otherwise would be the same failure in the opposite direction.
+    """
+    if not spec.direction_asserted or spec.direction is None:
+        return None
+    for step in plan.transforms.steps:
+        if step.operator != "compare" or not step.inputs:
+            continue
+        if not step.inputs[0].startswith(premise_prefix):
+            continue
+        try:
+            frame = calculation.frame(step.id)
+        except KeyError:  # pragma: no cover - pruned steps never execute
+            continue
+        if _dimension_columns(frame) or len(frame.rows) != 1:
+            continue
+        compared = _compared_measures(frame)
+        if not compared:
+            continue
+        measure = next(
+            (name for name in compared if _unit_of(frame, name) == _MONEY_UNIT), compared[0]
+        )
+        row = frame.rows[0]
+        delta = _as_number(row[frame.schema.index_of(f"{measure}__delta")])
+        if delta is None:
+            continue
+        contract = pack.metric(measure)
+        sign = contract.sign if contract is not None else SignConvention.NEUTRAL
+        wanted = wanted_delta_sign(spec.direction, sign)
+        if wanted is None:
+            continue
+        pct_col = f"{measure}__pct_change"
+        return PremiseCheck(
+            frame_id=step.id,
+            frame=frame,
+            measure=measure,
+            unit=_unit_of(frame, measure),
+            current=row[frame.schema.index_of(measure)],
+            prior=row[frame.schema.index_of(f"{measure}__prior")],
+            delta=delta,
+            pct=row[frame.schema.index_of(pct_col)] if pct_col in frame.schema.names else None,
+            holds=(delta > 0) if wanted > 0 else (delta < 0),
+        )
+    return None
+
+
+def _bucket_noun(frame: EvidenceFrame, column: str) -> str:
+    """"month" / "week" / "day", read off the frame's own time-axis ref."""
+    for col in frame.schema.columns:
+        if col.name == column and isinstance(col.ref, DimensionRef):
+            return col.ref.id.removeprefix(_TIME_BUCKET_PREFIX)
+    return "period"
+
+
+def _bucket_text(value: Scalar, noun: str) -> str:
+    """One bucket, named the way the bucket is ("2026-02", "week of …").
+
+    A monthly series whose points read "2026-02-01" is stating a day where
+    it means a month, which is the same class of imprecision the rest of
+    this module exists to avoid — and the first day of a month is exactly
+    the value a reader would misread as the measurement date.
+    """
+    text = str(value)
+    if noun == "month" and len(text) >= 7 and text[4] == "-":
+        return text[:7]
+    if noun == "week":
+        return f"week of {text}"
+    return text
+
+
+def _premise_sentence(premise: PremiseCheck, phrase: str) -> str:
+    """What actually happened to the aggregate, in the contract's own unit."""
+    label = metric_label(premise.measure)
+    moved = "fell" if premise.delta < 0 else ("rose" if premise.delta > 0 else "did not move")
+    amount = magnitude(premise.delta, premise.unit)
+    pct = f" ({ratio_pct(premise.pct)})" if isinstance(premise.pct, Decimal) else ""
+    return (
+        f"{label} {moved} {amount}{pct} {phrase} — from "
+        f"{format_value(premise.prior, premise.unit)} to "
+        f"{format_value(premise.current, premise.unit)}"
+    )
+
+
+def _premise_warning(
+    premise: PremiseCheck, spec: AnalysisSpec, *, comparison: ComparisonRendering | None
+) -> str:
+    """The correction a false premise owes the reader, said first.
+
+    Generic by construction: the movement that was asserted comes from the
+    interpretation's closed ``direction`` set, and what actually happened
+    comes from the aggregate the premise probe measured. No phrasing of the
+    original question appears here, because none of it was parsed.
+    """
+    assert spec.direction is not None
+    phrase = comparison.phrase if comparison is not None else "vs the prior period"
+    return (
+        f"premise_false: {_premise_sentence(premise, phrase)}. The question takes a movement of "
+        f"{spec.direction.value!r} as given, and over this window there was none. What follows "
+        "describes the cells that did move that way; it is context for a movement that did not "
+        "happen at the level asked about, not confirmation of it."
+    )
+
+
 class EvaluateFindingsService:
     def __init__(self, registry: ReferentRegistryStore, *, top_n: int = 3) -> None:
         self._registry = registry
@@ -528,12 +761,27 @@ class EvaluateFindingsService:
         session_id: str,
         investigation_id: str,
     ) -> FindingsResult:
+        # The premise first, always: a question that STATES a movement is
+        # answered honestly only once that movement has been measured.
+        premise = verify_premise(
+            plan, calculation, spec, pack, premise_prefix=_PREMISE_PREFIX
+        )
         shape = find_primary_movement(plan, calculation)
         if shape is None:
             concentration = find_primary_concentration(plan, calculation)
             if concentration is not None:
                 return await self._evaluate_concentration(
                     shape=concentration,
+                    spec=spec,
+                    pack=pack,
+                    playbook=playbook,
+                    session_id=session_id,
+                    investigation_id=investigation_id,
+                )
+            trends = find_trend_shapes(plan, calculation)
+            if trends:
+                return await self._evaluate_trends(
+                    shapes=trends,
                     spec=spec,
                     pack=pack,
                     playbook=playbook,
@@ -564,6 +812,14 @@ class EvaluateFindingsService:
         rows, selection_warnings = self._select_directional(
             shape.frame.rows, idx_delta, spec, pack, shape.measure
         )
+        if premise is not None and not premise.holds:
+            # The cells below did move the way the question assumed; the
+            # population they sit in did not. Said first, and said as the
+            # correction it is — the rows are context now, not the answer.
+            selection_warnings = (
+                _premise_warning(premise, spec, comparison=render_comparison(spec)),
+                *selection_warnings,
+            )
 
         qualified = self._requires_qualification(shape.frame.evidence_grade, pack, playbook)
         comparison = render_comparison(spec)
@@ -581,6 +837,21 @@ class EvaluateFindingsService:
 
         findings: list[Finding] = []
         referents: list[RegisteredReferent] = []
+        if premise is not None and not premise.holds:
+            # F1 is the correction, with the aggregate figures behind it, so
+            # the number that refutes the question is certified evidence the
+            # narrative must work from rather than a caveat under it.
+            correction, correction_referent = self._build_premise_finding(
+                f"F{finding_offset + 1}",
+                premise,
+                spec,
+                comparison,
+                pack,
+                session_id,
+                investigation_id,
+            )
+            findings.append(correction)
+            referents.append(correction_referent)
         for row in rows[: self._top_n]:
             if _as_number(row[idx_delta]) is None:
                 continue
@@ -708,8 +979,14 @@ class EvaluateFindingsService:
             )
 
         if wanted is None:
-            # No direction was asked. The default is not "ascending" — it is
-            # *worst first*, read off the contract's own sign convention: a
+            # No direction was asked. An ORDER may still have been ("best to
+            # worst"), and it wins: it is the analyst's own instruction about
+            # which end to show first, resolved against the metric's sign.
+            asked_order = descending_for_order(spec.order, sign)
+            if asked_order is not None:
+                return ordered(list(rows), descending=asked_order), ()
+            # Otherwise the default is not "ascending" — it is *worst
+            # first*, read off the contract's own sign convention: a
             # higher-is-bad measure's worst movement is a rise. Ascending
             # was only ever right because the first metrics through here
             # were higher-is-good dollars, and it published the biggest
@@ -734,6 +1011,69 @@ class EvaluateFindingsService:
             "context, not as an answer to what was asked."
         )
         return ordered(list(rows), descending=not (wanted > 0)), (warning,)
+
+    # -------------------------------------------------------------- premise
+
+    def _build_premise_finding(
+        self,
+        referent_value: str,
+        premise: PremiseCheck,
+        spec: AnalysisSpec,
+        comparison: ComparisonRendering | None,
+        pack: PackPort,
+        session_id: str,
+        investigation_id: str,
+    ) -> tuple[Finding, RegisteredReferent]:
+        """The refutation as a first-class finding, not a footnote.
+
+        It carries the same certified values every other finding does —
+        level, prior, delta, pct — because the reader's next question is
+        "by how much, then?", and a correction that cannot answer that is
+        just a contradiction.
+        """
+        assert spec.direction is not None
+        phrase = comparison.phrase if comparison is not None else "vs prior period"
+        sentence = _premise_sentence(premise, phrase)
+        title = f"Premise not supported: {sentence}"
+        statement = (
+            f"{sentence}. The question asks about a movement of {spec.direction.value!r} over "
+            "this window and the population it names shows none, so the movements below are the "
+            "exceptions inside it rather than the story."
+        )
+        values: list[tuple[str, Scalar]] = [
+            (premise.measure, premise.current),
+            (f"{premise.measure}__prior", premise.prior),
+            (
+                f"{premise.measure}__delta",
+                int(premise.delta) if premise.is_money else premise.delta,
+            ),
+            ("pct_change", premise.pct),
+        ]
+        referent = ReferentId(value=referent_value, kind=ReferentKind.FINDING)
+        finding = Finding(
+            referent=referent,
+            title=title,
+            statement=statement,
+            metric_refs=(MetricRef(premise.measure),),
+            values=tuple(values),
+            grade=premise.frame.evidence_grade,
+            # A refutation is not a recoverable opportunity: ranking it in a
+            # worklist would put "this did not happen" on somebody's queue.
+            impact_cents=None,
+            confidence="high",
+            suggested_refinements=suggested_refinements_for(referent_value),
+        )
+        registered = RegisteredReferent(
+            referent=referent,
+            session_id=session_id,
+            investigation_id=investigation_id,
+            label=title,
+            cohort_definition=self._cohort_definition(
+                premise.frame.rows[0], premise.frame, (), spec
+            ),
+            finding=finding,
+        )
+        return finding, registered
 
     # ------------------------------------------------------------- building
 
@@ -856,7 +1196,7 @@ class EvaluateFindingsService:
                 int(delta) if (shape.is_money and not mismatched) else None
             ),
             confidence="qualified" if (qualified or mismatched) else "high",
-            suggested_refinements=(f"drill into {referent_value}",),
+            suggested_refinements=suggested_refinements_for(referent_value),
         )
         registered = RegisteredReferent(
             referent=referent,
@@ -1025,7 +1365,7 @@ class EvaluateFindingsService:
                 _as_int(delta) if (shape.is_money and not mismatched) else None
             ),
             confidence="qualified" if (qualified or mismatched) else "high",
-            suggested_refinements=(f"drill into {referent_value}",),
+            suggested_refinements=suggested_refinements_for(referent_value),
         )
         registered = RegisteredReferent(
             referent=referent,
@@ -1038,6 +1378,134 @@ class EvaluateFindingsService:
             finding=finding,
         )
         return finding, registered
+
+    # ---------------------------------------------------------- trend shape
+
+    async def _evaluate_trends(
+        self,
+        *,
+        shapes: tuple[TrendShape, ...],
+        spec: AnalysisSpec,
+        pack: PackPort,
+        playbook: PlaybookSpec | None,
+        session_id: str,
+        investigation_id: str,
+    ) -> FindingsResult:
+        """Findings from an ungrouped series — the "by month" answer."""
+        existing = await self._registry.list_for_session(session_id)
+        finding_offset = sum(1 for e in existing if e.referent.kind is ReferentKind.FINDING)
+
+        findings: list[Finding] = []
+        referents: list[RegisteredReferent] = []
+        for shape in shapes[: self._top_n]:
+            finding = self._build_trend_finding(
+                f"F{finding_offset + len(findings) + 1}",
+                shape,
+                spec,
+                pack,
+                playbook,
+            )
+            if finding is None:
+                continue
+            findings.append(finding)
+            referents.append(
+                RegisteredReferent(
+                    referent=finding.referent,
+                    session_id=session_id,
+                    investigation_id=investigation_id,
+                    label=finding.title,
+                    cohort_definition=self._cohort_definition(
+                        shape.frame.rows[0], shape.frame, (), spec
+                    ),
+                    finding=finding,
+                )
+            )
+
+        await self._registry.register(tuple(referents))
+        return FindingsResult(
+            findings=tuple(findings),
+            referents=tuple(referents),
+            emptiness=(
+                None
+                if findings
+                else EmptinessFact(
+                    kind=EmptinessKind.NO_FINDINGS,
+                    frame_id=shapes[0].frame_id,
+                    detail="every bucket in this series was suppressed or empty",
+                )
+            ),
+        )
+
+    def _build_trend_finding(
+        self,
+        referent_value: str,
+        shape: TrendShape,
+        spec: AnalysisSpec,
+        pack: PackPort,
+        playbook: PlaybookSpec | None,
+    ) -> Finding | None:
+        """One series, stated as a series: ends first, then its extremes."""
+        schema = shape.frame.schema
+        idx_bucket = schema.index_of(shape.bucket_column)
+        idx_value = schema.index_of(shape.measure)
+        points = [
+            (row[idx_bucket], value)
+            for row in shape.frame.rows
+            if (value := _as_number(row[idx_value])) is not None
+        ]
+        if len(points) < 2:
+            return None  # a series of one is not a trend, and nor is silence
+        points.sort(key=lambda point: str(point[0]))
+        (first_bucket, first_value), (last_bucket, last_value) = points[0], points[-1]
+        low = min(points, key=lambda point: point[1])
+        high = max(points, key=lambda point: point[1])
+        delta = last_value - first_value
+        label = metric_label(shape.measure)
+        window = spec.context.window.range
+        noun = _bucket_noun(shape.frame, shape.bucket_column)
+        direction = "down" if delta < 0 else ("up" if delta > 0 else "flat")
+        movement = (
+            f"{direction} {magnitude(delta, shape.unit)}"
+            if delta
+            else "unchanged end to end"
+        )
+        title = (
+            f"{label} by {noun}, "
+            f"{window.start.isoformat()}..{window.end.isoformat()}: "
+            f"{format_value(first_value, shape.unit)} → "
+            f"{format_value(last_value, shape.unit)} ({movement})"
+        )
+        statement = (
+            f"{label} ran from {format_value(first_value, shape.unit)} in "
+            f"{_bucket_text(first_bucket, noun)} to {format_value(last_value, shape.unit)} in "
+            f"{_bucket_text(last_bucket, noun)} ({movement} over {len(points)} {noun}s); highest "
+            f"{format_value(high[1], shape.unit)} in {_bucket_text(high[0], noun)}, lowest "
+            f"{format_value(low[1], shape.unit)} in {_bucket_text(low[0], noun)}."
+        )
+        return Finding(
+            referent=ReferentId(value=referent_value, kind=ReferentKind.FINDING),
+            title=title,
+            statement=statement,
+            metric_refs=(MetricRef(shape.measure),),
+            values=(
+                ("first", first_value),
+                ("last", last_value),
+                ("delta", int(delta) if shape.is_money else delta),
+                ("high", high[1]),
+                ("low", low[1]),
+                ("periods", len(points)),
+            ),
+            grade=shape.frame.evidence_grade,
+            # End-to-end movement of a series is not a recoverable dollar
+            # figure, whatever the unit: it is a description, not a target.
+            impact_cents=None,
+            confidence=(
+                "qualified"
+                if self._requires_qualification(shape.frame.evidence_grade, pack, playbook)
+                else "high"
+            ),
+            suggested_refinements=suggested_refinements_for(referent_value),
+        )
 
     # -------------------------------------------------- concentration shape
 
@@ -1150,9 +1618,17 @@ class EvaluateFindingsService:
         share_text = (
             f" ({ratio_pct(share)} of {share_basis})" if isinstance(share, Decimal) else ""
         )
+        # "Ranks #1" is meaningless until the sentence says which end. Live,
+        # "rank payers best to worst" returned the worst payer first and
+        # narrated it "ranks first at a 29.5% denial rate" — the ordering
+        # the analyst asked for was neither honored nor stated. When an
+        # order WAS asked for, the rows now arrive in it (planning resolves
+        # "best" against the contract's sign) and the sentence names it; when
+        # none was, nothing is claimed about what first means.
+        order_text = f" ({spec.order.phrase}, as asked)" if spec.order is not None else ""
         title = f"{label}: {magnitude} {measure_label}{share_text}"
         statement = (
-            f"{label} ranks #{rank} by {measure_label} "
+            f"{label} ranks #{rank} by {measure_label}{order_text} "
             f"{period_text}: {magnitude}{share_text}."
         )
 
@@ -1172,7 +1648,7 @@ class EvaluateFindingsService:
             # measure is money, rather than inventing a figure.
             impact_cents=amount if shape.is_money else None,
             confidence="qualified" if qualified else "high",
-            suggested_refinements=(f"drill into {referent_value}",),
+            suggested_refinements=suggested_refinements_for(referent_value),
         )
         registered = RegisteredReferent(
             referent=referent,

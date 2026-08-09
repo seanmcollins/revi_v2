@@ -64,6 +64,23 @@ export default function Workspace() {
   const sessionId = useSessionStore((s) => s.sessionId);
   const sessions = useSessionStore((s) => s.sessions);
   const llmMode = useSessionStore((s) => s.connection.llmMode);
+  const sessionLive = useSessionStore((s) => s.sessionLive);
+  const connectionMode = useSessionStore((s) => s.connection.mode);
+  /**
+   * Is there a session for this pin to belong to?
+   *
+   * A watermark is a property of a SESSION — the data load it was pinned
+   * to when it opened. In api mode a session is minted by the first turn
+   * and by nothing else, so on a cold start and across "New chat" there is
+   * a real interval with no session at all. The header used to print the
+   * store's seed constant through that interval: a specific date and load
+   * time, in the analyst's most-trusted line, describing a pin that either
+   * had not been chosen yet or belonged to a thread just discarded.
+   *
+   * Mock mode is exempt because its seed constant IS its watermark — the
+   * fixture has one load and always did.
+   */
+  const pinned = connectionMode !== "api" || sessionLive;
   const [paletteOpen, setPaletteOpen] = useState(false);
 
   // What this session is called: the first question asked in it — the
@@ -162,11 +179,20 @@ export default function Workspace() {
               {/* Default: the two facts an analyst acts on — how fresh the
                   data is and how far it runs. The pinned watermark id and
                   pack version are engine vocabulary and live in debug mode
-                  and the settings panel's effective-configuration block. */}
+                  and the settings panel's effective-configuration block.
+                  Before a session exists there is no pin to state, and the
+                  line says that rather than showing a date it cannot
+                  stand behind — see `pinned`. */}
               <p className="num truncate text-[0.62rem] text-muted-foreground">
-                Data through {mediumDate(watermark.newestDataDate)} · loaded{" "}
-                {watermark.loadedAt}
-                {debug && ` · ${watermark.id} · ${pack.packId}@${pack.version}`}
+                {pinned ? (
+                  <>
+                    Data through {mediumDate(watermark.newestDataDate)} · loaded{" "}
+                    {watermark.loadedAt}
+                    {debug && ` · ${watermark.id} · ${pack.packId}@${pack.version}`}
+                  </>
+                ) : (
+                  <>New chat — the data load pins when you ask your first question</>
+                )}
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2.5">

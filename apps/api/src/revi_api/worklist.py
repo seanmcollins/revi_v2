@@ -1,0 +1,286 @@
+"""The conversation's read path onto the ranked anomaly worklist.
+
+Round-2 deferred P1. The platform computes a prioritised, reconciled
+worklist — 33 detected cards, two lanes, a published priority
+decomposition and a governed recoverable estimate per card — and serves it
+at ``GET /v1/portfolio/latest``. The conversation could not reach it:
+*"What should my denial team work first this week to recover the most
+cash?"* returned a clarification offering four ranking bases, none of
+which was that list, and the portfolio was never mentioned. *"Of our
+denied dollars, how much is realistically recoverable"* returned three
+denied-dollar rankings and a narrative that never used the word
+recoverable. To a buyer that reads as two products in one shell.
+
+Two seams, no new pipeline:
+
+* **Governed routing.** ``packs/base-rcm/worklist.yaml`` names the pack
+  artifacts that mean "which work should I pick up" — a playbook id
+  (``daily_portfolio``, whose triggers carry the prioritisation phrasings)
+  and a concept id (``work_prioritization``, whose aliases carry the
+  analyst vocabulary). Interpretation maps an utterance onto governed ids
+  exactly as it always has; this module reads WHICH ids it chose. No
+  question string is matched anywhere in the platform, and none is added
+  here — that is the whole point of putting the mapping in the pack.
+* **One computation.** The cards published are the same
+  :class:`~revi_investigation_contracts.api.AnomalyCard` objects the rail
+  renders, from the same :func:`~revi_api.portfolio.build_portfolio` call:
+  same formula version, same decomposition, same ``ranked_on``, same
+  reconciliation state, same recoverable estimates, same warnings. A chat
+  answer and the rail cannot disagree about the order or the money.
+
+The statement is composed here, deterministically, from the build — never
+by a model. It names the formula, the lanes, the top card, the recoverable
+total, how many cards were withheld, and how many are ranked on this
+platform's re-derived figure rather than the detector's.
+"""
+
+from __future__ import annotations
+
+import hashlib
+from collections.abc import Sequence
+from dataclasses import dataclass
+from pathlib import Path
+from typing import Any
+
+import yaml
+
+from revi_api.portfolio import COMPLIANCE_LANE, VALUE_LANE
+from revi_investigation_contracts.api import (
+    AnomalyCard,
+    PortfolioResponse,
+    WorklistPayload,
+    WorklistQuery,
+)
+
+#: Where the routing lives, relative to the pack directory.
+WORKLIST_FILENAME = "worklist.yaml"
+
+_LANES = (COMPLIANCE_LANE, VALUE_LANE)
+
+
+@dataclass(frozen=True, slots=True)
+class WorklistRouting:
+    """Which governed artifacts mean "show me the worklist".
+
+    Empty (``enabled`` false) when the pack ships no ``worklist.yaml``: a
+    deployment whose pack does not declare the routing simply never
+    attaches a worklist, which is a stated absence rather than a silent
+    behavior change.
+    """
+
+    playbook_ids: frozenset[str] = frozenset()
+    concept_ids: frozenset[str] = frozenset()
+    default_limit: int = 8
+    max_limit: int = 25
+    label: str = ""
+    description: str = ""
+    content_hash: str = ""
+
+    @property
+    def enabled(self) -> bool:
+        return bool(self.playbook_ids or self.concept_ids)
+
+    def match(
+        self, *, playbook_id: str | None, concepts: tuple[str, ...]
+    ) -> tuple[str, str] | None:
+        """``(matched_on, matched_id)`` for a turn, or ``None``.
+
+        The playbook is checked first: it is the stronger signal (the whole
+        investigation was planned from it), and a concept can ride along on
+        a turn that is mostly about something else.
+        """
+        if playbook_id is not None and playbook_id in self.playbook_ids:
+            return "playbook", playbook_id
+        for concept in concepts:
+            if concept in self.concept_ids:
+                return "concept", concept
+        return None
+
+    def bounded_limit(self, requested: int | None) -> int:
+        if requested is None:
+            return max(1, self.default_limit)
+        return max(1, min(requested, self.max_limit))
+
+
+def load_worklist_routing(path: str | Path) -> WorklistRouting:
+    """Read the governed routing, or an empty one when the pack has none.
+
+    A missing file is not an error — a pack that declares no worklist
+    routing is a pack whose answers carry no worklist. A malformed one IS:
+    routing the platform silently failed to load is the defect this file
+    exists to close, wearing a different mask.
+    """
+    file = Path(path)
+    if not file.is_file():
+        return WorklistRouting()
+    raw = file.read_text(encoding="utf-8")
+    document: Any = yaml.safe_load(raw)
+    if not isinstance(document, dict):
+        raise ValueError(f"{path}: expected a mapping document")
+    playbooks = document.get("playbook_ids", []) or []
+    concepts = document.get("concept_ids", []) or []
+    if not isinstance(playbooks, list) or not isinstance(concepts, list):
+        raise ValueError(f"{path}: 'playbook_ids' and 'concept_ids' must be lists")
+    default_limit = int(document.get("default_limit", 8))
+    max_limit = int(document.get("max_limit", 25))
+    if default_limit < 1 or max_limit < default_limit:
+        raise ValueError(
+            f"{path}: default_limit must be >= 1 and max_limit >= default_limit"
+        )
+    return WorklistRouting(
+        playbook_ids=frozenset(str(p) for p in playbooks),
+        concept_ids=frozenset(str(c) for c in concepts),
+        default_limit=default_limit,
+        max_limit=max_limit,
+        label=" ".join(str(document.get("label", "")).split()),
+        description=" ".join(str(document.get("description", "")).split()),
+        content_hash=hashlib.sha256(raw.encode("utf-8")).hexdigest(),
+    )
+
+
+def _dollars(cents: int) -> str:
+    return f"${cents / 100:,.2f}"
+
+
+def _statement(
+    portfolio: PortfolioResponse,
+    *,
+    published: Sequence[AnomalyCard],
+    total: int,
+    recoverable_cents: int,
+    lane: str | None,
+) -> str:
+    """The answer, in sentences, from the build in hand.
+
+    Every clause is a fact the payload also carries structurally, so a
+    reader who checks finds the same numbers. Deliberately not composed by
+    a model: this is a read of a computation, and a generated sentence
+    could not be validated against it any more cheaply than writing it
+    from it.
+    """
+    if total == 0:
+        return (
+            "There is no ranked work at this watermark: the detection feed reported no "
+            "open anomalies, so this platform has no worklist to order."
+        )
+    parts: list[str] = []
+    scope = f" in the {lane} lane" if lane is not None else ""
+    parts.append(
+        f"{len(published)} of {total} ranked cards{scope} at watermark "
+        f"{portfolio.watermark_id}, highest governed priority first "
+        f"({portfolio.formula_version}: normalised impact, recency, and the governed "
+        f"recoverable estimate, with the cards this platform cannot yet investigate "
+        f"listed last)."
+    )
+    lanes = {lane_payload.id: lane_payload for lane_payload in portfolio.lanes}
+    lane_bits = [
+        f"{lanes[lane_id].item_count} {lanes[lane_id].label.lower()}"
+        for lane_id in _LANES
+        if lane_id in lanes
+    ]
+    if lane_bits:
+        parts.append("Lanes: " + "; ".join(lane_bits) + ".")
+    # The first card OF THIS PAGE, not of the whole portfolio: a lane-scoped
+    # read that led with the global top card would name a card the reader
+    # was not shown.
+    top = published[0] if published else None
+    if top is not None:
+        parts.append(
+            f"First is {top.anomaly_id} — {top.title} — "
+            f"{_dollars(abs(top.ranked_impact_cents))} ranked on the "
+            f"{'platform' if top.ranked_on == 'platform' else 'detection system'}'s figure, "
+            f"about {_dollars(top.recoverable_cents_estimate)} of it estimated recoverable "
+            f"({top.actionability_label}), priority {top.priority_score:.6f}."
+        )
+    parts.append(
+        f"Across the whole ranked population the governed recoverable estimate totals "
+        f"{_dollars(recoverable_cents)}."
+    )
+    # Counted over the whole ranked population, and said to be: a count
+    # taken over 33 cards under a sentence about the 8 published would be a
+    # different claim from the one the number supports.
+    on_platform = sum(1 for card in portfolio.items if card.ranked_on == "platform")
+    if on_platform:
+        parts.append(
+            f"Across the ranked population, {on_platform} card(s) are ranked on this "
+            "platform's re-derived figure rather than the detector's, because the two "
+            "diverge; each card publishes both numbers and which one ranked it."
+        )
+    blocked = sum(1 for card in portfolio.items if not card.drillable)
+    if blocked:
+        parts.append(
+            f"{blocked} of the {len(portfolio.items)} cannot be opened at this catalog "
+            "and pack version and carry the platform's own refusal; they sort last."
+        )
+    parts.append(
+        "This is the detection feed's ranked work, not a measurement of the question "
+        "asked above; the findings on this answer are that."
+    )
+    return " ".join(parts)
+
+
+#: Attached as an ordinary turn warning so the disclosure travels with the
+#: answer's own warnings rather than only inside the payload.
+WORKLIST_ATTACHED_PREFIX = "worklist_attached:"
+
+
+def worklist_warning(payload: WorklistPayload) -> str:
+    routed = (
+        f"the governed {payload.matched_on} {payload.matched_id!r}"
+        if payload.matched_on != "typed_query"
+        else "an explicit worklist request on this turn"
+    )
+    return (
+        f"{WORKLIST_ATTACHED_PREFIX} this answer also carries the ranked anomaly "
+        f"worklist ({len(payload.items)} of {payload.total_items} cards), attached "
+        f"because {routed} routed it. The cards are the detection feed's, ordered by "
+        f"{payload.formula_version}; they are not findings this turn computed."
+    )
+
+
+def build_worklist(
+    portfolio: PortfolioResponse,
+    routing: WorklistRouting,
+    *,
+    matched_on: str,
+    matched_id: str,
+    query: WorklistQuery | None = None,
+) -> WorklistPayload:
+    """Project a built portfolio into the conversational worklist payload.
+
+    Selection only — no re-ranking, no re-scoring, no second formula. The
+    array arrives ranked and lane-tagged; this takes the requested lane,
+    the requested page, and carries the build's own warnings through.
+    """
+    lane = (query.lane if query is not None else None) or None
+    if lane is not None and lane not in _LANES:
+        lane = None
+    ranked = [card for card in portfolio.items if lane is None or card.lane == lane]
+    limit = routing.bounded_limit(query.limit if query is not None else None)
+    published = ranked[:limit]
+    recoverable = sum(card.recoverable_cents_estimate for card in ranked)
+    return WorklistPayload(
+        matched_on=matched_on,  # type: ignore[arg-type]
+        matched_id=matched_id,
+        statement=_statement(
+            portfolio,
+            published=published,
+            total=len(ranked),
+            recoverable_cents=recoverable,
+            lane=lane,
+        ),
+        label=routing.label,
+        description=routing.description,
+        formula_version=portfolio.formula_version,
+        watermark_id=portfolio.watermark_id,
+        tenant=portfolio.tenant,
+        items=published,
+        lanes=list(portfolio.lanes),
+        total_items=len(ranked),
+        limit=limit,
+        total_recoverable_cents_estimate=recoverable,
+        # Verbatim: a worklist read into a conversation must not shed the
+        # disclosures the rail shows beside the same cards.
+        warnings=list(portfolio.warnings),
+        warnings_v2=list(portfolio.warnings_v2),
+    )

@@ -43,9 +43,33 @@ sessions = sa.Table(
     # as "the defaults" rather than as a decode failure.
     sa.Column("settings", JSONB, nullable=True),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
+    # Soft archive (migration 0004). NULL is an active session; a timestamp
+    # is one the analyst dismissed. Nothing is deleted: a session owns
+    # investigations, traces, frames and cohorts that other reads still
+    # resolve through it, and a hard delete would turn a tidy-up into
+    # dangling lineage.
+    sa.Column("archived_at", sa.DateTime(timezone=True), nullable=True),
     # The session list's only filter (migration 0003): without it, "which
     # sessions does this tenant own?" scans every session in the deployment.
     sa.Index("ix_revi_session_sessions_tenant", "tenant"),
+    schema=SESSION_SCHEMA,
+)
+
+#: One executed turn, keyed by the caller's idempotency key (migration
+#: 0004). The API used to hold these in a process-local dict, so a restart
+#: — or a second worker — turned a retried POST into a second execution of
+#: the same turn: fresh model spend, a second investigation in the DAG, and
+#: two different answers to one request. The response is stored as the
+#: serialized ``TurnResponse`` so a replay returns the ORIGINAL payload
+#: rather than a re-run that could differ.
+turn_receipts = sa.Table(
+    "turn_receipts",
+    metadata,
+    sa.Column("tenant", sa.Text, primary_key=True),
+    sa.Column("session_id", sa.Text, primary_key=True),
+    sa.Column("idempotency_key", sa.Text, primary_key=True),
+    sa.Column("response", JSONB, nullable=False),
+    sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     schema=SESSION_SCHEMA,
 )
 

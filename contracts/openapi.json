@@ -79,6 +79,46 @@
         "title": "AddFilterModel",
         "type": "object"
       },
+      "AnchoredWindowModel": {
+        "additionalProperties": false,
+        "description": "A calendar period the analyst named: June 2026, Q2 2026, 2025.\n\nThe third window shape, and the one the chat box had no way to say.\n``WindowSpecModel`` is relative (\"the last 6 months\") and\n``AbsoluteWindowModel`` is a pair of dates \u2014 so \"denial rate for June\n2026\" was unmappable, and a portfolio card's published window could not\nbe re-run by hand. This shape is neither a guess nor free-form dates:\nthe period is *named* and the concrete dates are derived by\n:func:`revi_kernel.scope.resolve_anchored`, so the calendar arithmetic\nstays in one deterministic place instead of being asked of a model.\n\n``index`` is the 1-based period within the year \u2014 month 1..12, quarter\n1..4 \u2014 and must be omitted for ``unit=\"year\"``.",
+        "properties": {
+          "index": {
+            "anyOf": [
+              {
+                "maximum": 12.0,
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Index"
+          },
+          "unit": {
+            "enum": [
+              "month",
+              "quarter",
+              "year"
+            ],
+            "title": "Unit",
+            "type": "string"
+          },
+          "year": {
+            "maximum": 9999.0,
+            "minimum": 1.0,
+            "title": "Year",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "unit",
+          "year"
+        ],
+        "title": "AnchoredWindowModel",
+        "type": "object"
+      },
       "AnomalyCard": {
         "additionalProperties": false,
         "description": "One detected anomaly, ranked by the governed priority formula.\n\nThe decomposed components (impact, age, recoverable estimate,\nactionability rationale) travel with the score \u2014 no black-box\nordering \u2014 and ``drill_spec`` is the typed handle the UI posts to\nstart an ordinary investigation turn.\n\n``drill_spec`` is a complete :class:`TypedInvestigationSpec`, not a\nbag of operators: the card's own metric, its dimensions (both as the\nbreakdown and, at their detected values, as the scope), and its\nobservation window. Posting it re-derives the detector's assertion\nfrom the platform's certified semantics and versioned contracts \u2014 so\nthe answer carries a real evidence grade where the card itself only\ncarries provenance. Earlier milestones shipped ``drill_filters`` +\n``drill_window``, which were sound operators with nowhere to land: a\nrefinement refines a parent investigation and a card is not one.\n\n**No evidence grade, by construction.** A grade certifies how a number\nwas *computed by this platform* from certified semantics (design \u00a75.3);\nan anomaly card is not that. It is a record read from an external\ndetection system as-of a watermark, so the platform cannot honestly\nstamp DIRECT/DERIVED/PROXY on it. Instead every card declares its\n``provenance`` (``external_detection``), the ``priority_formula_version``\nthat ordered it, and the ``source_watermark_id`` it was read at \u2014 the\nthree facts a grade would otherwise have implied. Drilling a card starts\nan ordinary investigation turn, and *that* answer carries a real grade.",
@@ -129,6 +169,13 @@
               "$ref": "#/components/schemas/AnomalyDimension"
             },
             "title": "Dimensions",
+            "type": "array"
+          },
+          "drill_dimension_repoints": {
+            "items": {
+              "$ref": "#/components/schemas/DrillDimensionRepoint"
+            },
+            "title": "Drill Dimension Repoints",
             "type": "array"
           },
           "drill_repoint_rationale": {
@@ -254,6 +301,26 @@
           "provenance": {
             "const": "external_detection",
             "title": "Provenance",
+            "type": "string"
+          },
+          "ranked_impact_cents": {
+            "default": 0,
+            "title": "Ranked Impact Cents",
+            "type": "integer"
+          },
+          "ranked_on": {
+            "default": "detector",
+            "enum": [
+              "detector",
+              "platform",
+              "not_comparable"
+            ],
+            "title": "Ranked On",
+            "type": "string"
+          },
+          "ranked_on_note": {
+            "default": "",
+            "title": "Ranked On Note",
             "type": "string"
           },
           "reconciled_impact_cents": {
@@ -1479,6 +1546,31 @@
         "title": "DefinitionalPayload",
         "type": "object"
       },
+      "DrillDimensionRepoint": {
+        "additionalProperties": false,
+        "description": "A governed substitution for the detector's CUT, published.\n\nThe detection feed cuts procedures at ``proc_group``, which binds on\n``claim_line``. A claim-grain contract has no legal procedure cut at\nall, so four cards \u2014 the largest on the worklist among them \u2014 refused\nwith ``GRAIN_INCOMPATIBLE`` rather than opening. The catalog certifies\n``primary_proc_group`` (the claim's DOMINANT procedure group) at the\nclaim and transaction grains, and the drill is pointed at that.\n\nA substitution, not a translation, and the card says so: the detector\ncounted LINES in the group, the drill counts CLAIMS whose largest\nprocedure group is that one. For a single-procedure claim those are the\nsame population; for a multi-procedure claim they are not. That is a\nlegitimate reason for the card's figure and the drill's to differ, and\nthe reconciliation strip states the gap rather than absorbing it.",
+        "properties": {
+          "from_dimension": {
+            "title": "From Dimension",
+            "type": "string"
+          },
+          "rationale": {
+            "title": "Rationale",
+            "type": "string"
+          },
+          "to_dimension": {
+            "title": "To Dimension",
+            "type": "string"
+          }
+        },
+        "required": [
+          "from_dimension",
+          "to_dimension",
+          "rationale"
+        ],
+        "title": "DrillDimensionRepoint",
+        "type": "object"
+      },
       "DrillIntoModel": {
         "additionalProperties": false,
         "properties": {
@@ -1979,6 +2071,21 @@
               }
             ]
           },
+          "context_header": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContextHeaderPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "context_header_restored": {
+            "default": false,
+            "title": "Context Header Restored",
+            "type": "boolean"
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -2022,6 +2129,18 @@
             "title": "Metric Display",
             "type": "array"
           },
+          "newest_data_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Newest Data Date"
+          },
           "parent_id": {
             "anyOf": [
               {
@@ -2055,6 +2174,13 @@
             ],
             "title": "Question"
           },
+          "restoration_notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Restoration Notes",
+            "type": "array"
+          },
           "session_id": {
             "title": "Session Id",
             "type": "string"
@@ -2084,6 +2210,11 @@
             },
             "title": "Warnings V2",
             "type": "array"
+          },
+          "watermark_id": {
+            "default": "",
+            "title": "Watermark Id",
+            "type": "string"
           }
         },
         "required": [
@@ -2392,6 +2523,16 @@
           "label": {
             "title": "Label",
             "type": "string"
+          },
+          "ranked_impact_cents": {
+            "default": 0,
+            "title": "Ranked Impact Cents",
+            "type": "integer"
+          },
+          "recoverable_cents_estimate": {
+            "default": 0,
+            "title": "Recoverable Cents Estimate",
+            "type": "integer"
           }
         },
         "required": [
@@ -2508,10 +2649,30 @@
             "title": "Impact Norm",
             "type": "number"
           },
+          "impact_normalizer_cents": {
+            "default": 0,
+            "title": "Impact Normalizer Cents",
+            "type": "integer"
+          },
           "impact_term": {
             "default": 0.0,
             "title": "Impact Term",
             "type": "number"
+          },
+          "ranked_impact_cents": {
+            "default": 0,
+            "title": "Ranked Impact Cents",
+            "type": "integer"
+          },
+          "ranked_on": {
+            "default": "detector",
+            "enum": [
+              "detector",
+              "platform",
+              "not_comparable"
+            ],
+            "title": "Ranked On",
+            "type": "string"
           },
           "recency": {
             "default": 0.0,
@@ -2954,6 +3115,9 @@
                 "$ref": "#/components/schemas/WindowSpecModel"
               },
               {
+                "$ref": "#/components/schemas/AnchoredWindowModel"
+              },
+              {
                 "$ref": "#/components/schemas/AbsoluteWindowModel"
               }
             ],
@@ -3243,6 +3407,16 @@
             "default": false,
             "title": "Watermark Stale",
             "type": "boolean"
+          },
+          "worklist": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorklistPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -3309,6 +3483,16 @@
             "default": false,
             "title": "Watermark Stale",
             "type": "boolean"
+          },
+          "worklist": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorklistPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -3504,6 +3688,16 @@
               }
             ],
             "title": "Utterance"
+          },
+          "worklist": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WorklistQuery"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "title": "TurnRequest",
@@ -3597,6 +3791,9 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/WindowSpecModel"
+              },
+              {
+                "$ref": "#/components/schemas/AnchoredWindowModel"
               },
               {
                 "$ref": "#/components/schemas/AbsoluteWindowModel"
@@ -3764,6 +3961,135 @@
           "mode"
         ],
         "title": "WindowSpecModel",
+        "type": "object"
+      },
+      "WorklistPayload": {
+        "additionalProperties": false,
+        "description": "The ranked anomaly worklist, answered into a conversation.\n\nThe platform computed a prioritised, reconciled worklist and the\nconversation could not reach it: \"what should my denial team work first\nthis week to recover the most cash?\" returned a clarification offering\nfour ranking bases, none of which was the 33-card list with its lanes,\nrecoverable estimates and reconciliation state. The portfolio was never\nmentioned \u2014 two products in one shell.\n\nA turn carries this when it resolved the pack's governed worklist\nrouting (``packs/base-rcm/worklist.yaml`` names the playbook and\nconcept ids that mean \"which work should I pick up\"), or when the\ncaller asked for it outright with ``TurnRequest.worklist``. No question\ntext is matched anywhere: interpretation maps the utterance onto\ngoverned artifacts exactly as it always has, and this reads which of\nthose artifacts it chose.\n\n:attr:`items` are the SAME :class:`AnomalyCard` objects the portfolio\nrail renders, from the same build \u2014 same ``anomaly_priority`` version,\nsame :class:`PriorityDecompositionPayload`, same ``ranked_on``, same\nreconciliation state, same recoverable estimates. A chat answer and the\nrail cannot disagree about the order or the money because there is one\ncomputation behind both.",
+        "properties": {
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "formula_version": {
+            "default": "",
+            "title": "Formula Version",
+            "type": "string"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AnomalyCard"
+            },
+            "title": "Items",
+            "type": "array"
+          },
+          "label": {
+            "default": "",
+            "title": "Label",
+            "type": "string"
+          },
+          "lanes": {
+            "items": {
+              "$ref": "#/components/schemas/PortfolioLanePayload"
+            },
+            "title": "Lanes",
+            "type": "array"
+          },
+          "limit": {
+            "default": 0,
+            "title": "Limit",
+            "type": "integer"
+          },
+          "matched_id": {
+            "default": "",
+            "title": "Matched Id",
+            "type": "string"
+          },
+          "matched_on": {
+            "enum": [
+              "playbook",
+              "concept",
+              "typed_query"
+            ],
+            "title": "Matched On",
+            "type": "string"
+          },
+          "statement": {
+            "default": "",
+            "title": "Statement",
+            "type": "string"
+          },
+          "tenant": {
+            "default": "",
+            "title": "Tenant",
+            "type": "string"
+          },
+          "total_items": {
+            "default": 0,
+            "title": "Total Items",
+            "type": "integer"
+          },
+          "total_recoverable_cents_estimate": {
+            "default": 0,
+            "title": "Total Recoverable Cents Estimate",
+            "type": "integer"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "warnings_v2": {
+            "items": {
+              "$ref": "#/components/schemas/WarningPayload"
+            },
+            "title": "Warnings V2",
+            "type": "array"
+          },
+          "watermark_id": {
+            "default": "",
+            "title": "Watermark Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "matched_on"
+        ],
+        "title": "WorklistPayload",
+        "type": "object"
+      },
+      "WorklistQuery": {
+        "additionalProperties": false,
+        "description": "Ask a turn to carry the ranked anomaly worklist with its answer.\n\nThe typed twin of the governed routing. A turn whose interpretation\nresolved the pack's worklist playbook or concept gets the worklist\nattached automatically (see :class:`WorklistPayload`); this is the\nexplicit handle for a surface that already knows \u2014 a \"what should I\nwork first\" chip, a scheduled brief \u2014 and it never changes what the\nturn itself investigates. Purely additive: the turn runs exactly as it\nwould have, and the worklist rides alongside its findings.",
+        "properties": {
+          "lane": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lane"
+          },
+          "limit": {
+            "anyOf": [
+              {
+                "minimum": 1.0,
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Limit"
+          }
+        },
+        "title": "WorklistQuery",
         "type": "object"
       }
     },
@@ -4450,6 +4776,104 @@
           }
         ],
         "summary": "Open Session"
+      }
+    },
+    "/v1/sessions/{session_id}": {
+      "delete": {
+        "description": "Dismiss a session from this tenant's list \u2014 a SOFT archive.\n\nNothing is deleted. The session keeps its investigations, traces,\nframes and cohorts and stays fetchable by id, so a linked\nconversation does not 404 because somebody tidied the rail; it\nsimply stops appearing in `GET /v1/sessions`. Idempotent: archiving\nan archived session succeeds, and archiving one that does not exist\nis a 404 rather than a quiet 204.",
+        "operationId": "archive_session_v1_sessions__session_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "session_id",
+            "required": true,
+            "schema": {
+              "title": "Session Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable \u00a712 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, \u2026)."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unknown session, investigation, or referent (REFERENT_NOT_FOUND)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "WATERMARK_STALE or CONTEXT_CONFLICT \u2014 the pinned context cannot absorb the request without an explicit decision."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "SOURCE_UNAVAILABLE or DATA_LOADING \u2014 the analytical source cannot serve this watermark right now."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Archive Session"
       }
     },
     "/v1/sessions/{session_id}/lineage": {

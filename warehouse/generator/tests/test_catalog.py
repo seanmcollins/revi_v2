@@ -49,8 +49,15 @@ def test_dimensions_yaml() -> None:
     dims = data["dimensions"]
     certified = {k for k, v in dims.items() if v["certified"]}
     uncertified = {k for k, v in dims.items() if not v["certified"]}
-    assert len(certified) == 24, sorted(certified)
+    assert len(certified) == 26, sorted(certified)
     assert uncertified == {"rarc_synthetic", "revenue_code"}
+    # Both derived buckets declare their labels; nothing else may claim the kind.
+    derived = {k for k, v in dims.items() if v.get("kind") == "derived_bucket"}
+    assert derived == {"ar_age_bucket", "filing_runway_bucket"}
+    for name in derived:
+        assert dims[name]["buckets"], name
+        assert dims[name]["certified"], name
+    assert {"expired", "filed"} <= set(dims["filing_runway_bucket"]["buckets"])
     # The three claim-level boolean flags: a filter predicate needs a
     # dimension, so `submission_date IS NULL` is only expressible once the
     # catalog certifies billed_flag. The dates stay date bases.
@@ -114,6 +121,58 @@ def test_calendar_yaml() -> None:
     assert cal["week_convention"].startswith("ISO")
     assert len(cal["holidays"]) >= 10
     assert {"CALENDAR_DAY", "BUSINESS_DAY"} <= set(cal["policies"])
+
+
+def test_every_plan_resolves_against_the_packs_filing_rules() -> None:
+    """The claim → plan → filing rule join, checked at the rule table.
+
+    Two separate claims, both worth pinning:
+
+    1. **Coverage.** Every one of the 30 plans matches some rule in the pack's
+       ladder (the trailing ``*`` guarantees it, but a future edit could drop
+       it), and every plan carries its own limit + basis in ``dim_plan`` — which
+       is what the compiler actually reads, because a source adapter cannot see
+       pack content and the plan record is the most specific rule available.
+    2. **Agreement where the pack claims to mirror the plan record.** The
+       ``plan_configuration`` tier is documented in filing_rules.yaml as
+       mirroring dim_plan, so those rules must agree with it to the day. The
+       coarser tiers are payer-pattern defaults and are allowed to differ; the
+       ``requires_confirmation`` flag on them is exactly the statement that
+       they might.
+    """
+    import fnmatch
+
+    from revi_warehouse.dims import PLANS
+
+    rules = yaml.safe_load(
+        (Path(__file__).resolve().parents[3] / "packs" / "base-rcm" / "filing_rules.yaml").read_text()
+    )["filing_rules"]
+
+    def matched(payer_name: str, plan_name: str) -> dict[str, Any]:
+        for rule in rules:  # first match wins, most specific first
+            if not fnmatch.fnmatchcase(payer_name, rule["payer_pattern"]):
+                continue
+            pattern = rule.get("plan_pattern")
+            if pattern is not None and not fnmatch.fnmatchcase(plan_name, pattern):
+                continue
+            return rule
+        raise AssertionError(f"no filing rule matches {payer_name!r} / {plan_name!r}")
+
+    assert len(PLANS) == 30
+    needs_confirmation = 0
+    for payer_name, plan_name, _product, limit_days, basis, _weight in PLANS:
+        assert limit_days > 0, plan_name
+        assert basis in {"SERVICE", "SUBMISSION"}, plan_name
+        rule = matched(payer_name, plan_name)
+        if rule["authority"] == "plan_configuration":
+            assert rule["filing_limit_days"] == limit_days, plan_name
+            assert rule["date_basis"].upper() == basis, plan_name
+            assert rule["requires_confirmation"] is False, rule["id"]
+        if rule["requires_confirmation"]:
+            needs_confirmation += 1
+    # The number the contract's population caveat publishes. 23 of 30 plans fall
+    # through to a tier the pack marks "confirm against the payer contract".
+    assert needs_confirmation == 23
 
 
 def test_calendar_yaml_matches_the_generated_calendar() -> None:

@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, ChevronRight, CircleDashed, Zap } from "lucide-react";
-import { useState } from "react";
+import { useId, useState } from "react";
 
 import type { StageStatus } from "@/lib/store";
 import { PLAIN_STAGE_GROUPS, STAGE_LABELS, type StageId } from "@/lib/types";
@@ -37,6 +37,7 @@ export function StageRail({
 }) {
   const [expanded, setExpanded] = useState(false);
   const showList = streaming || expanded;
+  const listId = useId();
 
   const executing = stages.find((s) => s.stage === "executing");
   const probeCount = executing?.probesTotal;
@@ -53,6 +54,9 @@ export function StageRail({
       <button
         type="button"
         onClick={() => setExpanded(true)}
+        // The chevron is the only thing that said this summary opens.
+        aria-expanded={false}
+        aria-controls={listId}
         className="group flex items-center gap-1.5 text-[0.68rem] text-muted-foreground transition-colors duration-150 hover:text-foreground"
       >
         <Check className="size-3 text-verified" />
@@ -103,6 +107,7 @@ export function StageRail({
 
   return (
     <ol
+      id={listId}
       className="flex flex-wrap items-center gap-x-1 gap-y-1.5"
       onClick={() => !streaming && setExpanded(false)}
     >

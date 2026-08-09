@@ -18,6 +18,7 @@ from revi_presentation import (
     empty_narrative,
     mandatory_disclosures,
     reconciliation_disclosure,
+    recovered_code,
     validate_narrative,
 )
 
@@ -400,3 +401,53 @@ def test_an_empty_turn_says_why_instead_of_publishing_null() -> None:
     assert text is not None
     assert "no finding" in text and "every probe returned zero rows" in text.lower()
     assert empty_narrative([("POPULATION_CAVEAT", "population_caveat: unrelated")]) is None
+
+
+class TestBoundedSuppressionDisclosure:
+    """Round-3 FN-1: what the §15 policy bounded rather than dropped.
+
+    Once a numerator under the threshold is published as an upper bound, the
+    old sentence — "every figure here describes only the cells that survived
+    it" — is a story about censorship told over a fixed one, and it hides
+    the fact the reader actually needs: which figures are ceilings.
+    """
+
+    def test_a_bounded_answer_says_the_figure_is_a_ceiling(self) -> None:
+        lead, trail = mandatory_disclosures(
+            [
+                ("SUPPRESSION_APPLIED", "suppression: cells counting fewer than 11 entities"),
+                (
+                    "SUPPRESSION_BOUNDED",
+                    "suppression_bounded: 1 cell had fewer than 11 entities in the numerator",
+                ),
+            ],
+            suppressed_cells=1,
+            total_cells=12,
+        )
+        assert lead == []
+        joined = " ".join(trail)
+        assert "upper bounds rather than dropped" in joined
+        assert "only the cells that survived" not in joined
+        # …and the engine's own sentence is published too, not summarized away
+        assert any("fewer than 11 entities in the numerator" in s for s in trail)
+
+    def test_a_fully_suppressed_answer_keeps_the_original_reading(self) -> None:
+        _, trail = mandatory_disclosures(
+            [("SUPPRESSION_APPLIED", "suppression: cells counting fewer than 11 entities")],
+            suppressed_cells=4,
+            total_cells=12,
+        )
+        assert any("only the cells that survived it" in s for s in trail)
+
+    def test_a_mandatory_family_the_api_has_no_rule_for_still_leads(self) -> None:
+        """New engine warning families ship before the API's table learns
+        their names. A mandatory disclosure must not be demoted out of the
+        lead by that gap — the engine's own prefix identifies it."""
+        lead, _ = mandatory_disclosures(
+            [("UNCLASSIFIED", "premise_false: denied dollars fell $48,068.30 vs prior period")]
+        )
+        assert lead and lead[0].startswith("Denied dollars fell")
+
+    def test_the_recovery_never_invents_a_family(self) -> None:
+        assert recovered_code("UNCLASSIFIED", "some_new_thing: happened") == "UNCLASSIFIED"
+        assert recovered_code("POPULATION_CAVEAT", "premise_false: x") == "POPULATION_CAVEAT"

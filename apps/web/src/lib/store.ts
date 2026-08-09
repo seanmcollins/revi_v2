@@ -7,6 +7,7 @@
 
 import { create } from "zustand";
 
+import type { WorklistData } from "@/lib/contract";
 import { envDriverKind } from "@/lib/driver";
 import type {
   ConnectionState,
@@ -96,6 +97,13 @@ export interface AnswerState {
    * re-derivation of it, with the verdict on whether they agree.
    */
   anomalyReconciliation?: AnomalyReconciliation;
+  /**
+   * The ranked worklist this turn carried (`TurnAnswer.worklist`), when
+   * its interpretation resolved the pack's governed worklist routing — or
+   * when the request asked for it outright. Rendered inline on the answer;
+   * see `AnswerWorklist`. Present on clarifications as well as answers.
+   */
+  worklist?: WorklistData;
   /**
    * The governed display-name corrections this turn's measures carry.
    * Already applied to finding titles and chart titles at the seam; kept
@@ -215,6 +223,7 @@ export function applyEventToAnswer(answer: AnswerState, event: TurnEvent): Answe
         answerGrade: event.answerGrade ?? answer.answerGrade,
         metric: event.metric ?? answer.metric,
         anomalyReconciliation: event.anomalyReconciliation ?? answer.anomalyReconciliation,
+        worklist: event.worklist ?? answer.worklist,
         metricDisplay: event.metricDisplay ?? answer.metricDisplay,
         status:
           event.status === "clarification_required"
@@ -378,6 +387,15 @@ interface SessionState {
    * switch leaves the thread cleared and names the failure.
    */
   switchSession: (sessionId: string) => Promise<void>;
+  /**
+   * Dismiss a session from the rail (`DELETE /v1/sessions/{sid}`) — a SOFT
+   * archive server-side: nothing is deleted and the session stays
+   * fetchable by id. The row leaves optimistically and is PUT BACK if the
+   * server refuses, because a row that vanished from the screen while
+   * surviving on the server is the one failure a list of somebody's work
+   * cannot have. Never rejects: the server's own sentence is surfaced.
+   */
+  archiveSession: (sessionId: string) => Promise<void>;
   /**
    * Fetch a turn's decision trace after the fact (`GET .../trace`) — how
    * debug mode explains a turn answered before the toggle was flipped.
@@ -685,6 +703,48 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     }
   },
 
+  archiveSession: async (sessionId) => {
+    const { driver, streamingTurnId, switchingSessionId, sessions, sessionsTotal } = get();
+    // Archiving the session a turn is streaming into, or one mid-switch,
+    // would pull the row out from under a request already in flight.
+    if (!driver || streamingTurnId || switchingSessionId) return;
+    if (!driver.archiveSession) {
+      set({ switchError: "This driver cannot archive a session — the live API can." });
+      return;
+    }
+    const row = sessions.find((s) => s.sessionId === sessionId);
+    if (!row) return;
+    // Optimistic: the row goes now, because the click should feel like the
+    // thing it is. The exact list and total are kept so a refusal can
+    // restore the rail to precisely what it was — including the ORDER,
+    // which a re-fetch would not guarantee mid-activity.
+    set({
+      sessions: sessions.filter((s) => s.sessionId !== sessionId),
+      sessionsTotal: Math.max(0, sessionsTotal - 1),
+      switchError: null,
+    });
+    try {
+      await driver.archiveSession(sessionId);
+    } catch (error) {
+      // Put it back, exactly where it was. A row that left the screen while
+      // surviving on the server is a list quietly lying about what exists.
+      set({
+        sessions,
+        sessionsTotal,
+        switchError:
+          error instanceof Error
+            ? error.message
+            : "Could not archive that session — it is still in this tenant's list.",
+      });
+      return;
+    }
+    // The archived session was the one on screen. The thread stays exactly
+    // where it is: those answers were really computed and are still
+    // fetchable by id — archiving hides a row, it does not retract an
+    // investigation. What is no longer true is that the rail has a
+    // selectable row for it, so nothing here re-selects one.
+  },
+
   loadTrace: async (turnId) => {
     const { driver, turns } = get();
     const turn = turns.find((t) => t.id === turnId);
@@ -881,15 +941,34 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     if (!driver || streamingTurnId || newChatPending || switchingSessionId) return;
     set({ newChatPending: true });
     get().reset();
-    // Mock mode's connection state is always "online" — only the live api
-    // driver has a real request to reflect while it bootstraps.
-    if (connection.mode === "api") get().setConnection({ state: "connecting" });
+    // No session exists after this point, and nothing may pretend one does.
+    //
+    // The driver mints nothing here — the server creates a session when the
+    // first turn arrives — so between this click and that first question
+    // there is a real gap with no session in it. The store used to keep the
+    // ABANDONED session's watermark and pack sitting in state across that
+    // gap, which put a specific data-load date and load time in the header
+    // over a session that did not exist: a pin belonging to the thread that
+    // was just discarded, read as a pin on the empty one in front of you.
+    //
+    // `sessionLive: false` is the honest state, and every surface that
+    // renders the pin already gates on it. The watermark itself is left
+    // untouched rather than reset to the module's seed constant, because
+    // that constant is the MOCK fixture's load — swapping one wrong pin for
+    // another wrong pin is not an improvement. It is simply not shown until
+    // the first turn brings back a real one.
+    //
+    // The connection is NOT flipped to "connecting": there is no request in
+    // flight to be connecting to, and the pill claiming otherwise over a
+    // button press is the same fabrication one layer down.
+    set({ sessionLive: false });
     try {
       await driver.newSession();
     } finally {
       set({ newChatPending: false });
-      // The fresh session exists server-side the moment newSession()
-      // resolves, so the rail must show it — including as the selected row.
+      // The list is refreshed, but nothing was added to it: the rail shows
+      // the tenant's existing sessions with none of them selected, which is
+      // exactly what is true until the first question is asked.
       if (connection.mode === "api") void get().loadSessions();
     }
   },

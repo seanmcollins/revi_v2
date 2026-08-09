@@ -1,6 +1,17 @@
 # Gross collection rate — context-only ratio of payer cash to gross charges.
 id: gross_collection_rate
-version: 1
+# v2 (2026-08-09): SCOPE WIDENING ONLY — `primary_proc_group` added below.
+# Nothing about the measurement moved: same numerator, same denominator,
+# same grain, same bases, same sign, same unit. A claim-grain contract had
+# no legal procedure cut at all (procedures bind at claim_line), so the
+# detector's procedure-level cards could not be opened here; the catalog
+# now certifies the claim's DOMINANT procedure group at both the claim and
+# transaction grains, which this cross-entity ratio needs on both sides.
+# Read the cut as an ATTRIBUTION, not a decomposition: each claim lands in
+# exactly one bucket, so cutting by it reconciles to the ungrouped total to
+# the cent (1,494,532,901 / 5,642,309,382 at snap_003), and it is NOT the
+# line-grain `proc_group` cut.
+version: 2
 kind: flow
 entity_grain: claim
 numerator: {sum: payment_cents}
@@ -9,7 +20,7 @@ primary_date_basis: service
 allowed_date_bases: [service, submission]
 scope_dimensions:
   [payer, payer_type, financial_class, plan, product_type, facility, region,
-   service_line, claim_type]
+   service_line, claim_type, primary_proc_group]
 sign: neutral
 unit: ratio
 description: >-

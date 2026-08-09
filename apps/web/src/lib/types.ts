@@ -10,6 +10,13 @@
  * shapes conservative and JSON-serializable so the swap is mechanical.
  */
 
+// Type-only, and therefore erased: `contract.ts` owns the wire mappers and
+// the shapes they produce, and `WorklistData` is one of those rather than a
+// hand-mirrored domain record like the rest of this file. Importing the
+// type here (instead of re-declaring it) is what keeps the event union and
+// the parser from drifting apart.
+import type { WorklistData } from "@/lib/contract";
+
 /* ------------------------------------------------------------------ */
 /* Grades (revi_kernel.grades)                                         */
 /* ------------------------------------------------------------------ */
@@ -189,6 +196,45 @@ export interface ContextHeaderData {
   grain?: Grain;
   watermark: DataWatermark;
   packVersion: PackVersionRef;
+  /**
+   * `ContextHeaderPayload.as_of` — set when the turn's measure is a
+   * SNAPSHOT contract (an as-of balance at the watermark) rather than a
+   * flow over a window. The payload still carries `window_start`/
+   * `window_end` on those turns, and they are not what was measured: an
+   * A/R-aging answer computed as of 2026-08-02 was published under a
+   * "2026-07-01..2026-07-31 (service)" range, and the header, the caution
+   * and the prose all described a scope the calculation never applied.
+   *
+   * When this is present the window chip states the as-of date and says
+   * that no start..end range was applied, rather than repeating a range
+   * the number does not honour.
+   */
+  asOf?: string;
+  /**
+   * True when this header was rebuilt from a stored investigation rather
+   * than watched as the turn streamed. The chips are the same facts; the
+   * marker says where they came from, because a restored turn's stage
+   * timings and composed prose were never persisted and the reader is
+   * entitled to know which surfaces survived.
+   */
+  restored?: boolean;
+  /**
+   * `InvestigationResponse.restoration_notes` — the SERVER's own account
+   * of what was rebuilt and what the store does not hold, rendered in the
+   * Restored popover.
+   *
+   * It states things this client cannot know and must not guess. Live it
+   * is two sentences: that the window, scope, cohort and watermark were
+   * rebuilt from the turn's stored investigation spec rather than
+   * re-computed (so the figures are the ones the turn published when it
+   * ran), and that the narrative trace keeps its template, redactions and
+   * length but not its sentences — which is a far more precise statement
+   * of the limit than "the write-up was not stored".
+   *
+   * Absent on a payload generation that publishes none, and the popover
+   * then falls back to its own static explanation.
+   */
+  restorationNotes?: string[];
 }
 
 /* ------------------------------------------------------------------ */
@@ -309,6 +355,55 @@ export interface MetricDisplay {
   rationale?: string;
 }
 
+/**
+ * `BenchmarkPayload` — one governed external range for a metric.
+ *
+ * A RANGE, never a point target, and never separable from its context.
+ * `cohortLabel`, `period`, `authority`, `cautions` and `reviewStatus` are
+ * required on the wire for a reason the pack states outright: a figure
+ * quoted without them is a different claim from the one its source made.
+ * Live, every shipped entry is `machine_researched` — gathered by an
+ * automated search of public sources and reviewed by nobody — and one
+ * finding can carry seven of them, spanning ACA-marketplace plan-reported
+ * denial shares and provider-side clearinghouse rates in the same list.
+ *
+ * `valueLow`/`valueHigh` are DECIMAL STRINGS on the wire and stay strings
+ * here: they are the source's own figures and rounding them through a
+ * float would edit a quotation.
+ */
+export interface Benchmark {
+  id: string;
+  metricId: string;
+  /** Who the range describes ("ACA marketplace (HealthCare.gov issuers)…"). */
+  cohortLabel: string;
+  valueLow: string;
+  valueHigh: string;
+  /** The source's own words for the unit ("percent of in-network claims denied"). */
+  unit: string;
+  /** The source's period ("2023-2024", "2020 (27%) to Q3 2023 (36%)"). */
+  period: string;
+  authority: string;
+  /** `machine_researched` for every figure shipped so far. */
+  reviewStatus: string;
+  /** What the range does NOT say — published with it, never separable. */
+  cautions: string[];
+  sources: string[];
+}
+
+/**
+ * The finding's own headline measure as a NUMBER in its display unit —
+ * `values[metricId]` scaled the same way the chart rows are (a `ratio`
+ * frame publishes 0.295082 and this carries 29.5). Kept beside the
+ * formatted string so a benchmark range can be stated against the figure
+ * it is being quoted next to, in points, instead of the reader doing the
+ * arithmetic from two differently-scaled numbers.
+ */
+export interface MeasuredValue {
+  metricId: string;
+  value: number;
+  unit: "cents" | "percent" | "count" | "days";
+}
+
 export interface Finding {
   referent: ReferentId;
   title: string;
@@ -345,6 +440,22 @@ export interface Finding {
    * flattering half alone would be worse than shipping neither.
    */
   metricDisplay?: MetricDisplay;
+  /**
+   * `FindingPayload.benchmarks` — the governed external ranges the pack
+   * publishes for this finding's measure. Up to seven per finding, and
+   * until now read by nothing in this client: the only path any of them
+   * took to a reader was inside a narrative sentence that asserted the
+   * comparison with full confidence and carried neither the review status
+   * nor the cautions the entry travels with.
+   */
+  benchmarks?: Benchmark[];
+  /**
+   * This finding's headline measure as a number in its display unit, when
+   * the turn published a unit for it. Present for the same reason
+   * `benchmarks` is: a range is only readable beside the figure it is
+   * quoted against.
+   */
+  measured?: MeasuredValue;
 }
 
 export interface SuggestedRefinement {
@@ -798,6 +909,17 @@ export interface TurnCompleteEvent {
   anomalyReconciliation?: AnomalyReconciliation;
   /** The governed display-name corrections this turn's measures carry. */
   metricDisplay?: MetricDisplay[];
+  /**
+   * The ranked worklist this turn carried (`TurnAnswer.worklist`), when
+   * its interpretation resolved the pack's governed worklist routing.
+   * Rides on the terminal frame for the same reason the grade does: the
+   * server publishes no `worklist` SSE frame, and it is only whole once
+   * the turn is. Carried on a CLARIFICATION too — that is the whole point
+   * of the bridge, since "what should my team work first" is exactly the
+   * question that used to end in a clarification with the 33-card list
+   * never mentioned.
+   */
+  worklist?: WorklistData;
   /** Present only when the settings in force for the turn had debug on. */
   debug?: DebugTrace;
 }

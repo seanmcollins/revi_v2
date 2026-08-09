@@ -55,6 +55,7 @@ from revi_investigation_contracts.provenance import MetricProvenancePayload
 from revi_investigation_contracts.refinements import (
     AbsoluteWindowModel,
     AddFilterModel,
+    AnchoredWindowModel,
     AnyRefinementOperator,
     ClosedModel,
     DrillIntoModel,
@@ -81,6 +82,7 @@ from revi_investigation_contracts.settings import (
 __all__ = [
     "AbsoluteWindowModel",
     "AddFilterModel",
+    "AnchoredWindowModel",
     "AnomalyCard",
     "AnomalyDimension",
     "AnyRefinementOperator",

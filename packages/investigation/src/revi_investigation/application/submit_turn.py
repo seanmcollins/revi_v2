@@ -62,12 +62,17 @@ from revi_investigation.application.calculation_glue import (
 from revi_investigation.application.capability_ports import BenchmarkSpec, PackPort, TransformPort
 from revi_investigation.application.cohorts import PinCohortService
 from revi_investigation.application.comparison import window_mismatch_warning
-from revi_investigation.application.execution import ExecutedProbe, ExecuteInvestigationService
+from revi_investigation.application.execution import (
+    ExecutedProbe,
+    ExecuteInvestigationService,
+    bounded_cells_warning,
+)
 from revi_investigation.application.findings import (
     EvaluateFindingsService,
     FindingsResult,
     find_primary_compare,
 )
+from revi_investigation.application.gestures import drill_suggestion, parse_gesture
 from revi_investigation.application.interpretation import (
     ClassificationOutcome,
     ClassifyTurnService,
@@ -146,6 +151,7 @@ from revi_kernel.cohort import CohortRef
 from revi_kernel.errors import (
     ContextConflictError,
     DataLoadingError,
+    DateBasisInvalidError,
     GrainIncompatibleError,
     ReviError,
     UnsupportedConceptError,
@@ -820,6 +826,19 @@ class SubmitTurnService:
                 session, state, None, dto_ops=tuple(request.refinements)
             )
 
+        # A gesture this platform printed is read back before anything is
+        # sent to a model: "drill into F1" is a string we emitted, not
+        # language to be interpreted (§7.6, extended to the whole
+        # utterance). It used to reach the classifier, come back with a
+        # clarification question, and dead-end on the platform's own
+        # suggestion.
+        gesture = parse_gesture(state.question, await self._referents.list_for_session(session.id))
+        if gesture is not None:
+            state.time_stage("classify")
+            return await self._refinement_turn(
+                session, state, None, dto_ops=gesture.operators
+            )
+
         exhausted = self._budget_stop(state, "reading your question")
         if exhausted is not None:
             return await self._clarification_outcome(session, state, None, exhausted)
@@ -1172,9 +1191,19 @@ class SubmitTurnService:
             return await self._clarification_outcome(session, state, classified, exhausted)
 
         await self._stage(state, "interpret")
-        interpretation = await self._interpreter.interpret(
-            state.question, session=session, turn_id=state.turn_id, policy=state.call_policy()
-        )
+        try:
+            interpretation = await self._interpreter.interpret(
+                state.question, session=session, turn_id=state.turn_id, policy=state.call_policy()
+            )
+        except DateBasisInvalidError as refusal:
+            # The basis is fixed at interpretation (it is what the context
+            # header publishes), so this refusal never reached the planner's
+            # recovery path and ended as a §12 banner. Same machinery, same
+            # honesty rule: alternatives or nothing.
+            recovered = await self._recoverable_refusal(session, state, classified, refusal, None)
+            if recovered is not None:
+                return recovered
+            raise
         state.record_llm("interpret_question", interpretation.usage, interpretation.failure)
         state.template_hashes["interpret_question@v1"] = interpretation.template_hash
         state.time_stage("interpret")
@@ -1434,7 +1463,7 @@ class SubmitTurnService:
                     else "Nothing has been shown yet — what would you like to investigate?"
                 )
             ),
-            options=tuple(f"drill into {value}" for value in available[:4]),
+            options=tuple(drill_suggestion(value) for value in available[:4]),
             reason=f"REFERENT_NOT_FOUND: {list(unknown)} not in the live registry",
         )
 
@@ -1485,7 +1514,7 @@ class SubmitTurnService:
                 window_explicit=window_explicit,
                 evidence_depth=evidence_depth,
             )
-        except (GrainIncompatibleError, UnsupportedConceptError) as refusal:
+        except (DateBasisInvalidError, GrainIncompatibleError, UnsupportedConceptError) as refusal:
             recovered = await self._recoverable_refusal(
                 session, state, classified, refusal, spec
             )
@@ -1522,7 +1551,7 @@ class SubmitTurnService:
             return await self._clarification_outcome(
                 session, state, classified, needed.clarification
             )
-        except (GrainIncompatibleError, UnsupportedConceptError) as refusal:
+        except (DateBasisInvalidError, GrainIncompatibleError, UnsupportedConceptError) as refusal:
             recovered = await self._recoverable_refusal(
                 session, state, classified, refusal, spec
             )
@@ -1577,6 +1606,22 @@ class SubmitTurnService:
                     kind="warning",
                     turn_id=state.turn_id,
                     payload={"code": "PROBE_FAMILIES_EMPTY", "detail": families},
+                )
+            )
+        # What the §15 policy bounded rather than dropped, said once for the
+        # turn: a ranking that mixes measured and bounded figures without
+        # saying so is as misleading as one that censors the bounded rows.
+        bounds = bounded_cells_warning(
+            tuple(cell for item in executed for cell in item.bounded_cells),
+            self._executor.suppression_threshold,
+        )
+        if bounds is not None:
+            extra_warnings.append(bounds)
+            await self._events.publish(
+                TurnEvent(
+                    kind="warning",
+                    turn_id=state.turn_id,
+                    payload={"code": "SUPPRESSION_BOUNDED", "detail": bounds},
                 )
             )
         mismatch = window_mismatch_warning(spec)

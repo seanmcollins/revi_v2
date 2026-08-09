@@ -42,7 +42,7 @@ from collections.abc import AsyncIterator, Mapping
 from contextlib import asynccontextmanager
 from typing import Annotated, Any
 
-from fastapi import Depends, FastAPI, Query, Request
+from fastapi import Depends, FastAPI, Query, Request, Response
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse, StreamingResponse
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -337,6 +337,23 @@ def create_app(
         whose sessions these are, so no request can ask for another
         tenant's list at all."""
         return await _service().list_sessions(caller, limit=limit)
+
+    @app.delete(
+        "/v1/sessions/{session_id}",
+        status_code=204,
+        responses=ERROR_RESPONSES,
+    )
+    async def archive_session(session_id: str, caller: CallerPrincipal) -> Response:
+        """Dismiss a session from this tenant's list — a SOFT archive.
+
+        Nothing is deleted. The session keeps its investigations, traces,
+        frames and cohorts and stays fetchable by id, so a linked
+        conversation does not 404 because somebody tidied the rail; it
+        simply stops appearing in `GET /v1/sessions`. Idempotent: archiving
+        an archived session succeeds, and archiving one that does not exist
+        is a 404 rather than a quiet 204."""
+        await _service().archive_session(caller, session_id)
+        return Response(status_code=204)
 
     @app.post(
         "/v1/sessions/{session_id}/turns",

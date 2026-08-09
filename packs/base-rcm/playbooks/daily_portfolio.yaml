@@ -1,17 +1,41 @@
 id: daily_portfolio
+# The first 160 characters of this description are what the interpretation
+# model is shown for this playbook (the vocabulary block clips there), so
+# the lead states the QUESTIONS it answers rather than the mechanism. It
+# used to open with "Pre-materialized daily portfolio", and "what should my
+# denial team work first this week to recover the most cash?" came back as
+# a clarification offering four ranking bases — with this playbook as the
+# fourth option rather than the answer.
 description: >-
-  Pre-materialized daily portfolio ("what are my top issues today?"):
-  branches across the denial, cash, underpayment, filing-risk, A/R, and
-  unbilled families, each producing candidate findings that the governed
-  ranking policy orders by dollar impact with recency and evidence-grade
-  weights — dollar-impact-first worklisting without black-box scoring.
-  Drill-downs continue as ordinary session turns at the portfolio
-  watermark.
+  What to work on first, and what is realistically recoverable: the ranked
+  worklist of detected issues, plus denial, cash, underpayment,
+  filing-risk, A/R and unbilled measures. Answers carry the platform's
+  ranked anomaly cards with their lanes, recoverable estimates and
+  reconciliation state (governed routing in worklist.yaml), over
+  pre-materialized branches whose candidate findings the governed ranking
+  policy orders by dollar impact with recency and evidence-grade weights —
+  dollar-impact-first worklisting without black-box scoring. Drill-downs
+  continue as ordinary session turns at the portfolio watermark.
 triggers:
   - top issues
   - what are my top 5 issues
   - daily portfolio
   - what should i look at today
+  # Prioritisation phrasings route here on purpose. This playbook measures
+  # the families; the platform's ranked anomaly worklist — the CARD list,
+  # with its lanes, recoverable estimates and reconciliation state — is
+  # attached to this playbook's answers by governed routing
+  # (packs/base-rcm/worklist.yaml), so an analyst who asks what to pick up
+  # gets the measures AND the ranked work rather than a clarification.
+  - what should i work on first
+  - what should we work on first
+  - what should my team work first
+  - what should the denial team work first this week
+  - where should we start
+  - what is worth working this week
+  - biggest recovery opportunities
+  - how much of this is realistically recoverable
+  - priority worklist
 probes:
   - id: portfolio_denial_trend
     metric_ids: [denial_rate]
@@ -38,10 +62,15 @@ probes:
     dimensions: [plan]
     top_n: 5
     scope_note: >-
-      Largest UNBILLED OPEN inventories by plan. No deadline predicate is
-      applied: filing_rules is not yet joined at probe time, so this ranks
-      the population a filing watch would age, not dollars at risk of a
-      timely-filing denial.
+      Largest UNBILLED OPEN inventories by plan. Ranked on the POPULATION,
+      not on exposure: this probe takes no runway cut, so a claim with a
+      year of runway ranks beside one whose deadline has already passed.
+      Since 2026-08-09 the runway is expressible — `filing_runway_bucket`
+      is certified and legal on this contract — and the portfolio view
+      deliberately stays at plan level for one row per plan; the split that
+      turns this into exposure is `timely_filing_watch`'s
+      `filing_runway_profile` probe, one drill away, where 47% of these
+      dollars turn out to be already expired.
   - id: portfolio_ar_health
     metric_ids: [ar_over_90_pct]
     dimensions: [payer]

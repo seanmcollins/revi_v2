@@ -295,8 +295,23 @@ class TestApiContract:
         components — never a black-box ordering."""
         portfolio = await client.get_portfolio()
         assert portfolio.status == "ok"
-        assert portfolio.formula_version == "anomaly_priority@2"
+        assert portfolio.formula_version == "anomaly_priority@3"
         assert len(portfolio.items) >= 20
+        # @3 ranks on the figure the platform defends and says which one it
+        # was on every card; the normalizer is over the same figures.
+        normalizer = max(abs(i.ranked_impact_cents) for i in portfolio.items)
+        for item in portfolio.items:
+            assert item.ranked_on in ("detector", "platform", "not_comparable")
+            assert item.ranked_on_note
+            assert item.ranked_impact_cents == (
+                item.reconciled_impact_cents
+                if item.ranked_on == "platform"
+                else item.impact_cents
+            )
+            assert item.priority.impact_normalizer_cents == normalizer
+            assert item.priority.impact_norm == pytest.approx(
+                abs(item.ranked_impact_cents) / normalizer, abs=5e-6
+            )
         # @2 publishes the arithmetic and the lane, not just the result.
         assert portfolio.compliance_floor_basis in ("relative_median", "governed_absolute")
         assert {lane.id for lane in portfolio.lanes} <= {"compliance", "value"}
@@ -356,6 +371,22 @@ class TestApiContract:
         investigation = await client.get_investigation(answer.investigation_id)
         assert investigation.plan_hash == answer.plan_hash
         assert investigation.status == "complete"
+        # A restored turn keeps the facts that say what its figures count
+        # (round-2 deferred P0). The header is REBUILT from the stored spec
+        # and must match the one the live answer published.
+        assert investigation.context_header is not None
+        assert investigation.context_header_restored is True
+        assert answer.context_header is not None
+        assert investigation.context_header.window_start == answer.context_header.window_start
+        assert investigation.context_header.window_end == answer.context_header.window_end
+        assert investigation.context_header.basis == answer.context_header.basis
+        assert investigation.context_header.filters == answer.context_header.filters
+        assert investigation.context_header.display == answer.context_header.display
+        assert investigation.watermark_id == answer.context_header.watermark_id
+        assert investigation.newest_data_date == session.newest_data_date
+        # …and says, in words, what restoring could not recover.
+        assert any("Restored context" in note for note in investigation.restoration_notes)
+        assert any("narrative is not stored" in note for note in investigation.restoration_notes)
 
 
 class TestHttpOnly:

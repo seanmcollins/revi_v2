@@ -47,6 +47,7 @@ from __future__ import annotations
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
 from decimal import Decimal, InvalidOperation
+from enum import StrEnum
 
 from pydantic import ValidationError
 
@@ -62,6 +63,7 @@ from revi_investigation.application.llm.render import (
     render_template,
 )
 from revi_investigation.application.llm.schemas import (
+    AnchoredWindowModel,
     GroundedOptionModel,
     InterpretationResponse,
     TurnClassificationResponse,
@@ -83,6 +85,7 @@ from revi_investigation.domain.context import (
     AnalysisSpec,
     AskedDirection,
     AskedMagnitude,
+    AskedOrder,
     InvestigationContext,
 )
 from revi_investigation.domain.records import Session
@@ -102,17 +105,20 @@ from revi_kernel.filters import (
     Scalar,
     and_merge,
 )
-from revi_kernel.refs import DateBasisRef, DimensionRef, Grain, MetricRef
+from revi_kernel.refs import DateBasisRef, DimensionRef, Grain, MetricRef, TimeBucket
 from revi_kernel.scope import (
     AbsoluteRange,
+    AnchoredRange,
     ComparisonKind,
     RangeMode,
     RelativeRange,
     TimeUnit,
     TimeWindow,
     derive_comparison,
+    resolve_anchored,
     resolve_window,
 )
+from revi_kernel.watermark import DataWatermark
 
 _MIN_CLASSIFICATION_CONFIDENCE = 0.5
 _DEFAULT_WINDOW = RelativeRange(Decimal(1), TimeUnit.MONTH, RangeMode.FULL_PERIODS)
@@ -147,6 +153,85 @@ _CLASSIFY_REPHRASE = "I couldn't confidently read that request — could you rep
 _CLASSIFY_RETRY = "I hit a problem reading that just now — please try again."
 _INTERPRET_REPHRASE = "I couldn't map that question onto governed content — could you rephrase it?"
 _INTERPRET_RETRY = "I hit a problem working that out just now — please try again."
+
+
+class Coverage(StrEnum):
+    """How much of a named period this load actually holds."""
+
+    #: Every day of it is inside the data range.
+    FULL = "full"
+    #: Some of it is; the rest has not landed (or predates the warehouse).
+    PARTIAL = "partial"
+    #: None of it is.
+    OUTSIDE = "outside"
+
+
+def window_coverage(window: AbsoluteRange, watermark: DataWatermark) -> Coverage:
+    """Does this load hold the period that was asked about? (round-3 FN-11)
+
+    The upper bound is always known — a load knows the newest activity it
+    can see — so a period that starts after it is unanswerable, full stop.
+    The lower bound is known only when the adapter publishes
+    ``oldest_data_date``; ``None`` means "unknown", so a period before the
+    data is treated as covered rather than refused on a guess.
+    """
+    newest = watermark.newest_data_date
+    oldest = watermark.oldest_data_date
+    if window.start > newest or (oldest is not None and window.end < oldest):
+        return Coverage.OUTSIDE
+    if window.end > newest or (oldest is not None and window.start < oldest):
+        return Coverage.PARTIAL
+    return Coverage.FULL
+
+
+def data_range_phrase(watermark: DataWatermark) -> str:
+    """What this load actually covers, as a clause the analyst reads.
+
+    Two shapes, because the load knows two different things. Both name the
+    end date, which is the fact the analyst needs; only a load that
+    publishes ``oldest_data_date`` can name where the data starts.
+    """
+    newest = watermark.newest_data_date.isoformat()
+    if watermark.oldest_data_date is None:
+        return f"this data ends {newest}"
+    return f"this data covers {watermark.oldest_data_date.isoformat()}..{newest}"
+
+
+def absolute_label(window: AbsoluteRange) -> str:
+    return f"{window.start.isoformat()}..{window.end.isoformat()}"
+
+
+def out_of_range_question(period_label: str, watermark: DataWatermark) -> str:
+    """Say which period was asked for and which one exists.
+
+    Live, "…in January 2019" came back with a July 2026 window and the
+    warning "the question named no period", rendered directly under the
+    analyst's own words. The period was named; it was simply not there.
+    """
+    return (
+        f"You asked about {period_label} — {data_range_phrase(watermark)}, so there is nothing "
+        "in that period to answer over. Which of these would you like instead?"
+    )
+
+
+def in_range_options(watermark: DataWatermark) -> tuple[str, ...]:
+    """Periods that DO have data, named with the dates they resolve to.
+
+    Each is a relative period this vocabulary already resolves, so an
+    analyst who sends one back verbatim gets an answer rather than a second
+    clarification (the round-trip rule: never offer what cannot be parsed).
+    """
+    last_month = resolve_window(
+        _DEFAULT_WINDOW,
+        window_anchor(watermark, _DEFAULT_WINDOW.mode),
+        basis=DateBasisRef("service"),
+    ).range
+    return (
+        f"the last full month ({absolute_label(last_month)})",
+        "the last 90 days",
+        "the last 12 months",
+        "year to date",
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -576,20 +661,44 @@ class InterpretQuestionService:
 
         basis = self._resolve_basis(parsed.basis, primary)
         window_explicit = parsed.window is not None
-        requested = self._relative_range(parsed) if parsed.window is not None else _DEFAULT_WINDOW
-        # Anchored to the data, never to the load's clock or to wall-clock
-        # now — see :mod:`revi_investigation.application.anchoring`.
-        anchor = window_anchor(session.watermark, requested.mode)
-        window = resolve_window(requested, anchor, basis=basis)
+        window, period_label = self._interpreted_window(parsed.window, basis, session)
 
         notes: list[str] = []
+        # A period the analyst NAMED is checked against the data this load
+        # holds before anything is computed over it. Saying "the question
+        # named no period" under a bubble containing the words "in January
+        # 2019" is not a caveat, it is a misattribution.
+        coverage = window_coverage(window.range, session.watermark)
+        if period_label is not None and coverage is Coverage.OUTSIDE:
+            return self._clarify(
+                out_of_range_question(period_label, session.watermark),
+                f"WINDOW_OUT_OF_RANGE: {period_label} lies outside "
+                f"{data_range_phrase(session.watermark)}",
+                result.usage,
+                template_hash,
+                options=in_range_options(session.watermark),
+            )
+        if period_label is not None and coverage is Coverage.PARTIAL:
+            notes.append(
+                f"window_out_of_range: you asked about {period_label}, and this load only "
+                f"reaches {session.watermark.newest_data_date.isoformat()} — the figures below "
+                f"cover {window.range.start.isoformat()}.."
+                f"{min(window.range.end, session.watermark.newest_data_date).isoformat()}, "
+                "the part of that period the data actually holds."
+            )
         scope = self._resolve_scope(parsed, turn_id, governing, notes)
         context = InvestigationContext(
             window=window,
             comparison=None,
             scope=scope,
             cohort=None,
-            grain=Grain(primary.entity_grain),
+            # Two orthogonal axes (§6.1): what a row IS, and how time is
+            # bucketed. "by month" sets the second one; without it the
+            # question resolved to a single scalar over the whole span.
+            grain=Grain(
+                primary.entity_grain,
+                TimeBucket(parsed.time_grain) if parsed.time_grain else None,
+            ),
             watermark=session.watermark,
             pack_version=session.pack_version,
         )
@@ -607,7 +716,26 @@ class InterpretQuestionService:
             # one. Closed sets by schema; carried so selection can honor them.
             direction=AskedDirection(parsed.direction) if parsed.direction else None,
             magnitude=AskedMagnitude(parsed.magnitude) if parsed.magnitude else None,
+            order=AskedOrder(parsed.order) if parsed.order else None,
+            # A movement stated as fact is a premise, not a filter (see
+            # AnalysisSpec.direction_asserted). Only meaningful with a
+            # direction to assert.
+            direction_asserted=bool(parsed.direction_asserted and parsed.direction),
         )
+        if spec.direction_asserted and context.comparison is None:
+            # A question that asserts a movement is asking about two
+            # windows whether or not it says so; without a comparison there
+            # is no aggregate movement to verify the premise against, and
+            # the turn would answer "why did X double" with a level.
+            assumed = derive_comparison(window, ComparisonKind.PRIOR_PERIOD)
+            spec = spec.with_context(replace(context, comparison=assumed))
+            notes.append(
+                "comparison_assumed: the question states that something moved, so I compared "
+                f"{window.range.start.isoformat()}..{window.range.end.isoformat()} against the "
+                f"period before it ({assumed.window.range.start.isoformat()}.."
+                f"{assumed.window.range.end.isoformat()}) to check that movement before "
+                "explaining it."
+            )
         # An as-of contract applies no start..end predicate at all, so
         # announcing an assumed window over one is a confident statement
         # about a scoping that did not happen (round-2 FN-2). The turn
@@ -739,28 +867,101 @@ class InterpretQuestionService:
         return resolve_answerable_basis(primary, requested, self._catalog).basis
 
     @staticmethod
-    def _relative_range(parsed: InterpretationResponse) -> RelativeRange:
-        assert parsed.window is not None
+    def _relative_range(window: WindowSpecModel) -> RelativeRange:
         try:
-            quantity = Decimal(parsed.window.quantity)
+            quantity = Decimal(window.quantity)
         except InvalidOperation:
             raise UnsupportedConceptError(
-                f"window quantity {parsed.window.quantity!r} is not a decimal",
-                details={"quantity": parsed.window.quantity},
+                f"window quantity {window.quantity!r} is not a decimal",
+                details={"quantity": window.quantity},
             ) from None
         return RelativeRange(
             quantity=quantity,
-            unit=TimeUnit(parsed.window.unit),
-            mode=RangeMode(parsed.window.mode),
+            unit=TimeUnit(window.unit),
+            mode=RangeMode(window.mode),
+        )
+
+    @staticmethod
+    def _anchored_range(window: AnchoredWindowModel) -> AnchoredRange:
+        """A named calendar period DTO → the kernel's closed shape.
+
+        The DTO's ``index`` is validated 1..12 by the schema because a
+        month needs that range; a quarter's 1..4 and a year's "no index at
+        all" are the kernel's rules, and stating them twice is how the two
+        drift apart. So the kernel raises, and an out-of-range index is an
+        ``UNSUPPORTED_CONCEPT`` naming what was wrong rather than a 500.
+        """
+        try:
+            return AnchoredRange(
+                unit=TimeUnit(window.unit), year=window.year, index=window.index
+            )
+        except ValueError as exc:
+            raise UnsupportedConceptError(
+                f"named period {window.unit} {window.index} {window.year} is not a calendar "
+                f"period: {exc}",
+                details={"unit": window.unit, "year": window.year, "index": window.index},
+            ) from None
+
+    def _interpreted_window(
+        self,
+        window: WindowSpecModel | AnchoredWindowModel | AbsoluteWindowModel | None,
+        basis: DateBasisRef,
+        session: Session,
+    ) -> tuple[TimeWindow, str | None]:
+        """The turn's window, resolved exactly once, plus what to call it.
+
+        The second element is the period as the analyst *named* it ("June
+        2026", "2026-01-01..2026-06-30") or ``None`` when they named none —
+        which is the difference between a window this platform assumed and
+        one it was given, and therefore the difference between an honest
+        ``window_assumed`` note and the misattribution one.
+
+        Relative specs anchor to the data, never to the load's clock or to
+        wall-clock now (:mod:`revi_investigation.application.anchoring`).
+        Named and absolute periods anchor to nothing: they are where they
+        are.
+        """
+        if window is None:
+            anchor = window_anchor(session.watermark, _DEFAULT_WINDOW.mode)
+            return resolve_window(_DEFAULT_WINDOW, anchor, basis=basis), None
+        if isinstance(window, AnchoredWindowModel):
+            anchored = self._anchored_range(window)
+            return (
+                TimeWindow(basis=basis, range=resolve_anchored(anchored), requested=None),
+                anchored.label,
+            )
+        if isinstance(window, AbsoluteWindowModel):
+            resolved = self._absolute_window(window, basis)
+            return resolved, absolute_label(resolved.range)
+        requested = self._relative_range(window)
+        anchor = window_anchor(session.watermark, requested.mode)
+        return resolve_window(requested, anchor, basis=basis), None
+
+    @staticmethod
+    def _absolute_window(window: AbsoluteWindowModel, basis: DateBasisRef) -> TimeWindow:
+        if window.end < window.start:
+            raise UnsupportedConceptError(
+                f"window {window.start.isoformat()}..{window.end.isoformat()} "
+                "ends before it starts",
+                details={"start": window.start.isoformat(), "end": window.end.isoformat()},
+            )
+        return TimeWindow(
+            basis=basis,
+            range=AbsoluteRange(start=window.start, end=window.end),
+            requested=None,
         )
 
     def _typed_window(
         self,
-        window: WindowSpecModel | AbsoluteWindowModel,
+        window: WindowSpecModel | AnchoredWindowModel | AbsoluteWindowModel,
         basis: DateBasisRef,
         session: Session,
     ) -> TimeWindow:
         """Resolve a typed window once, into stored concrete dates (§6.1)."""
+        if isinstance(window, AnchoredWindowModel):
+            return TimeWindow(
+                basis=basis, range=resolve_anchored(self._anchored_range(window)), requested=None
+            )
         if isinstance(window, AbsoluteWindowModel):
             if window.end < window.start:
                 raise UnsupportedConceptError(

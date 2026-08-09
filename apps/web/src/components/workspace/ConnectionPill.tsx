@@ -1,5 +1,6 @@
 "use client";
 
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { useSessionStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -70,29 +71,49 @@ export function DegradedModeBadge() {
 
   if (connection.mode === "mock") {
     return (
-      <span
-        role="status"
-        title="Mock is a dev/test fixture — it only matches the reference demo questions, and everything else gets a scripted clarification. The live API is the product; set NEXT_PUBLIC_REVI_DRIVER=api (the default) to use it."
-        className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-[0.62rem] font-medium text-warning"
-      >
-        <span className="size-1.5 rounded-full bg-warning" />
-        Demo script mode
-      </span>
+      <DegradedBadge
+        label="Demo script mode"
+        explanation="Mock is a dev/test fixture — it only matches the reference demo questions, and everything else gets a scripted clarification. The live API is the product; set NEXT_PUBLIC_REVI_DRIVER=api (the default) to use it."
+      />
     );
   }
 
   if (connection.llmMode === "scripted-demo") {
     return (
-      <span
-        role="status"
-        title="The API is running the scripted stub LLM, not a live model — free-form questions off the reference script get a clarification. Set REVI_MODEL_PIN and restart the API."
-        className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-[0.62rem] font-medium text-warning"
-      >
-        <span className="size-1.5 rounded-full bg-warning" />
-        Scripted LLM — set REVI_MODEL_PIN
-      </span>
+      <DegradedBadge
+        label="Scripted LLM — set REVI_MODEL_PIN"
+        explanation="The API is running the scripted stub LLM, not a live model — free-form questions off the reference script get a clarification. Set REVI_MODEL_PIN and restart the API."
+      />
     );
   }
 
   return null;
+}
+
+/**
+ * The explanation used to be a native `title`: mouse-only, with no
+ * keyboard path and no touch equivalent — on the one badge in the product
+ * whose whole job is to stop a viewer mistaking a scripted fixture for the
+ * live system. It is a focusable Radix tooltip now, and the badge keeps
+ * `role="status"` so the mode change is announced when it appears.
+ */
+function DegradedBadge({ label, explanation }: { label: string; explanation: string }) {
+  return (
+    <span role="status">
+      <Tooltip>
+        <TooltipTrigger asChild>
+          <button
+            type="button"
+            className="focus-ring inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-[0.62rem] font-medium text-warning"
+          >
+            <span className="size-1.5 rounded-full bg-warning" />
+            {label}
+          </button>
+        </TooltipTrigger>
+        <TooltipContent side="bottom" className="max-w-80 text-[0.68rem] leading-snug">
+          {explanation}
+        </TooltipContent>
+      </Tooltip>
+    </span>
+  );
 }

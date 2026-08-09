@@ -178,6 +178,66 @@ def _open_state_checks(con: duckdb.DuckDBPyConnection, s: str) -> list[Check]:
     ]
 
 
+def _claim_join_column_checks(con: duckdb.DuckDBPyConnection, s: str) -> list[Check]:
+    """The two claim-grain columns the catalog certifies out of a join, guarded.
+
+    `primary_proc_group` is the dominant-by-billed-cents rollup of the claim's
+    own lines (writer.py). `timely_filing_days` / `timely_filing_basis` are the
+    plan's filing rule, pre-joined from dim_plan — the limit half of the
+    claim → plan → filing rule join that `days_to_filing_deadline` and
+    `filing_runway_bucket` read. Both are view-level derivations, so nothing
+    but a check like this stands between a silent rewrite and a wrong answer.
+    """
+    return [
+        _expect_zero(
+            con,
+            f"{s}: primary_proc_group is the claim's dominant billed proc_group",
+            f"""
+            WITH per AS (
+                SELECT claim_id, proc_group, SUM(billed_amount_cents) AS cents
+                FROM {s}.fact_claim_line GROUP BY claim_id, proc_group
+            ),
+            dominant AS (
+                SELECT claim_id,
+                       (list(proc_group ORDER BY cents DESC, proc_group ASC))[1] AS expected
+                FROM per GROUP BY claim_id
+            )
+            SELECT count(*) FROM {s}.v_claim c
+            LEFT JOIN dominant d USING (claim_id)
+            WHERE c.primary_proc_group IS DISTINCT FROM d.expected
+            """,
+        ),
+        _expect_zero(
+            con,
+            f"{s}: primary_proc_group is NULL exactly when the claim has no lines",
+            f"""
+            SELECT count(*) FROM {s}.v_claim c
+            WHERE (c.primary_proc_group IS NULL)
+               <> NOT EXISTS (SELECT 1 FROM {s}.fact_claim_line l WHERE l.claim_id = c.claim_id)
+            """,
+        ),
+        _expect_zero(
+            con,
+            f"{s}: v_transaction repeats its claim's primary_proc_group",
+            f"""
+            SELECT count(*) FROM {s}.v_transaction t
+            JOIN {s}.v_claim c USING (claim_id)
+            WHERE t.primary_proc_group IS DISTINCT FROM c.primary_proc_group
+            """,
+        ),
+        _expect_zero(
+            con,
+            f"{s}: every claim carries a usable plan filing rule",
+            f"""
+            SELECT count(*) FROM {s}.v_claim
+            WHERE timely_filing_days IS NULL OR timely_filing_days <= 0
+               OR timely_filing_basis NOT IN ('SERVICE', 'SUBMISSION')
+               OR service_date + timely_filing_days IS NULL
+            """,
+        ),
+    ]
+
+
 def _structural_checks(con: duckdb.DuckDBPyConnection) -> list[Check]:
     checks: list[Check] = []
     rows = con.execute(
@@ -237,6 +297,7 @@ def _structural_checks(con: duckdb.DuckDBPyConnection) -> list[Check]:
                 """,
             )
         )
+        checks.extend(_claim_join_column_checks(con, s))
         checks.append(
             _expect_zero(
                 con,

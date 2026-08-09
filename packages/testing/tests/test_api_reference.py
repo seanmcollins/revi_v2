@@ -219,9 +219,25 @@ class TestPortfolioDrillDown:
                 assert card.drill_repointed_from == card.metric_id
                 assert spec.metric_ids != [card.metric_id]
                 assert card.drill_repoint_rationale
-            assert spec.dimensions == [d.dimension for d in card.dimensions]
+            # Normally the card's own detected cut. Where governed content
+            # repoints a DIMENSION — the feed cuts procedures at the
+            # line-grain `proc_group` and a claim-grain contract has no
+            # legal procedure cut — the substitution is declared on the
+            # card rather than hidden, exactly like the metric repoint.
+            swaps = {r.from_dimension: r.to_dimension for r in card.drill_dimension_repoints}
+            assert spec.dimensions == [
+                swaps.get(d.dimension, d.dimension) for d in card.dimensions
+            ]
+            for repoint in card.drill_dimension_repoints:
+                assert repoint.from_dimension in {d.dimension for d in card.dimensions}
+                assert repoint.rationale
+            # The scope follows the same substitution, carrying the VALUE
+            # across unchanged — the repointed dimension shares the
+            # source's value domain, and inventing a value would be a
+            # different claim rather than a wider one.
             assert [(f.dimension, f.predicate_op, f.values) for f in spec.filters] == [
-                (d.dimension, "eq", [d.value]) for d in card.dimensions
+                (swaps.get(d.dimension, d.dimension), "eq", [d.value])
+                for d in card.dimensions
             ]
             assert isinstance(spec.window, AbsoluteWindowModel)
             assert spec.window.start == card.window_start
@@ -324,8 +340,17 @@ class TestPortfolioDrillDown:
         # the worklist opens with work somebody can start
         assert portfolio.items[0].drillable
         # ...and it says out loud how much of the ranked impact it cannot
-        # investigate, rather than letting the user discover it card by card
-        assert any("not investigable at this catalog" in w for w in portfolio.warnings)
+        # investigate, rather than letting the user discover it card by
+        # card. Asserted in BOTH directions: since the claim-grain
+        # procedure cut landed (primary_proc_group, 2026-08-09) every card
+        # opens, and a worklist that still warned about un-investigable
+        # cards while having none would be as wrong as one that stayed
+        # silent while having some.
+        blocked = [c for c, _ in results if not c.drillable]
+        warned = any("not investigable at this catalog" in w for w in portfolio.warnings)
+        assert warned is bool(blocked), (
+            f"{len(blocked)} undrillable card(s) but warning present={warned}"
+        )
 
     async def test_a_card_drill_is_an_anchor_later_refinements_can_land_on(self) -> None:
         """The point of the anchor: after a cold-start drill, the ordinary

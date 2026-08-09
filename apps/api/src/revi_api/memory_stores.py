@@ -9,7 +9,8 @@ this package for its adapters).
 
 from __future__ import annotations
 
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
+from typing import Any
 
 from revi_investigation.application.ports import (
     EMPTY_SESSION_TITLE,
@@ -32,6 +33,10 @@ from revi_kernel.refs import ReferentId
 class MemorySessionStore:
     def __init__(self) -> None:
         self.sessions: dict[str, Session] = {}
+        #: Session id → when it was dismissed. Soft, like the Postgres
+        #: column: an archived session keeps its lineage and stays
+        #: fetchable by id, it simply leaves the list.
+        self.archived: dict[str, datetime] = {}
         # The other half of the list join. A session row carries no title
         # and no last-activity of its own: both come from the turns the
         # investigation store holds, exactly as the Postgres adapter reads
@@ -49,8 +54,19 @@ class MemorySessionStore:
     async def save(self, session: Session) -> None:
         self.sessions[session.id] = session
 
+    async def archive(self, session_id: str, *, archived: bool = True) -> None:
+        if not archived:
+            self.archived.pop(session_id, None)
+        elif session_id not in self.archived:
+            # Idempotent, and the FIRST dismissal keeps its timestamp.
+            self.archived[session_id] = datetime.now(UTC)
+
     async def list_for_tenant(self, tenant: str, *, limit: int) -> SessionPage:
-        owned = [s for s in self.sessions.values() if s.tenant == tenant]
+        owned = [
+            s
+            for s in self.sessions.values()
+            if s.tenant == tenant and s.id not in self.archived
+        ]
         rows = [self._summarize(session) for session in owned]
         # Stable two-pass sort: newest activity first, ties broken by id
         # ASCENDING (a single reverse=True sort would reverse the tiebreak
@@ -201,3 +217,24 @@ class MemoryEvidenceCache:
         # and overwriting would let the wrong one replace a cached answer
         # other turns already cited.
         self.entries.setdefault((probe_hash, watermark_id, pack_snapshot_id), frame)
+
+
+class MemoryTurnReceiptStore:
+    """Process-local idempotency receipts (the fallback wiring's).
+
+    Deliberately the same shape as the Postgres store rather than a dict
+    the service reaches into: the demo wiring and the real one then differ
+    in durability alone, and the service has one code path.
+    """
+
+    def __init__(self) -> None:
+        self.receipts: dict[tuple[str, str, str], dict[str, Any]] = {}
+
+    async def get(self, tenant: str, session_id: str, key: str) -> dict[str, Any] | None:
+        return self.receipts.get((tenant, session_id, key))
+
+    async def put(
+        self, tenant: str, session_id: str, key: str, response: dict[str, Any]
+    ) -> None:
+        # First write wins, like the Postgres ON CONFLICT DO NOTHING.
+        self.receipts.setdefault((tenant, session_id, key), response)

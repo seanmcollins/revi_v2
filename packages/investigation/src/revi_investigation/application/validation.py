@@ -137,6 +137,7 @@ from revi_catalog_contracts.model import (
     normalize_synonym,
 )
 from revi_investigation.application.capability_ports import PackPort
+from revi_investigation.application.date_basis import basis_bound_at
 from revi_investigation.application.planning import (
     InvestigationPlan,
     ProbeNode,
@@ -464,9 +465,61 @@ class PlanValidationService:
             return self._grain_alternative(dimension_id, metric_id, spec)
         if isinstance(dimension_id, str):
             return self._near_miss_dimension(dimension_id)
+        if isinstance(error, DateBasisInvalidError) and isinstance(metric_id, str):
+            return self._basis_alternative(metric_id, error.details.get("basis"))
         if isinstance(metric_id, str) and self._pack.metric(metric_id) is None:
             return self._near_miss_metric(metric_id)
         return None
+
+    def _basis_alternative(
+        self, metric_id: str, refused_basis: object
+    ) -> ClarificationRequest | None:
+        """Date bases this metric CAN be read on, as recovery options.
+
+        ``DATE_BASIS_INVALID`` was the last dead end in the §12 set, and it
+        managed to be a self-contradicting one: the refusal copy read
+        "Asking on a different date basis — service, submission or posting
+        date — will answer it" directly above "(allowed: ['service',
+        'submission'])", with no options array behind either sentence. So
+        the alternatives are derived from the same two facts the refusal
+        was computed from — what the contract allows, and what this
+        warehouse binds at the contract's grain — and an option that
+        appears is a basis that will actually answer.
+
+        ``None`` when the contract is unknown or nothing survives both
+        checks: the refusal then stands, exactly as ``GRAIN_INCOMPATIBLE``
+        does, because a clarification with no way forward is worse than an
+        error that says what happened.
+        """
+        contract = self._pack.metric(metric_id)
+        if contract is None:
+            return None
+        available = [
+            basis
+            for basis in contract.allowed_date_bases
+            if basis != refused_basis and basis_bound_at(self._catalog, contract, basis)
+        ]
+        if not available:
+            return None
+        entity = contract.entity_grain.value
+        asked = (
+            f"the {refused_basis!r} date basis"
+            if isinstance(refused_basis, str)
+            else "that date basis"
+        )
+        return ClarificationRequest(
+            question=(
+                f"{metric_id!r} cannot be read on {asked} here — the contract and this "
+                f"warehouse between them leave "
+                f"{', '.join(repr(basis.id) for basis in available)} at the {entity} grain. "
+                "Which should I use?"
+            ),
+            options=tuple(f"Use the {basis.id} date basis" for basis in available),
+            reason=(
+                f"DATE_BASIS_INVALID_RECOVERABLE: {metric_id} cannot be read on {asked}; "
+                f"{len(available)} bound alternative(s) offered"
+            ),
+        )
 
     def _grain_alternative(
         self, dimension_id: str, metric_id: object, spec: AnalysisSpec | None = None
@@ -1386,11 +1439,24 @@ class PlanValidationService:
     # ------------------------------------------------- step 6: suppression
 
     def _note_suppression(self, plan: InvestigationPlan, warnings: list[str]) -> None:
+        """State the §15 policy as it actually is (round-3 FN-1).
+
+        The old sentence — "cells counting fewer than 11 entities are
+        suppressed" — was published over a frame containing a 10-entity
+        cell, because the thing being counted was a ratio's numerator and
+        not the population the cell describes. Two rules, so two clauses:
+        a small POPULATION is withheld entirely, and a small numerator over
+        a publishable population is shown as an upper bound rather than
+        dropped (which is what used to remove the best-performing payers
+        from a ranking and say nothing about it).
+        """
         if any(self._probe_dimensions(node) for node in plan.nodes):
             threshold = self._catalog.suppression.threshold
             warnings.append(
-                f"suppression: cells counting fewer than {threshold} entities are suppressed "
-                "before results leave the engine"
+                f"suppression: cells counting fewer than {threshold} entities in their "
+                "POPULATION are withheld entirely before results leave the engine; a cell whose "
+                f"population is larger but whose numerator is under {threshold} keeps its place "
+                "and is published as an upper bound, never dropped"
             )
 
     # ------------------------------------------------ step 7: capabilities

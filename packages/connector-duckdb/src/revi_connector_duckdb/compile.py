@@ -24,11 +24,12 @@ a ``FILTER (WHERE …)`` clause), then the probe-time derived registry below,
 then as a catalog-declared view column. Contract-internal ``Filtered`` scopes
 and contract ``exclusions`` also become ``FILTER`` clauses.
 
-**Probe-time derived measures.** Seven fields are computed by this compiler
+**Probe-time derived measures.** Eight fields are computed by this compiler
 rather than stored (``_DERIVED_MEASURES``; the same list the base pack's
 NOTES.md declares, plus the snapshot's ``open_balance_cents``). Each is a
 deterministic expression over the entity's curated base view — a date
-difference, a floored variance, or a per-claim rollup joined on the certified
+difference, a floored variance, a filing deadline read off the claim's plan,
+or a per-claim rollup joined on the certified
 ``claim_id`` path. They are *adapter conventions over the catalog*, in the
 same sense as ``resolved_date`` and the ``ar_age_bucket`` CASE arms: the
 catalog governs every column, row filter and join they touch, and each one
@@ -77,6 +78,14 @@ back — each term built from the catalog's governed transaction measures).
 ``ar_age_bucket`` buckets ``datediff('day', <aging basis column>, as_of)``
 using the bucket labels declared on the catalog dimension; the aging basis
 defaults to SERVICE and honors ``probe.aging_basis``.
+``filing_runway_bucket`` buckets the mirror image — ``datediff('day', as_of,
+service_date + timely_filing_days)``, the claim → plan → filing rule join —
+with two non-numeric arms (``filed``, ``expired``); ``days_to_filing_deadline``
+is the same quantity as a summable measure. Watermark-derived flags the
+snapshot CAN restate as-of are restated: the projection carries
+``SELECT * REPLACE (discharge_date <= as_of AS discharged_flag)`` so a
+back-dated DNFB reading does not count discharges that had not happened yet.
+``status`` cannot be restated from claim columns and the catalog says so.
 
 **Evidence grade.** Frames are DIRECT unless any uncertified catalog
 dimension participates (group-by, scope, or row-evidence column), which
@@ -133,6 +142,7 @@ from revi_kernel.probes import (
     SnapshotProbe,
 )
 from revi_kernel.refs import (
+    DISCHARGE,
     POST,
     SERVICE,
     SUBMISSION,
@@ -153,6 +163,19 @@ _RESOLVED_DATE_COLUMN = "resolved_date"  # derived status field on the claim bas
 #: `claim_line.declared_columns` (warehouse/catalog/entities.yaml) and checked
 #: against it before use, so this name is a lookup key, not a private constant.
 _CHARGE_ENTRY_DATE_COLUMN = "charge_entry_date"
+#: The plan's configured timely-filing limit, pre-joined onto the claim base
+#: view and declared in the catalog under `claim.declared_columns`. This is the
+#: limit half of the claim -> plan -> filing rule join; the anchor half is the
+#: catalog's SERVICE basis column. Checked against the catalog before use.
+_FILING_LIMIT_DAYS_COLUMN = "timely_filing_days"
+#: The certified boolean marking a claim that has already left the door. Only an
+#: unsubmitted claim has a filing clock still running, so it gates both the
+#: derived runway measure and the `filed` arm of the runway bucket.
+_BILLED_FLAG_DIMENSION = "billed_flag"
+#: The certified discharge flag. Stored in the base view from the CURRENT
+#: discharge date; the snapshot builder re-projects it at the probe's as-of
+#: (see `_as_of_flag_projections`), the same treatment `resolved_date` gets.
+_DISCHARGED_FLAG_DIMENSION = "discharged_flag"
 _APPLIED_MEASURE_IDS = ("payment_cents", "patient_payment_cents", "contractual_adj_cents", "other_adj_cents")
 _CASH_IN_MEASURE_IDS = ("payment_cents", "patient_payment_cents")
 _REVERSAL_MEASURE_IDS = ("refund_cents",)
@@ -174,6 +197,14 @@ _CASH_IN_CENTS = "__cash_in_cents"
 _REFUND_CENTS = "__refund_cents"
 _LINE_ALLOWED_CENTS = "__line_allowed_cents"
 _AGE_DAYS = "__age_days"
+_FILING_RUNWAY_DAYS = "__filing_runway_days"
+
+#: `filing_runway_bucket` arms that are not day ranges. Declared here and
+#: required to be present in the catalog's bucket list, so dropping either one
+#: from the catalog breaks the build instead of silently mislabelling claims.
+_FILING_FILED_LABEL = "filed"  # already submitted: the initial clock is closed
+_FILING_EXPIRED_LABEL = "expired"  # unsubmitted, deadline already passed
+_FILING_RUNWAY_BUCKET = "filing_runway_bucket"
 
 _MONEY_ROLLUP = "claim_money"  # claim ← transaction, as-of (snapshot only)
 _LINE_ROLLUP = "claim_lines"  # claim ← claim_line (flow aggregation)
@@ -280,6 +311,16 @@ _DERIVED_MEASURES: Mapping[str, _DerivedSpec] = {
             "the claim's age in days at the snapshot's as-of date; else 0.",
         ),
         _DerivedSpec(
+            "days_to_filing_deadline",
+            "claim",
+            "days",
+            frozenset({SNAPSHOT_SHAPE}),
+            "Unsubmitted claims only (the filing clock a submitted claim was "
+            "racing is closed): the claim's service date plus the filing limit "
+            "its plan configures, minus the snapshot's as-of date, in days. "
+            "Negative means the deadline has already passed.",
+        ),
+        _DerivedSpec(
             "credit_balance_cents",
             "claim",
             "money_cents",
@@ -330,6 +371,12 @@ class _CompileState:
     uncertified: bool = False
     # Extra dimension-id → SQL expression bindings (snapshot derived buckets).
     bindings: dict[str, str] = field(default_factory=dict)
+    # dimension id → the inner-subquery column its binding reads. Consulted when
+    # the binding is USED, so the snapshot builder only projects a derived
+    # column some fragment actually asked for.
+    binding_needs: dict[str, str] = field(default_factory=dict)
+    # Inner-subquery columns this compilation needs projected (snapshot only).
+    needs: set[str] = field(default_factory=set)
     # (entity name, rollup id) → LEFT JOIN clause required by a derived measure.
     rollups: dict[tuple[str, str], _Fragment] = field(default_factory=dict)
 
@@ -424,6 +471,9 @@ class ProbeCompiler:
     def _dimension_expr(self, dimension_id: str, entity: EntityDef, state: _CompileState) -> str:
         bound = state.bindings.get(dimension_id)
         if bound is not None:
+            need = state.binding_needs.get(dimension_id)
+            if need is not None:
+                state.needs.add(need)
             return bound
         dim = self._catalog.dimension(dimension_id)
         if dim is None:
@@ -649,6 +699,23 @@ class ProbeCompiler:
         self._check_status_domain(_UNRESOLVED_STATUSES)
         unresolved = ", ".join(f"'{value}'" for value in _UNRESOLVED_STATUSES)
         return f"{billed} * {_AGE_DAYS}", f"{status} IN ({unresolved})"
+
+    def _derive_days_to_filing_deadline(
+        self, entity: EntityDef, state: _CompileState
+    ) -> tuple[str, str | None]:
+        """Runway to the plan's timely-filing deadline, at the snapshot's as-of.
+
+        Both halves of the claim → plan → filing rule join come from the
+        catalog: the anchor is the SERVICE basis column, the limit is the
+        plan's configured ``timely_filing_days`` declared on the claim entity.
+        The arithmetic itself lives in the snapshot builder's inner subquery
+        (it needs the as-of parameter); this method asks for that column and
+        states the population the number is meaningful for."""
+        self._basis_column(entity, SERVICE)  # anchor must be catalog-bound
+        self._require_declared_column(_FILING_LIMIT_DAYS_COLUMN, entity)
+        state.needs.add(_FILING_RUNWAY_DAYS)
+        billed = self._dimension_expr(_BILLED_FLAG_DIMENSION, entity, state)
+        return _FILING_RUNWAY_DAYS, f"NOT {billed}"
 
     def _check_status_domain(self, values: tuple[str, ...]) -> None:
         """A derived measure may only name statuses the catalog declares — a
@@ -1239,6 +1306,10 @@ class ProbeCompiler:
         submission_column = self._basis_column(entity, SUBMISSION)
 
         state.bindings.update(self._ar_bucket_binding())
+        runway_binding = self._filing_runway_bucket_binding(entity)
+        state.bindings.update(runway_binding)
+        for dim_id in runway_binding:
+            state.binding_needs[dim_id] = _FILING_RUNWAY_DAYS
 
         # -- outer SELECT (text order first: its params precede the inner ones)
         select_fragments: list[_Fragment] = []
@@ -1261,13 +1332,31 @@ class ProbeCompiler:
         select_fragments.extend(metric_fragments.get(entity.name, []))
         columns.extend(metric_columns)
 
-        # -- inner subquery
+        # -- inner subquery. The scope is compiled BEFORE the projection is
+        # assembled (though it is appended after it) because a scope predicate
+        # on a derived bucket is one of the things that decides which derived
+        # columns the projection has to carry.
         as_of = probe.as_of
+        scope_fragment: _Fragment | None = None
+        if not is_empty(probe.scope):
+            scope_fragment = self._compile_filter(probe.scope, entity, state)
         rollups = state.joins_for(entity.name)
-        inner_parts: list[str] = ["SELECT *" if rollups else "SELECT c.*"]
         inner_params: list[SqlParam] = []
+        projection = "*" if rollups else "c.*"
+        replacements = self._as_of_flag_projections(entity)
+        if replacements:
+            projection += " REPLACE (" + ", ".join(replacements) + ")"
+            inner_params.extend(as_of for _ in replacements)
+        inner_parts: list[str] = [f"SELECT {projection}"]
         inner_parts[0] += f", datediff('day', c.{_ident(aging_column)}, ?) AS {_AGE_DAYS}"
         inner_params.append(as_of)
+        if _FILING_RUNWAY_DAYS in state.needs:
+            limit_column = self._require_declared_column(_FILING_LIMIT_DAYS_COLUMN, entity)
+            inner_parts[0] += (
+                f", datediff('day', ?, c.{_ident(service_column)} + c.{_ident(limit_column)}) "
+                f"AS {_FILING_RUNWAY_DAYS}"
+            )
+            inner_params.append(as_of)
         inner_parts.append(f"FROM {_ident(schema)}.{_ident(entity.base_view)} AS c")
         for join_sql, join_params in rollups:
             inner_parts.append(join_sql)
@@ -1279,8 +1368,8 @@ class ProbeCompiler:
         )
         inner_parts.append(open_inventory)
         inner_params.extend([as_of, as_of, as_of])
-        if not is_empty(probe.scope):
-            scope_sql, scope_params = self._compile_filter(probe.scope, entity, state)
+        if scope_fragment is not None:
+            scope_sql, scope_params = scope_fragment
             inner_parts.append(f"AND {scope_sql}")
             inner_params.extend(scope_params)
 
@@ -1319,6 +1408,93 @@ class ProbeCompiler:
             raise UnsupportedConceptError("ar_age_bucket catalog buckets declare no open-ended bucket")
         case = "CASE " + " ".join(arms) + f" ELSE '{fallback}' END"
         return {dim.id: case}
+
+    def _filing_runway_bucket_binding(self, entity: EntityDef) -> Mapping[str, str]:
+        """``filing_runway_bucket`` → CASE expression over ``__filing_runway_days``.
+
+        Two arms are not day ranges and are named constants here rather than
+        parsed: ``filed`` (the claim has been submitted, so the clock it was
+        racing is closed) and ``expired`` (unsubmitted, deadline already
+        passed). Both must be declared in the catalog's bucket list, and the
+        numeric edges must ascend, or the binding refuses — a mislabelled
+        runway is worse than no runway.
+
+        Returns ``{}`` when the catalog does not carry the dimension or the
+        claim entity does not declare the plan's filing limit, so a catalog
+        without the join simply has no such dimension rather than a broken one.
+        """
+        dim = self._catalog.dimension(_FILING_RUNWAY_BUCKET)
+        if dim is None or not dim.buckets:
+            return {}
+        if _FILING_LIMIT_DAYS_COLUMN not in self._catalog.declared_columns(entity.name):
+            return {}
+        billed_dim = self._catalog.dimension(_BILLED_FLAG_DIMENSION)
+        billed_column = None if billed_dim is None else billed_dim.column_for(entity.name)
+        if billed_column is None:
+            return {}
+        labels = set(dim.buckets)
+        missing = {_FILING_FILED_LABEL, _FILING_EXPIRED_LABEL} - labels
+        if missing:
+            raise UnsupportedConceptError(
+                f"{_FILING_RUNWAY_BUCKET} catalog buckets are missing {sorted(missing)}",
+                details={"dimension": _FILING_RUNWAY_BUCKET, "missing": sorted(missing)},
+            )
+        arms: list[str] = []
+        edges: list[int] = []
+        fallback: str | None = None
+        for label in dim.buckets:
+            if label in (_FILING_FILED_LABEL, _FILING_EXPIRED_LABEL):
+                continue
+            if label.endswith("+"):
+                fallback = label
+                continue
+            _, _, upper = label.partition("-")
+            edges.append(int(upper))
+            arms.append(f"WHEN {_FILING_RUNWAY_DAYS} <= {int(upper)} THEN '{label}'")
+        if fallback is None:
+            raise UnsupportedConceptError(
+                f"{_FILING_RUNWAY_BUCKET} catalog buckets declare no open-ended bucket",
+                details={"dimension": _FILING_RUNWAY_BUCKET},
+            )
+        if edges != sorted(edges) or len(set(edges)) != len(edges):
+            raise UnsupportedConceptError(
+                f"{_FILING_RUNWAY_BUCKET} catalog buckets do not ascend: {edges}",
+                details={"dimension": _FILING_RUNWAY_BUCKET, "edges": edges},
+            )
+        case = (
+            f"CASE WHEN {_ident(billed_column)} THEN '{_FILING_FILED_LABEL}' "
+            f"WHEN {_FILING_RUNWAY_DAYS} < 0 THEN '{_FILING_EXPIRED_LABEL}' "
+            + " ".join(arms)
+            + f" ELSE '{fallback}' END"
+        )
+        return {dim.id: case}
+
+    def _as_of_flag_projections(self, entity: EntityDef) -> tuple[str, ...]:
+        """``SELECT * REPLACE`` clauses restating watermark-derived flags at the
+        probe's as-of. Each fragment carries exactly one ``?`` (the as-of).
+
+        Only ``discharged_flag`` qualifies today: it restates a nullable date
+        the base view still carries, so the snapshot builder can re-derive it
+        the way it already re-derives ``resolved_date``'s effect, instead of
+        reading a truth that belongs to the watermark. ``status``,
+        ``clean_claim`` and ``first_pass_paid`` cannot be re-derived from claim
+        columns at all — they summarise remits and cash — and the catalog's
+        ``status`` note says so rather than pretending otherwise.
+        """
+        dim = self._catalog.dimension(_DISCHARGED_FLAG_DIMENSION)
+        if dim is None:
+            return ()
+        column = dim.column_for(entity.name)
+        if column is None:
+            return ()
+        try:
+            discharge_column = self._basis_column(entity, DISCHARGE)
+        except DateBasisInvalidError:
+            return ()
+        return (
+            f"(c.{_ident(discharge_column)} IS NOT NULL AND c.{_ident(discharge_column)} <= ?) "
+            f"AS {_ident(column)}",
+        )
 
     # --------------------------------------------------------- row evidence
 

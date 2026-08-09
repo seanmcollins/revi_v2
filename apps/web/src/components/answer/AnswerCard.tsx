@@ -3,6 +3,7 @@
 import { AlertTriangle, FileSearch, History, SearchX, Zap } from "lucide-react";
 import { useMemo } from "react";
 
+import { CopyTextButton } from "@/components/answer/AnswerActions";
 import { ContextHeader } from "@/components/answer/ContextHeader";
 import { GradeBadge } from "@/components/answer/GradeBadge";
 import { InterpretationPanel } from "@/components/answer/InterpretationPanel";
@@ -21,9 +22,12 @@ import { DebugTracePanel } from "@/components/debug/DebugTracePanel";
 import { DefinitionCard } from "@/components/definitional/DefinitionCard";
 import { FeedbackTriage } from "@/components/feedback/FeedbackTriage";
 import { FindingCard } from "@/components/findings/FindingCard";
+import { AnswerWorklist } from "@/components/worklist/AnswerWorklist";
 import { Button } from "@/components/ui/button";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { humanizeColumn, selectRenderableCharts } from "@/lib/contract";
-import { chartWindowLabel, formatWindow } from "@/lib/format";
+import { answerToText, windowLine } from "@/lib/export";
+import { chartWindowLabel } from "@/lib/format";
 import { useSessionStore, type TurnRecord } from "@/lib/store";
 import { cn } from "@/lib/utils";
 import { splitErrorMessage } from "@/lib/warnings";
@@ -44,7 +48,38 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
   // scalars. Both were being drawn: two identical charts stacked, and a
   // "trend" through one point. See `selectRenderableCharts`.
   const charts = useMemo(() => selectRenderableCharts(a.charts), [a.charts]);
-  const windowLabel = a.header ? chartWindowLabel(a.header.window) : undefined;
+
+  /**
+   * The worklist's intro line, lifted out of the turn's warnings.
+   *
+   * `WORKLIST_ATTACHED` is the sentence that says the ranked cards below
+   * are the detection feed's work and NOT findings this turn computed. Left
+   * in the general warning list it would sit above the findings and far
+   * from the cards it is about, so a reader meets eight ranked dollar
+   * figures and finds the disclaimer somewhere else entirely. It is moved,
+   * not dropped: it opens the worklist block, and it is removed from the
+   * list below so the same sentence is never printed twice.
+   */
+  const worklistIntro = a.worklist
+    ? a.warnings.find((w) => w.code === "WORKLIST_ATTACHED")
+    : undefined;
+  const warnings = useMemo(
+    () =>
+      worklistIntro === undefined
+        ? a.warnings
+        : a.warnings.filter((w) => w !== worklistIntro),
+    [a.warnings, worklistIntro],
+  );
+  // A chart read on its own — screenshotted into a deck, scrolled past the
+  // header — otherwise carries no period at all. On a SNAPSHOT contract
+  // the period is a moment, not a range, and the payload's window is not
+  // what was measured, so the subtitle says the as-of date instead of a
+  // range this chart's numbers do not honour.
+  const windowLabel = a.header
+    ? a.header.asOf
+      ? `as of ${a.header.asOf}`
+      : chartWindowLabel(a.header.window)
+    : undefined;
 
   /**
    * An answer that completed with nothing to show. This is a real, typed
@@ -54,6 +89,14 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
    * as a certified nothing. The branch below says what was checked
    * instead, from what the payload actually carries.
    */
+  // Worth offering only once the turn has something to take away. A
+  // clarification or an error card has no numbers to carry into a
+  // meeting, and a streaming one is not finished saying what it means.
+  const copyable =
+    !streaming &&
+    a.status === "complete" &&
+    (a.findings.length > 0 || a.narrative.trim() !== "");
+
   const emptyResult =
     !streaming &&
     a.status === "complete" &&
@@ -76,13 +119,23 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
           running, and the server keeps no stage timings — so it says where
           it came from instead of drawing a pipeline nobody observed. */}
       {a.rehydrated ? (
-        <p
-          className="flex items-center gap-1.5 text-[0.68rem] text-muted-foreground"
-          title="Re-opening a session replays what the server kept: this turn's findings, its charts (rebuilt from the frames it stored) and its evidence bundle (projected from its recorded trace). Its stage timings and streamed narrative were never persisted."
-        >
-          <History className="size-3" />
-          Restored from this session&apos;s history
-        </p>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="focus-ring flex items-center gap-1.5 rounded text-[0.68rem] text-muted-foreground hover:text-foreground"
+            >
+              <History className="size-3" />
+              Restored from this session&apos;s history
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="max-w-80 text-[0.68rem] leading-snug">
+            Re-opening a session replays what the server kept: this turn&apos;s findings, its
+            charts (rebuilt from the frames it stored), its evidence bundle (projected from
+            its recorded trace) and — when the store holds them — its stated context and
+            written analysis. Its stage timings were never persisted.
+          </TooltipContent>
+        </Tooltip>
       ) : (
         <StageRail
           stages={a.stages}
@@ -113,7 +166,10 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
           </div>
         )}
 
-      {(a.answerGrade || hasGovernedProvenance(a.metric) || a.evidence?.zeroProbeTurn) && (
+      {(a.answerGrade ||
+        hasGovernedProvenance(a.metric) ||
+        a.evidence?.zeroProbeTurn ||
+        copyable) && (
         <div className="flex flex-wrap items-center gap-1.5">
           {/* A turn that measured nothing governed (definitional, META)
               publishes the block with an empty metric list — no badge,
@@ -127,30 +183,42 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
               claims a reuse that never happened. The cache hit count is
               what separates them, so the copy gates on it. */}
           {a.evidence?.zeroProbeTurn && (
-            <span
-              className="inline-flex h-5 items-center gap-1 rounded-full border border-verified/40 bg-verified/10 px-2 text-[0.7rem] font-medium text-verified"
-              title={
-                a.evidence.cacheHits > 0
+            // The explanation used to be a native `title` on a `<span>`:
+            // no keyboard path, no touch equivalent. It is the sentence
+            // that stops "answered from cache" being read as a freshness
+            // claim, so it belongs on a focusable trigger like every
+            // other load-bearing explanation in the product.
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="focus-ring inline-flex h-5 items-center gap-1 rounded-full border border-verified/40 bg-verified/10 px-2 text-[0.7rem] font-medium text-verified"
+                >
+                  <Zap className="size-3" />
+                  {a.evidence.cacheHits > 0 ? (
+                    <>
+                      {/* "No new queries" read as a performance boast about
+                          the whole answer. What is actually true is narrower
+                          and more useful: the results came from cache, at the
+                          SAME data load, so nothing here is fresher than what
+                          preceded it. */}
+                      Answered from cached results
+                      {a.header?.watermark.id
+                        ? ` (same data load ${a.header.watermark.id})`
+                        : ""}{" "}
+                      — no new warehouse query
+                    </>
+                  ) : (
+                    "No warehouse query was needed for this answer"
+                  )}
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="bottom" className="max-w-80 text-[0.68rem] leading-snug">
+                {a.evidence.cacheHits > 0
                   ? "Every probe this turn needed was already in the evidence cache from earlier in this session, at this same data load. The warehouse was not queried again — the numbers are not newer than the ones above them."
-                  : "This turn answered without reading the warehouse at all — it needed no data probe, so there was nothing to query and nothing to reuse from the cache."
-              }
-            >
-              <Zap className="size-3" />
-              {a.evidence.cacheHits > 0 ? (
-                <>
-                  {/* "No new queries" read as a performance boast about
-                      the whole answer. What is actually true is narrower
-                      and more useful: the results came from cache, at the
-                      SAME data load, so nothing here is fresher than what
-                      preceded it. */}
-                  Answered from cached results
-                  {a.header?.watermark.id ? ` (same data load ${a.header.watermark.id})` : ""} — no
-                  new warehouse query
-                </>
-              ) : (
-                "No warehouse query was needed for this answer"
-              )}
-            </span>
+                  : "This turn answered without reading the warehouse at all — it needed no data probe, so there was nothing to query and nothing to reuse from the cache."}
+              </TooltipContent>
+            </Tooltip>
           )}
           {a.evidence && (
             <Button
@@ -162,6 +230,32 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
               <FileSearch className="size-3" />
               Evidence
             </Button>
+          )}
+          {/* An analyst who has to quote a figure in a meeting should not
+              have to retype it — and a figure retyped by hand arrives
+              without the window, the scope or the caveats that bound it.
+              This copies the whole answer, caveats included, from payload
+              already in this browser: nothing is fetched and nothing is
+              uploaded. See `answerToText`. */}
+          {copyable && (
+            <CopyTextButton
+              label="Copy answer"
+              title="Copy this answer as text — findings, the written analysis, every caveat the platform attached, and a provenance line naming the data load and metric pack. Nothing leaves this browser."
+              text={() =>
+                answerToText({
+                  ...(turn.submission.utterance
+                    ? { question: turn.submission.utterance }
+                    : {}),
+                  ...(a.header ? { header: a.header } : {}),
+                  findings: a.findings,
+                  narrative: a.narrative,
+                  warnings: a.warnings,
+                  ...(a.metric ? { metric: a.metric } : {}),
+                  ...(a.investigationId ? { investigationId: a.investigationId } : {}),
+                  ...(a.rehydrated ? { restored: true } : {}),
+                })
+              }
+            />
           )}
         </div>
       )}
@@ -177,7 +271,7 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
       {/* Code-driven, not prose-parsed: severity decides the treatment,
           the code decides the title, and identical warnings collapse with
           a count. See `WarningBanner`. */}
-      <WarningList warnings={a.warnings} debug={debug} />
+      <WarningList warnings={warnings} debug={debug} />
 
       {a.definition && <DefinitionCard definition={a.definition} />}
 
@@ -205,6 +299,36 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
 
       {(a.narrative || streaming) && a.status !== "clarification" && (
         <NarrativeText text={a.narrative} streaming={streaming} />
+      )}
+
+      {/* A restored turn with findings and no prose. The write-up is
+          composed at answer time and, on the payload generations that do
+          not persist it, is simply not among the things the server kept —
+          which is a different fact from "this turn had nothing to say",
+          and the difference matters because what DOES survive a restore is
+          the caveats, so a silent gap here leaves yesterday's answer
+          looking like caveats with the answer removed. */}
+      {a.rehydrated && !streaming && a.narrative.trim() === "" && a.findings.length > 0 && (
+        <p className="rounded-md border border-dashed bg-card/60 px-3 py-2 text-[0.7rem] leading-snug text-muted-foreground">
+          The written analysis was not stored for this turn — the findings above, and the
+          context they were measured under, are what the server kept.
+        </p>
+      )}
+
+      {/* The governed conversation→worklist bridge. Below the findings and
+          the write-up because it is not what this turn measured — it is
+          the ranked work the platform already had, handed over because the
+          question routed to it. Rendered on a CLARIFICATION too: "what
+          should my team work first" is exactly the question that used to
+          end in four ranking bases with the 33-card list never mentioned,
+          so the list travels even when the turn still has to ask. */}
+      {a.worklist && (
+        <div className="fade-up">
+          <AnswerWorklist
+            worklist={a.worklist}
+            {...(worklistIntro ? { intro: worklistIntro } : {})}
+          />
+        </div>
       )}
 
       {a.clarification && <ClarificationPrompt clarification={a.clarification} />}
@@ -320,7 +444,10 @@ function EmptyResult({
   chartCount: number;
 }) {
   const checked: string[] = [];
-  if (answer.header) checked.push(formatWindow(answer.header.window));
+  // `windowLine` states an as-of date for a snapshot contract and a range
+  // for a flow one — the same distinction the window chip makes, so an
+  // empty card cannot describe a scope the header just refused to claim.
+  if (answer.header) checked.push(windowLine(answer.header));
   const filters = answer.header?.filters ?? [];
   for (const filter of filters) {
     checked.push(`${filter.dimensionLabel} ${filter.op} ${filter.values.join(", ")}`);

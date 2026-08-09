@@ -64,6 +64,22 @@ export interface TurnSubmission {
   refinements?: Refinement[];
   /** Reply to a pending clarification — sent as `clarification_response`. */
   clarificationResponse?: string;
+  /**
+   * `TurnRequest.worklist` — ask this turn to carry the ranked worklist.
+   *
+   * The typed twin of the governed routing. A turn whose interpretation
+   * resolves the pack's worklist playbook or concept gets the list
+   * attached on its own; this is the explicit handle for a surface that
+   * ALREADY knows — the lane chips on an inline worklist re-asking for one
+   * lane, a "what should I work first" chip, a scheduled brief.
+   *
+   * Purely additive, and the wording of that matters for what the UI may
+   * claim: it never changes what the turn investigates. The turn runs
+   * exactly as it would have and the worklist rides alongside its
+   * findings, so a lane chip is a re-query of the LIST, not a refinement
+   * of the answer above it.
+   */
+  worklist?: { limit?: number; lane?: string };
   /** Ask the server to re-anchor this session to the freshest watermark. */
   reAnchor?: boolean;
   /**
@@ -106,11 +122,15 @@ export interface TurnDriver {
     signal?: AbortSignal,
   ): Promise<void>;
   /**
-   * "New chat": abandon whatever session is cached and start clean. The api
-   * driver discards its cached session and eagerly opens a fresh one
-   * server-side; the mock driver just rewinds its local reference-turn
-   * progress. Never rejects — an unreachable API is tolerated by falling
-   * back to lazy session creation on the next turn.
+   * "New chat": abandon whatever session is cached and start clean.
+   *
+   * Purely local, for both implementations: the api driver drops its
+   * cached session and makes NO request, and the mock driver rewinds its
+   * local reference-turn progress. The server mints a session when a turn
+   * arrives and never on its own, so a session is created by the first
+   * question — not by the button. Between the two there is no session, and
+   * the UI is expected to say so rather than keep showing the pin of the
+   * one just abandoned. Never rejects; there is nothing here that can fail.
    */
   newSession(): Promise<void>;
   /**
@@ -151,4 +171,19 @@ export interface TurnDriver {
    * an invented pipeline or inventing prose nobody wrote.
    */
   resumeSession?(sessionId: string): Promise<ResumedSession>;
+  /**
+   * `DELETE /v1/sessions/{sid}` — dismiss a session from the rail.
+   *
+   * A SOFT archive: nothing is deleted. The session keeps its
+   * investigations, traces, frames and cohorts and stays fetchable by id,
+   * so a link in a ticket does not 404 because somebody tidied a list; it
+   * stops appearing in `GET /v1/sessions` and nothing more. Idempotent
+   * server-side, so a double-click is not an error.
+   *
+   * Optional on the seam for the same reason `listSessions` is: the mock
+   * fixture has no deployment and therefore no sessions to archive, and a
+   * driver that cannot do this says so by not implementing it rather than
+   * by pretending a row went away.
+   */
+  archiveSession?(sessionId: string): Promise<void>;
 }

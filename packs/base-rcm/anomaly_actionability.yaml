@@ -55,6 +55,51 @@ drill_repoints:
       entity). denied_dollars measures the same population in the unit the
       card actually reports.
 
+# --- Drill dimension repoints: when the detector's CUT is not a legal
+# scope dimension of the contract that must answer it --------------------
+#
+# The detection feed cuts procedures at `proc_group`, which binds on
+# claim_line. Four cards — ANM-013 ($493,266, the largest card on the
+# worklist and the anchor of impact normalisation) plus ANM-011/012/030 —
+# name a claim-grain contract (gross_collection_rate,
+# underpayment_variance) alongside a `proc_group` value, and the platform
+# refused them with GRAIN_INCOMPATIBLE: a claim-grain contract had no legal
+# procedure cut at all.
+#
+# The catalog now certifies `primary_proc_group` at the claim AND
+# transaction grains — the claim's DOMINANT procedure group, the one
+# carrying the largest share of its billed charges, ties broken by name —
+# and both contracts were widened to accept it (v2, scope only). So the
+# drill can be pointed at the cut that exists.
+#
+# This is a SUBSTITUTION, not a translation, and the difference is
+# published on every card that uses it (`drill_dimension_repoints`):
+#
+#   * the detector measured LINES in procedure group X;
+#   * the drill measures CLAIMS whose dominant procedure group is X.
+#
+# For a single-procedure claim those are the same population. For a
+# multi-procedure claim they are not: the non-dominant lines are attributed
+# to the dominant group along with everything else on that claim. That is
+# exactly why the card's figure and the drill's may differ, and the
+# card/answer reconciliation states the gap rather than hiding it.
+#
+# Applied only where it is BOTH needed and legal: the platform substitutes
+# nothing when the drilled contract already accepts the detector's own
+# dimension (denial-grain and line-grain contracts keep `proc_group`), and
+# nothing when the contract does not accept the replacement either.
+drill_dimension_repoints:
+  proc_group:
+    dimension_id: primary_proc_group
+    rationale: >-
+      Procedures bind at claim_line, so a claim-grain contract cannot be
+      cut by `proc_group` at all. `primary_proc_group` is the claim's
+      dominant procedure group (largest share of billed charges, ties
+      broken by name), certified at the claim and transaction grains. Read
+      the drill as an attribution of whole claims, not a decomposition of
+      lines: the detector counted lines in this group, and the drill counts
+      claims whose largest procedure group is this one.
+
 default:
   mode: fraction
   fraction: 0.50

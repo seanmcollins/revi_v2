@@ -44,13 +44,16 @@ from revi_api.memory_stores import (
     MemoryReferentRegistryStore,
     MemorySessionStore,
     MemoryTraceStore,
+    MemoryTurnReceiptStore,
 )
 from revi_api.metric_display import MetricDisplayRules, load_metric_display
 from revi_api.portfolio import DrillabilityProbe, PriorityPolicy, priority_policy_from_pack
 from revi_api.rederive import ImpactReDeriver, build_rederiver
 from revi_api.scripted_llm import demo_language_model
+from revi_api.session_lifecycle import ArchivableSessionStore, TurnReceiptStore
 from revi_api.settings_policy import SettingsPolicy
 from revi_api.usage_ledger import MeteredLanguageModel
+from revi_api.worklist import WORKLIST_FILENAME, WorklistRouting, load_worklist_routing
 from revi_catalog import load_catalog
 from revi_catalog_contracts.model import CatalogSnapshot
 from revi_connector_duckdb import DuckDbAnalyticalRepository, DuckDbAnomalySource
@@ -74,7 +77,6 @@ from revi_investigation.application.ports import (
     InvestigationStore,
     LanguageModelPort,
     ReferentRegistryStore,
-    SessionStore,
     TraceStore,
 )
 from revi_investigation.application.refinement_llm import (
@@ -113,13 +115,18 @@ class ApiComponents:
     pack_port: PackSnapshotPort
     pack_snapshot: PackSnapshot
     catalog: CatalogSnapshot
-    sessions: SessionStore
+    #: The engine's ``SessionStore`` plus soft archive — see
+    #: :mod:`revi_api.session_lifecycle`.
+    sessions: ArchivableSessionStore
     investigations: InvestigationStore
     traces: TraceStore
     frames: FrameStore
     referents: ReferentRegistryStore
     cohorts: CohortStore
     cache: EvidenceCache
+    #: Executed turns by idempotency key, so a retry after a restart
+    #: returns the original answer instead of executing a second turn.
+    receipts: TurnReceiptStore
     event_bus: ContextTurnEventBus
     recipes: tuple[RecipeSpec, ...]
     priority_policy: PriorityPolicy
@@ -138,6 +145,11 @@ class ApiComponents:
     #: Governed display names for metric ids whose name overclaims what
     #: they measure (review F9).
     metric_display: MetricDisplayRules
+    #: Which governed playbook and concept ids mean "show me the ranked
+    #: worklist", so a conversation can reach the portfolio the platform
+    #: already computes without any question string being matched anywhere
+    #: (round-2 deferred P1). See :mod:`revi_api.worklist`.
+    worklist: WorklistRouting
     store_mode: str
     llm_mode: str
     #: Whether the wired language model applies ``LlmCallPolicy`` — the
@@ -152,13 +164,14 @@ class ApiComponents:
 
 @dataclass(frozen=True)
 class _Stores:
-    sessions: SessionStore
+    sessions: ArchivableSessionStore
     investigations: InvestigationStore
     traces: TraceStore
     frames: FrameStore
     referents: ReferentRegistryStore
     cohorts: CohortStore
     cache: EvidenceCache
+    receipts: TurnReceiptStore
     mode: str
 
 
@@ -172,6 +185,7 @@ def _memory_stores() -> _Stores:
         referents=MemoryReferentRegistryStore(),
         cohorts=MemoryCohortStore(),
         cache=MemoryEvidenceCache(),
+        receipts=MemoryTurnReceiptStore(),
         mode="memory",
     )
 
@@ -192,6 +206,7 @@ def _build_stores(env: Mapping[str, str]) -> _Stores:
             PostgresReferentRegistryStore,
             PostgresSessionStore,
             PostgresTraceStore,
+            PostgresTurnReceiptStore,
             create_engine,
         )
 
@@ -207,6 +222,7 @@ def _build_stores(env: Mapping[str, str]) -> _Stores:
             referents=PostgresReferentRegistryStore(engine),
             cohorts=PostgresCohortStore(engine),
             cache=PostgresEvidenceCache(engine),
+            receipts=PostgresTurnReceiptStore(engine),
             mode="postgres",
         )
     except Exception as exc:
@@ -351,6 +367,17 @@ def build_components(
     actionability_path = pack_dir / "anomaly_actionability.yaml"
     actionability: ActionabilityRules = load_actionability_rules(actionability_path)
     metric_display: MetricDisplayRules = load_metric_display(pack_dir / "metric_display.yaml")
+    worklist: WorklistRouting = load_worklist_routing(pack_dir / WORKLIST_FILENAME)
+    if worklist.enabled:
+        logger.info(
+            "worklist routing loaded: playbooks=%s concepts=%s (limit %d, max %d)",
+            ", ".join(sorted(worklist.playbook_ids)) or "-",
+            ", ".join(sorted(worklist.concept_ids)) or "-",
+            worklist.default_limit,
+            worklist.max_limit,
+        )
+    else:
+        logger.info("no governed worklist routing in this pack — answers carry no worklist")
     if metric_display.by_metric:
         logger.info(
             "governed metric display names loaded for %d metric id(s): %s",
@@ -378,6 +405,7 @@ def build_components(
         referents=stores.referents,
         cohorts=stores.cohorts,
         cache=stores.cache,
+        receipts=stores.receipts,
         event_bus=event_bus,
         recipes=recipes,
         priority_policy=priority_policy_from_pack(pack_snapshot),
@@ -385,6 +413,7 @@ def build_components(
         drillability=drillability,
         rederive_impact=rederive_impact,
         metric_display=metric_display,
+        worklist=worklist,
         store_mode=stores.mode,
         llm_mode=llm_mode,
         llm_applies_call_policy=applies_call_policy,

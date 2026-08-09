@@ -38,9 +38,28 @@ export const UNCLASSIFIED = "UNCLASSIFIED";
 export const WARNING_TITLES: Readonly<Record<string, string>> = {
   /* -- how the number was scoped or qualified (changes the reading) -- */
   EMPTY_RESULT: "Why this came back empty",
+  // "The question takes a movement of 'down' as given, and over this
+  // window there was none." The answer that follows is context for a
+  // movement that did not happen, not confirmation of one.
+  PREMISE_FALSE: "The question's premise doesn't hold",
+  // The complement of SUPPRESSION_APPLIED: these cells were NOT withheld.
+  // A numerator under the threshold over a publishable population is shown
+  // as "at most N", so the best-performing cells stay in the ranking with
+  // their uncertainty stated instead of vanishing from it.
+  SUPPRESSION_BOUNDED: "Some cells show upper bounds",
+  // Deliberately not "Period outside this data". The engine emits this on
+  // PARTIAL coverage — the asked-for period runs past the newest data and
+  // the figures cover the part that exists — so "outside" would overstate
+  // it into a period with no data at all, which is a different warning.
+  WINDOW_OUT_OF_RANGE: "Part of that period isn't in this data",
+  COMPARISON_ASSUMED: "Comparison window assumed",
   VALUE_CORRECTED: "A published value was corrected",
   DIRECTION_UNMATCHED: "The movement went the other way",
   WINDOW_ASSUMED: "Window assumed",
+  // An as-of contract applies no start..end predicate at all, so the
+  // period in the question scoped the cohort and the charts but not the
+  // number. What the reader is owed is that last fact.
+  SNAPSHOT_AS_OF: "Naming a period doesn't narrow this",
   DROPPED_GRAIN: "Part of the breakdown was dropped",
   FILTER_REDUNDANT: "A filter changed nothing",
   COMPARISON_WINDOW_LENGTH: "The two periods are different lengths",
@@ -61,11 +80,34 @@ export const WARNING_TITLES: Readonly<Record<string, string>> = {
   PROBE_TEMPLATE_SKIPPED: "A planned check was skipped",
   TRANSFORM_NOT_EXECUTABLE: "A calculation step could not run here",
   TRANSFORM_SKIPPED: "A calculation step was skipped",
+  // Coverage the pipeline measured and did not publish: metric families
+  // that were read, returned rows, and produced no finding — so the
+  // ranking above speaks only for the families that did publish, and a
+  // family's absence is not evidence that it is fine.
+  PROBE_FAMILIES_EMPTY: "Some measures produced no finding",
   /* -- worklist-level facts about the portfolio ---------------------- */
   PORTFOLIO_CARDS_NOT_INVESTIGABLE: "Some of this list cannot be opened",
   PORTFOLIO_FEED_EMPTY: "Nothing was detected at this data load",
   PORTFOLIO_IMPACT_UNRECONCILED: "Some figures could not be re-derived here",
   PORTFOLIO_IMPACT_DIVERGED: "Some figures disagree with this platform's own",
+  // NOT a divergence, and deliberately worded apart from one. The platform
+  // re-derived the cell and then declined to compare the two figures
+  // (a snapshot balance against a windowed flow); neither is stated as a
+  // correction to the other.
+  PORTFOLIO_IMPACT_NOT_COMPARABLE: "Some figures aren't comparable to this platform's",
+  // WHICH figure ordered the list. These two are the same fact reported
+  // from opposite sides, and the distinction decides how to read the
+  // ranking: `PLATFORM` means the detector's number was set aside because
+  // the two diverge, `DETECTOR` means this platform's own re-derivation
+  // was set aside because it is not the same kind of quantity.
+  PORTFOLIO_RANKED_ON_PLATFORM: "Ranked on re-derived figures",
+  PORTFOLIO_RANKED_ON_DETECTOR: "Ranked on detector figures",
+  /* -- the worklist, read into a conversation ------------------------ */
+  // The intro line above the ranked cards on an answer. Load-bearing: the
+  // cards are the detection feed's ranked work, NOT findings the turn
+  // computed, and this is the sentence that keeps the two apart.
+  WORKLIST_ATTACHED: "Worklist attached",
+  WORKLIST_UNAVAILABLE: "Worklist unavailable",
 };
 
 /**

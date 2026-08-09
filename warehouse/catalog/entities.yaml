@@ -18,6 +18,14 @@ entities:
       One row per claim. Pre-joins payer, plan, provider, facility and service
       line. Derived status fields (status, first_pass_paid, clean_claim,
       resolved_date) reflect only activity visible at the snapshot watermark.
+    declared_columns:
+      # The plan's configured timely-filing limit, pre-joined from dim_plan.
+      # Not a date basis (no window rides on it) and not a dimension (nobody
+      # groups by "180"), but the limit half of the claim -> plan -> filing
+      # rule join that the probe-time derived measure `days_to_filing_deadline`
+      # and the `filing_runway_bucket` dimension read. Declared here so that
+      # dependency is catalog-visible instead of an adapter constant.
+      - timely_filing_days
   claim_line:
     grain: LINE
     base_view: v_claim_line

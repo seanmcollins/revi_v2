@@ -9,6 +9,7 @@ from typing import Any
 
 import pytest
 
+from revi_investigation.application.gestures import parse_gesture
 from revi_investigation.application.llm.schemas import (
     AddFilterModel,
     DrillIntoModel,
@@ -530,7 +531,13 @@ class TestDeterministicReferents:
         """Resolved referents ride in as structure: the label the analyst
         saw and, for a single-dimension row, the (dimension, value) pair —
         so compiling the operator is not a second guess on top of the
-        first."""
+        first.
+
+        Asked here with a handle inside a *sentence*, because a bare
+        "drill into F1" is one of the platform's own gestures and is now
+        parsed without a model at all (see
+        ``TestPlatformGesturesRoundTrip``). The emitter still compiles
+        anything with language in it, and this is what it is told."""
         llm = MockLanguageModel()
         _canned_t1(llm)
         engine = _engine(small_warehouse_path, llm)
@@ -550,7 +557,9 @@ class TestDeterministicReferents:
 
         await engine.submit.submit(
             SubmitTurnRequest(
-                tenant="demo", question="drill into F1", session_id=t1.session.id
+                tenant="demo",
+                question="drill into F1 and break it out by carc",
+                session_id=t1.session.id,
             )
         )
 
@@ -588,3 +597,166 @@ class TestDeterministicReferents:
         assert outcome.clarification.reason.startswith("REFERENT_NOT_FOUND")
         assert llm.calls_for("resolve_referents") == ()
         assert llm.calls_for("emit_refinements") == ()
+
+
+class TestPlatformGesturesRoundTrip:
+    """Round-3 FN-7: the product could not parse its own suggestion.
+
+    Every finding publishes ``suggested_refinements`` and the unknown-handle
+    clarification offers the same strings as options. Live, "drill into F1"
+    — a string this platform printed — came back
+    ``clarification_required`` with ``referent_resolutions: []``, because the
+    utterance went to the classifier first and the classifier asked a
+    question. A button the product prints and cannot press is worse than no
+    button.
+    """
+
+    async def test_every_suggestion_a_turn_emits_parses_back_with_no_model_call(
+        self, small_warehouse_path: Path
+    ) -> None:
+        llm = MockLanguageModel()
+        _canned_t1(llm)
+        engine = _engine(small_warehouse_path, llm)
+        t1 = await _run_t1(engine)
+        suggestions = [s for f in t1.findings for s in f.suggested_refinements]
+        assert suggestions, "the turn under test must actually suggest something"
+
+        for suggestion in suggestions:
+            calls_before = len(llm.structured_calls)
+            # No canned classify/emit rules are registered for these
+            # utterances: an unmatched structured call would raise here.
+            outcome = await engine.submit.submit(
+                SubmitTurnRequest(
+                    tenant="demo", question=suggestion, session_id=t1.session.id
+                )
+            )
+            assert len(llm.structured_calls) == calls_before, suggestion
+            assert outcome.clarification is None, suggestion
+            assert outcome.investigation.status is InvestigationStatus.COMPLETE
+
+    async def test_the_gesture_is_case_and_punctuation_tolerant(
+        self, small_warehouse_path: Path
+    ) -> None:
+        llm = MockLanguageModel()
+        _canned_t1(llm)
+        engine = _engine(small_warehouse_path, llm)
+        t1 = await _run_t1(engine)
+        calls_before = len(llm.structured_calls)
+
+        outcome = await engine.submit.submit(
+            SubmitTurnRequest(
+                tenant="demo", question="  Drill into f1.  ", session_id=t1.session.id
+            )
+        )
+
+        assert len(llm.structured_calls) == calls_before
+        assert outcome.investigation.status is InvestigationStatus.COMPLETE
+
+    async def test_a_gesture_naming_an_unpublished_handle_answers_from_the_registry(
+        self, small_warehouse_path: Path
+    ) -> None:
+        """Still zero model calls: the registry is the answer."""
+        llm = MockLanguageModel()
+        _canned_t1(llm)
+        engine = _engine(small_warehouse_path, llm)
+        t1 = await _run_t1(engine)
+        calls_before = len(llm.structured_calls)
+
+        outcome = await engine.submit.submit(
+            SubmitTurnRequest(tenant="demo", question="drill into F97", session_id=t1.session.id)
+        )
+
+        assert len(llm.structured_calls) == calls_before
+        assert outcome.clarification is not None
+        assert "F97" in outcome.clarification.question
+        # …and every option it offers is itself a parseable gesture
+        for option in outcome.clarification.options:
+            assert parse_gesture(option, ()) is not None, option
+
+    async def test_a_sentence_containing_a_handle_is_still_language(
+        self, small_warehouse_path: Path
+    ) -> None:
+        """The grammar is whole-utterance on purpose: matching loosely would
+        silently drop the half of the request nobody parsed."""
+        entries = ()
+        assert parse_gesture("drill into F1 and break it out by carc", entries) is None
+        assert parse_gesture("why did that happen?", entries) is None
+
+
+class TestNamedEntityBackReference:
+    """Round-3 FN-7 (second half): one turn after publishing "Summit Peak
+    Medicare Advantage … " as F1, the session asked whether "Summit Peak"
+    was a facility, a payer or a provider."""
+
+    async def test_a_payer_this_session_named_resolves_without_a_model(
+        self, small_warehouse_path: Path
+    ) -> None:
+        llm = MockLanguageModel()
+        _canned_t1(llm)
+        engine = _engine(small_warehouse_path, llm)
+        t1 = await _run_t1(engine)
+        entry = await engine.referent_registry.resolve(t1.session.id, t1.findings[0].referent)
+        assert entry is not None and entry.dimension_value is not None
+        payer = entry.dimension_value[1]
+
+        llm.respond(
+            "classify_turn",
+            {"turn_class": "refinement", "confidence": 0.93, "clarification_question": None},
+        )
+        llm.respond(
+            "emit_refinements",
+            {"operators": [{"op": "drill_into", "target": "F1"}], "rationale": "named payer"},
+        )
+
+        await engine.submit.submit(
+            SubmitTurnRequest(
+                tenant="demo",
+                question=f"what is driving {payer}?",
+                session_id=t1.session.id,
+            )
+        )
+
+        assert llm.calls_for("resolve_referents") == (), (
+            "a name this platform printed one turn ago is a lookup, not a guess"
+        )
+        [emit] = llm.calls_for("emit_refinements")
+        assert payer in emit.rendered_prompt
+
+    def test_ambiguity_is_left_to_the_model(self) -> None:
+        """Two payers on screen and "that payer" means somebody has to say
+        which — a deterministic guess there is the confident-wrong answer
+        the rule exists to prevent."""
+        from datetime import date
+
+        from revi_investigation.application.ports import RegisteredReferent
+        from revi_investigation.application.refinement_llm import resolve_named_referents
+        from revi_kernel.cohort import CohortDefinition
+        from revi_kernel.filters import EMPTY_SCOPE
+        from revi_kernel.refs import DateBasisRef, EntityGrain, ReferentId, ReferentKind
+        from revi_kernel.scope import AbsoluteRange, TimeWindow
+
+        def entry(handle: str, value: str) -> RegisteredReferent:
+            return RegisteredReferent(
+                referent=ReferentId(value=handle, kind=ReferentKind.DIMENSION_VALUE),
+                session_id="s",
+                investigation_id="i",
+                label=value,
+                cohort_definition=CohortDefinition(
+                    entity=EntityGrain.CLAIM,
+                    scope=EMPTY_SCOPE,
+                    window=TimeWindow(
+                        basis=DateBasisRef("post"),
+                        range=AbsoluteRange(date(2026, 7, 1), date(2026, 7, 31)),
+                    ),
+                ),
+                dimension_value=("payer", value),
+            )
+
+        one = (entry("D1", "Summit Peak Medicare Advantage"),)
+        two = (*one, entry("D2", "Atlas Commercial"))
+
+        assert resolve_named_referents("that payer again", one)
+        assert resolve_named_referents("that payer again", two) == ()
+        # …but naming one of the two is never ambiguous
+        [resolved] = resolve_named_referents("how about Atlas Commercial", two)
+        assert resolved.referent.value == "D2"

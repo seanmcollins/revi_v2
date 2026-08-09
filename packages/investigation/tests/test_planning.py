@@ -196,3 +196,70 @@ class TestPlanHashAndDiff:
         null_diff = DiffPlanService().diff(new, new)
         assert null_diff.added == () and null_diff.removed == ()
         assert len(null_diff.unchanged) == 2
+
+
+class TestCompanionDimensions:
+    """A CARC is half an identity (round-3 addendum).
+
+    CO-50 is a contractual write-off nobody can appeal; PI-50 is a
+    payer-initiated reduction that is disputable money. A free-form
+    breakdown "by CARC" cut by ``carc`` alone merged $21,234 of the first
+    with $5,752 of the second under one label, while every pack playbook
+    that cuts by ``carc`` conjoins ``group_code`` by hand — so the same
+    product answered the same question two different ways.
+    """
+
+    def test_a_free_form_carc_cut_also_groups_by_the_adjustment_group(
+        self, pack_port: PackSnapshotPort, catalog: CatalogSnapshot, make_spec: SpecFactory
+    ) -> None:
+        spec = make_spec(measures=("denied_dollars",), dimensions=("carc",))
+
+        plan = BuildInvestigationPlanService(pack_port, catalog).build(spec)
+
+        [node] = [n for n in plan.nodes if not n.id.endswith("__prior")]
+        planned = [ref.id for ref in node.probe.dimensions]  # type: ignore[union-attr]
+        assert planned == ["group_code", "carc"], planned
+
+    def test_the_companionship_is_declared_by_the_catalog_not_the_engine(
+        self, catalog: CatalogSnapshot
+    ) -> None:
+        carc = catalog.dimension("carc")
+        assert carc is not None
+        assert carc.companion_dimensions == ("group_code",)
+        # …and a dimension that declares none is untouched
+        payer = catalog.dimension("payer")
+        assert payer is not None and payer.companion_dimensions == ()
+
+    def test_a_metric_that_cannot_be_cut_by_the_companion_is_left_alone(
+        self, pack_port: PackSnapshotPort, catalog: CatalogSnapshot, make_spec: SpecFactory
+    ) -> None:
+        """Adding a cut the contract forbids would turn an answerable
+        question into GRAIN_INCOMPATIBLE; the renderer's "(all adjustment
+        groups)" disclosure is the honest fallback."""
+        from dataclasses import replace as _replace
+
+        from revi_kernel.refs import DimensionRef as _DimensionRef
+
+        contract = pack_port.metric("denied_dollars")
+        assert contract is not None
+        narrowed = _replace(
+            contract,
+            scope_dimensions=tuple(
+                d for d in contract.scope_dimensions if d != _DimensionRef("group_code")
+            ),
+        )
+        planner = BuildInvestigationPlanService(pack_port, catalog)
+        assert planner._with_companions((_DimensionRef("carc"),), (narrowed,)) == (
+            _DimensionRef("carc"),
+        )
+
+    def test_a_cut_that_already_names_both_is_unchanged(
+        self, pack_port: PackSnapshotPort, catalog: CatalogSnapshot, make_spec: SpecFactory
+    ) -> None:
+        spec = make_spec(measures=("denied_dollars",), dimensions=("group_code", "carc"))
+
+        plan = BuildInvestigationPlanService(pack_port, catalog).build(spec)
+
+        [node] = [n for n in plan.nodes if not n.id.endswith("__prior")]
+        planned = [ref.id for ref in node.probe.dimensions]  # type: ignore[union-attr]
+        assert planned == ["group_code", "carc"]

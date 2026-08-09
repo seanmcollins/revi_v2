@@ -51,10 +51,24 @@
   --surface-sunken: #f1efeb;
   --surface-overlay: #ffffff;
 
-  --verified: #0b7a70;
+  /* Both of these are read ON THEIR OWN 10% TINT — the accent chip, the
+     caution banner, the reconciliation strip — which is the surface that
+     decides whether they pass, and the surface nobody measured. Computed
+     over card / page / sunken / translucent-panel, light theme:
+
+       verified #0b7a70 on verified/10  4.54 / 4.18 / 3.98 / 4.38  (fails)
+       verified #0a6a61 on verified/10  5.58 / 5.13 / 4.89 / 5.37  (passes)
+       warning  #b45309 on warning/10   4.38 / 4.03 / 3.85 / 4.22  (fails)
+       warning  #8f4208 on warning/10   6.10 / 5.61 / 5.35 / 5.88  (passes)
+
+     Neither token is ever a solid background under text (only 1.5px dots
+     and hairline borders), so darkening is a strict improvement
+     everywhere else they appear. Dark theme already passes on the same
+     tints (verified 8.51, warning 9.30) and is unchanged. */
+  --verified: #0a6a61;
   --positive: #047857;
   --negative: #c81e1e;
-  --warning: #b45309;
+  --warning: #8f4208;
 
   --accent-from: #0d9488;
   --accent-to: #2a63d4;
@@ -417,7 +431,21 @@ body {
   .stream-caret::after {
     animation: none;
   }
-  * {
+  /* The named animations above are this file's own. Everything else that
+     moves is somebody else's: Tailwind's `animate-spin` on three busy
+     spinners and `animate-pulse` on the connecting dot, and the Radix
+     enter/exit keyframes every popover, tooltip and hover card carries
+     (`data-[state=open]:animate-in`, `zoom-in-95`, `slide-in-from-top-2`).
+     Overriding only the local ones left a reduced-motion reader with a
+     pulsing status dot, three spinners and a zooming tooltip — so the
+     reset is global, and the iteration count matters as much as the
+     duration: a 0.01ms animation that repeats forever still repeats. */
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
   }
 }

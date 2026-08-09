@@ -7,11 +7,8 @@
 
 import { useQuery } from "@tanstack/react-query";
 
-import {
-  fetchPortfolioLatest,
-  fetchSessionLineage,
-  type PortfolioFetchResult,
-} from "@/lib/apiDriver";
+import { fetchPortfolioLatest, fetchSessionLineage } from "@/lib/apiDriver";
+import type { PortfolioSnapshotData } from "@/lib/contract";
 import { useSessionStore } from "@/lib/store";
 import type { SessionLineageData } from "@/lib/types";
 
@@ -19,7 +16,7 @@ const onDrift = (paths: string[]): void =>
   useSessionStore.getState().reportContractDrift(paths);
 
 export function usePortfolioQuery(enabled: boolean) {
-  return useQuery<PortfolioFetchResult>({
+  return useQuery<PortfolioSnapshotData>({
     queryKey: ["portfolio", "latest"],
     queryFn: () => fetchPortfolioLatest({ onDrift }),
     enabled,

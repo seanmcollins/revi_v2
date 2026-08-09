@@ -142,15 +142,26 @@ def session_page_query(tenant: str, limit: int) -> sa.Select[Any]:
         .select_from(
             t.sessions.join(turn_stats, sa.true()).join(first_turn, sa.true(), isouter=True)
         )
-        .where(t.sessions.c.tenant == tenant)
+        # Archived sessions are dismissed, not deleted: they keep their
+        # lineage and stay fetchable by id, and they leave the rail.
+        .where(t.sessions.c.tenant == tenant, t.sessions.c.archived_at.is_(None))
         .order_by(activity.desc(), t.sessions.c.id)
         .limit(limit)
     )
 
 
 def session_total_query(tenant: str) -> sa.Select[Any]:
-    """Every session the tenant owns — the page's ``total``."""
-    return sa.select(sa.func.count()).select_from(t.sessions).where(t.sessions.c.tenant == tenant)
+    """Every ACTIVE session the tenant owns — the page's ``total``.
+
+    Counted over the same predicate the page selects on: a total that
+    included archived sessions would tell a client its truncated page was
+    missing rows that are not in the list at all.
+    """
+    return (
+        sa.select(sa.func.count())
+        .select_from(t.sessions)
+        .where(t.sessions.c.tenant == tenant, t.sessions.c.archived_at.is_(None))
+    )
 
 
 class PostgresSessionStore:
@@ -167,6 +178,28 @@ class PostgresSessionStore:
 
     async def list_for_tenant(self, tenant: str, *, limit: int) -> SessionPage:
         return await asyncio.to_thread(self._list_for_tenant, tenant, limit)
+
+    async def archive(self, session_id: str, *, archived: bool = True) -> None:
+        """Dismiss (or restore) a session without deleting anything.
+
+        A session owns investigations, traces, frames and cohorts that
+        other reads resolve through it, so the row stays and the list stops
+        showing it. Idempotent: archiving an archived session is a no-op
+        that keeps the ORIGINAL timestamp, because the second call did not
+        dismiss anything.
+        """
+        await asyncio.to_thread(self._archive, session_id, archived)
+
+    def _archive(self, session_id: str, archived: bool) -> None:
+        stmt = (
+            sa.update(t.sessions)
+            .where(t.sessions.c.id == session_id)
+            .values(archived_at=datetime.now(UTC) if archived else None)
+        )
+        if archived:
+            stmt = stmt.where(t.sessions.c.archived_at.is_(None))
+        with self._engine.begin() as conn:
+            conn.execute(stmt)
 
     def _get(self, session_id: str) -> Session | None:
         with self._engine.connect() as conn:
@@ -610,6 +643,70 @@ class PostgresEvidenceCache:
                 t.evidence.c.probe_hash,
                 t.evidence.c.watermark_id,
                 t.evidence.c.pack_snapshot_id,
+            ]
+        )
+        with self._engine.begin() as conn:
+            conn.execute(stmt)
+
+
+# --- turn receipts (idempotency) --------------------------------------------
+
+
+class PostgresTurnReceiptStore:
+    """Executed-turn responses, keyed by the caller's idempotency key.
+
+    The API honored idempotency keys from a process-local dict: correct
+    within one process's lifetime and silently wrong outside it. A restart
+    between a client's POST and its retry — or a second worker behind a
+    load balancer — turned "return the stored response" into a second
+    EXECUTION of the same turn: fresh model spend, a second investigation
+    in the session DAG, and two different answers to one request.
+
+    The stored value is the serialized ``TurnResponse``, so a replay
+    returns the ORIGINAL payload. First write wins
+    (``ON CONFLICT DO NOTHING``), which is what makes two concurrent
+    retries of the same key converge on one answer instead of racing to
+    overwrite each other.
+    """
+
+    def __init__(self, engine: Engine) -> None:
+        self._engine = engine
+
+    async def get(
+        self, tenant: str, session_id: str, key: str
+    ) -> dict[str, Any] | None:
+        return await asyncio.to_thread(self._get, tenant, session_id, key)
+
+    async def put(
+        self, tenant: str, session_id: str, key: str, response: dict[str, Any]
+    ) -> None:
+        await asyncio.to_thread(self._put, tenant, session_id, key, response)
+
+    def _get(self, tenant: str, session_id: str, key: str) -> dict[str, Any] | None:
+        stmt = sa.select(t.turn_receipts.c.response).where(
+            t.turn_receipts.c.tenant == tenant,
+            t.turn_receipts.c.session_id == session_id,
+            t.turn_receipts.c.idempotency_key == key,
+        )
+        with self._engine.connect() as conn:
+            payload = conn.execute(stmt).scalar_one_or_none()
+        return cast("dict[str, Any] | None", payload)
+
+    def _put(
+        self, tenant: str, session_id: str, key: str, response: dict[str, Any]
+    ) -> None:
+        stmt = pg_insert(t.turn_receipts).values(
+            tenant=tenant,
+            session_id=session_id,
+            idempotency_key=key,
+            response=response,
+            created_at=datetime.now(UTC),
+        )
+        stmt = stmt.on_conflict_do_nothing(
+            index_elements=[
+                t.turn_receipts.c.tenant,
+                t.turn_receipts.c.session_id,
+                t.turn_receipts.c.idempotency_key,
             ]
         )
         with self._engine.begin() as conn:

@@ -36,6 +36,7 @@ from revi_calculation_contracts.contract import (
     MetricKind,
     MetricUnit,
     SignConvention,
+    Sum,
 )
 from revi_catalog import load_catalog
 from revi_catalog_contracts import CatalogSnapshot
@@ -1624,3 +1625,245 @@ class TestPreviouslyDeadContracts:
                 watermark=wm,
             )
         assert "snapshot" in str(raised.value)
+
+
+# ---------------------------------------------------------------------------
+# 7. the claim -> plan -> filing rule join, and claim-grain procedure attribution
+#
+# Two capability gaps the base pack's NOTES.md carried as named milestones.
+# Both land as catalog surface the compiler reads (a declared column and two
+# certified dimensions), so both are checked the same way as everything above:
+# execute the probe, and derive the same number independently in SQL.
+
+
+@pytest.mark.reference
+class TestFilingRunwayAndClaimProcedureAttribution:
+    async def test_days_to_filing_deadline_is_the_plans_own_limit_from_service(
+        self, pack_reference_repository: DuckDbAnalyticalRepository, reference_con: Any
+    ) -> None:
+        """The derived measure: deadline = service date + the plan's configured
+        filing limit; runway = deadline - as-of. Restricted to unsubmitted
+        claims, because a submitted claim's initial filing clock is closed.
+
+        Summed over the open-inventory population it is a claim-day total, so
+        the cross-check computes it twice — once through the probe, once from
+        dim_plan's own column — and also pins the population count, which is
+        what makes the sum interpretable.
+        """
+        wm = (await pack_reference_repository.list_watermarks())[-1]
+        contract = MetricContract(
+            id="filing_runway_days",
+            version=1,
+            kind=MetricKind.SNAPSHOT,
+            entity_grain=EntityGrain.CLAIM,
+            numerator=Sum(FieldRef("days_to_filing_deadline")),
+            denominator=None,
+            primary_date_basis=SERVICE,
+            allowed_date_bases=(SERVICE,),
+            scope_dimensions=(),
+            sign=SignConvention.NEUTRAL,
+            unit=MetricUnit.COUNT,
+            description="Summed filing runway over unsubmitted open inventory.",
+        )
+        repo = DuckDbAnalyticalRepository(
+            REFERENCE_DB,
+            pack_reference_repository._compiler._catalog,
+            {"filing_runway_days": contract}.get,
+        )
+        probe = SnapshotProbe(
+            measures=(MetricRef("filing_runway_days"),),
+            dimensions=(),
+            scope=EMPTY_SCOPE,
+            as_of=wm.newest_data_date,
+            grain=Grain(EntityGrain.CLAIM),
+        )
+        frame = await repo.execute(probe, watermark=wm)
+        (runway_total,) = frame.rows[0]
+        by_hand, unsubmitted = _one(
+            reference_con,
+            "SELECT SUM(datediff('day', "
+            f"          {_AS_OF}, c.service_date + c.timely_filing_days)) "
+            "         FILTER (WHERE c.submission_date IS NULL), "
+            "       count(*) FILTER (WHERE c.submission_date IS NULL) " + _OPEN_INVENTORY,
+        )
+        assert runway_total == by_hand == 31_980
+        assert unsubmitted == 7_977
+        assert frame.evidence_grade is EvidenceGrade.DIRECT
+
+    async def test_filing_runway_bucket_decomposes_the_timely_filing_metric(
+        self, pack_reference_repository: DuckDbAnalyticalRepository, reference_con: Any
+    ) -> None:
+        """The dimension that retires the proxy reading.
+
+        `timely_filing_at_risk_dollars` still values the whole unbilled open
+        population — narrowing it would hide the expired dollars, which are the
+        worst ones — but the population is now decomposable by deadline
+        proximity. The buckets must sum back to the published total exactly,
+        and `filed` must be empty inside this metric (its population is
+        unbilled by construction).
+        """
+        wm = (await pack_reference_repository.list_watermarks())[-1]
+        probe = SnapshotProbe(
+            measures=(MetricRef("timely_filing_at_risk_dollars"),),
+            dimensions=(DimensionRef("filing_runway_bucket"),),
+            scope=EMPTY_SCOPE,
+            as_of=wm.newest_data_date,
+            grain=Grain(EntityGrain.CLAIM),
+        )
+        frame = await pack_reference_repository.execute(probe, watermark=wm)
+        assert frame.schema.names == (
+            "filing_runway_bucket",
+            "timely_filing_at_risk_dollars",
+        )
+        by_bucket = {row[0]: row[1] for row in frame.rows}
+        # The dimension partitions the whole open inventory, so `filed` is a
+        # real cell of the cut; the metric's population excludes it by
+        # construction, so its numerator is empty rather than zero.
+        assert by_bucket.pop("filed") is None
+        assert by_bucket == {
+            "0-30": 103_821_804,
+            "31-60": 112_830_845,
+            "61-90": 242_754_866,
+            "90+": 730_136_225,
+            "expired": 1_053_056_288,
+        }
+        assert sum(by_bucket.values()) == 2_242_600_028  # Appendix A, to the cent
+        hand = dict(
+            reference_con.execute(
+                "SELECT CASE WHEN c.billed_flag THEN 'filed' "
+                "            WHEN r < 0 THEN 'expired' WHEN r <= 30 THEN '0-30' "
+                "            WHEN r <= 60 THEN '31-60' WHEN r <= 90 THEN '61-90' "
+                "            ELSE '90+' END, SUM(c.billed_amount_cents) "
+                "FROM (SELECT c.*, datediff('day', "
+                f"            {_AS_OF}, c.service_date + c.timely_filing_days) AS r "
+                + _OPEN_INVENTORY
+                + ") c WHERE NOT c.billed_flag AND c.status = 'OPEN' GROUP BY 1"
+            ).fetchall()
+        )
+        hand.pop("filed", None)
+        assert hand == by_bucket
+        assert frame.evidence_grade is EvidenceGrade.DIRECT
+
+    async def test_filing_runway_bucket_is_also_a_legal_scope_filter(
+        self, pack_reference_repository: DuckDbAnalyticalRepository
+    ) -> None:
+        """Scope, not only breakdown — the capability an analyst asking "how
+        much is inside 30 days" actually needs. It is compiled before the
+        projection is assembled, which is the reason the derived column exists
+        by the time the WHERE clause references it."""
+        wm = (await pack_reference_repository.list_watermarks())[-1]
+        probe = SnapshotProbe(
+            measures=(MetricRef("timely_filing_at_risk_dollars"),),
+            dimensions=(),
+            scope=And(
+                (
+                    Predicate(
+                        dimension=DimensionRef("filing_runway_bucket"),
+                        op=PredicateOp.IN,
+                        values=("expired", "0-30"),
+                    ),
+                )
+            ),
+            as_of=wm.newest_data_date,
+            grain=Grain(EntityGrain.CLAIM),
+        )
+        frame = await pack_reference_repository.execute(probe, watermark=wm)
+        assert frame.rows[0] == (1_053_056_288 + 103_821_804,)
+
+    async def test_claim_grain_metrics_cut_by_primary_proc_group_reconcile(
+        self, pack_reference_repository: DuckDbAnalyticalRepository, reference_con: Any
+    ) -> None:
+        """The four blocked portfolio cards' missing axis.
+
+        `gross_collection_rate` (a cross-entity ratio) and
+        `underpayment_variance` (a claim-grain derived sum) both cut by
+        `primary_proc_group`, and both reconcile to their ungrouped totals —
+        which is the property that makes a dominance rule safe to certify: each
+        claim lands in exactly one bucket, so nothing is double counted and
+        nothing is dropped.
+        """
+        wm = (await pack_reference_repository.list_watermarks())[-1]
+        ungrouped = await pack_reference_repository.execute(
+            _pack_probe(
+                "gross_collection_rate",
+                "underpayment_variance",
+                window=TimeWindow(basis=SERVICE, range=_PACK_WINDOW),
+            ),
+            watermark=wm,
+        )
+        cut = await pack_reference_repository.execute(
+            _pack_probe(
+                "gross_collection_rate",
+                "underpayment_variance",
+                window=TimeWindow(basis=SERVICE, range=_PACK_WINDOW),
+                dimensions=(DimensionRef("primary_proc_group"),),
+            ),
+            watermark=wm,
+        )
+        assert cut.schema.names == (
+            "primary_proc_group",
+            "gross_collection_rate__num",
+            "gross_collection_rate__den",
+            "underpayment_variance",
+        )
+        groups = {row[0] for row in cut.rows}
+        assert len(groups & {None}) == 1  # the line-less claims, zero-billed
+        assert len(groups - {None}) == 13  # every procedure group in the catalog
+        for column, total in enumerate(ungrouped.rows[0], start=1):
+            assert sum(row[column] or 0 for row in cut.rows) == total, column
+        assert ungrouped.rows[0] == (1_494_532_901, 5_642_309_382, 14_306_720)
+        assert cut.evidence_grade is EvidenceGrade.DIRECT
+        # ...and the attribution is the dominant group, not a line-grain split.
+        (billed_by_line_ortho,) = _one(
+            reference_con,
+            "SELECT SUM(billed_amount_cents) FROM snap_003.v_claim_line "
+            f"WHERE proc_group = 'ORTHO-SURG' AND service_date BETWEEN {_W}",
+        )
+        (billed_by_claim_ortho,) = _one(
+            reference_con,
+            "SELECT SUM(billed_amount_cents) FROM snap_003.v_claim "
+            f"WHERE primary_proc_group = 'ORTHO-SURG' AND service_date BETWEEN {_W}",
+        )
+        assert billed_by_claim_ortho > billed_by_line_ortho
+
+    async def test_discharged_flag_is_projected_at_the_probes_as_of(
+        self, pack_reference_repository: DuckDbAnalyticalRepository, reference_con: Any
+    ) -> None:
+        """The documented DNFB as-of limitation, closed.
+
+        The stored flag restates the CURRENT discharge date, so a back-dated
+        snapshot used to count claims discharged after the as-of. The snapshot
+        builder now re-projects it, the same way `resolved_date` is already
+        honoured. At the watermark nothing moves (no claim carries a discharge
+        date beyond a snapshot's cutoff), which is why every published number
+        is unchanged.
+        """
+        wm = (await pack_reference_repository.list_watermarks())[-1]
+
+        async def dnfb(as_of: date) -> int:
+            frame = await pack_reference_repository.execute(
+                SnapshotProbe(
+                    measures=(MetricRef("dnfb_dollars"),),
+                    dimensions=(),
+                    scope=EMPTY_SCOPE,
+                    as_of=as_of,
+                    grain=Grain(EntityGrain.CLAIM),
+                ),
+                watermark=wm,
+            )
+            value = frame.rows[0][0]
+            assert isinstance(value, int)
+            return value
+
+        assert await dnfb(wm.newest_data_date) == 963_165_147  # Appendix A, unmoved
+        back_dated = date(2026, 6, 1)
+        stored_flag, as_of_dates = _one(
+            reference_con,
+            "SELECT SUM(billed_amount_cents) FILTER (WHERE discharged_flag), "
+            "       SUM(billed_amount_cents) FILTER (WHERE discharge_date <= DATE '2026-06-01') "
+            "FROM snap_003.v_claim "
+            "WHERE submission_date IS NULL AND service_date <= DATE '2026-06-01' "
+            "  AND (resolved_date IS NULL OR resolved_date > DATE '2026-06-01')",
+        )
+        assert (stored_flag, as_of_dates) == (654_723_734, 651_695_123)
+        assert await dnfb(back_dated) == as_of_dates == 651_695_123

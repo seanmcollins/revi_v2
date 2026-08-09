@@ -205,6 +205,130 @@ describe("SessionRail — the session list is the server's, or nothing", () => {
   });
 });
 
+/**
+ * Archiving a row.
+ *
+ * `DELETE /v1/sessions/{sid}` is a SOFT archive server-side: 204, nothing
+ * deleted, the session keeps its investigations and traces and stays
+ * fetchable by id — it stops appearing in `GET /v1/sessions` and nothing
+ * more. Three things this control has to get right, and all three are the
+ * difference between tidying a list and appearing to destroy somebody's
+ * work: it says archive rather than delete, it confirms before acting, and
+ * a refusal puts the row back exactly where it was.
+ */
+describe("SessionRail — archiving a session off the list", () => {
+  beforeEach(() => {
+    useSessionStore.getState().reset();
+    useSessionStore.setState({
+      driver: null,
+      sessions: [],
+      sessionsTotal: 0,
+      sessionsState: "idle",
+      sessionsError: null,
+      switchingSessionId: null,
+      switchError: null,
+      connection: { mode: "api", state: "online" },
+    });
+  });
+
+  afterEach(() => cleanup());
+
+  function archivingDriver(archiveSession: TurnDriver["archiveSession"]): TurnDriver {
+    return {
+      ...listingDriver({
+        sessions: [row(), row({ sessionId: "sess_b", title: "COB investigation" })],
+        total: 2,
+      }),
+      ...(archiveSession ? { archiveSession } : {}),
+    };
+  }
+
+  it("confirms first, in the language of archiving rather than deleting", async () => {
+    const archiveSession = vi.fn().mockResolvedValue(undefined);
+    useSessionStore.getState().setDriver(archivingDriver(archiveSession));
+    renderRail();
+    await screen.findByText("COB investigation");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Archive Why did cash decline last week?" }),
+    );
+
+    // Nothing has happened yet — the confirm is a real gate.
+    expect(archiveSession).not.toHaveBeenCalled();
+    const body = document.body.textContent ?? "";
+    expect(body).toMatch(/Its answers are kept and it stays reachable by link/);
+    // The word "delete" must not appear over an operation that deletes
+    // nothing; the row is what goes.
+    expect(body).not.toMatch(/delete/i);
+    expect(body).not.toMatch(/permanent/i);
+  });
+
+  it("keeps the row when the confirm is declined", async () => {
+    const archiveSession = vi.fn().mockResolvedValue(undefined);
+    useSessionStore.getState().setDriver(archivingDriver(archiveSession));
+    renderRail();
+    await screen.findByText("COB investigation");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Archive Why did cash decline last week?" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Keep it" }));
+
+    expect(archiveSession).not.toHaveBeenCalled();
+    expect(screen.getByText("Why did cash decline last week?")).toBeInTheDocument();
+    expect(useSessionStore.getState().sessions).toHaveLength(2);
+  });
+
+  it("removes the row optimistically and archives it server-side", async () => {
+    const archiveSession = vi.fn().mockResolvedValue(undefined);
+    useSessionStore.getState().setDriver(archivingDriver(archiveSession));
+    renderRail();
+    await screen.findByText("COB investigation");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Archive Why did cash decline last week?" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Archive" }));
+
+    expect(archiveSession).toHaveBeenCalledWith("sess_a");
+    await waitFor(() =>
+      expect(screen.queryByText("Why did cash decline last week?")).not.toBeInTheDocument(),
+    );
+    // The other row is untouched, and the total tracks the removal.
+    expect(screen.getByText("COB investigation")).toBeInTheDocument();
+    expect(useSessionStore.getState().sessionsTotal).toBe(1);
+  });
+
+  it("puts the row back, and says why, when the server refuses", async () => {
+    const archiveSession = vi.fn().mockRejectedValue(new Error("HTTP 403 — not your tenant"));
+    useSessionStore.getState().setDriver(archivingDriver(archiveSession));
+    renderRail();
+    await screen.findByText("COB investigation");
+
+    await userEvent.click(
+      screen.getByRole("button", { name: "Archive Why did cash decline last week?" }),
+    );
+    await userEvent.click(screen.getByRole("button", { name: "Archive" }));
+
+    // A row that left the screen while surviving on the server is a list
+    // quietly lying about what exists.
+    expect(await screen.findByText(/HTTP 403 — not your tenant/)).toBeInTheDocument();
+    expect(screen.getByText("Why did cash decline last week?")).toBeInTheDocument();
+    expect(useSessionStore.getState().sessions).toHaveLength(2);
+    expect(useSessionStore.getState().sessionsTotal).toBe(2);
+  });
+
+  it("offers no archive control on a driver that cannot archive", async () => {
+    // The mock fixture has no deployment behind it. A control that would
+    // silently do nothing is worse than one that is not there.
+    useSessionStore.getState().setDriver(archivingDriver(undefined));
+    renderRail();
+    await screen.findByText("COB investigation");
+
+    expect(screen.queryByRole("button", { name: /^Archive / })).not.toBeInTheDocument();
+  });
+});
+
 describe("SessionRail — the mock fixture has no sessions and says so", () => {
   beforeEach(() => {
     useSessionStore.getState().reset();

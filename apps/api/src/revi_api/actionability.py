@@ -50,17 +50,40 @@ class DrillRepoint:
 
 
 @dataclass(frozen=True, slots=True)
+class DimensionRepoint:
+    """A governed substitution for a detector record's CUT.
+
+    The feed cuts procedures at ``proc_group``, which binds on
+    ``claim_line``; a claim-grain contract has no legal procedure cut at
+    all, so those cards refused with ``GRAIN_INCOMPATIBLE``. This names the
+    dimension that exists at the drilled contract's grain.
+
+    A substitution, never a translation: the detector counted LINES in a
+    group and the repointed drill counts CLAIMS whose dominant group is
+    that one. The rationale travels onto the card so the difference is
+    stated rather than absorbed."""
+
+    from_dimension: str
+    to_dimension: str
+    rationale: str
+
+
+@dataclass(frozen=True, slots=True)
 class ActionabilityRules:
     default: ActionabilityRule
     by_category: Mapping[str, ActionabilityRule]
     content_hash: str
     drill_repoints: Mapping[str, DrillRepoint] = field(default_factory=dict)
+    drill_dimension_repoints: Mapping[str, DimensionRepoint] = field(default_factory=dict)
 
     def rule_for(self, category: str) -> ActionabilityRule:
         return self.by_category.get(category.upper(), self.default)
 
     def repoint_for(self, metric_id: str) -> DrillRepoint | None:
         return self.drill_repoints.get(metric_id)
+
+    def dimension_repoint_for(self, dimension_id: str) -> DimensionRepoint | None:
+        return self.drill_dimension_repoints.get(dimension_id)
 
 
 @dataclass(frozen=True, slots=True)
@@ -114,12 +137,27 @@ def load_actionability_rules(path: str | Path) -> ActionabilityRules:
             to_metric_id=str(node["metric_id"]),
             rationale=" ".join(str(node.get("rationale", "")).split()),
         )
+    dimension_node = document.get("drill_dimension_repoints", {})
+    if not isinstance(dimension_node, dict):
+        raise ValueError(f"{path}: 'drill_dimension_repoints' must be a mapping")
+    dimension_repoints: dict[str, DimensionRepoint] = {}
+    for source, node in dimension_node.items():
+        if not isinstance(node, dict) or not node.get("dimension_id"):
+            raise ValueError(
+                f"{path}: drill_dimension_repoints[{source!r}] needs a dimension_id"
+            )
+        dimension_repoints[str(source)] = DimensionRepoint(
+            from_dimension=str(source),
+            to_dimension=str(node["dimension_id"]),
+            rationale=" ".join(str(node.get("rationale", "")).split()),
+        )
     digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()
     return ActionabilityRules(
         default=default,
         by_category=by_category,
         content_hash=digest,
         drill_repoints=repoints,
+        drill_dimension_repoints=dimension_repoints,
     )
 
 
@@ -146,8 +184,23 @@ def _label(fraction: Decimal, compliance: bool) -> str:
     return "not recoverable"
 
 
-def assess(rule: ActionabilityRule, record: AnomalyRecord) -> ActionabilityAssessment:
-    """Deterministic recoverable-fraction assessment from evidence facts."""
+def assess(
+    rule: ActionabilityRule,
+    record: AnomalyRecord,
+    *,
+    impact_cents: int | None = None,
+) -> ActionabilityAssessment:
+    """Deterministic recoverable-fraction assessment from evidence facts.
+
+    ``impact_cents`` overrides the figure the fraction is taken OF, and is
+    how ``anomaly_priority@3`` keeps a card's recoverable estimate on the
+    same figure that ranked it: where this platform's re-derivation
+    diverges from the detector's, the portfolio ranks on the reconciled
+    number, and a recoverable estimate still priced off the disputed one
+    would put "this platform: $151" and "~$3,750 recoverable" on the same
+    card. The FRACTION is unaffected — it comes from the rule and the
+    record's evidence facts either way; only its base moves.
+    """
     fraction = rule.fraction
     if rule.mode == "open_share":
         open_count = _fact(record.evidence, rule.open_fact)
@@ -161,8 +214,9 @@ def assess(rule: ActionabilityRule, record: AnomalyRecord) -> ActionabilityAsses
         if numerator is not None and denominator is not None and denominator > 0:
             fraction = numerator / denominator
     fraction = max(Decimal(0), min(Decimal(1), fraction))
+    base = record.impact_cents if impact_cents is None else impact_cents
     recoverable = int(
-        (Decimal(abs(record.impact_cents)) * fraction).quantize(Decimal(1), rounding=ROUND_HALF_UP)
+        (Decimal(abs(base)) * fraction).quantize(Decimal(1), rounding=ROUND_HALF_UP)
     )
     return ActionabilityAssessment(
         recoverable_cents=recoverable,

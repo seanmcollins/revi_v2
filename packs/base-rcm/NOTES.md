@@ -72,6 +72,7 @@ catalog's derived `ar_age_bucket` dimension):
 | `charge_entry_lag_days` | claim_line | `charge_entry_date - service_date` (days) |
 | `submission_lag_days` | claim | for submitted claims: `submission_date - service_date` (days); NULL otherwise |
 | `late_charge_cents` | claim_line | `billed_amount_cents` when `charge_entry_date > service_date + 3 days`, else 0 |
+| `days_to_filing_deadline` | claim | snapshot only, unsubmitted claims only: `(service_date + the plan's timely_filing_days) - as_of` in days; negative means the deadline has passed. The claim → plan → filing rule join; `filing_runway_bucket` buckets the same quantity |
 
 ## Honesty notes baked into contract descriptions
 
@@ -984,7 +985,7 @@ same base views; the pairs are pinned in
 | `credit_balance_dollars` | 5,221,798 | — | $52,218 | derived `credit_balance_cents` |
 | `first_pass_yield` | 14,318 | 18,410 | 77.77% | certified dimension `first_pass_paid` |
 | `dnfb_dollars` | 963,165,147 | — | $9.63M | filter rename to `discharged_flag` / `billed_flag` |
-| `timely_filing_at_risk_dollars` | 2,242,600,028 | — | $22.43M | filter rename to `billed_flag` |
+| `timely_filing_at_risk_dollars` | 2,242,600,028 | — | $22.43M | filter rename to `billed_flag`; unchanged by the v2 runway cut below |
 
 Three readings deserve a sentence each:
 
@@ -1035,13 +1036,24 @@ posing as a dimension passed every content test and failed only at probe time.
 
 Two `dnfb_dollars` caveats, both about the flag rather than the contract:
 
-- `discharged_flag` is **not as-of aware**. It reads the claim's CURRENT
+- ~~`discharged_flag` is **not as-of aware**. It reads the claim's CURRENT
   discharge date, so a back-dated snapshot query counts claims discharged
   after the as-of. Measured at `as_of 2026-06-01` on snap_003: 5 claims worth
   3,028,611 cents, which reads `dnfb_dollars` there as 654,723,734 where the
-  date form gives 651,695,123. At the watermark — the as-of every shipped
-  probe uses — the two are identical. Stated in the dimension's own catalog
-  note rather than left to be discovered.
+  date form gives 651,695,123.~~
+  **CLOSED 2026-08-09.** The snapshot compiler projects the flag at the
+  probe's as-of — `SELECT * REPLACE (discharge_date <= as_of AS
+  discharged_flag)`, the same treatment `resolved_date` already had — so the
+  back-dated reading is now 651,695,123, the date form, and
+  `test_discharged_flag_is_projected_at_the_probes_as_of` asserts all three
+  numbers. At the watermark nothing moved: no claim in any snapshot carries a
+  discharge date past that snapshot's cutoff, so `dnfb_dollars` is still
+  963,165,147. `status` remains watermark-derived and **cannot** be restated
+  this way (it summarises remits and cash, not a claim column); the size of
+  that gap is now measured in the catalog's own `status` note — at
+  `as_of 2026-06-01` the open-inventory population of 9,907 claims contains
+  3,827 that read PAID, 472 CLOSED and 214 DENIED because that is what they
+  became later.
 - DNFB is the discharged slice of the timely-filing inventory, so
   963,165,147 sits inside 2,242,600,028 by construction; the tests assert the
   inequality so a future edit cannot silently invert them.
@@ -1335,58 +1347,120 @@ mode listed under deferred; that remains the real fix.
   payer rows, `direct`); §6.6 validation is what prunes `credit_standing`. The
   comment names the current cause so nobody re-fixes the contract.
 
-## Named next milestone: the probe-time `filing_rules` join
+## Delivered: the probe-time `filing_rules` join (2026-08-09)
 
-**Status as of 2026-08-09: NOT BUILT.** `timely_filing_at_risk_dollars` sums
-billed charges on claims that are `billed_flag = false AND status = OPEN`.
-That is the whole formula. It applies **no deadline predicate at all** —
-`filing_rules.yaml` exists, is governed, is loaded, and is joined to nothing.
+**Status: BUILT.** The milestone this section used to describe said it would
+be "replaced by the figures" when it landed. Here they are.
 
-This is recorded as a milestone rather than a caveat because the gap is not
-cosmetic. Round-1 review F9 measured it: the metric served **$22.43M** with
-high confidence, and the genuine timely-filing anomaly cards in this
-warehouse total roughly **$62K** — a name promising filing exposure over a
-number measuring inventory, three orders of magnitude apart. A claim with a
-year of runway is counted identically to one a week from its limit.
+**What shipped.** Two pieces of catalog surface, the same architectural shape
+as the `ar_age_days_billed_cents` / `ar_age_bucket` pair they were modelled on:
 
-**What was done tonight (2026-08-09), and what was deliberately not.**
+| artifact | where | what it is |
+| --- | --- | --- |
+| `days_to_filing_deadline` | derived measure, DuckDB compiler, snapshot shape, claim grain | `(service_date + the plan's timely_filing_days) - as_of`, in days, over unsubmitted claims only |
+| `filing_runway_bucket` | certified `derived_bucket` dimension, `warehouse/catalog/dimensions.yaml` | the same quantity as `expired` / `0-30` / `31-60` / `61-90` / `90+`, plus `filed` for a claim whose clock is already closed |
+| `timely_filing_days` | `claim.declared_columns`, `warehouse/catalog/entities.yaml` | the limit half of the join, made catalog-visible instead of an adapter constant |
 
-- The contract's `description` now says what it measures and carries a
-  `Population caveat:` block, so the §6.6 validation pass emits the
-  qualification as a **mandatory warning on every answer that reads the
-  metric**. Publishing it is not optional and not a UI choice.
-- `metric_display.yaml` (new, pack-adjacent, loaded by the API beside
-  `anomaly_actionability.yaml`) gives the id a governed display name —
-  *"Unbilled open inventory (timely-filing watch proxy)"* — for the surfaces
-  that show a metric id without an answer to hang a warning on.
-- Every pack surface that repeated the overclaim was swept: the
-  `timely_filing_watch` playbook description and its `at_risk_by_plan` /
-  `unbilled_aging_profile` scope notes, the `portfolio_filing_risk` probe in
-  `daily_portfolio`, the `filing_runway` presentation recipe (whose
-  days-of-runway annotation is exactly the thing that needs this join), the
-  `timely_filing_risk_claim` conclusion policy, and the `TIMELY_FILING`
-  actionability rationale (whose open/expired split comes from the
-  *detector's* evidence facts — the only place deadline state exists today).
-- **The id, formula, version, grain, bases and scope dimensions are
-  untouched.** The id is a reference anchor across playbooks, the answer key,
-  the web fixtures and the review record; renaming it would break more than
-  it fixed, and re-pointing the formula without the join would invent a
-  number. Prose is excluded from the semantic fingerprint, so none of the
-  above forces a version bump — which is the mechanism working as designed.
+**Where the deadline comes from, and why.** A claim's filing limit is read
+from its PLAN — `dim_plan.timely_filing_days`, pre-joined into `v_claim`, so
+the compiler reads a column and the base view carries the join, exactly as
+§6.1-6.3 require. That is deliberate and not a shortcut: a source adapter
+cannot see pack content, so a deadline computed from `filing_rules.yaml`
+inside the connector would be a layering inversion, and the plan record is in
+any case the *most specific* rule available — the pack's own precedence rule
+is "most specific first, first match wins", and its `plan_configuration` tier
+is documented as mirroring `dim_plan`. The shipped `TIMELY_FILING` detector
+already ages claims the same way (`service_date + timely_filing_days`), so the
+metric and the anomaly cards now agree on what a deadline is instead of
+holding two.
 
-**What the milestone actually requires.** Each claim's `payer`/`plan` matched
-against `filing_rules` (first match wins, most specific first), aged from the
-snapshot's newest data date on the rule's own `date_basis`, producing
-days-to-deadline per claim; then the at-risk population is the claims inside a
-bounded runway, and `requires_confirmation` rules are labeled planning
-defaults in the answer. Concretely that is a derived probe-time measure in the
-registry above (`days_to_filing_deadline`, claim grain) plus a
-`filing_runway_bucket` dimension to cut by — the same shape
-`ar_age_days_billed_cents` and `ar_age_bucket` already have, which is why this
-is a known amount of work rather than an open question.
+The anchor is the **service date**. All seven governed rules in
+`filing_rules.yaml` declare `date_basis: service`; `dim_plan` additionally
+carries a per-plan `timely_filing_basis` and 10 of the 30 plans set it to
+SUBMISSION, which cannot start a filing clock because the submission is the
+event the clock bounds. It is moot either way — the runway is only defined on
+unsubmitted claims, which have no submission date to anchor on.
 
-When it lands: the contract's `Population caveat:` block comes out, the
-`metric_display.yaml` entry shrinks to a display name with no caveat, the
-`filing_runway` recipe gains its runway annotation, `timely_filing_risk_claim`
-tightens to the risk claim it was written for, and this section is replaced by
-the figures. Until then the number keeps saying what it is.
+**Filing-rule coverage, measured.** All 30 plans carry a limit and a basis in
+`dim_plan`, so plan-level coverage is complete and the generator needed no
+extension. The pack's rule ladder is coarser: it resolves 13 of the 30 plans
+to the same limit the plan record carries and the other 17 to a payer-pattern
+default that differs (six payers — Atlas, Meridian, Northbridge, Bluestone,
+Pinnacle, Veritas — have no rule of their own and fall through to
+`commercial_default_90` or `unmatched_default_90`). Only **7 of 30** plans
+match a rule with `requires_confirmation: false` (Federal Medicare Part A/B,
+the four Medicaid MCO plans, State Medicaid HMO); the other 23 are planning
+defaults. That is why the contract's caveat says the deadline is a planning
+default to confirm for most plans, and
+`test_every_plan_resolves_against_the_packs_filing_rules` pins both the
+coverage and the agreement of the `plan_configuration` tier with `dim_plan`.
+Closing the 17-plan gap is a `filing_rules.yaml` edit (add plan-level rules
+for those six payers), not a code change.
+
+**The figures.** At `wm_003`, `as_of 2026-08-02`, `timely_filing_at_risk_dollars`
+cut by `filing_runway_bucket` — every cent of Appendix A's 2,242,600,028:
+
+| runway bucket | claims | billed cents | share |
+| --- | --- | --- | --- |
+| `expired` (deadline gone) | 3,605 | 1,053,056,288 | 47.0% |
+| `0-30` | 344 | 103,821,804 | 4.6% |
+| `31-60` | 381 | 112,830,845 | 5.0% |
+| `61-90` | 880 | 242,754,866 | 10.8% |
+| `90+` | 2,767 | 730,136,225 | 32.6% |
+| **total** | **7,977** | **2,242,600,028** | 100% |
+
+The `filed` bucket is a real cell of the dimension over open inventory (4,500
+claims, 1,292,943,448 cents) and is empty inside this metric by construction,
+so the probe returns it with a NULL numerator rather than a zero.
+
+Read the top row first. Round-1 F9 read the metric as "an upper bound on
+filing exposure"; the decomposition says something worse and more useful —
+**47% of it is already past its deadline**, and only 4.6% is inside 30 days.
+Summed runway over the population is 31,980 claim-days
+(`days_to_filing_deadline`, cross-checked against `dim_plan` in SQL).
+
+**What changed in the pack, and what did not.** `timely_filing_at_risk_dollars`
+is now **v2**: `filing_runway_bucket` joins `scope_dimensions`, which changes
+the semantic fingerprint and therefore the version. The numerator is
+untouched, so the published total is still 2,242,600,028 and every playbook,
+card, fixture and answer-key reference to it still cites the same number.
+Narrowing the population to "inside a bounded runway" was considered and
+rejected: it would drop the expired dollars, which are the 47%, and a metric
+that hides its worst half is not more honest than one that explains itself.
+The `Population caveat:` therefore stays — it is now a population statement
+rather than an admission of a missing capability — and `metric_display.yaml`
+drops the word *proxy* from the display name, because the number is no longer
+standing in for a measurement nobody could make.
+
+Still open, and owned elsewhere: the `filing_runway` presentation recipe's
+runway annotation, the `timely_filing_watch` playbook prose, the
+`portfolio_filing_risk` probe and the `timely_filing_risk_claim` conclusion
+policy can all now say what they were written to say. Those are pack-content
+edits in the playbook/presentation files, not catalog work.
+
+## Delivered: claim-grain procedure attribution (2026-08-09)
+
+`primary_proc_group` is a certified claim-grain dimension: among a claim's own
+lines, the `proc_group` carrying the largest share of billed charges, ties
+broken by group name ascending. Materialized in `v_claim` **and**
+`v_transaction` (a cross-entity ratio needs its group keys bound at both
+entities), guarded by three `--verify` checks per snapshot.
+
+It closes the "Drill scope reduction" gap above: `gross_collection_rate` and
+`underpayment_variance` are claim-grain, `proc_group` binds at `claim_line`
+only, and the four portfolio cards that wanted a procedure cut were blocked on
+exactly that. The rule is stated rather than implied, because it has to be:
+this is an **attribution, not a decomposition**. Each claim lands in exactly
+one bucket, so a claim-grain measure cut by it reconciles to its ungrouped
+total to the cent — at `2026-05-01 .. 2026-08-02` on the service basis,
+`gross_collection_rate` (1,494,532,901 / 5,642,309,382) and
+`underpayment_variance` (14,306,720) both do — but the non-dominant lines of a
+multi-procedure claim are attributed to the dominant group along with the
+rest. ORTHO-SURG reads 1,512,940,795 cents at claim grain against 1,492,972,588
+at line grain in that window; the difference is the attribution, not an error.
+Ask "which procedures cost us" of a line-grain metric cut by `proc_group`; ask
+"which claims" of a claim-grain metric cut by this one.
+
+201 claims carry no lines and read NULL. All 201 are zero-billed and carry no
+transactions, so no money metric moves; `--verify` pins that NULL happens
+exactly when a claim has no lines.

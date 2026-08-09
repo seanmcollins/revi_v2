@@ -14,7 +14,9 @@ import {
   YAxis,
 } from "recharts";
 
+import { DownloadCsvButton } from "@/components/answer/AnswerActions";
 import { Button } from "@/components/ui/button";
+import { chartToCsv } from "@/lib/export";
 import { formatMeasure, formatMeasureTick } from "@/lib/format";
 import { useSessionStore } from "@/lib/store";
 import type { ChartSpec } from "@/lib/types";
@@ -199,22 +201,36 @@ export function InvestigationChart({
         </ResponsiveContainer>
       </div>
 
-      <div className="mt-1.5 flex items-center justify-between">
+      <div className="mt-1.5 flex items-center justify-between gap-2">
         <span className="text-[0.62rem] text-muted-foreground">
           {spec.xLabel ?? (spec.kind !== "line" ? "click a bar to drill in" : "")}
         </span>
-        {spec.truncation && spec.truncation.total > spec.truncation.shown && (
-          <Button
-            variant="ghost"
-            size="xs"
-            className="h-5 gap-1 px-1.5 text-[0.65rem] font-normal text-warning hover:text-warning"
-            onClick={() => emitRefinement({ op: "Expand" }, { turnId })}
-          >
-            showing top {spec.truncation.shown} of {spec.truncation.total}
-            <Maximize2 className="size-2.5" />
-            Expand
-          </Button>
-        )}
+        <span className="flex items-center gap-1">
+          {spec.truncation && spec.truncation.total > spec.truncation.shown && (
+            <Button
+              variant="ghost"
+              size="xs"
+              className="h-5 gap-1 px-1.5 text-[0.65rem] font-normal text-warning hover:text-warning"
+              onClick={() => emitRefinement({ op: "Expand" }, { turnId })}
+            >
+              showing top {spec.truncation.shown} of {spec.truncation.total}
+              <Maximize2 className="size-2.5" />
+              Expand
+            </Button>
+          )}
+          {/* The rows behind the picture, in the unit the picture draws
+              them in. A chart an analyst cannot get the numbers out of is
+              a chart they photograph and retype. Client-side only: these
+              rows are already in this browser. */}
+          <DownloadCsvButton
+            label="CSV"
+            title={`Download the ${spec.rows.length} row${spec.rows.length === 1 ? "" : "s"} behind this chart as CSV, in the unit shown. Nothing leaves this browser.`}
+            filenameKind="chart"
+            filenameTag={spec.title || spec.id}
+            className="h-5 px-1.5 text-[0.62rem]"
+            csv={() => chartToCsv(spec, windowLabel ? { windowLabel } : undefined)}
+          />
+        </span>
       </div>
     </figure>
   );

@@ -53,6 +53,14 @@ export function SettingsPanel() {
   const connection = useSessionStore((s) => s.connection);
   const watermark = useSessionStore((s) => s.watermark);
   const pack = useSessionStore((s) => s.pack);
+  const sessionLive = useSessionStore((s) => s.sessionLive);
+  // Is there a session for the watermark and pack below to belong to? In
+  // api mode a session is minted by the first turn and by nothing else, so
+  // on a cold start and across "New chat" there is a real interval with
+  // none — and this panel's whole heading promises what is "actually
+  // running". Mock mode is exempt: its seed constants ARE its watermark
+  // and pack. Mirrors `pinned` in app/page.tsx.
+  const pinned = connection.mode !== "api" || sessionLive;
 
   // Opening through the store already asks for the bounds; a panel opened
   // any other way (deep link, test) still gets exactly one read.
@@ -151,19 +159,41 @@ export function SettingsPanel() {
                 />
                 <Fact label="Stores" value={connection.storeMode ?? "unknown"} />
                 <Fact label="Auth" value={connection.authMode ?? "unknown"} />
+                {/* The SESSION's pin, and a session is minted by the first
+                    turn rather than by opening the app or clicking "New
+                    chat". Until one exists this said the store's seed
+                    constant — a specific load time and date, under a label
+                    reading "what this deployment is actually running".
+                    "Newest load" below is a DEPLOYMENT fact and is read
+                    from health/capabilities, so it stands either way. */}
                 <Fact
                   label="Data as of"
-                  value={`${watermark.loadedAt} · through ${watermark.newestDataDate}`}
+                  value={
+                    pinned
+                      ? `${watermark.loadedAt} · through ${watermark.newestDataDate}`
+                      : "not pinned until your first question"
+                  }
                 />
                 <Fact
                   label="Newest load"
                   value={
                     capabilities?.newestWatermarkId ||
                     connection.newestWatermarkId ||
-                    watermark.id
+                    (pinned ? watermark.id : "unknown")
                   }
                 />
-                <Fact label="Definitions" value={`${pack.packId}@${pack.version}`} />
+                <Fact
+                  label="Definitions"
+                  value={
+                    pinned
+                      ? `${pack.packId}@${pack.version}`
+                      : capabilities
+                        ? // The DEPLOYMENT's active pack, which is a fact
+                          // even before a session pins one.
+                          `${capabilities.packId}@${capabilities.packVersion}`
+                        : "not pinned until your first question"
+                  }
+                />
               </dl>
               {bounds && !bounds.modelTierEffective && (
                 <p className="text-[0.65rem] leading-snug text-muted-foreground">

@@ -254,3 +254,231 @@ class TestDroppedGrain:
 @pytest.mark.parametrize("mode", list(RangeMode))
 def test_every_range_mode_has_an_anchor(mode: RangeMode) -> None:
     assert window_anchor(WATERMARK, mode) >= WATERMARK.newest_data_date
+
+
+# ---------------------------------------------------------------------------
+# round 3: named periods, coverage, and the time axis
+
+
+async def _interpret_outcome(
+    pack_port: PackPort, catalog: CatalogSnapshot, **overrides: Any
+) -> Any:
+    service = InterpretQuestionService(_FixedLlm(_response(**overrides)), pack_port, catalog)
+    return await service.interpret("q", session=SESSION, turn_id="t1")
+
+
+class TestAnchoredWindows:
+    """Round-3 FN-3: calendar vocabulary was unmappable.
+
+    "June 2026", "Q2 2026", "2025" — the window schema was relative-only, so
+    a named period either clarified or was silently answered over the last
+    full month, while the typed path executed absolute windows perfectly.
+    """
+
+    async def test_a_named_month_resolves_to_that_month(
+        self, pack_port: PackSnapshotPort, catalog: CatalogSnapshot
+    ) -> None:
+        interpreted = await _interpret(
+            pack_port,
+            catalog,
+            metric_ids=["denial_rate"],
+            window={"unit": "month", "year": 2026, "index": 6},
+        )
+        window = interpreted.spec.context.window.range
+        assert (window.start, window.end) == (date(2026, 6, 1), date(2026, 6, 30))
+        assert interpreted.window_explicit is True
+        # a period the analyst NAMED is never reported as one nobody named
+        assert not [n for n in interpreted.notes if n.startswith("window_assumed")]
+
+    async def test_a_named_quarter_compares_against_the_quarter_before_it(
+        self, pack_port: PackSnapshotPort, catalog: CatalogSnapshot
+    ) -> None:
+        """"Q2 2026 vs Q1" — the prior period of a calendar quarter is the
+        calendar quarter before it, not the 91 days before it."""
+        interpreted = await _interpret(
+            pack_port,
+            catalog,
+            metric_ids=["denial_rate"],
+            window={"unit": "quarter", "year": 2026, "index": 2},
+            comparison="prior_period",
+        )
+        comparison = interpreted.spec.context.comparison
+        assert comparison is not None
+        assert (comparison.window.range.start, comparison.window.range.end) == (
+            date(2026, 1, 1),
+            date(2026, 3, 31),
+        )
+
+    async def test_a_named_year_resolves_to_the_calendar_year(
+        self, pack_port: PackSnapshotPort, catalog: CatalogSnapshot
+    ) -> None:
+        interpreted = await _interpret(
+            pack_port,
+            catalog,
+            metric_ids=["denial_rate"],
+            window={"unit": "year", "year": 2025},
+        )
+        window = interpreted.spec.context.window.range
+        assert (window.start, window.end) == (date(2025, 1, 1), date(2025, 12, 31))
+
+    async def test_explicit_dates_are_expressible_from_the_chat_box(
+        self, pack_port: PackSnapshotPort, catalog: CatalogSnapshot
+    ) -> None:
+        """A card publishes an absolute ``drill_spec.window`` the typed path
+        runs; until now that window could not be restated in words, so a
+        reviewer could not re-run a headline by hand."""
+        interpreted = await _interpret(
+            pack_port,
+            catalog,
+            metric_ids=["denial_rate"],
+            window={"start": "2026-01-01", "end": "2026-06-30"},
+        )
+        window = interpreted.spec.context.window.range
+        assert (window.start, window.end) == (date(2026, 1, 1), date(2026, 6, 30))
+
+    async def test_relative_windows_are_unchanged(
+        self, pack_port: PackSnapshotPort, catalog: CatalogSnapshot
+    ) -> None:
+        interpreted = await _interpret(
+            pack_port,
+            catalog,
+            metric_ids=["denial_rate"],
+            window={"quantity": "6", "unit": "month", "mode": "full_periods"},
+        )
+        window = interpreted.spec.context.window.range
+        assert (window.start, window.end) == (date(2026, 2, 1), date(2026, 7, 31))
+
+
+class TestNamedPeriodsOutsideTheData:
+    """Round-3 FN-11: WINDOW_ASSUMED claimed "the question named no period"
+    under a bubble containing the words "in January 2019"."""
+
+    async def test_a_period_after_the_data_clarifies_and_names_both(
+        self, pack_port: PackSnapshotPort, catalog: CatalogSnapshot
+    ) -> None:
+        outcome = await _interpret_outcome(
+            pack_port,
+            catalog,
+            metric_ids=["denial_rate"],
+            window={"unit": "month", "year": 2027, "index": 3},
+        )
+        assert outcome.investigation is None
+        clarification = outcome.clarification
+        assert clarification is not None
+        assert "March 2027" in clarification.question
+        assert "2026-08-02" in clarification.question
+        assert "WINDOW_OUT_OF_RANGE" in clarification.reason
+        assert clarification.options, "an out-of-range period must offer one that exists"
+        assert any("last full month" in option for option in clarification.options)
+
+    async def test_a_period_before_the_data_is_named_when_the_load_knows_its_floor(
+        self, pack_port: PackSnapshotPort, catalog: CatalogSnapshot
+    ) -> None:
+        from dataclasses import replace as _replace
+
+        bounded = _replace(WATERMARK, oldest_data_date=date(2024, 1, 1))
+        session = _replace(SESSION, epochs=(WatermarkEpoch(index=0, watermark=bounded),))
+        service = InterpretQuestionService(
+            _FixedLlm(
+                _response(
+                    metric_ids=["denial_rate"],
+                    window={"unit": "month", "year": 2019, "index": 1},
+                )
+            ),
+            pack_port,
+            catalog,
+        )
+        outcome = await service.interpret("q", session=session, turn_id="t1")
+        assert outcome.investigation is None
+        assert outcome.clarification is not None
+        assert "January 2019" in outcome.clarification.question
+        assert "this data covers 2024-01-01..2026-08-02" in outcome.clarification.question
+
+    async def test_a_period_that_only_partly_landed_answers_with_the_caveat(
+        self, pack_port: PackSnapshotPort, catalog: CatalogSnapshot
+    ) -> None:
+        """August 2026 exists in the data — for two days of it. That is an
+        answer with a caveat, not a refusal."""
+        interpreted = await _interpret(
+            pack_port,
+            catalog,
+            metric_ids=["denial_rate"],
+            window={"unit": "month", "year": 2026, "index": 8},
+        )
+        note = next(n for n in interpreted.notes if n.startswith("window_out_of_range"))
+        assert "August 2026" in note and "2026-08-02" in note
+
+    async def test_a_period_inside_the_data_says_nothing(
+        self, pack_port: PackSnapshotPort, catalog: CatalogSnapshot
+    ) -> None:
+        interpreted = await _interpret(
+            pack_port,
+            catalog,
+            metric_ids=["denial_rate"],
+            window={"unit": "month", "year": 2026, "index": 6},
+        )
+        assert not [n for n in interpreted.notes if n.startswith("window_out_of_range")]
+
+
+class TestTimeGrain:
+    """Round-3 FN-10: the "by month" guide chip returned one six-month
+    scalar, no chart, and no warning that the grain had been dropped."""
+
+    async def test_by_month_sets_a_monthly_time_bucket(
+        self, pack_port: PackSnapshotPort, catalog: CatalogSnapshot
+    ) -> None:
+        from revi_kernel.refs import TimeBucket
+
+        interpreted = await _interpret(
+            pack_port,
+            catalog,
+            metric_ids=["denial_rate"],
+            window={"quantity": "6", "unit": "month", "mode": "full_periods"},
+            time_grain="month",
+        )
+        assert interpreted.spec.context.grain.time_bucket is TimeBucket.MONTH
+
+    async def test_the_grain_reaches_the_probe(
+        self, pack_port: PackSnapshotPort, catalog: CatalogSnapshot
+    ) -> None:
+        from revi_kernel.refs import TimeBucket
+
+        interpreted = await _interpret(
+            pack_port, catalog, metric_ids=["denial_rate"], time_grain="month"
+        )
+        plan = BuildInvestigationPlanService(pack_port, catalog).build(interpreted.spec)
+        assert all(
+            node.probe.grain.time_bucket is TimeBucket.MONTH for node in plan.nodes
+        )
+
+    async def test_no_time_grain_leaves_the_axis_alone(
+        self, pack_port: PackSnapshotPort, catalog: CatalogSnapshot
+    ) -> None:
+        interpreted = await _interpret(pack_port, catalog, metric_ids=["denial_rate"])
+        assert interpreted.spec.context.grain.time_bucket is None
+
+
+class TestAssertedMovementPlansAComparison:
+    async def test_a_stated_movement_gets_a_baseline_and_says_so(
+        self, pack_port: PackSnapshotPort, catalog: CatalogSnapshot
+    ) -> None:
+        """"Why did denials double in July" names one window. Verifying the
+        movement it asserts needs two, so the second is derived and
+        disclosed rather than assumed silently."""
+        interpreted = await _interpret(
+            pack_port,
+            catalog,
+            metric_ids=["denied_dollars"],
+            dimension_ids=["payer"],
+            window={"unit": "month", "year": 2026, "index": 7},
+            direction="increase",
+            direction_asserted=True,
+        )
+        assert interpreted.spec.direction_asserted is True
+        comparison = interpreted.spec.context.comparison
+        assert comparison is not None
+        assert (comparison.window.range.start, comparison.window.range.end) == (
+            date(2026, 6, 1),
+            date(2026, 6, 30),
+        )
+        assert any(note.startswith("comparison_assumed") for note in interpreted.notes)

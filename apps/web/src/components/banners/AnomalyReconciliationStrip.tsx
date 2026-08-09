@@ -2,6 +2,7 @@
 
 import { Check, GitCompareArrows, HelpCircle } from "lucide-react";
 
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatCents, formatSignedPct } from "@/lib/format";
 import type { AnomalyReconciliation } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -118,6 +119,18 @@ export function AnomalyReconciliationStrip({
   );
 }
 
+/**
+ * One figure and what it is a claim ABOUT.
+ *
+ * The hint used to be a native `title` on a bare `<div>`: no keyboard
+ * path, no touch equivalent, and an unpredictable hover delay — on the
+ * three numbers whose whole purpose is to be compared, where "the
+ * detection system's assertion on its own basis" versus "this platform's
+ * governed re-derivation" IS the difference between them. The LABEL is
+ * the affordance now (a real button, dotted-underlined, in the existing
+ * Radix tooltip), so the explanation is reachable by keyboard and touch
+ * and the number itself stays plain selectable text.
+ */
 function Figure({
   label,
   hint,
@@ -134,9 +147,21 @@ function Figure({
   accent?: string;
 }) {
   return (
-    <div title={hint}>
+    <div>
       <dt className="text-[0.58rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
-        {label}
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              className="focus-ring rounded uppercase tracking-[0.12em] underline decoration-dotted underline-offset-2 hover:text-foreground"
+            >
+              {label}
+            </button>
+          </TooltipTrigger>
+          <TooltipContent side="bottom" className="max-w-72 text-[0.68rem] leading-snug">
+            {hint}
+          </TooltipContent>
+        </Tooltip>
       </dt>
       <dd
         className={cn(

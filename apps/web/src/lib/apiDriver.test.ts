@@ -361,7 +361,7 @@ describe("ApiDriver session bootstrap", () => {
 /* ------------------------------------------------------------------ */
 
 describe("ApiDriver.newSession", () => {
-  it("discards the cached session and eagerly mints a fresh one for the NEXT turn", async () => {
+  it("mints nothing — the session is created by the first turn, not the button", async () => {
     const onSession = vi.fn();
     let sessionCalls = 0;
     const { fetchImpl, calls } = scriptedFetch((call) => {
@@ -380,66 +380,80 @@ describe("ApiDriver.newSession", () => {
     expect(onSession).toHaveBeenLastCalledWith(
       expect.objectContaining({ sessionId: "sess_live_1" }),
     );
+    expect(calls.filter((c) => c.url.endsWith("/v1/sessions"))).toHaveLength(1);
 
-    // newSession() eagerly mints sess_live_2 with no turn in flight.
+    // "New chat" makes NO request. The server mints a session when a turn
+    // arrives and never on its own, so an eager POST here manufactured an
+    // empty, titleless row in the tenant's session list for every click of
+    // a button whose most common outcome is that nobody types anything.
     await driver.newSession();
-    expect(onSession).toHaveBeenLastCalledWith(
-      expect.objectContaining({ sessionId: "sess_live_2" }),
-    );
-    expect(calls.filter((c) => c.url.endsWith("/v1/sessions"))).toHaveLength(2);
+    expect(calls.filter((c) => c.url.endsWith("/v1/sessions"))).toHaveLength(1);
+    // And nothing was adopted — there is no session to adopt yet.
+    expect(onSession).toHaveBeenCalledTimes(1);
 
-    // The NEXT turn reuses the FRESH session, not the abandoned one.
+    // The NEXT turn bootstraps a genuinely fresh session, and the old one
+    // is not silently continued.
     await collectSubmit(driver, { utterance: "q2" });
+    expect(calls.filter((c) => c.url.endsWith("/v1/sessions"))).toHaveLength(2);
     const turnCalls = calls.filter((c) => c.url.includes("/turns"));
     expect(turnCalls[turnCalls.length - 1]?.url).toBe(
       "http://api.test/v1/sessions/sess_live_2/turns",
     );
-    // Still only 2 session POSTs — the second turn did NOT bootstrap again.
-    expect(calls.filter((c) => c.url.endsWith("/v1/sessions"))).toHaveLength(2);
   });
 
-  it("tolerates an unreachable API — the cache stays cleared for lazy retry on the next turn", async () => {
+  /**
+   * `DELETE /v1/sessions/{sid}` — a soft archive. Live: 204 with no body,
+   * idempotent (archiving an archived session succeeds), and a 404 for one
+   * that never existed.
+   */
+  it("archiveSession sends the DELETE and succeeds on a bodyless 204", async () => {
+    const { fetchImpl, calls } = scriptedFetch(() =>
+      // No `json`, so `.json()` resolves undefined — which is precisely
+      // what a 204 does, and why this path must not try to decode a body.
+      fakeResponse({ status: 204, bodyText: "" }),
+    );
+    const driver = makeDriver(fetchImpl);
+
+    await expect(driver.archiveSession("sess_a")).resolves.toBeUndefined();
+    expect(calls[0]).toMatchObject({
+      url: "http://api.test/v1/sessions/sess_a",
+      method: "DELETE",
+    });
+  });
+
+  it("archiveSession propagates the server's own refusal", async () => {
+    const { fetchImpl } = scriptedFetch(() =>
+      fakeResponse({
+        status: 404,
+        json: {
+          code: "REFERENT_NOT_FOUND",
+          message:
+            "I couldn't find what you asked for here. Handles like F2 belong to the answer that introduced them, and session and investigation ids to the tenant that created them.",
+          correlation_id: "unset",
+        },
+      }),
+    );
+    const driver = makeDriver(fetchImpl);
+
+    // The caller puts the row back and shows this sentence; an archive that
+    // silently failed would leave the row gone from the screen and present
+    // on the server.
+    await expect(driver.archiveSession("sess_nope")).rejects.toThrow(/couldn't find/);
+  });
+
+  it("cannot fail, so it never touches the connection state", async () => {
     const onConnectionState = vi.fn();
     const onSession = vi.fn();
-    let sessionAttempt = 0;
-    const fetchImpl = ((input: RequestInfo | URL) => {
-      if (String(input).endsWith("/v1/sessions")) {
-        sessionAttempt += 1;
-        if (sessionAttempt === 1) return Promise.reject(new TypeError("offline"));
-        return Promise.resolve(fakeResponse({ json: SESSION_WIRE }));
-      }
-      return Promise.resolve(fakeResponse({ stream: streamOf(COMPLETE_FRAMES) }));
-    }) as typeof fetch;
+    // A fetch that would reject if anything reached it. Nothing does.
+    const fetchImpl = (() =>
+      Promise.reject(new TypeError("offline"))) as unknown as typeof fetch;
     const driver = makeDriver(fetchImpl, { onConnectionState, onSession });
 
-    // Does not throw — offline is tolerated.
     await expect(driver.newSession()).resolves.toBeUndefined();
-    expect(onConnectionState).toHaveBeenCalledWith("offline", "new session failed");
+    // No request means no unreachable-API branch: the pill must not go
+    // offline because somebody pressed "New chat".
+    expect(onConnectionState).not.toHaveBeenCalled();
     expect(onSession).not.toHaveBeenCalled();
-
-    // The next turn lazily retries from a clean slate and succeeds.
-    const events = await collectSubmit(driver, { utterance: "q" });
-    expect(onSession).toHaveBeenCalledWith(
-      expect.objectContaining({ sessionId: "sess_live_1" }),
-    );
-    expect(events.some((e) => e.type === "error")).toBe(false);
-  });
-
-  it("does not flip offline when the fresh session response merely fails contract validation", async () => {
-    const onConnectionState = vi.fn();
-    const onContractDrift = vi.fn();
-    const broken = structuredClone(SESSION_WIRE) as Record<string, unknown>;
-    delete broken.pack;
-    const { fetchImpl } = scriptedFetch(() => fakeResponse({ json: broken }));
-    const driver = makeDriver(fetchImpl, { onConnectionState, onContractDrift });
-
-    await driver.newSession();
-
-    expect(onContractDrift).toHaveBeenCalledWith(
-      expect.arrayContaining(["pack.pack_id", "pack.version"]),
-      "POST /v1/sessions",
-    );
-    expect(onConnectionState).not.toHaveBeenCalledWith("offline", expect.anything());
   });
 });
 
@@ -876,11 +890,37 @@ describe("GET endpoint fetchers", () => {
     );
   });
 
-  it("fetchPortfolioLatest treats 501 as gracefully unavailable", async () => {
+  // There is no "this deployment serves no worklist" outcome. The route is
+  // unconditional and always answers 200; the client used to swallow a 501
+  // into a graceful absence, which invented a deployment mode the server
+  // does not have. A non-2xx here is an ordinary failure and propagates as
+  // one, so the panel says the read failed instead of describing a
+  // deployment decision nobody made.
+  it("fetchPortfolioLatest propagates a non-2xx rather than inventing an absence", async () => {
     const { fetchImpl } = scriptedFetch(() => fakeResponse({ status: 501, bodyText: "{}" }));
     await expect(
       fetchPortfolioLatest({ baseUrl: "http://api.test", fetchImpl }),
-    ).resolves.toEqual({ kind: "unavailable" });
+    ).rejects.toThrow(/HTTP 501/);
+  });
+
+  // An empty feed is a NORMAL snapshot: 200, `status: "empty"`, no items,
+  // and the feed's own warning. It is a fact about the data load.
+  it("fetchPortfolioLatest reads an empty feed as the snapshot it is", async () => {
+    const { fetchImpl } = scriptedFetch(() =>
+      fakeResponse({
+        json: {
+          status: "empty",
+          items: [],
+          lanes: [],
+          warnings: ["no detected anomalies at this watermark"],
+          watermark_id: "wm_003",
+        },
+      }),
+    );
+    const result = await fetchPortfolioLatest({ baseUrl: "http://api.test", fetchImpl });
+    expect(result.status).toBe("empty");
+    expect(result.items).toEqual([]);
+    expect(result.warnings[0]?.message).toBe("no detected anomalies at this watermark");
   });
 
   it("fetchPortfolioLatest parses a valid snapshot", async () => {
@@ -903,15 +943,12 @@ describe("GET endpoint fetchers", () => {
       }),
     );
     const result = await fetchPortfolioLatest({ baseUrl: "http://api.test", fetchImpl });
-    expect(result.kind).toBe("ok");
-    if (result.kind === "ok") {
-      expect(result.snapshot.items[0]?.referent).toBe("P1");
-      // No drill handle is invented for a card that published neither a
-      // `drill_spec` nor a `drill`: the panel renders a disabled control
-      // rather than a live button over a gesture the server never offered.
-      expect(result.snapshot.items[0]?.drill).toBeUndefined();
-      expect(result.snapshot.items[0]?.drillable).toBe(false);
-    }
+    expect(result.items[0]?.referent).toBe("P1");
+    // No drill handle is invented for a card that published neither a
+    // `drill_spec` nor a `drill`: the panel renders a disabled control
+    // rather than a live button over a gesture the server never offered.
+    expect(result.items[0]?.drill).toBeUndefined();
+    expect(result.items[0]?.drillable).toBe(false);
   });
 
   it("fetchSessionLineage parses the DAG and reports drift on broken nodes", async () => {

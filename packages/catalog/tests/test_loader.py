@@ -22,7 +22,7 @@ def catalog() -> CatalogSnapshot:
 
 def test_loads_all_artifacts(catalog: CatalogSnapshot) -> None:
     assert len(catalog.entities) == 5
-    assert len(catalog.dimensions) == 26
+    assert len(catalog.dimensions) == 28
     assert len(catalog.measures) == 20
     assert len(catalog.date_bases) == 5
     assert len(catalog.join_paths) == 7
@@ -108,6 +108,39 @@ def test_derived_bucket_dimension(catalog: CatalogSnapshot) -> None:
     assert bucket.buckets == ("0-30", "31-60", "61-90", "91-120", "120+")
 
 
+def test_filing_runway_bucket_is_a_certified_derived_bucket(catalog: CatalogSnapshot) -> None:
+    """The second derived bucket, and the one with non-numeric arms.
+
+    `expired` and `filed` are states, not day ranges, and the compiler names
+    both as constants — so the catalog must declare them or the binding
+    refuses. The claim binding is the filing-clock ANCHOR (service date); the
+    limit half of the join is the declared `timely_filing_days` column.
+    """
+    bucket = catalog.dimension("filing_runway_bucket")
+    assert bucket is not None
+    assert bucket.certified
+    assert bucket.kind is DimensionKind.DERIVED_BUCKET
+    assert bucket.buckets == ("expired", "0-30", "31-60", "61-90", "90+", "filed")
+    assert bucket.column_for("claim") == "service_date"
+    assert bucket.column_for("claim_line") is None  # claim grain only
+
+
+def test_primary_proc_group_is_certified_at_claim_grain_only(catalog: CatalogSnapshot) -> None:
+    """Claim-grain procedure attribution, distinct from the line-grain
+    `proc_group` it is derived from — and the two must not collide on a
+    synonym, or every "procedure category" question becomes ambiguous."""
+    primary = catalog.dimension("primary_proc_group")
+    line = catalog.dimension("proc_group")
+    assert primary is not None and line is not None
+    assert primary.certified and primary.kind is DimensionKind.COLUMN
+    assert primary.column_for("claim") == "primary_proc_group"
+    assert primary.column_for("claim_line") is None
+    assert line.column_for("claim") is None
+    assert not set(primary.synonyms) & set(line.synonyms)
+    assert catalog.dimension_for_synonym("procedure category") is line
+    assert catalog.dimension_for_synonym("dominant procedure group") is primary
+
+
 def test_measures_carry_governed_filters(catalog: CatalogSnapshot) -> None:
     payment = catalog.measure("payment_cents")
     assert payment is not None
@@ -147,9 +180,16 @@ def test_declared_columns_carry_the_entitys_explicit_declarations(
     # It stays out of the dimension and date-basis surfaces.
     assert catalog.dimension("charge_entry_date") is None
     assert line.date_basis_column(SERVICE) == "service_date"
-    # Entities that declare none are unaffected.
+    # The claim's own declaration is the same move for the filing-rule join:
+    # `days_to_filing_deadline` and `filing_runway_bucket` read the plan's
+    # `timely_filing_days` off the pre-joined claim view, and nothing else in
+    # the catalog names that column (no window rides on it, nobody groups by
+    # a limit in days).
     claim = catalog.entity_named("claim")
-    assert claim is not None and claim.extra_columns == ()
+    assert claim is not None
+    assert claim.extra_columns == ("timely_filing_days",)
+    assert "timely_filing_days" in catalog.declared_columns("claim")
+    assert catalog.dimension("timely_filing_days") is None
 
 
 def test_declared_columns_must_be_a_list_of_strings(tmp_path: Path) -> None:

@@ -21,6 +21,7 @@ from revi_investigation_contracts.provenance import MetricProvenancePayload
 from revi_investigation_contracts.refinements import (
     AbsoluteWindowModel,
     AddFilterModel,
+    AnchoredWindowModel,
     ClosedModel,
     ComparisonLiteral,
     RefinementOperatorModel,
@@ -140,9 +141,29 @@ class TypedInvestigationSpec(ClosedModel):
     #: Scope clauses, spelled as the same ``add_filter`` operator a chart
     #: click emits — one closed shape for "a typed filter clause".
     filters: list[AddFilterModel] = Field(default_factory=list)
-    window: WindowSpecModel | AbsoluteWindowModel
+    window: WindowSpecModel | AnchoredWindowModel | AbsoluteWindowModel
     basis: str | None = None
     comparison: ComparisonLiteral | None = None
+
+
+class WorklistQuery(ClosedModel):
+    """Ask a turn to carry the ranked anomaly worklist with its answer.
+
+    The typed twin of the governed routing. A turn whose interpretation
+    resolved the pack's worklist playbook or concept gets the worklist
+    attached automatically (see :class:`WorklistPayload`); this is the
+    explicit handle for a surface that already knows — a "what should I
+    work first" chip, a scheduled brief — and it never changes what the
+    turn itself investigates. Purely additive: the turn runs exactly as it
+    would have, and the worklist rides alongside its findings.
+    """
+
+    #: How many cards to publish, capped by the pack's governed maximum.
+    #: ``None`` takes the governed default.
+    limit: int | None = Field(default=None, ge=1)
+    #: Restrict to one lane (``compliance`` | ``value``). ``None`` keeps
+    #: both, in the ranked order the portfolio publishes.
+    lane: str | None = None
 
 
 class TurnRequest(ClosedModel):
@@ -174,6 +195,11 @@ class TurnRequest(ClosedModel):
     re_anchor: bool = False
     idempotency_key: str | None = None
     correlation_id: str | None = None
+    #: Ask this turn to carry the ranked anomaly worklist (see
+    #: :class:`WorklistQuery`). Optional: a turn whose interpretation
+    #: resolves the pack's governed worklist playbook or concept carries it
+    #: without being asked.
+    worklist: WorklistQuery | None = None
     #: Settings for THIS turn only. Same bounds, same refusal; the session
     #: record is not rewritten, so a one-off debug turn or a one-off deeper
     #: sweep does not silently become the session's new normal.
@@ -555,6 +581,9 @@ class TurnAnswer(ClosedModel):
     #: Every benchmark cited by any finding on this turn, deduplicated —
     #: the turn-level view of the same governed content the findings carry.
     benchmarks: list[BenchmarkPayload] = Field(default_factory=list)
+    #: The ranked anomaly worklist, when this turn asked for it or resolved
+    #: the pack's governed worklist routing. See :class:`WorklistPayload`.
+    worklist: WorklistPayload | None = None
     reconciliation: str | None = None
     plan_hash: str | None = None
     watermark_stale: bool = False
@@ -587,6 +616,15 @@ class TurnClarification(ClosedModel):
     question: str
     options: list[str] = Field(default_factory=list)
     reason: str | None = None
+    #: The ranked worklist, when the turn explicitly asked for it
+    #: (``TurnRequest.worklist``). A clarification means the platform could
+    #: not answer the question as asked; it does not mean the worklist the
+    #: caller asked for is unavailable, and withholding it here would make
+    #: an explicit typed request silently conditional on the utterance
+    #: parsing. Never inferred on this outcome: a clarification is raised
+    #: before interpretation resolves a playbook or concept, so there is no
+    #: governed routing to read.
+    worklist: WorklistPayload | None = None
     watermark_stale: bool = False
     usage: UsageSummary = Field(default_factory=UsageSummary)
     #: See :attr:`TurnAnswer.debug`. A clarification is the outcome whose
@@ -628,6 +666,39 @@ class InvestigationResponse(ClosedModel):
     status: str
     question: str | None = None
     plan_hash: str | None = None
+    #: The §7.2 effective context this turn ran under, REBUILT from the
+    #: investigation's own stored spec (round-2 deferred P0).
+    #:
+    #: A re-opened session used to restore dollar figures with no window,
+    #: no scope chips, no cohort and no data date — every fact that says
+    #: what the number counts — while the caveats survived, so a restored
+    #: answer read as caveats attached to nothing. The spec persists all of
+    #: it, so nothing here is inferred: the same canonical builder the live
+    #: turn used (:func:`~revi_investigation_contracts.header.build_header_payload`)
+    #: is run over the stored window, comparison, scope, pins and cohort,
+    #: at the watermark the turn itself ran on rather than whatever the
+    #: session has re-anchored to since.
+    #:
+    #: ``None`` only when the turn stored no analysable spec at all.
+    context_header: ContextHeaderPayload | None = None
+    #: True whenever :attr:`context_header` was rebuilt from the stored
+    #: record rather than emitted by a live turn. Always true on this
+    #: response — a client must be able to label it as restored context
+    #: rather than present it as something the platform just computed.
+    context_header_restored: bool = False
+    #: The watermark this turn was computed at, and the newest business
+    #: date that load held. Published beside the header because "what data
+    #: is this?" is the one question a restored figure cannot answer from
+    #: the header alone, and because the session may have re-anchored since.
+    watermark_id: str = ""
+    newest_data_date: date | None = None
+    #: What restoring this turn could and could not recover, in the
+    #: platform's own words — the composed narrative is not stored anywhere,
+    #: a trace may have been dropped, and §6.6 value corrections are not
+    #: persisted on the spec. Stated rather than left as silence, because a
+    #: restored view whose gaps are invisible is the defect this closes.
+    #: Empty when the record restored complete.
+    restoration_notes: list[str] = Field(default_factory=list)
     findings: list[FindingPayload] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
     #: The classified twin of :attr:`warnings`, exactly as
@@ -697,14 +768,32 @@ class PriorityDecompositionPayload(ClosedModel):
     visible as an intervention rather than hidden inside the result.
     """
 
-    #: |impact| / max|impact| over the ranked population.
+    #: |ranked figure| / max|ranked figure| over the ranked population.
     impact_norm: float = 0.0
     #: ``0.5 ** (age_days / half_life_days)``.
     recency: float = 0.0
-    #: governed recoverable estimate / max|impact| — the same denominator
-    #: as ``impact_norm``, which is why an unrecoverable pile of dollars
-    #: cannot outrank a fixable one.
+    #: governed recoverable estimate / max|ranked figure| — the same
+    #: denominator as ``impact_norm``, which is why an unrecoverable pile of
+    #: dollars cannot outrank a fixable one.
     recoverable_norm: float = 0.0
+    #: WHICH of the card's two figures the terms above were computed from,
+    #: under ``anomaly_priority@3``: ``platform`` when this platform's
+    #: re-derivation DIVERGED from the detector's (the reconciled figure
+    #: ranks, because ranking on a number the payload publicly disputes
+    #: orders the worklist by the disputed side of the platform's own
+    #: disagreement); ``not_comparable`` when the re-derivation measures a
+    #: different kind of quantity (a snapshot balance against a windowed
+    #: flow) and the detector's figure therefore ranked the card, stated;
+    #: ``detector`` when the two agreed or there was no re-derivation to
+    #: use. See :attr:`AnomalyCard.ranked_on`.
+    ranked_on: Literal["detector", "platform", "not_comparable"] = "detector"
+    #: The figure actually used, in cents — never a second opinion about
+    #: which one it was.
+    ranked_impact_cents: int = 0
+    #: ``max|ranked figure|`` over the ranked population: the denominator of
+    #: ``impact_norm`` and ``recoverable_norm``. Published because the two
+    #: norms cannot be checked with a calculator without it.
+    impact_normalizer_cents: int = 0
     impact_term: float = 0.0
     recency_term: float = 0.0
     actionability_term: float = 0.0
@@ -713,7 +802,7 @@ class PriorityDecompositionPayload(ClosedModel):
     weight_sum: float = 1.0
     score_before_floor: float = 0.0
     floor_applied: bool = False
-    #: The floor in force for this build. Under ``anomaly_priority@2`` it
+    #: The floor in force for this build. Since ``anomaly_priority@2`` it
     #: is RELATIVE — the median score of the non-floored population — so a
     #: compliance item lands among ordinary work instead of above the
     #: largest critical finding on the list.
@@ -739,7 +828,41 @@ class PortfolioLanePayload(ClosedModel):
     description: str
     anomaly_ids: list[str] = Field(default_factory=list)
     item_count: int = 0
+    #: Σ|detector figure| over the lane's members — the detection system's
+    #: own assertion, kept as provenance.
     impact_cents: int = 0
+    #: Σ|the figure that RANKED each member| (see
+    #: :attr:`AnomalyCard.ranked_on`). Differs from ``impact_cents`` by
+    #: exactly the cards whose re-derivation diverged, so a header that
+    #: totals the lane on the platform's own basis can do so without
+    #: re-deriving the choice per card.
+    ranked_impact_cents: int = 0
+    #: Σ the governed recoverable estimates of the lane's members, on the
+    #: same figure that ranked each one.
+    recoverable_cents_estimate: int = 0
+
+
+class DrillDimensionRepoint(ClosedModel):
+    """A governed substitution for the detector's CUT, published.
+
+    The detection feed cuts procedures at ``proc_group``, which binds on
+    ``claim_line``. A claim-grain contract has no legal procedure cut at
+    all, so four cards — the largest on the worklist among them — refused
+    with ``GRAIN_INCOMPATIBLE`` rather than opening. The catalog certifies
+    ``primary_proc_group`` (the claim's DOMINANT procedure group) at the
+    claim and transaction grains, and the drill is pointed at that.
+
+    A substitution, not a translation, and the card says so: the detector
+    counted LINES in the group, the drill counts CLAIMS whose largest
+    procedure group is that one. For a single-procedure claim those are the
+    same population; for a multi-procedure claim they are not. That is a
+    legitimate reason for the card's figure and the drill's to differ, and
+    the reconciliation strip states the gap rather than absorbing it.
+    """
+
+    from_dimension: str
+    to_dimension: str
+    rationale: str
 
 
 class AnomalyCard(ClosedModel):
@@ -820,7 +943,42 @@ class AnomalyCard(ClosedModel):
     #: populated, because "the card and the drill disagree" with no
     #: explanation is the defect this field exists to close.
     impact_reconciliation_note: str = ""
+    #: WHICH of the two figures above ranked this card, under
+    #: ``anomaly_priority@3``.
+    #:
+    #: Until ``@2`` the answer was always the detector's, including on the
+    #: cards whose re-derivation the same payload disputes — so the Monday
+    #: worklist was ORDERED by the side of the disagreement the platform
+    #: does not stand behind. A card the platform re-derives 39% higher
+    #: sorted on the lower number; one it re-derives lower sorted on the
+    #: higher. The reconciled figure now ranks a ``diverged`` card, and this
+    #: field says so on every card either way:
+    #:
+    #: * ``platform`` — ``impact_agreement == "diverged"`` and the
+    #:   re-derivation is available, so :attr:`reconciled_impact_cents`
+    #:   ranked it;
+    #: * ``not_comparable`` — both figures exist and measure different
+    #:   kinds of quantity (an as-of balance against a windowed flow), so
+    #:   the DETECTOR's figure ranked it and that is stated rather than
+    #:   presented as agreement;
+    #: * ``detector`` — the two agreed within tolerance, or there was no
+    #:   re-derivation to rank on.
+    #:
+    #: The detector's number is never overwritten: :attr:`impact_cents` is
+    #: its assertion and stays exactly what it was. This decides which
+    #: figure the ORDER and the recoverable estimate are computed from.
+    ranked_on: Literal["detector", "platform", "not_comparable"] = "detector"
+    #: The figure that ranked this card, in cents — the one
+    #: :attr:`ranked_on` names, published so a reader never has to infer it.
+    ranked_impact_cents: int = 0
+    #: Why that figure and not the other, in one sentence.
+    ranked_on_note: str = ""
     age_days: int = 0
+    #: The governed recoverable estimate: a fraction (from the actionability
+    #: rules, over this record's evidence facts) of the figure that ranked
+    #: the card — :attr:`ranked_impact_cents`, NOT always the detector's.
+    #: A card reading "this platform: $151" beside "~$3,750 recoverable"
+    #: was pricing the work off a figure its own payload disputes.
     recoverable_cents_estimate: int = 0
     actionability_label: str = ""
     actionability_rationale: str = ""
@@ -863,6 +1021,12 @@ class AnomalyCard(ClosedModel):
     #: measures the same cell with a contract that can express it.
     drill_repointed_from: str | None = None
     drill_repoint_rationale: str | None = None
+    #: Set when the drill cuts by a different DIMENSION than the detector
+    #: named, because the drilled contract has no legal cut at the
+    #: detector's — see :class:`DrillDimensionRepoint`. Empty on the
+    #: ordinary card, and never silent on the ones that use it: the
+    #: repointed drill measures a related population, not the same rows.
+    drill_dimension_repoints: list[DrillDimensionRepoint] = Field(default_factory=list)
 
 
 class PortfolioResponse(ClosedModel):
@@ -882,7 +1046,7 @@ class PortfolioResponse(ClosedModel):
     #: array stays authoritative and each lane names its members by id.
     lanes: list[PortfolioLanePayload] = Field(default_factory=list)
     #: The compliance floor actually applied in this build, and where it
-    #: came from (``relative_median`` | ``governed_absolute``). Under
+    #: came from (``relative_median`` | ``governed_absolute``). Since
     #: ``anomaly_priority@2`` the floor is the median score of the
     #: non-floored population, so a compliance-mandatory item is lifted to
     #: "as important as the middle of the worklist" rather than to a
@@ -892,6 +1056,79 @@ class PortfolioResponse(ClosedModel):
     warnings: list[str] = Field(default_factory=list)
     #: The classified twin of :attr:`warnings` — see :class:`WarningPayload`.
     warnings_v2: list[WarningPayload] = Field(default_factory=list)
+
+
+class WorklistPayload(ClosedModel):
+    """The ranked anomaly worklist, answered into a conversation.
+
+    The platform computed a prioritised, reconciled worklist and the
+    conversation could not reach it: "what should my denial team work first
+    this week to recover the most cash?" returned a clarification offering
+    four ranking bases, none of which was the 33-card list with its lanes,
+    recoverable estimates and reconciliation state. The portfolio was never
+    mentioned — two products in one shell.
+
+    A turn carries this when it resolved the pack's governed worklist
+    routing (``packs/base-rcm/worklist.yaml`` names the playbook and
+    concept ids that mean "which work should I pick up"), or when the
+    caller asked for it outright with ``TurnRequest.worklist``. No question
+    text is matched anywhere: interpretation maps the utterance onto
+    governed artifacts exactly as it always has, and this reads which of
+    those artifacts it chose.
+
+    :attr:`items` are the SAME :class:`AnomalyCard` objects the portfolio
+    rail renders, from the same build — same ``anomaly_priority`` version,
+    same :class:`PriorityDecompositionPayload`, same ``ranked_on``, same
+    reconciliation state, same recoverable estimates. A chat answer and the
+    rail cannot disagree about the order or the money because there is one
+    computation behind both.
+    """
+
+    #: What routed the worklist onto this turn: ``playbook`` or ``concept``
+    #: (governed content interpretation resolved) or ``typed_query`` (the
+    #: caller asked).
+    matched_on: Literal["playbook", "concept", "typed_query"]
+    #: The governed id that matched, or ``""`` for a typed query.
+    matched_id: str = ""
+    #: What this payload answers, and what it does not, in the platform's
+    #: own words — composed from the build, never by a model.
+    statement: str = ""
+    label: str = ""
+    #: The pack's description of what the worklist is and how it is ordered.
+    description: str = ""
+    formula_version: str = ""
+    watermark_id: str = ""
+    tenant: str = ""
+    #: The top ``limit`` cards of the ranked array, in the portfolio's own
+    #: order. Never re-sorted here.
+    items: list[AnomalyCard] = Field(default_factory=list)
+    #: The lanes the full worklist falls into, with their totals — so the
+    #: answer can say "and 25 more" honestly rather than implying the list
+    #: it shows is the list there is.
+    lanes: list[PortfolioLanePayload] = Field(default_factory=list)
+    #: How many ranked cards exist in total, and how many are published
+    #: here. ``total_items - len(items)`` is exactly what was withheld.
+    total_items: int = 0
+    limit: int = 0
+    #: Σ the governed recoverable estimates over the WHOLE ranked
+    #: population (not just the published page), on the figure that ranked
+    #: each card.
+    total_recoverable_cents_estimate: int = 0
+    #: The portfolio build's own warnings — un-investigable cards,
+    #: divergences, ranking basis — carried verbatim, because a worklist
+    #: read into a conversation must not shed the disclosures the rail
+    #: shows.
+    warnings: list[str] = Field(default_factory=list)
+    warnings_v2: list[WarningPayload] = Field(default_factory=list)
+
+
+# ``WorklistPayload`` is defined after the portfolio shapes it embeds, and
+# the turn outcomes that reference it are defined before them; the rebuild
+# resolves those forward references explicitly rather than leaving pydantic
+# to do it lazily on first use (a FastAPI schema export happens earlier
+# than that).
+TurnAnswer.model_rebuild()
+TurnClarification.model_rebuild()
 
 
 # ---------------------------------------------------------------------------
@@ -972,6 +1209,16 @@ class InvestigationApi(Protocol):
     async def open_session(self, request: OpenSessionRequest) -> SessionResponse: ...
 
     async def list_sessions(self, limit: int = 50) -> SessionListResponse: ...
+
+    async def archive_session(self, session_id: str) -> None:
+        """Dismiss a session from the caller tenant's list.
+
+        A SOFT archive: the session keeps its investigations, traces,
+        frames and cohorts and stays fetchable by id, so a linked
+        conversation does not 404 because the rail was tidied. Idempotent;
+        an unknown session is ``REFERENT_NOT_FOUND``.
+        """
+        ...
 
     async def submit_turn(self, session_id: str, request: TurnRequest) -> TurnResponse: ...
 

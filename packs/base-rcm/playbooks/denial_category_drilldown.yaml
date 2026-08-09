@@ -18,6 +18,17 @@ triggers:
   - coding denials
   - denial root cause
   - break down denials by reason
+  # Ranking phrasings route here too, on purpose. A free-form cut by carc
+  # alone merges CO-50 (a contractual write-off) with PI-50 (a disputable
+  # payer reduction) into one row and sends both to the same worklist; the
+  # probe below keys the group code + CARC pair, which is the unit denial
+  # analytics is defined on (see codes.yaml).
+  - which denial reasons cost us the most
+  - top denial codes
+  - biggest denial reason codes
+  - which carcs cost the most
+  - rank denial reasons by dollars
+  - denial codes by dollars
 params:
   - payer
   - service_line

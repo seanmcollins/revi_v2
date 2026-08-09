@@ -43,6 +43,7 @@ from revi_investigation.domain.context import (
     AnalysisSpec,
     AskedDirection,
     AskedMagnitude,
+    AskedOrder,
     ContextPin,
     InvestigationContext,
     PackVersionRef,
@@ -210,6 +211,9 @@ _ENUMS: tuple[type[Enum], ...] = (
     # rehydrated turn selects rows the same way the live one did
     AskedDirection,
     AskedMagnitude,
+    # …and the order it asked a ranking to arrive in, for the same reason:
+    # a rehydrated turn must narrate "ranks first" the way the live one did
+    AskedOrder,
 )
 
 _DATACLASS_REGISTRY: dict[str, type] = {cls.__name__: cls for cls in _DATACLASSES}

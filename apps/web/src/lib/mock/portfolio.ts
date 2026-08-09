@@ -1,7 +1,18 @@
 /**
- * Pre-materialized portfolio snapshot ("top five things today") — mocked
- * from the answer key's five planted scenarios at snap_003. Ranked by the
- * governed ranking policy (dollar impact within issue class), not by score.
+ * Pre-materialized portfolio snapshot — the shared shape, plus the mock
+ * fixture behind it.
+ *
+ * Two things this docstring used to claim that stopped being true. It
+ * called the worklist "top five things today": live it is 33 cards split
+ * across two lanes, and five is only how many the rail shows before "Show
+ * all" — a number about this panel's collapsing, not about the product.
+ * And it said the ranking was "dollar impact within issue class"
+ * (`dollar_impact@1`), which the fixture below still carries; live cards
+ * publish `anomaly_priority@2`, a weighted score over normalized impact,
+ * recency and a governed recoverable estimate, with a relative compliance
+ * floor. The `PortfolioItem` interface here is the SHARED shape both
+ * sources map into, so a stale sentence at the top of it mis-describes the
+ * live worklist as well as the fixture.
  */
 
 import type { Refinement } from "@/lib/types";
@@ -35,6 +46,63 @@ export interface PriorityDecomposition {
   floorValue: number;
   /** How the compliance floor was chosen ("relative_median"). */
   floorBasis: string;
+  /**
+   * WHICH figure this card's `impact_norm` was computed from, and the two
+   * numbers that turn it back into arithmetic anyone can check:
+   * `impactNorm === rankedImpactCents / impactNormalizerCents`.
+   *
+   * Without the normalizer the decomposition was checkable in every term
+   * but the first: a reader could see `impact_norm: 0.361299` beside
+   * `impact_cents: 17821682` and had no way to get from one to the other.
+   * The normalizer is the largest ranked figure in the population
+   * ($493,266.36 live), and it is the same for every card, which is what
+   * makes the ranking a comparison rather than a list of unrelated scores.
+   */
+  rankedOn?: RankedOn;
+  rankedImpactCents?: number;
+  impactNormalizerCents?: number;
+}
+
+/**
+ * `AnomalyCard.ranked_on` — WHICH of the two published figures ordered
+ * this card. Three states, three different claims:
+ *
+ *   `detector` — the detection system's own `impact_cents` ranked it;
+ *   `platform` — this platform's re-derivation did, because the two
+ *     diverge and the governed contract is the one it stands behind;
+ *   `not_comparable` — the detector's figure ranked it BECAUSE this
+ *     platform's re-derivation is not the same kind of quantity (an as-of
+ *     balance against a windowed flow), so substituting it would change
+ *     the claim rather than correct it.
+ *
+ * The last two are the same outcome reached for opposite reasons, and the
+ * card publishes a written note saying which, so neither is rendered as
+ * the other.
+ */
+export type RankedOn = "detector" | "platform" | "not_comparable";
+
+/**
+ * `AnomalyCard.drill_dimension_repoints` — a governed SUBSTITUTION for the
+ * detector's cut, published with its reasoning.
+ *
+ * Distinct from `drillRepointedFrom`, which is about the MEASURE. This is
+ * about the CUT: the detection feed cuts procedures at `proc_group`, which
+ * binds on `claim_line`, so a claim-grain contract has no legal procedure
+ * cut at all and four cards — the largest on the worklist among them —
+ * refused outright. The catalog certifies `primary_proc_group` (the
+ * claim's dominant procedure group) at the claim grain and the drill is
+ * pointed at that.
+ *
+ * A substitution, not a translation, and the card has to say so: the
+ * detector counted LINES in the group, the drill counts CLAIMS whose
+ * largest procedure group is that one. For a single-procedure claim those
+ * are the same population; for a multi-procedure claim they are not.
+ */
+export interface DrillDimensionRepoint {
+  fromDimension: string;
+  toDimension: string;
+  /** The server's own reasoning, verbatim — never summarized here. */
+  rationale: string;
 }
 
 /**
@@ -89,6 +157,33 @@ export interface PortfolioItem {
   priorityScore?: number;
   complianceFloorApplied?: boolean;
   /**
+   * `AnomalyCard.ranked_on` — WHICH figure the ordering was computed from:
+   * the detector's `impact_cents`, or this platform's re-derivation of the
+   * same cell. Load-bearing because the two disagree on 9 of 33 live cards
+   * (largest gap 100.0%), so a worklist ordered by one of them and read as
+   * if ordered by the other allocates a Monday morning wrongly.
+   *
+   * On the wire now, and live it is not one answer: 19 cards ranked on the
+   * detector, 9 on this platform, 5 `not_comparable`. Still read
+   * defensively — absent means the server has not said, and nothing here
+   * guesses.
+   */
+  rankedOn?: RankedOn;
+  /**
+   * `AnomalyCard.ranked_impact_cents` — the figure that ACTUALLY ordered
+   * the card, which is `impactCents` or `reconciledImpactCents` according
+   * to `rankedOn`. Published separately rather than left to be inferred,
+   * because inferring it is exactly the step a reader gets wrong.
+   */
+  rankedImpactCents?: number;
+  /**
+   * `AnomalyCard.ranked_on_note` — the server's sentence explaining the
+   * choice, per card. On a `not_comparable` card it is the difference
+   * between "we used the detector's number" and "we used the detector's
+   * number because ours measures something else".
+   */
+  rankedOnNote?: string;
+  /**
    * `AnomalyCard.priority` — every term of the governed priority formula,
    * published so the ordering is not a black box: the normalized impact,
    * the recency, the governed recoverable estimate, each term's weighted
@@ -117,8 +212,22 @@ export interface PortfolioItem {
   reconciledImpactCents?: number;
   /** The contract the re-derivation used — not always the card's `metricId`. */
   reconciledImpactMetricId?: string;
-  /** Whether the two agree, diverge, or could not be compared at all. */
-  impactAgreement?: "agreed" | "diverged" | "unavailable";
+  /**
+   * The verdict, in four states that are four different claims:
+   *
+   *   `agreed` — the two figures match within tolerance;
+   *   `diverged` — they differ, and the note says on what basis;
+   *   `not_comparable` — they are different KINDS of measurement (a
+   *     snapshot balance against a windowed total, a ratio against
+   *     money), so the gap is not attributable to either side and the
+   *     card is excluded from the divergence count;
+   *   `unavailable` — this platform could not re-derive the cell at all.
+   *
+   * `not_comparable` is the one a three-state client used to drop: it is
+   * the state the live #1 card is in, and collapsing it into "unavailable"
+   * would report an inability where the platform published a reason.
+   */
+  impactAgreement?: "agreed" | "diverged" | "not_comparable" | "unavailable";
   impactDeltaCents?: number;
   /** Signed fraction (0.099077 = +9.9%). */
   impactDeltaFraction?: number;
@@ -157,6 +266,13 @@ export interface PortfolioItem {
    */
   drillRepointedFrom?: string;
   drillRepointRationale?: string;
+  /**
+   * `AnomalyCard.drill_dimension_repoints` — the same disclosure for the
+   * card's CUT rather than its measure. Live, three cards (ANM-011,
+   * ANM-012, ANM-013) substitute `primary_proc_group` for the detector's
+   * `proc_group`, each carrying the server's written reasoning.
+   */
+  drillDimensionRepoints?: DrillDimensionRepoint[];
   /**
    * The measure the drill ACTUALLY probes — `drill_spec.metric_ids[0]`,
    * not `metric_id`. On a repointed card those two differ and only this

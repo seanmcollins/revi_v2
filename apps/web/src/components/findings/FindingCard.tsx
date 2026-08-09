@@ -2,6 +2,7 @@
 
 import { GradeBadge } from "@/components/answer/GradeBadge";
 import { ReferentChip } from "@/components/answer/ReferentChip";
+import { BenchmarkStrip } from "@/components/findings/BenchmarkStrip";
 import { Button } from "@/components/ui/button";
 import { deltaTone, formatCents, formatSignedCents, formatSignedPct } from "@/lib/format";
 import { useSessionStore } from "@/lib/store";
@@ -106,6 +107,19 @@ export function FindingCard({ finding, turnId }: { finding: Finding; turnId: str
       </div>
 
       <p className="text-[0.72rem] leading-snug text-muted-foreground">{finding.statement}</p>
+
+      {/* The governed external ranges this finding's measure carries. Up
+          to seven per finding reached the wire and were rendered nowhere,
+          so the only path they took to a reader was inside a confident
+          narrative sentence carrying neither the review status nor the
+          cautions the entry ships with. See `BenchmarkStrip`. */}
+      {finding.benchmarks && finding.benchmarks.length > 0 && (
+        <BenchmarkStrip
+          benchmarks={finding.benchmarks}
+          measured={finding.measured}
+          referent={finding.referent.value}
+        />
+      )}
 
       <footer className="mt-auto flex items-center justify-between gap-2 border-t pt-2.5">
         <div className="flex items-center gap-1.5">

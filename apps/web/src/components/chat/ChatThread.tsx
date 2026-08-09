@@ -11,6 +11,7 @@ import type { TurnSubmission } from "@/lib/driver";
 import { describeRefinement } from "@/lib/format";
 import { GUIDE_QUESTIONS } from "@/lib/guideQuestions";
 import { useSessionStore } from "@/lib/store";
+import { scrollIntoViewRespectingMotion } from "@/lib/useReducedMotion";
 
 /** The investigation thread: user turns right-aligned, answers full-width. */
 export function ChatThread() {
@@ -27,7 +28,7 @@ export function ChatThread() {
   useEffect(() => {
     if (streamSignature.length !== lastEventCount.current) {
       lastEventCount.current = streamSignature.length;
-      endRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+      scrollIntoViewRespectingMotion(endRef.current, { block: "end" });
     }
   }, [streamSignature]);
 

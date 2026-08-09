@@ -148,6 +148,33 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/sessions/{session_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Archive Session
+         * @description Dismiss a session from this tenant's list — a SOFT archive.
+         *
+         *     Nothing is deleted. The session keeps its investigations, traces,
+         *     frames and cohorts and stays fetchable by id, so a linked
+         *     conversation does not 404 because somebody tidied the rail; it
+         *     simply stops appearing in `GET /v1/sessions`. Idempotent: archiving
+         *     an archived session succeeds, and archiving one that does not exist
+         *     is a 404 rather than a quiet 204.
+         */
+        delete: operations["archive_session_v1_sessions__session_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions/{session_id}/lineage": {
         parameters: {
             query?: never;
@@ -242,6 +269,33 @@ export interface components {
             values?: (string | number | boolean | null)[];
         };
         /**
+         * AnchoredWindowModel
+         * @description A calendar period the analyst named: June 2026, Q2 2026, 2025.
+         *
+         *     The third window shape, and the one the chat box had no way to say.
+         *     ``WindowSpecModel`` is relative ("the last 6 months") and
+         *     ``AbsoluteWindowModel`` is a pair of dates — so "denial rate for June
+         *     2026" was unmappable, and a portfolio card's published window could not
+         *     be re-run by hand. This shape is neither a guess nor free-form dates:
+         *     the period is *named* and the concrete dates are derived by
+         *     :func:`revi_kernel.scope.resolve_anchored`, so the calendar arithmetic
+         *     stays in one deterministic place instead of being asked of a model.
+         *
+         *     ``index`` is the 1-based period within the year — month 1..12, quarter
+         *     1..4 — and must be omitted for ``unit="year"``.
+         */
+        AnchoredWindowModel: {
+            /** Index */
+            index?: number | null;
+            /**
+             * Unit
+             * @enum {string}
+             */
+            unit: "month" | "quarter" | "year";
+            /** Year */
+            year: number;
+        };
+        /**
          * AnomalyCard
          * @description One detected anomaly, ranked by the governed priority formula.
          *
@@ -306,6 +360,8 @@ export interface components {
             detected_at: string;
             /** Dimensions */
             dimensions?: components["schemas"]["AnomalyDimension"][];
+            /** Drill Dimension Repoints */
+            drill_dimension_repoints?: components["schemas"]["DrillDimensionRepoint"][];
             /** Drill Repoint Rationale */
             drill_repoint_rationale?: string | null;
             /** Drill Repointed From */
@@ -361,6 +417,22 @@ export interface components {
              * @constant
              */
             provenance: "external_detection";
+            /**
+             * Ranked Impact Cents
+             * @default 0
+             */
+            ranked_impact_cents: number;
+            /**
+             * Ranked On
+             * @default detector
+             * @enum {string}
+             */
+            ranked_on: "detector" | "platform" | "not_comparable";
+            /**
+             * Ranked On Note
+             * @default
+             */
+            ranked_on_note: string;
             /** Reconciled Impact Cents */
             reconciled_impact_cents?: number | null;
             /** Reconciled Impact Metric Id */
@@ -912,6 +984,32 @@ export interface components {
             /** Terms */
             terms?: components["schemas"]["TermPayload"][];
         };
+        /**
+         * DrillDimensionRepoint
+         * @description A governed substitution for the detector's CUT, published.
+         *
+         *     The detection feed cuts procedures at ``proc_group``, which binds on
+         *     ``claim_line``. A claim-grain contract has no legal procedure cut at
+         *     all, so four cards — the largest on the worklist among them — refused
+         *     with ``GRAIN_INCOMPATIBLE`` rather than opening. The catalog certifies
+         *     ``primary_proc_group`` (the claim's DOMINANT procedure group) at the
+         *     claim and transaction grains, and the drill is pointed at that.
+         *
+         *     A substitution, not a translation, and the card says so: the detector
+         *     counted LINES in the group, the drill counts CLAIMS whose largest
+         *     procedure group is that one. For a single-procedure claim those are the
+         *     same population; for a multi-procedure claim they are not. That is a
+         *     legitimate reason for the card's figure and the drill's to differ, and
+         *     the reconciliation strip states the gap rather than absorbing it.
+         */
+        DrillDimensionRepoint: {
+            /** From Dimension */
+            from_dimension: string;
+            /** Rationale */
+            rationale: string;
+            /** To Dimension */
+            to_dimension: string;
+        };
         /** DrillIntoModel */
         DrillIntoModel: {
             /**
@@ -1134,6 +1232,12 @@ export interface components {
             /** Chart Specs */
             chart_specs?: components["schemas"]["ChartSpec"][];
             cohort?: components["schemas"]["CohortPayload"] | null;
+            context_header?: components["schemas"]["ContextHeaderPayload"] | null;
+            /**
+             * Context Header Restored
+             * @default false
+             */
+            context_header_restored: boolean;
             /**
              * Created At
              * Format: date-time
@@ -1147,12 +1251,16 @@ export interface components {
             metric?: components["schemas"]["MetricProvenancePayload"] | null;
             /** Metric Display */
             metric_display?: components["schemas"]["MetricDisplayPayload"][];
+            /** Newest Data Date */
+            newest_data_date?: string | null;
             /** Parent Id */
             parent_id?: string | null;
             /** Plan Hash */
             plan_hash?: string | null;
             /** Question */
             question?: string | null;
+            /** Restoration Notes */
+            restoration_notes?: string[];
             /** Session Id */
             session_id: string;
             /** Status */
@@ -1165,6 +1273,11 @@ export interface components {
             warnings?: string[];
             /** Warnings V2 */
             warnings_v2?: components["schemas"]["WarningPayload"][];
+            /**
+             * Watermark Id
+             * @default
+             */
+            watermark_id: string;
         };
         /** LineageEdgePayload */
         LineageEdgePayload: {
@@ -1343,6 +1456,16 @@ export interface components {
             item_count: number;
             /** Label */
             label: string;
+            /**
+             * Ranked Impact Cents
+             * @default 0
+             */
+            ranked_impact_cents: number;
+            /**
+             * Recoverable Cents Estimate
+             * @default 0
+             */
+            recoverable_cents_estimate: number;
         };
         /**
          * PortfolioResponse
@@ -1436,10 +1559,26 @@ export interface components {
              */
             impact_norm: number;
             /**
+             * Impact Normalizer Cents
+             * @default 0
+             */
+            impact_normalizer_cents: number;
+            /**
              * Impact Term
              * @default 0
              */
             impact_term: number;
+            /**
+             * Ranked Impact Cents
+             * @default 0
+             */
+            ranked_impact_cents: number;
+            /**
+             * Ranked On
+             * @default detector
+             * @enum {string}
+             */
+            ranked_on: "detector" | "platform" | "not_comparable";
             /**
              * Recency
              * @default 0
@@ -1674,7 +1813,7 @@ export interface components {
              */
             op: "set_window";
             /** Window */
-            window: components["schemas"]["WindowSpecModel"] | components["schemas"]["AbsoluteWindowModel"];
+            window: components["schemas"]["WindowSpecModel"] | components["schemas"]["AnchoredWindowModel"] | components["schemas"]["AbsoluteWindowModel"];
         };
         /**
          * SettingsBoundsPayload
@@ -1774,6 +1913,7 @@ export interface components {
              * @default false
              */
             watermark_stale: boolean;
+            worklist?: components["schemas"]["WorklistPayload"] | null;
         };
         /** TurnClarification */
         TurnClarification: {
@@ -1799,6 +1939,7 @@ export interface components {
              * @default false
              */
             watermark_stale: boolean;
+            worklist?: components["schemas"]["WorklistPayload"] | null;
         };
         /** TurnError */
         TurnError: {
@@ -1837,6 +1978,7 @@ export interface components {
             spec?: components["schemas"]["TypedInvestigationSpec"] | null;
             /** Utterance */
             utterance?: string | null;
+            worklist?: components["schemas"]["WorklistQuery"] | null;
         };
         /**
          * TurnStreamEvent
@@ -1893,7 +2035,7 @@ export interface components {
             /** Metric Ids */
             metric_ids: string[];
             /** Window */
-            window: components["schemas"]["WindowSpecModel"] | components["schemas"]["AbsoluteWindowModel"];
+            window: components["schemas"]["WindowSpecModel"] | components["schemas"]["AnchoredWindowModel"] | components["schemas"]["AbsoluteWindowModel"];
         };
         /**
          * UsageSummary
@@ -2006,6 +2148,115 @@ export interface components {
              * @enum {string}
              */
             unit: "day" | "week" | "month" | "quarter" | "year";
+        };
+        /**
+         * WorklistPayload
+         * @description The ranked anomaly worklist, answered into a conversation.
+         *
+         *     The platform computed a prioritised, reconciled worklist and the
+         *     conversation could not reach it: "what should my denial team work first
+         *     this week to recover the most cash?" returned a clarification offering
+         *     four ranking bases, none of which was the 33-card list with its lanes,
+         *     recoverable estimates and reconciliation state. The portfolio was never
+         *     mentioned — two products in one shell.
+         *
+         *     A turn carries this when it resolved the pack's governed worklist
+         *     routing (``packs/base-rcm/worklist.yaml`` names the playbook and
+         *     concept ids that mean "which work should I pick up"), or when the
+         *     caller asked for it outright with ``TurnRequest.worklist``. No question
+         *     text is matched anywhere: interpretation maps the utterance onto
+         *     governed artifacts exactly as it always has, and this reads which of
+         *     those artifacts it chose.
+         *
+         *     :attr:`items` are the SAME :class:`AnomalyCard` objects the portfolio
+         *     rail renders, from the same build — same ``anomaly_priority`` version,
+         *     same :class:`PriorityDecompositionPayload`, same ``ranked_on``, same
+         *     reconciliation state, same recoverable estimates. A chat answer and the
+         *     rail cannot disagree about the order or the money because there is one
+         *     computation behind both.
+         */
+        WorklistPayload: {
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /**
+             * Formula Version
+             * @default
+             */
+            formula_version: string;
+            /** Items */
+            items?: components["schemas"]["AnomalyCard"][];
+            /**
+             * Label
+             * @default
+             */
+            label: string;
+            /** Lanes */
+            lanes?: components["schemas"]["PortfolioLanePayload"][];
+            /**
+             * Limit
+             * @default 0
+             */
+            limit: number;
+            /**
+             * Matched Id
+             * @default
+             */
+            matched_id: string;
+            /**
+             * Matched On
+             * @enum {string}
+             */
+            matched_on: "playbook" | "concept" | "typed_query";
+            /**
+             * Statement
+             * @default
+             */
+            statement: string;
+            /**
+             * Tenant
+             * @default
+             */
+            tenant: string;
+            /**
+             * Total Items
+             * @default 0
+             */
+            total_items: number;
+            /**
+             * Total Recoverable Cents Estimate
+             * @default 0
+             */
+            total_recoverable_cents_estimate: number;
+            /** Warnings */
+            warnings?: string[];
+            /** Warnings V2 */
+            warnings_v2?: components["schemas"]["WarningPayload"][];
+            /**
+             * Watermark Id
+             * @default
+             */
+            watermark_id: string;
+        };
+        /**
+         * WorklistQuery
+         * @description Ask a turn to carry the ranked anomaly worklist with its answer.
+         *
+         *     The typed twin of the governed routing. A turn whose interpretation
+         *     resolved the pack's worklist playbook or concept gets the worklist
+         *     attached automatically (see :class:`WorklistPayload`); this is the
+         *     explicit handle for a surface that already knows — a "what should I
+         *     work first" chip, a scheduled brief — and it never changes what the
+         *     turn itself investigates. Purely additive: the turn runs exactly as it
+         *     would have, and the worklist rides alongside its findings.
+         */
+        WorklistQuery: {
+            /** Lane */
+            lane?: string | null;
+            /** Limit */
+            limit?: number | null;
         };
     };
     responses: never;
@@ -2517,6 +2768,89 @@ export interface operations {
                 content: {
                     "application/json": components["schemas"]["SessionResponse"];
                 };
+            };
+            /** @description Stable §12 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, …). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unknown session, investigation, or referent (REFERENT_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description WATERMARK_STALE or CONTEXT_CONFLICT — the pinned context cannot absorb the request without an explicit decision. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description SOURCE_UNAVAILABLE or DATA_LOADING — the analytical source cannot serve this watermark right now. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    archive_session_v1_sessions__session_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                session_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
             };
             /** @description Stable §12 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, …). */
             400: {

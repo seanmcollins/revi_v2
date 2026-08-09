@@ -140,6 +140,33 @@ FAMILIES: list[tuple[str, str, str]] = [
         "detector's dollar figure (a snapshot balance against a windowed flow)",
     ),
     (
+        "PORTFOLIO_RANKED_ON_PLATFORM",
+        "caution",
+        "6 of 33 cards are ranked on this platform's re-derived figure rather than the "
+        "detection system's, because the two diverge (anomaly_priority@3); their "
+        "recoverable estimates follow the same figure",
+    ),
+    (
+        "PORTFOLIO_RANKED_ON_DETECTOR",
+        "info",
+        "5 of 33 cards are ranked on the detection system's figure because this "
+        "platform's re-derivation of them is not a comparable quantity (an as-of balance "
+        "against a windowed flow)",
+    ),
+    (
+        "WORKLIST_ATTACHED",
+        "info",
+        "worklist_attached: this answer also carries the ranked anomaly worklist (8 of 33 "
+        "cards), attached because the governed playbook 'daily_portfolio' routed it.",
+    ),
+    (
+        "WORKLIST_UNAVAILABLE",
+        "caution",
+        "the ranked anomaly worklist was requested for this turn but could not be built "
+        "(the detection feed or its re-derivation failed), so this answer carries the "
+        "findings alone",
+    ),
+    (
         "PROBE_FAMILIES_EMPTY",
         "caution",
         "probe_families_empty: 8 metric famil(ies) on this plan were read and produced no "
@@ -158,6 +185,30 @@ FAMILIES: list[tuple[str, str, str]] = [
         "caution",
         "empty_result: every probe returned zero rows — predicates in play: "
         "payer in [UnitedHealthcare, Aetna]",
+    ),
+    (
+        "PREMISE_FALSE",
+        "caution",
+        "premise_false: denied dollars fell $48,068.30 (-81.5%) over this window — "
+        "from $58,983.54 to $10,915.24 — so the movement the question assumes did "
+        "not happen",
+    ),
+    (
+        "SUPPRESSION_BOUNDED",
+        "caution",
+        "suppression_bounded: 1 cell reports an upper bound rather than an exact "
+        "value: Veritas Comp Fund (denial rate ≤ 9.0% over 111 entities)",
+    ),
+    (
+        "WINDOW_OUT_OF_RANGE",
+        "caution",
+        "window_out_of_range: March 2027 lies outside this data — it ends 2026-08-02",
+    ),
+    (
+        "COMPARISON_ASSUMED",
+        "info",
+        "comparison_assumed: the question asserts a movement but names no comparison "
+        "window, so the prior period of the same length was used",
     ),
     (
         "VALUE_CORRECTED",

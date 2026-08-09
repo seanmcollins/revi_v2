@@ -28,6 +28,7 @@ from revi_api.metric_display import MetricDisplayRules
 from revi_api.metric_provenance import build_metric_provenance
 from revi_api.warning_codes import structured_warnings
 from revi_api.wiring import ApiComponents
+from revi_api.worklist import worklist_warning
 from revi_investigation.application.capability_ports import BenchmarkSpec
 from revi_investigation.application.llm.guard import assert_safe_payload
 from revi_investigation.application.ports import (
@@ -43,6 +44,7 @@ from revi_investigation_contracts.api import (
     BenchmarkPayload,
     ChartSpec,
     CohortPayload,
+    ContextHeaderPayload,
     DebugTracePayload,
     DefinitionalPayload,
     EvidencePayload,
@@ -56,7 +58,10 @@ from revi_investigation_contracts.api import (
     TurnAnswer,
     TurnClarification,
     UsageSummary,
+    WorklistPayload,
 )
+from revi_investigation_contracts.header import build_header_payload
+from revi_kernel.filters import iter_predicates
 from revi_kernel.frame import EvidenceFrame
 from revi_presentation import (
     NARRATIVE_TEMPLATE_ID,
@@ -172,12 +177,145 @@ def finding_payload(
     )
 
 
+#: Prefix of the §6.6 warning that says a filter value was corrected before
+#: the query ran (see :mod:`revi_api.warning_codes`). A restored header is
+#: rebuilt from the stored spec, which keeps the value as the analyst typed
+#: it, so a turn carrying this warning gets a note saying so.
+_VALUE_CORRECTED_PREFIX = "value_corrected:"
+
+
+def restored_context_header(
+    investigation: Investigation,
+    snapshot_metric_ids: frozenset[str] = frozenset(),
+) -> ContextHeaderPayload | None:
+    """The §7.2 header of a STORED turn, rebuilt from its own spec.
+
+    Round-2 deferred P0: a re-opened session restored dollar figures with
+    no window, no scope, no cohort and no data date, while the caveats
+    survived — so the restored view was caveats about a number whose
+    meaning had been dropped. Every one of those facts is on the persisted
+    :class:`~revi_investigation.domain.context.AnalysisSpec`, so nothing
+    here is reconstructed by inference:
+    :func:`~revi_investigation_contracts.header.build_header_payload` — the
+    same canonical builder the live turn used — is run over the stored
+    window, comparison, scope, pins and cohort.
+
+    Two deliberate differences from the live path:
+
+    * the watermark is the **turn's own** (``spec.context.watermark``),
+      not the session's current one: a session that has re-anchored since
+      must not restamp an old answer with a load it never read;
+    * ``corrections`` is empty, because the §6.6 value-resolution map is
+      not persisted. The chips therefore state the values the spec holds;
+      when the turn recorded a correction warning, the response says so in
+      ``restoration_notes`` rather than letting the chip imply it queried
+      the analyst's spelling.
+
+    ``None`` when the turn stored no measures and no scope at all — a
+    minimal record (a clarification, a context-control turn) has no
+    effective context to publish, and inventing one would be worse than
+    the absence.
+    """
+    spec = getattr(investigation, "spec", None)
+    context = getattr(spec, "context", None)
+    if spec is None or context is None:
+        return None
+    as_of = (
+        context.watermark.newest_data_date
+        if spec.measures
+        and all(ref.id in snapshot_metric_ids for ref in spec.measures)
+        else None
+    )
+    return build_header_payload(
+        window=context.window,
+        comparison=context.comparison,
+        predicates=tuple(iter_predicates(context.scope)),
+        pinned_predicates=tuple(pin.predicate for pin in context.pins),
+        cohort=context.cohort,
+        watermark_id=context.watermark.id,
+        as_of=as_of,
+    )
+
+
+def _restoration_notes(
+    investigation: Investigation,
+    trace: TraceRecord | None,
+    header: ContextHeaderPayload | None,
+) -> list[str]:
+    """What restoring this turn recovered, and what it could not.
+
+    Written from facts about the record in hand — never a guess about why
+    something is missing. The narrative note is unconditional because
+    nothing stores composed prose; the others fire only on the evidence
+    that they happened.
+    """
+    notes: list[str] = []
+    if header is not None:
+        notes.append(
+            "Restored context: the window, scope, cohort and watermark below are rebuilt "
+            f"from this turn's stored investigation spec at watermark "
+            f"{header.watermark_id}, not re-computed — the figures are the ones this turn "
+            "published when it ran."
+        )
+    else:
+        notes.append(
+            "This turn stored no analysable context (no measures and no scope), so there "
+            "is no effective-context header to restore for it."
+        )
+    notes.append(
+        "The composed narrative is not stored anywhere — the narrative trace keeps its "
+        "template, redactions and length, not its sentences — so this turn restores "
+        "without prose. Its findings, warnings and charts are its own record."
+    )
+    if any(w.startswith(_VALUE_CORRECTED_PREFIX) for w in investigation.warnings):
+        notes.append(
+            "This turn corrected at least one filter value at validation time (see its "
+            "warnings). The correction map is not persisted with the spec, so the scope "
+            "chips above show the values as stored rather than as queried."
+        )
+    if trace is None:
+        notes.append(
+            "No decision trace was recorded for this turn, so its evidence and "
+            "governed-provenance blocks are absent rather than empty."
+        )
+    return notes
+
+
+#: Reads governed benchmark ranges for a metric id — the pack port's own
+#: method, taken structurally so this module does not import the adapter.
+BenchmarksForMetric = Callable[[str], Sequence[BenchmarkSpec]]
+
+
+def _restored_benchmarks(
+    investigation: Investigation, benchmarks_for_metric: BenchmarksForMetric | None
+) -> tuple[BenchmarkSpec, ...]:
+    """The governed ranges this turn's findings cite, re-read from the pack.
+
+    The same harvest the live turn ran (every benchmark for every metric a
+    finding cites, deduplicated by id) — governed content keyed by metric
+    id, so restoring it is a pack lookup rather than a stored copy. Without
+    this a re-opened turn lost the peer context the live answer carried and
+    the narrative had quoted.
+    """
+    if benchmarks_for_metric is None:
+        return ()
+    seen: dict[str, BenchmarkSpec] = {}
+    for finding in investigation.findings:
+        for ref in finding.metric_refs:
+            for benchmark in benchmarks_for_metric(ref.id):
+                seen.setdefault(benchmark.id, benchmark)
+    return tuple(seen.values())
+
+
 def investigation_response(
     investigation: Investigation,
     trace: TraceRecord | None = None,
     chart_specs: Sequence[ChartSpec] = (),
     cohort: CohortPayload | None = None,
     metric_display: MetricDisplayRules | None = None,
+    snapshot_metric_ids: frozenset[str] = frozenset(),
+    benchmarks_for_metric: BenchmarksForMetric | None = None,
+    pack_version: str | None = None,
 ) -> InvestigationResponse:
     """A stored investigation on the wire.
 
@@ -199,7 +337,33 @@ def investigation_response(
     The governed-provenance block rides on the same ``trace``, for the
     same reason: a restored turn that lost its badge would read as an
     ungoverned answer.
+
+    The §7.2 context header is rebuilt here from the stored spec (see
+    :func:`restored_context_header`) and marked as restored, together with
+    the turn's own watermark and data date — the facts that say what the
+    restored figures count.
     """
+    header = restored_context_header(investigation, snapshot_metric_ids)
+    watermark = getattr(getattr(investigation.spec, "context", None), "watermark", None)
+    benchmarks = _restored_benchmarks(investigation, benchmarks_for_metric)
+    notes = _restoration_notes(investigation, trace, header)
+    stored_pack = getattr(getattr(investigation.spec, "context", None), "pack_version", None)
+    if (
+        benchmarks
+        and pack_version is not None
+        and stored_pack is not None
+        and stored_pack.version != pack_version
+    ):
+        # Governed content moves; the turn does not. A restored range read
+        # from a later pack is still governed and still sourced, but it is
+        # not necessarily the one this turn was answered beside, and saying
+        # so costs one sentence.
+        notes.append(
+            f"The benchmark ranges below were re-read from pack version {pack_version}; "
+            f"this turn ran on {stored_pack.version}. Governed ranges are keyed by "
+            "metric id rather than stored with the turn, so they are the pack's "
+            "current figures, not a snapshot of what was shown at the time."
+        )
     return InvestigationResponse(
         investigation_id=investigation.id,
         session_id=investigation.session_id,
@@ -209,8 +373,19 @@ def investigation_response(
         status=investigation.status.value,
         question=investigation.question,
         plan_hash=investigation.plan_hash,
+        context_header=header,
+        # Never defaulted to False beside a populated header: a client that
+        # cannot tell restored context from live context will present one
+        # as the other.
+        context_header_restored=header is not None,
+        watermark_id=watermark.id if watermark is not None else "",
+        newest_data_date=watermark.newest_data_date if watermark is not None else None,
+        restoration_notes=notes,
+        # Governed peer ranges, restored with the finding that cited them —
+        # ``finding_payload`` keeps only the ones whose metric the finding
+        # actually names, exactly as on the live turn.
         findings=[
-            finding_payload(f, (), metric_display) for f in investigation.findings
+            finding_payload(f, benchmarks, metric_display) for f in investigation.findings
         ],
         warnings=list(investigation.warnings),
         warnings_v2=structured_warnings(investigation.warnings),
@@ -582,10 +757,23 @@ async def assemble_turn_response(
     *,
     on_event: OnEvent | None = None,
     anomaly_reconciliation: AnomalyReconciliationPayload | None = None,
+    worklist: WorklistPayload | None = None,
+    trace: TraceRecord | None = None,
 ) -> TurnAnswer | TurnClarification:
     """Map an engine outcome to the wire shape, emitting presentation
-    events along the way (see module docstring for the ordering)."""
-    trace = await components.traces.get(outcome.trace_id)
+    events along the way (see module docstring for the ordering).
+
+    ``worklist`` is the ranked anomaly worklist this turn routed to
+    (:mod:`revi_api.worklist`), when it routed to one. It rides on the
+    response and is disclosed in the turn's own warnings, so a reader is
+    never shown a ranked card list without being told it came from the
+    detection feed rather than from this turn's probes.
+
+    ``trace`` is the turn's recorded decision trace when the caller has
+    already read it (the worklist routing needs its plan context), so the
+    same row is not fetched twice per turn."""
+    if trace is None:
+        trace = await components.traces.get(outcome.trace_id)
     usage = _usage_from_trace(trace)
     debug = _debug_payload(outcome, trace)
     # Published on every answer, from the same record the debug view
@@ -609,6 +797,10 @@ async def assemble_turn_response(
             question=outcome.clarification.question,
             options=list(outcome.clarification.options),
             reason=outcome.clarification.reason,
+            # Only ever an explicitly requested one here: the platform
+            # could not answer the question, which is not a reason to
+            # withhold the list the caller asked for by name.
+            worklist=worklist,
             watermark_stale=outcome.watermark_stale,
             usage=usage,
             debug=debug,
@@ -647,6 +839,12 @@ async def assemble_turn_response(
             await on_event("chart_spec", spec.model_dump(mode="json"))
 
     warnings = list(outcome.warnings)
+    if worklist is not None:
+        # Disclosed as an ordinary warning, before the narrative is
+        # composed: the prose is written against this turn's findings, and
+        # a reader must be told that the ranked cards beside them are the
+        # detection feed's work rather than this answer's evidence.
+        warnings.append(worklist_warning(worklist))
     if outcome.emptiness is not None:
         # An empty result is a first-class fact, not a blank card: say which
         # kind of nothing this was and, for an empty population, which
@@ -744,6 +942,7 @@ async def assemble_turn_response(
             for e in outcome.referents
         ],
         benchmarks=[benchmark_payload(b) for b in outcome.benchmarks],
+        worklist=worklist,
         reconciliation=outcome.reconciliation,
         plan_hash=outcome.investigation.plan_hash,
         watermark_stale=outcome.watermark_stale,

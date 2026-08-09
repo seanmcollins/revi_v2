@@ -412,6 +412,32 @@ concepts:
       - denial wq
       - etm task
     related: [claim_hold, denial, unworked_denials]
+  - id: work_prioritization
+    name: Work Prioritization
+    description: Deciding which open revenue-cycle work to pick up first.
+    definition: >-
+      Work prioritization is the decision of what a follow-up, denial or
+      appeals team should work NEXT, given more open work than capacity.
+      The governed answer is not "the largest number" — it is dollars
+      weighted by whether they can actually be recovered, how fresh the
+      problem is, and whether the category must be worked regardless of
+      size (credit balances and other compliance-mandatory work). Distinct
+      from a workqueue, which is where routed work sits in the EHR: this is
+      the ordering question, not the container. In Revi it resolves to the
+      ranked anomaly worklist — detected cards ordered by the versioned
+      anomaly_priority formula, each publishing its own arithmetic, its
+      recoverable estimate, and whether this platform's own re-derivation
+      agrees with the figure the detector reported.
+    aliases:
+      - work prioritization
+      - what to work first
+      - what to work next
+      - work the list
+      - priority order
+      - recovery priorities
+      - denial triage
+      - collection triage
+    related: [workqueue, unworked_denials, denial, accounts_receivable]
   - id: rebill
     name: Rebill (Corrected Claim)
     description: Resubmission of a corrected claim after a rejection or denial.

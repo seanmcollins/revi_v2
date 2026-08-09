@@ -36,10 +36,24 @@ FULL_PERIODS (last N completed calendar periods before the anchor's period):
 TO_DATE (quantity must be exactly 1): start of the anchor's current period →
 anchor (month-to-date, quarter-to-date, …).
 
+ANCHORED (``AnchoredRange``: a calendar period the analyst *named* — "June
+2026", "Q2 2026", "2025"). Resolution is pure calendar arithmetic and uses
+no anchor at all: the period is where it is regardless of when it is asked
+about. Named periods used to be inexpressible — the vocabulary was
+relative-only, so "denial rate for June 2026" either clarified or was
+silently answered over the last full month — while the typed path executed
+absolute windows perfectly. ``resolve_anchored`` is the one place that
+arithmetic happens, so a named period and a typed one land on the same
+dates.
+
 Comparisons (design §6.1) derive deterministically from the primary window:
 - PRIOR_PERIOD: calendar-unit windows (MONTH/QUARTER/YEAR, FULL_PERIODS or
-  TO_DATE) shift by the window's period count calendar-aware; all other
-  windows shift back by their exact day length.
+  TO_DATE) shift by the window's period count calendar-aware; a window with
+  no relative spec that nonetheless *spans whole calendar months* (a named
+  period, a card's published absolute window) is recognized structurally
+  and shifts the same way — the prior period of June 2026 is May 2026, not
+  the 31 days ending 2026-06-30; all other windows shift back by their
+  exact day length.
 - PRIOR_YEAR: both endpoints shift back one year (Feb 29 clamps to Feb 28);
   FULL_PERIODS month-aligned windows keep month boundaries.
 - CUSTOM: an explicitly provided range.
@@ -122,6 +136,65 @@ class RelativeRange:
             raise ValueError("RelativeRange.quantity must be positive")
         if self.mode is RangeMode.TO_DATE and self.quantity != 1:
             raise ValueError("TO_DATE ranges must have quantity exactly 1")
+
+
+#: Calendar units a named period can be stated in. A week is deliberately
+#: absent: "week 32" is not vocabulary anybody uses out loud, and ISO week
+#: numbering is exactly the kind of ambiguity a governed platform should not
+#: guess at.
+ANCHORED_UNITS: tuple[TimeUnit, ...] = (TimeUnit.MONTH, TimeUnit.QUARTER, TimeUnit.YEAR)
+
+
+@dataclass(frozen=True, slots=True)
+class AnchoredRange:
+    """A calendar period the analyst named: June 2026, Q2 2026, 2025.
+
+    ``index`` is the 1-based period inside the year — month 1..12, quarter
+    1..4 — and is ``None`` for a whole year. Unlike :class:`RelativeRange`
+    this resolves against the calendar rather than an anchor date, so it
+    means the same dates on every load.
+    """
+
+    unit: TimeUnit
+    year: int
+    index: int | None = None
+
+    def __post_init__(self) -> None:
+        if self.unit not in ANCHORED_UNITS:
+            raise ValueError(f"AnchoredRange.unit must be one of {ANCHORED_UNITS}, got {self.unit}")
+        if not (1 <= self.year <= 9999):
+            raise ValueError(f"AnchoredRange.year {self.year} is not a calendar year")
+        if self.unit is TimeUnit.YEAR:
+            if self.index is not None:
+                raise ValueError("a YEAR AnchoredRange takes no index")
+            return
+        if self.index is None:
+            raise ValueError(f"a {self.unit} AnchoredRange requires an index")
+        limit = 12 if self.unit is TimeUnit.MONTH else 4
+        if not (1 <= self.index <= limit):
+            raise ValueError(f"{self.unit} index {self.index} is outside 1..{limit}")
+
+    @property
+    def label(self) -> str:
+        """How the analyst said it, canonicalized ("June 2026", "Q2 2026")."""
+        if self.unit is TimeUnit.YEAR:
+            return str(self.year)
+        if self.unit is TimeUnit.QUARTER:
+            return f"Q{self.index} {self.year}"
+        assert self.index is not None
+        return f"{_calendar.month_name[self.index]} {self.year}"
+
+
+def resolve_anchored(spec: AnchoredRange) -> AbsoluteRange:
+    """A named calendar period → concrete dates. Pure; no anchor involved."""
+    if spec.unit is TimeUnit.YEAR:
+        return AbsoluteRange(date(spec.year, 1, 1), date(spec.year, 12, 31))
+    assert spec.index is not None
+    first_month = spec.index if spec.unit is TimeUnit.MONTH else 3 * (spec.index - 1) + 1
+    months = 1 if spec.unit is TimeUnit.MONTH else 3
+    start = date(spec.year, first_month, 1)
+    end = shift_months(start, months) - timedelta(days=1)
+    return AbsoluteRange(start, end)
 
 
 @dataclass(frozen=True, slots=True)
@@ -271,6 +344,25 @@ def _is_calendar_aligned(window: TimeWindow) -> bool:
     )
 
 
+def whole_month_span(window: AbsoluteRange) -> int | None:
+    """How many whole calendar months this range covers, or ``None``.
+
+    Structural, not declared: a range that starts on the 1st and ends on a
+    month's last day IS a run of calendar months, whoever built it. That is
+    what makes a named period ("June 2026") and a card's published absolute
+    window comparable like-for-like — without it, the prior period of June
+    2026 is "the 30 days before 2026-06-01", which starts on 2026-05-02 and
+    is a different month than the one the reader has in mind.
+    """
+    start, end = window.start, window.end
+    if start.day != 1:
+        return None
+    if end.day != _calendar.monthrange(end.year, end.month)[1]:
+        return None
+    span = (end.year * 12 + end.month) - (start.year * 12 + start.month) + 1
+    return span if span >= 1 else None
+
+
 def derive_comparison(
     window: TimeWindow,
     kind: ComparisonKind,
@@ -302,11 +394,20 @@ def derive_comparison(
                     window.range.start - timedelta(days=1),
                 )
         else:
-            length = window.range.day_length
-            cmp_range = AbsoluteRange(
-                window.range.start - timedelta(days=length),
-                window.range.start - timedelta(days=1),
-            )
+            # A window with no relative spec may still BE a run of calendar
+            # months (a named period, a card's published absolute window).
+            span = whole_month_span(window.range) if window.requested is None else None
+            if span is not None:
+                cmp_range = AbsoluteRange(
+                    shift_months(window.range.start, -span),
+                    window.range.start - timedelta(days=1),
+                )
+            else:
+                length = window.range.day_length
+                cmp_range = AbsoluteRange(
+                    window.range.start - timedelta(days=length),
+                    window.range.start - timedelta(days=1),
+                )
     return Comparison(
         kind=kind,
         window=TimeWindow(basis=window.basis, range=cmp_range, requested=None, calendar=window.calendar),

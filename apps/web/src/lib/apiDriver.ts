@@ -3,14 +3,18 @@
  * seam the mock driver uses. Nothing outside this file (and the thin
  * wiring in page.tsx) knows which driver is live.
  *
- *   POST /v1/sessions                  → session bootstrap (lazy, on first turn);
- *                                        with session_id it RE-JOINS that session
+ *   POST /v1/sessions                  → session bootstrap (lazy, on the first
+ *                                        turn — never on "new chat"); with
+ *                                        session_id it RE-JOINS that session
  *   GET  /v1/sessions                  → this tenant's sessions (the rail's list)
  *   POST /v1/sessions/{sid}/turns      → SSE TurnEvent stream (Accept: text/event-stream)
  *                                        or blocking TurnResponse (Accept: application/json)
  *   GET  /v1/investigations/{iid}      → completed turn (reconnect recovery)
  *   GET  /v1/sessions/{sid}/lineage    → session DAG
- *   GET  /v1/portfolio/latest          → pre-materialized portfolio (may 501)
+ *   GET  /v1/portfolio/latest          → pre-materialized portfolio
+ *                                        (always 200; an empty feed is a
+ *                                        snapshot with status "empty")
+ *   DELETE /v1/sessions/{sid}          → soft-archive a session (204)
  *   GET  /v1/health                    → connection heartbeat
  *
  * Failure discipline: `submit` never rejects. Server-sent errors arrive as
@@ -129,11 +133,18 @@ function envelopeFromText(text: string): { envelope: ErrorEnvelopeData | null; d
   return { envelope: null, drift: result.missing };
 }
 
-async function requestJson(
+/**
+ * Send the request and raise the server's own envelope on a non-2xx.
+ *
+ * Split from `requestJson` because a 204 has no body to decode: calling
+ * `.json()` on one throws, and a route whose whole success signal IS the
+ * empty response would fail on the happy path.
+ */
+async function requestOk(
   url: string,
   init: RequestInit,
   options: RequestOptions,
-): Promise<unknown> {
+): Promise<Response> {
   const doFetch = options.fetchImpl ?? fetch;
   const response = await doFetch(url, {
     ...init,
@@ -150,6 +161,15 @@ async function requestJson(
       envelope?.message ?? `request failed: HTTP ${response.status}`,
     );
   }
+  return response;
+}
+
+async function requestJson(
+  url: string,
+  init: RequestInit,
+  options: RequestOptions,
+): Promise<unknown> {
+  const response = await requestOk(url, init, options);
   return (await response.json()) as unknown;
 }
 
@@ -237,26 +257,28 @@ export async function fetchHealth(options: RequestOptions = {}): Promise<boolean
   return (await fetchHealthDetail(options)).ok;
 }
 
-export type PortfolioFetchResult =
-  | { kind: "ok"; snapshot: PortfolioSnapshotData }
-  | { kind: "unavailable" };
-
-/** `GET /v1/portfolio/latest`; HTTP 501 is a graceful "not built yet". */
+/**
+ * `GET /v1/portfolio/latest`.
+ *
+ * There is no "this deployment serves no worklist" branch here any more.
+ * The route is unconditional and always answers 200; a load with nothing
+ * detected comes back as a NORMAL snapshot carrying `status: "empty"`,
+ * zero items and the feed's own `PORTFOLIO_FEED_EMPTY` warning. The 501
+ * this used to catch was never reachable — it was a client hedging
+ * against a deployment mode the server does not have, and it turned the
+ * one state that IS real (a quiet data load) into a claim about the
+ * deployment. Emptiness is now the snapshot's own word for itself and
+ * the panel renders it as such.
+ */
 export async function fetchPortfolioLatest(
   options: RequestOptions = {},
-): Promise<PortfolioFetchResult> {
+): Promise<PortfolioSnapshotData> {
   const base = options.baseUrl ?? apiBaseUrl();
-  let raw: unknown;
-  try {
-    raw = await requestJson(`${base}/v1/portfolio/latest`, { method: "GET" }, options);
-  } catch (error) {
-    if (error instanceof ApiRequestError && error.status === 501) return { kind: "unavailable" };
-    throw error;
-  }
+  const raw = await requestJson(`${base}/v1/portfolio/latest`, { method: "GET" }, options);
   const { value, drift } = parsePortfolioSnapshot(raw);
   if (drift.length > 0) reportDriftToConsole(drift, "GET /v1/portfolio/latest", options.onDrift);
   if (!value) throw new Error("portfolio response failed contract validation");
-  return { kind: "ok", snapshot: value };
+  return value;
 }
 
 /**
@@ -298,9 +320,17 @@ export async function fetchSessionLineage(
   return value;
 }
 
+/**
+ * `pin` is the SESSION's watermark and pack: `InvestigationResponse`
+ * publishes a watermark id at most, never its load time or the pack
+ * version, so the stored context header is only renderable when the caller
+ * has the session those facts belong to. Without one the parse is the same
+ * minus the header — never a header pinned to invented dates.
+ */
 export async function fetchInvestigation(
   investigationId: string,
   options: RequestOptions = {},
+  pin?: WirePin,
 ): Promise<TurnResponseParse> {
   const base = options.baseUrl ?? apiBaseUrl();
   const raw = await requestJson(
@@ -308,7 +338,7 @@ export async function fetchInvestigation(
     { method: "GET" },
     options,
   );
-  const parse = parseInvestigationResponse(raw);
+  const parse = parseInvestigationResponse(raw, pin);
   if (parse.drift.length > 0) {
     reportDriftToConsole(parse.drift, `GET /v1/investigations/${investigationId}`, options.onDrift);
   }
@@ -379,29 +409,28 @@ export class ApiDriver implements TurnDriver {
   }
 
   /**
-   * "New chat": discard whatever session is cached and eagerly mint a
-   * fresh one (`POST /v1/sessions`, no session_id) — the SAME
-   * onSession/onConnectionState path a lazy bootstrap uses, so the
-   * watermark pill updates the moment this resolves. Never rejects:
-   * unreachable/malformed is tolerated by leaving the cache cleared, so
-   * the NEXT turn's `ensureSession()` retries from scratch instead of
-   * silently continuing the old backend session.
+   * "New chat": discard the cached session. That is the whole operation —
+   * no request is made.
+   *
+   * This used to eagerly `POST /v1/sessions`, which minted a real backend
+   * session for every click of a button whose most common outcome is that
+   * the analyst types nothing. The server has no such compulsion: it mints
+   * a session when a turn arrives and never on its own, so the eager POST
+   * was the client manufacturing rows in the tenant's session list — empty,
+   * titleless, and indistinguishable in the rail from work someone did.
+   * `ensureSession()` already creates one on the first turn, which is the
+   * only moment a session has anything to be about.
+   *
+   * It also cannot fail, so there is nothing here to tolerate: no request
+   * means no unreachable-API branch and no chance of flipping the
+   * connection pill offline over a button press. What the UI must do
+   * instead is be honest about the gap — between this call and the first
+   * turn there is no session, so nothing may show a watermark pinned by
+   * the session that was just abandoned (see the store's `newChat`).
    */
   async newSession(): Promise<void> {
     this.session = null;
     this.sessionPromise = null;
-    try {
-      await this.createSession();
-    } catch (error) {
-      this.session = null;
-      this.sessionPromise = null;
-      if (!(error instanceof ApiRequestError) && !(error instanceof ContractDriftError)) {
-        // The server never answered — genuinely unreachable. A rejected or
-        // drift-y response already reported itself inside createSession()
-        // without implying the connection is down.
-        this.options.onConnectionState?.("offline", "new session failed");
-      }
-    }
   }
 
   /**
@@ -421,6 +450,30 @@ export class ApiDriver implements TurnDriver {
   /** `GET /v1/sessions` — this tenant's sessions, newest activity first. */
   async listSessions(limit = 50): Promise<SessionListData> {
     return fetchSessionList(limit, this.requestOptions());
+  }
+
+  /**
+   * `DELETE /v1/sessions/{sid}` — dismiss a session from the rail.
+   *
+   * A SOFT archive, and the wording matters because the control is next to
+   * a list of somebody's work: nothing is deleted. The session keeps its
+   * investigations, traces, frames and cohorts and stays fetchable by id,
+   * so a link someone pasted into a ticket does not 404 because a rail got
+   * tidied — it simply stops appearing in `GET /v1/sessions`.
+   *
+   * Errors propagate. An archive that silently failed would leave the row
+   * gone from the screen and present on the server, which is the one
+   * outcome a list of someone's work cannot have; the caller puts the row
+   * back and shows the server's own sentence.
+   */
+  async archiveSession(sessionId: string): Promise<void> {
+    // `requestOk`, not `requestJson`: a 204 has no body, and the empty
+    // response IS the success signal.
+    await requestOk(
+      `${this.baseUrl}/v1/sessions/${encodeURIComponent(sessionId)}`,
+      { method: "DELETE" },
+      this.requestOptions(),
+    );
   }
 
   /**
@@ -445,8 +498,12 @@ export class ApiDriver implements TurnDriver {
     });
     const options = this.requestOptions();
     const lineage = await fetchSessionLineage(sessionId, options);
+    // The session's own pin, so a stored `context_header` can be rendered
+    // with the load time and pack version the investigation payload does
+    // not carry. Both come from the re-join above, i.e. from the server.
+    const pin: WirePin = { watermark: session.watermark, pack: session.pack };
     const parses = await Promise.all(
-      lineage.nodes.map((node) => fetchInvestigation(node.investigationId, options)),
+      lineage.nodes.map((node) => fetchInvestigation(node.investigationId, options, pin)),
     );
     const turns: ResumedTurn[] = [];
     lineage.nodes.forEach((node, index) => {
@@ -553,6 +610,24 @@ export class ApiDriver implements TurnDriver {
       ...(submission.anomalyRef !== undefined ? { anomaly_ref: submission.anomalyRef } : {}),
       ...(submission.clarificationResponse !== undefined
         ? { clarification_response: submission.clarificationResponse }
+        : {}),
+      // Ask this turn to carry the ranked worklist. Additive by contract:
+      // the turn investigates exactly what it would have, and the list
+      // rides alongside — so a lane chip re-queries the LIST rather than
+      // refining the answer it sits under. Only the keys actually chosen
+      // are sent; `additionalProperties: false` on WorklistQuery makes a
+      // stray `lane: undefined` a 422 rather than a no-op.
+      ...(submission.worklist !== undefined
+        ? {
+            worklist: {
+              ...(submission.worklist.limit !== undefined
+                ? { limit: submission.worklist.limit }
+                : {}),
+              ...(submission.worklist.lane !== undefined
+                ? { lane: submission.worklist.lane }
+                : {}),
+            },
+          }
         : {}),
       ...(submission.reAnchor ? { re_anchor: true } : {}),
     };
@@ -690,7 +765,7 @@ export class ApiDriver implements TurnDriver {
       try {
         const { investigationId } = state();
         const parse = investigationId
-          ? await fetchInvestigation(investigationId, requestOptions)
+          ? await fetchInvestigation(investigationId, requestOptions, args.pin)
           : await this.replayTurnJson(args.url, args.body, args.pin, requestOptions);
         if (!parse.value) {
           // Core fields missing — retrying will not help; fail visibly.

@@ -19,11 +19,20 @@ class DataWatermark:
     watermark id). ``loaded_at`` is when the load finished; ``newest_data_date``
     is the newest activity date the load can see (used e.g. by days-in-AR,
     which ages to the data's own newest date for reproducibility).
+
+    ``oldest_data_date`` is the other end of the same fact: the earliest
+    activity date this load can see. It is optional because not every
+    adapter publishes it, and ``None`` means "unknown", never "no floor" —
+    a period named *before* the data starts can only be reported as such by
+    a load that knows where it starts. Layers that range-check a named
+    window (interpretation) therefore always enforce the upper bound and
+    enforce the lower one only when it is known.
     """
 
     id: str
     loaded_at: datetime
     newest_data_date: date
+    oldest_data_date: date | None = None
 
     def __post_init__(self) -> None:
         if not self.id:

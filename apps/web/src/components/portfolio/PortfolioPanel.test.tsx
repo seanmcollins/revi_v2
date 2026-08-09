@@ -16,7 +16,7 @@ import userEvent from "@testing-library/user-event";
 import { readFileSync, readdirSync } from "node:fs";
 import path from "node:path";
 
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { PortfolioPanel } from "@/components/portfolio/PortfolioPanel";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -105,6 +105,17 @@ const LIVE_SNAPSHOT = {
   ],
 };
 
+// jsdom does not implement it; Radix tooltips measure their trigger, and
+// the real app shell provides it. Only the tests that OPEN a tooltip need
+// this, but it is cheap and unconditional.
+beforeAll(() => {
+  globalThis.ResizeObserver ??= class {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  } as unknown as typeof ResizeObserver;
+});
+
 function parse(raw: unknown): PortfolioSnapshotData {
   const { value } = parsePortfolioSnapshot(raw);
   if (!value) throw new Error("live snapshot failed contract validation");
@@ -122,11 +133,20 @@ function snapshot(): PortfolioSnapshotData {
  */
 let served: PortfolioSnapshotData | null = null;
 
+/**
+ * What the portfolio read came back as. The endpoint is unconditional and
+ * always answers 200, so there are exactly two outcomes: a snapshot, or a
+ * request that failed. "A data load with nothing in it" is not a third —
+ * it is a snapshot whose own `status` is `"empty"`, which is what
+ * `EMPTY_SNAPSHOT` below serves.
+ */
+let outcome: "ok" | "failed" = "ok";
+
 vi.mock("@/lib/queries", () => ({
-  usePortfolioQuery: () => ({
-    data: { kind: "ok", snapshot: served ?? snapshot() },
-    isPending: false,
-  }),
+  usePortfolioQuery: () =>
+    outcome === "failed"
+      ? { data: undefined, isPending: false }
+      : { data: served ?? snapshot(), isPending: false },
 }));
 
 function renderPanel() {
@@ -146,6 +166,7 @@ beforeEach(() => {
 afterEach(() => {
   cleanup();
   served = null;
+  outcome = "ok";
 });
 
 describe("PortfolioPanel — reading every published field", () => {
@@ -157,7 +178,11 @@ describe("PortfolioPanel — reading every published field", () => {
   it("disables the drill on a card the server refused, and says why", () => {
     renderPanel();
     const refused = screen.getByLabelText(/Cannot drill into Gross collection rate dip/);
-    expect(refused).toBeDisabled();
+    // `aria-disabled`, not `disabled`: a `disabled` button leaves the
+    // focus path, and the refusal sentence rides on this element's
+    // accessible name — unreachable by keyboard is the same as absent.
+    expect(refused).toHaveAttribute("aria-disabled", "true");
+    expect(refused).toHaveTextContent("Can't drill");
     expect(refused.getAttribute("aria-label")).toContain("GRAIN_INCOMPATIBLE");
   });
 
@@ -343,5 +368,291 @@ describe("focus rings do not drift back into components", () => {
       .map(([file]) => path.relative(SRC, file));
 
     expect(offenders).toEqual([]);
+  });
+});
+
+/**
+ * Monday's work has to be able to leave the browser.
+ *
+ * A worklist an analyst cannot get into a spreadsheet is a worklist they
+ * re-key by hand, and a re-keyed row loses exactly the columns this
+ * release spent its time earning: what this platform re-derived for the
+ * same cell, whether the two agree, and how much of the impact is
+ * recoverable. `portfolioToCsv` is unit-tested in `lib/export.test.ts`;
+ * what is pinned here is that the rail offers it and says what travels.
+ */
+describe("PortfolioPanel — the worklist as a spreadsheet", () => {
+  it("offers a CSV of every card, and names the honesty columns in the affordance", () => {
+    renderPanel();
+    const button = screen.getByRole("button", { name: /CSV/ });
+    expect(button).toHaveAttribute("title", expect.stringContaining("re-derivation"));
+    expect(button).toHaveAttribute("title", expect.stringContaining("recoverable"));
+    expect(button).toHaveAttribute("title", expect.stringContaining("Nothing leaves this browser"));
+  });
+
+  it("offers no download when there is nothing to download", () => {
+    outcome = "failed";
+    renderPanel();
+    expect(screen.queryByRole("button", { name: /CSV/ })).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * A data load with nothing in it is a fact about the DATA, not about the
+ * deployment and not about this panel.
+ *
+ * The empty state used to be reached through an HTTP-501 branch and read
+ * "this deployment isn't serving a worklist" — a claim about a server mode
+ * that does not exist. `GET /v1/portfolio/latest` is unconditional and
+ * always answers 200; a watermark at which the detection feed found
+ * nothing comes back as an ordinary snapshot carrying `status: "empty"`
+ * and the feed's own PORTFOLIO_FEED_EMPTY warning. That is the state, and
+ * it says so in the snapshot's own terms — no status code, and no claim
+ * about what this deployment does or does not serve.
+ */
+describe("PortfolioPanel — a data load with nothing detected in it", () => {
+  const EMPTY_SNAPSHOT = {
+    ...LIVE_SNAPSHOT,
+    status: "empty",
+    items: [],
+    lanes: [],
+    warnings: ["no detected anomalies at this watermark"],
+    warnings_v2: [
+      {
+        code: "PORTFOLIO_FEED_EMPTY",
+        severity: "info",
+        message: "no detected anomalies at this watermark",
+        count: 1,
+      },
+    ],
+  };
+
+  it("says the worklist is empty rather than missing, and keeps the feed's own sentence", () => {
+    served = parse(EMPTY_SNAPSHOT);
+    renderPanel();
+    expect(screen.getByText(/the worklist is empty, not missing/)).toBeInTheDocument();
+    // The feed's own warning still renders above the (absent) list — the
+    // empty note does not replace the server's account of why.
+    expect(screen.getByText(/no detected anomalies at this watermark/)).toBeInTheDocument();
+  });
+
+  it("makes no claim about the deployment, and prints no status code", () => {
+    served = parse(EMPTY_SNAPSHOT);
+    renderPanel();
+    const text = document.body.textContent ?? "";
+    expect(text).not.toMatch(/501/);
+    expect(text).not.toMatch(/not implemented/i);
+    expect(text).not.toMatch(/serving a worklist/i);
+    expect(text).not.toMatch(/deployment/i);
+  });
+
+  it("says the read failed when it actually failed — a different fact", () => {
+    outcome = "failed";
+    renderPanel();
+    expect(screen.getByText(/Portfolio unreachable/)).toBeInTheDocument();
+  });
+});
+
+/**
+ * The fourth agreement state.
+ *
+ * `not_comparable` was added when the reconciler learned to refuse a
+ * snapshot-vs-window or ratio-vs-money comparison rather than coerce one.
+ * The client's filter still listed three states, so the live #1 card —
+ * ANM-021, `not_comparable`, with a written explanation of exactly why the
+ * two figures are different KINDS of measurement — published its verdict
+ * to a client that dropped it, and both the rail and the export went
+ * silent about it. It is not a divergence and must not wear that tone or
+ * carry a delta: the payload leaves `impact_delta_fraction` null on
+ * exactly these cards, because a gap between two kinds of measurement is
+ * not a percentage anyone should act on.
+ */
+/**
+ * WHICH figure ordered the card.
+ *
+ * The rail prints two dollar amounts on a diverged card and, until now,
+ * said nothing about which one the RANKING used. Live that is not one
+ * answer across the list: 19 cards ranked on the detector's figure, 9 on
+ * this platform's, and 5 on the detector's precisely BECAUSE this
+ * platform's re-derivation is not a comparable quantity. A worklist whose
+ * ordering basis varies card by card, read as if it were uniform,
+ * allocates a morning wrongly.
+ */
+describe("PortfolioPanel — which figure ranked the card", () => {
+  /** ANM-001, verbatim from the live worklist: diverged, ranked on ours. */
+  const RANKED_ON_PLATFORM = {
+    ...LIVE_SNAPSHOT,
+    items: [
+      {
+        ...LIVE_SNAPSHOT.items[2],
+        reconciled_impact_cents: 17_720_287,
+        impact_agreement: "diverged",
+        impact_delta_fraction: -0.038,
+        ranked_on: "platform",
+        ranked_impact_cents: 17_720_287,
+        ranked_on_note:
+          "ranked on this platform's re-derived figure ($177,202.87): the detection system's figure diverges from it by more than the tolerance, and the governed contract is the one this platform stands behind.",
+      },
+    ],
+  };
+
+  /** ANM-021: not_comparable — the detector's figure ranked it, for a reason. */
+  const RANKED_ON_DETECTOR_NOT_COMPARABLE = {
+    ...LIVE_SNAPSHOT,
+    items: [
+      {
+        ...LIVE_SNAPSHOT.items[0],
+        reconciled_impact_cents: 19_587_392,
+        impact_agreement: "not_comparable",
+        impact_delta_fraction: null,
+        ranked_on: "not_comparable",
+        ranked_impact_cents: 17_821_682,
+        ranked_on_note:
+          "ranked on the detection system's figure ($178,216.82): this platform's re-derivation is not a comparable quantity (an as-of balance against a windowed flow), so substituting it would change the claim rather than correct it.",
+      },
+    ],
+  };
+
+  it("says when the ordering used this platform's figure, and shows that figure", () => {
+    served = parse(RANKED_ON_PLATFORM);
+    renderPanel();
+    const text = document.body.textContent ?? "";
+    expect(text).toContain("ranked on this platform's figure");
+    // The figure that actually ordered it, not the one printed above.
+    expect(text).toContain("$177,203");
+  });
+
+  it("keeps not_comparable apart from a plain detector ranking", () => {
+    served = parse(RANKED_ON_DETECTOR_NOT_COMPARABLE);
+    renderPanel();
+    // The two are the same OUTCOME (the detector's figure ranked it) for
+    // opposite reasons, and collapsing them would lose the reason.
+    expect(screen.getByText(/not comparable/)).toBeInTheDocument();
+  });
+
+  it("stays silent on the ordinary case rather than restating the default", () => {
+    // `detector` with no disagreement in play is what the number printed
+    // directly above already says. A line repeating it on 19 of 33 cards
+    // would bury the 14 that differ.
+    served = parse({
+      ...LIVE_SNAPSHOT,
+      items: [
+        {
+          ...LIVE_SNAPSHOT.items[0],
+          impact_agreement: "agreed",
+          ranked_on: "detector",
+          ranked_impact_cents: 17_821_682,
+        },
+      ],
+    });
+    renderPanel();
+    expect(document.body.textContent ?? "").not.toMatch(/ranked on/);
+  });
+
+  it("says nothing at all when the server published no basis", () => {
+    served = snapshot();
+    renderPanel();
+    expect(document.body.textContent ?? "").not.toMatch(/ranked on/);
+  });
+});
+
+/**
+ * The detector's CUT was substituted, and the substitution changes what
+ * gets counted.
+ *
+ * Live ANM-011/012/013 drill `primary_proc_group` where the detector cut
+ * `proc_group`: the detector counted LINES in the group, the drill counts
+ * CLAIMS whose largest procedure group is that one. Those are different
+ * populations on a multi-procedure claim, which is a legitimate reason for
+ * the card's figure and the drill's to differ — and it belongs on screen
+ * before the click, not in a reconciliation strip afterwards.
+ */
+describe("PortfolioPanel — a card whose cut was repointed", () => {
+  const REPOINTED = {
+    ...LIVE_SNAPSHOT,
+    items: [
+      {
+        ...LIVE_SNAPSHOT.items[0],
+        anomaly_id: "ANM-013",
+        drill_dimension_repoints: [
+          {
+            from_dimension: "proc_group",
+            to_dimension: "primary_proc_group",
+            rationale:
+              "Procedures bind at claim_line, so a claim-grain contract cannot be cut by `proc_group` at all. Read the drill as an attribution of whole claims, not a decomposition of lines: the detector counted lines in this group, and the drill counts claims whose largest procedure group is this one.",
+          },
+        ],
+      },
+    ],
+  };
+
+  it("discloses the substitution on the card", () => {
+    served = parse(REPOINTED);
+    renderPanel();
+    expect(screen.getByText(/Cuts by primary_proc_group, not proc_group/)).toBeInTheDocument();
+  });
+
+  it("carries the server's reasoning verbatim rather than summarizing it", async () => {
+    served = parse(REPOINTED);
+    renderPanel();
+    await userEvent.hover(screen.getByText(/Cuts by primary_proc_group/));
+    expect(
+      await screen.findByText(/the detector counted lines in this group/),
+    ).toBeInTheDocument();
+  });
+
+  it("drops a repoint that arrives without its reasoning", () => {
+    // The rationale IS the disclosure. A bare column swap shown to an
+    // analyst is worse than nothing.
+    served = parse({
+      ...LIVE_SNAPSHOT,
+      items: [
+        {
+          ...LIVE_SNAPSHOT.items[0],
+          drill_dimension_repoints: [
+            { from_dimension: "proc_group", to_dimension: "primary_proc_group", rationale: "" },
+          ],
+        },
+      ],
+    });
+    renderPanel();
+    expect(document.body.textContent ?? "").not.toMatch(/Cuts by/);
+  });
+});
+
+describe("PortfolioPanel — a card the platform re-derived but declines to compare", () => {
+  const NOT_COMPARABLE = {
+    ...LIVE_SNAPSHOT,
+    items: [
+      {
+        ...LIVE_SNAPSHOT.items[0],
+        reconciled_impact_cents: 19_587_392,
+        reconciled_impact_metric_id: "dnfb_dollars",
+        impact_agreement: "not_comparable",
+        impact_delta_cents: 1_765_710,
+        impact_delta_fraction: null,
+        impact_reconciliation_note:
+          "The two are not comparable: the governed contract is a snapshot and applies no start..end window, while the card's figure was computed over one.",
+      },
+    ],
+  };
+
+  it("shows this platform's own figure and says why there is no gap to report", () => {
+    served = parse(NOT_COMPARABLE);
+    renderPanel();
+    const text = document.body.textContent ?? "";
+    // `formatWholeDollars` rounds to the dollar — the detector's figures
+    // are dollar-rounded by construction and printing ".92" on one would
+    // imply a precision the detection never had.
+    expect(text).toContain("this platform: $195,874");
+    expect(text).toContain("measured differently, not a disagreement");
+  });
+
+  it("does not call it a divergence, and prints no percentage", () => {
+    served = parse(NOT_COMPARABLE);
+    renderPanel();
+    const text = document.body.textContent ?? "";
+    expect(text).not.toMatch(/%\)/);
+    expect(text).not.toMatch(/not re-derived here/);
   });
 });

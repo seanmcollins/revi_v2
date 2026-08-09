@@ -36,6 +36,7 @@ from pydantic import BaseModel, ConfigDict, Field
 from revi_investigation_contracts.refinements import (
     AbsoluteWindowModel,
     AddFilterModel,
+    AnchoredWindowModel,
     AnyRefinementOperator,
     ComparisonLiteral,
     DrillIntoModel,
@@ -63,9 +64,11 @@ __all__ = [
     "MAX_CLARIFICATION_OPTIONS",
     "AbsoluteWindowModel",
     "AddFilterModel",
+    "AnchoredWindowModel",
     "AnyRefinementOperator",
     "AskedDirectionLiteral",
     "AskedMagnitudeLiteral",
+    "AskedOrderLiteral",
     "ChartSuggestionResponse",
     "ComparisonLiteral",
     "DrillIntoModel",
@@ -116,6 +119,8 @@ TurnClassLiteral = Literal[
 AskedDirectionLiteral = Literal["increase", "decrease", "worsened", "improved"]
 #: Mirrors :class:`revi_investigation.domain.context.AskedMagnitude` exactly.
 AskedMagnitudeLiteral = Literal["largest", "smallest"]
+#: Mirrors :class:`revi_investigation.domain.context.AskedOrder` exactly.
+AskedOrderLiteral = Literal["best_first", "worst_first"]
 
 
 class _Closed(BaseModel):
@@ -207,7 +212,18 @@ class InterpretationResponse(_Closed):
     dimension_ids: list[str] = Field(default_factory=list)
     concept_ids: list[str] = Field(default_factory=list)
     playbook_id: str | None = None
-    window: WindowSpecModel | None = None
+    #: Three closed window shapes, and the analyst decides which applies:
+    #: a *relative* span ("the last 6 months"), a *named* calendar period
+    #: ("June 2026", "Q2 2026", "2025"), or an explicit pair of dates. The
+    #: named shape is the one the chat box could not previously say — see
+    #: :class:`~revi_investigation_contracts.refinements.AnchoredWindowModel`.
+    window: WindowSpecModel | AnchoredWindowModel | AbsoluteWindowModel | None = None
+    #: The time bucket a "by month/week/day" breakdown asks for. It is a
+    #: *grain*, not a dimension: "denial rate by month for the last 6
+    #: months" used to resolve to one six-month scalar with no series and no
+    #: warning, because nothing in this schema could carry the bucketing
+    #: axis (design §6.1: entity grain and time bucket are orthogonal).
+    time_grain: TimeBucketLiteral | None = None
     basis: str | None = None
     comparison: ComparisonLiteral | None = None
     scope: list[ScopePredicateModel] = Field(default_factory=list)
@@ -217,6 +233,16 @@ class InterpretationResponse(_Closed):
     direction: AskedDirectionLiteral | None = None
     #: The extremity the question phrases over that direction.
     magnitude: AskedMagnitudeLiteral | None = None
+    #: ``true`` when the question states the movement as a FACT it wants
+    #: explained ("why did denials double") rather than asking which cells
+    #: moved that way ("which payers rose most"). A stated movement is a
+    #: premise, and a premise gets verified against the aggregate before
+    #: anything is offered as its cause.
+    direction_asserted: bool = False
+    #: The order a ranking was asked to arrive in ("best to worst" →
+    #: ``best_first``). Closed set; never inferred — an unstated order stays
+    #: ``None`` and the pack's own default applies.
+    order: AskedOrderLiteral | None = None
     clarification: str | None = None
     #: Optional recovery chips beside ``clarification``, each stated in the
     #: governed vocabulary — validated and dropped on failure before

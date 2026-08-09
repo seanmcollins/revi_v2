@@ -26,6 +26,8 @@ import uuid
 from dataclasses import replace
 from typing import Any
 
+from pydantic import TypeAdapter
+
 from revi_api.assembly import (
     NARRATIVE_TRACE_SUFFIX,
     OnEvent,
@@ -52,6 +54,7 @@ from revi_api.rederive import (
 from revi_api.settings_policy import DEBUG_TRACE_ENV
 from revi_api.usage_ledger import bind_ledger, unbind_ledger
 from revi_api.wiring import ApiComponents
+from revi_api.worklist import build_worklist
 from revi_investigation.application.dto_mapping import refinement_to_dto
 from revi_investigation.application.ports import AnomalyRecord, TraceRecord
 from revi_investigation.application.submit_turn import SubmitTurnRequest, TurnOutcome
@@ -74,6 +77,8 @@ from revi_investigation_contracts.api import (
     TurnClarification,
     TurnError,
     TurnRequest,
+    TurnResponse,
+    WorklistPayload,
 )
 from revi_investigation_contracts.settings import SessionSettingsModel
 from revi_kernel.errors import ErrorCode, PolicyDeniedError, ReviError
@@ -82,6 +87,11 @@ from revi_kernel.watermark import DataWatermark
 logger = logging.getLogger("revi.api.service")
 
 TurnResult = TurnAnswer | TurnClarification | TurnError
+
+#: Rebuilds a stored idempotency receipt into its typed outcome. The stored
+#: value is the serialized response, so a replay returns what the first
+#: execution published rather than a second run of the same turn.
+_TURN_RESULT_ADAPTER: TypeAdapter[TurnResult] = TypeAdapter(TurnResponse)
 
 #: Page size for ``GET /v1/sessions`` when the caller names none.
 DEFAULT_SESSION_LIST_LIMIT = 50
@@ -101,6 +111,14 @@ def _cohort_id_of(investigation: Investigation) -> str | None:
     context = getattr(getattr(investigation, "spec", None), "context", None)
     cohort = getattr(context, "cohort", None)
     return getattr(cohort, "id", None)
+
+
+def _playbook_of(trace: TraceRecord | None) -> str | None:
+    """The governed playbook this turn planned from, off its own trace."""
+    if trace is None:
+        return None
+    raw = (trace.payload.get("plan_context") or {}).get("playbook_id")
+    return raw if isinstance(raw, str) else None
 
 
 def _with_warning(outcome: TurnOutcome, warning: str) -> TurnOutcome:
@@ -158,7 +176,6 @@ class ApiService:
 
     def __init__(self, components: ApiComponents) -> None:
         self._components = components
-        self._idempotent: dict[tuple[str, str, str], TurnResult] = {}
 
     @property
     def components(self) -> ApiComponents:
@@ -253,6 +270,20 @@ class ApiService:
             limit=bounded,
         )
 
+    async def archive_session(self, principal: Principal, session_id: str) -> None:
+        """Dismiss a session from the caller tenant's list.
+
+        Soft, and deliberately so: the session keeps its investigations,
+        traces, frames and cohorts, and stays fetchable by id — a
+        conversation somebody linked to does not 404 because the rail was
+        tidied. Tenant-scoped like every other session operation, and
+        idempotent: archiving an archived session is a no-op, and a missing
+        one is a 404 rather than a silent success.
+        """
+        await self._authorized_session(principal, session_id)
+        await self._components.sessions.archive(session_id)
+        logger.info("session %s archived by tenant %s", session_id, principal.tenant)
+
     async def submit_turn(
         self,
         principal: Principal,
@@ -266,11 +297,13 @@ class ApiService:
         if existing is not None:
             self._assert_tenant(principal, existing, resource=f"session {session_id!r}")
         if request.idempotency_key is not None:
-            stored = self._idempotent.get(
-                (principal.tenant, session_id, request.idempotency_key)
+            stored = await self._components.receipts.get(
+                principal.tenant, session_id, request.idempotency_key
             )
             if stored is not None:
-                return stored
+                # The ORIGINAL payload, re-validated into its typed shape —
+                # never a re-execution. See revi_api.session_lifecycle.
+                return _TURN_RESULT_ADAPTER.validate_python(stored)
         default_question = (
             "(typed investigation)" if request.spec is not None else "(typed gesture)"
         )
@@ -303,11 +336,29 @@ class ApiService:
             )
             outcome = await self._components.submit.submit(engine_request)
             outcome, strip = await self._anomaly_reconciliation(request, outcome)
+            # Read once here and handed to the assembler: the worklist
+            # routing reads the plan context off it and the assembler needs
+            # the same row for usage, evidence and provenance.
+            trace = await self._components.traces.get(outcome.trace_id)
+            try:
+                worklist = await self._worklist_for(request, outcome, trace)
+            except Exception:
+                logger.warning("worklist could not be built for this turn", exc_info=True)
+                worklist = None
+                outcome = _with_warning(
+                    outcome,
+                    "the ranked anomaly worklist was requested for this turn but could "
+                    "not be built (the detection feed or its re-derivation failed; the "
+                    "attempt is recorded in the API log), so this answer carries the "
+                    "findings alone",
+                )
             response: TurnResult = await assemble_turn_response(
                 self._components,
                 outcome,
                 on_event=on_event,
                 anomaly_reconciliation=strip,
+                worklist=worklist,
+                trace=trace,
             )
         except ReviError as exc:
             # The engine's own sentence, always, in the log: the plain
@@ -343,7 +394,12 @@ class ApiService:
         finally:
             unbind_ledger(ledger_token)
         if request.idempotency_key is not None:
-            self._idempotent[(principal.tenant, session_id, request.idempotency_key)] = response
+            await self._components.receipts.put(
+                principal.tenant,
+                session_id,
+                request.idempotency_key,
+                response.model_dump(mode="json"),
+            )
         return response
 
     async def _anomaly_reconciliation(
@@ -521,6 +577,14 @@ class ApiService:
                 investigations=self._components.investigations,
             ),
             metric_display=self._components.metric_display,
+            # So the restored header says "as of <date>" for a turn measured
+            # entirely by snapshot contracts, exactly as the live one did.
+            snapshot_metric_ids=self._snapshot_metric_ids(),
+            # Governed peer ranges are keyed by metric id, so a restored
+            # turn can carry the same ones the live answer did instead of
+            # losing the context its narrative quoted.
+            benchmarks_for_metric=self._components.pack_port.benchmarks_for_metric,
+            pack_version=self._components.pack_port.pack_version,
         )
 
     async def _primary_trace(self, investigation_id: str) -> TraceRecord | None:
@@ -575,10 +639,18 @@ class ApiService:
             raise NotFoundError(
                 f"session {session_id!r} does not exist", details={"session_id": session_id}
             )
+        # One pack read for the whole DAG, not one per node.
+        snapshots = self._snapshot_metric_ids()
         return SessionLineageResponse(
             session=_session_response(lineage.session),
             investigations=[
-                investigation_response(inv, metric_display=self._components.metric_display)
+                investigation_response(
+                    inv,
+                    metric_display=self._components.metric_display,
+                    snapshot_metric_ids=snapshots,
+                    benchmarks_for_metric=self._components.pack_port.benchmarks_for_metric,
+                    pack_version=self._components.pack_port.pack_version,
+                )
                 for inv in lineage.investigations
             ],
             edges=[
@@ -631,23 +703,87 @@ class ApiService:
         a caller can see which tenant a worklist was built for, and the
         day the feed becomes per-tenant this signature does not change.
         """
+        return await self._portfolio_for(
+            principal.tenant, await self._components.open_session.newest_watermark()
+        )
+
+    async def _portfolio_for(
+        self, tenant: str, watermark: DataWatermark
+    ) -> PortfolioResponse:
+        """One build, used by the rail route and by the conversational
+        worklist alike — so a chat answer and the portfolio panel can never
+        disagree about the order, the figures or the warnings."""
         components = self._components
-        newest = await components.open_session.newest_watermark()
-        records = await components.anomaly_source.list_anomalies(newest)
+        records = await components.anomaly_source.list_anomalies(watermark)
         return build_portfolio(
             records,
-            watermark=newest,
+            watermark=watermark,
             policy=components.priority_policy,
             rules=components.actionability,
-            tenant=principal.tenant,
+            tenant=tenant,
             drillability=components.drillability,
-            rederived=await self._rederived_impacts(records, newest),
+            rederived=await self._rederived_impacts(records, watermark),
             metric_display=components.metric_display,
             # FN-2: a snapshot contract is an as-of balance and applies no
             # window, so the gap between it and a card's windowed figure is
             # not a divergence anybody can lay at the detector's door.
             snapshot_metric_ids=self._snapshot_metric_ids(),
+            # Which cuts each governed contract accepts — so a card whose
+            # detector cut has no legal equivalent at the drilled
+            # contract's grain can be repointed onto the one that does,
+            # and only where the pack actually allows it.
+            scope_dimensions=self._scope_dimensions,
         )
+
+    def _scope_dimensions(self, metric_id: str) -> frozenset[str]:
+        """The dimensions the pack's contract for ``metric_id`` may be cut by."""
+        contract = self._components.pack_port.metric(metric_id)
+        if contract is None:
+            return frozenset()
+        return frozenset(dimension.id for dimension in contract.scope_dimensions)
+
+    async def _worklist_for(
+        self, request: TurnRequest, outcome: TurnOutcome, trace: TraceRecord | None
+    ) -> WorklistPayload | None:
+        """The ranked worklist this turn should carry, or ``None``.
+
+        Round-2 deferred P1: the conversation could not reach the worklist
+        the platform already computes. It reaches it through governed
+        content — ``packs/base-rcm/worklist.yaml`` names the playbook and
+        concept ids that mean "which work should I pick up" — and through
+        an explicit typed request, and through nothing else. No question
+        text is matched here or anywhere else in the platform.
+
+        A failure to build one is a warning on the answer, never an error:
+        an unreadable detection feed must not cost the analyst the answer
+        they actually asked for.
+        """
+        routing = self._components.worklist
+        query = request.worklist
+        if query is None and not routing.enabled:
+            return None
+        matched: tuple[str, str] | None = ("typed_query", "") if query is not None else None
+        if matched is None:
+            concepts = tuple(getattr(outcome.investigation.spec, "concepts", ()) or ())
+            matched = routing.match(playbook_id=None, concepts=concepts)
+        if matched is None:
+            # The playbook lives on the recorded plan context, not on the
+            # outcome.
+            matched = routing.match(playbook_id=_playbook_of(trace), concepts=())
+        if matched is None:
+            return None
+        portfolio = await self._portfolio_for(
+            outcome.session.tenant, outcome.session.watermark
+        )
+        return build_worklist(
+            portfolio,
+            routing,
+            matched_on=matched[0],
+            matched_id=matched[1],
+            query=query,
+        )
+
+
 
     def _snapshot_metric_ids(self) -> frozenset[str]:
         """Pack metrics whose contract ``kind`` is ``snapshot``.
@@ -686,6 +822,9 @@ class ApiService:
         for record in records:
             if not is_active(record):
                 continue
-            spec = drill_spec_for(record, components.actionability)
+            # The SAME spec the card will publish, repoints included, or
+            # the re-derived figure would belong to a different population
+            # from the one the card offers to open.
+            spec = drill_spec_for(record, components.actionability, self._scope_dimensions)
             out[record.anomaly_id] = await components.rederive_impact(spec, watermark)
         return out

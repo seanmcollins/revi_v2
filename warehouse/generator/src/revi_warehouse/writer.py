@@ -147,21 +147,43 @@ _FACT_SQL: dict[str, str] = {
     """,
 }
 
+#: Claim-grain procedure attribution (catalog dimension `primary_proc_group`).
+#: A claim has LINES, and each line has a proc_group; the claim itself has no
+#: procedure. Certifying one requires a rule, and the rule is: the proc_group
+#: carrying the largest share of the claim's billed charges wins, ties broken
+#: by proc_group name ascending so the column is a deterministic function of
+#: the data and not of DuckDB's aggregate ordering. NULL when the claim has no
+#: lines at all (only zero-billed claims are in that state; verify.py pins it).
+_PRIMARY_PROC_GROUP_ROLLUP = """
+        LEFT JOIN (
+            SELECT claim_id,
+                   (list(proc_group ORDER BY line_billed_cents DESC, proc_group ASC))[1]
+                       AS primary_proc_group
+            FROM (SELECT claim_id, proc_group, SUM(billed_amount_cents) AS line_billed_cents
+                  FROM {sch}.fact_claim_line GROUP BY claim_id, proc_group)
+            GROUP BY claim_id
+        ) ppg USING (claim_id)"""
+
 _VIEWS: dict[str, str] = {
     # v_claim's two derived flags are view-level, not stored: they restate
     # nullable dates as the booleans the catalog certifies as dimensions
     # (billed_flag / discharged_flag). A date basis carries a window; a flag
     # carries a predicate, and a predicate needs a certified dimension.
+    # `primary_proc_group` is the same move for a rollup rather than a date:
+    # the dominant-by-billed-cents procedure group of the claim's own lines.
     "v_claim": """
         SELECT c.*,
                (c.submission_date IS NOT NULL) AS billed_flag,
                (c.discharge_date IS NOT NULL) AS discharged_flag,
+               ppg.primary_proc_group,
                p.payer_name, p.payer_type, p.financial_class,
                pl.plan_name, pl.product_type, pl.timely_filing_days, pl.timely_filing_basis,
                pr.provider_name, pr.specialty AS provider_specialty, pr.npi_synthetic,
                f.facility_name, f.region,
                s.service_line_name
-        FROM {sch}.fact_claim c
+        FROM {sch}.fact_claim c"""
+    + _PRIMARY_PROC_GROUP_ROLLUP
+    + """
         JOIN {sch}.dim_payer p USING (payer_id)
         JOIN {sch}.dim_plan pl USING (plan_id)
         JOIN {sch}.dim_provider pr USING (provider_id)
@@ -184,17 +206,25 @@ _VIEWS: dict[str, str] = {
         JOIN {sch}.dim_facility f USING (facility_id)
         JOIN {sch}.dim_service_line s USING (service_line_id)
     """,
+    # `primary_proc_group` is repeated here because the claim-grain cross-entity
+    # ratios (gross_collection_rate, net_collection_rate) put cash at the
+    # transaction grain against charges at the claim grain, and a cross-entity
+    # probe requires its group keys to bind at BOTH entities. Same rollup, same
+    # claim: a transaction's procedure attribution is its parent claim's.
     "v_transaction": """
         SELECT t.txn_id, t.claim_id, t.claim_line_id, t.remit_id, t.txn_type,
                t.amount_cents, t.post_date, t.remit_date,
                c.payer_id, c.plan_id, c.facility_id, c.service_line_id,
                c.claim_type, c.service_date, c.submission_date,
+               ppg.primary_proc_group,
                p.payer_name, p.payer_type, p.financial_class,
                pl.plan_name, pl.product_type,
                f.facility_name, f.region,
                s.service_line_name
         FROM {sch}.fact_transaction t
-        JOIN {sch}.fact_claim c USING (claim_id)
+        JOIN {sch}.fact_claim c USING (claim_id)"""
+    + _PRIMARY_PROC_GROUP_ROLLUP
+    + """
         JOIN {sch}.dim_payer p USING (payer_id)
         JOIN {sch}.dim_plan pl USING (plan_id)
         JOIN {sch}.dim_facility f USING (facility_id)

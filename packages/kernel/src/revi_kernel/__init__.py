@@ -75,6 +75,7 @@ from revi_kernel.scope import (
     BUSINESS_CALENDAR,
     DEFAULT_CALENDAR,
     AbsoluteRange,
+    AnchoredRange,
     CalendarPolicy,
     CalendarRef,
     Comparison,
@@ -84,10 +85,12 @@ from revi_kernel.scope import (
     TimeUnit,
     TimeWindow,
     derive_comparison,
+    resolve_anchored,
     resolve_relative,
     resolve_window,
     shift_months,
     shift_years,
+    whole_month_span,
 )
 from revi_kernel.watermark import DataWatermark, WatermarkEpoch
 
@@ -105,6 +108,7 @@ __all__ = [
     "AbsoluteRange",
     "AggregationProbe",
     "AnalyticalRepository",
+    "AnchoredRange",
     "And",
     "CalendarPolicy",
     "CalendarRef",
@@ -168,8 +172,10 @@ __all__ = [
     "min_grade",
     "probe_hash",
     "probe_shape",
+    "resolve_anchored",
     "resolve_relative",
     "resolve_window",
     "shift_months",
     "shift_years",
+    "whole_month_span",
 ]

@@ -205,17 +205,53 @@ class TestInterpretationValidation:
         with pytest.raises(UnsupportedConceptError):
             await engine.submit.submit(SubmitTurnRequest(tenant="demo", question="run it"))
 
-    async def test_illegal_basis_is_date_basis_invalid(self) -> None:
+    async def test_illegal_basis_clarifies_with_bases_that_do_work(self) -> None:
+        """Round-3 FN-8: ``DATE_BASIS_INVALID`` was the last dead end.
+
+        It used to reach the analyst as a §12 banner whose copy recommended
+        "service, submission or posting date" beside "(allowed: ['service',
+        'submission'])" — a refusal that contradicted itself and offered no
+        options. It now routes through the same ``clarification_for``
+        machinery ``GRAIN_INCOMPATIBLE`` does, and every option names a
+        basis the contract allows AND this warehouse binds.
+        """
         llm = MockLanguageModel()
         llm.respond(
             "interpret_question",
             _interpretation(metric_ids=["cash_posted"], basis="discharge"),
         )
         engine = _engine(llm)
+        outcome = await engine.submit.submit(
+            SubmitTurnRequest(tenant="demo", question="cash by discharge date")
+        )
+        assert outcome.clarification is not None
+        clarification = outcome.clarification
+        assert "DATE_BASIS_INVALID_RECOVERABLE" in clarification.reason
+        assert clarification.options, "a basis refusal must offer a basis that works"
+        contract = engine.pack_port.metric("cash_posted")
+        assert contract is not None
+        allowed = {basis.id for basis in contract.allowed_date_bases}
+        for option in clarification.options:
+            named = option.removeprefix("Use the ").removesuffix(" date basis")
+            assert named in allowed, option
+            assert named != "discharge"
+
+    async def test_a_basis_no_alternative_can_rescue_still_refuses(self) -> None:
+        """The honesty half: no invented way out.
+
+        ``resolve_answerable_basis`` still raises for a basis the contract
+        forbids — the clarification is a *recovery* over that refusal, not a
+        replacement for it, and a metric with nothing to offer must not be
+        handed a menu of things that do not work.
+        """
+        from revi_investigation.application.date_basis import resolve_answerable_basis
+        from revi_kernel.refs import DISCHARGE
+
+        engine = _engine(MockLanguageModel())
+        contract = engine.pack_port.metric("cash_posted")
+        assert contract is not None
         with pytest.raises(DateBasisInvalidError):
-            await engine.submit.submit(
-                SubmitTurnRequest(tenant="demo", question="cash by discharge date")
-            )
+            resolve_answerable_basis(contract, DISCHARGE, engine.catalog)
 
     async def test_prompts_carry_vocabulary_not_data(self) -> None:
         llm = MockLanguageModel()
