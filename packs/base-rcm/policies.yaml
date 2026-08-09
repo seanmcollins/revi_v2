@@ -40,9 +40,13 @@ conclusion_policies:
     estimate_label_required: false
   - id: timely_filing_risk_claim
     claim: >-
-      Identified unsubmitted inventory is at material risk against governed
-      filing limits; rules requiring confirmation are labeled planning
-      defaults.
+      Identified unsubmitted OPEN inventory is the population a filing watch
+      would age. No claim of material risk against a filing limit is
+      licensed: the governing metric applies no deadline predicate, so any
+      answer citing it states that it is an upper bound. When the probe-time
+      filing_rules join lands (see NOTES.md), this policy tightens to the
+      risk claim it was written for, and rules requiring confirmation are
+      labeled planning defaults.
     required_grade: derived
     required_evidence: [at_risk_by_plan]
     estimate_label_required: false

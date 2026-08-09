@@ -12,6 +12,7 @@ from __future__ import annotations
 
 from decimal import Decimal
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 import pytest
 
@@ -27,6 +28,9 @@ from revi_investigation_contracts.settings import EvidenceDepth, NarrativeDepth
 from revi_kernel.probes import AggregationProbe
 from revi_testing.engine_wiring import PackSnapshotPort, WiredEngine, build_duckdb_engine
 from revi_testing.mock_llm import MockLanguageModel
+
+if TYPE_CHECKING:
+    from conftest import SeedPriorTurn
 
 T1 = "Why did cash decline last week?"
 
@@ -84,9 +88,16 @@ def _engine(warehouse: Path, *, cost: str = "0") -> WiredEngine:
     )
 
 
-async def _run(engine: WiredEngine, settings: SessionSettings | None) -> TurnOutcome:
+async def _run(
+    engine: WiredEngine,
+    settings: SessionSettings | None,
+    *,
+    session_id: str | None = None,
+) -> TurnOutcome:
     return await engine.submit.submit(
-        SubmitTurnRequest(tenant="demo", question=T1, settings=settings)
+        SubmitTurnRequest(
+            tenant="demo", question=T1, settings=settings, session_id=session_id
+        )
     )
 
 
@@ -122,23 +133,32 @@ class TestModelTier:
 
 class TestTurnBudget:
     async def test_each_call_is_bounded_by_what_is_left(
-        self, small_warehouse_path: Path
+        self, small_warehouse_path: Path, seed_prior_turn: SeedPriorTurn
     ) -> None:
         engine = _engine(small_warehouse_path, cost="0.03")
-        await _run(engine, SessionSettings(max_turn_cost_usd=Decimal("0.10")))
+        # A session with a turn behind it, so classification is a model call
+        # rather than a construction — the ledger needs two calls to show
+        # the second one seeing less than the first.
+        session_id = await seed_prior_turn(engine)
+        await _run(
+            engine, SessionSettings(max_turn_cost_usd=Decimal("0.10")), session_id=session_id
+        )
 
         budgets = [call.policy.max_cost_usd for call in engine.llm.structured_calls]
         # classify sees the whole ceiling; interpret sees it minus classify
         assert budgets[:2] == [Decimal("0.10"), Decimal("0.07")]
 
     async def test_exhausted_budget_stops_the_turn_and_says_so(
-        self, small_warehouse_path: Path
+        self, small_warehouse_path: Path, seed_prior_turn: SeedPriorTurn
     ) -> None:
         """Never a quiet downgrade. The turn that cannot afford its next
         model call stops, names the ceiling it hit, and offers the two
         recoveries the analyst actually has."""
         engine = _engine(small_warehouse_path, cost="0.02")
-        outcome = await _run(engine, SessionSettings(max_turn_cost_usd=Decimal("0.02")))
+        session_id = await seed_prior_turn(engine)
+        outcome = await _run(
+            engine, SessionSettings(max_turn_cost_usd=Decimal("0.02")), session_id=session_id
+        )
 
         assert outcome.clarification is not None
         reason = outcome.clarification.reason or ""
@@ -257,6 +277,7 @@ class TestTraceRecording:
     async def test_trace_records_llm_failure_kind_as_data(
         self,
         small_warehouse_path: Path,
+        seed_prior_turn: SeedPriorTurn,
         failure: LlmFailureKind | None,
         recorded: str | None,
         advice: str,
@@ -268,7 +289,10 @@ class TestTraceRecording:
         llm = MockLanguageModel()
         llm.respond("classify_turn", None, failure=failure)
         engine = build_duckdb_engine(warehouse_path=small_warehouse_path, llm=llm)
-        outcome = await engine.submit.submit(SubmitTurnRequest(tenant="demo", question=T1))
+        session_id = await seed_prior_turn(engine)
+        outcome = await engine.submit.submit(
+            SubmitTurnRequest(tenant="demo", question=T1, session_id=session_id)
+        )
 
         assert outcome.clarification is not None
         assert advice in outcome.clarification.question.lower()

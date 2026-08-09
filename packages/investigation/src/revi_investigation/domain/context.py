@@ -11,12 +11,84 @@ component(s) it names (property-tested).
 from __future__ import annotations
 
 from dataclasses import dataclass, replace
+from enum import StrEnum
 
+from revi_calculation_contracts.contract import SignConvention
 from revi_kernel.cohort import CohortRef
 from revi_kernel.filters import EMPTY_SCOPE, FilterExpr, Predicate, and_merge
 from revi_kernel.refs import DimensionRef, Grain, MetricRef
 from revi_kernel.scope import Comparison, TimeWindow
 from revi_kernel.watermark import DataWatermark
+
+
+class AskedDirection(StrEnum):
+    """The movement the analyst asked about, when they asked about one.
+
+    "Which payers had the biggest **increase** in denials" is not the same
+    question as "which payers moved most", and answering the second while
+    the analyst asked the first is how a platform reports three improvements
+    as if they were the problem. A closed set, mirrored by the
+    interpretation schema's ``direction`` literal and carried onto the plan
+    so the layer that *selects* rows can honor it.
+
+    ``WORSENED``/``IMPROVED`` are polarity-relative: which sign of a delta
+    counts as worse depends on the metric contract's
+    :class:`~revi_calculation_contracts.contract.SignConvention`, so they
+    resolve to a sign only against a contract (:func:`wanted_delta_sign`).
+    """
+
+    INCREASE = "increase"
+    DECREASE = "decrease"
+    WORSENED = "worsened"
+    IMPROVED = "improved"
+
+
+class AskedMagnitude(StrEnum):
+    """The extremity the analyst phrased, when they phrased one.
+
+    "The **biggest** increase" and "the **smallest** increase" pick opposite
+    ends of the same direction-matched set. Absent phrasing means "no
+    extremity was asserted" and the default (biggest first) applies.
+    """
+
+    LARGEST = "largest"
+    SMALLEST = "smallest"
+
+
+def adverse_delta_sign(sign: SignConvention) -> int | None:
+    """Which way a movement in this metric is *bad*, or ``None`` if neither.
+
+    The ordering an unprompted comparison should use: worst first. A
+    higher-is-bad measure worsens by rising, a higher-is-good one by
+    falling, and a neutral one has no worse direction to lead with.
+    """
+    if sign is SignConvention.HIGHER_IS_BAD:
+        return 1
+    if sign is SignConvention.HIGHER_IS_GOOD:
+        return -1
+    return None
+
+
+def wanted_delta_sign(direction: AskedDirection | None, sign: SignConvention) -> int | None:
+    """The sign of a delta that answers ``direction`` for this metric.
+
+    ``+1`` wants a rise, ``-1`` wants a fall, ``None`` means the analyst
+    asserted no direction (or the metric has no polarity to read
+    "worsened" against, in which case guessing would be worse than not
+    filtering at all).
+    """
+    if direction is None:
+        return None
+    if direction is AskedDirection.INCREASE:
+        return 1
+    if direction is AskedDirection.DECREASE:
+        return -1
+    if sign is SignConvention.NEUTRAL:
+        return None
+    worse_is_up = sign is SignConvention.HIGHER_IS_BAD
+    if direction is AskedDirection.WORSENED:
+        return 1 if worse_is_up else -1
+    return -1 if worse_is_up else 1  # IMPROVED
 
 
 @dataclass(frozen=True, slots=True)
@@ -76,6 +148,15 @@ class AnalysisSpec:
     #: the question is about, and grading needs them: the same field is
     #: direct evidence for one concept and only a proxy for another (§5.5).
     concepts: tuple[str, ...] = ()
+    #: The movement the analyst asked about, when they asked about one — a
+    #: closed set, validated at interpretation time. It rides on the spec
+    #: (and from there onto the plan) because *selection* has to know it:
+    #: ranking a compare frame by delta without it answers "biggest
+    #: increase" with the biggest decreases.
+    direction: AskedDirection | None = None
+    #: The extremity the analyst phrased ("biggest"/"smallest"), when they
+    #: phrased one. Meaningless without a direction to take it over.
+    magnitude: AskedMagnitude | None = None
 
     def with_context(self, context: InvestigationContext) -> AnalysisSpec:
         return replace(self, context=context)

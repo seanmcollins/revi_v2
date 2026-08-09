@@ -16,6 +16,8 @@ import type { Refinement } from "@/lib/types";
  */
 export type AnomalyProvenance = "external_detection";
 
+export type AnomalySeverity = "critical" | "high" | "medium" | "low";
+
 export interface PortfolioItem {
   rank: number;
   referent: string;
@@ -30,6 +32,63 @@ export interface PortfolioItem {
   priorityFormulaVersion: string;
   /** The watermark the detection was read at (AnomalyCard.source_watermark_id). */
   sourceWatermarkId: string;
+
+  /* --- Published, and until now unread by this client (F8) --------- */
+
+  /** `AnomalyCard.severity` — the detector's own grading, not a UI guess. */
+  severity?: AnomalySeverity;
+  /** `AnomalyCard.age_days` — days since detection at the pinned watermark. */
+  ageDays?: number;
+  /**
+   * `AnomalyCard.recoverable_cents_estimate`. NOT the same number as the
+   * impact and rendered separately for exactly that reason: a $493,266
+   * detection with a $9,865 recoverable estimate is a small piece of work
+   * wearing a large number, and showing only the large number is the
+   * single most misleading thing this panel could do.
+   */
+  recoverableCentsEstimate?: number;
+  /** `AnomalyCard.actionability_label` — "highly recoverable", "compliance-mandatory", … */
+  actionabilityLabel?: string;
+  /** `AnomalyCard.actionability_rationale` — why that label, in the engine's words. */
+  actionabilityRationale?: string;
+  /** `AnomalyCard.priority_score` / `compliance_floor_applied` — how it ranked. */
+  priorityScore?: number;
+  complianceFloorApplied?: boolean;
+  /** `AnomalyCard.metric_id`, `status`, `confidence` — the detection's own identity. */
+  metricId?: string;
+  status?: string;
+  confidence?: string;
+  detectedAt?: string;
+  windowStart?: string;
+  windowEnd?: string;
+  /** `AnomalyCard.dimensions` — the detected scope, as chips. */
+  dimensions?: Array<{ dimension: string; value: string }>;
+
+  /**
+   * `AnomalyCard.drillable` and the platform's refusal when it is false.
+   * The server refuses 4 of 33 live cards (36% of ranked impact) with a
+   * GRAIN_INCOMPATIBLE sentence naming the dimension and the grain. A
+   * client-side "Drill in" button over that refusal is a dead control that
+   * claims the platform can do something it has just said it cannot.
+   */
+  drillable: boolean;
+  drillUnavailableReason?: string;
+  /**
+   * `AnomalyCard.drill_repointed_from` / `drill_repoint_rationale`: the
+   * card's drill probes a DIFFERENT metric than the one it reports, and
+   * the server says why. Nine live cards are repointed off `denial_rate`.
+   */
+  drillRepointedFrom?: string;
+  drillRepointRationale?: string;
+  /**
+   * The measure the drill ACTUALLY probes — `drill_spec.metric_ids[0]`,
+   * not `metric_id`. On a repointed card those two differ and only this
+   * one is the truth about what opening the card will measure: live
+   * ANM-001 reports `denial_rate`, names `denial_rate` as what it was
+   * repointed FROM, and probes `denied_dollars`.
+   */
+  drillMetricId?: string;
+
   /**
    * The card's typed first turn (`AnomalyCard.drill_spec`): a complete
    * `TypedInvestigationSpec` that opens a NEW investigation with no parent
@@ -37,7 +96,12 @@ export interface PortfolioItem {
    * has no server to have produced one.
    */
   drillSpec?: Record<string, unknown>;
-  drill: { label: string; refinement: Refinement };
+  /**
+   * The mock fixture's local drill handle. Live cards do NOT get one
+   * synthesized: a fabricated `DrillInto(P1)` against a server that
+   * published no `drill_spec` is a gesture the engine never offered.
+   */
+  drill?: { label: string; refinement: Refinement };
 }
 
 export const PORTFOLIO_ITEMS: PortfolioItem[] = [
@@ -53,6 +117,7 @@ export const PORTFOLIO_ITEMS: PortfolioItem[] = [
     provenance: "external_detection",
     priorityFormulaVersion: "dollar_impact@1",
     sourceWatermarkId: "wm_003",
+    drillable: true,
     drill: { label: "Drill in", refinement: { op: "DrillInto", target: "P1" } },
   },
   {
@@ -67,6 +132,7 @@ export const PORTFOLIO_ITEMS: PortfolioItem[] = [
     provenance: "external_detection",
     priorityFormulaVersion: "dollar_impact@1",
     sourceWatermarkId: "wm_003",
+    drillable: true,
     drill: { label: "Drill in", refinement: { op: "DrillInto", target: "P2" } },
   },
   {
@@ -81,6 +147,7 @@ export const PORTFOLIO_ITEMS: PortfolioItem[] = [
     provenance: "external_detection",
     priorityFormulaVersion: "dollar_impact@1",
     sourceWatermarkId: "wm_003",
+    drillable: true,
     drill: { label: "Drill in", refinement: { op: "DrillInto", target: "P3" } },
   },
   {
@@ -95,6 +162,7 @@ export const PORTFOLIO_ITEMS: PortfolioItem[] = [
     provenance: "external_detection",
     priorityFormulaVersion: "dollar_impact@1",
     sourceWatermarkId: "wm_003",
+    drillable: true,
     drill: { label: "Drill in", refinement: { op: "DrillInto", target: "P4" } },
   },
   {
@@ -109,6 +177,7 @@ export const PORTFOLIO_ITEMS: PortfolioItem[] = [
     provenance: "external_detection",
     priorityFormulaVersion: "dollar_impact@1",
     sourceWatermarkId: "wm_003",
+    drillable: true,
     drill: { label: "Drill in", refinement: { op: "DrillInto", target: "P5" } },
   },
 ];

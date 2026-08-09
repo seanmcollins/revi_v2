@@ -16,8 +16,11 @@ as ``ClarificationRequest.options`` — deterministically trimmed, never
 invented here.
 
 Window resolution happens exactly once, here: the anchor is the session
-watermark's ``loaded_at.date()`` and the concrete dates are stored on the
-spec (replay uses the stored dates). The date basis defaults to the
+watermark's ``newest_data_date`` — the newest activity the load can see,
+never the load's own clock and never wall-clock today — and the concrete
+dates are stored on the spec (replay uses the stored dates). A window
+nobody asked for is stated as an assumption rather than left in the debug
+payload. The date basis defaults to the
 primary governing metric's primary basis; an explicit basis is validated
 against the contract's ``allowed_date_bases`` (``DATE_BASIS_INVALID``) and
 then against what this warehouse actually binds at the metric's grain —
@@ -48,7 +51,8 @@ from decimal import Decimal, InvalidOperation
 from pydantic import ValidationError
 
 from revi_calculation_contracts.contract import MetricContract
-from revi_catalog_contracts.model import CatalogSnapshot
+from revi_catalog_contracts.model import CatalogSnapshot, normalize_synonym
+from revi_investigation.application.anchoring import window_anchor
 from revi_investigation.application.capability_ports import PackPort, TermDefinition
 from revi_investigation.application.date_basis import resolve_answerable_basis
 from revi_investigation.application.llm.guard import assert_safe_payload
@@ -58,6 +62,7 @@ from revi_investigation.application.llm.render import (
     render_template,
 )
 from revi_investigation.application.llm.schemas import (
+    GroundedOptionModel,
     InterpretationResponse,
     TurnClassificationResponse,
     clarification_options,
@@ -73,7 +78,13 @@ from revi_investigation.application.ports import (
     failure_note,
     retry_may_help,
 )
-from revi_investigation.domain.context import AnalysisSpec, InvestigationContext
+from revi_investigation.application.validation import contract_pinned_values
+from revi_investigation.domain.context import (
+    AnalysisSpec,
+    AskedDirection,
+    AskedMagnitude,
+    InvestigationContext,
+)
 from revi_investigation.domain.records import Session
 from revi_investigation.domain.turns import ClarificationRequest, TurnClass, TurnClassification
 from revi_investigation_contracts.api import TypedInvestigationSpec
@@ -166,6 +177,10 @@ class InterpretedInvestigation:
     metric_ids: tuple[str, ...]
     dimension_ids: tuple[str, ...]
     concept_ids: tuple[str, ...]
+    #: Interpretation decisions the analyst has to be told about, in their
+    #: terms — a filter dropped as redundant, a period nobody asked for.
+    #: Surfaced as turn warnings; never left in the debug payload alone.
+    notes: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -360,6 +375,28 @@ class InterpretQuestionService:
 
     # ----------------------------------------------------------------- api
 
+    def definitional_match(self, question: str) -> bool:
+        """Is this utterance a definitional question, decidably?
+
+        Strictly: the question must *open* with one of the governed
+        lead-ins and what remains must resolve in the pack **whole**. Both
+        halves matter. Without the lead-in, "denial rate by payer" would
+        qualify; with the last-word fallback :meth:`definitional_answer`
+        uses for recovery, "what is our net collection rate over the last
+        90 days" would resolve on ``days`` and be answered with a
+        dictionary entry instead of a number.
+
+        Used only where the alternative is a model call that cannot do
+        better: deciding the first utterance of a session, where nothing
+        else in the taxonomy is available (see
+        ``SubmitTurnService._classification_by_construction``). A lookup
+        against governed content is not a guess, so it does not need one.
+        """
+        stripped = strip_definitional_lead_in(question)
+        if not stripped or stripped == question.strip().strip("?!.").strip().lower():
+            return False  # no lead-in was present: not phrased as a definition
+        return bool(self._pack.resolve_term(stripped))
+
     def definitional_answer(self, question: str) -> DefinitionalAnswer:
         """Deterministic pack lookup for the DEFINITIONAL path (zero probes)."""
         stripped = strip_definitional_lead_in(question)
@@ -467,8 +504,22 @@ class InterpretQuestionService:
             return self._unusable(
                 "interpretation failed schema validation", LlmFailureKind.SCHEMA, result.usage
             )
-        options = clarification_options(parsed.clarification_options)
+        options = self._grounded_options(parsed.clarification_options)
         if parsed.clarification:
+            if parsed.clarification_options and not options:
+                # Every way forward the model proposed named something this
+                # pack cannot do. A clarification whose options are all
+                # unanswerable is worse than a refusal: it costs the analyst
+                # a turn to discover the same "no". Refuse honestly instead
+                # — the API's capability copy is written for exactly this.
+                raise UnsupportedConceptError(
+                    "the question maps onto no governed content, and every alternative "
+                    "proposed for it names content this pack does not define",
+                    details={
+                        "clarification": parsed.clarification,
+                        "rejected_options": [o.label for o in parsed.clarification_options],
+                    },
+                )
             return self._clarify(parsed.clarification, "model requested clarification",
                                  result.usage, template_hash, options=options)
 
@@ -520,12 +571,15 @@ class InterpretQuestionService:
         primary = governing[0]
 
         basis = self._resolve_basis(parsed.basis, primary)
-        anchor = session.watermark.loaded_at.date()
         window_explicit = parsed.window is not None
         requested = self._relative_range(parsed) if parsed.window is not None else _DEFAULT_WINDOW
+        # Anchored to the data, never to the load's clock or to wall-clock
+        # now — see :mod:`revi_investigation.application.anchoring`.
+        anchor = window_anchor(session.watermark, requested.mode)
         window = resolve_window(requested, anchor, basis=basis)
 
-        scope = self._resolve_scope(parsed, turn_id)
+        notes: list[str] = []
+        scope = self._resolve_scope(parsed, turn_id, governing, notes)
         context = InvestigationContext(
             window=window,
             comparison=None,
@@ -545,7 +599,21 @@ class InterpretQuestionService:
             dimensions=tuple(DimensionRef(did) for did in parsed.dimension_ids),
             # already validated against the pack above — closed set only
             concepts=tuple(parsed.concept_ids),
+            # …and the movement the question asked about, if it asked about
+            # one. Closed sets by schema; carried so selection can honor them.
+            direction=AskedDirection(parsed.direction) if parsed.direction else None,
+            magnitude=AskedMagnitude(parsed.magnitude) if parsed.magnitude else None,
         )
+        if not window_explicit:
+            # An assumed period is a decision the analyst did not make. It
+            # used to live in the debug intent_summary; it belongs beside
+            # the number it scoped.
+            notes.append(
+                f"window_assumed: the question named no period, so I used "
+                f"{window.range.start.isoformat()}..{window.range.end.isoformat()} on the "
+                f"{basis.id} basis — the last full month this load can see (newest data "
+                f"date {session.watermark.newest_data_date.isoformat()})."
+            )
         return InterpretationOutcome(
             investigation=InterpretedInvestigation(
                 spec=spec,
@@ -555,6 +623,7 @@ class InterpretQuestionService:
                 metric_ids=tuple(parsed.metric_ids),
                 dimension_ids=tuple(parsed.dimension_ids),
                 concept_ids=tuple(parsed.concept_ids),
+                notes=tuple(notes),
             ),
             clarification=None,
             definitional=None,
@@ -695,7 +764,10 @@ class InterpretQuestionService:
         requested = RelativeRange(
             quantity=quantity, unit=TimeUnit(window.unit), mode=RangeMode(window.mode)
         )
-        return resolve_window(requested, session.watermark.loaded_at.date(), basis=basis)
+        # Same anchor rule as the interpreted path.
+        return resolve_window(
+            requested, window_anchor(session.watermark, requested.mode), basis=basis
+        )
 
     def _typed_scope(self, filters: Sequence[AddFilterModel], turn_id: str) -> FilterExpr:
         """Typed filter clauses → kernel scope, catalog-validated like any
@@ -719,8 +791,15 @@ class InterpretQuestionService:
             return EMPTY_SCOPE
         return and_merge(*predicates)
 
-    def _resolve_scope(self, parsed: InterpretationResponse, turn_id: str) -> FilterExpr:
+    def _resolve_scope(
+        self,
+        parsed: InterpretationResponse,
+        turn_id: str,
+        governing: tuple[MetricContract, ...] = (),
+        notes: list[str] | None = None,
+    ) -> FilterExpr:
         predicates: list[Predicate] = []
+        pinned = self._pinned_by_contracts(governing)
         for entry in parsed.scope:
             if self._catalog.dimension(entry.dimension) is None:
                 raise UnsupportedConceptError(
@@ -728,6 +807,11 @@ class InterpretQuestionService:
                     details={"dimension": entry.dimension},
                 )
             values = tuple(self._scalar(value) for value in entry.values)
+            redundant = self._redundant_note(entry.dimension, entry.op, values, pinned)
+            if redundant is not None:
+                if notes is not None:
+                    notes.append(redundant)
+                continue
             predicates.append(
                 Predicate(
                     dimension=DimensionRef(entry.dimension),
@@ -739,6 +823,111 @@ class InterpretQuestionService:
         if not predicates:
             return EMPTY_SCOPE
         return and_merge(*predicates)
+
+    def _pinned_by_contracts(
+        self, governing: tuple[MetricContract, ...]
+    ) -> dict[str, tuple[frozenset[str], str]]:
+        """Dimension values the governing contracts already pin, by dimension."""
+        pinned: dict[str, tuple[frozenset[str], str]] = {}
+        for contract in governing:
+            for dimension_id, values in contract_pinned_values(contract).items():
+                if values and dimension_id not in pinned:
+                    pinned[dimension_id] = (values, contract.id)
+        return pinned
+
+    @staticmethod
+    def _redundant_note(
+        dimension_id: str,
+        op: str,
+        values: tuple[Scalar, ...],
+        pinned: dict[str, tuple[frozenset[str], str]],
+    ) -> str | None:
+        """Is this filter a restatement of what the metric already is?
+
+        ``ar_over_90_pct`` *is* the 91-120 and 120+ buckets: its numerator
+        pins them. An analyst filter repeating that pin narrows nothing —
+        and, because ``ar_age_bucket`` is not a declared scope dimension of
+        the metric, it turns an answerable question into a
+        ``GRAIN_INCOMPATIBLE`` refusal. Dropping the restatement (and
+        saying so) answers the question that was asked.
+
+        The rule is exactly "unless values differ": a filter naming a
+        *subset* of the pinned values is dropped as redundant, a filter
+        naming anything outside them is kept — it means something else, and
+        the §6.6 exclusion-overlap warning is what explains the interaction.
+        """
+        entry = pinned.get(dimension_id)
+        if entry is None or op not in (PredicateOp.EQ.value, PredicateOp.IN.value) or not values:
+            return None
+        pinned_values, metric_id = entry
+        asked = {normalize_synonym(str(value)) for value in values}
+        if not asked <= pinned_values:
+            return None
+        stated = ", ".join(repr(str(value)) for value in values)
+        return (
+            f"filter_redundant: dropped the {dimension_id} filter {stated} — metric "
+            f"{metric_id!r} already pins that population in its own definition, so the "
+            "filter narrowed nothing and is not a cut this metric supports."
+        )
+
+    def _grounded_options(
+        self, options: Sequence[GroundedOptionModel]
+    ) -> tuple[str, ...]:
+        """Keep only the recovery options this pack and catalog can honor.
+
+        A clarification option is a promise: tap it and you get an answer.
+        The platform offered "Compare denial rates across all Medicare
+        Advantage payers" and refused that request on the very next turn —
+        the option was a sentence, and a sentence resolves against nothing.
+        So every option now carries the ids it would use and they go
+        through the same disposal an interpretation does: metrics and
+        playbooks against the pinned pack, dimensions and scope dimensions
+        against the catalog, scope values against a declared
+        ``value_domain`` where the catalog states one, and a breakdown
+        dimension against the governing contract's own
+        ``scope_dimensions`` — the ratio-grain rule §6.6 would refuse it by
+        one turn later.
+
+        Failures are dropped silently *as options*; the caller decides what
+        an empty survivor list means (see
+        :meth:`InterpretQuestionService.interpret`).
+        """
+        return clarification_options(
+            [option.label for option in options if self._option_resolves(option)]
+        )
+
+    def _option_resolves(self, option: GroundedOptionModel) -> bool:
+        if not option.label.strip():
+            return False
+        contracts: list[MetricContract] = []
+        for metric_id in option.metric_ids:
+            contract = self._pack.metric(metric_id)
+            if contract is None:
+                return False
+            contracts.append(contract)
+        if option.playbook_id is not None and self._pack.playbook(option.playbook_id) is None:
+            return False
+        if not contracts and option.playbook_id is None:
+            # An option naming no governed content is exactly the hollow
+            # kind: a restatement whose answerability nobody can check.
+            return False
+        for dimension_id in option.dimension_ids:
+            dim = self._catalog.dimension(dimension_id)
+            if dim is None:
+                return False
+            ref = DimensionRef(dimension_id)
+            if any(c.is_ratio and not c.allows_dimension(ref) for c in contracts):
+                return False  # §6.6 step 2 would refuse this one turn later
+        for entry in option.scope:
+            dim = self._catalog.dimension(entry.dimension)
+            if dim is None:
+                return False
+            if dim.value_domain is None:
+                continue
+            allowed = {normalize_synonym(value) for value in dim.value_domain}
+            if any(normalize_synonym(str(value)) not in allowed for value in entry.values):
+                return False
+        return True
 
     @staticmethod
     def _scalar(value: str | int | float | bool | None) -> Scalar:

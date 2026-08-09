@@ -12,6 +12,7 @@ import { ContextPanel } from "@/components/workspace/ContextPanel";
 import { SessionRail } from "@/components/workspace/SessionRail";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ApiDriver, fetchHealthDetail, resolveDriverKind } from "@/lib/apiDriver";
+import { envDriverKind } from "@/lib/driver";
 import type { DriverKind, TurnDriver } from "@/lib/driver";
 import { displaySessionTitle, mediumDate, untitledTurnLabel } from "@/lib/format";
 import { REFERENCE_QUESTIONS } from "@/lib/mock/reference";
@@ -31,8 +32,6 @@ import { useSessionStore } from "@/lib/store";
  * connection pill, and live portfolio/lineage fetches.
  */
 const noopSubscribe = () => () => {};
-const envDriverKind = (): DriverKind =>
-  process.env.NEXT_PUBLIC_REVI_DRIVER === "mock" ? "mock" : "api";
 
 export default function Workspace() {
   // Hydration-safe driver selection: the server snapshot is the env
@@ -97,7 +96,7 @@ export default function Workspace() {
   useEffect(() => {
     const { setConnection } = useSessionStore.getState();
     if (driverKind !== "api") {
-      setConnection({ mode: "mock", state: "online", detail: undefined });
+      setConnection({ mode: "mock", state: "online", detail: undefined, healthChecked: true });
       return;
     }
     setConnection({ mode: "api", state: "connecting" });
@@ -112,6 +111,9 @@ export default function Workspace() {
         storeMode: health.storeMode,
         authMode: health.authMode,
         newestWatermarkId: health.watermarkId,
+        // The badge is a claim about the deployment; it waits for the
+        // deployment to have answered.
+        healthChecked: true,
       });
       timer = window.setTimeout(() => void probe(), health.ok ? 30_000 : 5_000);
     };

@@ -884,10 +884,11 @@ describe("GET endpoint fetchers", () => {
     expect(result.kind).toBe("ok");
     if (result.kind === "ok") {
       expect(result.snapshot.items[0]?.referent).toBe("P1");
-      expect(result.snapshot.items[0]?.drill.refinement).toEqual({
-        op: "DrillInto",
-        target: "P1",
-      });
+      // No drill handle is invented for a card that published neither a
+      // `drill_spec` nor a `drill`: the panel renders a disabled control
+      // rather than a live button over a gesture the server never offered.
+      expect(result.snapshot.items[0]?.drill).toBeUndefined();
+      expect(result.snapshot.items[0]?.drillable).toBe(false);
     }
   });
 

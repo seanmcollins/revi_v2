@@ -9,7 +9,7 @@ import {
   Play,
   RefreshCw,
 } from "lucide-react";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { PortfolioPanel } from "@/components/portfolio/PortfolioPanel";
@@ -18,6 +18,7 @@ import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
 import { apiBaseUrl } from "@/lib/apiDriver";
 import { displaySessionTitle, relativeTime } from "@/lib/format";
+import { REFERENCE_QUESTIONS } from "@/lib/mock/reference";
 import { useSessionStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -71,23 +72,21 @@ export function SessionRail() {
           <MessageSquarePlus className="size-3" />
           New chat
         </Button>
-        <Button
-          onClick={() => void replayReference()}
-          disabled={newChatBusy}
-          variant="outline"
-          size="sm"
-          className="w-full gap-1.5 text-[0.72rem] font-medium"
-        >
-          <Play className="size-3" />
-          {replayProgress
-            ? `Replaying ${replayProgress.index}/${replayProgress.total}…`
-            : "Replay reference demo"}
-        </Button>
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
         <div className="space-y-5 px-3 pb-4">
           <SessionList />
+
+          {/* Below the sessions, not above them: this is a demo utility,
+              and sitting beside "New chat" it read as a peer action —
+              one click from wiping an open investigation and spending
+              five live model turns doing it. */}
+          <ReplayDemoButton
+            disabled={newChatBusy}
+            progress={replayProgress}
+            onReplay={() => void replayReference()}
+          />
 
           <Separator />
           <PortfolioPanel />
@@ -136,7 +135,7 @@ export function SessionRail() {
       </ScrollArea>
 
       <div className="border-t px-4 py-2.5">
-        <p className="num text-[0.58rem] leading-relaxed text-muted-foreground/70">
+        <p className="num text-[0.58rem] leading-relaxed text-muted-foreground">
           {mode === "api" ? (
             <>
               Live API · {apiBaseUrl()}
@@ -153,6 +152,80 @@ export function SessionRail() {
         </p>
       </div>
     </aside>
+  );
+}
+
+/**
+ * The reference-demo replay, with its two real costs stated before the
+ * click rather than discovered after it: it spends five live model turns,
+ * and it starts a new chat — which clears whatever is open in the thread.
+ *
+ * The confirmation only appears when there is something to lose. A first
+ * click on an empty workspace runs immediately; a first click over an open
+ * investigation asks, because "New chat" is called inside `replayReference`
+ * and there is no undo behind it.
+ */
+function ReplayDemoButton({
+  disabled,
+  progress,
+  onReplay,
+}: {
+  disabled: boolean;
+  progress: { index: number; total: number } | null;
+  onReplay: () => void;
+}) {
+  const hasOpenThread = useSessionStore((s) => s.turns.length > 0);
+  const [confirming, setConfirming] = useState(false);
+
+  if (confirming) {
+    return (
+      <section className="space-y-1.5 rounded-md border border-warning/40 bg-warning/10 p-2">
+        <p className="text-[0.62rem] leading-snug">
+          Replaying starts a new chat — this thread is cleared and cannot be brought back. It
+          then runs {REFERENCE_QUESTIONS.length} live turns.
+        </p>
+        <div className="flex gap-1.5">
+          <Button
+            size="xs"
+            variant="secondary"
+            className="h-6 flex-1 text-[0.65rem] font-medium"
+            onClick={() => {
+              setConfirming(false);
+              onReplay();
+            }}
+          >
+            Discard and replay
+          </Button>
+          <Button
+            size="xs"
+            variant="ghost"
+            className="h-6 flex-1 text-[0.65rem] font-normal"
+            onClick={() => setConfirming(false)}
+          >
+            Keep this thread
+          </Button>
+        </div>
+      </section>
+    );
+  }
+
+  return (
+    <section className="space-y-1">
+      <Button
+        onClick={() => (hasOpenThread ? setConfirming(true) : onReplay())}
+        disabled={disabled}
+        variant="outline"
+        size="sm"
+        className="w-full gap-1.5 text-[0.72rem] font-medium"
+      >
+        <Play className="size-3" />
+        {progress ? `Replaying ${progress.index}/${progress.total}…` : "Replay reference demo"}
+      </Button>
+      <p className="px-1 text-[0.58rem] leading-snug text-muted-foreground">
+        Runs {REFERENCE_QUESTIONS.length} live turns in a new chat — real model calls, billed
+        like any other question.
+      </p>
+    </section>
   );
 }
 
@@ -189,7 +262,7 @@ function SessionList() {
           Sessions
         </span>
         {state === "ready" && total > sessions.length && (
-          <span className="num text-[0.6rem] font-normal text-muted-foreground/70">
+          <span className="num text-[0.6rem] font-normal text-muted-foreground">
             {sessions.length} of {total}
           </span>
         )}
@@ -242,7 +315,7 @@ function SessionList() {
                   )}
                 >
                   <span className="truncate">{title}</span>
-                  <span className="num flex shrink-0 items-center gap-1 text-[0.6rem] text-muted-foreground/70">
+                  <span className="num flex shrink-0 items-center gap-1 text-[0.6rem] text-muted-foreground">
                     {pending ? (
                       <Loader2 className="size-2.5 animate-spin" />
                     ) : (

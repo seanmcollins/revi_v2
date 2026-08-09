@@ -437,7 +437,7 @@ function Segmented({
         >
           {option.label}
           {option.hint && (
-            <span className="ml-1.5 text-[0.6rem] text-muted-foreground/70">{option.hint}</span>
+            <span className="ml-1.5 text-[0.6rem] text-muted-foreground">{option.hint}</span>
           )}
         </button>
       ))}

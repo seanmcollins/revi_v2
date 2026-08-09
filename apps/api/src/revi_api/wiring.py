@@ -45,9 +45,12 @@ from revi_api.memory_stores import (
     MemorySessionStore,
     MemoryTraceStore,
 )
+from revi_api.metric_display import MetricDisplayRules, load_metric_display
 from revi_api.portfolio import DrillabilityProbe, PriorityPolicy, priority_policy_from_pack
+from revi_api.rederive import ImpactReDeriver, build_rederiver
 from revi_api.scripted_llm import demo_language_model
 from revi_api.settings_policy import SettingsPolicy
+from revi_api.usage_ledger import MeteredLanguageModel
 from revi_catalog import load_catalog
 from revi_catalog_contracts.model import CatalogSnapshot
 from revi_connector_duckdb import DuckDbAnalyticalRepository, DuckDbAnomalySource
@@ -125,6 +128,16 @@ class ApiComponents:
     #: §6.6 validation pass and returns the platform's own refusal text,
     #: never a guess and never a warehouse query.
     drillability: DrillabilityProbe
+    #: What does THIS platform's governed contract say the cell an anomaly
+    #: card names is worth? The drillability pipeline continued through
+    #: execute and calculate, memoized per (watermark, plan hash) and
+    #: reading the warehouse through the ordinary evidence cache. Used to
+    #: publish ``reconciled_impact_cents`` beside the detector's own figure
+    #: so the two can never silently diverge (review F1).
+    rederive_impact: ImpactReDeriver
+    #: Governed display names for metric ids whose name overclaims what
+    #: they measure (review F9).
+    metric_display: MetricDisplayRules
     store_mode: str
     llm_mode: str
     #: Whether the wired language model applies ``LlmCallPolicy`` — the
@@ -257,6 +270,11 @@ def build_components(
     # an adapter that applies per-call policy declares it, and anything
     # that does not is treated as not applying it.
     applies_call_policy = bool(getattr(llm, "applies_call_policy", False))
+    # Every model call the engine makes now passes through a meter, so a
+    # turn that FAILS can still report what it spent (review F19). Pure
+    # decoration: with no ledger bound it is indistinguishable from the
+    # port it wraps, and attribute access falls through to the adapter.
+    llm = MeteredLanguageModel(llm)
     event_bus = ContextTurnEventBus()
     transforms = CalculationTransforms()
 
@@ -264,14 +282,16 @@ def build_components(
     interpreter = InterpretQuestionService(llm, pack_port, catalog)
     planner = BuildInvestigationPlanService(pack_port, catalog)
     validator = PlanValidationService(catalog, pack_port, repository)
+    executor = ExecuteInvestigationService(repository, stores.cache, event_bus, catalog)
+    calculator = CalculateMetricsService(transforms, pack_port)
     submit = SubmitTurnService(
         open_session=open_session,
         classifier=ClassifyTurnService(llm),
         interpreter=interpreter,
         planner=planner,
         validator=validator,
-        executor=ExecuteInvestigationService(repository, stores.cache, event_bus, catalog),
-        calculator=CalculateMetricsService(transforms, pack_port),
+        executor=executor,
+        calculator=calculator,
         evaluator=EvaluateFindingsService(stores.referents),
         referent_resolver=ResolveReferentsService(llm),
         refinement_emitter=EmitRefinementsService(llm),
@@ -314,8 +334,26 @@ def build_components(
             return f"{exc.code.value}: {exc.message}"
         return None
 
+    rederive_impact: ImpactReDeriver = build_rederiver(
+        interpreter=interpreter,
+        planner=planner,
+        validator=validator,
+        executor=executor,
+        calculator=calculator,
+        pack_snapshot_id=pack_port.snapshot_id,
+        pack_id=pack_port.pack_id,
+        pack_version=pack_port.pack_version,
+    )
+
     actionability_path = pack_dir / "anomaly_actionability.yaml"
     actionability: ActionabilityRules = load_actionability_rules(actionability_path)
+    metric_display: MetricDisplayRules = load_metric_display(pack_dir / "metric_display.yaml")
+    if metric_display.by_metric:
+        logger.info(
+            "governed metric display names loaded for %d metric id(s): %s",
+            len(metric_display.by_metric),
+            ", ".join(sorted(metric_display.by_metric)),
+        )
     recipes = tuple(
         RecipeSpec(id=r.id, applies_to=r.applies_to, chart_type=r.chart_type, notes=r.notes)
         for r in pack_snapshot.presentation_recipes
@@ -342,6 +380,8 @@ def build_components(
         priority_policy=priority_policy_from_pack(pack_snapshot),
         actionability=actionability,
         drillability=drillability,
+        rederive_impact=rederive_impact,
+        metric_display=metric_display,
         store_mode=stores.mode,
         llm_mode=llm_mode,
         llm_applies_call_policy=applies_call_policy,

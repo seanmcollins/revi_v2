@@ -165,6 +165,13 @@ describe("session store + mock driver (the real event pipeline)", () => {
   beforeEach(() => {
     useSessionStore.getState().reset();
     useSessionStore.getState().setDriver(new MockDriver(0));
+    // The store now opens on the ENV driver kind ("api" by default) rather
+    // than on a hardcoded "mock", so a live deployment stops flashing a
+    // "Mock driver" pill and a degraded badge before its first health
+    // poll. This block drives the mock fixture on purpose, so it says so.
+    useSessionStore.setState({
+      connection: { mode: "mock", state: "online", healthChecked: true },
+    });
   });
 
   it("streams the reference T1 into a complete turn", async () => {

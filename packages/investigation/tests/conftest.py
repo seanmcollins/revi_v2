@@ -7,10 +7,11 @@ wiring helpers live in ``revi_testing`` (which depends on the impls).
 
 from __future__ import annotations
 
-from collections.abc import Callable
-from datetime import date, datetime
+from collections.abc import Awaitable, Callable
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from pathlib import Path
+from typing import Any
 
 import pytest
 
@@ -21,6 +22,8 @@ from revi_investigation.domain.context import (
     InvestigationContext,
     PackVersionRef,
 )
+from revi_investigation.domain.records import Investigation, InvestigationStatus
+from revi_investigation.domain.turns import TurnClass
 from revi_kernel.filters import EMPTY_SCOPE, FilterExpr
 from revi_kernel.refs import (
     POST,
@@ -101,3 +104,44 @@ def make_spec_fixture() -> SpecFactory:
     """The spec builder as a fixture (importlib test mode: no cross-module
     test imports)."""
     return _make_spec
+
+
+async def _seed_prior_turn(engine: Any, *, session_id: str | None = None) -> str:
+    """Give a session one completed turn, so the next one is not its first.
+
+    The first utterance of a session is a NEW_INVESTIGATION *by
+    construction* — nothing else in the §7.3 taxonomy has anything to point
+    at — and the engine therefore classifies it with zero model calls (see
+    ``SubmitTurnService._classification_by_construction``). Every test
+    about what CLASSIFICATION does with an utterance consequently needs a
+    session that has already answered something; this seeds exactly that
+    and nothing else. The seeded turn carries no ``plan_hash``, so it is a
+    prior *turn* without being a prior *answer* — a refinement still has
+    nothing to refine.
+    """
+    session = await engine.open_session.open(tenant="demo", session_id=session_id)
+    await engine.investigation_store.save(
+        Investigation(
+            id=f"inv_seed_{session.id}",
+            session_id=session.id,
+            parent_id=None,
+            turn_id=f"turn_seed_{session.id}",
+            turn_class=TurnClass.NEW_INVESTIGATION,
+            question="(seeded prior turn)",
+            spec=_make_spec(measures=("cash_posted",), watermark=session.watermark),
+            plan_hash=None,
+            status=InvestigationStatus.COMPLETE,
+            findings=(),
+            created_at=datetime.now(UTC),
+        ),
+        None,
+    )
+    return session.id
+
+
+SeedPriorTurn = Callable[..., Awaitable[str]]
+
+
+@pytest.fixture(name="seed_prior_turn", scope="session")
+def seed_prior_turn_fixture() -> SeedPriorTurn:
+    return _seed_prior_turn

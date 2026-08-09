@@ -8,6 +8,23 @@
  */
 
 import type { DeploymentCapabilities, SessionSettings } from "@/lib/settings";
+
+/**
+ * The build-time driver default — `process.env` only, no `localStorage`.
+ *
+ * It lives on the seam rather than in the workspace component because the
+ * store's INITIAL connection state needs it too: opening on a hardcoded
+ * `mock` and correcting it in an effect one paint later is what made an
+ * api-mode deployment flash a "Mock driver" pill and an amber degraded
+ * badge before it had spoken to the server at all. Reading only
+ * `process.env` keeps the server render and the first client render in
+ * agreement; the `localStorage` override (`resolveDriverKind`, in
+ * apiDriver.ts) is applied afterwards, on the client, where it is safe.
+ */
+export function envDriverKind(): DriverKind {
+  return process.env.NEXT_PUBLIC_REVI_DRIVER === "mock" ? "mock" : "api";
+}
+
 import type {
   DataWatermark,
   DebugTrace,

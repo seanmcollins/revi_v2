@@ -4,7 +4,7 @@ through ``SubmitTurnService`` on the real pack with a stub repository."""
 from __future__ import annotations
 
 from datetime import date, datetime
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 import pytest
 
@@ -16,6 +16,9 @@ from revi_kernel.watermark import DataWatermark
 from revi_testing.engine_wiring import WiredEngine, build_engine
 from revi_testing.fakes import StubAnalyticalRepository
 from revi_testing.mock_llm import MockLanguageModel
+
+if TYPE_CHECKING:
+    from conftest import SeedPriorTurn
 
 WATERMARK = DataWatermark(
     id="wm_test", loaded_at=datetime(2026, 8, 3, 4, 10), newest_data_date=date(2026, 8, 2)
@@ -55,8 +58,12 @@ def _interpretation(**overrides: Any) -> dict[str, Any]:
 
 class TestDefinitionalPath:
     async def test_what_is_pr3_answers_from_pack_with_zero_probes(self) -> None:
+        """A first-turn definitional question, classified by construction.
+
+        Zero model calls, not one: a governed lead-in over a term the pack
+        resolves whole is a definitional question by lookup, and a lookup
+        against governed content does not need a model to confirm it."""
         llm = MockLanguageModel()
-        _classify(llm, "definitional")
         engine = _engine(llm)
         outcome = await engine.submit.submit(
             SubmitTurnRequest(tenant="demo", question="what is pr3")
@@ -74,6 +81,7 @@ class TestDefinitionalPath:
         assert engine.repository.execute_count == 0
         assert outcome.investigation.status is InvestigationStatus.COMPLETE
         assert outcome.investigation.turn_class is TurnClass.DEFINITIONAL
+        assert llm.structured_calls == [], "a pack lookup needs no model call"
         # trace persisted with the definitional payload and no probes
         trace = await engine.trace_store.get(outcome.trace_id)
         assert trace is not None
@@ -82,7 +90,6 @@ class TestDefinitionalPath:
 
     async def test_definitional_terms_from_interpretation_also_zero_probes(self) -> None:
         llm = MockLanguageModel()
-        _classify(llm, "new_investigation")
         llm.respond(
             "interpret_question", _interpretation(definitional_terms=["denial rate"])
         )
@@ -95,8 +102,11 @@ class TestDefinitionalPath:
         assert engine.repository.execute_count == 0
 
     async def test_unknown_term_becomes_clarification(self) -> None:
+        """A lead-in over a term the pack does not know is NOT definitional
+        by construction — it falls through to interpretation, which is
+        where a question that names nothing governed belongs."""
         llm = MockLanguageModel()
-        _classify(llm, "definitional")
+        llm.respond("interpret_question", _interpretation(definitional_terms=["flurbotron"]))
         engine = _engine(llm)
         outcome = await engine.submit.submit(
             SubmitTurnRequest(tenant="demo", question="what is flurbotron")
@@ -108,28 +118,35 @@ class TestDefinitionalPath:
 
 
 class TestClarificationOutcomes:
-    async def test_structured_output_none_never_guesses(self) -> None:
+    async def test_structured_output_none_never_guesses(
+        self, seed_prior_turn: SeedPriorTurn
+    ) -> None:
         llm = MockLanguageModel()
         llm.respond("classify_turn", None)  # model failed the schema
         engine = _engine(llm)
+        session_id = await seed_prior_turn(engine)
         outcome = await engine.submit.submit(
-            SubmitTurnRequest(tenant="demo", question="mumble mumble")
+            SubmitTurnRequest(tenant="demo", question="mumble mumble", session_id=session_id)
         )
         assert outcome.clarification is not None
         assert outcome.investigation.status is InvestigationStatus.CLARIFICATION_REQUIRED
         assert engine.repository.execute_count == 0
 
-    async def test_low_confidence_classification_clarifies(self) -> None:
+    async def test_low_confidence_classification_clarifies(
+        self, seed_prior_turn: SeedPriorTurn
+    ) -> None:
         llm = MockLanguageModel()
         _classify(llm, "new_investigation", confidence=0.2)
         engine = _engine(llm)
-        outcome = await engine.submit.submit(SubmitTurnRequest(tenant="demo", question="hm?"))
+        session_id = await seed_prior_turn(engine)
+        outcome = await engine.submit.submit(
+            SubmitTurnRequest(tenant="demo", question="hm?", session_id=session_id)
+        )
         assert outcome.clarification is not None
         assert engine.repository.execute_count == 0
 
     async def test_interpretation_clarification_is_an_outcome(self) -> None:
         llm = MockLanguageModel()
-        _classify(llm, "new_investigation")
         llm.respond(
             "interpret_question",
             _interpretation(clarification="Which metric did you mean?"),
@@ -143,21 +160,39 @@ class TestClarificationOutcomes:
         clarification_events = [e for e in engine.event_bus.events if e.kind == "clarification"]
         assert clarification_events
 
-    async def test_follow_up_class_on_first_turn_clarifies(self) -> None:
+    async def test_follow_up_class_on_a_session_with_no_answer_clarifies(
+        self, seed_prior_turn: SeedPriorTurn
+    ) -> None:
+        """A refinement needs something to refine. The session has a turn
+        (so classification runs) but no analytical answer, and the handle
+        F1 was never published — both are said, neither is guessed."""
         llm = MockLanguageModel()
         _classify(llm, "refinement")
         engine = _engine(llm)
+        session_id = await seed_prior_turn(engine)
         outcome = await engine.submit.submit(
-            SubmitTurnRequest(tenant="demo", question="drill into F1")
+            SubmitTurnRequest(tenant="demo", question="drill into F1", session_id=session_id)
         )
         assert outcome.clarification is not None
         assert engine.repository.execute_count == 0
+
+    async def test_the_first_utterance_is_never_classified_by_a_model(self) -> None:
+        """F11: a session with nothing behind it can only be starting one.
+
+        Zero classification calls, and the taxonomy branch it would have
+        picked cannot be wrong, because nothing picked it."""
+        llm = MockLanguageModel()
+        llm.respond("interpret_question", _interpretation(clarification="which metric?"))
+        engine = _engine(llm)
+        await engine.submit.submit(
+            SubmitTurnRequest(tenant="demo", question="how are we doing")
+        )
+        assert llm.calls_for("classify_turn") == ()
 
 
 class TestInterpretationValidation:
     async def test_unknown_metric_id_is_unsupported_concept(self) -> None:
         llm = MockLanguageModel()
-        _classify(llm, "new_investigation")
         llm.respond("interpret_question", _interpretation(metric_ids=["made_up_metric"]))
         engine = _engine(llm)
         with pytest.raises(UnsupportedConceptError):
@@ -165,7 +200,6 @@ class TestInterpretationValidation:
 
     async def test_unknown_playbook_id_is_unsupported_concept(self) -> None:
         llm = MockLanguageModel()
-        _classify(llm, "new_investigation")
         llm.respond("interpret_question", _interpretation(playbook_id="made_up_playbook"))
         engine = _engine(llm)
         with pytest.raises(UnsupportedConceptError):
@@ -173,7 +207,6 @@ class TestInterpretationValidation:
 
     async def test_illegal_basis_is_date_basis_invalid(self) -> None:
         llm = MockLanguageModel()
-        _classify(llm, "new_investigation")
         llm.respond(
             "interpret_question",
             _interpretation(metric_ids=["cash_posted"], basis="discharge"),
@@ -186,7 +219,6 @@ class TestInterpretationValidation:
 
     async def test_prompts_carry_vocabulary_not_data(self) -> None:
         llm = MockLanguageModel()
-        _classify(llm, "new_investigation")
         llm.respond("interpret_question", _interpretation(clarification="which?"))
         engine = _engine(llm)
         await engine.submit.submit(SubmitTurnRequest(tenant="demo", question="numbers please"))

@@ -345,7 +345,7 @@ export function CommandPalette({
               }}
               onKeyDown={onInputKeyDown}
               placeholder="Ask, navigate, or act…"
-              className="h-11 w-full bg-transparent text-[0.85rem] outline-none placeholder:text-muted-foreground/60"
+              className="h-11 w-full bg-transparent text-[0.85rem] outline-none placeholder:text-muted-foreground"
             />
             <kbd className="rounded border bg-surface-sunken px-1.5 py-0.5 font-mono text-[0.6rem] text-muted-foreground">
               esc
@@ -363,7 +363,7 @@ export function CommandPalette({
               return (
                 <div key={action.id}>
                   {showGroup && (
-                    <p className="px-2.5 pb-1 pt-2.5 text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground/70">
+                    <p className="px-2.5 pb-1 pt-2.5 text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                       {action.group}
                     </p>
                   )}
@@ -384,7 +384,7 @@ export function CommandPalette({
                     <span className="text-muted-foreground">{action.icon}</span>
                     <span className="min-w-0 flex-1 truncate">{action.label}</span>
                     {action.hint && (
-                      <span className="shrink-0 text-[0.6rem] text-muted-foreground/70">
+                      <span className="shrink-0 text-[0.6rem] text-muted-foreground">
                         {action.hint}
                       </span>
                     )}
@@ -393,7 +393,7 @@ export function CommandPalette({
               );
             })}
           </div>
-          <div className="flex items-center gap-3 border-t px-3.5 py-2 text-[0.6rem] text-muted-foreground/70">
+          <div className="flex items-center gap-3 border-t px-3.5 py-2 text-[0.6rem] text-muted-foreground">
             <span className="flex items-center gap-1">
               <kbd className="rounded border bg-surface-sunken px-1 font-mono">↑↓</kbd> navigate
             </span>

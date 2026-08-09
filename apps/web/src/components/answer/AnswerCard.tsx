@@ -1,6 +1,7 @@
 "use client";
 
-import { AlertTriangle, FileSearch, History, Info, Zap } from "lucide-react";
+import { AlertTriangle, FileSearch, History, Info, SearchX, Zap } from "lucide-react";
+import { useMemo } from "react";
 
 import { ContextHeader } from "@/components/answer/ContextHeader";
 import { GradeBadge } from "@/components/answer/GradeBadge";
@@ -19,6 +20,8 @@ import { DefinitionCard } from "@/components/definitional/DefinitionCard";
 import { FeedbackTriage } from "@/components/feedback/FeedbackTriage";
 import { FindingCard } from "@/components/findings/FindingCard";
 import { Button } from "@/components/ui/button";
+import { humanizeColumn, selectRenderableCharts } from "@/lib/contract";
+import { chartWindowLabel, formatWindow } from "@/lib/format";
 import { useSessionStore, type TurnRecord } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -32,6 +35,30 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
   const debug = useSessionStore((s) => s.settings.debug);
   const streaming = turn.answer.status === "streaming";
   const a = turn.answer;
+
+  // A comparison turn publishes the same measure twice (`main` and
+  // `main__compare`, byte-identical rows) and single-row frames for
+  // scalars. Both were being drawn: two identical charts stacked, and a
+  // "trend" through one point. See `selectRenderableCharts`.
+  const charts = useMemo(() => selectRenderableCharts(a.charts), [a.charts]);
+  const windowLabel = a.header ? chartWindowLabel(a.header.window) : undefined;
+
+  /**
+   * An answer that completed with nothing to show. This is a real, typed
+   * outcome — the question was legible, the probes ran, and the governed
+   * data had no rows to report — and it used to render as a card that was
+   * blank apart from a "Governed" badge, which reads as a bug and, worse,
+   * as a certified nothing. The branch below says what was checked
+   * instead, from what the payload actually carries.
+   */
+  const emptyResult =
+    !streaming &&
+    a.status === "complete" &&
+    a.findings.length === 0 &&
+    !a.definition &&
+    !a.clarification &&
+    !a.error &&
+    a.narrative.trim() === "";
 
   return (
     <div className={cn("space-y-3", active && "relative isolate")}>
@@ -93,10 +120,16 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
           {a.evidence?.zeroProbeTurn && (
             <span
               className="inline-flex h-5 items-center gap-1 rounded-full border border-verified/40 bg-verified/10 px-2 text-[0.7rem] font-medium text-verified"
-              title="Everything this answer needed was already computed in this session — the warehouse was not queried again."
+              title="Every probe this turn needed was already in the evidence cache from earlier in this session, at this same data load. The warehouse was not queried again — the numbers are not newer than the ones above them."
             >
               <Zap className="size-3" />
-              No new queries
+              {/* "No new queries" read as a performance boast about the
+                  whole answer. What is actually true is narrower and more
+                  useful: the results came from cache, at the SAME data
+                  load, so nothing here is fresher than what preceded it. */}
+              Answered from cached results
+              {a.header?.watermark.id ? ` (same data load ${a.header.watermark.id})` : ""} — no new
+              warehouse query
             </span>
           )}
           {a.evidence && (
@@ -160,9 +193,11 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
         </div>
       )}
 
-      {a.charts.map((spec) => (
+      {emptyResult && <EmptyResult answer={a} chartCount={charts.length} />}
+
+      {charts.map((spec) => (
         <div key={spec.id} className="fade-up">
-          <InvestigationChart spec={spec} turnId={turn.id} />
+          <InvestigationChart spec={spec} turnId={turn.id} windowLabel={windowLabel} />
         </div>
       ))}
 
@@ -191,6 +226,79 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
           <FeedbackTriage turnId={turn.id} />
         </div>
       )}
+    </div>
+  );
+}
+
+/**
+ * "Nothing found" rendered as an answer rather than as an absence.
+ *
+ * Everything in it comes off the payload that arrived: the window and
+ * basis from the context header, the governed contracts from the metric
+ * block, the probe count from the evidence bundle. Nothing is inferred —
+ * a turn that published none of those says so by simply not listing them,
+ * which is still a great deal more than an empty card wearing a badge.
+ *
+ * Deliberately tolerant of both payload shapes: today emptiness is a
+ * `findings: []` answer, and the backend is making it typed. This branch
+ * keys off what is on screen, so a typed empty answer lands here too.
+ */
+function EmptyResult({
+  answer,
+  chartCount,
+}: {
+  answer: TurnRecord["answer"];
+  chartCount: number;
+}) {
+  const checked: string[] = [];
+  if (answer.header) checked.push(formatWindow(answer.header.window));
+  const filters = answer.header?.filters ?? [];
+  for (const filter of filters) {
+    checked.push(`${filter.dimensionLabel} ${filter.op} ${filter.values.join(", ")}`);
+  }
+  // Governed measure names in the analyst's spelling — the badge above
+  // already carries the contract ids and versions for anyone who wants them.
+  const metrics = answer.metric?.metrics.map((m) => humanizeColumn(m.id)) ?? [];
+  if (metrics.length > 0) checked.push(metrics.join(", "));
+  const checks = answer.evidence?.probes.length ?? 0;
+  if (checks > 0) {
+    checked.push(`${checks} data check${checks === 1 ? "" : "s"} against this data load`);
+  }
+
+  return (
+    <div className="rounded-lg border border-dashed bg-card/60 p-3.5">
+      <div className="flex items-start gap-2.5">
+        <span className="mt-0.5 flex size-7 shrink-0 items-center justify-center rounded-md border bg-surface-sunken">
+          <SearchX className="size-3.5 text-muted-foreground" />
+        </span>
+        <div className="min-w-0 space-y-2">
+          <p className="text-[0.8rem] font-medium leading-snug">
+            No findings for this question — here&apos;s what was checked
+          </p>
+          {checked.length > 0 ? (
+            <ul className="space-y-0.5 text-[0.7rem] leading-snug text-muted-foreground">
+              {checked.map((line) => (
+                <li key={line} className="flex gap-1.5">
+                  <span aria-hidden>·</span>
+                  {line}
+                </li>
+              ))}
+            </ul>
+          ) : (
+            <p className="text-[0.7rem] leading-snug text-muted-foreground">
+              This turn came back with no window, no measure and no record of what ran — so
+              there is nothing further this card can honestly say about it.
+            </p>
+          )}
+          <p className="text-[0.7rem] leading-snug text-muted-foreground">
+            {answer.warnings.length > 0
+              ? "The notes above are the engine's own account of why."
+              : chartCount > 0
+                ? "The chart below carries the rows the probes did return."
+                : "The governed data has no rows matching that question at this data load — narrow it differently, or widen the window."}
+          </p>
+        </div>
+      </div>
     </div>
   );
 }

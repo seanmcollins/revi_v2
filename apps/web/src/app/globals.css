@@ -51,9 +51,9 @@
   --surface-sunken: #f1efeb;
   --surface-overlay: #ffffff;
 
-  --verified: #0d9488;
+  --verified: #0b7a70;
   --positive: #047857;
-  --negative: #dc2626;
+  --negative: #c81e1e;
   --warning: #b45309;
 
   --accent-from: #0d9488;
@@ -61,7 +61,7 @@
   --glow-a: rgba(13, 148, 136, 0.07);
   --glow-b: rgba(42, 99, 212, 0.05);
 
-  --grade-direct: #0d9488;
+  --grade-direct: #0b7a70;
   --grade-derived: #1d6fc4;
   --grade-proxy: #b45309;
   --grade-discovery: #7c3aed;

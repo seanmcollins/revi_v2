@@ -13,7 +13,13 @@ from __future__ import annotations
 
 import pytest
 
-from revi_api.error_copy import PLAIN_MESSAGES, plain_message
+from revi_api.error_copy import (
+    MODEL_SPEND_BUDGET,
+    PLAIN_MESSAGES,
+    WAREHOUSE_READ_BUDGET,
+    budget_subcode,
+    plain_message,
+)
 from revi_kernel.errors import ErrorCode
 
 TECHNICAL = "date basis 'remit' is not bound for entity 'claim'"
@@ -95,3 +101,65 @@ def test_internal_detail_keys_are_never_echoed() -> None:
 
     assert "main_2" not in message
     assert "claim" not in message
+
+
+class TestBudgetSubcodes:
+    """QUERY_BUDGET_EXCEEDED was two failures wearing one code (review F19).
+
+    A plan that would group too many cells and a turn that ran out of
+    model spend both arrived as "narrow your question" — and the analyst
+    who read that after a spend stop went off to rewrite a question that
+    was never too wide.
+    """
+
+    def test_a_warehouse_read_stop_keeps_the_narrow_your_question_copy(self) -> None:
+        details = {"probe": "main_1", "cells": 9000, "budget": 5000}
+        assert (
+            budget_subcode(ErrorCode.QUERY_BUDGET_EXCEEDED, details)
+            == WAREHOUSE_READ_BUDGET
+        )
+        message = plain_message(
+            ErrorCode.QUERY_BUDGET_EXCEEDED,
+            "probe 'main_1' groups an estimated 9000 cells",
+            details=details,
+        )
+        assert message == PLAIN_MESSAGES[ErrorCode.QUERY_BUDGET_EXCEEDED]
+
+    def test_a_model_spend_stop_gets_its_own_sentence(self) -> None:
+        details = {"provider": "claude_agent_sdk", "max_budget_usd": 0.5, "cost_usd": 0.51}
+        assert (
+            budget_subcode(ErrorCode.QUERY_BUDGET_EXCEEDED, details) == MODEL_SPEND_BUDGET
+        )
+        message = plain_message(
+            ErrorCode.QUERY_BUDGET_EXCEEDED,
+            "Claude Agent SDK call exceeded its per-call budget cap",
+            details=details,
+        )
+        # It must NOT send the analyst to narrow a question that was fine.
+        assert "warehouse" not in message
+        assert "cost ceiling" in message or "model-spend" in message
+        assert message != PLAIN_MESSAGES[ErrorCode.QUERY_BUDGET_EXCEEDED]
+
+    def test_the_stable_code_is_untouched_by_the_split(self) -> None:
+        """Clients branch on the §12 code; the subcode is additive."""
+        assert ErrorCode.QUERY_BUDGET_EXCEEDED.value == "QUERY_BUDGET_EXCEEDED"
+        assert budget_subcode(ErrorCode.DATE_BASIS_INVALID, {"cost_usd": 1}) is None
+
+    def test_an_unattributable_budget_stop_defaults_to_the_readable_recovery(
+        self,
+    ) -> None:
+        """With nothing to tell them apart, the guess is the one the
+        analyst can act on and verify for themselves."""
+        assert budget_subcode(ErrorCode.QUERY_BUDGET_EXCEEDED, None) == WAREHOUSE_READ_BUDGET
+
+    def test_debug_mode_still_carries_the_engines_words_for_a_subcoded_stop(
+        self,
+    ) -> None:
+        technical = "Claude Agent SDK call exceeded its per-call budget cap"
+        message = plain_message(
+            ErrorCode.QUERY_BUDGET_EXCEEDED,
+            technical,
+            debug=True,
+            details={"max_budget_usd": 0.5},
+        )
+        assert technical in message and "QUERY_BUDGET_EXCEEDED" in message

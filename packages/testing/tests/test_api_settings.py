@@ -295,8 +295,9 @@ class TestDebugSurface:
         assert debug.interpretation is not None
         assert debug.interpretation.playbook_id == "cash_decline"
         assert debug.probes and all(p.rows is not None for p in debug.probes)
+        # A first utterance is classified by construction, so the ledger
+        # lists the calls that actually happened and no more.
         assert debug.llm_calls and {c.template for c in debug.llm_calls} >= {
-            "classify_turn",
             "interpret_question",
         }
         assert debug.weakest_grade is not None

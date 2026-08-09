@@ -1,9 +1,14 @@
 id: timely_filing_watch
 description: >-
-  Pre-denial timely-filing early warning: value the unsubmitted inventory
-  against governed filing rules, profile its aging, and confirm whether
-  limits are already being breached (CARC 29 denials). The at-risk snapshot
-  is the differentiator — it surfaces deadlines before the denial exists.
+  Unbilled-inventory watch, on the road to a pre-denial timely-filing early
+  warning. Today it values the unsubmitted open inventory, profiles its
+  aging, and confirms whether limits are already being breached (CARC 29
+  denials). What it does NOT yet do is apply the governed filing rules:
+  timely_filing_at_risk_dollars carries no deadline predicate, so the
+  at-risk probe below is an upper bound on exposure and every answer says
+  so. The deadline join is the named next milestone (see ../NOTES.md); the
+  differentiator arrives with it, and this description will say so when it
+  is true.
 triggers:
   - timely filing risk
   - claims about to miss filing
@@ -18,16 +23,22 @@ probes:
     dimensions: [plan, facility]
     top_n: 10
     scope_note: >-
-      Snapshot of unsubmitted open dollars by plan and facility, aged
-      against each plan's filing rule (limit days, basis, authority,
-      confirmation state). The planted scenario clusters July services on a
-      90-day service-basis Medicaid HMO plan at one facility.
+      Snapshot of unsubmitted OPEN dollars by plan and facility. NOT aged
+      against each plan's filing rule: the limit days, basis, authority and
+      confirmation state in filing_rules.yaml are governed content the
+      contract does not yet join at probe time, so a claim with a year of
+      runway is counted identically to one a week from its limit. Read this
+      as the population a filing watch would age. The planted scenario
+      clusters July services on a 90-day service-basis Medicaid HMO plan at
+      one facility, and identifying that cluster still requires the join.
   - id: unbilled_aging_profile
     metric_ids: [ar_balance]
     dimensions: [ar_age_bucket]
     scope_note: >-
-      Aging profile of the at-risk population (scope: submission date null)
-      — how much runway remains per bucket.
+      Aging profile of the unbilled population (scope: submission date null).
+      A/R age is not filing runway — the buckets age from the A/R clock, not
+      from each plan's filing basis and limit — so this indicates where to
+      look, and cannot yet say how much runway remains.
   - id: breach_confirmation
     metric_ids: [denied_dollars]
     dimensions: [group_code, carc, plan]

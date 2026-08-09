@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import logging
 import uuid
+from dataclasses import replace
 from typing import Any
 
 from revi_api.assembly import (
@@ -33,17 +34,21 @@ from revi_api.assembly import (
     restored_chart_specs,
 )
 from revi_api.auth import AuthorizationError, Principal
+from revi_api.cohort_payload import cohort_id_from_trace, cohort_payload_for
 from revi_api.debug_trace import build_debug_trace
-from revi_api.error_copy import plain_message
-from revi_api.portfolio import build_portfolio
+from revi_api.error_copy import budget_subcode, plain_message
+from revi_api.portfolio import build_portfolio, drill_spec_for, is_active
+from revi_api.rederive import ReDerivedImpact, compare_impact, money_total
 from revi_api.settings_policy import DEBUG_TRACE_ENV
+from revi_api.usage_ledger import bind_ledger, unbind_ledger
 from revi_api.wiring import ApiComponents
 from revi_investigation.application.dto_mapping import refinement_to_dto
-from revi_investigation.application.ports import TraceRecord
-from revi_investigation.application.submit_turn import SubmitTurnRequest
-from revi_investigation.domain.records import Session
+from revi_investigation.application.ports import AnomalyRecord, TraceRecord
+from revi_investigation.application.submit_turn import SubmitTurnRequest, TurnOutcome
+from revi_investigation.domain.records import Investigation, Session
 from revi_investigation.domain.settings import SessionSettings
 from revi_investigation_contracts.api import (
+    AnomalyReconciliationPayload,
     CapabilitiesResponse,
     DebugTracePayload,
     ErrorEnvelope,
@@ -62,6 +67,7 @@ from revi_investigation_contracts.api import (
 )
 from revi_investigation_contracts.settings import SessionSettingsModel
 from revi_kernel.errors import ErrorCode, PolicyDeniedError, ReviError
+from revi_kernel.watermark import DataWatermark
 
 logger = logging.getLogger("revi.api.service")
 
@@ -72,6 +78,30 @@ DEFAULT_SESSION_LIST_LIMIT = 50
 #: Hard cap on that page. A list route with an unbounded page size is a
 #: denial-of-service handle a client can pull by accident.
 MAX_SESSION_LIST_LIMIT = 200
+
+
+def _cohort_id_of(investigation: Investigation) -> str | None:
+    """The cohort a stored turn was computed over, from its own spec.
+
+    The spec's context is where an INHERITED cohort lives — a turn two
+    steps after the drill that pinned it carries the population without
+    having pinned anything, and the trace's ``refinement.cohort`` block
+    (written only by the pinning turn) would report nothing for it.
+    """
+    context = getattr(getattr(investigation, "spec", None), "context", None)
+    cohort = getattr(context, "cohort", None)
+    return getattr(cohort, "id", None)
+
+
+def _with_warning(outcome: TurnOutcome, warning: str) -> TurnOutcome:
+    """The same outcome with one more warning on it.
+
+    Used where the API has something to say that the engine could not know
+    — a card reference it could not resolve, say. Appended rather than
+    prepended: the engine's own assumptions and validation notes lead, as
+    they are ordered to.
+    """
+    return replace(outcome, warnings=(*outcome.warnings, warning))
 
 
 class NotFoundError(ReviError):
@@ -235,6 +265,10 @@ class ApiService:
             "(typed investigation)" if request.spec is not None else "(typed gesture)"
         )
         utterance = request.utterance or request.clarification_response or default_question
+        # Every model call this turn makes is tallied here, so a turn that
+        # FAILS can still say what it spent (review F19). The binding is a
+        # contextvar, so concurrent turns cannot read each other's ledger.
+        ledger, ledger_token = bind_ledger()
         try:
             # A per-turn override is bounds-checked exactly like a session
             # one, and applies to this turn alone (the session record is
@@ -258,8 +292,12 @@ class ApiService:
                 settings=turn_settings,
             )
             outcome = await self._components.submit.submit(engine_request)
+            outcome, strip = await self._anomaly_reconciliation(request, outcome)
             response: TurnResult = await assemble_turn_response(
-                self._components, outcome, on_event=on_event
+                self._components,
+                outcome,
+                on_event=on_event,
+                anomaly_reconciliation=strip,
             )
         except ReviError as exc:
             # The engine's own sentence, always, in the log: the plain
@@ -280,13 +318,129 @@ class ApiService:
                         details=exc.details,
                     ),
                     correlation_id=correlation_id,
+                    # Which budget stopped it, when a budget did — the two
+                    # QUERY_BUDGET_EXCEEDED failures want opposite recoveries.
+                    subcode=budget_subcode(exc.code, exc.details),
                 ),
+                # What the failed turn actually spent. A refusal at §6.6
+                # arrives after classification and interpretation have both
+                # billed; reporting nothing made the ledger short by exactly
+                # the turns most likely to be retried.
+                usage=ledger.summary(),
             )
             if on_event is not None:
                 await on_event("error", response.error.model_dump(mode="json"))
+        finally:
+            unbind_ledger(ledger_token)
         if request.idempotency_key is not None:
             self._idempotent[(principal.tenant, session_id, request.idempotency_key)] = response
         return response
+
+    async def _anomaly_reconciliation(
+        self, request: TurnRequest, outcome: TurnOutcome
+    ) -> tuple[TurnOutcome, AnomalyReconciliationPayload | None]:
+        """Reconcile a drill's answer against the card it was launched from.
+
+        The defect this closes (review F1): a card said ``$178,217``, its
+        own drill answered ``$195,873.92``, and the only reconciliation
+        anywhere on the answer read ``not_applicable — this is a first
+        turn``. That verdict is about the investigation LINEAGE and is
+        correct; it is simply not about the two numbers the analyst had
+        just compared, and nothing else was.
+
+        The figure compared is the money total of the answer's own final
+        frame — the same quantity :mod:`revi_api.rederive` sums for the
+        card's ``reconciled_impact_cents`` — so the strip and the card can
+        never describe this pair of numbers differently.
+
+        Every non-answer path returns a warning rather than an error: a
+        reference to a card that no longer exists in the feed must not
+        cost the analyst the answer they asked for.
+        """
+        ref = request.anomaly_ref
+        if not ref:
+            return outcome, None
+        if request.spec is None:
+            return (
+                _with_warning(
+                    outcome,
+                    f"anomaly_ref {ref!r} ignored: it names the card a TYPED drill was "
+                    "launched from, and this turn carries no typed spec, so there is no "
+                    "drill of that card to reconcile against",
+                ),
+                None,
+            )
+        try:
+            records = await self._components.anomaly_source.list_anomalies(
+                outcome.session.watermark
+            )
+        except Exception:
+            logger.warning("detection feed unreadable while reconciling %s", ref, exc_info=True)
+            return (
+                _with_warning(
+                    outcome,
+                    f"anomaly_ref {ref!r}: the detection feed could not be read at this "
+                    "watermark, so this answer is published without the card-to-drill "
+                    "reconciliation it would otherwise carry",
+                ),
+                None,
+            )
+        record = next((r for r in records if r.anomaly_id == ref), None)
+        if record is None:
+            return (
+                _with_warning(
+                    outcome,
+                    f"anomaly_ref {ref!r} is not in the detection feed at watermark "
+                    f"{outcome.session.watermark.id}; the answer below stands on its own "
+                    "evidence, with no card figure to reconcile against",
+                ),
+                None,
+            )
+        cents, measure, rows = money_total(outcome.frames)
+        comparison = compare_impact(
+            detector_cents=record.impact_cents,
+            window_start=record.window_start,
+            window_end=record.window_end,
+            rederived=ReDerivedImpact(
+                cents=cents,
+                measure_id=measure,
+                rows=rows,
+                unavailable_reason=(
+                    None
+                    if cents is not None
+                    else "this answer produces no money column, so there is no figure to "
+                    "compare against the card's dollar impact"
+                ),
+            ),
+            unattempted_note="",
+        )
+        strip = AnomalyReconciliationPayload(
+            anomaly_id=record.anomaly_id,
+            status=comparison.status,  # type: ignore[arg-type]
+            card_impact_cents=comparison.detector_cents,
+            answer_impact_cents=comparison.platform_cents,
+            delta_cents=comparison.delta_cents,
+            delta_fraction=comparison.delta_fraction,
+            answer_metric_id=comparison.measure_id,
+            card_metric_id=record.metric_id,
+            card_window_start=record.window_start,
+            card_window_end=record.window_end,
+            detail=comparison.note,
+            summary=(
+                f"status={comparison.status}; card=${record.impact_cents / 100:,.2f}; "
+                + (
+                    f"answer=${comparison.platform_cents / 100:,.2f}"
+                    if comparison.platform_cents is not None
+                    else "answer=unavailable"
+                )
+                + (
+                    f"; delta={comparison.delta_fraction:+.1%}"
+                    if comparison.delta_fraction is not None
+                    else ""
+                )
+            ),
+        )
+        return outcome, strip
 
     async def _debug_in_force(self, session_id: str, request: TurnRequest) -> bool:
         """Was this turn asked to show its working?
@@ -326,6 +480,22 @@ class ApiService:
             investigation,
             trace,
             await restored_chart_specs(self._components, investigation, trace),
+            # The population the turn was computed over — a restored turn
+            # keeps its chip instead of losing the one field that says what
+            # it measured. The stored spec's own context is the first
+            # source and the honest one: it carries the cohort a turn
+            # INHERITED as well as one it pinned, where the trace's
+            # ``refinement.cohort`` block is written only by the turn that
+            # did the pinning. Without the fallback, a comparison turn two
+            # steps after the drill would restore with no population at all.
+            cohort=await cohort_payload_for(
+                _cohort_id_of(investigation)
+                or (cohort_id_from_trace(trace.payload) if trace is not None else None),
+                session_id=investigation.session_id,
+                cohorts=self._components.cohorts,
+                referents=self._components.referents,
+                investigations=self._components.investigations,
+            ),
         )
 
     async def _primary_trace(self, investigation_id: str) -> TraceRecord | None:
@@ -415,6 +585,9 @@ class ApiService:
             pack_snapshot_id=components.pack_port.snapshot_id,
             newest_watermark_id=newest.id,
             llm=components.llm_mode,
+            # Fetched once by a client, so any surface that shows a metric
+            # id can show what the number actually is (review F9).
+            metric_display=components.metric_display.all_payloads(),
             # Published so a client renders the controls this deployment
             # actually has — and does not render one that would be refused
             # or, worse, one that would change nothing.
@@ -440,4 +613,31 @@ class ApiService:
             rules=components.actionability,
             tenant=principal.tenant,
             drillability=components.drillability,
+            rederived=await self._rederived_impacts(records, newest),
+            metric_display=components.metric_display,
         )
+
+    async def _rederived_impacts(
+        self, records: tuple[AnomalyRecord, ...], watermark: DataWatermark
+    ) -> dict[str, ReDerivedImpact]:
+        """This platform's own figure for every card that can be drilled.
+
+        Sequential on purpose. These reads go through the ordinary
+        evidence cache, so the second build of a watermark is nearly free
+        and the analyst's later drill of a card reuses the very frame
+        computed here; firing thirty concurrent warehouse queries to save
+        a few seconds on the first build would trade a bounded wait for an
+        unbounded load spike on the one connection the whole API shares.
+
+        A card whose drill does not plan is skipped before any query — the
+        re-deriver returns the refusal, and the card says "not
+        investigable at this catalog version" rather than "unreconciled".
+        """
+        components = self._components
+        out: dict[str, ReDerivedImpact] = {}
+        for record in records:
+            if not is_active(record):
+                continue
+            spec = drill_spec_for(record, components.actionability)
+            out[record.anomaly_id] = await components.rederive_impact(spec, watermark)
+        return out

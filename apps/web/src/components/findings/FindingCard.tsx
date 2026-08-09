@@ -54,10 +54,22 @@ export function FindingCard({ finding, turnId }: { finding: Finding; turnId: str
 
       <div className="flex items-end justify-between gap-3">
         <div>
-          {impact && (
+          {impact ? (
             <p className={cn("numeral text-[1.55rem] font-medium leading-none", TONE_TEXT[tone])}>
               {impact}
             </p>
+          ) : (
+            finding.impactWithheldReason && (
+              // The server withheld the impact figure on purpose (a
+              // mismatched comparison window makes any difference between
+              // the two sides meaningless). An empty stat slot reads as a
+              // rendering failure; the refusal reads as the engine being
+              // careful, which is what actually happened.
+              <p className="text-[0.7rem] font-medium leading-tight text-muted-foreground">
+                No impact figure
+                <span className="ml-1 font-normal">— {finding.impactWithheldReason}</span>
+              </p>
+            )
           )}
           <p className="mt-1.5 flex items-center gap-1.5 text-[0.65rem] text-muted-foreground">
             {finding.impactLabel}
@@ -140,7 +152,7 @@ function MiniBars({
           </span>
         </div>
       ))}
-      <div className="flex justify-between text-[0.55rem] uppercase tracking-wide text-muted-foreground/70">
+      <div className="flex justify-between text-[0.55rem] uppercase tracking-wide text-muted-foreground">
         <span>{rows[0].label}</span>
         <span>{rows[1].label}</span>
       </div>

@@ -41,6 +41,8 @@ from typing import Any
 from revi_investigation.application.ports import RegisteredReferent, TraceRecord
 from revi_investigation.domain.context import (
     AnalysisSpec,
+    AskedDirection,
+    AskedMagnitude,
     ContextPin,
     InvestigationContext,
     PackVersionRef,
@@ -204,6 +206,10 @@ _ENUMS: tuple[type[Enum], ...] = (
     TurnClass,
     NarrativeDepth,
     EvidenceDepth,
+    # the movement a question asked about, carried on the AnalysisSpec so a
+    # rehydrated turn selects rows the same way the live one did
+    AskedDirection,
+    AskedMagnitude,
 )
 
 _DATACLASS_REGISTRY: dict[str, type] = {cls.__name__: cls for cls in _DATACLASSES}

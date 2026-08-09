@@ -264,6 +264,13 @@ export interface Finding {
   impactLabel?: string;
   /** Non-money headline stat, e.g. "4.0×" (used when impactCents is absent). */
   impactDisplay?: string;
+  /**
+   * Why the stat slot is empty when the server deliberately withheld the
+   * impact figure (e.g. COMPARISON_WINDOW_MISMATCH suppresses it). The
+   * card renders this instead of a blank — an absent number that nobody
+   * explains reads as a rendering bug, not as a refusal.
+   */
+  impactWithheldReason?: string;
   deltaPct?: number;
   directionOfGood: DirectionOfGood;
   confidence: Confidence;
@@ -303,8 +310,19 @@ export interface ChartSpec {
   /** The published `ChartSpec.chart_type`, kept verbatim so the reduction
    *  is visible and reversible rather than lossy. */
   wireChartType?: string;
+  /**
+   * The published `ChartSpec.frame_id`. Load-bearing, not decoration: a
+   * comparison turn publishes `main` AND `main__compare` (and, when the
+   * engine grows one, `main__prior`) over the same measure, so the frame
+   * id is the only thing that says which charts are the same question
+   * asked twice. See `selectRenderableCharts`.
+   */
+  frameId?: string;
   title: string;
-  unit: "cents" | "percent" | "count";
+  /** The server's own `ChartSpec.title` ("denied dollars — main 2  compare"),
+   *  kept so the composed human title can be checked against it. */
+  wireTitle?: string;
+  unit: "cents" | "percent" | "count" | "days";
   series: ChartSeries[];
   rows: ChartRow[];
   /** Truncation is surfaced, never silent. */

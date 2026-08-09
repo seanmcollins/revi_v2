@@ -33,16 +33,30 @@ Guidance:
   analyst gives none.
 - comparison: prior_period or prior_year, only when the question asks for
   one (explicitly or via words like "decline", "change", "vs").
-- scope: only predicates the analyst states, on listed dimension ids.
+- scope: only predicates the analyst states, on listed dimension ids. Use
+  the value EXACTLY as the analyst wrote it — never normalize, expand or
+  guess a code; unmatched values are checked against the data and reported
+  back to the analyst, and an invented value hides that check.
+- direction: set it only when the question asks about a MOVEMENT and says
+  which way — "biggest increase" (increase), "which payers dropped"
+  (decrease), "who got worse" (worsened), "where did we improve"
+  (improved). A question that asks "what changed" or "which is biggest"
+  asserts no direction: leave it null.
+- magnitude: largest or smallest, only when the question phrases one over
+  that direction ("biggest increase" → largest, "smallest decline" →
+  smallest). Leave null otherwise.
 - If the question only asks what something means, put the terms in
   definitional_terms and leave the analytical fields empty.
 - If the question cannot be mapped to this vocabulary, set clarification to
   one short question instead of guessing.
-- With a clarification you may also give up to four clarification_options:
-  short questions the analyst could send back as-is, each naming metrics,
-  dimensions, playbooks or concepts from the vocabulary above so that
-  choosing one produces a question you CAN map. Leave the list empty rather
-  than offer something this vocabulary cannot answer.
+- With a clarification you may also give up to four clarification_options.
+  Each is an object: a `label` the analyst could send back as-is, plus the
+  governed ids that option would actually use (`metric_ids`,
+  `dimension_ids`, `playbook_id`, `scope`). Every id is re-checked against
+  the pack and catalog and the option is DROPPED if any of them does not
+  resolve — so an option whose ids you cannot fill in from the vocabulary
+  above is one the analyst will never see. Leave the list empty rather than
+  offer something this vocabulary cannot answer.
 
 Question:
 

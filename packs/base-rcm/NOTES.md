@@ -1334,3 +1334,59 @@ mode listed under deferred; that remains the real fix.
   `credit_balance_dollars` executes at the source now (5,221,798 cents, 12
   payer rows, `direct`); §6.6 validation is what prunes `credit_standing`. The
   comment names the current cause so nobody re-fixes the contract.
+
+## Named next milestone: the probe-time `filing_rules` join
+
+**Status as of 2026-08-09: NOT BUILT.** `timely_filing_at_risk_dollars` sums
+billed charges on claims that are `billed_flag = false AND status = OPEN`.
+That is the whole formula. It applies **no deadline predicate at all** —
+`filing_rules.yaml` exists, is governed, is loaded, and is joined to nothing.
+
+This is recorded as a milestone rather than a caveat because the gap is not
+cosmetic. Round-1 review F9 measured it: the metric served **$22.43M** with
+high confidence, and the genuine timely-filing anomaly cards in this
+warehouse total roughly **$62K** — a name promising filing exposure over a
+number measuring inventory, three orders of magnitude apart. A claim with a
+year of runway is counted identically to one a week from its limit.
+
+**What was done tonight (2026-08-09), and what was deliberately not.**
+
+- The contract's `description` now says what it measures and carries a
+  `Population caveat:` block, so the §6.6 validation pass emits the
+  qualification as a **mandatory warning on every answer that reads the
+  metric**. Publishing it is not optional and not a UI choice.
+- `metric_display.yaml` (new, pack-adjacent, loaded by the API beside
+  `anomaly_actionability.yaml`) gives the id a governed display name —
+  *"Unbilled open inventory (timely-filing watch proxy)"* — for the surfaces
+  that show a metric id without an answer to hang a warning on.
+- Every pack surface that repeated the overclaim was swept: the
+  `timely_filing_watch` playbook description and its `at_risk_by_plan` /
+  `unbilled_aging_profile` scope notes, the `portfolio_filing_risk` probe in
+  `daily_portfolio`, the `filing_runway` presentation recipe (whose
+  days-of-runway annotation is exactly the thing that needs this join), the
+  `timely_filing_risk_claim` conclusion policy, and the `TIMELY_FILING`
+  actionability rationale (whose open/expired split comes from the
+  *detector's* evidence facts — the only place deadline state exists today).
+- **The id, formula, version, grain, bases and scope dimensions are
+  untouched.** The id is a reference anchor across playbooks, the answer key,
+  the web fixtures and the review record; renaming it would break more than
+  it fixed, and re-pointing the formula without the join would invent a
+  number. Prose is excluded from the semantic fingerprint, so none of the
+  above forces a version bump — which is the mechanism working as designed.
+
+**What the milestone actually requires.** Each claim's `payer`/`plan` matched
+against `filing_rules` (first match wins, most specific first), aged from the
+snapshot's newest data date on the rule's own `date_basis`, producing
+days-to-deadline per claim; then the at-risk population is the claims inside a
+bounded runway, and `requires_confirmation` rules are labeled planning
+defaults in the answer. Concretely that is a derived probe-time measure in the
+registry above (`days_to_filing_deadline`, claim grain) plus a
+`filing_runway_bucket` dimension to cut by — the same shape
+`ar_age_days_billed_cents` and `ar_age_bucket` already have, which is why this
+is a known amount of work rather than an open question.
+
+When it lands: the contract's `Population caveat:` block comes out, the
+`metric_display.yaml` entry shrinks to a display name with no caveat, the
+`filing_runway` recipe gains its runway annotation, `timely_filing_risk_claim`
+tightens to the risk claim it was written for, and this section is replaced by
+the figures. Until then the number keeps saying what it is.

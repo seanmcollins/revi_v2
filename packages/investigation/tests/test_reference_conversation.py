@@ -456,8 +456,10 @@ class TestReplayDeterminism:
         llm = replayed.engine.llm
         assert llm.calls_for("resolve_referents") == ()
         assert llm.calls_for("emit_refinements") == ()
-        # exactly two classifications (T1 + T5) and one interpretation
-        assert len(llm.calls_for("classify_turn")) == 2
+        # T1 is the session's first utterance and is classified by
+        # construction (F11) — the only classification left is T5's, and
+        # T1 is still the only interpretation.
+        assert len(llm.calls_for("classify_turn")) == 1
         assert len(llm.calls_for("interpret_question")) == 1
 
     async def test_replay_meta_cites_identical_provenance(

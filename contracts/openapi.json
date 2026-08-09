@@ -172,14 +172,74 @@
             "title": "Drillable",
             "type": "boolean"
           },
+          "impact_agreement": {
+            "default": "unavailable",
+            "enum": [
+              "agreed",
+              "diverged",
+              "unavailable"
+            ],
+            "title": "Impact Agreement",
+            "type": "string"
+          },
           "impact_cents": {
             "default": 0,
             "title": "Impact Cents",
             "type": "integer"
           },
+          "impact_delta_cents": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Impact Delta Cents"
+          },
+          "impact_delta_fraction": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Impact Delta Fraction"
+          },
+          "impact_reconciliation_note": {
+            "default": "",
+            "title": "Impact Reconciliation Note",
+            "type": "string"
+          },
+          "lane": {
+            "default": "value",
+            "enum": [
+              "compliance",
+              "value"
+            ],
+            "title": "Lane",
+            "type": "string"
+          },
+          "metric_display_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metric Display Name"
+          },
           "metric_id": {
             "title": "Metric Id",
             "type": "string"
+          },
+          "priority": {
+            "$ref": "#/components/schemas/PriorityDecompositionPayload"
           },
           "priority_formula_version": {
             "title": "Priority Formula Version",
@@ -194,6 +254,28 @@
             "const": "external_detection",
             "title": "Provenance",
             "type": "string"
+          },
+          "reconciled_impact_cents": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reconciled Impact Cents"
+          },
+          "reconciled_impact_metric_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reconciled Impact Metric Id"
           },
           "recoverable_cents_estimate": {
             "default": 0,
@@ -264,6 +346,119 @@
           "value"
         ],
         "title": "AnomalyDimension",
+        "type": "object"
+      },
+      "AnomalyReconciliationPayload": {
+        "additionalProperties": false,
+        "description": "Card figure vs re-derived figure, stated (review F1).\n\nAn anomaly card published ``$178,217``; drilling it answered\n``$195,873.92``; the turn's own reconciliation verdict said\n``not_applicable \u2014 this is a first turn``, which is true about the\ninvestigation lineage and silent about the two numbers the reader had\njust compared. 9.9% of disagreement, on consecutive screens, with no\nreconciliation anywhere.\n\nThe figures are two different claims and both are honest:\n\n* ``card_impact_cents`` is the EXTERNAL DETECTION SYSTEM's assertion \u2014\n  its window, its population, its basis, computed when it fired and\n  read here as-of a watermark. The card carries\n  ``provenance=\"external_detection\"`` for exactly this reason.\n* ``answer_impact_cents`` is THIS PLATFORM's governed metric contract,\n  re-derived at the pinned watermark over the population the card\n  names, and carrying a real evidence grade.\n\nThey diverge when the detector's window, valuation basis or population\nis not the contract's \u2014 which is normal, is not an error, and must be\n*stated* rather than left for a reader to notice. ``status`` says\nwhich of the three it is; ``detail`` says why in the platform's own\nwords. This reuses the shape of the \u00a77.8 refinement verdict\n(:class:`~revi_investigation_contracts.evidence.EvidenceReconciliation`)\ndeliberately: an analyst who has learned to read one reconciliation\nstrip should not have to learn a second.",
+        "properties": {
+          "anomaly_id": {
+            "title": "Anomaly Id",
+            "type": "string"
+          },
+          "answer_impact_cents": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Impact Cents"
+          },
+          "answer_metric_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Metric Id"
+          },
+          "card_impact_cents": {
+            "title": "Card Impact Cents",
+            "type": "integer"
+          },
+          "card_metric_id": {
+            "default": "",
+            "title": "Card Metric Id",
+            "type": "string"
+          },
+          "card_window_end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Card Window End"
+          },
+          "card_window_start": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Card Window Start"
+          },
+          "delta_cents": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta Cents"
+          },
+          "delta_fraction": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta Fraction"
+          },
+          "detail": {
+            "default": "",
+            "title": "Detail",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "agreed",
+              "diverged",
+              "unavailable"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "summary": {
+            "default": "",
+            "title": "Summary",
+            "type": "string"
+          }
+        },
+        "required": [
+          "anomaly_id",
+          "status",
+          "card_impact_cents"
+        ],
+        "title": "AnomalyReconciliationPayload",
         "type": "object"
       },
       "BenchmarkPayload": {
@@ -342,6 +537,13 @@
             "default": "mock",
             "title": "Llm",
             "type": "string"
+          },
+          "metric_display": {
+            "items": {
+              "$ref": "#/components/schemas/MetricDisplayPayload"
+            },
+            "title": "Metric Display",
+            "type": "array"
           },
           "newest_watermark_id": {
             "default": "",
@@ -527,6 +729,109 @@
           "value"
         ],
         "title": "ChartSpec",
+        "type": "object"
+      },
+      "CohortPayload": {
+        "additionalProperties": false,
+        "description": "The pinned population behind an answer, said in words (review F15).\n\nThe context header carried ``cohort: coh_9f2a11\u2026`` and a size. A hash\nis a correct identifier and a useless label: the analyst who drilled\n\"the top three payers\" was shown a string that names their own\nselection back to them in a vocabulary nobody speaks, and a chip that\ncannot be read cannot be checked.\n\nSo the same object the platform pinned is published as its parts: what\nthe members ARE (``entity_grain``), which rule selected them\n(``definition``, the pinned predicate rendered as text), where the\nselection came from (``origin_referent`` and the turn that introduced\nit), and how many there are. ``id`` stays \u2014 it is the handle a later\nturn re-addresses the population by \u2014 it is simply no longer the only\nthing on the wire.",
+        "properties": {
+          "definition": {
+            "title": "Definition",
+            "type": "string"
+          },
+          "entity_grain": {
+            "title": "Entity Grain",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "origin_investigation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin Investigation Id"
+          },
+          "origin_referent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin Referent"
+          },
+          "origin_turn_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Origin Turn Id"
+          },
+          "pinned": {
+            "default": false,
+            "title": "Pinned",
+            "type": "boolean"
+          },
+          "pinned_watermark_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pinned Watermark Id"
+          },
+          "size": {
+            "title": "Size",
+            "type": "integer"
+          },
+          "window_end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window End"
+          },
+          "window_start": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Start"
+          }
+        },
+        "required": [
+          "id",
+          "entity_grain",
+          "definition",
+          "size"
+        ],
+        "title": "CohortPayload",
         "type": "object"
       },
       "ContextHeaderPayload": {
@@ -1194,6 +1499,17 @@
           "message": {
             "title": "Message",
             "type": "string"
+          },
+          "subcode": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Subcode"
           }
         },
         "required": [
@@ -1625,6 +1941,16 @@
             "title": "Chart Specs",
             "type": "array"
           },
+          "cohort": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CohortPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "created_at": {
             "format": "date-time",
             "title": "Created At",
@@ -1715,6 +2041,13 @@
               "type": "string"
             },
             "title": "Warnings",
+            "type": "array"
+          },
+          "warnings_v2": {
+            "items": {
+              "$ref": "#/components/schemas/WarningPayload"
+            },
+            "title": "Warnings V2",
             "type": "array"
           }
         },
@@ -1831,6 +2164,48 @@
           "investigation_id"
         ],
         "title": "MetaAnswerPayload",
+        "type": "object"
+      },
+      "MetricDisplayPayload": {
+        "additionalProperties": false,
+        "description": "The honest display name for a metric id that cannot be renamed.\n\n``timely_filing_at_risk_dollars`` measures unbilled open inventory. It\napplies no deadline predicate at all \u2014 ``filing_rules`` is governed\ncontent the contract does not yet join \u2014 so the id promises filing\nexposure and delivers an upper bound that is three orders of magnitude\nlarger than the real filing cards ($22.4M against ~$62K). The id is a\nreference anchor across the pack, the answer key and the review\nrecord, so renaming it would break more than it fixed; instead the\nplatform publishes what it actually measures, next to the id, on\nevery surface that shows one.\n\n``caveat`` is the same sentence the contract emits as a mandatory\nwarning on every answer that reads the metric. It travels here too so\na card or a chip can carry it without waiting for an answer.",
+        "properties": {
+          "caveat": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Caveat"
+          },
+          "display_name": {
+            "title": "Display Name",
+            "type": "string"
+          },
+          "metric_id": {
+            "title": "Metric Id",
+            "type": "string"
+          },
+          "rationale": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rationale"
+          }
+        },
+        "required": [
+          "metric_id",
+          "display_name"
+        ],
+        "title": "MetricDisplayPayload",
         "type": "object"
       },
       "MetricProvenancePayload": {
@@ -1950,10 +2325,62 @@
         "title": "PivotModel",
         "type": "object"
       },
+      "PortfolioLanePayload": {
+        "additionalProperties": false,
+        "description": "One section of the worklist, with what belongs in it and why.\n\n``items`` stays one ranked array \u2014 clients that already read it are\nuntouched \u2014 and each card names its lane, so a UI can render\n\"must-do regardless of size\" as its own section instead of letting a\n$824 compliance item sit at rank 1 above a $178K critical finding\nand look like the most important thing in the building.",
+        "properties": {
+          "anomaly_ids": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Anomaly Ids",
+            "type": "array"
+          },
+          "description": {
+            "title": "Description",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "impact_cents": {
+            "default": 0,
+            "title": "Impact Cents",
+            "type": "integer"
+          },
+          "item_count": {
+            "default": 0,
+            "title": "Item Count",
+            "type": "integer"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "label",
+          "description"
+        ],
+        "title": "PortfolioLanePayload",
+        "type": "object"
+      },
       "PortfolioResponse": {
         "additionalProperties": false,
         "description": "Detected anomalies at the pinned watermark, governed-priority ranked.",
         "properties": {
+          "compliance_floor_basis": {
+            "default": "",
+            "title": "Compliance Floor Basis",
+            "type": "string"
+          },
+          "compliance_floor_value": {
+            "default": 0.0,
+            "title": "Compliance Floor Value",
+            "type": "number"
+          },
           "formula_version": {
             "default": "",
             "title": "Formula Version",
@@ -1964,6 +2391,13 @@
               "$ref": "#/components/schemas/AnomalyCard"
             },
             "title": "Items",
+            "type": "array"
+          },
+          "lanes": {
+            "items": {
+              "$ref": "#/components/schemas/PortfolioLanePayload"
+            },
+            "title": "Lanes",
             "type": "array"
           },
           "status": {
@@ -1987,6 +2421,13 @@
             "title": "Warnings",
             "type": "array"
           },
+          "warnings_v2": {
+            "items": {
+              "$ref": "#/components/schemas/WarningPayload"
+            },
+            "title": "Warnings V2",
+            "type": "array"
+          },
           "watermark_id": {
             "default": "",
             "title": "Watermark Id",
@@ -2001,6 +2442,69 @@
           }
         },
         "title": "PortfolioResponse",
+        "type": "object"
+      },
+      "PriorityDecompositionPayload": {
+        "additionalProperties": false,
+        "description": "Every term of ``anomaly_priority``, published (review F17).\n\nThe formula was documented and its inputs were on the card, but the\narithmetic was not: a reader could see ``priority_score: 0.6`` beside\n``impact_cents: 82437`` and had no way to tell that the score was a\nfloor rather than a computation. Publishing the three normalized\ncomponents, the three weighted terms and the normalizer costs nothing\nat build time and makes the ranking checkable with a calculator.\n\n``score = (impact_term + recency_term + actionability_term) /\nweight_sum``, then raised to ``floor_value`` when\n``floor_applied``. ``score_before_floor`` is kept so the floor is\nvisible as an intervention rather than hidden inside the result.",
+        "properties": {
+          "actionability_term": {
+            "default": 0.0,
+            "title": "Actionability Term",
+            "type": "number"
+          },
+          "floor_applied": {
+            "default": false,
+            "title": "Floor Applied",
+            "type": "boolean"
+          },
+          "floor_basis": {
+            "default": "relative_median",
+            "title": "Floor Basis",
+            "type": "string"
+          },
+          "floor_value": {
+            "default": 0.0,
+            "title": "Floor Value",
+            "type": "number"
+          },
+          "impact_norm": {
+            "default": 0.0,
+            "title": "Impact Norm",
+            "type": "number"
+          },
+          "impact_term": {
+            "default": 0.0,
+            "title": "Impact Term",
+            "type": "number"
+          },
+          "recency": {
+            "default": 0.0,
+            "title": "Recency",
+            "type": "number"
+          },
+          "recency_term": {
+            "default": 0.0,
+            "title": "Recency Term",
+            "type": "number"
+          },
+          "recoverable_norm": {
+            "default": 0.0,
+            "title": "Recoverable Norm",
+            "type": "number"
+          },
+          "score_before_floor": {
+            "default": 0.0,
+            "title": "Score Before Floor",
+            "type": "number"
+          },
+          "weight_sum": {
+            "default": 1.0,
+            "title": "Weight Sum",
+            "type": "number"
+          }
+        },
+        "title": "PriorityDecompositionPayload",
         "type": "object"
       },
       "RankByModel": {
@@ -2525,6 +3029,16 @@
       "TurnAnswer": {
         "additionalProperties": false,
         "properties": {
+          "anomaly_reconciliation": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AnomalyReconciliationPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "benchmarks": {
             "items": {
               "$ref": "#/components/schemas/BenchmarkPayload"
@@ -2538,6 +3052,16 @@
             },
             "title": "Chart Specs",
             "type": "array"
+          },
+          "cohort": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/CohortPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "context_header": {
             "anyOf": [
@@ -2603,6 +3127,13 @@
               }
             ]
           },
+          "metric_display": {
+            "items": {
+              "$ref": "#/components/schemas/MetricDisplayPayload"
+            },
+            "title": "Metric Display",
+            "type": "array"
+          },
           "narrative": {
             "anyOf": [
               {
@@ -2664,6 +3195,13 @@
               "type": "string"
             },
             "title": "Warnings",
+            "type": "array"
+          },
+          "warnings_v2": {
+            "items": {
+              "$ref": "#/components/schemas/WarningPayload"
+            },
+            "title": "Warnings V2",
             "type": "array"
           },
           "watermark_stale": {
@@ -2768,6 +3306,9 @@
               }
             ],
             "title": "Session Id"
+          },
+          "usage": {
+            "$ref": "#/components/schemas/UsageSummary"
           }
         },
         "required": [
@@ -2781,6 +3322,17 @@
         "additionalProperties": false,
         "description": "One turn: an utterance, a typed investigation spec, OR typed\nrefinement operators (\u00a712).",
         "properties": {
+          "anomaly_ref": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anomaly Ref"
+          },
           "clarification_response": {
             "anyOf": [
               {
@@ -3106,6 +3658,40 @@
           "type"
         ],
         "title": "ValidationError",
+        "type": "object"
+      },
+      "WarningPayload": {
+        "additionalProperties": false,
+        "description": "One warning, with a handle a client can branch on (review F14).\n\nWarnings used to travel as prose alone, so a client that wanted to\ngroup, count, filter or icon them had to match substrings \u2014 and a\nclient matching substrings breaks the day the wording improves.\n\n``message`` is the platform's own sentence VERBATIM: the code is a\nhandle added beside the text, never a replacement for it. ``count``\nis how many identical warnings collapsed into this entry (a\nfour-probe plan emitting one population caveat four times is one\ncaveat seen four times). See :mod:`revi_api.warning_codes` for the\ncode list; an unrecognized sentence is published as ``UNCLASSIFIED``\nrather than dropped.",
+        "properties": {
+          "code": {
+            "title": "Code",
+            "type": "string"
+          },
+          "count": {
+            "default": 1,
+            "title": "Count",
+            "type": "integer"
+          },
+          "message": {
+            "title": "Message",
+            "type": "string"
+          },
+          "severity": {
+            "enum": [
+              "caution",
+              "info"
+            ],
+            "title": "Severity",
+            "type": "string"
+          }
+        },
+        "required": [
+          "code",
+          "severity",
+          "message"
+        ],
+        "title": "WarningPayload",
         "type": "object"
       },
       "WindowSpecModel": {

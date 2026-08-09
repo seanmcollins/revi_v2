@@ -41,6 +41,7 @@ from revi_investigation.application.refinement_llm import (
 )
 from revi_investigation.domain.context import PackVersionRef
 from revi_investigation.domain.records import Session
+from revi_kernel.errors import UnsupportedConceptError
 from revi_kernel.watermark import DataWatermark, WatermarkEpoch
 from revi_testing.fakes import make_usage
 
@@ -210,6 +211,7 @@ class TestInterpretationHonesty:
     async def test_model_options_ride_along_with_the_question(
         self, pack_port: PackPort, catalog: CatalogSnapshot
     ) -> None:
+        """Options survive when the ids they name actually resolve."""
         service = _interpreter(
             pack_port,
             catalog,
@@ -217,7 +219,18 @@ class TestInterpretationHonesty:
                 {
                     "intent_summary": "ambiguous",
                     "clarification": "Which denial view do you want?",
-                    "clarification_options": ["Denial rate by payer", "Denied dollars by CARC"],
+                    "clarification_options": [
+                        {
+                            "label": "Denial rate by payer",
+                            "metric_ids": ["denial_rate"],
+                            "dimension_ids": ["payer"],
+                        },
+                        {
+                            "label": "Denied dollars by CARC",
+                            "metric_ids": ["denied_dollars"],
+                            "dimension_ids": ["carc"],
+                        },
+                    ],
                 }
             ),
         )
@@ -229,6 +242,61 @@ class TestInterpretationHonesty:
             "Denied dollars by CARC",
         )
         assert outcome.clarification.reason == "model requested clarification"
+
+    async def test_an_option_the_pack_cannot_honor_is_dropped(
+        self, pack_port: PackPort, catalog: CatalogSnapshot
+    ) -> None:
+        """F13: an option is a promise. "Denial rate by CARC" is a
+        claim-grain rate cut by a line-level code — §6.6 refuses it — so it
+        must never reach a chip the analyst can tap."""
+        service = _interpreter(
+            pack_port,
+            catalog,
+            _returning(
+                {
+                    "intent_summary": "ambiguous",
+                    "clarification": "Which denial view do you want?",
+                    "clarification_options": [
+                        {
+                            "label": "Denial rate by CARC",
+                            "metric_ids": ["denial_rate"],
+                            "dimension_ids": ["carc"],
+                        },
+                        {
+                            "label": "Denial rate by payer",
+                            "metric_ids": ["denial_rate"],
+                            "dimension_ids": ["payer"],
+                        },
+                    ],
+                }
+            ),
+        )
+        outcome = await service.interpret("denials?", session=SESSION, turn_id="t1")
+
+        assert outcome.clarification is not None
+        assert outcome.clarification.options == ("Denial rate by payer",)
+
+    async def test_all_options_ungrounded_refuses_rather_than_clarifies(
+        self, pack_port: PackPort, catalog: CatalogSnapshot
+    ) -> None:
+        """Zero survivors is a capability refusal, not a hollow question:
+        offering only unanswerable ways forward costs the analyst a turn to
+        reach the same no."""
+        service = _interpreter(
+            pack_port,
+            catalog,
+            _returning(
+                {
+                    "intent_summary": "ambiguous",
+                    "clarification": "Which view do you want?",
+                    "clarification_options": [
+                        {"label": "Patient satisfaction by region", "metric_ids": ["nps_score"]},
+                    ],
+                }
+            ),
+        )
+        with pytest.raises(UnsupportedConceptError):
+            await service.interpret("how happy are patients?", session=SESSION, turn_id="t1")
 
 
 class TestReferentResolutionHonesty:

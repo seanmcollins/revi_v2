@@ -66,6 +66,7 @@ from dataclasses import dataclass, replace
 
 from revi_calculation_contracts.contract import MetricContract, MetricKind, MetricUnit
 from revi_catalog_contracts.model import CatalogSnapshot
+from revi_investigation.application.anchoring import window_anchor
 from revi_investigation.application.capability_ports import (
     PackPort,
     PlaybookSpec,
@@ -73,7 +74,12 @@ from revi_investigation.application.capability_ports import (
     TransformStepSpec,
 )
 from revi_investigation.application.date_basis import resolve_answerable_basis
-from revi_investigation.domain.context import AnalysisSpec
+from revi_investigation.domain.context import (
+    AnalysisSpec,
+    AskedDirection,
+    AskedMagnitude,
+    wanted_delta_sign,
+)
 from revi_investigation_contracts.settings import EvidenceDepth
 from revi_kernel.cohort import CohortDefinition, CohortRef
 from revi_kernel.errors import UnsupportedConceptError
@@ -215,6 +221,16 @@ class InvestigationPlan:
     transforms: TransformPlan
     playbook_id: str | None = None
     notes: tuple[str, ...] = ()
+    #: The movement the question asked about, carried from the spec so the
+    #: layer that SELECTS rows can honor it (design §8.1 step 8). Ranking a
+    #: compare frame by delta is direction-blind by construction: ascending
+    #: answers "biggest decrease", descending "biggest increase", and the
+    #: plan is the only place that knows which was asked. Rank/top_k steps
+    #: additionally carry it as a ``direction`` arg so a transform operator
+    #: reads it without reaching back to the plan.
+    direction: AskedDirection | None = None
+    #: The extremity phrased over that direction ("biggest"/"smallest").
+    magnitude: AskedMagnitude | None = None
 
     def node(self, node_id: str) -> ProbeNode:
         for node in self.nodes:
@@ -319,16 +335,44 @@ class BuildInvestigationPlanService:
             )
         steps = self._pair_comparisons(nodes, spec)
         if not steps and dimensions:
-            steps.extend(self._rank_uncompared(nodes))
+            steps.extend(self._rank_uncompared(nodes, spec))
+        notes.extend(self._dropped_grain_notes(spec, nodes))
         return InvestigationPlan(
             nodes=tuple(nodes),
             transforms=TransformPlan(steps=tuple(steps)),
             playbook_id=None,
             notes=tuple(notes),
+            direction=spec.direction,
+            magnitude=spec.magnitude,
         )
 
     @staticmethod
-    def _rank_uncompared(nodes: list[ProbeNode]) -> list[TransformPlanStep]:
+    def _dropped_grain_notes(spec: AnalysisSpec, nodes: list[ProbeNode]) -> list[str]:
+        """Breakdowns the question asked for that no probe actually cuts by.
+
+        A dropped grain is the quietest wrong answer this engine can give:
+        the analyst asked "by payer", every probe aggregated over payer, and
+        the totals that came back were *averages* presented as the answer to
+        a split. Nothing in the pipeline noticed, because a plan that
+        ignores a dimension is a perfectly valid plan. So the plan says it
+        — surfaced as a turn warning like every other note — and the answer
+        is caveated rather than silently flattened.
+        """
+        planned: set[str] = set()
+        for node in nodes:
+            probe = node.probe
+            if isinstance(probe, (AggregationProbe, SnapshotProbe)):
+                planned.update(ref.id for ref in probe.dimensions)
+        return [
+            f"dropped_grain: the question asked for a breakdown by {ref.id!r} and no probe in "
+            "this plan is cut by it — the numbers below are aggregated over "
+            f"{ref.id!r}, not split by it"
+            for ref in spec.dimensions
+            if ref.id not in planned
+        ]
+
+    @staticmethod
+    def _rank_uncompared(nodes: list[ProbeNode], spec: AnalysisSpec) -> list[TransformPlanStep]:
         """Rank a grouped query that has nothing to compare.
 
         A direct query cut by dimensions with no comparison window is a
@@ -352,12 +396,15 @@ class BuildInvestigationPlanService:
             # there is nothing to rank and nothing to conclude from them.
             if not isinstance(probe, (AggregationProbe, SnapshotProbe)) or not probe.measures:
                 continue
+            args: tuple[tuple[str, str], ...] = (
+                ("by", probe.measures[0].id),
+                ("descending", "false" if spec.magnitude is AskedMagnitude.SMALLEST else "true"),
+            )
+            if spec.direction is not None:
+                args = (*args, ("direction", spec.direction.value))
             steps.append(
                 TransformPlanStep(
-                    id=f"{node.id}__rank",
-                    operator="rank",
-                    inputs=(node.id,),
-                    args=(("by", probe.measures[0].id), ("descending", "true")),
+                    id=f"{node.id}__rank", operator="rank", inputs=(node.id,), args=args
                 )
             )
         return steps
@@ -375,7 +422,7 @@ class BuildInvestigationPlanService:
         notes: list[str] = []
         nodes: list[ProbeNode] = []
         node_contracts: dict[str, tuple[MetricContract, ...]] = {}
-        anchor = spec.context.watermark.loaded_at.date()
+        watermark = spec.context.watermark
 
         for template in playbook.probes:
             dimensions = self._template_dimensions(template, spec)
@@ -387,9 +434,12 @@ class BuildInvestigationPlanService:
                 continue
             window = spec.context.window
             if template.window is not None and not window_explicit:
+                # The same anchor rule interpretation resolved the analyst's
+                # own window against, so a playbook default and an analyst
+                # window never sit on two different "now"s.
                 window = resolve_window(
                     template.window,
-                    anchor,
+                    window_anchor(watermark, template.window.mode),
                     basis=spec.context.window.basis,
                     calendar=spec.context.window.calendar,
                 )
@@ -418,11 +468,14 @@ class BuildInvestigationPlanService:
             playbook, nodes, node_contracts, prior_steps, spec
         )
         notes.extend(transform_notes)
+        notes.extend(self._dropped_grain_notes(spec, nodes))
         return InvestigationPlan(
             nodes=tuple(nodes),
             transforms=TransformPlan(steps=tuple(steps)),
             playbook_id=playbook.id,
             notes=tuple(notes),
+            direction=spec.direction,
+            magnitude=spec.magnitude,
         )
 
     # ------------------------------------------------------------- helpers
@@ -673,7 +726,7 @@ class BuildInvestigationPlanService:
                 emitted = False
                 for node_id in latest:
                     column, descending = self._rank_binding(
-                        by, requested, node_id, node_contracts, node_id in compared
+                        by, requested, node_id, node_contracts, node_id in compared, spec
                     )
                     if column is None:
                         continue
@@ -682,6 +735,8 @@ class BuildInvestigationPlanService:
                         ("by", column),
                         ("descending", "true" if descending else "false"),
                     ]
+                    if spec.direction is not None:
+                        args.append(("direction", spec.direction.value))
                     if operator == "top_k":
                         args.append(("k", requested.arg("k") or "10"))
                     steps.append(
@@ -728,23 +783,52 @@ class BuildInvestigationPlanService:
         node_id: str,
         node_contracts: dict[str, tuple[MetricContract, ...]],
         has_compare: bool,
+        spec: AnalysisSpec,
     ) -> tuple[str | None, bool]:
         """Resolve a playbook ranking arg to a concrete frame column.
 
         ``impact_cents`` is the governed alias for the money measure's
-        ``__delta`` on compare outputs, ranked **ascending** so the most
-        negative movement of a higher-is-good measure surfaces first.
+        ``__delta`` on compare outputs. Its default order is **ascending**,
+        so the most negative movement of a higher-is-good measure surfaces
+        first — that default is the pack's judgement about an unprompted
+        sweep, and it is exactly wrong for a question that named the other
+        direction. "Which payers had the biggest increase in denials" ranked
+        ascending returns the three biggest *decreases*; the analyst asked
+        about a rise and was shown three falls, narrated as improvements.
+        So an asserted direction wins over the default: a wanted delta sign
+        of ``+1`` ranks descending, ``-1`` ascending, and ``smallest``
+        flips whichever of those applies.
         """
         if by is None:
             return None, True
         descending = (requested.arg("descending") or "true").lower() != "false"
         if by == _IMPACT_ARG:
-            if not has_compare:
+            money = next(
+                (
+                    contract
+                    for contract in node_contracts.get(node_id, ())
+                    if contract.unit is MetricUnit.MONEY_CENTS
+                ),
+                None,
+            )
+            if money is None:
                 return None, True
-            for contract in node_contracts.get(node_id, ()):
-                if contract.unit is MetricUnit.MONEY_CENTS:
-                    return f"{contract.id}__delta", False
-            return None, True
+            if not has_compare:
+                # "Rank by impact" with nothing to compare against means
+                # rank by SIZE — the dollars standing there, not a movement.
+                # Returning None instead dropped the rank step entirely, and
+                # with it every finding the frame could produce: the daily
+                # portfolio planned nine probes, retrieved 97 ranked rows of
+                # payers and plans, emitted no rank step because its
+                # ``compare`` had no comparison window to work from, and
+                # published two ungrouped scalars as the whole answer to
+                # "what should I work first today".
+                return money.id, True
+            wanted = wanted_delta_sign(spec.direction, money.sign)
+            if wanted is None:
+                return f"{money.id}__delta", False
+            biggest_first = spec.magnitude is not AskedMagnitude.SMALLEST
+            return f"{money.id}__delta", (wanted > 0) == biggest_first
         if any(c.id == by for c in node_contracts.get(node_id, ())):
             return by, descending
         return None, True

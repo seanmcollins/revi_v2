@@ -87,6 +87,19 @@ def ratio_pct(value: Decimal | float, *, places: int = 1) -> str:
     return f"{float(value):.{places}%}"
 
 
+def points(value: Decimal | float, *, places: int = 1) -> str:
+    """A ratio *difference* → ``1.3 points``. Unsigned.
+
+    The one rendering a rate's movement may take. "Denial rate up 3.2%" is
+    ambiguous between a relative change (5.0% → 5.16%) and an absolute one
+    (5.0% → 8.2%) — two different facts, one sentence, and no way for a
+    reader to tell which they were given. Percentage points say the second
+    unambiguously, and the relative form stays available as ``pct_change``
+    where it is labelled as such.
+    """
+    return f"{abs(float(value)) * 100:.{places}f} points"
+
+
 def days(value: int | Decimal | float) -> str:
     return f"{float(value):,.1f} days"
 
@@ -115,6 +128,27 @@ def format_value(value: Scalar, unit: str | None) -> str:
     if isinstance(value, Decimal):
         return f"{value.normalize():f}"
     return str(value)
+
+
+def magnitude(value: Scalar, unit: str | None) -> str:
+    """An unsigned movement in its own unit, for text that says "up"/"down".
+
+    Money keeps dollars, a rate becomes percentage points, everything else
+    falls back to its ordinary rendering of the absolute value. Without
+    this a compared *ratio* was rendered by the money path or not at all,
+    which is half of why a grouped rate comparison published nothing.
+    """
+    if isinstance(value, bool) or value is None:
+        return format_value(value, unit)
+    if unit == MONEY_UNIT and isinstance(value, (int, Decimal)):
+        return magnitude_money(value)
+    if unit == RATIO_UNIT and isinstance(value, (int, float, Decimal)):
+        return points(Decimal(str(value)))
+    if isinstance(value, Decimal):
+        return format_value(-value if value < 0 else value, unit)
+    if isinstance(value, int):
+        return format_value(abs(value), unit)
+    return format_value(value, unit)
 
 
 def metric_label(metric_id: str) -> str:

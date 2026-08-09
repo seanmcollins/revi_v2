@@ -21,9 +21,11 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
+from revi_api.cohort_payload import cohort_payload_for
 from revi_api.debug_trace import build_debug_trace
 from revi_api.evidence import build_evidence
 from revi_api.metric_provenance import build_metric_provenance
+from revi_api.warning_codes import structured_warnings
 from revi_api.wiring import ApiComponents
 from revi_investigation.application.capability_ports import BenchmarkSpec
 from revi_investigation.application.llm.guard import assert_safe_payload
@@ -36,8 +38,10 @@ from revi_investigation.application.ports import (
 from revi_investigation.application.submit_turn import TurnOutcome
 from revi_investigation.domain.records import Finding, Investigation
 from revi_investigation_contracts.api import (
+    AnomalyReconciliationPayload,
     BenchmarkPayload,
     ChartSpec,
+    CohortPayload,
     DebugTracePayload,
     DefinitionalPayload,
     EvidencePayload,
@@ -76,6 +80,16 @@ NARRATIVE_TRACE_SUFFIX = ":narrative"
 NARRATIVE_BUDGET_WARNING = (
     "narrative not composed: this turn reached its cost ceiling after the evidence was "
     "computed; the findings and charts below are complete"
+)
+
+#: Surfaced when grounding validation redacted EVERY sentence the composer
+#: wrote. The turn keeps its findings, charts and grades; only the prose is
+#: gone, and the answer says so rather than publishing an empty string that
+#: renders as a narrative which exists and says nothing.
+NARRATIVE_FULLY_REDACTED_WARNING = (
+    "narrative not composed: every sentence the composer wrote cited something outside "
+    "this answer's certified values and was redacted; the findings and charts below are "
+    "complete and unaffected"
 )
 
 #: Mirrors the engine's per-call floor: below this there is no call worth
@@ -131,6 +145,7 @@ def investigation_response(
     investigation: Investigation,
     trace: TraceRecord | None = None,
     chart_specs: Sequence[ChartSpec] = (),
+    cohort: CohortPayload | None = None,
 ) -> InvestigationResponse:
     """A stored investigation on the wire.
 
@@ -164,6 +179,8 @@ def investigation_response(
         plan_hash=investigation.plan_hash,
         findings=[finding_payload(f) for f in investigation.findings],
         warnings=list(investigation.warnings),
+        warnings_v2=structured_warnings(investigation.warnings),
+        cohort=cohort,
         evidence=build_evidence(trace) if trace is not None else None,
         metric=build_metric_provenance(trace) if trace is not None else None,
         chart_specs=list(chart_specs),
@@ -315,6 +332,19 @@ async def _compose_narrative(
         warnings.append(NARRATIVE_BUDGET_WARNING)
         return None
     depth = outcome.settings.narrative_depth
+    # Population caveats govern how the prose may characterize the figures;
+    # display names stop a raw metric id from promising more than its
+    # formula delivers. Both are the same governed content §6.6 and the
+    # metric-display overlay already published on this turn.
+    caveats = [
+        w.split(": ", 1)[1]
+        for w in warnings
+        if w.startswith("population_caveat: ") and ": " in w
+    ]
+    display_names = {
+        metric_id: entry.display_name
+        for metric_id, entry in components.metric_display.by_metric.items()
+    }
     prompt = build_narrative_prompt(
         findings=findings,
         header=header,
@@ -323,6 +353,8 @@ async def _compose_narrative(
         # cautions and sources since KB wave 1, and passed here as a
         # literal empty tuple until the round-1 review counted them.
         benchmarks=[b.prompt_line for b in outcome.benchmarks],
+        caveats=caveats,
+        metric_display=display_names,
         # A real composition parameter: depth selects the template that is
         # rendered, so the model writes a different piece rather than the
         # same one cut short.
@@ -348,7 +380,21 @@ async def _compose_narrative(
     provisional = "".join(chunks).strip()
     if not provisional:
         return None
-    facts = build_narrative_facts(findings=findings, header=header)
+    facts = build_narrative_facts(
+        findings=findings,
+        header=header,
+        # The governed ranges the composer was actually shown. They were
+        # in the prompt and absent from the fact set for as long as both
+        # have existed, so a narrative that quoted a benchmark — which the
+        # analyst template asks it to do — had that sentence redacted for
+        # citing a figure "matching no certified value". A range put in
+        # front of the model is certified material and is admitted as such.
+        benchmarks=[b.prompt_line for b in outcome.benchmarks],
+        # Anything the prompt instructs the model to write, the validator
+        # must be willing to admit — caveat figures and display names both.
+        caveats=caveats,
+        metric_display=display_names,
+    )
     validation = validate_narrative(provisional, facts)
     warnings.extend(validation.warnings)
     await components.traces.save(
@@ -377,6 +423,14 @@ async def _compose_narrative(
             },
         )
     )
+    if not validation.text.strip():
+        # Every sentence failed grounding, so there is no prose left. An
+        # empty string on the wire renders as a narrative that exists and
+        # says nothing, which reads as a bug in the composer rather than
+        # as what happened; the answer says the prose was withheld and the
+        # findings, charts and grades stand untouched.
+        warnings.append(NARRATIVE_FULLY_REDACTED_WARNING)
+        return None
     return validation.text
 
 
@@ -400,6 +454,7 @@ async def assemble_turn_response(
     outcome: TurnOutcome,
     *,
     on_event: OnEvent | None = None,
+    anomaly_reconciliation: AnomalyReconciliationPayload | None = None,
 ) -> TurnAnswer | TurnClarification:
     """Map an engine outcome to the wire shape, emitting presentation
     events along the way (see module docstring for the ordering)."""
@@ -462,6 +517,16 @@ async def assemble_turn_response(
             await on_event("chart_spec", spec.model_dump(mode="json"))
 
     warnings = list(outcome.warnings)
+    if outcome.emptiness is not None:
+        # An empty result is a first-class fact, not a blank card: say which
+        # kind of nothing this was and, for an empty population, which
+        # predicates could have emptied it.
+        _empty_detail = outcome.emptiness.detail
+        if outcome.emptiness.predicates:
+            _empty_detail += " — predicates in play: " + "; ".join(
+                outcome.emptiness.predicates
+            )
+        warnings.append(f"empty_result: {_empty_detail}")
     narrative_usage: list[LlmUsage] = []
     narrative = await _compose_narrative(
         components,
@@ -509,6 +574,24 @@ async def assemble_turn_response(
             warnings=list(outcome.meta.warnings),
         )
 
+    # The pinned population, said in words rather than as a hash. Read
+    # back off the cohort store by the id the header already names, so
+    # this adds one metadata read on the turns that pinned a cohort and
+    # nothing at all on the ones that did not.
+    cohort = await cohort_payload_for(
+        outcome.header.cohort if outcome.header is not None else None,
+        session_id=outcome.session.id,
+        cohorts=components.cohorts,
+        referents=components.referents,
+        investigations=components.investigations,
+    )
+    # Governed display names for the ids this answer cites, for the ids
+    # whose name overclaims what they measure. Findings first (the order
+    # the analyst reads them in), then anything else the probes named.
+    cited: list[str] = [mid for f in findings for mid in f.metric_ids]
+    if metric is not None:
+        cited.extend(m.id for m in metric.metrics)
+
     return TurnAnswer(
         outcome="answer",
         session_id=outcome.session.id,
@@ -519,6 +602,10 @@ async def assemble_turn_response(
         chart_specs=chart_specs,
         narrative=narrative,
         warnings=warnings,
+        warnings_v2=structured_warnings(warnings),
+        cohort=cohort,
+        metric_display=components.metric_display.payloads_for(cited),
+        anomaly_reconciliation=anomaly_reconciliation,
         meta_answer=meta,
         definitional=definitional,
         referents=[

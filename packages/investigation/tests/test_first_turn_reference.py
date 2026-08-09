@@ -171,7 +171,10 @@ class TestReferenceFirstTurn:
         trace = await engine.trace_store.get(outcome.trace_id)
         assert trace is not None
         payload = trace.payload
-        assert payload["classification"] == {"turn_class": "new_investigation", "confidence": 0.94}
+        # The first utterance of a session is classified by construction
+        # (F11): no model call, and therefore full confidence in a decision
+        # nothing guessed at.
+        assert payload["classification"] == {"turn_class": "new_investigation", "confidence": 1.0}
         assert payload["interpretation"]["playbook_id"] == "cash_decline"
         assert payload["plan_hash"] == outcome.investigation.plan_hash
         assert payload["watermark"]["id"] == "wm_003"
@@ -190,10 +193,11 @@ class TestReferenceFirstTurn:
         assert payload["findings"] == ["F1", "F2", "F3"]
         assert not any("lag_distribution_compare" in w for w in payload["warnings"])
         llm_entries = payload["llm"]
-        assert {entry["template"] for entry in llm_entries} == {
-            "classify_turn",
-            "interpret_question",
-        }
+        # The ledger lists calls that HAPPENED. A first turn's class is
+        # decided by construction, so no classification call appears — a
+        # zero-cost entry for a call nobody made would be a fiction in the
+        # one record an auditor reads for what the turn spent.
+        assert {entry["template"] for entry in llm_entries} == {"interpret_question"}
         assert all(entry["schema_retries"] == 0 for entry in llm_entries)
         # Transport attempts ride the trace beside cost, so a degrading
         # provider is visible where the spend is (review finding D10).

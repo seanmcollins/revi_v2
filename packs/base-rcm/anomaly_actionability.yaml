@@ -70,7 +70,13 @@ categories:
     rationale: >-
       Only claims still inside their filing limit can be recovered; dollars
       on claims past the deadline are gone (0 when everything has expired,
-      the full share of still-open claims otherwise).
+      the full share of still-open claims otherwise). The open/expired split
+      comes from the DETECTOR's own evidence facts, which is the only place
+      deadline state exists today: the platform's own
+      timely_filing_at_risk_dollars contract applies no deadline predicate
+      and cannot supply it (see ../metric_display.yaml and NOTES.md). So
+      this rule prices a deadline the detector observed, never one this
+      platform derived.
   UNDERPAYMENT:
     mode: fraction
     fraction: 0.85

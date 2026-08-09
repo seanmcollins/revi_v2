@@ -39,6 +39,15 @@
    counts at that size rather than its catalog estimate — a group-by on
    four dimensions each pinned to one value is one cell, not their
    cross-product, and must not be refused for a budget it cannot spend.
+4b. **Predicate values.** Every conjunctive ``eq``/``in`` value is resolved
+   against the values that exist — the dimension's declared
+   ``value_domain`` when it has one, else the distinct values the source
+   holds at this watermark (one grouped read, cached per watermark). A
+   case/punctuation variant is corrected and the correction is stated; a
+   value that matches nothing raises a clarification naming it, its
+   closest matches, and how many values exist. Asynchronous, so it is a
+   separate entry point (:meth:`PlanValidationService.resolve_predicate_values`)
+   rather than a step inside :meth:`validate`.
 5. **Exclusion intersection.** A user scope predicate touching a
    contract's internal exclusions or filtered-numerator dimensions (the
    "denial rate for denied claims" confusion) yields a warning surfaced
@@ -107,7 +116,9 @@ reader sees. Authoring one is a pack edit; publishing it is not optional.
 
 from __future__ import annotations
 
+import difflib
 import re
+from collections.abc import Callable
 from dataclasses import dataclass, replace
 
 from revi_calculation_contracts.contract import (
@@ -117,7 +128,14 @@ from revi_calculation_contracts.contract import (
     MetricContract,
     MetricKind,
 )
-from revi_catalog_contracts.model import CatalogSnapshot, DimensionKind, EntityDef
+from revi_catalog_contracts.model import (
+    CatalogSnapshot,
+    DimensionDef,
+    DimensionKind,
+    EntityDef,
+    PhiClass,
+    normalize_synonym,
+)
 from revi_investigation.application.capability_ports import PackPort
 from revi_investigation.application.planning import (
     InvestigationPlan,
@@ -125,25 +143,32 @@ from revi_investigation.application.planning import (
     TransformPlan,
 )
 from revi_investigation.domain.context import AnalysisSpec
+from revi_investigation.domain.turns import ClarificationRequest
 from revi_kernel.capabilities import AnalyticalRepository, RepositoryCapabilities
 from revi_kernel.errors import (
     DateBasisInvalidError,
     GrainIncompatibleError,
     QueryBudgetExceededError,
+    ReviError,
     SourceCapabilityUnsupportedError,
     UnsupportedConceptError,
 )
 from revi_kernel.filters import (
+    EMPTY_SCOPE,
     And,
     FilterExpr,
+    Not,
+    Or,
     Predicate,
     PredicateOp,
+    Scalar,
     iter_cohorts,
     iter_predicates,
 )
 from revi_kernel.grades import EvidenceGrade, min_grade
 from revi_kernel.probes import AggregationProbe, ProbeShape, SnapshotProbe, probe_shape
-from revi_kernel.refs import SERVICE, DateBasisRef, DimensionRef
+from revi_kernel.refs import SERVICE, DateBasisRef, DimensionRef, Grain
+from revi_kernel.watermark import DataWatermark
 
 _TIME_BUCKET_PREFIX = "time_bucket:"
 _PRIOR_SUFFIX = "__prior"
@@ -227,13 +252,93 @@ def _measure_fields(expr: MeasureExpr | None) -> tuple[str, ...]:
 def _internal_filter_dimensions(contract: MetricContract) -> frozenset[str]:
     """Dimensions inside the contract's own definition: exclusions plus any
     Filtered wrappers on numerator/denominator."""
-    dims: set[str] = set()
+    return frozenset(contract_pinned_values(contract))
+
+
+def contract_pinned_values(contract: MetricContract) -> dict[str, frozenset[str]]:
+    """Dimension values the contract itself pins, by dimension id.
+
+    A contract's own ``exclusions`` and its ``Filtered`` numerator/
+    denominator already decide part of the population: ``ar_over_90_pct``
+    *is* the 91-120 and 120+ buckets, ``denial_rate`` *is* the adjudicated
+    claims. An analyst filter restating one of those adds nothing and, on
+    the aging metrics, turns a perfectly good question into a refusal — so
+    interpretation drops the restatement (see
+    :meth:`InterpretQuestionService._drop_redundant_scope`) and keeps
+    anything that genuinely narrows.
+
+    Values are normalized strings so ``"120+"`` matches ``"120+"``
+    regardless of how the analyst typed it. A predicate with no enumerated
+    values (``is_null``, a range) pins nothing and contributes an empty set:
+    the dimension is still *touched*, which is what the exclusion-overlap
+    warning is keyed on.
+    """
+    pinned: dict[str, set[str]] = {}
+    sources: list[FilterExpr] = []
     if contract.exclusions is not None:
-        dims.update(p.dimension.id for p in iter_predicates(contract.exclusions))
+        sources.append(contract.exclusions)
     for expr in (contract.numerator, contract.denominator):
         if isinstance(expr, Filtered):
-            dims.update(p.dimension.id for p in iter_predicates(expr.where))
-    return frozenset(dims)
+            sources.append(expr.where)
+    for source in sources:
+        for predicate in iter_predicates(source):
+            bucket = pinned.setdefault(predicate.dimension.id, set())
+            if predicate.op in (PredicateOp.EQ, PredicateOp.IN):
+                bucket.update(normalize_synonym(str(v)) for v in predicate.values)
+    return {dimension: frozenset(values) for dimension, values in pinned.items()}
+
+
+def _map_predicates(
+    expr: FilterExpr, fn: Callable[[Predicate], Predicate]
+) -> FilterExpr:
+    """Rewrite every predicate in a filter tree, structure preserved."""
+    if isinstance(expr, Predicate):
+        return fn(expr)
+    if isinstance(expr, And):
+        return And(tuple(_map_predicates(clause, fn) for clause in expr.clauses))
+    if isinstance(expr, Or):
+        return Or(tuple(_map_predicates(clause, fn) for clause in expr.clauses))
+    if isinstance(expr, Not):
+        return Not(_map_predicates(expr.clause, fn))
+    return expr  # InCohort: its definition is pinned, not re-read here
+
+
+def _corrected(predicate: Predicate, corrections: dict[str, dict[str, Scalar]]) -> Predicate:
+    """Apply resolved canonical values to one predicate."""
+    by_value = corrections.get(predicate.dimension.id)
+    if not by_value:
+        return predicate
+    values = tuple(by_value.get(str(value), value) for value in predicate.values)
+    return predicate if values == predicate.values else replace(predicate, values=values)
+
+
+class PlanClarificationNeeded(Exception):
+    """A §6.6 finding the analyst can act on, raised as a clarification.
+
+    Plan validation used to have exactly two outcomes: a validated plan, or
+    a §12 error code that reached the analyst as a dead end ("this metric
+    cannot be cut by that dimension" — and then nothing). Some of what this
+    pass discovers is not a failure of the platform but a question for the
+    analyst: a filter value that exists nowhere in the data, a breakdown
+    another metric *can* do. Those cross the boundary as a
+    :class:`ClarificationRequest`, which the engine already treats as a
+    successful outcome, rather than as an exception the API renders as an
+    error banner.
+    """
+
+    def __init__(self, clarification: ClarificationRequest) -> None:
+        super().__init__(clarification.question)
+        self.clarification = clarification
+
+
+#: How many near-miss values a clarification names before it stops listing
+#: and starts summarizing. Four is the clarification-chip budget; the
+#: sentence carries the total so the analyst knows what they are choosing
+#: from.
+MAX_SUGGESTED_VALUES = 4
+#: Values below this similarity are not near misses, they are different
+#: words; suggesting them teaches the analyst the matcher is guessing.
+_VALUE_SIMILARITY_CUTOFF = 0.6
 
 
 class PlanValidationService:
@@ -250,6 +355,12 @@ class PlanValidationService:
         self._pack = pack
         self._repository = repository
         self._limits = limits
+        # Observed value sets per (watermark, entity, dimension, window):
+        # what a dimension's values ARE cannot change inside a watermark, so
+        # one SELECT DISTINCT-shaped read serves every turn of every session
+        # that asks about the same cut. Keyed by watermark id so a new load
+        # never serves a stale domain.
+        self._observed_values: dict[tuple[str, str, str, str], tuple[str, ...]] = {}
 
     # ------------------------------------------------------------------ api
 
@@ -273,6 +384,315 @@ class PlanValidationService:
         self._check_limits(plan)  # step 8
 
         return ValidatedPlan(plan=plan, grades=tuple(grades), warnings=tuple(warnings))
+
+    # -------------------------------------------- refusals with a way out
+
+    def clarification_for(self, error: ReviError) -> ClarificationRequest | None:
+        """Turn a §6.6 refusal into a question the analyst can answer.
+
+        ``GRAIN_INCOMPATIBLE`` and ``UNSUPPORTED_CONCEPT`` are honest: this
+        metric cannot be cut that way, that dimension is not in the
+        catalog. They were also *dead ends* — the analyst got a red banner
+        naming an error code and no route onward, while the pack sitting
+        right there could often answer the same question with a different
+        metric. The near miss is derivable, so it is derived: metrics whose
+        ``scope_dimensions`` include the dimension that was refused, at the
+        same kind and grain, become clarification options. Nothing is
+        invented — an option that appears is a metric that exists and a cut
+        it declares.
+
+        Returns ``None`` when the pack offers nothing, in which case the
+        refusal stands as it was: a clarification with no way forward is
+        worse than an error that says what happened.
+        """
+        dimension_id = error.details.get("dimension")
+        metric_id = error.details.get("metric")
+        if isinstance(dimension_id, str) and self._catalog.dimension(dimension_id) is not None:
+            return self._grain_alternative(dimension_id, metric_id)
+        if isinstance(dimension_id, str):
+            return self._near_miss_dimension(dimension_id)
+        if isinstance(metric_id, str) and self._pack.metric(metric_id) is None:
+            return self._near_miss_metric(metric_id)
+        return None
+
+    def _grain_alternative(
+        self, dimension_id: str, metric_id: object
+    ) -> ClarificationRequest | None:
+        """Metrics that declare ``dimension_id`` as a legal cut."""
+        refused = self._pack.metric(metric_id) if isinstance(metric_id, str) else None
+        dim = self._catalog.dimension(dimension_id)
+        assert dim is not None
+        options: list[str] = []
+        for candidate_id, _ in self._pack.metric_summaries():
+            contract = self._pack.metric(candidate_id)
+            if contract is None or contract.id == (refused.id if refused else None):
+                continue
+            if not contract.allows_dimension(DimensionRef(dimension_id)):
+                continue
+            if refused is not None and (
+                contract.kind is not refused.kind
+                or contract.entity_grain is not refused.entity_grain
+            ):
+                continue
+            options.append(f"Break {candidate_id} down by {dimension_id}")
+            if len(options) == MAX_SUGGESTED_VALUES:
+                break
+        if not options:
+            return None
+        refused_label = f"{refused.id!r}" if refused is not None else "that metric"
+        return ClarificationRequest(
+            question=(
+                f"{refused_label} cannot be cut by {dim.label.lower()} — its contract does not "
+                f"declare {dimension_id!r} as a legal scope dimension at the "
+                f"{'claim' if refused is None else refused.entity_grain.value} grain. These "
+                "metrics can be, over the same population:"
+            ),
+            options=tuple(options),
+            reason=(
+                f"GRAIN_INCOMPATIBLE_RECOVERABLE: {dimension_id} is not a scope dimension of "
+                f"{refused_label}; {len(options)} pack metrics declare it"
+            ),
+        )
+
+    def _near_miss_dimension(self, dimension_id: str) -> ClarificationRequest | None:
+        known = [dim.id for dim in self._catalog.dimensions if dim.certified]
+        close = difflib.get_close_matches(dimension_id, known, n=MAX_SUGGESTED_VALUES, cutoff=0.6)
+        if not close:
+            return None
+        return ClarificationRequest(
+            question=(
+                f"I have no dimension called {dimension_id!r} in this catalog. Did you mean "
+                "one of these?"
+            ),
+            options=tuple(close),
+            reason=f"UNSUPPORTED_CONCEPT_NEAR_MISS: dimension {dimension_id!r}",
+        )
+
+    def _near_miss_metric(self, metric_id: str) -> ClarificationRequest | None:
+        known = [mid for mid, _ in self._pack.metric_summaries()]
+        close = difflib.get_close_matches(metric_id, known, n=MAX_SUGGESTED_VALUES, cutoff=0.6)
+        if not close:
+            return None
+        return ClarificationRequest(
+            question=(
+                f"This pack defines no metric called {metric_id!r}. Did you mean one of these?"
+            ),
+            options=tuple(close),
+            reason=f"UNSUPPORTED_CONCEPT_NEAR_MISS: metric {metric_id!r}",
+        )
+
+    # ------------------------------------------ step 4b: predicate values
+
+    async def resolve_predicate_values(
+        self, validated: ValidatedPlan, *, watermark: DataWatermark
+    ) -> ValidatedPlan:
+        """Resolve every filter value against the values that exist (§6.6).
+
+        The pass that was missing. Every id a question produces was checked
+        against governed content — metric, playbook, dimension, date basis,
+        concept — and then the *values* those dimensions were filtered to
+        were sent to the warehouse unexamined. Live: "denial rate for
+        UnitedHealthcare and Aetna" compiled ``payer in
+        ['UnitedHealthcare', 'Aetna']`` against a warehouse holding neither
+        name, executed correctly, matched nothing, and published an empty
+        answer whose only caveat was about small-cell suppression. A
+        wrong-case enum value did the same; so did a referent handle that
+        leaked into a filter. Querying the void is not an answer, and an
+        empty result is the one shape that cannot tell the analyst why.
+
+        Two sources of truth, in order:
+
+        - the dimension's **declared** ``value_domain`` (a closed catalog
+          enum: ``payer_type``, ``status``, ``claim_type``); and
+        - for an open dimension (``payer``, ``plan``, ``facility``) the
+          values the warehouse actually holds at this watermark, read once
+          per (watermark, entity, dimension, window) and cached — the
+          domain of a dimension cannot change inside a load.
+
+        A value that differs only in case or punctuation ("Medicare
+        Advantage" for ``MEDICARE_ADVANTAGE``) is corrected and the
+        correction is *stated*, never silent. A value that matches nothing
+        raises a clarification naming it, its closest matches, and how many
+        values exist — the analyst's question is answerable, they just have
+        to say which one they meant.
+
+        Dimensions carrying PHI are never enumerated: a clarification is not
+        worth a list of patient-identifying values, so an unmatched value on
+        one of those passes through as it always did.
+        """
+        plan = validated.plan
+        warnings = list(validated.warnings)
+        nodes: list[ProbeNode] = []
+        changed = False
+        # One correction map per dimension, shared across probes: the prior
+        # twin of a comparison carries the identical predicate and must not
+        # be corrected differently from the current side.
+        corrections: dict[str, dict[str, Scalar]] = {}
+        for node in plan.nodes:
+            probe = node.probe
+            if not isinstance(probe, (AggregationProbe, SnapshotProbe)):
+                nodes.append(node)
+                continue
+            for predicate in self._top_level_predicates(probe.scope):
+                await self._resolve_predicate(node, predicate, watermark, corrections, warnings)
+            if corrections:
+                scope = _map_predicates(probe.scope, lambda p: _corrected(p, corrections))
+                if scope != probe.scope:
+                    nodes.append(replace(node, probe=replace(probe, scope=scope)))
+                    changed = True
+                    continue
+            nodes.append(node)
+        if not changed and len(warnings) == len(validated.warnings):
+            return validated
+        return ValidatedPlan(
+            plan=replace(plan, nodes=tuple(nodes)) if changed else plan,
+            grades=validated.grades,
+            warnings=tuple(warnings),
+        )
+
+    async def _resolve_predicate(
+        self,
+        node: ProbeNode,
+        predicate: Predicate,
+        watermark: DataWatermark,
+        corrections: dict[str, dict[str, Scalar]],
+        warnings: list[str],
+    ) -> None:
+        if predicate.op not in (PredicateOp.EQ, PredicateOp.IN) or not predicate.values:
+            return
+        dimension_id = predicate.dimension.id
+        if dimension_id.startswith(_TIME_BUCKET_PREFIX):
+            return
+        dim = self._catalog.dimension(dimension_id)
+        if dim is None or dim.phi is not PhiClass.NONE:
+            return  # unknown is step 1's error; PHI is never enumerated here
+        domain = await self._value_domain(node, dim, watermark)
+        if domain is None:
+            return  # no declared domain and the source could not enumerate one
+        index = {normalize_synonym(str(value)): value for value in domain}
+        unmatched: list[Scalar] = []
+        for value in predicate.values:
+            text = str(value)
+            if text in domain:
+                continue
+            canonical = index.get(normalize_synonym(text))
+            if canonical is None:
+                unmatched.append(value)
+                continue
+            corrections.setdefault(dimension_id, {})[text] = canonical
+            note = (
+                f"value_corrected: read {text!r} as {dim.label.lower()} {canonical!r} — the "
+                "closest match in this data differs only in case or punctuation"
+            )
+            if note not in warnings:
+                warnings.append(note)
+        if unmatched:
+            raise PlanClarificationNeeded(self._value_clarification(dim, unmatched, domain))
+
+    def _value_clarification(
+        self,
+        dim: DimensionDef,
+        unmatched: list[Scalar],
+        domain: tuple[str, ...],
+    ) -> ClarificationRequest:
+        """Name what did not match, what is closest, and how much exists."""
+        label = dim.label.lower()
+        named = ", ".join(repr(str(value)) for value in unmatched)
+        plural = "values" if len(unmatched) > 1 else "value"
+        close: list[str] = []
+        for value in unmatched:
+            for match in difflib.get_close_matches(
+                str(value), domain, n=MAX_SUGGESTED_VALUES, cutoff=_VALUE_SIMILARITY_CUTOFF
+            ):
+                if match not in close:
+                    close.append(match)
+        options = tuple(close[:MAX_SUGGESTED_VALUES]) or tuple(
+            sorted(domain)[:MAX_SUGGESTED_VALUES]
+        )
+        closest = "Closest: " + ", ".join(repr(option) for option in options) + ". "
+        question = (
+            f"There is no {label} named {named} in this data — so I stopped rather than "
+            f"answer over an empty population. {closest}"
+            f"{len(domain)} {label} {plural} exist here; which did you mean?"
+        )
+        return ClarificationRequest(
+            question=question,
+            options=options,
+            reason=(
+                f"PREDICATE_VALUE_UNMATCHED: {dim.id} "
+                f"{[str(value) for value in unmatched]} not in the {len(domain)} values "
+                "this watermark holds"
+            ),
+        )
+
+    async def _value_domain(
+        self, node: ProbeNode, dim: DimensionDef, watermark: DataWatermark
+    ) -> tuple[str, ...] | None:
+        """The values this dimension may take: declared, else observed."""
+        if dim.value_domain is not None:
+            return dim.value_domain
+        if dim.buckets is not None:
+            return dim.buckets
+        return await self._observed(node, dim, watermark)
+
+    async def _observed(
+        self, node: ProbeNode, dim: DimensionDef, watermark: DataWatermark
+    ) -> tuple[str, ...] | None:
+        """Distinct values at the watermark, via one grouped read.
+
+        Shaped as the probe it validates — same entity, same window, same
+        measure — with the scope dropped so the answer is "what exists",
+        not "what survives the filter under test". Cached per watermark:
+        the second question about payers in the same period costs nothing.
+
+        A source that cannot serve it (an offline adapter, a stub) returns
+        ``None`` and the pass declines to judge: refusing to answer because
+        a *validation* read failed would turn an unavailable source into a
+        wrong-value accusation.
+        """
+        probe = node.probe
+        assert isinstance(probe, (AggregationProbe, SnapshotProbe))
+        window_key = (
+            f"{probe.window.range.start.isoformat()}..{probe.window.range.end.isoformat()}"
+            if isinstance(probe, AggregationProbe)
+            else probe.as_of.isoformat()
+        )
+        key = (watermark.id, probe.grain.entity.value, dim.id, window_key)
+        cached = self._observed_values.get(key)
+        if cached is not None:
+            return cached
+        ref = DimensionRef(dim.id)
+        lookup: AggregationProbe | SnapshotProbe
+        if isinstance(probe, AggregationProbe):
+            lookup = AggregationProbe(
+                measures=probe.measures[:1],
+                dimensions=(ref,),
+                scope=EMPTY_SCOPE,
+                window=probe.window,
+                grain=Grain(probe.grain.entity),
+            )
+        else:
+            lookup = SnapshotProbe(
+                measures=probe.measures[:1],
+                dimensions=(ref,),
+                scope=EMPTY_SCOPE,
+                as_of=probe.as_of,
+                grain=Grain(probe.grain.entity),
+                aging_basis=probe.aging_basis,
+            )
+        try:
+            frame = await self._repository.execute(lookup, watermark=watermark)
+        except ReviError:
+            return None
+        if dim.id not in frame.schema.names:
+            return None
+        values = tuple(
+            dict.fromkeys(str(value) for value in frame.column(dim.id) if value is not None)
+        )
+        if not values:
+            return None
+        self._observed_values[key] = values
+        return values
 
     # ----------------------------------------------------- step 1: resolve
 

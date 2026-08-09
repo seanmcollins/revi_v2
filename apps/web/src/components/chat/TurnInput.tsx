@@ -1,7 +1,7 @@
 "use client";
 
 import { CornerDownLeft, LoaderCircle } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -27,6 +27,17 @@ export function TurnInput({ suggestions }: { suggestions: string[] }) {
   const busy = streaming || replaying || switching || newChatPending;
   const pending = useSessionStore((s) => s.pendingRefinements.length);
   const mode = useSessionStore((s) => s.connection.mode);
+
+  // Disabling the textarea while a turn runs drops the caret on the floor:
+  // the browser blurs a control that becomes disabled and puts focus on
+  // <body>, so a keyboard-only analyst had to Tab back into the composer
+  // after every single answer. Give it back the moment the pipeline frees.
+  const composerRef = useRef<HTMLTextAreaElement>(null);
+  const wasBusy = useRef(busy);
+  useEffect(() => {
+    if (wasBusy.current && !busy) composerRef.current?.focus();
+    wasBusy.current = busy;
+  }, [busy]);
 
   const send = (text: string) => {
     const trimmed = text.trim();
@@ -61,6 +72,8 @@ export function TurnInput({ suggestions }: { suggestions: string[] }) {
       >
         <Textarea
           id="turn-composer"
+          ref={composerRef}
+          aria-label="Ask a question"
           value={value}
           onChange={(e) => setValue(e.target.value)}
           onKeyDown={(e) => {

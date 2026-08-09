@@ -1,0 +1,52 @@
+# Governed display names for metric ids that overclaim what they measure.
+#
+# Pack-adjacent governed content, loaded by the API alongside
+# `anomaly_actionability.yaml` and content-hashed the same way.
+#
+# WHY THIS FILE EXISTS (round-1 review F9). A metric id is a reference
+# anchor: playbooks name it, the answer key asserts on it, web fixtures
+# pin it, the review record cites it. So an id that turns out to promise
+# more than its formula delivers cannot simply be renamed — but it also
+# cannot be left wearing the name. This file is the third option: the id
+# stays, and every surface that shows one also shows what the number
+# ACTUALLY is, in the analyst's words, with the qualification that makes
+# it honest.
+#
+# Entry rules, so this stays a correction and not a thesaurus:
+#
+#   * an entry is only justified when the id would MISLEAD a reader who
+#     did not open the contract — not merely when a prettier label exists;
+#   * `caveat` must state the specific thing the formula does not do, and
+#     must match the contract's own `Population caveat:` sentence in
+#     substance (the contract emits that on every answer; this carries it
+#     to surfaces that have no answer, like a portfolio card);
+#   * `rationale` records why the entry was added, so a later reader can
+#     retire it when the underlying gap closes.
+#
+# Retiring an entry is the goal. When `timely_filing_at_risk_dollars`
+# grows its probe-time filing_rules join (see NOTES.md, "Named next
+# milestone"), its entry here shrinks to a display name with no caveat.
+metrics:
+  timely_filing_at_risk_dollars:
+    display_name: Unbilled open inventory (timely-filing watch proxy)
+    caveat: >-
+      Deadline proximity from filing_rules is NOT yet applied; this is
+      total unbilled open inventory, an upper bound on filing exposure
+      rather than a measure of it.
+    rationale: >-
+      The formula filters on billed_flag = false AND status = OPEN and
+      applies no deadline predicate at all. Served $22.4M with high
+      confidence in a warehouse whose genuine timely-filing anomaly cards
+      total roughly $62K — a name that claims filing exposure over a
+      number that measures inventory.
+  dnfb_dollars:
+    display_name: Discharged not final billed (unbilled discharges)
+    caveat: >-
+      Counts discharged accounts that have not been billed; it says
+      nothing about whether the delay is a coding backlog, a
+      documentation hold, or a payer-side gate.
+    rationale: >-
+      "DNFB" is unambiguous inside revenue cycle and opaque outside it,
+      and this metric leads the portfolio's largest card. The expansion
+      is the whole entry; the caveat only bounds what the number
+      diagnoses, and no formula change is implied.

@@ -44,7 +44,6 @@ on the :class:`TurnOutcome`, never as exceptions.
 
 from __future__ import annotations
 
-import re
 import time
 import uuid
 from collections.abc import Mapping
@@ -53,9 +52,11 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from typing import Any
 
+from revi_investigation.application.anchoring import window_anchor
 from revi_investigation.application.calculation_glue import (
     CalculateMetricsService,
     CalculationResult,
+    EmptinessFact,
 )
 from revi_investigation.application.capability_ports import BenchmarkSpec, PackPort, TransformPort
 from revi_investigation.application.cohorts import PinCohortService
@@ -97,12 +98,18 @@ from revi_investigation.application.ports import (
     TurnEventBus,
 )
 from revi_investigation.application.refinement_llm import (
+    REFERENT_HANDLE,
     EmitRefinementsService,
     ReferentResolution,
     ResolveReferentsService,
+    resolve_referent_tokens,
     to_domain_operators,
 )
-from revi_investigation.application.validation import PlanValidationService, ValidatedPlan
+from revi_investigation.application.validation import (
+    PlanClarificationNeeded,
+    PlanValidationService,
+    ValidatedPlan,
+)
 from revi_investigation.domain.context import (
     AnalysisSpec,
     ContextPin,
@@ -127,13 +134,19 @@ from revi_investigation.domain.refinements import (
     detect_conflict,
 )
 from revi_investigation.domain.settings import DEFAULT_SESSION_SETTINGS, SessionSettings
-from revi_investigation.domain.turns import ClarificationRequest, TurnClass
+from revi_investigation.domain.turns import ClarificationRequest, TurnClass, TurnClassification
 from revi_investigation_contracts.api import TypedInvestigationSpec
 from revi_investigation_contracts.header import ContextHeaderPayload, build_header_payload
 from revi_investigation_contracts.settings import EvidenceDepth
 from revi_kernel.capabilities import AnalyticalRepository
 from revi_kernel.cohort import CohortRef
-from revi_kernel.errors import ContextConflictError, DataLoadingError, ReferentNotFoundError
+from revi_kernel.errors import (
+    ContextConflictError,
+    DataLoadingError,
+    GrainIncompatibleError,
+    ReviError,
+    UnsupportedConceptError,
+)
 from revi_kernel.filters import EMPTY_SCOPE, Predicate, iter_predicates
 from revi_kernel.frame import EvidenceFrame
 from revi_kernel.probes import AggregationProbe, EvidenceProbe, SnapshotProbe
@@ -200,13 +213,26 @@ def _not_applicable(reason: str) -> str:
 
 
 _KERNEL_ONLY = (RankBy, Expand)
-_REFERENT_TOKEN = re.compile(r"\b([FD]\d+)\b", re.IGNORECASE)
+_REFERENT_TOKEN = REFERENT_HANDLE
 
 #: The smallest per-call budget worth handing to a provider. Below it a
 #: call cannot complete, so the turn stops here and says so — an honest
 #: "this turn hit its cost ceiling" beats a provider budget refusal that
 #: reads like an outage, and beats far worse: quietly answering with less.
 _MIN_CALL_BUDGET_USD = Decimal("0.001")
+
+#: The usage a stage that made no model call reports. Recorded nowhere (a
+#: turn's ``llm`` ledger lists calls that happened), but the outcome types
+#: carry a usage by construction, and a zero is honest where a fabricated
+#: model name would not be.
+_NO_MODEL_USAGE = LlmUsage(
+    model="none",
+    cost_usd=Decimal(0),
+    input_tokens=0,
+    output_tokens=0,
+    schema_retries=0,
+    duration_ms=0,
+)
 
 
 def _new_id(prefix: str) -> str:
@@ -293,6 +319,11 @@ class TurnOutcome:
     #: re-deriving them from the session (which a per-turn override would
     #: have made wrong).
     settings: SessionSettings = DEFAULT_SESSION_SETTINGS
+    #: Why this turn has nothing to say, when it has nothing to say. An
+    #: empty answer used to be indistinguishable from a quiet one; this is
+    #: the structured fact a presentation layer writes the difference from
+    #: (empty population vs. data with no publishable finding).
+    emptiness: EmptinessFact | None = None
 
 
 def build_context_header(spec: AnalysisSpec, session: Session) -> ContextHeaderPayload:
@@ -539,6 +570,14 @@ class SubmitTurnService:
         pending = await self._pending_clarification(session)
         state.pending = pending
 
+        known = await self._classification_by_construction(session, pending, state.question)
+        if known is not None:
+            state.time_stage("classify")
+            assert known.classification is not None
+            if known.classification.turn_class is TurnClass.DEFINITIONAL:
+                return await self._definitional_outcome(session, state, known)
+            return await self._new_investigation_turn(session, state, known)
+
         await self._stage(state, "classify")
         classified = await self._classifier.classify(
             request.question, pending=pending, policy=state.call_policy()
@@ -583,6 +622,53 @@ class SubmitTurnService:
             reason=f"turn class {turn_class.value} is not actionable here",
         )
         return await self._clarification_outcome(session, state, classified, clarification)
+
+    async def _classification_by_construction(
+        self, session: Session, pending: PendingClarification | None, state_question: str
+    ) -> ClassificationOutcome | None:
+        """The turn class this session's state already determines.
+
+        Six of the seven classes in the §7.3 taxonomy describe an utterance
+        *relative to something already on screen*: a refinement edits a
+        prior answer, a presentation re-presents one, a meta turn asks how
+        one was produced, a context-control turn adjusts a context a prior
+        turn established, a clarification response answers a question this
+        platform asked. A session that has completed no turn has none of
+        those to point at. The first utterance of a session is a new
+        investigation — not probably, by construction.
+
+        It was nonetheless sent to a model every time, at the cost of a
+        call and a chance of being wrong: live, a first-turn question came
+        back REFINEMENT and was answered "there's no prior answer in this
+        session to refine yet", which is true and useless. DEFINITIONAL is
+        not lost here — interpretation still routes "what is PR3" to the
+        pack lookup with zero probes; it is one stage later, not one
+        classification away.
+
+        A pending clarification is the one thing that makes a first
+        utterance ambiguous again, so its presence hands the turn back to
+        the model.
+        """
+        if pending is not None:
+            return None
+        if await self._latest_investigation(session, analytical=False) is not None:
+            return None
+        # DEFINITIONAL is the one other class a first utterance can be, and
+        # it is decidable without a model too: a governed lead-in over a
+        # term the pack resolves whole. Deciding it here keeps the
+        # zero-probe path zero-*call* as well.
+        definitional = self._interpreter.definitional_match(state_question)
+        return ClassificationOutcome(
+            classification=TurnClassification(
+                turn_class=(
+                    TurnClass.DEFINITIONAL if definitional else TurnClass.NEW_INVESTIGATION
+                ),
+                confidence=1.0,
+            ),
+            clarification=None,
+            usage=_NO_MODEL_USAGE,
+            template_hash="by_construction",
+        )
 
     # -------------------------------------------- answering a clarification
 
@@ -920,22 +1006,37 @@ class SubmitTurnService:
         rationale = ""
 
         if dto_ops is None:
-            exhausted = self._budget_stop(state, "resolving what you referred to")
-            if exhausted is not None:
-                return await self._clarification_outcome(session, state, classified, exhausted)
-
+            # Handles the analyst typed are resolved against the registry
+            # BEFORE any model call — they are identifiers this platform
+            # minted, not language to be interpreted (§7.6).
             await self._stage(state, "resolve_referents")
-            resolved = await self._referent_resolver.resolve(
-                state.question, entries, policy=state.call_policy()
-            )
-            state.record_llm("resolve_referents", resolved.usage, resolved.failure)
-            state.template_hashes["resolve_referents@v1"] = resolved.template_hash
-            state.time_stage("resolve_referents")
-            if resolved.clarification is not None:
+            deterministic, unknown = resolve_referent_tokens(state.question, entries)
+            if unknown:
                 return await self._clarification_outcome(
-                    session, state, classified, resolved.clarification
+                    session, state, classified, self._unknown_handle(unknown, entries)
                 )
-            resolutions = resolved.resolutions
+            if deterministic or not entries:
+                # Nothing left for a model to resolve: every handle matched,
+                # or nothing has been shown that anaphora could point at.
+                resolutions = deterministic
+                state.time_stage("resolve_referents")
+            else:
+                exhausted = self._budget_stop(state, "resolving what you referred to")
+                if exhausted is not None:
+                    return await self._clarification_outcome(
+                        session, state, classified, exhausted
+                    )
+                resolved = await self._referent_resolver.resolve(
+                    state.question, entries, policy=state.call_policy()
+                )
+                state.record_llm("resolve_referents", resolved.usage, resolved.failure)
+                state.template_hashes["resolve_referents@v1"] = resolved.template_hash
+                state.time_stage("resolve_referents")
+                if resolved.clarification is not None:
+                    return await self._clarification_outcome(
+                        session, state, classified, resolved.clarification
+                    )
+                resolutions = resolved.resolutions
 
             exhausted = self._budget_stop(state, "compiling your follow-up")
             if exhausted is not None:
@@ -1030,6 +1131,32 @@ class SubmitTurnService:
             prelude_warnings=tuple(prelude_warnings),
         )
 
+    @staticmethod
+    def _unknown_handle(
+        unknown: tuple[str, ...], entries: tuple[RegisteredReferent, ...]
+    ) -> ClarificationRequest:
+        """A handle this session never published — say so, and list what it did.
+
+        Deterministic resolution can fail honestly, and this is the shape:
+        not ``REFERENT_NOT_FOUND`` raised past the analyst as an error, and
+        not a model call hoping to find something close. The registry is
+        the answer, so the registry is what gets shown.
+        """
+        named = ", ".join(unknown)
+        available = [entry.referent.value for entry in entries]
+        return ClarificationRequest(
+            question=(
+                f"I haven't shown {named} in this session. "
+                + (
+                    f"What I have shown: {', '.join(available[:12])}. Which did you mean?"
+                    if available
+                    else "Nothing has been shown yet — what would you like to investigate?"
+                )
+            ),
+            options=tuple(f"drill into {value}" for value in available[:4]),
+            reason=f"REFERENT_NOT_FOUND: {list(unknown)} not in the live registry",
+        )
+
     async def _pin_drill_cohort(
         self,
         session: Session,
@@ -1070,12 +1197,18 @@ class SubmitTurnService:
         evidence_depth = state.settings.evidence_depth
 
         await self._stage(state, "plan")
-        plan = self._planner.build(
-            spec,
-            playbook_id=effective_playbook,
-            window_explicit=window_explicit,
-            evidence_depth=evidence_depth,
-        )
+        try:
+            plan = self._planner.build(
+                spec,
+                playbook_id=effective_playbook,
+                window_explicit=window_explicit,
+                evidence_depth=evidence_depth,
+            )
+        except (GrainIncompatibleError, UnsupportedConceptError) as refusal:
+            recovered = await self._recoverable_refusal(session, state, classified, refusal)
+            if recovered is not None:
+                return recovered
+            raise
         diff: PlanDiff | None = None
         if parent is not None:
             parent_playbook = playbook_id if not parent.spec.measures else None
@@ -1093,7 +1226,24 @@ class SubmitTurnService:
         state.time_stage("plan")
 
         await self._stage(state, "validate")
-        validated = self._validator.validate(plan, spec)
+        try:
+            validated = self._validator.validate(plan, spec)
+            # …then the values those filters name, against the values that
+            # exist at this watermark. A separate (async) pass because it
+            # reads the source; the refusal it can raise is a question for
+            # the analyst, not an error code (§6.6 step 4b).
+            validated = await self._validator.resolve_predicate_values(
+                validated, watermark=session.watermark
+            )
+        except PlanClarificationNeeded as needed:
+            return await self._clarification_outcome(
+                session, state, classified, needed.clarification
+            )
+        except (GrainIncompatibleError, UnsupportedConceptError) as refusal:
+            recovered = await self._recoverable_refusal(session, state, classified, refusal)
+            if recovered is not None:
+                return recovered
+            raise
         state.time_stage("validate")
 
         # the longest stage of the pipeline; it published no progress frame
@@ -1154,13 +1304,24 @@ class SubmitTurnService:
         # than asking again (§2.8), or read an utterance as an answer to its
         # own question, the analyst must meet that decision BEFORE the
         # numbers it produced — not below a stack of basis and suppression
-        # notes they will not scroll to.
+        # notes they will not scroll to. The same rule covers what
+        # interpretation decided on their behalf (a period nobody named, a
+        # filter dropped as redundant) and what selection could not find
+        # (nothing moved the way the question asked about): those are
+        # statements about whether the answer answers the question, and
+        # they cannot sit under the answer.
         warnings = (
             *state.assumptions,
+            *(interpreted.notes if interpreted is not None else ()),
+            *findings_result.warnings,
             *validated.warnings,
             *validated.plan.notes,
             *extra_warnings,
         )
+        # An empty population is the stronger fact: when nothing was
+        # retrieved at all, "no finding survived" is a consequence, not the
+        # explanation.
+        emptiness = calculation.emptiness or findings_result.emptiness
         benchmarks = self._benchmarks_for(findings_result)
         header = build_context_header(spec, session)
         frame_refs = await self._persist_frames(state, calculation)
@@ -1205,6 +1366,9 @@ class SubmitTurnService:
             # checked. The ``refinement`` copy stays for readers that
             # already know where to look.
             "reconciliation": reconciliation,
+            # Structured, never prose: which kind of nothing this turn
+            # produced, and what was filtering when it did.
+            "emptiness": emptiness.as_payload() if emptiness is not None else None,
         }
         if trace_extra is not None:
             extra.update(dict(trace_extra))
@@ -1249,7 +1413,31 @@ class SubmitTurnService:
             diff=diff,
             benchmarks=benchmarks,
             settings=state.settings,
+            emptiness=emptiness,
         )
+
+    async def _recoverable_refusal(
+        self,
+        session: Session,
+        state: _TurnState,
+        classified: ClassificationOutcome | None,
+        refusal: ReviError,
+    ) -> TurnOutcome | None:
+        """A §6.6 refusal the pack can offer a way out of (design §2.8).
+
+        ``GRAIN_INCOMPATIBLE`` and ``UNSUPPORTED_CONCEPT`` were terminal:
+        an error banner naming a code, and no next move — while the pack
+        often held a metric that answers the same question at a cut it does
+        declare. The validator derives those alternatives from content
+        (never invents them); when it can, the turn ends as a clarification
+        with them as options. When it cannot, ``None`` comes back and the
+        refusal stands: a clarification with no way forward is worse than
+        an error that says what happened.
+        """
+        clarification = self._validator.clarification_for(refusal)
+        if clarification is None:
+            return None
+        return await self._clarification_outcome(session, state, classified, clarification)
 
     def _benchmarks_for(self, findings: FindingsResult) -> tuple[BenchmarkSpec, ...]:
         """Benchmark ranges for every metric the turn's findings cite, in
@@ -1399,9 +1587,10 @@ class SubmitTurnService:
         entries = await self._referents.list_for_session(session.id)
         entry = next((e for e in entries if e.referent.value == token), None)
         if entry is None:
-            raise ReferentNotFoundError(
-                f"referent {token!r} is not in the live registry",
-                details={"referent": token},
+            # The same deterministic honesty the refinement path gives: a
+            # handle nobody published is a question, not a 4xx.
+            return await self._clarification_outcome(
+                session, state, classified, self._unknown_handle((token,), entries)
             )
         cited = await self._investigations.get(entry.investigation_id)
         cited_traces = await self._traces.for_investigation(entry.investigation_id)
@@ -1814,7 +2003,7 @@ class SubmitTurnService:
         if window.requested is not None:
             window = resolve_window(
                 window.requested,
-                session.watermark.loaded_at.date(),
+                window_anchor(session.watermark, window.requested.mode),
                 basis=window.basis,
                 calendar=window.calendar,
             )
@@ -1871,7 +2060,7 @@ class SubmitTurnService:
         return "\n".join(f"- {mid}" for mid, _ in self._pack.metric_summaries()) or "- (none)"
 
     def _fallback_spec(self, session: Session) -> AnalysisSpec:
-        anchor = session.watermark.loaded_at.date()
+        anchor = window_anchor(session.watermark, _FALLBACK_WINDOW.mode)
         window = resolve_window(_FALLBACK_WINDOW, anchor, basis=SERVICE)
         return AnalysisSpec(
             context=InvestigationContext(

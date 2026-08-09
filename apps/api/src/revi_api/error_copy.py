@@ -62,6 +62,10 @@ PLAIN_MESSAGES: dict[ErrorCode, str] = {
         "The data source didn't respond, so nothing was read. Nothing about your question "
         "was wrong — please try again in a moment."
     ),
+    # QUERY_BUDGET_EXCEEDED's entry is the WAREHOUSE-read case, which is
+    # what the code is named for and what most of its raise sites mean.
+    # The model-spend case gets its own sentence via `_SUBCODE_MESSAGES`
+    # below — see :func:`budget_subcode` for why the two must not share one.
     ErrorCode.QUERY_BUDGET_EXCEEDED: (
         "That question would read more of the warehouse than one turn is allowed to. "
         "Narrowing it — fewer breakdowns, a shorter window, or a top-N — brings it in range."
@@ -104,6 +108,60 @@ PLAIN_MESSAGES: dict[ErrorCode, str] = {
         "form of the same question may be answerable here."
     ),
 }
+
+
+# ---------------------------------------------------------------------------
+# QUERY_BUDGET_EXCEEDED is two failures wearing one code (review F19)
+
+#: The warehouse-read budget: the plan would group too many cells, hold too
+#: many probes, or pin too large a cohort. The recovery is to ask a
+#: narrower question.
+WAREHOUSE_READ_BUDGET = "WAREHOUSE_READ_BUDGET"
+#: The model-spend budget: the turn's per-call or per-turn cost ceiling was
+#: reached. The question was fine; the wallet was the constraint. The
+#: recovery is a higher ceiling, a cheaper tier, or waiting — and NOT
+#: rewriting a question that was never too wide.
+MODEL_SPEND_BUDGET = "MODEL_SPEND_BUDGET"
+
+#: ``details`` keys that identify a model-spend stop. The language-model
+#: adapter is the only thing that reports a dollar ceiling; every
+#: warehouse-side budget is counted in cells, probes or rows.
+_MODEL_SPEND_KEYS = ("max_budget_usd", "cost_usd", "max_turn_cost_usd")
+
+#: Plain copy per subcode. The warehouse case keeps the code-level
+#: sentence (it is the same failure the code is named for); the model case
+#: needs its own, because telling somebody to narrow their question after a
+#: spend stop sends them to rewrite something that was never the problem.
+_SUBCODE_MESSAGES: dict[str, str] = {
+    MODEL_SPEND_BUDGET: (
+        "This turn reached its model-spend ceiling before it could finish. Nothing about "
+        "your question was too large — raising the turn's cost ceiling, choosing a "
+        "cheaper model tier, or simply asking again will get you an answer."
+    ),
+}
+
+
+def budget_subcode(
+    code: ErrorCode, details: Mapping[str, object] | None = None
+) -> str | None:
+    """Which budget stopped the turn, or ``None`` for any other code.
+
+    Decided from the error's own structured ``details`` rather than from
+    its sentence: the adapter that hits a dollar ceiling records the
+    ceiling and the cost, and the validator that hits a read budget
+    records cells, probes or cohort size. Reading the numbers a raise site
+    chose to record is stable; grepping its prose is not.
+
+    Defaults to the warehouse case when nothing identifies it, because
+    that is what the code has always meant and what most of its raise
+    sites are — a wrong guess toward "your question is too wide" is the
+    guess the analyst can act on and verify.
+    """
+    if code is not ErrorCode.QUERY_BUDGET_EXCEEDED:
+        return None
+    if details and any(details.get(key) is not None for key in _MODEL_SPEND_KEYS):
+        return MODEL_SPEND_BUDGET
+    return WAREHOUSE_READ_BUDGET
 
 
 #: Codes whose failure IS "the thing you named does not resolve here".
@@ -149,7 +207,8 @@ def plain_message(
     :data:`_ECHO_CODES`) — being told "nothing here is called 'flurb_rate'"
     is the difference between a refusal you can act on and one you cannot.
     """
-    plain = PLAIN_MESSAGES.get(code)
+    subcode = budget_subcode(code, details)
+    plain = _SUBCODE_MESSAGES.get(subcode or "") or PLAIN_MESSAGES.get(code)
     if plain is None:
         # An unmapped code says the engine's own words rather than a
         # reassuring generic sentence that would carry less information

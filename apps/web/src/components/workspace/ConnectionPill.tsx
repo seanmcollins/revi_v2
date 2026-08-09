@@ -62,6 +62,12 @@ export function ConnectionPill() {
 export function DegradedModeBadge() {
   const connection = useSessionStore((s) => s.connection);
 
+  // Nothing until the deployment has actually answered. This badge used to
+  // render on the very first paint — before any health poll — because the
+  // store opened on `mode: "mock"`, so a live api deployment briefly and
+  // wrongly announced itself as a demo script.
+  if (!connection.healthChecked) return null;
+
   if (connection.mode === "mock") {
     return (
       <span

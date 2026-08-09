@@ -1,7 +1,7 @@
 "use client";
 
 import { MessageCircleQuestion, SlidersHorizontal } from "lucide-react";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -28,6 +28,18 @@ export function ClarificationPrompt({ clarification }: { clarification: Clarific
   const openSettings = useSessionStore((s) => s.openSettings);
   const [freeText, setFreeText] = useState("");
 
+  // A clarification is a question addressed to the analyst, and it arrives
+  // after focus was taken away by the disabled composer. Nothing moved
+  // focus to it, so a keyboard-only or screen-reader user was left on
+  // <body> in front of an unannounced prompt. Focus the first answerable
+  // interpretation — the prompt text is read out with it because the
+  // options are inside the labelled group.
+  const firstOptionRef = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    firstOptionRef.current?.focus();
+    // Re-runs when a NEW clarification lands, not on every render.
+  }, [clarification.question]);
+
   const match = clarification.reason ? REASON_CODE.exec(clarification.reason) : null;
   const reasonCode = match?.[1];
   const reasonText = debug ? clarification.reason : (match?.[2] ?? clarification.reason);
@@ -42,7 +54,11 @@ export function ClarificationPrompt({ clarification }: { clarification: Clarific
   };
 
   return (
-    <div className="rounded-lg border border-grade-derived/40 bg-grade-derived/5 p-3.5">
+    <div
+      role="group"
+      aria-label={`Clarification: ${clarification.question}`}
+      className="rounded-lg border border-grade-derived/40 bg-grade-derived/5 p-3.5"
+    >
       <div className="flex items-start gap-2.5">
         <MessageCircleQuestion className="mt-0.5 size-4 shrink-0 text-grade-derived" />
         <div className="min-w-0 flex-1 space-y-2.5">
@@ -51,9 +67,10 @@ export function ClarificationPrompt({ clarification }: { clarification: Clarific
             <p className="text-[0.7rem] leading-snug text-muted-foreground">{reasonText}</p>
           )}
           <div className="flex flex-wrap gap-1.5">
-            {clarification.options.map((option) => (
+            {clarification.options.map((option, index) => (
               <Button
                 key={option}
+                ref={index === 0 ? firstOptionRef : undefined}
                 variant="outline"
                 size="sm"
                 disabled={streaming}

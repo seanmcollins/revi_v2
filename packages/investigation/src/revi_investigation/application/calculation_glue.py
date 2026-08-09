@@ -21,11 +21,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from decimal import Decimal
+from enum import StrEnum
 
 from revi_investigation.application.capability_ports import PackPort, TransformPort
 from revi_investigation.application.execution import ExecutedProbe
 from revi_investigation.application.planning import InvestigationPlan, TransformPlanStep
 from revi_kernel.errors import ReconciliationFailedError, UnsupportedConceptError
+from revi_kernel.filters import Predicate, iter_predicates
 from revi_kernel.frame import EvidenceFrame, TransformProvenance
 from revi_kernel.probes import AggregationProbe, SnapshotProbe
 from revi_kernel.refs import MetricRef
@@ -39,6 +41,60 @@ class OperatorApplication:
     output: str
 
 
+class EmptinessKind(StrEnum):
+    """Which kind of nothing a turn produced."""
+
+    #: Every probe came back with zero rows. The population is empty.
+    NO_ROWS = "no_rows"
+    #: Rows exist, and no finding survived selection out of them.
+    NO_FINDINGS = "no_findings"
+
+
+@dataclass(frozen=True, slots=True)
+class EmptinessFact:
+    """Why a turn has nothing to say, as data rather than as absence.
+
+    An empty answer is the one outcome this engine could not explain. Rows
+    came back empty and the turn published a chart with no bars, a
+    suppression note, and no statement of the obvious: *nothing matched*.
+    Worse, "the filter matched nothing" and "the numbers are all there and
+    none of them rose to a finding" rendered identically — as silence —
+    while their recoveries are opposite (widen the filter / ask a different
+    question).
+
+    So the fact is recorded where it is known and carried to the surface:
+    which kind of nothing it was, which frame was looked at, and — for an
+    empty population — the predicates that could have emptied it, in the
+    analyst's own vocabulary. Nothing here is prose for a user; it is the
+    structure a presentation layer writes prose from.
+    """
+
+    kind: EmptinessKind
+    #: The frame the verdict was reached on (a ranked/compared frame for
+    #: ``NO_FINDINGS``, the first empty probe for ``NO_ROWS``).
+    frame_id: str | None
+    #: One-line machine-readable summary, for traces and logs.
+    detail: str
+    #: Filter clauses in force on the emptied probe — the suspects, listed
+    #: in the order they were applied, never ranked by a guess at which one
+    #: did it.
+    predicates: tuple[str, ...] = ()
+
+    def as_payload(self) -> dict[str, object]:
+        """Trace/API shape (§14) — a mapping, not an English sentence."""
+        return {
+            "kind": self.kind.value,
+            "frame_id": self.frame_id,
+            "detail": self.detail,
+            "predicates": list(self.predicates),
+        }
+
+
+def _predicate_label(predicate: Predicate) -> str:
+    values = ", ".join(str(v) for v in predicate.values)
+    return f"{predicate.dimension.id} {predicate.op.value} [{values}]".strip()
+
+
 @dataclass(frozen=True, slots=True)
 class CalculationResult:
     """All logical frames (probe frames post-ratio plus derived frames), in
@@ -46,6 +102,9 @@ class CalculationResult:
 
     frames: tuple[tuple[str, EvidenceFrame], ...]
     operations: tuple[OperatorApplication, ...]
+    #: Set when every probe in the plan returned zero rows — see
+    #: :class:`EmptinessFact`. ``None`` means at least one probe had data.
+    emptiness: EmptinessFact | None = None
 
     def frame(self, frame_id: str) -> EvidenceFrame:
         for name, frame in self.frames:
@@ -123,6 +182,39 @@ class CalculateMetricsService:
         return CalculationResult(
             frames=tuple((name, frames[name]) for name in order),
             operations=tuple(operations),
+            emptiness=self._emptiness(plan, executed),
+        )
+
+    @staticmethod
+    def _emptiness(
+        plan: InvestigationPlan, executed: tuple[ExecutedProbe, ...]
+    ) -> EmptinessFact | None:
+        """Did every probe come back empty, and what was filtering them?
+
+        Recorded here because this is the last stage that can still see the
+        probes *and* their results together: by the time an answer is being
+        composed, "no rows" is indistinguishable from "no findings", and
+        both look like a system with nothing to say rather than a
+        population with nothing in it.
+        """
+        if not executed or any(item.frame.rows for item in executed):
+            return None
+        first = executed[0]
+        predicates: list[str] = []
+        try:
+            probe = plan.node(first.node_id).probe
+        except KeyError:  # pragma: no cover - executed nodes come from the plan
+            probe = None
+        if isinstance(probe, (AggregationProbe, SnapshotProbe)):
+            predicates = [_predicate_label(p) for p in iter_predicates(probe.scope)]
+        return EmptinessFact(
+            kind=EmptinessKind.NO_ROWS,
+            frame_id=first.node_id,
+            detail=(
+                f"every probe in this plan returned zero rows "
+                f"({len(executed)} probe(s) executed)"
+            ),
+            predicates=tuple(predicates),
         )
 
     # -------------------------------------------------------------- ratios

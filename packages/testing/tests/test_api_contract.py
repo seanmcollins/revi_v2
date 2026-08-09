@@ -103,7 +103,11 @@ def _canned_llm() -> MockLanguageModel:
         },
         matcher=lambda p: UNKNOWN_METRIC_Q in p,
     )
+    # A session's FIRST utterance is classified by construction (no model
+    # call), so an unreadable one has to fail at INTERPRETATION for the
+    # clarification path to be exercised at all.
     llm.respond("classify_turn", None, matcher=lambda p: CONFUSED_Q in p)
+    llm.respond("interpret_question", None, matcher=lambda p: CONFUSED_Q in p)
     return llm
 
 
@@ -179,7 +183,9 @@ class TestApiContract:
         )  # clicks compile to DrillInto
         assert response.narrative is not None and "F1" in response.narrative
         assert response.plan_hash is not None
-        assert response.usage.llm_calls >= 2
+        # Interpretation plus the narrative. Classification is decided by
+        # construction on a session's first utterance and costs nothing.
+        assert response.usage.llm_calls >= 1
 
     async def test_typed_first_turn_opens_an_investigation_with_no_model_call(
         self, client: Client
@@ -289,8 +295,12 @@ class TestApiContract:
         components — never a black-box ordering."""
         portfolio = await client.get_portfolio()
         assert portfolio.status == "ok"
-        assert portfolio.formula_version == "anomaly_priority@1"
+        assert portfolio.formula_version == "anomaly_priority@2"
         assert len(portfolio.items) >= 20
+        # @2 publishes the arithmetic and the lane, not just the result.
+        assert portfolio.compliance_floor_basis in ("relative_median", "governed_absolute")
+        assert {lane.id for lane in portfolio.lanes} <= {"compliance", "value"}
+        assert sum(lane.item_count for lane in portfolio.lanes) == len(portfolio.items)
         # Governed priority orders within each half of the list; drillable
         # cards come first, because a worklist that opens with work nobody
         # can start is not a worklist (round-1 review D5).
@@ -307,6 +317,27 @@ class TestApiContract:
         assert top.impact_cents != 0
         assert top.actionability_rationale
         assert top.age_days >= 0
+        # The score is reproducible from its own published terms.
+        terms = top.priority
+        recomputed = (
+            terms.impact_term + terms.recency_term + terms.actionability_term
+        ) / terms.weight_sum
+        # Every published term is rounded to six places, so the sum can
+        # only be checked to the precision the payload actually carries.
+        assert recomputed == pytest.approx(terms.score_before_floor, abs=5e-6)
+        assert top.priority_score == pytest.approx(
+            max(terms.score_before_floor, terms.floor_value)
+            if terms.floor_applied
+            else terms.score_before_floor,
+            abs=1e-6,
+        )
+        # And every card states its relationship to this platform's own
+        # re-derivation of the same cell — never silence (review F1).
+        for item in portfolio.items:
+            assert item.impact_agreement in ("agreed", "diverged", "unavailable")
+            assert item.impact_reconciliation_note
+            if item.impact_agreement != "unavailable":
+                assert item.reconciled_impact_cents is not None
 
     async def test_get_investigation_roundtrip(self, client: Client) -> None:
         session = await client.open_session(OpenSessionRequest(tenant="demo"))

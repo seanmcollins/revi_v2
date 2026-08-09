@@ -319,12 +319,36 @@ export interface components {
              */
             drillable: boolean;
             /**
+             * Impact Agreement
+             * @default unavailable
+             * @enum {string}
+             */
+            impact_agreement: "agreed" | "diverged" | "unavailable";
+            /**
              * Impact Cents
              * @default 0
              */
             impact_cents: number;
+            /** Impact Delta Cents */
+            impact_delta_cents?: number | null;
+            /** Impact Delta Fraction */
+            impact_delta_fraction?: number | null;
+            /**
+             * Impact Reconciliation Note
+             * @default
+             */
+            impact_reconciliation_note: string;
+            /**
+             * Lane
+             * @default value
+             * @enum {string}
+             */
+            lane: "compliance" | "value";
+            /** Metric Display Name */
+            metric_display_name?: string | null;
             /** Metric Id */
             metric_id: string;
+            priority?: components["schemas"]["PriorityDecompositionPayload"];
             /** Priority Formula Version */
             priority_formula_version: string;
             /**
@@ -337,6 +361,10 @@ export interface components {
              * @constant
              */
             provenance: "external_detection";
+            /** Reconciled Impact Cents */
+            reconciled_impact_cents?: number | null;
+            /** Reconciled Impact Metric Id */
+            reconciled_impact_metric_id?: string | null;
             /**
              * Recoverable Cents Estimate
              * @default 0
@@ -367,6 +395,74 @@ export interface components {
             dimension: string;
             /** Value */
             value: string;
+        };
+        /**
+         * AnomalyReconciliationPayload
+         * @description Card figure vs re-derived figure, stated (review F1).
+         *
+         *     An anomaly card published ``$178,217``; drilling it answered
+         *     ``$195,873.92``; the turn's own reconciliation verdict said
+         *     ``not_applicable — this is a first turn``, which is true about the
+         *     investigation lineage and silent about the two numbers the reader had
+         *     just compared. 9.9% of disagreement, on consecutive screens, with no
+         *     reconciliation anywhere.
+         *
+         *     The figures are two different claims and both are honest:
+         *
+         *     * ``card_impact_cents`` is the EXTERNAL DETECTION SYSTEM's assertion —
+         *       its window, its population, its basis, computed when it fired and
+         *       read here as-of a watermark. The card carries
+         *       ``provenance="external_detection"`` for exactly this reason.
+         *     * ``answer_impact_cents`` is THIS PLATFORM's governed metric contract,
+         *       re-derived at the pinned watermark over the population the card
+         *       names, and carrying a real evidence grade.
+         *
+         *     They diverge when the detector's window, valuation basis or population
+         *     is not the contract's — which is normal, is not an error, and must be
+         *     *stated* rather than left for a reader to notice. ``status`` says
+         *     which of the three it is; ``detail`` says why in the platform's own
+         *     words. This reuses the shape of the §7.8 refinement verdict
+         *     (:class:`~revi_investigation_contracts.evidence.EvidenceReconciliation`)
+         *     deliberately: an analyst who has learned to read one reconciliation
+         *     strip should not have to learn a second.
+         */
+        AnomalyReconciliationPayload: {
+            /** Anomaly Id */
+            anomaly_id: string;
+            /** Answer Impact Cents */
+            answer_impact_cents?: number | null;
+            /** Answer Metric Id */
+            answer_metric_id?: string | null;
+            /** Card Impact Cents */
+            card_impact_cents: number;
+            /**
+             * Card Metric Id
+             * @default
+             */
+            card_metric_id: string;
+            /** Card Window End */
+            card_window_end?: string | null;
+            /** Card Window Start */
+            card_window_start?: string | null;
+            /** Delta Cents */
+            delta_cents?: number | null;
+            /** Delta Fraction */
+            delta_fraction?: number | null;
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "agreed" | "diverged" | "unavailable";
+            /**
+             * Summary
+             * @default
+             */
+            summary: string;
         };
         /**
          * BenchmarkPayload
@@ -411,6 +507,8 @@ export interface components {
              * @default mock
              */
             llm: string;
+            /** Metric Display */
+            metric_display?: components["schemas"]["MetricDisplayPayload"][];
             /**
              * Newest Watermark Id
              * @default
@@ -484,6 +582,51 @@ export interface components {
             value: string;
             /** X */
             x: string;
+        };
+        /**
+         * CohortPayload
+         * @description The pinned population behind an answer, said in words (review F15).
+         *
+         *     The context header carried ``cohort: coh_9f2a11…`` and a size. A hash
+         *     is a correct identifier and a useless label: the analyst who drilled
+         *     "the top three payers" was shown a string that names their own
+         *     selection back to them in a vocabulary nobody speaks, and a chip that
+         *     cannot be read cannot be checked.
+         *
+         *     So the same object the platform pinned is published as its parts: what
+         *     the members ARE (``entity_grain``), which rule selected them
+         *     (``definition``, the pinned predicate rendered as text), where the
+         *     selection came from (``origin_referent`` and the turn that introduced
+         *     it), and how many there are. ``id`` stays — it is the handle a later
+         *     turn re-addresses the population by — it is simply no longer the only
+         *     thing on the wire.
+         */
+        CohortPayload: {
+            /** Definition */
+            definition: string;
+            /** Entity Grain */
+            entity_grain: string;
+            /** Id */
+            id: string;
+            /** Origin Investigation Id */
+            origin_investigation_id?: string | null;
+            /** Origin Referent */
+            origin_referent?: string | null;
+            /** Origin Turn Id */
+            origin_turn_id?: string | null;
+            /**
+             * Pinned
+             * @default false
+             */
+            pinned: boolean;
+            /** Pinned Watermark Id */
+            pinned_watermark_id?: string | null;
+            /** Size */
+            size: number;
+            /** Window End */
+            window_end?: string | null;
+            /** Window Start */
+            window_start?: string | null;
         };
         /**
          * ContextHeaderPayload
@@ -785,6 +928,8 @@ export interface components {
             correlation_id: string;
             /** Message */
             message: string;
+            /** Subcode */
+            subcode?: string | null;
         };
         /**
          * EvidenceDepth
@@ -982,6 +1127,7 @@ export interface components {
         InvestigationResponse: {
             /** Chart Specs */
             chart_specs?: components["schemas"]["ChartSpec"][];
+            cohort?: components["schemas"]["CohortPayload"] | null;
             /**
              * Created At
              * Format: date-time
@@ -1009,6 +1155,8 @@ export interface components {
             turn_id: string;
             /** Warnings */
             warnings?: string[];
+            /** Warnings V2 */
+            warnings_v2?: components["schemas"]["WarningPayload"][];
         };
         /** LineageEdgePayload */
         LineageEdgePayload: {
@@ -1049,6 +1197,34 @@ export interface components {
             referent: string;
             /** Warnings */
             warnings?: string[];
+        };
+        /**
+         * MetricDisplayPayload
+         * @description The honest display name for a metric id that cannot be renamed.
+         *
+         *     ``timely_filing_at_risk_dollars`` measures unbilled open inventory. It
+         *     applies no deadline predicate at all — ``filing_rules`` is governed
+         *     content the contract does not yet join — so the id promises filing
+         *     exposure and delivers an upper bound that is three orders of magnitude
+         *     larger than the real filing cards ($22.4M against ~$62K). The id is a
+         *     reference anchor across the pack, the answer key and the review
+         *     record, so renaming it would break more than it fixed; instead the
+         *     platform publishes what it actually measures, next to the id, on
+         *     every surface that shows one.
+         *
+         *     ``caveat`` is the same sentence the contract emits as a mandatory
+         *     warning on every answer that reads the metric. It travels here too so
+         *     a card or a chip can carry it without waiting for an answer.
+         */
+        MetricDisplayPayload: {
+            /** Caveat */
+            caveat?: string | null;
+            /** Display Name */
+            display_name: string;
+            /** Metric Id */
+            metric_id: string;
+            /** Rationale */
+            rationale?: string | null;
         };
         /**
          * MetricProvenancePayload
@@ -1131,10 +1307,50 @@ export interface components {
             op: "pivot";
         };
         /**
+         * PortfolioLanePayload
+         * @description One section of the worklist, with what belongs in it and why.
+         *
+         *     ``items`` stays one ranked array — clients that already read it are
+         *     untouched — and each card names its lane, so a UI can render
+         *     "must-do regardless of size" as its own section instead of letting a
+         *     $824 compliance item sit at rank 1 above a $178K critical finding
+         *     and look like the most important thing in the building.
+         */
+        PortfolioLanePayload: {
+            /** Anomaly Ids */
+            anomaly_ids?: string[];
+            /** Description */
+            description: string;
+            /** Id */
+            id: string;
+            /**
+             * Impact Cents
+             * @default 0
+             */
+            impact_cents: number;
+            /**
+             * Item Count
+             * @default 0
+             */
+            item_count: number;
+            /** Label */
+            label: string;
+        };
+        /**
          * PortfolioResponse
          * @description Detected anomalies at the pinned watermark, governed-priority ranked.
          */
         PortfolioResponse: {
+            /**
+             * Compliance Floor Basis
+             * @default
+             */
+            compliance_floor_basis: string;
+            /**
+             * Compliance Floor Value
+             * @default 0
+             */
+            compliance_floor_value: number;
             /**
              * Formula Version
              * @default
@@ -1142,6 +1358,8 @@ export interface components {
             formula_version: string;
             /** Items */
             items?: components["schemas"]["AnomalyCard"][];
+            /** Lanes */
+            lanes?: components["schemas"]["PortfolioLanePayload"][];
             /**
              * Status
              * @default empty
@@ -1155,6 +1373,8 @@ export interface components {
             tenant: string;
             /** Warnings */
             warnings?: string[];
+            /** Warnings V2 */
+            warnings_v2?: components["schemas"]["WarningPayload"][];
             /**
              * Watermark Id
              * @default
@@ -1164,6 +1384,79 @@ export interface components {
             weights?: {
                 [key: string]: number;
             };
+        };
+        /**
+         * PriorityDecompositionPayload
+         * @description Every term of ``anomaly_priority``, published (review F17).
+         *
+         *     The formula was documented and its inputs were on the card, but the
+         *     arithmetic was not: a reader could see ``priority_score: 0.6`` beside
+         *     ``impact_cents: 82437`` and had no way to tell that the score was a
+         *     floor rather than a computation. Publishing the three normalized
+         *     components, the three weighted terms and the normalizer costs nothing
+         *     at build time and makes the ranking checkable with a calculator.
+         *
+         *     ``score = (impact_term + recency_term + actionability_term) /
+         *     weight_sum``, then raised to ``floor_value`` when
+         *     ``floor_applied``. ``score_before_floor`` is kept so the floor is
+         *     visible as an intervention rather than hidden inside the result.
+         */
+        PriorityDecompositionPayload: {
+            /**
+             * Actionability Term
+             * @default 0
+             */
+            actionability_term: number;
+            /**
+             * Floor Applied
+             * @default false
+             */
+            floor_applied: boolean;
+            /**
+             * Floor Basis
+             * @default relative_median
+             */
+            floor_basis: string;
+            /**
+             * Floor Value
+             * @default 0
+             */
+            floor_value: number;
+            /**
+             * Impact Norm
+             * @default 0
+             */
+            impact_norm: number;
+            /**
+             * Impact Term
+             * @default 0
+             */
+            impact_term: number;
+            /**
+             * Recency
+             * @default 0
+             */
+            recency: number;
+            /**
+             * Recency Term
+             * @default 0
+             */
+            recency_term: number;
+            /**
+             * Recoverable Norm
+             * @default 0
+             */
+            recoverable_norm: number;
+            /**
+             * Score Before Floor
+             * @default 0
+             */
+            score_before_floor: number;
+            /**
+             * Weight Sum
+             * @default 1
+             */
+            weight_sum: number;
         };
         /** RankByModel */
         RankByModel: {
@@ -1428,10 +1721,12 @@ export interface components {
         };
         /** TurnAnswer */
         TurnAnswer: {
+            anomaly_reconciliation?: components["schemas"]["AnomalyReconciliationPayload"] | null;
             /** Benchmarks */
             benchmarks?: components["schemas"]["BenchmarkPayload"][];
             /** Chart Specs */
             chart_specs?: components["schemas"]["ChartSpec"][];
+            cohort?: components["schemas"]["CohortPayload"] | null;
             context_header?: components["schemas"]["ContextHeaderPayload"] | null;
             debug?: components["schemas"]["DebugTracePayload"] | null;
             definitional?: components["schemas"]["DefinitionalPayload"] | null;
@@ -1442,6 +1737,8 @@ export interface components {
             investigation_id: string;
             meta_answer?: components["schemas"]["MetaAnswerPayload"] | null;
             metric?: components["schemas"]["MetricProvenancePayload"] | null;
+            /** Metric Display */
+            metric_display?: components["schemas"]["MetricDisplayPayload"][];
             /** Narrative */
             narrative?: string | null;
             /**
@@ -1462,6 +1759,8 @@ export interface components {
             usage?: components["schemas"]["UsageSummary"];
             /** Warnings */
             warnings?: string[];
+            /** Warnings V2 */
+            warnings_v2?: components["schemas"]["WarningPayload"][];
             /**
              * Watermark Stale
              * @default false
@@ -1503,6 +1802,7 @@ export interface components {
             outcome: "error";
             /** Session Id */
             session_id?: string | null;
+            usage?: components["schemas"]["UsageSummary"];
         };
         /**
          * TurnRequest
@@ -1510,6 +1810,8 @@ export interface components {
          *     refinement operators (§12).
          */
         TurnRequest: {
+            /** Anomaly Ref */
+            anomaly_ref?: string | null;
             /** Clarification Response */
             clarification_response?: string | null;
             /** Correlation Id */
@@ -1646,6 +1948,38 @@ export interface components {
             msg: string;
             /** Error Type */
             type: string;
+        };
+        /**
+         * WarningPayload
+         * @description One warning, with a handle a client can branch on (review F14).
+         *
+         *     Warnings used to travel as prose alone, so a client that wanted to
+         *     group, count, filter or icon them had to match substrings — and a
+         *     client matching substrings breaks the day the wording improves.
+         *
+         *     ``message`` is the platform's own sentence VERBATIM: the code is a
+         *     handle added beside the text, never a replacement for it. ``count``
+         *     is how many identical warnings collapsed into this entry (a
+         *     four-probe plan emitting one population caveat four times is one
+         *     caveat seen four times). See :mod:`revi_api.warning_codes` for the
+         *     code list; an unrecognized sentence is published as ``UNCLASSIFIED``
+         *     rather than dropped.
+         */
+        WarningPayload: {
+            /** Code */
+            code: string;
+            /**
+             * Count
+             * @default 1
+             */
+            count: number;
+            /** Message */
+            message: string;
+            /**
+             * Severity
+             * @enum {string}
+             */
+            severity: "caution" | "info";
         };
         /**
          * WindowSpecModel

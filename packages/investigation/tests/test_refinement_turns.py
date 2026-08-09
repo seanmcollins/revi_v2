@@ -482,3 +482,109 @@ class TestWatermarkEpochs:
         assert epoch_payload == {"index": 1, "watermark": "wm_003", "re_anchored": True}
         # the re-anchored window re-resolved against the new load's anchor
         assert re_anchored.investigation.plan_hash != stale.investigation.plan_hash
+
+
+class TestDeterministicReferents:
+    """A handle the platform minted is resolved by lookup, not by a model.
+
+    Round-1 live finding F11: "drill into F2" was sent to a language model
+    on every follow-up turn. F2 is an identifier this platform printed and
+    stored — matching it is a dictionary lookup, and routing it through a
+    model buys a call, a latency, and a probability that the turn asking to
+    drill into F2 comes back asking which F2 was meant.
+    """
+
+    async def test_a_typed_handle_resolves_with_no_model_call(
+        self, small_warehouse_path: Path
+    ) -> None:
+        llm = MockLanguageModel()
+        _canned_t1(llm)
+        engine = _engine(small_warehouse_path, llm)
+        t1 = await _run_t1(engine)
+        llm.respond(
+            "classify_turn",
+            {"turn_class": "refinement", "confidence": 0.93, "clarification_question": None},
+            matcher=lambda p: "F1" in p,
+        )
+        llm.respond(
+            "emit_refinements",
+            {
+                "operators": [{"op": "drill_into", "target": "F1"}],
+                "rationale": "drill into the named finding",
+            },
+        )
+
+        await engine.submit.submit(
+            SubmitTurnRequest(
+                tenant="demo", question="drill into F1", session_id=t1.session.id
+            )
+        )
+
+        assert llm.calls_for("resolve_referents") == (), (
+            "an identifier this platform minted needs no model to recognize"
+        )
+
+    async def test_the_emitter_is_told_what_the_handle_stands_for(
+        self, small_warehouse_path: Path
+    ) -> None:
+        """Resolved referents ride in as structure: the label the analyst
+        saw and, for a single-dimension row, the (dimension, value) pair —
+        so compiling the operator is not a second guess on top of the
+        first."""
+        llm = MockLanguageModel()
+        _canned_t1(llm)
+        engine = _engine(small_warehouse_path, llm)
+        t1 = await _run_t1(engine)
+        llm.respond(
+            "classify_turn",
+            {"turn_class": "refinement", "confidence": 0.93, "clarification_question": None},
+            matcher=lambda p: "F1" in p,
+        )
+        llm.respond(
+            "emit_refinements",
+            {
+                "operators": [{"op": "drill_into", "target": "F1"}],
+                "rationale": "drill",
+            },
+        )
+
+        await engine.submit.submit(
+            SubmitTurnRequest(
+                tenant="demo", question="drill into F1", session_id=t1.session.id
+            )
+        )
+
+        [emit] = llm.calls_for("emit_refinements")
+        _, _, tail = emit.rendered_prompt.partition("Resolved mentions for this utterance:")
+        resolutions, _, _ = tail.partition("Dimensions you may reference")
+        assert "'F1' -> F1 (confidence 1.00)" in resolutions
+        assert "[payer = " in resolutions, resolutions
+
+    async def test_a_handle_this_session_never_published_is_a_question(
+        self, small_warehouse_path: Path
+    ) -> None:
+        """Not a 500, and not a model call hoping to find something close:
+        the registry is the answer, so the registry is what gets shown."""
+        llm = MockLanguageModel()
+        _canned_t1(llm)
+        engine = _engine(small_warehouse_path, llm)
+        t1 = await _run_t1(engine)
+        llm.respond(
+            "classify_turn",
+            {"turn_class": "refinement", "confidence": 0.93, "clarification_question": None},
+            matcher=lambda p: "F97" in p,
+        )
+
+        outcome = await engine.submit.submit(
+            SubmitTurnRequest(
+                tenant="demo", question="drill into F97", session_id=t1.session.id
+            )
+        )
+
+        assert outcome.clarification is not None
+        assert "F97" in outcome.clarification.question
+        assert "F1" in outcome.clarification.question  # what WAS shown
+        assert outcome.clarification.reason is not None
+        assert outcome.clarification.reason.startswith("REFERENT_NOT_FOUND")
+        assert llm.calls_for("resolve_referents") == ()
+        assert llm.calls_for("emit_refinements") == ()

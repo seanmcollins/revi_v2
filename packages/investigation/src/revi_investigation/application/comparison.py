@@ -58,6 +58,19 @@ from dataclasses import dataclass
 from revi_investigation.domain.context import AnalysisSpec
 from revi_kernel.scope import Comparison, ComparisonKind, TimeWindow
 
+#: How far two window lengths may differ before the difference is worth
+#: caveating an additive measure for.
+#:
+#: An exact ``!=`` was the original test, and it is too sharp by an order of
+#: magnitude. February against March differ by 10%; a 90-day trailing window
+#: against its prior 90 days can differ by a day when a month boundary
+#: falls badly, and 1 day in 90 is 1.1% — a rounding error the calendar
+#: forced, not a distortion. Both were treated identically to a 7-day
+#: window differenced against a quarter: impact withheld, every finding
+#: qualified, a red warning on the turn. Caveating a 1.1% calendar artifact
+#: in the same words as a 1,186% one teaches analysts to ignore the words.
+LENGTH_TOLERANCE = 0.03
+
 
 @dataclass(frozen=True, slots=True)
 class ComparisonRendering:
@@ -72,7 +85,29 @@ class ComparisonRendering:
 
     @property
     def length_mismatch(self) -> bool:
+        """Any difference at all — what the phrase mentions."""
         return self.current_days != self.comparison_days
+
+    @property
+    def length_ratio(self) -> float:
+        """How far apart the two lengths are, as a fraction of the longer."""
+        longer = max(self.current_days, self.comparison_days)
+        if longer == 0:  # pragma: no cover - AbsoluteRange is inclusive
+            return 0.0
+        return abs(self.current_days - self.comparison_days) / longer
+
+    @property
+    def material_length_mismatch(self) -> bool:
+        """A difference big enough to distort an additive measure.
+
+        Only additive measures are distorted at all: a rate is a ratio of
+        two quantities measured over the same window, so it is invariant to
+        the window's length by construction, and qualifying a denial-rate
+        comparison for a one-day calendar difference states a caution that
+        is not true. The unit test lives at the call site (findings);
+        the size test lives here.
+        """
+        return self.length_ratio > LENGTH_TOLERANCE
 
 
 def _base_label(comparison: Comparison, window: TimeWindow) -> str | None:
@@ -126,14 +161,33 @@ def comparison_phrase(spec: AnalysisSpec) -> str:
 
 
 def window_mismatch_warning(spec: AnalysisSpec) -> str | None:
-    """The turn-level warning for a length-mismatched comparison, if any."""
+    """The turn-level warning for a length-mismatched comparison, if any.
+
+    Two strengths, because two different things happen. A *material*
+    mismatch distorts every additive total on the turn and is stated in
+    full. An immaterial one (a calendar artifact inside
+    :data:`LENGTH_TOLERANCE`) is still disclosed — the windows really are
+    different lengths and the difference really is not normalized — but it
+    withholds no impact and qualifies no finding, so it does not claim to.
+    """
     rendering = render_comparison(spec)
     if rendering is None or not rendering.length_mismatch:
         return None
+    if not rendering.material_length_mismatch:
+        return (
+            "comparison_window_length: the comparison window "
+            f"({rendering.range_text}, {rendering.comparison_days}d) is "
+            f"{abs(rendering.current_days - rendering.comparison_days)}d shorter or longer "
+            f"than the analysis window ({rendering.current_days}d) — a calendar artifact "
+            f"within {LENGTH_TOLERANCE:.0%}. Differences are not length-normalized; nothing "
+            "is withheld for it."
+        )
     return (
         "COMPARISON_WINDOW_MISMATCH: the comparison window "
         f"({rendering.range_text}, {rendering.comparison_days}d) is not the same length as the "
         f"analysis window ({rendering.current_days}d). Differences and percentage changes "
         "between them are dominated by the length difference and are not normalized; no "
-        "impact figure is published for this turn and its findings are qualified."
+        "impact figure is published for additive measures on this turn and their findings "
+        "are qualified. Rate metrics are unaffected: a ratio over a window does not scale "
+        "with the window's length."
     )

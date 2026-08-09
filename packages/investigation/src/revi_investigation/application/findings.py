@@ -9,7 +9,12 @@ question or playbook id:
 measure with its delta. Rows are ranked by delta **ascending** (the biggest
 declines of a higher-is-good measure first) and the top N become findings
 F1, F2, ... Each carries current/prior/delta cents and pct change, and
-``impact_cents`` equal to the delta.
+``impact_cents`` equal to the delta. That ascending default holds only
+while the question asserted no direction: when the spec carries one
+(``AskedDirection``, resolved against the metric's sign convention), rows
+moving the other way are not eligible to be the answer, and an empty
+direction-matched set says so before the opposite is offered as context —
+see ``_select_directional``.
 
 **Concentration** (fallback). Plenty of real questions have no comparison
 at all — "do I have a COB problem?", "score my facilities", "what's aging
@@ -69,22 +74,36 @@ from __future__ import annotations
 from dataclasses import dataclass
 from decimal import Decimal
 
-from revi_investigation.application.calculation_glue import CalculationResult
+from revi_calculation_contracts.contract import SignConvention
+from revi_investigation.application.calculation_glue import (
+    CalculationResult,
+    EmptinessFact,
+    EmptinessKind,
+)
 from revi_investigation.application.capability_ports import PackPort, PlaybookSpec
 from revi_investigation.application.comparison import ComparisonRendering, render_comparison
 from revi_investigation.application.planning import InvestigationPlan
 from revi_investigation.application.ports import ReferentRegistryStore, RegisteredReferent
 from revi_investigation.application.rendering import (
+    COUNT_UNIT as _COUNT_UNIT,
+)
+from revi_investigation.application.rendering import (
     MONEY_UNIT as _MONEY_UNIT,
 )
 from revi_investigation.application.rendering import (
     format_value,
+    magnitude,
     magnitude_money,
     metric_label,
     ratio_pct,
     render_row_label,
 )
-from revi_investigation.domain.context import AnalysisSpec
+from revi_investigation.domain.context import (
+    AnalysisSpec,
+    AskedMagnitude,
+    adverse_delta_sign,
+    wanted_delta_sign,
+)
 from revi_investigation.domain.records import Finding
 from revi_kernel.cohort import CohortDefinition
 from revi_kernel.filters import Predicate, PredicateOp, Scalar, and_merge
@@ -102,11 +121,31 @@ _TIME_BUCKET_PREFIX = "time_bucket:"
 _PRIOR_SUFFIX = "__prior"
 _QUALIFIED_GRADES = (EvidenceGrade.PROXY, EvidenceGrade.DISCOVERY, EvidenceGrade.UNAVAILABLE)
 
+#: Units whose totals scale with the length of the window they are measured
+#: over. A length-mismatched comparison distorts these and leaves a rate
+#: alone, which is why the mismatch caveat is applied per unit rather than
+#: per turn.
+_ADDITIVE_UNITS = (_MONEY_UNIT, _COUNT_UNIT)
+
+
+def _is_additive(unit: str | None) -> bool:
+    return unit in _ADDITIVE_UNITS
+
 
 @dataclass(frozen=True, slots=True)
 class FindingsResult:
     findings: tuple[Finding, ...]
     referents: tuple[RegisteredReferent, ...]
+    #: What the analyst has to be told about the *selection* before they
+    #: read the rows — chiefly that nothing moved the way they asked about.
+    #: These lead the turn's warnings: a caveat published under the findings
+    #: it contradicts is a caveat nobody reads.
+    warnings: tuple[str, ...] = ()
+    #: Set when frames had rows and no finding survived selection. The
+    #: other half of :class:`EmptinessFact`: "there is nothing here" and
+    #: "there is plenty here and none of it is notable" are different
+    #: answers, and publishing both as silence made them the same one.
+    emptiness: EmptinessFact | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -139,6 +178,88 @@ def find_primary_compare(
                 frame_id=step.id, frame=frame, dimension_columns=dims, money_measure=money
             )
     return None
+
+
+@dataclass(frozen=True, slots=True)
+class MovementShape:
+    """A compare frame the movement path can publish findings from.
+
+    The generalization of :class:`CompareShape`. That one required a
+    **money** measure with a delta, because the first questions this engine
+    answered were about dollars — and the requirement quietly became a
+    filter on which questions could be answered at all. "Denial rate by
+    payer for the last 90 days compared to the prior 90 days" plans two
+    probes, compares them correctly, produces a frame with a payer column,
+    a rate, a prior rate, a delta and a percentage change, and published
+    **zero findings and a null narrative**: no column in it was money, so
+    the shape came back ``None``, and ``evaluate`` only fell through to the
+    concentration path when there was no compare shape — the compare step
+    existed, so nothing looked further.
+
+    A movement is a movement in whatever unit the contract declares.
+    ``impact_cents`` is still money-only (a rate is not dollars), and
+    reconciliation still requires money (children of a rate do not sum),
+    which is why :func:`find_primary_compare` stays as it was.
+    """
+
+    frame_id: str
+    frame: EvidenceFrame
+    dimension_columns: tuple[str, ...]
+    measure: str
+    #: the metric contract's declared unit, as stamped on the frame column
+    unit: str | None
+
+    @property
+    def is_money(self) -> bool:
+        return self.unit == _MONEY_UNIT
+
+
+def find_primary_movement(
+    plan: InvestigationPlan, calculation: CalculationResult
+) -> MovementShape | None:
+    """The first compare output carrying dimensions and any measure delta.
+
+    Money wins when a frame holds several compared measures — a dollar
+    movement is what a worklist is built from, and preferring it keeps
+    every answer this engine already gave byte-identical. Otherwise the
+    first compared metric column is the answer, which is the case that used
+    to publish nothing.
+    """
+    for step in plan.transforms.steps:
+        if step.operator != "compare":
+            continue
+        try:
+            frame = calculation.frame(step.id)
+        except KeyError:  # pragma: no cover - pruned steps never execute
+            continue
+        dims = _dimension_columns(frame)
+        if not dims:
+            continue
+        compared = _compared_measures(frame)
+        if not compared:
+            continue
+        best = next((name for name in compared if _unit_of(frame, name) == _MONEY_UNIT), None)
+        measure = best if best is not None else compared[0]
+        return MovementShape(
+            frame_id=step.id,
+            frame=frame,
+            dimension_columns=dims,
+            measure=measure,
+            unit=_unit_of(frame, measure),
+        )
+    return None
+
+
+def _compared_measures(frame: EvidenceFrame) -> tuple[str, ...]:
+    """Metric columns in this frame that carry a ``__delta`` sibling."""
+    names = set(frame.schema.names)
+    return tuple(
+        col.name
+        for col in frame.schema.columns
+        if isinstance(col.ref, MetricRef)
+        and "__" not in col.name
+        and f"{col.name}__delta" in names
+    )
 
 
 @dataclass(frozen=True, slots=True)
@@ -324,6 +445,21 @@ def _as_int(value: Scalar) -> int | None:
     return value
 
 
+def _as_number(value: Scalar) -> Decimal | None:
+    """Any numeric cell as a Decimal, or ``None`` when there is no number.
+
+    Movement selection used to read deltas through :func:`_as_int`, which
+    is correct for money (integer cents) and silently wrong for everything
+    else: a ratio delta is a ``Decimal``, so every row of a compared *rate*
+    read as "no movement" and sorted into the NULL bucket. Ordering a
+    frame by a value the ordering cannot see is how a rate comparison came
+    back with nothing to say.
+    """
+    if value is None or isinstance(value, bool) or not isinstance(value, (int, Decimal)):
+        return None
+    return Decimal(value)
+
+
 def _direction(delta: Scalar) -> str | None:
     """"up from" / "down from" / "unchanged from", or ``None`` when the
     delta is not a number and there is therefore no movement to name.
@@ -356,7 +492,7 @@ class EvaluateFindingsService:
         session_id: str,
         investigation_id: str,
     ) -> FindingsResult:
-        shape = find_primary_compare(plan, calculation)
+        shape = find_primary_movement(plan, calculation)
         if shape is None:
             concentration = find_primary_concentration(plan, calculation)
             if concentration is not None:
@@ -370,7 +506,14 @@ class EvaluateFindingsService:
                 )
             scalars = find_scalar_shapes(plan, calculation)
             if not scalars:
-                return FindingsResult(findings=(), referents=())
+                # Frames exist and no shape could publish from them: the
+                # turn read data and has nothing to say about it. Which of
+                # the two nothings this is, said as data.
+                return FindingsResult(
+                    findings=(),
+                    referents=(),
+                    emptiness=self._no_findings(plan, calculation, "no publishable shape"),
+                )
             return await self._evaluate_scalars(
                 shapes=scalars,
                 spec=spec,
@@ -380,14 +523,10 @@ class EvaluateFindingsService:
                 investigation_id=investigation_id,
             )
 
-        delta_col = f"{shape.money_measure}__delta"
+        delta_col = f"{shape.measure}__delta"
         idx_delta = shape.frame.schema.index_of(delta_col)
-        rows = sorted(
-            shape.frame.rows,
-            key=lambda row: (
-                _as_int(row[idx_delta]) is None,  # NULL deltas last
-                _as_int(row[idx_delta]) or 0,
-            ),
+        rows, selection_warnings = self._select_directional(
+            shape.frame.rows, idx_delta, spec, pack, shape.measure
         )
 
         qualified = self._requires_qualification(shape.frame.evidence_grade, pack, playbook)
@@ -407,7 +546,7 @@ class EvaluateFindingsService:
         findings: list[Finding] = []
         referents: list[RegisteredReferent] = []
         for row in rows[: self._top_n]:
-            if _as_int(row[idx_delta]) is None:
+            if _as_number(row[idx_delta]) is None:
                 continue
             n = finding_offset + len(findings) + 1
             finding, referent = self._build_finding(
@@ -439,7 +578,126 @@ class EvaluateFindingsService:
             )
 
         await self._registry.register(tuple(referents))
-        return FindingsResult(findings=tuple(findings), referents=tuple(referents))
+        return FindingsResult(
+            findings=tuple(findings),
+            referents=tuple(referents),
+            warnings=selection_warnings,
+            emptiness=(
+                None
+                if findings
+                else EmptinessFact(
+                    kind=EmptinessKind.NO_FINDINGS,
+                    frame_id=shape.frame_id,
+                    detail=(
+                        f"{len(shape.frame.rows)} compared row(s) on {shape.measure!r}, and "
+                        "none carried a movement that could be published (every delta was "
+                        "suppressed or filtered out by the asked direction)"
+                    ),
+                )
+            ),
+        )
+
+    @staticmethod
+    def _no_findings(
+        plan: InvestigationPlan, calculation: CalculationResult, why: str
+    ) -> EmptinessFact:
+        """The emptiness fact for a turn whose frames could publish nothing.
+
+        Names the frame that was looked at, so a reader can go and see the
+        rows the answer declined to conclude from.
+        """
+        candidate = next(
+            (
+                frame_id
+                for frame_id, frame in calculation.frames
+                if frame.rows and _dimension_columns(frame)
+            ),
+            None,
+        )
+        rows = sum(len(frame.rows) for _, frame in calculation.frames)
+        return EmptinessFact(
+            kind=EmptinessKind.NO_FINDINGS,
+            frame_id=candidate,
+            detail=(
+                f"{rows} row(s) were retrieved across {len(calculation.frames)} frame(s) and "
+                f"no finding could be published from them ({why})"
+            ),
+        )
+
+    # ---------------------------------------------------------- direction
+
+    def _select_directional(
+        self,
+        rows: tuple[tuple[Scalar, ...], ...],
+        idx_delta: int,
+        spec: AnalysisSpec,
+        pack: PackPort,
+        money_measure: str,
+    ) -> tuple[list[tuple[Scalar, ...]], tuple[str, ...]]:
+        """Order (and, when a direction was asked, restrict) the compare rows.
+
+        Without a direction this is the old rule: rank by delta ascending,
+        biggest declines of a higher-is-good measure first — the right
+        default for "what moved?".
+
+        With one it is not a default any more, it is the question. Live,
+        "which payers had the biggest INCREASE in denials" ran the default
+        and published the three biggest *decreases*, narrated as
+        improvements: a confident, well-evidenced, exactly-backwards answer.
+        So rows whose delta has the wrong sign are not eligible to be the
+        answer at all, and the remaining ones are ordered by the extremity
+        the analyst phrased.
+
+        When nothing moved the asked-for way the answer says that FIRST and
+        then shows the opposite as context — the honest shape of an empty
+        direction-matched set. Rows with a NULL delta are never eligible
+        either way: a suppressed movement is not a movement.
+        """
+        contract = pack.metric(money_measure)
+        sign = contract.sign if contract is not None else SignConvention.NEUTRAL
+        wanted = wanted_delta_sign(spec.direction, sign)
+        biggest_first = spec.magnitude is not AskedMagnitude.SMALLEST
+
+        def ordered(
+            candidates: list[tuple[Scalar, ...]], descending: bool
+        ) -> list[tuple[Scalar, ...]]:
+            return sorted(
+                candidates,
+                key=lambda row: (
+                    _as_number(row[idx_delta]) is None,  # NULL deltas last
+                    -(_as_number(row[idx_delta]) or 0)
+                    if descending
+                    else (_as_number(row[idx_delta]) or 0),
+                ),
+            )
+
+        if wanted is None:
+            # No direction was asked. The default is not "ascending" — it is
+            # *worst first*, read off the contract's own sign convention: a
+            # higher-is-bad measure's worst movement is a rise. Ascending
+            # was only ever right because the first metrics through here
+            # were higher-is-good dollars, and it published the biggest
+            # improvements of a higher-is-bad metric as its headline.
+            adverse = adverse_delta_sign(sign)
+            return ordered(list(rows), descending=adverse is not None and adverse > 0), ()
+
+        matched = [
+            row
+            for row in rows
+            if (value := _as_number(row[idx_delta])) is not None
+            and (value > 0 if wanted > 0 else value < 0)
+        ]
+        assert spec.direction is not None
+        movement = "rose" if wanted > 0 else "fell"
+        if matched:
+            return ordered(matched, descending=(wanted > 0) == biggest_first), ()
+        warning = (
+            f"direction_unmatched: nothing {movement} — no cell's "
+            f"{metric_label(money_measure)} moved the way {spec.direction.value!r} asks about "
+            "over this window. The movements below are the opposite direction, shown as "
+            "context, not as an answer to what was asked."
+        )
+        return ordered(list(rows), descending=not (wanted > 0)), (warning,)
 
     # ------------------------------------------------------------- building
 
@@ -499,7 +757,7 @@ class EvaluateFindingsService:
         self,
         referent_value: str,
         row: tuple[Scalar, ...],
-        shape: CompareShape,
+        shape: MovementShape,
         spec: AnalysisSpec,
         comparison: ComparisonRendering | None,
         qualified: bool,
@@ -508,30 +766,40 @@ class EvaluateFindingsService:
         investigation_id: str,
     ) -> tuple[Finding, RegisteredReferent]:
         schema = shape.frame.schema
-        measure = shape.money_measure
+        measure = shape.measure
         current = row[schema.index_of(measure)]
         prior = row[schema.index_of(f"{measure}__prior")]
-        delta = _as_int(row[schema.index_of(f"{measure}__delta")])
+        delta = _as_number(row[schema.index_of(f"{measure}__delta")])
         pct = row[schema.index_of(f"{measure}__pct_change")]
         assert delta is not None  # caller filtered NULL deltas
 
         label = self._row_label(row, shape.frame, shape.dimension_columns, pack)
         measure_label = metric_label(measure)
         direction = "down" if delta < 0 else "up"
-        amount = magnitude_money(delta)
+        # In the contract's own unit: dollars for money, percentage POINTS
+        # for a rate. Rendering a rate's movement through the money path is
+        # how "denial rate up $0.01" gets published.
+        amount = magnitude(delta, shape.unit)
         period_phrase = comparison.phrase if comparison is not None else "vs prior period"
-        # A comparison over a different-length window is not a delta the
-        # platform will stand behind: the phrase says so, the impact is
-        # withheld, and the confidence is qualified (see comparison.py).
-        mismatched = comparison is not None and comparison.length_mismatch
+        # A comparison over a *materially* different-length window is not a
+        # delta the platform will stand behind for an additive measure: the
+        # phrase says so, the impact is withheld, and the confidence is
+        # qualified. A rate is length-invariant and carries no such caveat
+        # (see comparison.py).
+        mismatched = (
+            comparison is not None
+            and comparison.material_length_mismatch
+            and _is_additive(shape.unit)
+        )
         title = f"{label} {measure_label} {direction} {amount} {period_phrase}"
         pct_text = ratio_pct(pct) if isinstance(pct, Decimal) else "n/a"
         statement = (
-            f"{label}: {measure_label} moved from {format_value(prior, _MONEY_UNIT)} to "
-            f"{format_value(current, _MONEY_UNIT)} "
+            f"{label}: {measure_label} moved from {format_value(prior, shape.unit)} to "
+            f"{format_value(current, shape.unit)} "
             f"({direction} {amount}, {pct_text} {period_phrase})."
         )
 
+        delta_value: Scalar = int(delta) if shape.is_money else delta
         referent = ReferentId(value=referent_value, kind=ReferentKind.FINDING)
         finding = Finding(
             referent=referent,
@@ -539,13 +807,18 @@ class EvaluateFindingsService:
             statement=statement,
             metric_refs=(MetricRef(measure),),
             values=(
-                ("current_cents", current),
-                ("prior_cents", prior),
-                ("delta_cents", delta),
+                ("current_cents" if shape.is_money else measure, current),
+                ("prior_cents" if shape.is_money else f"{measure}__prior", prior),
+                ("delta_cents" if shape.is_money else f"{measure}__delta", delta_value),
                 ("pct_change", pct),
             ),
             grade=shape.frame.evidence_grade,
-            impact_cents=None if mismatched else delta,
+            # A rate is not dollars: an impact is a figure this platform is
+            # willing to rank, sum and put in a worklist, and a percentage
+            # point is none of those.
+            impact_cents=(
+                int(delta) if (shape.is_money and not mismatched) else None
+            ),
             confidence="qualified" if (qualified or mismatched) else "high",
             suggested_refinements=(f"drill into {referent_value}",),
         )
@@ -619,7 +892,19 @@ class EvaluateFindingsService:
             referents.append(referent)
 
         await self._registry.register(tuple(referents))
-        return FindingsResult(findings=tuple(findings), referents=tuple(referents))
+        return FindingsResult(
+            findings=tuple(findings),
+            referents=tuple(referents),
+            emptiness=(
+                None
+                if findings
+                else EmptinessFact(
+                    kind=EmptinessKind.NO_FINDINGS,
+                    frame_id=shapes[0].frame_id,
+                    detail="every scalar cell this turn produced was suppressed",
+                )
+            ),
+        )
 
     def _build_scalar_finding(
         self,
@@ -654,7 +939,13 @@ class EvaluateFindingsService:
             if pct is not None:
                 values.append(("pct_change", pct))
 
-        mismatched = comparison is not None and comparison.length_mismatch
+        # Same per-unit rule as the movement path: only an additive measure
+        # is distorted by a length mismatch, and only a material one.
+        mismatched = (
+            comparison is not None
+            and comparison.material_length_mismatch
+            and _is_additive(shape.unit)
+        )
         movement = _direction(delta)
         # Both sides are stated in the contract's unit rather than the delta
         # being rendered in it: "up 3.2%" on a *rate* is ambiguous between
@@ -762,7 +1053,22 @@ class EvaluateFindingsService:
             )
 
         await self._registry.register(tuple(referents))
-        return FindingsResult(findings=tuple(findings), referents=tuple(referents))
+        return FindingsResult(
+            findings=tuple(findings),
+            referents=tuple(referents),
+            emptiness=(
+                None
+                if findings
+                else EmptinessFact(
+                    kind=EmptinessKind.NO_FINDINGS,
+                    frame_id=shape.frame_id,
+                    detail=(
+                        f"{len(shape.frame.rows)} ranked row(s) on {shape.measure!r}, and "
+                        "every one was zero or suppressed"
+                    ),
+                )
+            ),
+        )
 
     def _build_concentration_finding(
         self,

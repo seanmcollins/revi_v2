@@ -6,16 +6,24 @@ import { Button } from "@/components/ui/button";
 import { useSessionStore, type FeedbackChoice } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
+/**
+ * Three buttons whose labels used to describe a workflow that does not
+ * exist. Nothing receives this feedback: `setFeedback` writes to the
+ * client store and the store is not persisted, so "Request review" and
+ * "Flagged for analyst review with the full evidence trail attached"
+ * described a queue, a reviewer and an attachment, none of which are
+ * real. The labels below say exactly what happens.
+ */
 const CHOICES: Array<{ id: FeedbackChoice; label: string; icon: React.ReactNode }> = [
   { id: "yes", label: "Yes", icon: <Check className="size-3" /> },
-  { id: "fix", label: "Fix it", icon: <Wrench className="size-3" /> },
-  { id: "review", label: "Request review", icon: <Flag className="size-3" /> },
+  { id: "fix", label: "Needs work", icon: <Wrench className="size-3" /> },
+  { id: "review", label: "Flag it", icon: <Flag className="size-3" /> },
 ];
 
 const CLOSURE: Record<FeedbackChoice, string> = {
-  yes: "Logged. Thanks — recorded against this trace.",
-  fix: "Logged to the trace for pack review. Improvements are human-gated — nothing auto-learns from this.",
-  review: "Flagged for analyst review with the full evidence trail attached.",
+  yes: "Noted for this session only — nothing is sent anywhere.",
+  fix: "Noted for this session only — nothing is sent anywhere, and nothing auto-learns from it.",
+  review: "Noted for this session only — nothing is sent anywhere.",
 };
 
 /** Per-answer triage, persisted to the store (traces later). */

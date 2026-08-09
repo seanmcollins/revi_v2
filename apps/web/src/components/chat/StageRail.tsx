@@ -175,8 +175,12 @@ function StageNode({ node }: { node: RailNode }) {
         "inline-flex h-5 items-center gap-1 rounded-full px-1.5 text-[0.65rem] transition-all duration-200",
         node.state === "done" && "text-secondary-foreground",
         node.state === "active" && "bg-verified/10 font-medium text-verified",
-        node.state === "pending" && "text-muted-foreground/50",
-        node.state === "skipped" && "text-muted-foreground/60 line-through decoration-border",
+        // Opacity on TEXT is a contrast failure, not a hierarchy device:
+        // /50 muted-foreground lands near 2:1 in light mode. The pending
+        // and skipped states keep their meaning through the icon, the
+        // strike-through and the weight instead.
+        node.state === "pending" && "text-muted-foreground",
+        node.state === "skipped" && "text-muted-foreground line-through decoration-border/70",
       )}
       title={node.detail}
     >

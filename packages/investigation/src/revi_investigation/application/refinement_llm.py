@@ -18,6 +18,7 @@ proposes ways forward on the "no operators" path they ride along as
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -117,6 +118,49 @@ def referent_lines(entries: tuple[RegisteredReferent, ...]) -> str:
     if not lines:
         return "- (nothing has been shown yet)"
     return "\n".join(lines[-_MAX_REFERENT_LINES:])
+
+
+#: A referent handle as the platform prints it and the analyst types it
+#: back. ``F`` for findings, ``D`` for dimension-value rows (design §7.6).
+REFERENT_HANDLE = re.compile(r"\b([FD]\d+)\b", re.IGNORECASE)
+
+
+def referent_tokens(question: str) -> tuple[str, ...]:
+    """Every handle the analyst typed, upper-cased, in first-seen order."""
+    return tuple(dict.fromkeys(match.group(1).upper() for match in REFERENT_HANDLE.finditer(question)))
+
+
+def resolve_referent_tokens(
+    question: str, entries: tuple[RegisteredReferent, ...]
+) -> tuple[tuple[ReferentResolution, ...], tuple[str, ...]]:
+    """Resolve typed handles against the registry — deterministically.
+
+    "Drill into F2" contains no anaphora. F2 is an identifier this platform
+    minted, printed, and stored; matching it is a dictionary lookup. It was
+    nonetheless sent to a language model on every follow-up turn, which
+    bought a call, a latency, and a probability: the model can return a
+    different handle, or a confidence below the threshold, and the turn
+    that asked to drill into F2 comes back asking which F2 was meant.
+
+    So handles resolve here, before any model call, at confidence 1.0 —
+    ``resolutions`` for the ones the registry knows, ``unknown`` for the
+    ones it does not (a handle that never existed, or one from a session
+    whose registry was rebuilt: the caller says so rather than guessing).
+    Utterances with no handle at all resolve to nothing and still need the
+    model, which is what anaphora ("that payer", "the second row") is for.
+    """
+    by_value = {entry.referent.value: entry for entry in entries}
+    resolutions: list[ReferentResolution] = []
+    unknown: list[str] = []
+    for token in referent_tokens(question):
+        entry = by_value.get(token)
+        if entry is None:
+            unknown.append(token)
+            continue
+        resolutions.append(
+            ReferentResolution(mention=token, referent=entry.referent, confidence=1.0)
+        )
+    return tuple(resolutions), tuple(unknown)
 
 
 @dataclass(frozen=True, slots=True)
@@ -251,13 +295,25 @@ class EmitRefinementsService:
         metric_lines: str,
         policy: LlmCallPolicy = DEFAULT_LLM_CALL_POLICY,
     ) -> EmissionOutcome:
-        resolution_lines = (
-            "\n".join(
-                f"- {r.mention!r} -> {r.referent.value} (confidence {r.confidence:.2f})"
-                for r in resolutions
+        # Resolved referents ride in as STRUCTURE, not as a bare id: the
+        # label the analyst saw and, when the row was a single dimension
+        # value, that (dimension, value) pair. A model asked to compile
+        # "drill into F2" into an operator needs to know F2 is a payer row
+        # before it can choose between DrillInto and AddFilter; without it
+        # the compilation was a second guess layered on the first.
+        by_value = {entry.referent.value: entry for entry in entries}
+        resolved_lines: list[str] = []
+        for r in resolutions:
+            entry = by_value.get(r.referent.value)
+            detail = f" — {entry.label}" if entry is not None else ""
+            if entry is not None and entry.dimension_value is not None:
+                dimension, value = entry.dimension_value
+                detail += f" [{dimension} = {value}]"
+            resolved_lines.append(
+                f"- {r.mention!r} -> {r.referent.value} "
+                f"(confidence {r.confidence:.2f}){detail}"
             )
-            or "- (none)"
-        )
+        resolution_lines = "\n".join(resolved_lines) or "- (none)"
         prompt = render_template(
             self._template.text,
             {

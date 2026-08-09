@@ -30,6 +30,23 @@ export function formatSignedCents(cents: number): string {
   return cents < 0 ? `${MINUS}${abs}` : `+${abs}`;
 }
 
+/**
+ * Whole dollars, no cents: 49326600 → "$493,266". Portfolio impact
+ * figures are detector estimates rounded to the dollar by construction —
+ * printing ".00" on them implies a precision the detection never had.
+ */
+export function formatWholeDollars(cents: number): string {
+  const abs = wholeUsd.format(Math.round(Math.abs(cents) / 100));
+  return cents < 0 ? `${MINUS}${abs}` : abs;
+}
+
+const wholeUsd = new Intl.NumberFormat("en-US", {
+  style: "currency",
+  currency: "USD",
+  minimumFractionDigits: 0,
+  maximumFractionDigits: 0,
+});
+
 /** Compact for axis ticks: 132844152 → "$1.33M"; -9909308 → "−$99.1K". */
 export function formatCompactCents(cents: number): string {
   const sign = cents < 0 ? MINUS : "";
@@ -188,6 +205,70 @@ export function comparisonChipLabel(window: ResolvedWindow): string {
 /** Big count with grouping: 120000 → "120,000". */
 export function formatCount(n: number): string {
   return new Intl.NumberFormat("en-US").format(n);
+}
+
+/* ------------------------------------------------------------------ */
+/* Measures: one formatter, shared by charts and finding stats         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The display units `ChartSpec.unit` reduces to. `percent` values arrive
+ * ALREADY scaled to percentage points — the 0–1 → 0–100 conversion happens
+ * once, in `mapChartSpec`, against the published wire unit (`ratio`), so
+ * that no renderer has to know which convention its numbers came in on.
+ */
+export type MeasureUnit = "cents" | "percent" | "count" | "days";
+
+/** 7.9945 percent → "8.0%"; 5.34 days → "5.3 d"; 4893861 cents → "$48,938.61". */
+export function formatMeasure(value: number, unit: MeasureUnit, digits = 1): string {
+  switch (unit) {
+    case "cents":
+      return formatCents(value);
+    case "percent": {
+      const body = `${Math.abs(value).toFixed(digits)}%`;
+      return value < 0 ? `${MINUS}${body}` : body;
+    }
+    case "days": {
+      const body = `${Math.abs(value).toFixed(digits)} d`;
+      return value < 0 ? `${MINUS}${body}` : body;
+    }
+    case "count":
+      return formatCount(value);
+  }
+}
+
+/** The axis-tick form: compact money, everything else as-is but terse. */
+export function formatMeasureTick(value: number, unit: MeasureUnit): string {
+  switch (unit) {
+    case "cents":
+      return formatCompactCents(value);
+    case "percent":
+      return `${trimZero(value.toFixed(1))}%`;
+    case "days":
+      return `${trimZero(value.toFixed(1))}d`;
+    case "count":
+      return formatCount(value);
+  }
+}
+
+/**
+ * The window as a chart subtitle: "Jul 2026" when it is exactly one
+ * calendar month, else "May 6 – Aug 3, 2026". Charts get the window in
+ * their title because a chart read on its own — screenshotted into a deck,
+ * scrolled past the header — otherwise carries no period at all.
+ */
+export function chartWindowLabel(window: ResolvedWindow): string {
+  const a = parseIsoDate(window.start);
+  const b = parseIsoDate(window.end);
+  if (a.y === b.y && a.m === b.m && a.d === 1 && b.d === lastDayOfMonth(b.y, b.m)) {
+    return `${MONTHS[a.m - 1]} ${a.y}`;
+  }
+  if (a.y !== b.y) return `${mediumDate(window.start)} – ${mediumDate(window.end)}`;
+  return `${shortDate(window.start)} – ${shortDate(window.end)}, ${a.y}`;
+}
+
+function lastDayOfMonth(year: number, month: number): number {
+  return new Date(Date.UTC(year, month, 0)).getUTCDate();
 }
 
 /**

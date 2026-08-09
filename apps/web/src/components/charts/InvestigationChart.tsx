@@ -15,7 +15,7 @@ import {
 } from "recharts";
 
 import { Button } from "@/components/ui/button";
-import { formatCents, formatCount, formatCompactCents } from "@/lib/format";
+import { formatMeasure, formatMeasureTick } from "@/lib/format";
 import { useSessionStore } from "@/lib/store";
 import type { ChartSpec } from "@/lib/types";
 import { usePrefersReducedMotion } from "@/lib/useReducedMotion";
@@ -36,7 +36,16 @@ interface RowDatum {
  * `{op: "DrillInto", target}` refinement — no natural language in the
  * loop. Truncation is always surfaced ("showing top 8 of 12 — Expand").
  */
-export function InvestigationChart({ spec, turnId }: { spec: ChartSpec; turnId: string }) {
+export function InvestigationChart({
+  spec,
+  turnId,
+  windowLabel,
+}: {
+  spec: ChartSpec;
+  turnId: string;
+  /** The turn's window, appended to the composed title (see AnswerCard). */
+  windowLabel?: string;
+}) {
   const emitRefinement = useSessionStore((s) => s.emitRefinement);
   const reducedMotion = usePrefersReducedMotion();
 
@@ -68,19 +77,11 @@ export function InvestigationChart({ spec, turnId }: { spec: ChartSpec; turnId: 
     );
   };
 
-  const formatValue = (value: number): string =>
-    spec.unit === "cents"
-      ? formatCents(value)
-      : spec.unit === "percent"
-        ? `${value.toFixed(1)}%`
-        : formatCount(value);
-
-  const formatTick = (value: number): string =>
-    spec.unit === "cents"
-      ? formatCompactCents(value)
-      : spec.unit === "percent"
-        ? `${value}%`
-        : formatCount(value);
+  // Values arrive in their DISPLAY unit: `mapChartSpec` scales a wire
+  // `ratio` frame (0.079945) into percentage points (7.9945) once, at the
+  // boundary, so no renderer has to know which convention it was handed.
+  const formatValue = (value: number): string => formatMeasure(value, spec.unit);
+  const formatTick = (value: number): string => formatMeasureTick(value, spec.unit);
 
   const axisProps = {
     stroke: "var(--chart-axis)",
@@ -96,7 +97,16 @@ export function InvestigationChart({ spec, turnId }: { spec: ChartSpec; turnId: 
   return (
     <figure className="rounded-lg border bg-card p-3.5">
       <figcaption className="mb-1 flex items-baseline justify-between gap-2">
-        <span className="text-[0.72rem] font-medium">{spec.title}</span>
+        <span className="text-[0.72rem] font-medium" title={spec.wireTitle}>
+          {/* Composed from the frame's own columns ("Cash posted by
+              payer"), not the engine's frame bookkeeping ("cash posted —
+              cash by payer  compare"). The published title stays on the
+              `title` attribute so the reduction is checkable. */}
+          {spec.title}
+          {windowLabel && (
+            <span className="font-normal text-muted-foreground"> — {windowLabel}</span>
+          )}
+        </span>
         {spec.series.length > 1 && (
           <span className="flex items-center gap-3">
             {spec.series.map((s) => (

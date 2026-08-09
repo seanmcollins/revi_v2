@@ -37,7 +37,11 @@ probes:
     metric_ids: [timely_filing_at_risk_dollars]
     dimensions: [plan]
     top_n: 5
-    scope_note: Largest at-risk unsubmitted inventories by plan.
+    scope_note: >-
+      Largest UNBILLED OPEN inventories by plan. No deadline predicate is
+      applied: filing_rules is not yet joined at probe time, so this ranks
+      the population a filing watch would age, not dollars at risk of a
+      timely-filing denial.
   - id: portfolio_ar_health
     metric_ids: [ar_over_90_pct]
     dimensions: [payer]

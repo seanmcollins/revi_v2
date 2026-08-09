@@ -20,6 +20,7 @@ from revi_api.portfolio import (
     build_portfolio,
     priority_policy_from_pack,
 )
+from revi_api.rederive import ReDerivedImpact
 from revi_connector_duckdb import DuckDbAnomalySource
 from revi_investigation.application.ports import AnomalyRecord
 from revi_kernel.errors import WatermarkStaleError
@@ -135,9 +136,99 @@ class TestPriorityFormula:
         portfolio = build_portfolio(
             (tiny_compliance, big_noise), watermark=WATERMARK, policy=policy, rules=rules
         )
-        assert portfolio.items[0].anomaly_id == "cb"
-        assert portfolio.items[0].compliance_floor_applied is True
+        cb = next(c for c in portfolio.items if c.anomaly_id == "cb")
+        noise = next(c for c in portfolio.items if c.anomaly_id == "noise")
+        # The floor still lifts a tiny compliance item out of the noise…
+        assert cb.compliance_floor_applied is True
+        assert cb.priority_score > cb.priority.score_before_floor
+        assert cb.lane == "compliance" and noise.lane == "value"
+        # …to the MEDIAN of the value-ranked work, not past it. Under @1
+        # this was the constant 0.6 and a $824 compliance card outranked a
+        # $178K critical finding (round-1 review F17).
+        assert portfolio.compliance_floor_basis == "relative_median"
+        assert cb.priority_score <= noise.priority_score
+        assert portfolio.compliance_floor_value == pytest.approx(
+            noise.priority.score_before_floor, abs=1e-6
+        )
+        # The lane is what keeps it visible: "must do regardless of size"
+        # is a section, not a rank.
+        [compliance_lane] = [ln for ln in portfolio.lanes if ln.id == "compliance"]
+        assert compliance_lane.anomaly_ids == ["cb"]
+
+    def test_the_absolute_floor_is_the_fallback_when_nothing_is_unfloored(
+        self, rules, policy: PriorityPolicy
+    ) -> None:
+        """A build with no value-ranked work has no median to take.
+
+        The governed absolute is the honest fallback, and the response
+        says that is what happened rather than reporting a relative floor
+        computed from an empty population."""
+        portfolio = build_portfolio(
+            (_record("cb", "CREDIT_BALANCE", 40_000),),
+            watermark=WATERMARK,
+            policy=policy,
+            rules=rules,
+        )
+        assert portfolio.compliance_floor_basis == "governed_absolute"
+        assert portfolio.compliance_floor_value == pytest.approx(
+            float(policy.compliance_floor)
+        )
         assert portfolio.items[0].priority_score >= float(policy.compliance_floor)
+
+    def test_a_card_with_no_re_derivation_says_so_rather_than_agreeing(
+        self, rules, policy: PriorityPolicy
+    ) -> None:
+        """Silence is the defect (round-1 review F1): a card whose figure
+        the platform never re-derived must say that, not imply agreement."""
+        portfolio = build_portfolio(
+            (_record("a", "UNDERPAYMENT", 1_000_000),),
+            watermark=WATERMARK,
+            policy=policy,
+            rules=rules,
+        )
+        [card] = portfolio.items
+        assert card.reconciled_impact_cents is None
+        assert card.impact_agreement == "unavailable"
+        assert card.impact_reconciliation_note
+
+    def test_a_diverging_re_derivation_is_published_with_both_figures(
+        self, rules, policy: PriorityPolicy
+    ) -> None:
+        portfolio = build_portfolio(
+            (_record("a", "UNDERPAYMENT", 1_000_000),),
+            watermark=WATERMARK,
+            policy=policy,
+            rules=rules,
+            rederived={
+                "a": ReDerivedImpact(cents=1_100_000, measure_id="cash_posted", rows=1)
+            },
+        )
+        [card] = portfolio.items
+        assert card.reconciled_impact_cents == 1_100_000
+        assert card.reconciled_impact_metric_id == "cash_posted"
+        assert card.impact_agreement == "diverged"
+        assert card.impact_delta_cents == 100_000
+        assert card.impact_delta_fraction == pytest.approx(0.1)
+        # both figures named in the note, so the card is readable alone
+        assert "$10,000.00" in card.impact_reconciliation_note
+        assert "$11,000.00" in card.impact_reconciliation_note
+        assert any("diverge" in w for w in portfolio.warnings)
+
+    def test_figures_within_tolerance_report_agreement(
+        self, rules, policy: PriorityPolicy
+    ) -> None:
+        portfolio = build_portfolio(
+            (_record("a", "UNDERPAYMENT", 1_000_000),),
+            watermark=WATERMARK,
+            policy=policy,
+            rules=rules,
+            rederived={
+                "a": ReDerivedImpact(cents=1_001_000, measure_id="cash_posted", rows=1)
+            },
+        )
+        [card] = portfolio.items
+        assert card.impact_agreement == "agreed"
+        assert card.impact_delta_cents == 1_000
 
     def test_recency_decay_separates_twin_impacts(
         self, rules, policy: PriorityPolicy

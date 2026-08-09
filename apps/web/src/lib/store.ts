@@ -7,6 +7,7 @@
 
 import { create } from "zustand";
 
+import { envDriverKind } from "@/lib/driver";
 import type {
   ConnectionState,
   DriverKind,
@@ -238,6 +239,13 @@ export interface ConnectionStatus {
   authMode?: string;
   /** `watermark` — the newest load the deployment can see. */
   newestWatermarkId?: string;
+  /**
+   * True once `GET /v1/health` has actually answered (either way). Until
+   * it has, this client knows nothing about the deployment's LLM mode,
+   * store or auth — and a "degraded mode" badge rendered from that
+   * ignorance is a claim about the server made before the server spoke.
+   */
+  healthChecked?: boolean;
 }
 
 /** Lifecycle of the `GET /v1/capabilities` read the settings panel needs. */
@@ -429,7 +437,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   watermark: INITIAL_WATERMARK,
   pack: INITIAL_PACK,
   sessionLive: false,
-  connection: { mode: "mock", state: "online" },
+  // The env default, not "mock": the store used to open on
+  // `{mode: "mock", state: "online"}` and the workspace corrected it in an
+  // effect one paint later, so an api-mode deployment flashed BOTH the
+  // "Mock driver" pill and the amber "Demo script mode" badge before its
+  // first health poll. `envDriverKind()` reads only `process.env`, so the
+  // server render and the first client render agree.
+  connection: { mode: envDriverKind(), state: "connecting" },
   contractDrift: [],
   pendingReAnchor: false,
   turns: [],

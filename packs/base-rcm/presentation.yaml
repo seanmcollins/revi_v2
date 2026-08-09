@@ -63,8 +63,14 @@ recipes:
     applies_to: timely_filing_at_risk_dollars
     chart_type: bar
     notes: >-
-      Bars by plan/facility with days-of-runway annotation from the filing
-      rules; confirmation-required rules get a planning-default chip.
+      Bars by plan/facility of UNBILLED OPEN inventory. The days-of-runway
+      annotation this recipe was authored for requires the probe-time
+      filing_rules join, which does not exist yet (see NOTES.md, "Named next
+      milestone"), so today the bars carry no deadline information at all and
+      must not be captioned as filing exposure. Until the join lands, label
+      the axis as unbilled inventory and let the metric's mandatory caveat
+      ride with the chart; when it lands, add the runway annotation and the
+      planning-default chip for confirmation-required rules.
   # --- coverage wave 2 (2026-08-08) ------------------------------------
   #
   # Renderer note, applying to every recipe below that describes more than

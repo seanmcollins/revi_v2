@@ -160,11 +160,11 @@ function EmptyState() {
       </div>
 
       <p
-        className="fade-up relative text-[0.64rem] text-muted-foreground/80"
+        className="fade-up relative text-[0.64rem] text-muted-foreground"
         style={{ animationDelay: "400ms" }}
       >
         Same question, same answer · governed metrics · auditable evidence
-        <span className="mx-2 text-muted-foreground/40">·</span>
+        <span aria-hidden className="mx-2 text-border">·</span>
         <kbd className="rounded border bg-surface-sunken px-1 py-0.5 font-mono text-[0.58rem]">⌘K</kbd>{" "}
         to command
       </p>

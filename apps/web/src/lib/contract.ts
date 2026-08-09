@@ -61,6 +61,7 @@ import type {
   WarningEvent,
 } from "@/lib/types";
 import { GRADE_STRENGTH } from "@/lib/types";
+import { formatMeasure, type MeasureUnit } from "@/lib/format";
 import type { PortfolioItem } from "@/lib/mock/portfolio";
 
 export type ParseResult<T> = { ok: true; value: T } | { ok: false; missing: string[] };
@@ -371,14 +372,102 @@ const CHART_KIND_BY_WIRE: Record<string, ChartSpec["kind"]> = {
   range_band: "line",
 };
 
-/** Kernel measure unit → the unit the formatters understand. */
+/**
+ * Kernel measure unit → the unit the formatters understand.
+ *
+ * `ratio` and `percent` both render as a percentage but do NOT carry the
+ * same numbers: a `ratio` frame publishes 0.079945 where a `percent` frame
+ * would publish 7.9945. Collapsing them here (which is what this table used
+ * to do) is exactly how a chart came to say "0.1%" beside a finding card
+ * saying "12.1%" — see `CHART_VALUE_SCALE_BY_WIRE`.
+ */
 const CHART_UNIT_BY_WIRE: Record<string, ChartSpec["unit"]> = {
   money_cents: "cents",
   ratio: "percent",
   percent: "percent",
   count: "count",
-  days: "count",
+  days: "days",
 };
+
+/**
+ * The factor that takes a published value into the unit the UI formats in.
+ * Only `ratio` needs one: it is a 0–1 fraction and the UI renders percent.
+ * Everything else is already in its display unit and is left alone.
+ */
+const CHART_VALUE_SCALE_BY_WIRE: Record<string, number> = {
+  ratio: 100,
+};
+
+/**
+ * How to render one governed measure: the display unit AND the factor that
+ * gets a published value into it. The two travel together on purpose —
+ * knowing a `ratio` metric "is a percent" without also knowing it arrives
+ * as 0.121361 is precisely the half-fact that rendered 12.1% as 0.1%.
+ */
+export interface MeasureDisplay {
+  unit: MeasureUnit;
+  scale: number;
+}
+
+export function measureDisplay(wireUnit: string): MeasureDisplay | undefined {
+  const unit = CHART_UNIT_BY_WIRE[wireUnit];
+  if (unit === undefined) return undefined;
+  return { unit, scale: CHART_VALUE_SCALE_BY_WIRE[wireUnit] ?? 1 };
+}
+
+/**
+ * Is this x column temporal? The wire does not say, and the chart type it
+ * publishes is not a reliable proxy — the engine sends `line` for a
+ * payer-by-payer ranking, which is a bar chart drawn as a line. So the
+ * shape of the axis decides: labels that are all dates/periods get a line,
+ * anything categorical gets bars.
+ */
+const TEMPORAL_LABEL =
+  /^(\d{4}-\d{2}(-\d{2})?|\d{4}-W\d{1,2}|\d{4}Q[1-4]|\d{4})$/i;
+
+const MONTH_LABEL =
+  /^(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*(\s+\d{1,2})?(,?\s*\d{4})?$/i;
+
+function isTemporalAxis(labels: readonly string[]): boolean {
+  if (labels.length === 0) return false;
+  return labels.every((label) => TEMPORAL_LABEL.test(label) || MONTH_LABEL.test(label));
+}
+
+/** "denied_dollars" → "Denied dollars"; "carc" → "CARC". */
+const COLUMN_ACRONYMS: Record<string, string> = {
+  carc: "CARC",
+  rarc: "RARC",
+  ar: "AR",
+  dnfb: "DNFB",
+  cpt: "CPT",
+  drg: "DRG",
+  msdrg: "MS-DRG",
+  npi: "NPI",
+  pct: "%",
+};
+
+export function humanizeColumn(column: string): string {
+  const words = column.split(/[_\s]+/).filter(Boolean);
+  if (words.length === 0) return column;
+  const spelled = words.map((word) => COLUMN_ACRONYMS[word.toLowerCase()] ?? word);
+  const [head, ...tail] = spelled;
+  const lead = COLUMN_ACRONYMS[words[0].toLowerCase()] ? head : head[0].toUpperCase() + head.slice(1);
+  return [lead, ...tail].join(" ");
+}
+
+/**
+ * A human title from the frame's own columns: "Cash posted by payer".
+ * The server's title names the internal frame ("cash posted — cash by
+ * payer  compare"), which is engine bookkeeping — the frame id is already
+ * carried verbatim on `frameId` and the original on `wireTitle`, so
+ * nothing is lost by putting the analyst's words on the chart itself.
+ * The window is appended at render time, where the header is in scope.
+ */
+function composeChartTitle(valueColumn: string, xColumn: string): string {
+  const measure = humanizeColumn(valueColumn);
+  if (!xColumn || xColumn === valueColumn) return measure;
+  return `${measure} by ${humanizeColumn(xColumn).toLowerCase()}`;
+}
 
 const COMPARISON_KIND_BY_WIRE: Record<string, ComparisonKind> = {
   prior_period: "prior_period",
@@ -432,21 +521,109 @@ function mapSuggestedRefinements(raw: unknown): SuggestedRefinement[] {
   return out;
 }
 
-export function mapFinding(raw: unknown): Finding | null {
+/**
+ * What the rest of the turn tells a finding about itself. Neither fact is
+ * on `FindingPayload`, and both are needed to render its stat honestly:
+ *
+ *   `unitByMetric` — the measure's display unit, read off the turn's own
+ *     `chart_specs` (`value` column → `unit`). A ranking finding publishes
+ *     `values: {denial_rate: 0.121361}` and no `impact_cents`, so without a
+ *     unit the headline number cannot be rendered at all — and guessing one
+ *     is how "12.1%" becomes "0.1".
+ *   `impactWithheldReason` — the turn-level sentence explaining an absent
+ *     `impact_cents` (COMPARISON_WINDOW_MISMATCH suppresses it for every
+ *     finding at once), so the card can say why rather than show nothing.
+ */
+export interface FindingContext {
+  unitByMetric?: Record<string, MeasureDisplay>;
+  impactWithheldReason?: string;
+}
+
+/** Values that are comparison anatomy, not standalone measures. */
+const COMPARISON_VALUE_NAMES = new Set([
+  "current_cents",
+  "prior_cents",
+  "delta_cents",
+  "pct_change",
+  "rank",
+]);
+
+export function mapFinding(raw: unknown, context: FindingContext = {}): Finding | null {
   if (!isRecord(raw)) return null;
   const values = mapFindingValues(raw.values);
   const impactCents = asNumber(raw.impact_cents);
+  const metricRefs = asArray(raw.metric_ids).filter((m): m is string => typeof m === "string");
+
+  // Comparison anatomy: the wire publishes current/prior/delta in cents and
+  // the change as a fraction. Every one of these was being dropped, which
+  // is why the mini-bars and the % chip never appeared on a live answer.
+  const currentCents = asNumber(values.current_cents);
+  const priorCents = asNumber(values.prior_cents);
+  const deltaCents = asNumber(values.delta_cents);
+  const pctChange = asNumber(values.pct_change);
+  const hasComparison = currentCents !== undefined && priorCents !== undefined;
+
+  // The headline number when no dollar impact was published: the finding's
+  // own measure, in the unit the turn's charts declare for it. Nothing is
+  // invented — an unknown unit yields no stat rather than a bare float.
+  let impactDisplay: string | undefined;
+  let impactLabel: string | undefined;
+  if (impactCents === undefined && !hasComparison) {
+    for (const metricId of metricRefs) {
+      const value = asNumber(values[metricId]);
+      const display = context.unitByMetric?.[metricId];
+      if (value === undefined || display === undefined) continue;
+      // Same scaling as the chart rows, from the same table: a `ratio`
+      // metric publishes 0.121361 and the card must read "12.1%".
+      impactDisplay = formatMeasure(value * display.scale, display.unit);
+      impactLabel = humanizeColumn(metricId).toLowerCase();
+      break;
+    }
+    if (impactDisplay === undefined) {
+      // Fall back to the sole non-anatomy value only when the payload
+      // leaves no ambiguity about which number the finding is about.
+      const named = Object.entries(values).filter(
+        ([name, value]) => typeof value === "number" && !COMPARISON_VALUE_NAMES.has(name),
+      );
+      if (named.length === 1) {
+        const [name, value] = named[0];
+        const display = context.unitByMetric?.[name];
+        if (display !== undefined) {
+          impactDisplay = formatMeasure((value as number) * display.scale, display.unit);
+          impactLabel = humanizeColumn(name).toLowerCase();
+        }
+      }
+    }
+  }
+
+  const withheld =
+    impactCents === undefined && hasComparison ? context.impactWithheldReason : undefined;
+
   return {
     referent: { value: asString(raw.referent), kind: "finding" },
     title: asString(raw.title),
     statement: asString(raw.statement),
-    metricRefs: asArray(raw.metric_ids).filter((m): m is string => typeof m === "string"),
+    metricRefs,
     values,
     grade: asString(raw.grade, "direct") as EvidenceGrade,
     ...(impactCents !== undefined ? { impactCents } : {}),
+    ...(impactDisplay !== undefined ? { impactDisplay } : {}),
+    ...(impactLabel !== undefined ? { impactLabel } : {}),
+    ...(withheld !== undefined ? { impactWithheldReason: withheld } : {}),
+    ...(pctChange !== undefined ? { deltaPct: pctChange } : {}),
+    ...(hasComparison
+      ? {
+          comparison: {
+            currentCents,
+            priorCents,
+            currentLabel: "current",
+            priorLabel: "prior",
+          },
+        }
+      : {}),
     // A movement finding carries a signed delta; a concentration finding
     // carries a level. The wire says which by which value it published.
-    impactKind: "delta_cents" in values ? "delta" : "level",
+    impactKind: deltaCents !== undefined || hasComparison ? "delta" : "level",
     // NOT published per finding: direction-of-good lives on the metric
     // contract, not on the payload, so tone colouring is withheld rather
     // than guessed from the sign of the number.
@@ -456,11 +633,49 @@ export function mapFinding(raw: unknown): Finding | null {
   };
 }
 
+/**
+ * `chart_specs` → measure id → display unit, so a finding can render its
+ * own number. This is the only published place a metric's unit appears on
+ * a turn payload; reading it here beats hard-coding a unit table the pack
+ * would immediately outgrow.
+ */
+export function unitsFromChartSpecs(raw: unknown): Record<string, MeasureDisplay> {
+  const out: Record<string, MeasureDisplay> = {};
+  for (const entry of asArray(raw)) {
+    if (!isRecord(entry)) continue;
+    const measure = asString(entry.value);
+    const display = measureDisplay(asString(entry.unit));
+    if (measure !== "" && display !== undefined) out[measure] = display;
+  }
+  return out;
+}
+
+/**
+ * The turn-level reason a dollar impact is absent from every finding. Only
+ * one warning suppresses it today (§7 comparison-window mismatch) and it
+ * names both window lengths, so the card can be specific: "not published —
+ * 90d vs 91d comparison window" rather than an unexplained blank.
+ */
+export function impactWithheldReason(warnings: readonly string[]): string | undefined {
+  const mismatch = warnings.find((w) => w.startsWith("COMPARISON_WINDOW_MISMATCH"));
+  if (mismatch === undefined) return undefined;
+  const lengths = [...mismatch.matchAll(/\((?:[^()]*?,\s*)?(\d+)d\)/g)].map((m) => m[1]);
+  return lengths.length >= 2
+    ? `not published — ${lengths[0]}d vs ${lengths[1]}d comparison window`
+    : "not published — the comparison window is not the same length as the analysis window";
+}
+
 export function mapChartSpec(raw: unknown): ChartSpec | null {
   if (!isRecord(raw)) return null;
   const wireType = asString(raw.chart_type);
+  const wireUnit = asString(raw.unit);
   const valueColumn = asString(raw.value);
+  const xColumn = asString(raw.x);
   const seriesColumn = typeof raw.series === "string" ? raw.series : null;
+  // The one place a wire value is rescaled. `ratio` frames publish
+  // fractions (0.079945) and the UI renders percent, so without this the
+  // axis reads "0.1%" beside a finding card reading "8.0%".
+  const scale = CHART_VALUE_SCALE_BY_WIRE[wireUnit] ?? 1;
 
   const seriesKeys: string[] = [];
   const rowsByX = new Map<string, ChartRow>();
@@ -473,29 +688,132 @@ export function mapChartSpec(raw: unknown): ChartSpec | null {
     if (!seriesKeys.includes(key)) seriesKeys.push(key);
     const row = rowsByX.get(label) ?? { label, values: {} };
     const value = asNumber(entry.value);
-    if (value !== undefined) row.values[key] = value;
+    if (value !== undefined) row.values[key] = value * scale;
     if (typeof entry.referent_id === "string") row.referent = entry.referent_id;
     rowsByX.set(label, row);
   }
   if (seriesKeys.length === 0) seriesKeys.push(valueColumn);
+  const rows = [...rowsByX.values()];
+
+  // The published `chart_type` is a hint, not a fact about the axis: the
+  // engine sends `line` for a payer-by-payer ranking. A line between
+  // twelve unordered payers asserts a trend that does not exist, so the
+  // axis decides — categorical x draws bars.
+  const declared = CHART_KIND_BY_WIRE[wireType] ?? "bar";
+  const kind: ChartSpec["kind"] =
+    declared === "line" && !isTemporalAxis(rows.map((row) => row.label)) ? "bar" : declared;
 
   return {
     id: asString(raw.id),
-    kind: CHART_KIND_BY_WIRE[wireType] ?? "bar",
+    kind,
     wireChartType: wireType,
-    title: asString(raw.title),
-    unit: CHART_UNIT_BY_WIRE[asString(raw.unit)] ?? "count",
-    xLabel: asString(raw.x) || undefined,
+    frameId: asString(raw.frame_id) || undefined,
+    title: composeChartTitle(valueColumn, xColumn),
+    wireTitle: asString(raw.title) || undefined,
+    unit: CHART_UNIT_BY_WIRE[wireUnit] ?? "count",
+    xLabel: xColumn || undefined,
     series: seriesKeys.map((key, index) => ({
       key,
       label: seriesColumn === null ? valueColumn : key,
       role: index === 0 ? "current" : "baseline",
     })),
-    rows: [...rowsByX.values()],
+    rows,
     ...(asArray(raw.annotations).length > 0
       ? { highlightLabel: String(asArray(raw.annotations)[0]) }
       : {}),
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Which of a turn's charts are worth drawing (F20)                    */
+/* ------------------------------------------------------------------ */
+
+const COMPARE_SUFFIXES = ["__compare", "__prior"] as const;
+
+function splitFrameSuffix(frameId: string): { base: string; suffix: string } | null {
+  for (const suffix of COMPARE_SUFFIXES) {
+    if (frameId.endsWith(suffix) && frameId.length > suffix.length) {
+      return { base: frameId.slice(0, -suffix.length), suffix };
+    }
+  }
+  return null;
+}
+
+function sameRows(a: ChartSpec, b: ChartSpec): boolean {
+  if (a.rows.length !== b.rows.length) return false;
+  return a.rows.every((row, index) => {
+    const other = b.rows[index];
+    if (other === undefined || other.label !== row.label) return false;
+    const keys = new Set([...Object.keys(row.values), ...Object.keys(other.values)]);
+    for (const key of keys) if (row.values[key] !== other.values[key]) return false;
+    return true;
+  });
+}
+
+/**
+ * The charts a turn should actually draw.
+ *
+ * A comparison turn publishes the same measure twice — `main` and
+ * `main__compare` — and (verified against a live `GET
+ * /v1/investigations/{iid}`) their rows are byte-identical, because the
+ * compare frame carries the CURRENT window's values with a comparison
+ * annotation rather than the prior window's. Drawing both is two identical
+ * charts stacked, which reads as a rendering bug and buries the real
+ * answer. So:
+ *
+ *   - a `__compare`/`__prior` frame whose rows match its base frame is a
+ *     duplicate and is dropped;
+ *   - one whose rows DIFFER is the prior period, and is folded into the
+ *     base chart as a second (baseline) series — current vs prior in one
+ *     chart, which is what the analyst asked for;
+ *   - a compare frame with no base frame stands on its own;
+ *   - anything with fewer than two rows is not a chart. A single point
+ *     plotted on an axis is a number that has been made to look like a
+ *     trend; the finding card already says it, better.
+ */
+export function selectRenderableCharts(specs: readonly ChartSpec[]): ChartSpec[] {
+  const byFrame = new Map<string, ChartSpec>();
+  for (const spec of specs) {
+    if (spec.frameId !== undefined) byFrame.set(spec.frameId, spec);
+  }
+
+  const merged = new Map<string, ChartSpec>();
+  const dropped = new Set<string>();
+
+  for (const spec of specs) {
+    const split = spec.frameId !== undefined ? splitFrameSuffix(spec.frameId) : null;
+    if (split === null) continue;
+    const base = byFrame.get(split.base);
+    if (base === undefined) continue;
+    dropped.add(spec.id);
+    if (sameRows(base, spec)) continue; // identical twin — the base one stands
+    // A genuinely different comparison frame: same measure, other window.
+    const baselineKey = `${split.suffix.replace("__", "")}`;
+    const rows = base.rows.map((row) => {
+      const other = spec.rows.find((r) => r.label === row.label);
+      const carried = other ? Object.values(other.values)[0] : undefined;
+      return carried === undefined
+        ? row
+        : { ...row, values: { ...row.values, [baselineKey]: carried } };
+    });
+    merged.set(base.id, {
+      ...base,
+      rows,
+      series: [
+        ...base.series,
+        { key: baselineKey, label: baselineKey === "prior" ? "prior" : "comparison", role: "baseline" },
+      ],
+    });
+  }
+
+  const out: ChartSpec[] = [];
+  for (const spec of specs) {
+    if (dropped.has(spec.id)) continue;
+    const resolved = merged.get(spec.id) ?? spec;
+    if (resolved.rows.length < 2) continue;
+    out.push(resolved);
+  }
+  return out;
 }
 
 export function mapContextHeader(raw: unknown, pin: WirePin): ContextHeaderData | null {
@@ -556,18 +874,54 @@ export function mapDefinitional(raw: unknown, pin: WirePin): DefinitionCardData 
   const terms = asArray(raw.terms).filter(isRecord);
   const primary = terms[0];
   if (!primary) return null;
+
+  // `TermPayload.kind` is the pack's own taxonomy — "concept", "metric",
+  // "code:carc", "code:group_code", "code:rarc". A live "What is PR3?"
+  // answers with TWO code terms, and flattening them into one prose blob
+  // (which is what this mapper used to do) loses the thing that makes the
+  // answer correct: PR is a group code and 3 is a CARC, and "PR3" is the
+  // pair. The card has slots for exactly that — they were never filled.
+  const groupTerm = terms.find((t) => asString(t.kind) === "code:group_code");
+  const carcTerm = terms.find((t) => asString(t.kind) === "code:carc");
+  const isCode = (t: UnknownRecord): boolean => asString(t.kind).startsWith("code:");
+  const proseTerms = terms.filter((t) => !isCode(t));
+
   return {
     term: asString(raw.question) || asString(primary.term),
-    normalizedTo: terms.map((t) => asString(t.title)).join(" · "),
-    definition: terms.map((t) => asString(t.definition)).join(" "),
+    normalizedTo: terms
+      .map((t) => (isCode(t) ? `${asString(t.term)} — ${asString(t.title)}` : asString(t.title)))
+      .filter((label) => label !== "" && label !== " — ")
+      .join(" · "),
+    // Only the non-code terms: the code terms render in their own slots
+    // below, and printing them twice reads as a stutter.
+    definition: proseTerms.map((t) => asString(t.definition)).join(" "),
+    ...(groupTerm
+      ? {
+          groupCode: {
+            code: asString(groupTerm.term),
+            meaning: asString(groupTerm.definition) || asString(groupTerm.title),
+          },
+        }
+      : {}),
+    ...(carcTerm
+      ? {
+          carc: {
+            code: Number(asString(carcTerm.term)),
+            paraphrase: asString(carcTerm.definition),
+            category: asString(carcTerm.title),
+          },
+        }
+      : {}),
     sources: terms
-      .filter((t) => typeof t.source === "string")
+      .filter((t) => typeof t.source === "string" && t.source !== "")
       .map((t) => ({ label: String(t.source), authority: "governed_pack" as const })),
     packVersion: {
       packId: asString(raw.pack_id, pin.pack.packId),
       version: asString(raw.pack_version, pin.pack.version),
     },
-    relatedConcepts: terms.slice(1).map((t) => asString(t.term)),
+    // Related concepts are the OTHER prose terms — a CARC number ("3") in
+    // this list is not a related concept, it is half of the answer.
+    relatedConcepts: proseTerms.slice(1).map((t) => asString(t.term)),
   };
 }
 
@@ -1093,9 +1447,17 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
   missingAt(raw, REQUIRED_ANSWER_FIELDS, drift);
   if (drift.length > 0) return { value: null, drift };
 
+  const warningSentences = asArray(raw.warnings).filter((w): w is string => typeof w === "string");
+  const findingContext: FindingContext = {
+    unitByMetric: unitsFromChartSpecs(raw.chart_specs),
+    ...(impactWithheldReason(warningSentences) !== undefined
+      ? { impactWithheldReason: impactWithheldReason(warningSentences) }
+      : {}),
+  };
+
   const findings: Finding[] = [];
   asArray(raw.findings).forEach((entry, index) => {
-    const finding = mapFinding(entry);
+    const finding = mapFinding(entry, findingContext);
     if (finding === null || finding.referent.value === "") {
       drift.push(`findings[${index}].referent`);
       return;
@@ -1131,9 +1493,7 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
       ...(typeof raw.narrative === "string" && raw.narrative !== ""
         ? { narrative: raw.narrative }
         : {}),
-      warnings: asArray(raw.warnings)
-        .filter((w): w is string => typeof w === "string")
-        .map(mapAnswerWarning),
+      warnings: warningSentences.map(mapAnswerWarning),
       ...(definition !== null ? { definition } : {}),
       ...(typeof raw.reconciliation === "string" ? { reconciliation: raw.reconciliation } : {}),
       ...(typeof raw.plan_hash === "string" ? { planHash: raw.plan_hash } : {}),
@@ -1192,9 +1552,17 @@ export function parseInvestigationResponse(raw: unknown): TurnResponseParse {
     };
   }
 
+  const restoredWarnings = asArray(raw.warnings).filter((w): w is string => typeof w === "string");
+  const restoredContext: FindingContext = {
+    unitByMetric: unitsFromChartSpecs(raw.chart_specs),
+    ...(impactWithheldReason(restoredWarnings) !== undefined
+      ? { impactWithheldReason: impactWithheldReason(restoredWarnings) }
+      : {}),
+  };
+
   const findings: Finding[] = [];
   asArray(raw.findings).forEach((entry, index) => {
-    const finding = mapFinding(entry);
+    const finding = mapFinding(entry, restoredContext);
     if (finding === null || finding.referent.value === "") {
       drift.push(`findings[${index}].referent`);
       return;
@@ -1227,9 +1595,7 @@ export function parseInvestigationResponse(raw: unknown): TurnResponseParse {
       turnClass: asString(raw.turn_class) as TurnClass,
       findings,
       charts,
-      warnings: asArray(raw.warnings)
-        .filter((w): w is string => typeof w === "string")
-        .map(mapAnswerWarning),
+      warnings: restoredWarnings.map(mapAnswerWarning),
       ...(typeof raw.plan_hash === "string" ? { planHash: raw.plan_hash } : {}),
       ...(evidence !== undefined ? { evidence } : {}),
       ...(metric !== undefined ? { metric } : {}),
@@ -1694,6 +2060,15 @@ export interface PortfolioSnapshotData {
   items: PortfolioItem[];
   watermark?: string;
   rankingPolicy?: string;
+  /**
+   * `PortfolioResponse.warnings` — snapshot-level truth about the list
+   * itself ("4 of 33 detected anomalies (36% of ranked impact) are not
+   * investigable at this catalog and pack version…"). Published since the
+   * endpoint shipped and, until now, read by nothing: the panel showed
+   * 33 confident-looking rows and said nothing about the 36% it could not
+   * open.
+   */
+  warnings: string[];
 }
 
 export interface PortfolioParse {
@@ -1723,6 +2098,33 @@ export function parsePortfolioSnapshot(raw: unknown): PortfolioParse {
     const detail = optional("detail");
     const formulaVersion = optional("priorityFormulaVersion");
     const sourceWatermarkId = optional("sourceWatermarkId");
+    const str = (key: string): string | undefined => {
+      const value = record[key];
+      return typeof value === "string" && value !== "" ? value : undefined;
+    };
+    const num = (key: string): number | undefined => asNumber(record[key]);
+    const severity = str("severity");
+    const dimensions = asRecordList(record.dimensions)
+      .map((d) => ({ dimension: asString(d.dimension), value: asString(d.value) }))
+      .filter((d) => d.dimension !== "" && d.value !== "");
+    // `drillable` is a published boolean with no default worth guessing:
+    // absent, the honest read is "the server did not say it refused", and
+    // the drill handle it published (or did not) settles it.
+    const drillable =
+      typeof record.drillable === "boolean"
+        ? record.drillable
+        : isRecord(record.drill_spec) || isRecord(record.drill);
+    // What the drill will actually measure. On a repointed card this is
+    // NOT `metric_id`: live ANM-001 reports denial_rate, is repointed
+    // FROM denial_rate, and probes denied_dollars — so reading the
+    // reported metric here would render "drills denial_rate, not
+    // denial_rate", which is both wrong and obviously wrong.
+    const drillMetricId = isRecord(record.drill_spec)
+      ? asArray(record.drill_spec.metric_ids).find(
+          (id): id is string => typeof id === "string" && id !== "",
+        )
+      : undefined;
+
     items.push({
       rank: typeof record.rank === "number" ? record.rank : index + 1,
       referent,
@@ -1734,16 +2136,57 @@ export function parsePortfolioSnapshot(raw: unknown): PortfolioParse {
       provenance: record.provenance as PortfolioItem["provenance"],
       priorityFormulaVersion: typeof formulaVersion === "string" ? formulaVersion : "",
       sourceWatermarkId: typeof sourceWatermarkId === "string" ? sourceWatermarkId : "",
+
+      // Everything below is published on AnomalyCard and was being dropped.
+      ...(severity !== undefined ? { severity: severity as PortfolioItem["severity"] } : {}),
+      ...(num("age_days") !== undefined ? { ageDays: num("age_days") } : {}),
+      ...(num("recoverable_cents_estimate") !== undefined
+        ? { recoverableCentsEstimate: num("recoverable_cents_estimate") }
+        : {}),
+      ...(str("actionability_label") !== undefined
+        ? { actionabilityLabel: str("actionability_label") }
+        : {}),
+      ...(str("actionability_rationale") !== undefined
+        ? { actionabilityRationale: str("actionability_rationale") }
+        : {}),
+      ...(num("priority_score") !== undefined ? { priorityScore: num("priority_score") } : {}),
+      ...(record.compliance_floor_applied === true ? { complianceFloorApplied: true } : {}),
+      ...(str("metric_id") !== undefined ? { metricId: str("metric_id") } : {}),
+      ...(str("status") !== undefined ? { status: str("status") } : {}),
+      ...(str("confidence") !== undefined ? { confidence: str("confidence") } : {}),
+      ...(str("detected_at") !== undefined ? { detectedAt: str("detected_at") } : {}),
+      ...(str("window_start") !== undefined ? { windowStart: str("window_start") } : {}),
+      ...(str("window_end") !== undefined ? { windowEnd: str("window_end") } : {}),
+      ...(dimensions.length > 0 ? { dimensions } : {}),
+
+      drillable,
+      ...(str("drill_unavailable_reason") !== undefined
+        ? { drillUnavailableReason: str("drill_unavailable_reason") }
+        : {}),
+      ...(str("drill_repointed_from") !== undefined
+        ? { drillRepointedFrom: str("drill_repointed_from") }
+        : {}),
+      ...(str("drill_repoint_rationale") !== undefined
+        ? { drillRepointRationale: str("drill_repoint_rationale") }
+        : {}),
+      ...(drillMetricId !== undefined ? { drillMetricId } : {}),
+
       // The card's typed first turn, carried through verbatim: it is
       // already the published shape, so translating it would only be an
       // opportunity to get it wrong.
       ...(isRecord(record.drill_spec) ? { drillSpec: record.drill_spec } : {}),
-      drill: isRecord(record.drill)
-        ? (record.drill as unknown as PortfolioItem["drill"])
-        : { label: "Drill in", refinement: { op: "DrillInto", target: referent } },
+      // NO fallback handle. A synthesized `DrillInto(ANM-013)` against a
+      // card the server marked `drillable: false` — with a written reason —
+      // was the client claiming a capability the platform had just refused.
+      ...(isRecord(record.drill)
+        ? { drill: record.drill as unknown as PortfolioItem["drill"] }
+        : {}),
     });
   });
-  const value: PortfolioSnapshotData = { items };
+  const value: PortfolioSnapshotData = {
+    items,
+    warnings: asArray(raw.warnings).filter((w): w is string => typeof w === "string"),
+  };
   // PortfolioResponse spells these `watermark_id` / `formula_version`.
   const watermark =
     alias(raw, "watermark", "watermark_loaded_at") ?? raw.watermark_id;

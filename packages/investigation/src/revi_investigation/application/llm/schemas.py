@@ -64,12 +64,15 @@ __all__ = [
     "AbsoluteWindowModel",
     "AddFilterModel",
     "AnyRefinementOperator",
+    "AskedDirectionLiteral",
+    "AskedMagnitudeLiteral",
     "ChartSuggestionResponse",
     "ComparisonLiteral",
     "DrillIntoModel",
     "EntityGrainLiteral",
     "ExpandModel",
     "ExplainModel",
+    "GroundedOptionModel",
     "InterpretationResponse",
     "PivotModel",
     "PredicateOpLiteral",
@@ -108,6 +111,11 @@ TurnClassLiteral = Literal[
     "clarification_response",
     "definitional",
 ]
+
+#: Mirrors :class:`revi_investigation.domain.context.AskedDirection` exactly.
+AskedDirectionLiteral = Literal["increase", "decrease", "worsened", "improved"]
+#: Mirrors :class:`revi_investigation.domain.context.AskedMagnitude` exactly.
+AskedMagnitudeLiteral = Literal["largest", "smallest"]
 
 
 class _Closed(BaseModel):
@@ -169,6 +177,30 @@ class ScopePredicateModel(_Closed):
     values: list[ScalarValue] = Field(default_factory=list)
 
 
+class GroundedOptionModel(_Closed):
+    """One recovery option, stated in the governed vocabulary.
+
+    A clarification option is the one piece of free text that becomes a
+    *button*: an analyst who taps it is promised the platform can answer it.
+    Live, the platform offered "Compare denial rates across all Medicare
+    Advantage payers" and refused the same request one turn later — the
+    option named a capability nobody had checked, because the option was a
+    sentence and sentences do not resolve against a pack.
+
+    So an option carries the ids it would use alongside the label it shows,
+    and every one of them goes through the same disposal an interpretation
+    does (:meth:`InterpretQuestionService.ground_option`). An option that
+    fails is dropped rather than shown; the label is never the contract.
+    """
+
+    #: What the analyst reads and may send back verbatim.
+    label: str
+    metric_ids: list[str] = Field(default_factory=list)
+    dimension_ids: list[str] = Field(default_factory=list)
+    playbook_id: str | None = None
+    scope: list[ScopePredicateModel] = Field(default_factory=list)
+
+
 class InterpretationResponse(_Closed):
     intent_summary: str
     metric_ids: list[str] = Field(default_factory=list)
@@ -179,10 +211,17 @@ class InterpretationResponse(_Closed):
     basis: str | None = None
     comparison: ComparisonLiteral | None = None
     scope: list[ScopePredicateModel] = Field(default_factory=list)
+    #: The movement the question asks about, when it asks about one
+    #: ("biggest increase", "which payers got worse"). Closed set; never
+    #: inferred here — an unasserted direction stays ``None``.
+    direction: AskedDirectionLiteral | None = None
+    #: The extremity the question phrases over that direction.
+    magnitude: AskedMagnitudeLiteral | None = None
     clarification: str | None = None
-    #: Optional recovery chips beside ``clarification`` — trimmed by
-    #: :func:`clarification_options` before anything renders them.
-    clarification_options: list[str] = Field(default_factory=list)
+    #: Optional recovery chips beside ``clarification``, each stated in the
+    #: governed vocabulary — validated and dropped on failure before
+    #: anything renders them (design §2.8; see :class:`GroundedOptionModel`).
+    clarification_options: list[GroundedOptionModel] = Field(default_factory=list)
     definitional_terms: list[str] = Field(default_factory=list)
 
 

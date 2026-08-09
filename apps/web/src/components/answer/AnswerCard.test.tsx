@@ -135,6 +135,94 @@ describe("AnswerCard — default mode", () => {
   });
 });
 
+describe("AnswerCard — an answer with no findings (F2)", () => {
+  function emptyTurn(overrides: Partial<TurnRecord["answer"]> = {}): TurnRecord {
+    return {
+      id: "turn_empty",
+      index: 0,
+      submission: { utterance: "Denials for Atlas Health in July" },
+      answer: {
+        ...emptyAnswer(),
+        status: "complete",
+        investigationId: "inv_empty",
+        answerGrade: "direct",
+        metric: {
+          metrics: [{ id: "denial_rate", contractVersion: 2 }],
+          pack: { packId: "base-rcm", version: "1.0.0" },
+        },
+        header: {
+          window: { start: "2026-07-01", end: "2026-07-31", basis: "post" },
+          filters: [],
+          watermark: { id: "wm_003", loadedAt: "2026-08-03 04:10", newestDataDate: "2026-08-02" },
+          packVersion: { packId: "base-rcm", version: "1.0.0" },
+        },
+        ...overrides,
+      },
+    };
+  }
+
+  it("never renders a card that is blank apart from its badges", () => {
+    // The whole failure mode: a completed turn with no findings, no
+    // narrative and no clarification used to render a "Governed" badge
+    // over empty space — which reads as a bug and, worse, certifies a
+    // nothing.
+    const { container } = renderCard(emptyTurn());
+    expect(
+      screen.getByText(/No findings for this question — here's what was checked/),
+    ).toBeInTheDocument();
+    expect((container.textContent ?? "").trim().length).toBeGreaterThan(60);
+  });
+
+  it("surfaces what the payload DOES carry — window, measure, checks", () => {
+    renderCard(
+      emptyTurn({
+        evidence: {
+          probes: [
+            {
+              probeId: "main",
+              probeHash: "h",
+              kind: "aggregation",
+              description: "direct metric query",
+              metrics: [],
+              cacheHit: false,
+              truncated: false,
+              suppressedCells: 0,
+              durationMs: 3,
+            },
+          ],
+          warehouseQueries: 1,
+          cacheHits: 0,
+          zeroProbeTurn: false,
+        },
+      }),
+    );
+    expect(screen.getByText(/Jul 1 – Jul 31, 2026 \(post date\)/)).toBeInTheDocument();
+    expect(screen.getByText(/Denial rate/)).toBeInTheDocument();
+    expect(screen.getByText(/1 data check against this data load/)).toBeInTheDocument();
+  });
+
+  it("defers to the engine's own warnings when it published any", () => {
+    renderCard(
+      emptyTurn({
+        warnings: [
+          {
+            type: "warning",
+            code: "ANSWER_NOTE",
+            message: "suppression: cells counting fewer than 11 entities are suppressed",
+            severity: "info",
+          },
+        ],
+      }),
+    );
+    expect(screen.getByText(/the engine's own account of why/)).toBeInTheDocument();
+  });
+
+  it("stays out of the way of an answer that DID find something", () => {
+    renderCard(turn());
+    expect(screen.queryByText(/No findings for this question/)).not.toBeInTheDocument();
+  });
+});
+
 describe("AnswerCard — debug mode", () => {
   beforeEach(() => {
     useSessionStore.setState({ settings: { ...DEFAULT_SETTINGS, debug: true } });

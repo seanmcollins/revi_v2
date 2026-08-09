@@ -17,7 +17,10 @@
 import { describe, expect, it } from "vitest";
 
 import {
+  impactWithheldReason,
   mapAnswerWarning,
+  mapChartSpec,
+  mapFinding,
   newReceivedState,
   parseErrorEnvelope,
   parseInvestigationResponse,
@@ -27,6 +30,8 @@ import {
   parseTurnFrame,
   parseTurnResponse,
   refinementsToWire,
+  selectRenderableCharts,
+  unitsFromChartSpecs,
   REQUIRED_ANSWER_FIELDS,
   REQUIRED_CLARIFICATION_FIELDS,
   REQUIRED_ERROR_ENVELOPE_FIELDS,
@@ -39,6 +44,7 @@ import {
   type TurnFrameKind,
   type WirePin,
 } from "@/lib/contract";
+import { formatMeasure } from "@/lib/format";
 import type { Refinement } from "@/lib/types";
 
 /* eslint-disable @typescript-eslint/no-explicit-any */
@@ -479,8 +485,17 @@ describe("TurnResponse contract (parseTurnResponse)", () => {
     expect(drift).toEqual([]);
     if (value?.outcome !== "answer") throw new Error("expected an answer");
     expect(value.turnClass).toBe("definitional");
-    expect(value.definition?.definition).not.toBe("");
     expect(value.definition?.packVersion.packId).toBe("base-rcm");
+    // "What is PR3?" answers with TWO code terms — a group code and a
+    // CARC — and the pair IS the answer. They used to be flattened into
+    // one prose blob, leaving the card's own group-code and CARC slots
+    // permanently empty; `TermPayload.kind` says which is which.
+    expect(value.definition?.groupCode).toMatchObject({ code: "PR" });
+    expect(value.definition?.groupCode?.meaning).toContain("owed by the patient");
+    expect(value.definition?.carc).toMatchObject({ code: 3, category: "Copay" });
+    expect(value.definition?.normalizedTo).toBe("PR — Patient Responsibility · 3 — Copay");
+    // A CARC number is not a "related concept"; it is half the answer.
+    expect(value.definition?.relatedConcepts).toEqual([]);
   });
 
   it("drops a broken finding with indexed drift and keeps the rest of the answer", () => {
@@ -823,6 +838,259 @@ describe("SessionLineage contract (parseSessionLineage)", () => {
   });
 });
 
+/* ------------------------------------------------------------------ */
+/* Chart units, shapes and duplicates — all pinned to LIVE payloads    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * Captured from `GET /v1/investigations/inv_3b08e3a4a1fe` on a running
+ * API: a denial-rate ranking, `unit: "ratio"`, twelve payers, and rows
+ * whose values are 0–1 fractions. The finding card for the same rows
+ * reads "12.1%"; the chart used to read "0.1%".
+ */
+const LIVE_RATIO_CHART = {
+  id: "chart_main",
+  chart_type: "line",
+  title: "denial rate — main",
+  frame_id: "main",
+  x: "payer",
+  series: null,
+  value: "denial_rate",
+  unit: "ratio",
+  grade: "direct",
+  rows: [
+    { x: "Pinnacle Health Plan", series: null, value: 0.079945, referent_id: "F3" },
+    { x: "Silverline Medicare Advantage", series: null, value: 0.121361, referent_id: "F1" },
+    { x: "Lakewood Medicaid MCO", series: null, value: 0.104623, referent_id: "F2" },
+  ],
+  annotations: [],
+  recipe_id: "denial_rate_trend",
+};
+
+describe("chart units (F7 — a ratio frame is not a percent frame)", () => {
+  it("scales a live 0.079945 ratio row so it formats as 8.0%", () => {
+    const spec = mapChartSpec(LIVE_RATIO_CHART);
+    expect(spec?.unit).toBe("percent");
+    const row = spec?.rows.find((r) => r.label === "Pinnacle Health Plan");
+    expect(row?.values.denial_rate).toBeCloseTo(7.9945, 6);
+    // What the renderer prints, through the shared measure formatter.
+    expect(formatMeasure(row!.values.denial_rate, spec!.unit)).toBe("8.0%");
+  });
+
+  it("leaves a `percent` frame alone — it is already in percentage points", () => {
+    const spec = mapChartSpec({
+      ...LIVE_RATIO_CHART,
+      unit: "percent",
+      rows: [{ x: "A", series: null, value: 7.9945 }],
+    });
+    expect(spec?.rows[0]?.values.denial_rate).toBeCloseTo(7.9945, 6);
+  });
+
+  it("renders a `days` frame as days, not as a bare count", () => {
+    const spec = mapChartSpec({
+      ...LIVE_RATIO_CHART,
+      value: "avg_days_to_pay",
+      unit: "days",
+      rows: [{ x: "Atlas Commercial", series: null, value: 5.34 }],
+    });
+    expect(spec?.unit).toBe("days");
+    expect(formatMeasure(5.34, "days")).toBe("5.3 d");
+  });
+
+  it("reads measure units — and their scale — off the turn's own chart specs", () => {
+    // The unit alone is the half-fact that produced "0.1%": a `ratio`
+    // metric renders as a percent AND arrives as a 0–1 fraction, and a
+    // consumer needs both or it will format one against the other.
+    expect(unitsFromChartSpecs([LIVE_RATIO_CHART])).toEqual({
+      denial_rate: { unit: "percent", scale: 100 },
+    });
+  });
+});
+
+describe("chart shape and duplicates (F20)", () => {
+  it("draws a categorical axis as bars even when the wire says line", () => {
+    // Twelve unordered payers joined by a line assert a trend that does
+    // not exist. The wire type is a hint; the axis is the fact.
+    expect(mapChartSpec(LIVE_RATIO_CHART)?.kind).toBe("bar");
+    expect(mapChartSpec(LIVE_RATIO_CHART)?.wireChartType).toBe("line");
+  });
+
+  it("keeps a line for a genuinely temporal axis", () => {
+    const spec = mapChartSpec({
+      ...LIVE_RATIO_CHART,
+      x: "month",
+      rows: [
+        { x: "2026-05", series: null, value: 0.1 },
+        { x: "2026-06", series: null, value: 0.11 },
+        { x: "2026-07", series: null, value: 0.12 },
+      ],
+    });
+    expect(spec?.kind).toBe("line");
+  });
+
+  it("composes a human title from the frame's columns", () => {
+    const spec = mapChartSpec({
+      ...LIVE_RATIO_CHART,
+      value: "cash_posted",
+      title: "cash posted — cash by payer  compare",
+      frame_id: "cash_by_payer__compare",
+    });
+    expect(spec?.title).toBe("Cash posted by payer");
+    expect(spec?.wireTitle).toBe("cash posted — cash by payer  compare");
+  });
+
+  it("suppresses the duplicate __compare frame a comparison turn publishes", () => {
+    // Live fact: `GET /v1/investigations/inv_5f5f6771bb97` publishes
+    // chart_main and chart_main__compare whose rows are byte-identical.
+    const base = mapChartSpec(LIVE_RATIO_CHART)!;
+    const twin = mapChartSpec({
+      ...LIVE_RATIO_CHART,
+      id: "chart_main__compare",
+      frame_id: "main__compare",
+      title: "denial rate — main  compare",
+    })!;
+    const rendered = selectRenderableCharts([twin, base]);
+    expect(rendered).toHaveLength(1);
+    expect(rendered[0]?.id).toBe("chart_main");
+  });
+
+  it("folds a genuinely different comparison frame in as a second series", () => {
+    const base = mapChartSpec(LIVE_RATIO_CHART)!;
+    const prior = mapChartSpec({
+      ...LIVE_RATIO_CHART,
+      id: "chart_main__prior",
+      frame_id: "main__prior",
+      rows: LIVE_RATIO_CHART.rows.map((r) => ({ ...r, value: r.value / 2 })),
+    })!;
+    const rendered = selectRenderableCharts([base, prior]);
+    expect(rendered).toHaveLength(1);
+    expect(rendered[0]?.series.map((s) => s.role)).toEqual(["current", "baseline"]);
+    expect(rendered[0]?.rows[0]?.values.prior).toBeCloseTo(7.9945 / 2, 6);
+  });
+
+  it("drops a single-row frame — one point is a number, not a trend", () => {
+    const scalar = mapChartSpec({
+      ...LIVE_RATIO_CHART,
+      id: "chart_scalar",
+      frame_id: "scalar",
+      x: "denial_rate",
+      rows: [{ x: "denial_rate", series: null, value: 0.0812 }],
+    })!;
+    expect(selectRenderableCharts([scalar])).toEqual([]);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Finding anatomy — pinned to a live comparison turn (F16)            */
+/* ------------------------------------------------------------------ */
+
+/** Captured from `GET /v1/investigations/inv_5f5f6771bb97`. */
+const LIVE_COMPARISON_FINDING = {
+  referent: "F2",
+  title: "Atlas Commercial denied dollars down $37,614.69 vs prior quarter",
+  statement: "Atlas Commercial: denied dollars moved from $469,649.23 to $432,034.54.",
+  metric_ids: ["denied_dollars"],
+  values: [
+    { name: "current_cents", value: 43_203_454 },
+    { name: "prior_cents", value: 46_964_923 },
+    { name: "delta_cents", value: -3_761_469 },
+    { name: "pct_change", value: -0.080091 },
+  ],
+  grade: "direct",
+  impact_cents: null,
+  confidence: "qualified",
+  suggested_refinements: ["drill into F2"],
+  benchmarks: [],
+};
+
+/** Captured from `GET /v1/investigations/inv_3b08e3a4a1fe`. */
+const LIVE_RANKING_FINDING = {
+  referent: "F1",
+  title: "Silverline Medicare Advantage: 12.1% denial rate",
+  statement: "Silverline Medicare Advantage ranks #1 by denial rate: 12.1%.",
+  metric_ids: ["denial_rate"],
+  values: [
+    { name: "denial_rate", value: 0.121361 },
+    { name: "rank", value: 1 },
+  ],
+  grade: "direct",
+  impact_cents: null,
+  confidence: "high",
+  suggested_refinements: ["drill into F1"],
+  benchmarks: [],
+};
+
+const LIVE_MISMATCH_WARNING =
+  "COMPARISON_WINDOW_MISMATCH: the comparison window (2026-01-01..2026-03-31, 90d) is not " +
+  "the same length as the analysis window (91d). Differences and percentage changes between " +
+  "them are dominated by the length difference and are not normalized; no impact figure is " +
+  "published for this turn and its findings are qualified.";
+
+describe("finding anatomy (F16 — mappers fitted to the live wire)", () => {
+  it("maps current/prior cents into the comparison the card draws", () => {
+    const finding = mapFinding(LIVE_COMPARISON_FINDING);
+    expect(finding?.comparison).toEqual({
+      currentCents: 43_203_454,
+      priorCents: 46_964_923,
+      currentLabel: "current",
+      priorLabel: "prior",
+    });
+    expect(finding?.impactKind).toBe("delta");
+  });
+
+  it("maps pct_change onto deltaPct", () => {
+    expect(mapFinding(LIVE_COMPARISON_FINDING)?.deltaPct).toBeCloseTo(-0.080091, 6);
+  });
+
+  it("renders a ranking finding's own measure in the unit its chart declares", () => {
+    const finding = mapFinding(LIVE_RANKING_FINDING, {
+      unitByMetric: unitsFromChartSpecs([LIVE_RATIO_CHART]),
+    });
+    expect(finding?.impactDisplay).toBe("12.1%");
+    expect(finding?.impactLabel).toBe("denial rate");
+  });
+
+  it("withholds the stat rather than inventing one when the unit is unknown", () => {
+    const finding = mapFinding(LIVE_RANKING_FINDING);
+    expect(finding?.impactDisplay).toBeUndefined();
+  });
+
+  it("names the reason the server published no impact figure", () => {
+    expect(impactWithheldReason([LIVE_MISMATCH_WARNING])).toBe(
+      "not published — 90d vs 91d comparison window",
+    );
+    const finding = mapFinding(LIVE_COMPARISON_FINDING, {
+      impactWithheldReason: impactWithheldReason([LIVE_MISMATCH_WARNING]),
+    });
+    expect(finding?.impactWithheldReason).toBe("not published — 90d vs 91d comparison window");
+  });
+
+  it("says nothing about a withheld impact when nothing withheld it", () => {
+    expect(impactWithheldReason(["suppression: cells counting fewer than 11 entities"])).toBeUndefined();
+  });
+
+  it("wires both facts through parseTurnResponse end to end", () => {
+    const { value } = parseTurnResponse(
+      {
+        outcome: "answer",
+        session_id: "s",
+        investigation_id: "i",
+        turn_class: "new_investigation",
+        findings: [LIVE_COMPARISON_FINDING, LIVE_RANKING_FINDING],
+        chart_specs: [LIVE_RATIO_CHART],
+        warnings: [LIVE_MISMATCH_WARNING],
+      },
+      PIN,
+    );
+    if (value?.outcome !== "answer") throw new Error("expected an answer");
+    expect(value.findings[0]?.impactWithheldReason).toBe(
+      "not published — 90d vs 91d comparison window",
+    );
+    expect(value.findings[0]?.deltaPct).toBeCloseTo(-0.080091, 6);
+    expect(value.findings[1]?.impactDisplay).toBe("12.1%");
+  });
+});
+
 describe("Portfolio contract (parsePortfolioSnapshot)", () => {
   const SNAPSHOT = {
     items: [
@@ -857,9 +1125,44 @@ describe("Portfolio contract (parsePortfolioSnapshot)", () => {
     expect(drift).toContain("items[0].impactCents");
   });
 
-  it("synthesizes a DrillInto when the drill action is omitted", () => {
+  it("never synthesizes a drill handle the server did not publish", () => {
+    // The old behaviour invented `DrillInto(P1)` for any card without a
+    // handle — including the four live cards the server marks
+    // `drillable: false` with a written GRAIN_INCOMPATIBLE refusal. A
+    // client-side gesture over a server-side refusal is the UI claiming a
+    // capability the platform has just declined.
     const { value } = parsePortfolioSnapshot(withoutPath(SNAPSHOT, "items.0.drill"));
-    expect(value?.items[0]?.drill.refinement).toEqual({ op: "DrillInto", target: "P1" });
+    expect(value?.items[0]?.drill).toBeUndefined();
+    expect(value?.items[0]?.drillable).toBe(false);
+  });
+
+  it("carries the server's refusal for an undrillable card", () => {
+    const { value } = parsePortfolioSnapshot({
+      items: [
+        {
+          anomaly_id: "ANM-013",
+          title: "Gross collection rate dip",
+          impact_cents: 49_326_600,
+          provenance: "external_detection",
+          drillable: false,
+          drill_unavailable_reason:
+            "GRAIN_INCOMPATIBLE: dimension 'proc_group' is not a legal scope dimension for ratio metric 'gross_collection_rate'",
+          recoverable_cents_estimate: 986_500,
+          actionability_label: "marginally recoverable",
+          severity: "high",
+          age_days: 44,
+        },
+      ],
+      warnings: ["4 of 33 detected anomalies (36% of ranked impact) are not investigable"],
+    });
+    const item = value?.items[0];
+    expect(item?.drillable).toBe(false);
+    expect(item?.drillUnavailableReason).toContain("GRAIN_INCOMPATIBLE");
+    expect(item?.recoverableCentsEstimate).toBe(986_500);
+    expect(item?.actionabilityLabel).toBe("marginally recoverable");
+    expect(item?.severity).toBe("high");
+    expect(item?.ageDays).toBe(44);
+    expect(value?.warnings).toHaveLength(1);
   });
 
   it("accepts the OpenAPI AnomalyCard spelling", () => {
