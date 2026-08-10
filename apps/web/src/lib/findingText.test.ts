@@ -13,9 +13,9 @@ import { statementBeyondTitle, titleCarriesValue } from "@/lib/findingText";
 
 describe("statementBeyondTitle — the duplicate clause is not printed twice", () => {
   it("drops a leading sentence that is the title plus a window", () => {
-    const title = "Pinnacle HMO: 47.2% denial rate";
+    const title = "Ashvale HMO: 47.2% denial rate";
     const statement =
-      "Pinnacle HMO: 47.2% denial rate over 2026-07-01..2026-07-31. No position is claimed " +
+      "Ashvale HMO: 47.2% denial rate over 2026-07-01..2026-07-31. No position is claimed " +
       "for it — too much of this population carries suppressed numerators for an order to " +
       "mean anything.";
     expect(statementBeyondTitle(title, statement)).toBe(
@@ -42,7 +42,7 @@ describe("statementBeyondTitle — the duplicate clause is not printed twice", (
   });
 
   it("returns nothing when the statement was only the title said again", () => {
-    expect(statementBeyondTitle("Pinnacle HMO: 47.2%", "Pinnacle HMO: 47.2%.")).toBe("");
+    expect(statementBeyondTitle("Ashvale HMO: 47.2%", "Ashvale HMO: 47.2%.")).toBe("");
   });
 
   it("sees through a label the engine put in front of the title", () => {

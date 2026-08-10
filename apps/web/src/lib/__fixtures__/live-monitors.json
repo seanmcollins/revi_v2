@@ -379,8 +379,8 @@
           },
           {
             "referent": "F2",
-            "title": "Pinnacle Health Plan: 22.9% denial rate",
-            "statement": "Pinnacle Health Plan ranks #2 of 8 measured by denial rate over 2026-07-01..2026-07-31: 22.9%.",
+            "title": "Ashvale Health Plan: 22.9% denial rate",
+            "statement": "Ashvale Health Plan ranks #2 of 8 measured by denial rate over 2026-07-01..2026-07-31: 22.9%.",
             "metric_ids": [
               "denial_rate"
             ],
@@ -979,8 +979,8 @@
           },
           {
             "referent": "F11",
-            "title": "Pinnacle Health Plan: 22.9% denial rate",
-            "statement": "Pinnacle Health Plan ranks #2 of 8 measured by denial rate over 2026-07-01..2026-07-31: 22.9%.",
+            "title": "Ashvale Health Plan: 22.9% denial rate",
+            "statement": "Ashvale Health Plan ranks #2 of 8 measured by denial rate over 2026-07-01..2026-07-31: 22.9%.",
             "metric_ids": [
               "denial_rate"
             ],
@@ -1367,8 +1367,8 @@
           },
           {
             "referent": "F17",
-            "title": "Pinnacle Health Plan: 22.9% denial rate",
-            "statement": "Pinnacle Health Plan ranks #2 of 8 measured by denial rate over 2026-07-01..2026-07-31: 22.9%.",
+            "title": "Ashvale Health Plan: 22.9% denial rate",
+            "statement": "Ashvale Health Plan ranks #2 of 8 measured by denial rate over 2026-07-01..2026-07-31: 22.9%.",
             "metric_ids": [
               "denial_rate"
             ],
@@ -2185,7 +2185,7 @@
       "priority_formula_version": "anomaly_priority@3",
       "source_watermark_id": "wm_003",
       "title": "Non-covered denial burst: Bluestone PPO Imaging",
-      "description": "Bluestone Mutual / Bluestone PPO Blue / Imaging: 10 denials totaling $17,677 in window 2026-08-02..2026-08-02.",
+      "description": "Bluestone Mutual / Bluestone Preferred PPO / Imaging: 10 denials totaling $17,677 in window 2026-08-02..2026-08-02.",
       "category": "denial_spike",
       "metric_id": "denial_rate",
       "severity": "medium",
@@ -2201,7 +2201,7 @@
         },
         {
           "dimension": "plan",
-          "value": "Bluestone PPO Blue"
+          "value": "Bluestone Preferred PPO"
         },
         {
           "dimension": "service_line",
@@ -2265,7 +2265,7 @@
             "dimension": "plan",
             "predicate_op": "eq",
             "values": [
-              "Bluestone PPO Blue"
+              "Bluestone Preferred PPO"
             ]
           },
           {

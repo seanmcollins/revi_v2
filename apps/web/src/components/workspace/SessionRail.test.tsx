@@ -104,7 +104,7 @@ describe("SessionRail — the session list is the server's, or nothing", () => {
     expect(await screen.findByText("Why did cash decline last week?")).toBeInTheDocument();
     expect(screen.getByText("COB investigation")).toBeInTheDocument();
     // The retired fixtures must not come back through any other door.
-    expect(screen.queryByText(/Denial spike — Meridian Imaging/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/Denial spike — Halvern Imaging/)).not.toBeInTheDocument();
   });
 
   it("marks the current session and switches to another one on click", async () => {

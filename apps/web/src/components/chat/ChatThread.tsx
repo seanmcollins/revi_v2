@@ -9,7 +9,7 @@ import { WatermarkBanner } from "@/components/banners/WatermarkBanner";
 import { ReconciliationBanner } from "@/components/banners/ReconciliationBanner";
 import type { TurnSubmission } from "@/lib/driver";
 import { describeRefinement } from "@/lib/format";
-import { GUIDE_QUESTIONS } from "@/lib/guideQuestions";
+import { HERO_QUESTIONS } from "@/lib/guideQuestions";
 import { useSessionStore } from "@/lib/store";
 import { scrollIntoViewRespectingMotion } from "@/lib/useReducedMotion";
 
@@ -156,7 +156,7 @@ function EmptyState() {
           </p>
         </div>
         <div className="grid w-full items-stretch gap-1.5 text-left @lg:grid-cols-2">
-          {GUIDE_QUESTIONS.map((question, i) => (
+          {HERO_QUESTIONS.map((question, i) => (
             <button
               key={question}
               type="button"

@@ -50,8 +50,8 @@ beforeAll(() => {
 function finding(value: string): Finding {
   return {
     referent: { value, kind: "finding" },
-    title: `Pinnacle HMO ${value}: 47.2% denial rate`,
-    statement: `Pinnacle HMO ${value}: 47.2% denial rate.`,
+    title: `Ashvale HMO ${value}: 47.2% denial rate`,
+    statement: `Ashvale HMO ${value}: 47.2% denial rate.`,
     metricRefs: ["denial_rate"],
     values: { denial_rate: 0.472 },
     grade: "direct",
@@ -142,7 +142,7 @@ describe("the Evidence rail is not gated on the evidence bundle", () => {
     useSessionStore.setState({ turns: [turnWithoutBundle("turn_1")], drawerTurnId: "turn_1" });
     renderPanel();
     expect(screen.getByRole("heading", { name: /Facts \(2\)/ })).toBeInTheDocument();
-    expect(screen.getByText("Pinnacle HMO F1: 47.2% denial rate")).toBeInTheDocument();
+    expect(screen.getByText("Ashvale HMO F1: 47.2% denial rate")).toBeInTheDocument();
   });
 
   it("says the bundle is missing rather than pretending it is empty", () => {

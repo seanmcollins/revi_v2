@@ -4,8 +4,8 @@
  * The engine publishes a `title` and a `statement`, and on a whole class
  * of answers the statement OPENS with the title verbatim:
  *
- *   title      "Pinnacle HMO: 47.2% denial rate"
- *   statement  "Pinnacle HMO: 47.2% denial rate over 2026-07-01..
+ *   title      "Ashvale HMO: 47.2% denial rate"
+ *   statement  "Ashvale HMO: 47.2% denial rate over 2026-07-01..
  *               2026-07-31. No position is claimed for it — too much of
  *               this population carries suppressed numerators for an
  *               order to mean anything."

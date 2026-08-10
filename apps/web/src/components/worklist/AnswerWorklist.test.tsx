@@ -79,7 +79,7 @@ const CARD_RANKED_ON_PLATFORM = {
 const CARD_REFUSED = {
   ...CARD_NOT_COMPARABLE,
   anomaly_id: "ANM-015",
-  title: "Gross collection rate dip: Meridian imaging",
+  title: "Gross collection rate dip: Halvern imaging",
   lane: "compliance",
   impact_cents: 6_355_160,
   ranked_on: "detector",

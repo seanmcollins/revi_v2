@@ -411,9 +411,9 @@ const LIVE_PAYERS = [
   "Bluestone Mutual",
   "Federal Medicare",
   "Lakewood Medicaid MCO",
-  "Meridian Health",
+  "Halvern Health",
   "Northbridge Commercial",
-  "Pinnacle Health Plan",
+  "Ashvale Health Plan",
   "Silverline Medicare Advantage",
   "State Medicaid",
   "State Medicaid MCO",
@@ -448,8 +448,8 @@ describe("axis labels name one entity each", () => {
   });
 
   it("leaves a label that fits exactly as the wire spelled it", () => {
-    const ticks = axisTickLabels(["Meridian Health", "Atlas Commercial"], 20);
-    expect(ticks.get("Meridian Health")).toBe("Meridian Health");
+    const ticks = axisTickLabels(["Halvern Health", "Atlas Commercial"], 20);
+    expect(ticks.get("Halvern Health")).toBe("Halvern Health");
   });
 
   it("spells a machine enum the way the rest of the product does", () => {
@@ -502,7 +502,7 @@ describe("axis labels name one entity each", () => {
   /**
    * BUG 2 — the middle cut is for the case it was built for, and nothing
    * else. The thirty-plan filing chart came out as "Bluestone…ral PPO",
-   * "Meridian …e PPO": labels legible on neither end, on an axis whose
+   * "Halvern …e PPO": labels legible on neither end, on an axis whose
    * names mostly differ in their first fifteen characters.
    */
   it("cuts from the end on names a plain cut can tell apart", () => {
@@ -512,9 +512,9 @@ describe("axis labels name one entity each", () => {
       "Atlas POS Flex",
       "Atlas PPO Select",
       "Bluestone Federal PPO",
-      "Bluestone HMO Blue",
-      "Meridian Exchange PPO",
-      "Meridian HMO Care",
+      "Bluestone Select HMO",
+      "Halvern Exchange PPO",
+      "Halvern HMO Care",
     ];
     const ticks = axisTickLabels(plans, 18);
     expect(new Set(plans.map((p) => ticks.get(p))).size).toBe(plans.length);
@@ -744,7 +744,7 @@ const COMPARISON: ChartSpec = {
   ],
   rows: [
     {
-      label: "Meridian PPO Prime",
+      label: "Halvern PPO Prime",
       values: { current: 76.9231, prior: 41.6667 },
       bounded: true,
       cells: {
@@ -753,7 +753,7 @@ const COMPARISON: ChartSpec = {
       },
     },
     {
-      label: "Meridian HMO Care",
+      label: "Halvern HMO Care",
       values: { prior: 35.7143 },
       bounded: true,
       cells: { prior: { bounded: true, denominator: 28 }, current: { absent: true } },

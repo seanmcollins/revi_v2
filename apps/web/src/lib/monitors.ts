@@ -277,7 +277,7 @@ export interface MonitorsPin {
   windowNote: string;
   /**
    * The stored spec in the reader's own nouns — "Denial rate, broken down
-   * by payer, filtered to Pinnacle Health Plan — last full month (service
+   * by payer, filtered to Ashvale Health Plan — last full month (service
    * basis)". The panel headed "What this monitor measures" is the one
    * control that lets somebody catch a monitor measuring the wrong cell, and
    * it was rendering the window note alone while this rode on the wire.
@@ -363,7 +363,7 @@ export interface MonitorsTile {
   headlineStatement: string;
   /**
    * WHICH CELL this tile's number is about, as one human phrase
-   * ("Pinnacle Health Plan"). Empty for a monitor with no dimension at all.
+   * ("Ashvale Health Plan"). Empty for a monitor with no dimension at all.
    *
    * The field that makes "the tile measures the cell that was pinned"
    * checkable by a reader rather than eyeballed against the label. The
@@ -579,7 +579,7 @@ export function parseMonitors(raw: unknown): MonitorsParse {
  *
  * `rank_flip` is NOT a movement and never carries a delta: it is the fact
  * that the cell a ranked monitor headlines is a different cell from the one
- * it headlined last load ("State Medicaid MCO overtook Pinnacle as your
+ * it headlined last load ("State Medicaid MCO overtook Ashvale as your
  * worst payer"). It is listed here because a client that did not know the
  * kind would have DROPPED the entry — see `mapBriefEntry`, which no longer
  * drops one for that reason.

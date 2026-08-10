@@ -707,7 +707,7 @@ describe("a comparison is one chart with two windows in it", () => {
   });
 
   it("flags a ceiling on the side it was published on, not on the category", () => {
-    // Live (`inv_0899f9defc32`): Meridian HMO Care's JUNE numerator was
+    // Live (`inv_0899f9defc32`): Halvern HMO Care's JUNE numerator was
     // suppressed and its July one was not. Held on the row alone, that
     // ceiling desaturated both bars and printed one `n` under both.
     const spec = mapChartSpec({
@@ -715,10 +715,10 @@ describe("a comparison is one chart with two windows in it", () => {
       unit: "ratio",
       value: "denial_rate",
       rows: [
-        { x: "Meridian PPO Prime", series: "current", value: 0.769231, is_bound: true, bound_population: 13 },
-        { x: "Meridian PPO Prime", series: "prior", value: 0.416667, is_bound: true, bound_population: 24 },
-        { x: "Meridian HMO Care", series: "current", value: 0.2 },
-        { x: "Meridian HMO Care", series: "prior", value: 0.357143, is_bound: true, bound_population: 28 },
+        { x: "Halvern PPO Prime", series: "current", value: 0.769231, is_bound: true, bound_population: 13 },
+        { x: "Halvern PPO Prime", series: "prior", value: 0.416667, is_bound: true, bound_population: 24 },
+        { x: "Halvern HMO Care", series: "current", value: 0.2 },
+        { x: "Halvern HMO Care", series: "prior", value: 0.357143, is_bound: true, bound_population: 28 },
       ],
     });
     expect(spec?.rows[1]?.cells).toEqual({

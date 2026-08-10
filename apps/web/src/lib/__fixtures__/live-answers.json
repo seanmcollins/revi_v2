@@ -59,8 +59,8 @@
    },
    {
     "referent": "F2",
-    "title": "Meridian Health: $28,614.94 denied dollars",
-    "statement": "Meridian Health ranks #2 of 12 measured by denied dollars over 2026-07-01..2026-07-31: $28,614.94.",
+    "title": "Halvern Health: $28,614.94 denied dollars",
+    "statement": "Halvern Health ranks #2 of 12 measured by denied dollars over 2026-07-01..2026-07-31: $28,614.94.",
     "metric_ids": [
      "denied_dollars"
     ],
@@ -450,7 +450,7 @@
       "provisional": false
      },
      {
-      "x": "Meridian Health",
+      "x": "Halvern Health",
       "series": null,
       "value": 2861494,
       "referent_id": "F2",
@@ -486,7 +486,7 @@
       "provisional": false
      },
      {
-      "x": "Pinnacle Health Plan",
+      "x": "Ashvale Health Plan",
       "series": null,
       "value": 1772375,
       "referent_id": "D6",
@@ -605,7 +605,7 @@
       "provisional": false
      },
      {
-      "x": "Pinnacle Health Plan",
+      "x": "Ashvale Health Plan",
       "series": null,
       "value": 0,
       "referent_id": "D6",
@@ -632,7 +632,7 @@
       "provisional": false
      },
      {
-      "x": "Meridian Health",
+      "x": "Halvern Health",
       "series": null,
       "value": 0,
       "referent_id": "F2",
@@ -742,7 +742,7 @@
       "provisional": false
      },
      {
-      "x": "Bluestone HMO Blue",
+      "x": "Bluestone Select HMO",
       "series": null,
       "value": 40030659,
       "referent_id": null,
@@ -751,7 +751,7 @@
       "provisional": false
      },
      {
-      "x": "Bluestone PPO Blue",
+      "x": "Bluestone Preferred PPO",
       "series": null,
       "value": 59528577,
       "referent_id": null,
@@ -796,7 +796,7 @@
       "provisional": false
      },
      {
-      "x": "Meridian Exchange PPO",
+      "x": "Halvern Exchange PPO",
       "series": null,
       "value": 22027230,
       "referent_id": null,
@@ -805,7 +805,7 @@
       "provisional": false
      },
      {
-      "x": "Meridian HMO Care",
+      "x": "Halvern HMO Care",
       "series": null,
       "value": 49267850,
       "referent_id": null,
@@ -814,7 +814,7 @@
       "provisional": false
      },
      {
-      "x": "Meridian POS Choice",
+      "x": "Halvern POS Choice",
       "series": null,
       "value": 42736424,
       "referent_id": null,
@@ -823,7 +823,7 @@
       "provisional": false
      },
      {
-      "x": "Meridian PPO Prime",
+      "x": "Halvern PPO Prime",
       "series": null,
       "value": 80765447,
       "referent_id": null,
@@ -859,7 +859,7 @@
       "provisional": false
      },
      {
-      "x": "Pinnacle HMO",
+      "x": "Ashvale HMO",
       "series": null,
       "value": 30437426,
       "referent_id": null,
@@ -868,7 +868,7 @@
       "provisional": false
      },
      {
-      "x": "Pinnacle POS",
+      "x": "Ashvale POS",
       "series": null,
       "value": 18381213,
       "referent_id": null,
@@ -877,7 +877,7 @@
       "provisional": false
      },
      {
-      "x": "Pinnacle PPO",
+      "x": "Ashvale PPO",
       "series": null,
       "value": 47314056,
       "referent_id": null,
@@ -1023,7 +1023,7 @@
       "provisional": false
      },
      {
-      "x": "Meridian Health",
+      "x": "Halvern Health",
       "series": null,
       "value": 0.450265,
       "referent_id": "F2",
@@ -1041,7 +1041,7 @@
       "provisional": false
      },
      {
-      "x": "Pinnacle Health Plan",
+      "x": "Ashvale Health Plan",
       "series": null,
       "value": 0.376621,
       "referent_id": "D6",
@@ -1138,8 +1138,8 @@
   "findings": [
    {
     "referent": "F1",
-    "title": "Pinnacle HMO: 47.2% denial rate",
-    "statement": "Pinnacle HMO: 47.2% denial rate over 2026-07-01..2026-07-31. No position is claimed for it — too much of this population carries suppressed numerators for an order to mean anything.",
+    "title": "Ashvale HMO: 47.2% denial rate",
+    "statement": "Ashvale HMO: 47.2% denial rate over 2026-07-01..2026-07-31. No position is claimed for it — too much of this population carries suppressed numerators for an order to mean anything.",
     "metric_ids": [
      "denial_rate"
     ],
@@ -1437,7 +1437,7 @@
    "alternate_basis_used: probe 'main' computes 'denial_rate' on the 'service' basis — its primary 'remit' basis is not available at the 'claim' grain in this warehouse",
    "population_caveat: denial_rate — claims still awaiting their first remittance (status OPEN) are excluded from both sides — an unadjudicated claim carries a false clean flag for want of evidence, not because a payer denied it, so including it would report the data edge as a denial.",
    "suppression: cells counting fewer than 11 entities in their POPULATION are withheld entirely before results leave the engine; a cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped",
-   "suppression_bounded: 24 cells had fewer than 11 entities in the numerator over a population large enough to publish. Rather than withhold them — which removes the best-performing cells from a ranking and says nothing — each is shown as an UPPER BOUND of at most 10 over its own population: Atlas HMO Complete (denial rate ≤ 10.9% over 92 entities); Atlas National PPO (denial rate ≤ 19.2% over 52 entities); Atlas POS Flex (denial rate ≤ 12.8% over 78 entities); Atlas PPO Select (denial rate ≤ 7.5% over 133 entities); Bluestone Federal PPO (denial rate ≤ 50.0% over 20 entities); Bluestone HMO Blue (denial rate ≤ 24.4% over 41 entities); Federal Medicare Part A (denial rate ≤ 12.8% over 78 entities); Federal Medicare Part B (denial rate ≤ 7.4% over 136 entities); and 16 more, each shown as a bound in the chart. The true figure is at or below the bound and is NOT a measurement. Of 30 cell(s) on this answer, 24 carry an upper bound, 0 were withheld outright and 6 are measured."
+   "suppression_bounded: 24 cells had fewer than 11 entities in the numerator over a population large enough to publish. Rather than withhold them — which removes the best-performing cells from a ranking and says nothing — each is shown as an UPPER BOUND of at most 10 over its own population: Atlas HMO Complete (denial rate ≤ 10.9% over 92 entities); Atlas National PPO (denial rate ≤ 19.2% over 52 entities); Atlas POS Flex (denial rate ≤ 12.8% over 78 entities); Atlas PPO Select (denial rate ≤ 7.5% over 133 entities); Bluestone Federal PPO (denial rate ≤ 50.0% over 20 entities); Bluestone Select HMO (denial rate ≤ 24.4% over 41 entities); Federal Medicare Part A (denial rate ≤ 12.8% over 78 entities); Federal Medicare Part B (denial rate ≤ 7.4% over 136 entities); and 16 more, each shown as a bound in the chart. The true figure is at or below the bound and is NOT a measurement. Of 30 cell(s) on this answer, 24 carry an upper bound, 0 were withheld outright and 6 are measured."
   ],
   "warnings_v2": [
    {
@@ -1473,7 +1473,7 @@
    {
     "code": "SUPPRESSION_BOUNDED",
     "severity": "caution",
-    "message": "suppression_bounded: 24 cells had fewer than 11 entities in the numerator over a population large enough to publish. Rather than withhold them — which removes the best-performing cells from a ranking and says nothing — each is shown as an UPPER BOUND of at most 10 over its own population: Atlas HMO Complete (denial rate ≤ 10.9% over 92 entities); Atlas National PPO (denial rate ≤ 19.2% over 52 entities); Atlas POS Flex (denial rate ≤ 12.8% over 78 entities); Atlas PPO Select (denial rate ≤ 7.5% over 133 entities); Bluestone Federal PPO (denial rate ≤ 50.0% over 20 entities); Bluestone HMO Blue (denial rate ≤ 24.4% over 41 entities); Federal Medicare Part A (denial rate ≤ 12.8% over 78 entities); Federal Medicare Part B (denial rate ≤ 7.4% over 136 entities); and 16 more, each shown as a bound in the chart. The true figure is at or below the bound and is NOT a measurement. Of 30 cell(s) on this answer, 24 carry an upper bound, 0 were withheld outright and 6 are measured.",
+    "message": "suppression_bounded: 24 cells had fewer than 11 entities in the numerator over a population large enough to publish. Rather than withhold them — which removes the best-performing cells from a ranking and says nothing — each is shown as an UPPER BOUND of at most 10 over its own population: Atlas HMO Complete (denial rate ≤ 10.9% over 92 entities); Atlas National PPO (denial rate ≤ 19.2% over 52 entities); Atlas POS Flex (denial rate ≤ 12.8% over 78 entities); Atlas PPO Select (denial rate ≤ 7.5% over 133 entities); Bluestone Federal PPO (denial rate ≤ 50.0% over 20 entities); Bluestone Select HMO (denial rate ≤ 24.4% over 41 entities); Federal Medicare Part A (denial rate ≤ 12.8% over 78 entities); Federal Medicare Part B (denial rate ≤ 7.4% over 136 entities); and 16 more, each shown as a bound in the chart. The true figure is at or below the bound and is NOT a measurement. Of 30 cell(s) on this answer, 24 carry an upper bound, 0 were withheld outright and 6 are measured.",
     "count": 1
    }
   ],
@@ -1584,7 +1584,7 @@
       "provisional": false
      },
      {
-      "x": "Bluestone HMO Blue",
+      "x": "Bluestone Select HMO",
       "series": null,
       "value": 0.243902,
       "referent_id": "D6",
@@ -1593,7 +1593,7 @@
       "provisional": false
      },
      {
-      "x": "Bluestone PPO Blue",
+      "x": "Bluestone Preferred PPO",
       "series": null,
       "value": 0.205882,
       "referent_id": "D7",
@@ -1638,7 +1638,7 @@
       "provisional": false
      },
      {
-      "x": "Meridian Exchange PPO",
+      "x": "Halvern Exchange PPO",
       "series": null,
       "value": 0.47619,
       "referent_id": "D12",
@@ -1647,7 +1647,7 @@
       "provisional": false
      },
      {
-      "x": "Meridian HMO Care",
+      "x": "Halvern HMO Care",
       "series": null,
       "value": 0.157895,
       "referent_id": "D13",
@@ -1656,7 +1656,7 @@
       "provisional": false
      },
      {
-      "x": "Meridian POS Choice",
+      "x": "Halvern POS Choice",
       "series": null,
       "value": 0.238095,
       "referent_id": "D14",
@@ -1665,7 +1665,7 @@
       "provisional": false
      },
      {
-      "x": "Meridian PPO Prime",
+      "x": "Halvern PPO Prime",
       "series": null,
       "value": 0.119048,
       "referent_id": "D15",
@@ -1701,7 +1701,7 @@
       "provisional": false
      },
      {
-      "x": "Pinnacle HMO",
+      "x": "Ashvale HMO",
       "series": null,
       "value": 0.472222,
       "referent_id": "F1",
@@ -1710,7 +1710,7 @@
       "provisional": false
      },
      {
-      "x": "Pinnacle POS",
+      "x": "Ashvale POS",
       "series": null,
       "value": 0.0,
       "referent_id": "D20",
@@ -1719,7 +1719,7 @@
       "provisional": false
      },
      {
-      "x": "Pinnacle PPO",
+      "x": "Ashvale PPO",
       "series": null,
       "value": 0.243902,
       "referent_id": "D21",
@@ -2574,7 +2574,7 @@
       "provisional": false
      },
      {
-      "x": "Meridian Health",
+      "x": "Halvern Health",
       "series": "current",
       "value": 10488172,
       "referent_id": "D5",
@@ -2583,7 +2583,7 @@
       "provisional": false
      },
      {
-      "x": "Meridian Health",
+      "x": "Halvern Health",
       "series": "prior",
       "value": 12367538,
       "referent_id": "D5",
@@ -2610,7 +2610,7 @@
       "provisional": false
      },
      {
-      "x": "Pinnacle Health Plan",
+      "x": "Ashvale Health Plan",
       "series": "current",
       "value": 7121841,
       "referent_id": "D7",
@@ -2619,7 +2619,7 @@
       "provisional": false
      },
      {
-      "x": "Pinnacle Health Plan",
+      "x": "Ashvale Health Plan",
       "series": "prior",
       "value": 3946623,
       "referent_id": "D7",

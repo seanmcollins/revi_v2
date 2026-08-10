@@ -10,7 +10,7 @@
  *
  * The definition and grain below are the live values from a typed
  * three-`drill_into` turn against the running API:
- * `payer in [State Medicaid, Atlas Commercial, Meridian Health]`,
+ * `payer in [State Medicaid, Atlas Commercial, Halvern Health]`,
  * 86,415 claims, pinned at wm_003 from D9.
  */
 
@@ -33,7 +33,7 @@ const BASE: ContextHeaderData = {
 
 const LIVE_COHORT: CohortSummary = {
   id: "cohort_f35d90b18482b2ea",
-  definition: "payer in [State Medicaid, Atlas Commercial, Meridian Health]",
+  definition: "payer in [State Medicaid, Atlas Commercial, Halvern Health]",
   entityGrain: "claim",
   size: 86_415,
   pinned: true,
@@ -51,7 +51,7 @@ describe("ContextHeader — the cohort chip", () => {
   it("labels the chip with the definition, not the hash", () => {
     renderHeader(LIVE_COHORT);
     expect(
-      screen.getByText("payer in [State Medicaid, Atlas Commercial, Meridian Health]"),
+      screen.getByText("payer in [State Medicaid, Atlas Commercial, Halvern Health]"),
     ).toBeInTheDocument();
     expect(screen.queryByText("cohort_f35d90b18482b2ea")).not.toBeInTheDocument();
   });

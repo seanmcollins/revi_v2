@@ -113,7 +113,7 @@ const T3_HEADER: ContextHeaderData = {
   cohort: {
     id: "c1",
     definition:
-      "Top-3 payers by WoW cash decline: State Medicaid, Atlas Commercial, Meridian Health",
+      "Top-3 payers by WoW cash decline: State Medicaid, Atlas Commercial, Halvern Health",
     pinned: true,
     originTurn: "T3",
     size: 3,
@@ -244,7 +244,7 @@ const F3: Finding = {
 export const PAYER_ROWS = [
   { referent: "F6", payer: "State Medicaid", prior: 18_722_151, current: 8_812_843 },
   { referent: "F7", payer: "Atlas Commercial", prior: 31_224_527, current: 26_330_486 },
-  { referent: "F8", payer: "Meridian Health", prior: 18_419_647, current: 14_613_237 },
+  { referent: "F8", payer: "Halvern Health", prior: 18_419_647, current: 14_613_237 },
   { referent: "F9", payer: "Summit Peak Medicare Advantage", prior: 8_294_939, current: 6_492_297 },
   { referent: "F10", payer: "Silverline Medicare Advantage", prior: 12_541_163, current: 11_173_021 },
   { referent: "F11", payer: "State Medicaid MCO", prior: 6_532_275, current: 5_313_058 },
@@ -253,14 +253,14 @@ export const PAYER_ROWS = [
   { referent: "F14", payer: "Lakewood Medicaid MCO", prior: 5_039_732, current: 5_409_818 },
   { referent: "F15", payer: "Bluestone Mutual", prior: 9_773_174, current: 10_734_821 },
   { referent: "F16", payer: "Federal Medicare", prior: 15_947_514, current: 17_932_498 },
-  { referent: "F17", payer: "Pinnacle Health Plan", prior: 5_800_085, current: 7_817_778 },
+  { referent: "F17", payer: "Ashvale Health Plan", prior: 5_800_085, current: 7_817_778 },
 ] as const;
 
 const F4: Finding = {
   referent: { value: "F4", kind: "finding" },
   title: "Three payers drive 96% of the decline",
   statement:
-    "State Medicaid (−$99,093.08), Atlas Commercial (−$48,940.41) and Meridian Health (−$38,064.10) sum to −$186,097.59 — 96.2% of the net decline.",
+    "State Medicaid (−$99,093.08), Atlas Commercial (−$48,940.41) and Halvern Health (−$38,064.10) sum to −$186,097.59 — 96.2% of the net decline.",
   metricRefs: ["cash_posted"],
   values: {
     top3_delta_cents: -18_609_759,
@@ -282,9 +282,9 @@ const F4: Finding = {
 
 const F5: Finding = {
   referent: { value: "F5", kind: "finding" },
-  title: "Partial offsets: Pinnacle +34.8%, Federal Medicare +12.4%",
+  title: "Partial offsets: Ashvale +34.8%, Federal Medicare +12.4%",
   statement:
-    "Two payers moved the other way: Pinnacle Health Plan +$20,176.93 (+34.8%) and Federal Medicare +$19,849.84 (+12.4%), masking deeper drops in the total.",
+    "Two payers moved the other way: Ashvale Health Plan +$20,176.93 (+34.8%) and Federal Medicare +$19,849.84 (+12.4%), masking deeper drops in the total.",
   metricRefs: ["cash_posted"],
   values: {
     pinnacle_delta_cents: 2_017_693,
@@ -298,7 +298,7 @@ const F5: Finding = {
   directionOfGood: "up_is_good",
   confidence: "high",
   suggestedRefinements: [
-    { label: "Drill into Pinnacle", refinement: { op: "DrillInto", target: "F17" } },
+    { label: "Drill into Ashvale", refinement: { op: "DrillInto", target: "F17" } },
   ],
 };
 
@@ -679,7 +679,7 @@ const T2_EVENTS: TurnEvent[] = [
   {
     type: "narrative_delta",
     text:
-      "The twelve payer rows reconcile exactly to the parent decline of $193,525.79. [F4] Three payers — State Medicaid, Atlas Commercial and Meridian Health — account for $186,097.59 of it, 96% of the net decline. [F5] Two payers moved the other way: Pinnacle Health Plan +$20,176.93 (+34.8%) and Federal Medicare +$19,849.84 (+12.4%), partially masking the drop in the total.",
+      "The twelve payer rows reconcile exactly to the parent decline of $193,525.79. [F4] Three payers — State Medicaid, Atlas Commercial and Halvern Health — account for $186,097.59 of it, 96% of the net decline. [F5] Two payers moved the other way: Ashvale Health Plan +$20,176.93 (+34.8%) and Federal Medicare +$19,849.84 (+12.4%), partially masking the drop in the total.",
   },
   {
     type: "turn_complete",

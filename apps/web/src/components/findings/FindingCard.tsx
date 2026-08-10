@@ -173,7 +173,7 @@ export function FindingCard({ finding, turnId }: { finding: Finding; turnId: str
       </div>
 
       {/* THE CARD DOES NOT PRINT ITS OWN TITLE TWICE.
-          Live, the statement OPENS with the title verbatim ("Pinnacle
+          Live, the statement OPENS with the title verbatim ("Ashvale
           HMO: 47.2% denial rate over 2026-07-01..2026-07-31. No position
           is claimed for it — …"), so the heading, the display figure and
           this paragraph were three copies of one clause, and the sentence

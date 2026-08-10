@@ -285,7 +285,7 @@ const PLAIN_CUT_BUDGET = 6;
  * AND THE CUT IS A PLAIN ONE WHEREVER A PLAIN ONE WILL DO.
  *
  * The middle cut was applied unconditionally, so the thirty-plan filing
- * chart came out as "Bluestone…ral PPO", "Meridian …e PPO", "Federal
+ * chart came out as "Bluestone…ral PPO", "Halvern …e PPO", "Federal
  * M…Part A": labels that are legible on neither end, on an axis whose
  * names are perfectly ordinary and mostly differ in their first fifteen
  * characters. A middle cut is for the case it was built for — "Dr. Arden

@@ -161,8 +161,8 @@ const WARNINGS: WarningEvent[] = [
 function finding(value: string, over: Partial<Finding> = {}): Finding {
   return {
     referent: { value, kind: "finding" },
-    title: `Pinnacle HMO ${value}: 47.2% denial rate`,
-    statement: `Pinnacle HMO ${value}: 47.2% denial rate over 2026-07-01..2026-07-31. No position is claimed for it.`,
+    title: `Ashvale HMO ${value}: 47.2% denial rate`,
+    statement: `Ashvale HMO ${value}: 47.2% denial rate over 2026-07-01..2026-07-31. No position is claimed for it.`,
     metricRefs: ["denial_rate"],
     values: { denial_rate: 0.472 },
     grade: "direct",
@@ -184,7 +184,7 @@ function chart(id: string, frameId: string): ChartSpec {
     series: [{ key: "denial_rate", label: "denial rate", role: "current" }],
     rows: [
       { label: "Atlas Commercial", values: { denial_rate: 12.1 } },
-      { label: "Meridian Health", values: { denial_rate: 9.4 } },
+      { label: "Halvern Health", values: { denial_rate: 9.4 } },
       { label: "State Medicaid MCO", values: { denial_rate: 8.2 } },
     ],
   };
@@ -277,7 +277,7 @@ beforeEach(() => {
       F1: {
         referent: { value: "F1", kind: "finding" },
         turnId: "turn_1",
-        label: "Pinnacle HMO F1: 47.2% denial rate",
+        label: "Ashvale HMO F1: 47.2% denial rate",
       },
     },
   });
@@ -380,7 +380,7 @@ describe("every warning survives the move — calm layout", () => {
 /**
  * A REFUSED MONITOR DECLARATION REACHES THE READER.
  *
- * Live, "Monitor Pinnacle Health Plan denial rate and alert me if it moves
+ * Live, "Monitor Ashvale Health Plan denial rate and alert me if it moves
  * more than $5,000" came back with `outcome: answer`, `monitor: null`, six
  * prose `warnings` and five `warnings_v2`. The missing sixth was the
  * refusal — a threshold in cents over a metric measured as a ratio — and
@@ -467,7 +467,7 @@ describe("a refused monitor declaration is not silently dropped", () => {
    * THE LIVE PAYLOAD, THROUGH THE REAL SEAM.
    *
    * `wire-samples.json#monitor_refused_turn` is the exec's own repro — "Monitor
-   * Pinnacle Health Plan denial rate and alert me if it moves more than
+   * Ashvale Health Plan denial rate and alert me if it moves more than
    * $5,000" — captured verbatim from a running deployment: `outcome:
    * answer`, `monitor: null`, six warnings, six classified warnings, and the
    * `monitor_refused` payload naming the four phrasings that would work.
@@ -489,7 +489,7 @@ describe("a refused monitor declaration is not silently dropped", () => {
       id: "turn_live",
       index: 0,
       submission: {
-        utterance: "Monitor Pinnacle Health Plan denial rate and alert me if it moves more than $5,000.",
+        utterance: "Monitor Ashvale Health Plan denial rate and alert me if it moves more than $5,000.",
       },
       answer,
     });
@@ -497,7 +497,7 @@ describe("a refused monitor declaration is not silently dropped", () => {
     // The note, where the confirmation would have been.
     const note = container.querySelector("[data-monitor-refused]");
     expect(note).not.toBeNull();
-    expect(note?.textContent).toContain("Pinnacle Health Plan denial rate");
+    expect(note?.textContent).toContain("Ashvale Health Plan denial rate");
     expect(note?.textContent).toContain("only honest for a 'money_cents' contract");
     // The phrasings that WOULD work — a refusal with no way forward is a
     // wall, and these are the server's own words for the way through it.
@@ -958,7 +958,7 @@ describe("CONDITION 5 — citations read as citations", () => {
 
   it("never drops a citation the first time it is made", () => {
     setAnswerVariant("b");
-    renderCard(turn({ narrative: "The movement is in Atlas (F1) and Meridian (F2)." }));
+    renderCard(turn({ narrative: "The movement is in Atlas (F1) and Halvern (F2)." }));
     // Two separate parentheticals, two citations — the collapse is for a
     // RUN, and these are not consecutive.
     expect(screen.getAllByRole("button", { name: /^F1:/ })).toHaveLength(1);
@@ -1094,7 +1094,7 @@ describe("a restored turn keeps its answer in the calm layout", () => {
     expect(
       screen.getByText(/The written analysis was not stored for this turn/),
     ).toBeInTheDocument();
-    expect(screen.getByText(/Pinnacle HMO F1: 47.2% denial rate/)).toBeInTheDocument();
+    expect(screen.getByText(/Ashvale HMO F1: 47.2% denial rate/)).toBeInTheDocument();
   });
 
   /**

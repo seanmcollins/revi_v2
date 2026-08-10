@@ -19,3 +19,16 @@ export const GUIDE_QUESTIONS: readonly string[] = [
   "Give me payer payments by payer category weekly over the last 3.25 months",
   "Drill into Medicaid",
 ] as const;
+
+/**
+ * The hero's four — one per verb of a working day: detect, diagnose,
+ * act, prevent. A reader who clicks all four has walked the whole
+ * product loop. The full guide set above stays reachable from ⌘K; it
+ * is the regression anchor list, not the front door.
+ */
+export const HERO_QUESTIONS: readonly string[] = [
+  "Where are denials rising, and which payers are driving it?",
+  "Why did cash come in low last week?",
+  "What should my team work on first today?",
+  "Is anything about to miss a filing deadline?",
+] as const;

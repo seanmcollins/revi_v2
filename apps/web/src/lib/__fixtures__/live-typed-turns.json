@@ -6,10 +6,11 @@
     "note": "Typed first turns: no model call, identical warning prose to the NL path."
   },
   "bounded_ranking": {
-    "investigation_id": "inv_5e8118edcb6a",
-    "session_id": "sess_1f3cfccb77bd",
+    "monitor_refused": null,
+    "investigation_id": "inv_101eb48198d8",
+    "session_id": "sess_da7dae281332",
     "parent_id": null,
-    "turn_id": "turn_9ec804d67dfb",
+    "turn_id": "turn_5b240bf9b933",
     "turn_class": "new_investigation",
     "status": "complete",
     "question": "(typed investigation)",
@@ -27,6 +28,7 @@
       "cohort_size": null,
       "watermark_id": "wm_003",
       "as_of": null,
+      "window_note": null,
       "display": "2026-07-01..2026-07-31 (service) · watermark wm_003"
     },
     "context_header_restored": true,
@@ -34,7 +36,7 @@
     "newest_data_date": "2026-08-02",
     "restoration_notes": [
       "Restored context: the window, scope, cohort and watermark below are rebuilt from this turn's stored investigation spec at watermark wm_003, not re-computed — the figures are the ones this turn published when it ran.",
-      "The composed narrative is not stored anywhere — the narrative trace keeps its template, redactions and length, not its sentences — so this turn restores without prose. Its findings, warnings and charts are its own record."
+      "This turn restores with the written analysis exactly as it was published, the findings, their warnings and caveats and the charts. Nothing here was re-computed or re-written: these are the sentences and figures this turn published when it ran."
     ],
     "findings": [
       {
@@ -338,7 +340,7 @@
       "alternate_basis_used: 'denial_rate' is computed on the 'service' basis — its primary 'remit' basis is not available at the 'claim' grain in this warehouse",
       "population_caveat: denial_rate — claims still awaiting their first remittance (status OPEN) are excluded from both sides — an unadjudicated claim carries a false clean flag for want of evidence, not because a payer denied it, so including it would report the data edge as a denial.",
       "suppression: cells counting fewer than 11 entities in their POPULATION are withheld entirely before results leave the engine; a cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped",
-      "suppression_bounded: 52 of 150 groups here are too small to measure exactly — fewer than 11 things sit behind each of those numbers — so each shows a ceiling instead of a figure: Dr. Arden Pinehurst (081) (denial rate ≤ 55.6% over 18 entities); Dr. Avery Foxglove (137) (denial rate ≤ 90.9% over 11 entities); Dr. Avery Oakhurst (009) (denial rate ≤ 71.4% over 14 entities); Dr. Blake Delacroix (050) (denial rate ≤ 71.4% over 14 entities); Dr. Briar Juniper (008) (denial rate ≤ 55.6% over 18 entities); Dr. Cameron Everhart (049) (denial rate ≤ 83.3% over 12 entities); Dr. Cameron Pinehurst (138) (denial rate ≤ 71.4% over 14 entities); Dr. Dana Amberline (066) (denial rate ≤ 76.9% over 13 entities); and 44 more, each shown as a bound in the chart. The true value is at or below the ceiling and is not a measurement. A further 85 could not be published at all.",
+      "suppression_bounded: 52 of 150 providers here are too small to measure exactly — fewer than 11 of the events being counted landed in each, over a population this answer publishes in full — so each shows a ceiling instead of a figure: Dr. Arden Pinehurst (081) (denial rate ≤ 55.6% over 18 entities); Dr. Avery Foxglove (137) (denial rate ≤ 90.9% over 11 entities); Dr. Avery Oakhurst (009) (denial rate ≤ 71.4% over 14 entities); Dr. Blake Delacroix (050) (denial rate ≤ 71.4% over 14 entities); Dr. Briar Juniper (008) (denial rate ≤ 55.6% over 18 entities); Dr. Cameron Everhart (049) (denial rate ≤ 83.3% over 12 entities); Dr. Cameron Pinehurst (138) (denial rate ≤ 71.4% over 14 entities); Dr. Dana Amberline (066) (denial rate ≤ 76.9% over 13 entities); and 44 more, each shown as a bound in the chart. The true value is at or below the ceiling and is not a measurement. A further 85 could not be published at all.",
       "adjudication_incomplete: this answer's window (2026-07-01..2026-07-31, service basis) has not finished settling. Across this whole load it holds 1,544 settled record(s) where a window of this length normally holds about 5,878 — 26.3% of it. What HAS settled is not a random sample of what has not: the fastest cases reach a decision first, so a total measured here is understated and a rate measured here is skewed. The count is the one 'clean_claim_rate' declares, and the norm is the median month of this load. Ask again over the last settled period, or on a basis whose events are already recorded, to read this without the caveat."
     ],
     "warnings_v2": [
@@ -375,7 +377,7 @@
       {
         "code": "SUPPRESSION_BOUNDED",
         "severity": "caution",
-        "message": "suppression_bounded: 52 of 150 groups here are too small to measure exactly — fewer than 11 things sit behind each of those numbers — so each shows a ceiling instead of a figure: Dr. Arden Pinehurst (081) (denial rate ≤ 55.6% over 18 entities); Dr. Avery Foxglove (137) (denial rate ≤ 90.9% over 11 entities); Dr. Avery Oakhurst (009) (denial rate ≤ 71.4% over 14 entities); Dr. Blake Delacroix (050) (denial rate ≤ 71.4% over 14 entities); Dr. Briar Juniper (008) (denial rate ≤ 55.6% over 18 entities); Dr. Cameron Everhart (049) (denial rate ≤ 83.3% over 12 entities); Dr. Cameron Pinehurst (138) (denial rate ≤ 71.4% over 14 entities); Dr. Dana Amberline (066) (denial rate ≤ 76.9% over 13 entities); and 44 more, each shown as a bound in the chart. The true value is at or below the ceiling and is not a measurement. A further 85 could not be published at all.",
+        "message": "suppression_bounded: 52 of 150 providers here are too small to measure exactly — fewer than 11 of the events being counted landed in each, over a population this answer publishes in full — so each shows a ceiling instead of a figure: Dr. Arden Pinehurst (081) (denial rate ≤ 55.6% over 18 entities); Dr. Avery Foxglove (137) (denial rate ≤ 90.9% over 11 entities); Dr. Avery Oakhurst (009) (denial rate ≤ 71.4% over 14 entities); Dr. Blake Delacroix (050) (denial rate ≤ 71.4% over 14 entities); Dr. Briar Juniper (008) (denial rate ≤ 55.6% over 18 entities); Dr. Cameron Everhart (049) (denial rate ≤ 83.3% over 12 entities); Dr. Cameron Pinehurst (138) (denial rate ≤ 71.4% over 14 entities); Dr. Dana Amberline (066) (denial rate ≤ 76.9% over 13 entities); and 44 more, each shown as a bound in the chart. The true value is at or below the ceiling and is not a measurement. A further 85 could not be published at all.",
         "count": 1
       },
       {
@@ -399,13 +401,13 @@
               "contract_version": 2
             }
           ],
-          "cache_hit": true,
+          "cache_hit": false,
           "rows": 150,
           "limit": null,
           "truncated": false,
           "suppressed_cells": 222,
           "grade": "direct",
-          "duration_ms": 4
+          "duration_ms": 43
         }
       ],
       "reconciliation": {
@@ -413,9 +415,9 @@
         "detail": "this is a first turn; there is no parent answer to reconcile to",
         "summary": "status=not_applicable; reason=this is a first turn; there is no parent answer to reconcile to"
       },
-      "warehouse_queries": 0,
-      "cache_hits": 1,
-      "zero_probe_turn": true,
+      "warehouse_queries": 1,
+      "cache_hits": 0,
+      "zero_probe_turn": false,
       "answer_grade": "direct"
     },
     "metric": {
@@ -432,12 +434,12 @@
       "playbook_id": null,
       "pack_id": "base-rcm",
       "pack_version": "1.0.0",
-      "pack_snapshot_id": "8e5f979b791b1d69a0084d7f962469469f414785666fda0f6ae4e5bfb6994a85"
+      "pack_snapshot_id": "df189c475968d446998f724d1b4d724294be98989ce58873216e72ceac08700b"
     },
     "chart_specs": [
       {
         "id": "chart_main",
-        "chart_type": "line",
+        "chart_type": "bar",
         "title": "denial rate — main",
         "frame_id": "main",
         "x": "provider",
@@ -1800,7 +1802,8 @@
         "annotations": [
           "upper bounds: 52 of 150 marks are ceilings, not measurements — their numerator was suppressed and they cannot be ranked against the measured marks",
           "ranking_refused: 52 of the 65 marks with a figure are ceilings, leaving 13 measured — too few for an order to mean anything. These marks are NOT ranked, whatever order they are drawn in; putting ceilings in order beside measured figures sorts by how big each group is.",
-          "withheld: 85 of 150 groups are too small to publish at all and are drawn with no value"
+          "withheld: 85 of 150 groups are too small to publish at all and are drawn with no value",
+          "chart type: drawn as bar, not the line the denial_rate_trend recipe asks for — a line asserts a movement between ordered points, and this figure draws 150 points on an axis that is in no order."
         ],
         "recipe_id": "denial_rate_trend",
         "sort": {
@@ -1810,14 +1813,16 @@
         "axis_order": null
       }
     ],
+    "narrative": "Most of these providers are too small to measure exactly, so no ranking is published. 52 of 150 are too small to measure exactly — for those only a ceiling is known, and putting ceilings in order beside measured figures sorts by how big each group is rather than by denial rate. The 13 that could be measured are published above; the rest are listed separately, each with the size of the group its ceiling was taken over. This answer's window (2026-07-01..2026-07-31, service basis) has not finished settling. Across this whole load it holds 1,544 settled record(s) where a window of this length normally holds about 5,878 — 26.3% of it. What HAS settled is not a random sample of what has not: the fastest cases reach a decision first, so a total measured here is understated and a rate measured here is skewed. The count is the one 'clean_claim_rate' declares, and the norm is the median month of this load. Ask again over the last settled period, or on a basis whose events are already recorded, to read this without the caveat. Among the providers that could be measured, Dr. Blake Umberland (079), Dr. Devon Ravenscroft (035), and Dr. Indigo Silverton (117) each show a denial rate of 0.0% for the July 2026 service window (F1, F2, F3). These denial rates count only claims that have received a first remittance — claims still open and awaiting adjudication are left out of both the numerator and the denominator, so a 0.0% reading describes decided claims only and not the full book of work (F1, F2, F3). Three other providers can only be bounded rather than measured: Dr. Ira Overbrook (131) sits at or below 52.6% denial rate over a group of 19 (F4), and Dr. Arden Pinehurst (081) and Dr. Briar Juniper (008) each at or below 55.6% over groups of 18 (F5, F6). Those ceilings are limits, not measurements — the true denial rate for each is somewhere at or under the stated figure, so they should not be read alongside the measured 0.0% results as though they were comparable numbers (F4, F5, F6). 52 of 150 providers here are too small to measure exactly — fewer than 11 of the events being counted landed in each, over a population this answer publishes in full — so each shows a ceiling instead of a figure: Dr. Arden Pinehurst (081) (denial rate ≤ 55.6% over 18 entities); Dr. Avery Foxglove (137) (denial rate ≤ 90.9% over 11 entities); Dr. Avery Oakhurst (009) (denial rate ≤ 71.4% over 14 entities); Dr. Blake Delacroix (050) (denial rate ≤ 71.4% over 14 entities); Dr. Briar Juniper (008) (denial rate ≤ 55.6% over 18 entities); Dr. Cameron Everhart (049) (denial rate ≤ 83.3% over 12 entities); Dr. Cameron Pinehurst (138) (denial rate ≤ 71.4% over 14 entities); Dr. Dana Amberline (066) (denial rate ≤ 76.9% over 13 entities); and 44 more, each shown as a bound in the chart. The true value is at or below the ceiling and is not a measurement. A further 85 could not be published at all. 6 of 65 computed cells are published as findings; the remaining 59 are in the chart and the evidence frame but carry no finding. Superlatives and spread statements on this answer describe the published slice, not the full population.",
     "metric_display": [],
-    "created_at": "2026-08-10T02:45:32.292418Z"
+    "created_at": "2026-08-10T17:10:54.847804Z"
   },
   "denied_by_payer": {
-    "investigation_id": "inv_8922b24f832f",
-    "session_id": "sess_1f3cfccb77bd",
+    "monitor_refused": null,
+    "investigation_id": "inv_8c77f0ca361d",
+    "session_id": "sess_da7dae281332",
     "parent_id": null,
-    "turn_id": "turn_97d92d33c108",
+    "turn_id": "turn_7189b7d93340",
     "turn_class": "new_investigation",
     "status": "complete",
     "question": "(typed investigation)",
@@ -1835,6 +1840,7 @@
       "cohort_size": null,
       "watermark_id": "wm_003",
       "as_of": null,
+      "window_note": null,
       "display": "2026-07-01..2026-07-31 (remit) · watermark wm_003"
     },
     "context_header_restored": true,
@@ -1842,7 +1848,7 @@
     "newest_data_date": "2026-08-02",
     "restoration_notes": [
       "Restored context: the window, scope, cohort and watermark below are rebuilt from this turn's stored investigation spec at watermark wm_003, not re-computed — the figures are the ones this turn published when it ran.",
-      "The composed narrative is not stored anywhere — the narrative trace keeps its template, redactions and length, not its sentences — so this turn restores without prose. Its findings, warnings and charts are its own record."
+      "This turn restores with the written analysis exactly as it was published, the findings, their warnings and caveats and the charts. Nothing here was re-computed or re-written: these are the sentences and figures this turn published when it ran."
     ],
     "findings": [
       {
@@ -1926,7 +1932,8 @@
     ],
     "warnings": [
       "findings_truncated: 3 of 12 computed cells are published as findings; the remaining 9 are in the chart and the evidence frame but carry no finding. Superlatives and spread statements on this answer describe the published slice, not the full population.",
-      "suppression: cells counting fewer than 11 entities in their POPULATION are withheld entirely before results leave the engine; a cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped"
+      "suppression: cells counting fewer than 11 entities in their POPULATION are withheld entirely before results leave the engine; a cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped",
+      "narrative sentence redacted: 1 sentence(s) dropped from the narrative (figure '$18,000' matches no certified value)"
     ],
     "warnings_v2": [
       {
@@ -1939,6 +1946,12 @@
         "code": "SUPPRESSION_APPLIED",
         "severity": "info",
         "message": "suppression: cells counting fewer than 11 entities in their POPULATION are withheld entirely before results leave the engine; a cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped",
+        "count": 1
+      },
+      {
+        "code": "NARRATIVE_REDACTED",
+        "severity": "info",
+        "message": "narrative sentence redacted: 1 sentence(s) dropped from the narrative (figure '$18,000' matches no certified value)",
         "count": 1
       }
     ],
@@ -1956,13 +1969,13 @@
               "contract_version": 2
             }
           ],
-          "cache_hit": true,
+          "cache_hit": false,
           "rows": 12,
           "limit": null,
           "truncated": false,
           "suppressed_cells": 0,
           "grade": "direct",
-          "duration_ms": 3
+          "duration_ms": 18
         }
       ],
       "reconciliation": {
@@ -1970,9 +1983,9 @@
         "detail": "this is a first turn; there is no parent answer to reconcile to",
         "summary": "status=not_applicable; reason=this is a first turn; there is no parent answer to reconcile to"
       },
-      "warehouse_queries": 0,
-      "cache_hits": 1,
-      "zero_probe_turn": true,
+      "warehouse_queries": 1,
+      "cache_hits": 0,
+      "zero_probe_turn": false,
       "answer_grade": "direct"
     },
     "metric": {
@@ -1989,7 +2002,7 @@
       "playbook_id": null,
       "pack_id": "base-rcm",
       "pack_version": "1.0.0",
-      "pack_snapshot_id": "8e5f979b791b1d69a0084d7f962469469f414785666fda0f6ae4e5bfb6994a85"
+      "pack_snapshot_id": "df189c475968d446998f724d1b4d724294be98989ce58873216e72ceac08700b"
     },
     "chart_specs": [
       {
@@ -2004,10 +2017,19 @@
         "grade": "direct",
         "rows": [
           {
+            "x": "Ashvale Health Plan",
+            "series": null,
+            "value": 7121841,
+            "referent_id": "D151",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
             "x": "Atlas Commercial",
             "series": null,
             "value": 13680438,
-            "referent_id": "D151",
+            "referent_id": "D152",
             "is_bound": false,
             "bound_population": null,
             "provisional": false
@@ -2016,7 +2038,7 @@
             "x": "Bluestone Mutual",
             "series": null,
             "value": 5587063,
-            "referent_id": "D152",
+            "referent_id": "D153",
             "is_bound": false,
             "bound_population": null,
             "provisional": false
@@ -2025,22 +2047,13 @@
             "x": "Federal Medicare",
             "series": null,
             "value": 6821646,
-            "referent_id": "D153",
-            "is_bound": false,
-            "bound_population": null,
-            "provisional": false
-          },
-          {
-            "x": "Lakewood Medicaid MCO",
-            "series": null,
-            "value": 10240987,
             "referent_id": "D154",
             "is_bound": false,
             "bound_population": null,
             "provisional": false
           },
           {
-            "x": "Meridian Health",
+            "x": "Halvern Health",
             "series": null,
             "value": 10488172,
             "referent_id": "D155",
@@ -2049,18 +2062,18 @@
             "provisional": false
           },
           {
-            "x": "Northbridge Commercial",
+            "x": "Lakewood Medicaid MCO",
             "series": null,
-            "value": 9502298,
+            "value": 10240987,
             "referent_id": "D156",
             "is_bound": false,
             "bound_population": null,
             "provisional": false
           },
           {
-            "x": "Pinnacle Health Plan",
+            "x": "Northbridge Commercial",
             "series": null,
-            "value": 7121841,
+            "value": 9502298,
             "referent_id": "D157",
             "is_bound": false,
             "bound_population": null,
@@ -2121,7 +2134,8 @@
         "axis_order": null
       }
     ],
+    "narrative": "For remit activity in July 2026 (watermark wm_003), Summit Peak Medicare Advantage shows $176,112.25 in denied dollars, the highest among the published findings (F7). State Medicaid follows at $168,575.44 in denied dollars (F8), and Silverline Medicare Advantage at $158,122.42 (F9). All three figures are directly evidenced and carry high confidence (F7, F8, F9). Please read these alongside the caveat and disclosure published above, which bound how broadly these three figures can be generalized. 3 of 12 computed cells are published as findings; the remaining 9 are in the chart and the evidence frame but carry no finding. Superlatives and spread statements on this answer describe the published slice, not the full population.",
     "metric_display": [],
-    "created_at": "2026-08-10T02:45:43.214811Z"
+    "created_at": "2026-08-10T17:11:08.438679Z"
   }
 }

@@ -164,7 +164,7 @@ describe("structured warnings", () => {
           reason_code: "threshold_illegal",
           reason: REFUSAL,
           legal_alternatives: ["more than half a point", "more than 5%"],
-          subject: "Pinnacle Health Plan denial rate",
+          subject: "Ashvale Health Plan denial rate",
           threshold_phrase: "moves more than $5,000",
         },
       });
@@ -173,7 +173,7 @@ describe("structured warnings", () => {
         reasonCode: "threshold_illegal",
         reason: REFUSAL,
         legalAlternatives: ["more than half a point", "more than 5%"],
-        subject: "Pinnacle Health Plan denial rate",
+        subject: "Ashvale Health Plan denial rate",
         thresholdPhrase: "moves more than $5,000",
       });
     });
@@ -304,7 +304,7 @@ describe("cohort", () => {
     const answer = answerOf(SAMPLES.cohort_turn_complete);
     expect(answer.cohort).toMatchObject({
       id: "cohort_f35d90b18482b2ea",
-      definition: "payer in [State Medicaid, Atlas Commercial, Meridian Health]",
+      definition: "payer in [State Medicaid, Atlas Commercial, Halvern Health]",
       entityGrain: "claim",
       size: 86_415,
       originReferent: "D9",
@@ -322,7 +322,7 @@ describe("cohort", () => {
       "cohort_f35d90b18482b2ea",
     );
     expect(answer.header?.cohort?.definition).toBe(
-      "payer in [State Medicaid, Atlas Commercial, Meridian Health]",
+      "payer in [State Medicaid, Atlas Commercial, Halvern Health]",
     );
     expect(answer.header?.cohort?.entityGrain).toBe("claim");
   });

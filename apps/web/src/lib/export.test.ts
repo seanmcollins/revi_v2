@@ -589,7 +589,7 @@ describe("chartToCsv — a scaled ratio does not leak its arithmetic", () => {
       title: "Denial rate by payer",
       unit: "percent",
       series: [{ key: "denial_rate", label: "denial rate", role: "current" }],
-      rows: [{ label: "Pinnacle Health Plan", values: { denial_rate: 0.229167 * 100 } }],
+      rows: [{ label: "Ashvale Health Plan", values: { denial_rate: 0.229167 * 100 } }],
     };
     expect(chartToCsv(spec)).toContain("22.9167");
     expect(chartToCsv(spec)).not.toContain("22.916700000000002");

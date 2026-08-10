@@ -362,7 +362,7 @@ export const PORTFOLIO_ITEMS: PortfolioItem[] = [
   {
     rank: 1,
     referent: "P1",
-    title: "Timely filing risk — State Medicaid HMO at Eastside",
+    title: "Timely filing risk — State Medicaid HMO at Eastmere",
     issueClass: "timely_filing_watch",
     impactCents: 117_141_515,
     impactLabel: "billed at risk",
@@ -422,7 +422,7 @@ export const PORTFOLIO_ITEMS: PortfolioItem[] = [
   {
     rank: 5,
     referent: "P5",
-    title: "Denial spike — Meridian Health × Imaging (CO·197)",
+    title: "Denial spike — Halvern Health × Imaging (CO·197)",
     issueClass: "denial_spike",
     impactCents: 2_510_182,
     impactLabel: "denied since Jun 15",

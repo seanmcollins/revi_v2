@@ -72,10 +72,10 @@ describe("scalarizeRankOfOne — a rank over a set of one is not a rank", () => 
   it("rewrites the clause the single-payer tiles publish", () => {
     expect(
       scalarizeRankOfOne(
-        "Pinnacle Health Plan ranks #1 of 1 measured by denial rate over 2026-07-01..2026-07-31: 22.9%.",
+        "Ashvale Health Plan ranks #1 of 1 measured by denial rate over 2026-07-01..2026-07-31: 22.9%.",
       ),
     ).toBe(
-      "Pinnacle Health Plan is the only cell measured here — denial rate over 2026-07-01..2026-07-31: 22.9%.",
+      "Ashvale Health Plan is the only cell measured here — denial rate over 2026-07-01..2026-07-31: 22.9%.",
     );
   });
 

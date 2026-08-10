@@ -922,7 +922,7 @@ const LIVE_RATIO_CHART = {
   unit: "ratio",
   grade: "direct",
   rows: [
-    { x: "Pinnacle Health Plan", series: null, value: 0.079945, referent_id: "F3" },
+    { x: "Ashvale Health Plan", series: null, value: 0.079945, referent_id: "F3" },
     { x: "Silverline Medicare Advantage", series: null, value: 0.121361, referent_id: "F1" },
     { x: "Lakewood Medicaid MCO", series: null, value: 0.104623, referent_id: "F2" },
   ],
@@ -934,7 +934,7 @@ describe("chart units (F7 — a ratio frame is not a percent frame)", () => {
   it("scales a live 0.079945 ratio row so it formats as 8.0%", () => {
     const spec = mapChartSpec(LIVE_RATIO_CHART);
     expect(spec?.unit).toBe("percent");
-    const row = spec?.rows.find((r) => r.label === "Pinnacle Health Plan");
+    const row = spec?.rows.find((r) => r.label === "Ashvale Health Plan");
     expect(row?.values.denial_rate).toBeCloseTo(7.9945, 6);
     // What the renderer prints, through the shared measure formatter.
     expect(formatMeasure(row!.values.denial_rate, spec!.unit)).toBe("8.0%");

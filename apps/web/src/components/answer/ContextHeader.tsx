@@ -302,7 +302,7 @@ function RestoredChip({ notes }: { notes?: readonly string[] }) {
  * actually publishes — these are claims, or lines, or remits.
  *
  * So the label is the INTENSIONAL definition (`payer in [State Medicaid,
- * Atlas Commercial, Meridian Health]`), the size is stated in its own
+ * Atlas Commercial, Halvern Health]`), the size is stated in its own
  * grain (`86,415 claims`), the origin referent and turn are a subtle
  * reference underneath, and the hash — which is a debugging handle, not a
  * name — sits in the popover.

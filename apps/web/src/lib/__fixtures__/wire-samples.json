@@ -180,8 +180,8 @@
       },
       {
         "referent": "F3",
-        "title": "Meridian Health cash posted down $38,064 vs prior week",
-        "statement": "Meridian Health: cash posted moved from 18419647 to 14613237 cents (down $38,064, -20.7% vs prior week).",
+        "title": "Halvern Health cash posted down $38,064 vs prior week",
+        "statement": "Halvern Health: cash posted moved from 18419647 to 14613237 cents (down $38,064, -20.7% vs prior week).",
         "metric_ids": [
           "cash_posted"
         ],
@@ -270,7 +270,7 @@
       {
         "id": "F3",
         "kind": "finding",
-        "label": "Meridian Health cash posted down $38,064 vs prior week"
+        "label": "Halvern Health cash posted down $38,064 vs prior week"
       }
     ],
     "reconciliation": null,
@@ -1094,7 +1094,7 @@
             "referent_id": "D13"
           },
           {
-            "x": "Meridian Health",
+            "x": "Halvern Health",
             "series": null,
             "value": 22855710,
             "referent_id": "D14"
@@ -1110,7 +1110,7 @@
         "recipe_id": "denial_code_mix"
       }
     ],
-    "narrative": "For the June 1–July 31, 2026 remit period, State Medicaid accounts for the largest share of denied dollars at $336,300.74, ranking first among payers in the cohort (F4). Atlas Commercial follows at $297,292.31 in denied dollars (F5), and Meridian Health is third at $228,557.10 (F6). All three figures are graded direct with high confidence (F4, F5, F6), so they can be read as measured denied dollars rather than estimates. No period-over-period comparison was produced on this turn, so these amounts stand on their own rather than as a trend, and no benchmark range is available to size them against peer performance.",
+    "narrative": "For the June 1–July 31, 2026 remit period, State Medicaid accounts for the largest share of denied dollars at $336,300.74, ranking first among payers in the cohort (F4). Atlas Commercial follows at $297,292.31 in denied dollars (F5), and Halvern Health is third at $228,557.10 (F6). All three figures are graded direct with high confidence (F4, F5, F6), so they can be read as measured denied dollars rather than estimates. No period-over-period comparison was produced on this turn, so these amounts stand on their own rather than as a trend, and no benchmark range is available to size them against peer performance.",
     "warnings": [
       "suppression: cells counting fewer than 11 entities are suppressed before results leave the engine",
       "cohort pinned without its window: the 'remit' basis is not answerable at the 'claim' grain, so the cohort covers the scoped population across all time",
@@ -1152,13 +1152,13 @@
       {
         "id": "F6",
         "kind": "finding",
-        "label": "Meridian Health: $228,557.10 denied dollars"
+        "label": "Halvern Health: $228,557.10 denied dollars"
       }
     ],
     "cohort": {
       "id": "cohort_f35d90b18482b2ea",
       "entity_grain": "claim",
-      "definition": "payer in [State Medicaid, Atlas Commercial, Meridian Health]",
+      "definition": "payer in [State Medicaid, Atlas Commercial, Halvern Health]",
       "size": 86415,
       "origin_referent": "D9",
       "origin_turn_id": "turn_69a3e994c1d0",
@@ -1472,8 +1472,8 @@
         "provenance": "external_detection",
         "priority_formula_version": "anomaly_priority@2",
         "source_watermark_id": "wm_003",
-        "title": "Posting stall on late-July remits: Pinnacle Oncology",
-        "description": "Pinnacle Health Plan / Oncology: 12 remitted-unpaid claims totaling $63,552 in window 2026-07-22..2026-08-01.",
+        "title": "Posting stall on late-July remits: Ashvale Oncology",
+        "description": "Ashvale Health Plan / Oncology: 12 remitted-unpaid claims totaling $63,552 in window 2026-07-22..2026-08-01.",
         "category": "posting_lag",
         "metric_id": "avg_days_to_pay",
         "severity": "high",
@@ -1485,7 +1485,7 @@
         "dimensions": [
           {
             "dimension": "payer",
-            "value": "Pinnacle Health Plan"
+            "value": "Ashvale Health Plan"
           },
           {
             "dimension": "service_line",
@@ -1534,7 +1534,7 @@
               "dimension": "payer",
               "predicate_op": "eq",
               "values": [
-                "Pinnacle Health Plan"
+                "Ashvale Health Plan"
               ]
             },
             {
@@ -1805,8 +1805,8 @@
       },
       {
         "referent": "F2",
-        "title": "Pinnacle Health Plan: 22.9% denial rate",
-        "statement": "Pinnacle Health Plan ranks #2 of 8 measured by denial rate (worst first, as asked) over 2026-07-01..2026-07-31: 22.9%.",
+        "title": "Ashvale Health Plan: 22.9% denial rate",
+        "statement": "Ashvale Health Plan ranks #2 of 8 measured by denial rate (worst first, as asked) over 2026-07-01..2026-07-31: 22.9%.",
         "metric_ids": [
           "denial_rate"
         ],
@@ -2121,7 +2121,7 @@
             "provisional": false
           },
           {
-            "x": "Meridian Health",
+            "x": "Halvern Health",
             "series": null,
             "value": 0.130045,
             "referent_id": null,
@@ -2139,7 +2139,7 @@
             "provisional": false
           },
           {
-            "x": "Pinnacle Health Plan",
+            "x": "Ashvale Health Plan",
             "series": null,
             "value": 0.229167,
             "referent_id": null,
@@ -2576,14 +2576,14 @@
       "comparison_start": null,
       "comparison_end": null,
       "filters": [
-        "payer eq [Pinnacle Health Plan]"
+        "payer eq [Ashvale Health Plan]"
       ],
       "filter_chips": [
         {
           "dimension": "payer",
           "op": "eq",
           "values": [
-            "Pinnacle Health Plan"
+            "Ashvale Health Plan"
           ],
           "requested_values": [],
           "origin_turn": "turn_489ce2c0dd8b",
@@ -2594,7 +2594,7 @@
       "cohort_size": null,
       "watermark_id": "wm_003",
       "as_of": null,
-      "display": "2026-07-01..2026-07-31 (service) · filters: payer eq [Pinnacle Health Plan] · watermark wm_003"
+      "display": "2026-07-01..2026-07-31 (service) · filters: payer eq [Ashvale Health Plan] · watermark wm_003"
     },
     "findings": [
       {
@@ -2639,13 +2639,13 @@
         "metric_caveats": []
       }
     ],
-    "narrative": "For Pinnacle Health Plan over 1–31 July 2026 on a service basis, the denial rate was 22.9% (F1), which sits above the benchmark range of 19–20 percent of in-network claims denied reported by ACA marketplace (HealthCare.gov) issuers for 2023–2024 in an independent analysis of CMS transparency data (F1). That benchmark is machine-researched plan-reported context rather than a like-for-like comparison, so treat the gap as a signal to investigate rather than a settled finding (F1). One definitional point matters for reading this figure: claims still awaiting their first remittance are excluded from both the numerator and the denominator, because an unadjudicated claim carries a clean flag for lack of evidence, not because a payer denied it (F1). The denial rate is therefore measured only across claims that have received a remittance, and its confidence is qualified (F1). This answer's window (2026-07-01..2026-07-31, service basis) has not finished settling. Across this whole load it holds 1,544 settled record(s) where a window of this length normally holds about 5,878 — 26.3% of it. What HAS settled is not a random sample of what has not: the fastest cases reach a decision first, so a total measured here is understated and a rate measured here is skewed. The count is the one 'clean_claim_rate' declares, and the norm is the median month of this load. Ask again over the last settled period, or on a basis whose events are already recorded, to read this without the caveat.",
+    "narrative": "For Ashvale Health Plan over 1–31 July 2026 on a service basis, the denial rate was 22.9% (F1), which sits above the benchmark range of 19–20 percent of in-network claims denied reported by ACA marketplace (HealthCare.gov) issuers for 2023–2024 in an independent analysis of CMS transparency data (F1). That benchmark is machine-researched plan-reported context rather than a like-for-like comparison, so treat the gap as a signal to investigate rather than a settled finding (F1). One definitional point matters for reading this figure: claims still awaiting their first remittance are excluded from both the numerator and the denominator, because an unadjudicated claim carries a clean flag for lack of evidence, not because a payer denied it (F1). The denial rate is therefore measured only across claims that have received a remittance, and its confidence is qualified (F1). This answer's window (2026-07-01..2026-07-31, service basis) has not finished settling. Across this whole load it holds 1,544 settled record(s) where a window of this length normally holds about 5,878 — 26.3% of it. What HAS settled is not a random sample of what has not: the fastest cases reach a decision first, so a total measured here is understated and a rate measured here is skewed. The count is the one 'clean_claim_rate' declares, and the norm is the median month of this load. Ask again over the last settled period, or on a basis whose events are already recorded, to read this without the caveat.",
     "warnings": [
       "window_assumed: the question named no period, so I used 2026-07-01..2026-07-31 on the service basis — the last full month this load can see (newest data date 2026-08-02).",
       "alternate_basis_used: 'denial_rate' is computed on the 'service' basis — its primary 'remit' basis is not available at the 'claim' grain in this warehouse",
       "population_caveat: denial_rate — claims still awaiting their first remittance (status OPEN) are excluded from both sides — an unadjudicated claim carries a false clean flag for want of evidence, not because a payer denied it, so including it would report the data edge as a denial.",
       "adjudication_incomplete: this answer's window (2026-07-01..2026-07-31, service basis) has not finished settling. Across this whole load it holds 1,544 settled record(s) where a window of this length normally holds about 5,878 — 26.3% of it. What HAS settled is not a random sample of what has not: the fastest cases reach a decision first, so a total measured here is understated and a rate measured here is skewed. The count is the one 'clean_claim_rate' declares, and the norm is the median month of this load. Ask again over the last settled period, or on a basis whose events are already recorded, to read this without the caveat.",
-      "named_cut_applied: read 'Monitor' as a monitor declaration and investigated the rest of the sentence — 'Pinnacle Health Plan denial rate' — as an ordinary question, so this monitor is defined by a spec that was planned, validated and answered rather than by the phrasing. Sensitivity read from 'and alert me if it moves more than $5,000.'.",
+      "named_cut_applied: read 'Monitor' as a monitor declaration and investigated the rest of the sentence — 'Ashvale Health Plan denial rate' — as an ordinary question, so this monitor is defined by a spec that was planned, validated and answered rather than by the phrasing. Sensitivity read from 'and alert me if it moves more than $5,000.'.",
       "monitor_not_created: this turn read as a monitor declaration and NO monitor was created: this monitor's threshold cannot be applied honestly: a threshold in 'cents' is only honest for a 'money_cents' contract, and this monitor measures 'ratio'. Cents describe money; for a rate state the threshold in points, or as relative_pct.. The answer above stands on its own; nothing is being monitored. Phrasings that work here: 'more than 2 points'; 'more than half a point'; 'when it crosses 15%'; 'on any movement'."
     ],
     "warnings_v2": [
@@ -2676,7 +2676,7 @@
       {
         "code": "NAMED_CUT_APPLIED",
         "severity": "info",
-        "message": "named_cut_applied: read 'Monitor' as a monitor declaration and investigated the rest of the sentence — 'Pinnacle Health Plan denial rate' — as an ordinary question, so this monitor is defined by a spec that was planned, validated and answered rather than by the phrasing. Sensitivity read from 'and alert me if it moves more than $5,000.'.",
+        "message": "named_cut_applied: read 'Monitor' as a monitor declaration and investigated the rest of the sentence — 'Ashvale Health Plan denial rate' — as an ordinary question, so this monitor is defined by a spec that was planned, validated and answered rather than by the phrasing. Sensitivity read from 'and alert me if it moves more than $5,000.'.",
         "count": 1
       },
       {
@@ -2690,7 +2690,7 @@
     "monitor_refused": {
       "reason_code": "threshold_illegal",
       "reason": "this monitor's threshold cannot be applied honestly: a threshold in 'cents' is only honest for a 'money_cents' contract, and this monitor measures 'ratio'. Cents describe money; for a rate state the threshold in points, or as relative_pct.",
-      "subject": "Pinnacle Health Plan denial rate",
+      "subject": "Ashvale Health Plan denial rate",
       "threshold_phrase": "and alert me if it moves more than $5,000.",
       "legal_alternatives": [
         "more than 2 points",

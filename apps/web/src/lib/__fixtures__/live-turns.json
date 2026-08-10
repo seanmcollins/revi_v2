@@ -613,7 +613,7 @@
        "provisional": false
       },
       {
-       "x": "Meridian Health",
+       "x": "Halvern Health",
        "series": null,
        "value": null,
        "referent_id": null,
@@ -699,7 +699,7 @@
        "provisional": false
       },
       {
-       "x": "Bluestone HMO Blue",
+       "x": "Bluestone Select HMO",
        "series": null,
        "value": 40030659,
        "referent_id": null,
@@ -708,7 +708,7 @@
        "provisional": false
       },
       {
-       "x": "Bluestone PPO Blue",
+       "x": "Bluestone Preferred PPO",
        "series": null,
        "value": 59528577,
        "referent_id": null,
@@ -753,7 +753,7 @@
        "provisional": false
       },
       {
-       "x": "Meridian Exchange PPO",
+       "x": "Halvern Exchange PPO",
        "series": null,
        "value": 22027230,
        "referent_id": null,
@@ -762,7 +762,7 @@
        "provisional": false
       },
       {
-       "x": "Meridian HMO Care",
+       "x": "Halvern HMO Care",
        "series": null,
        "value": 49267850,
        "referent_id": null,
@@ -771,7 +771,7 @@
        "provisional": false
       },
       {
-       "x": "Meridian POS Choice",
+       "x": "Halvern POS Choice",
        "series": null,
        "value": 42736424,
        "referent_id": null,
@@ -780,7 +780,7 @@
        "provisional": false
       },
       {
-       "x": "Meridian PPO Prime",
+       "x": "Halvern PPO Prime",
        "series": null,
        "value": 80765447,
        "referent_id": null,
@@ -816,7 +816,7 @@
        "provisional": false
       },
       {
-       "x": "Pinnacle HMO",
+       "x": "Ashvale HMO",
        "series": null,
        "value": 30437426,
        "referent_id": null,
@@ -825,7 +825,7 @@
        "provisional": false
       },
       {
-       "x": "Pinnacle POS",
+       "x": "Ashvale POS",
        "series": null,
        "value": 18381213,
        "referent_id": null,
@@ -834,7 +834,7 @@
        "provisional": false
       },
       {
-       "x": "Pinnacle PPO",
+       "x": "Ashvale PPO",
        "series": null,
        "value": 47314056,
        "referent_id": null,
@@ -980,7 +980,7 @@
        "provisional": false
       },
       {
-       "x": "Meridian Health",
+       "x": "Halvern Health",
        "series": null,
        "value": 0.450265,
        "referent_id": null,
@@ -998,7 +998,7 @@
        "provisional": false
       },
       {
-       "x": "Pinnacle Health Plan",
+       "x": "Ashvale Health Plan",
        "series": null,
        "value": 0.376621,
        "referent_id": null,
@@ -1527,7 +1527,7 @@
       "priority_formula_version": "anomaly_priority@3",
       "source_watermark_id": "wm_003",
       "title": "Non-covered denial burst: Bluestone PPO Imaging",
-      "description": "Bluestone Mutual / Bluestone PPO Blue / Imaging: 10 denials totaling $17,677 in window 2026-08-02..2026-08-02.",
+      "description": "Bluestone Mutual / Bluestone Preferred PPO / Imaging: 10 denials totaling $17,677 in window 2026-08-02..2026-08-02.",
       "category": "denial_spike",
       "metric_id": "denial_rate",
       "severity": "medium",
@@ -1543,7 +1543,7 @@
        },
        {
         "dimension": "plan",
-        "value": "Bluestone PPO Blue"
+        "value": "Bluestone Preferred PPO"
        },
        {
         "dimension": "service_line",
@@ -1607,7 +1607,7 @@
          "dimension": "plan",
          "predicate_op": "eq",
          "values": [
-          "Bluestone PPO Blue"
+          "Bluestone Preferred PPO"
          ]
         },
         {
@@ -1748,8 +1748,8 @@
       "provenance": "external_detection",
       "priority_formula_version": "anomaly_priority@3",
       "source_watermark_id": "wm_003",
-      "title": "Eligibility denials: Meridian HMO Care Emergency",
-      "description": "Meridian Health / Meridian HMO Care / Emergency: 9 eligibility denials totaling $6,838 in window 2026-08-01..2026-08-01.",
+      "title": "Eligibility denials: Halvern HMO Care Emergency",
+      "description": "Halvern Health / Halvern HMO Care / Emergency: 9 eligibility denials totaling $6,838 in window 2026-08-01..2026-08-01.",
       "category": "eligibility_cluster",
       "metric_id": "denial_rate",
       "severity": "medium",
@@ -1761,11 +1761,11 @@
       "dimensions": [
        {
         "dimension": "payer",
-        "value": "Meridian Health"
+        "value": "Halvern Health"
        },
        {
         "dimension": "plan",
-        "value": "Meridian HMO Care"
+        "value": "Halvern HMO Care"
        },
        {
         "dimension": "service_line",
@@ -1821,7 +1821,7 @@
          "dimension": "payer",
          "predicate_op": "eq",
          "values": [
-          "Meridian Health"
+          "Halvern Health"
          ]
         },
         {
@@ -1829,7 +1829,7 @@
          "dimension": "plan",
          "predicate_op": "eq",
          "values": [
-          "Meridian HMO Care"
+          "Halvern HMO Care"
          ]
         },
         {
@@ -1957,8 +1957,8 @@
       "provenance": "external_detection",
       "priority_formula_version": "anomaly_priority@3",
       "source_watermark_id": "wm_003",
-      "title": "Posting stall on late-July remits: Pinnacle Oncology",
-      "description": "Pinnacle Health Plan / Oncology: 12 remitted-unpaid claims totaling $63,552 in window 2026-07-22..2026-08-01.",
+      "title": "Posting stall on late-July remits: Ashvale Oncology",
+      "description": "Ashvale Health Plan / Oncology: 12 remitted-unpaid claims totaling $63,552 in window 2026-07-22..2026-08-01.",
       "category": "posting_lag",
       "metric_id": "avg_days_to_pay",
       "severity": "high",
@@ -1970,7 +1970,7 @@
       "dimensions": [
        {
         "dimension": "payer",
-        "value": "Pinnacle Health Plan"
+        "value": "Ashvale Health Plan"
        },
        {
         "dimension": "service_line",
@@ -2025,7 +2025,7 @@
          "dimension": "payer",
          "predicate_op": "eq",
          "values": [
-          "Pinnacle Health Plan"
+          "Ashvale Health Plan"
          ]
         },
         {

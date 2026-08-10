@@ -58,7 +58,7 @@ export function tidyProse(text: string): string {
  * "#1 of 1" is not a rank.
  *
  * A breakdown narrowed to a single payer keeps the ranking grammar the
- * breakdown builder writes — "Pinnacle Health Plan ranks #1 of 1 measured
+ * breakdown builder writes — "Ashvale Health Plan ranks #1 of 1 measured
  * by denial rate over 2026-07-01..2026-07-31: 22.9%" — and a rank over a
  * set of one is a claim about an order that was never measured. Two of
  * the demo tenant's own tiles publish it, one of them the JOC account

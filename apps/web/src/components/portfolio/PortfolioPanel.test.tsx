@@ -66,7 +66,7 @@ const LIVE_SNAPSHOT = {
       provenance: "external_detection",
       priority_formula_version: "anomaly_priority@1",
       source_watermark_id: "wm_003",
-      title: "Gross collection rate dip: Meridian imaging",
+      title: "Gross collection rate dip: Halvern imaging",
       description: "Collection rate below expected on imaging lines.",
       category: "collection_rate",
       metric_id: "gross_collection_rate",
