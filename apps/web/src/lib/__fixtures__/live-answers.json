@@ -1,0 +1,2732 @@
+{
+ "worklist": {
+  "investigation_id": "inv_94574336232a",
+  "session_id": "sess_a4610c1892f5",
+  "parent_id": null,
+  "turn_id": "turn_50df149b78d2",
+  "turn_class": "new_investigation",
+  "status": "complete",
+  "question": "What should my team work on first to bring denials down?",
+  "plan_hash": "cf41ae753bb3ea803deb02c73685fc41837a0453336ac02a9854fcb2463fac5c",
+  "context_header": {
+   "window_start": "2026-07-01",
+   "window_end": "2026-07-31",
+   "basis": "service",
+   "comparison_kind": null,
+   "comparison_start": null,
+   "comparison_end": null,
+   "filters": [],
+   "filter_chips": [],
+   "cohort": null,
+   "cohort_size": null,
+   "watermark_id": "wm_003",
+   "as_of": null,
+   "display": "2026-07-01..2026-07-31 (service) · watermark wm_003"
+  },
+  "context_header_restored": true,
+  "watermark_id": "wm_003",
+  "newest_data_date": "2026-08-02",
+  "restoration_notes": [
+   "Restored context: the window, scope, cohort and watermark below are rebuilt from this turn's stored investigation spec at watermark wm_003, not re-computed — the figures are the ones this turn published when it ran.",
+   "The composed narrative is not stored anywhere — the narrative trace keeps its template, redactions and length, not its sentences — so this turn restores without prose. Its findings, warnings and charts are its own record."
+  ],
+  "findings": [
+   {
+    "referent": "F1",
+    "title": "Atlas Commercial: $33,954.90 denied dollars",
+    "statement": "Atlas Commercial ranks #1 of 12 measured by denied dollars over 2026-07-01..2026-07-31: $33,954.90.",
+    "metric_ids": [
+     "denied_dollars"
+    ],
+    "values": [
+     {
+      "name": "denied_dollars",
+      "value": 3395490
+     },
+     {
+      "name": "rank",
+      "value": 1
+     }
+    ],
+    "grade": "direct",
+    "impact_cents": 3395490,
+    "confidence": "high",
+    "suggested_refinements": [
+     "drill into F1"
+    ],
+    "benchmarks": [],
+    "metric_caveats": []
+   },
+   {
+    "referent": "F2",
+    "title": "Meridian Health: $28,614.94 denied dollars",
+    "statement": "Meridian Health ranks #2 of 12 measured by denied dollars over 2026-07-01..2026-07-31: $28,614.94.",
+    "metric_ids": [
+     "denied_dollars"
+    ],
+    "values": [
+     {
+      "name": "denied_dollars",
+      "value": 2861494
+     },
+     {
+      "name": "rank",
+      "value": 2
+     }
+    ],
+    "grade": "direct",
+    "impact_cents": 2861494,
+    "confidence": "high",
+    "suggested_refinements": [
+     "drill into F2"
+    ],
+    "benchmarks": [],
+    "metric_caveats": []
+   },
+   {
+    "referent": "F3",
+    "title": "Silverline Medicare Advantage: $23,749.29 denied dollars",
+    "statement": "Silverline Medicare Advantage ranks #3 of 12 measured by denied dollars over 2026-07-01..2026-07-31: $23,749.29.",
+    "metric_ids": [
+     "denied_dollars"
+    ],
+    "values": [
+     {
+      "name": "denied_dollars",
+      "value": 2374929
+     },
+     {
+      "name": "rank",
+      "value": 3
+     }
+    ],
+    "grade": "direct",
+    "impact_cents": 2374929,
+    "confidence": "high",
+    "suggested_refinements": [
+     "drill into F3"
+    ],
+    "benchmarks": [],
+    "metric_caveats": []
+   }
+  ],
+  "warnings": [
+   "window_assumed: the question named no period, so I used 2026-07-01..2026-07-31 on the service basis — the last full month this load can see (newest data date 2026-08-02).",
+   "findings_truncated: 3 of 12 computed cells are published as findings; the remaining 9 are in the chart and the evidence frame but carry no finding. Superlatives and spread statements on this answer describe the published slice, not the full population.",
+   "alternate_basis_used: 'denial_rate' is computed on the 'service' basis — its primary 'remit' basis is not available at the 'claim' grain in this warehouse",
+   "population_caveat: denial_rate — claims still awaiting their first remittance (status OPEN) are excluded from both sides — an unadjudicated claim carries a false clean flag for want of evidence, not because a payer denied it, so including it would report the data edge as a denial.",
+   "alternate_basis_used: 'denied_dollars' is read on the 'service' basis (primary is 'remit')",
+   "alternate_basis_used: 'cash_posted' is read on the 'service' basis (primary is 'post')",
+   "population_caveat: timely_filing_at_risk_dollars — this total counts every unbilled open claim regardless of runway, so a claim with a year left and a claim already past its deadline are both in it. Cut it by filing_runway_bucket before acting on it: that dimension joins each claim to the filing limit its PLAN configures and separates `expired` (deadline gone, dollars lost) from the day bands still workable. The limit is the plan record, which is the pack's plan_configuration tier and the most specific rule available; only 7 of the 30 plans in this warehouse match a filing_rules entry that needs no confirmation, so for the rest the deadline is a planning default to confirm against the payer contract before you work the list. Read the total as \"the population a filing watch ages\", and the runway cut as the exposure.",
+   "population_caveat: dnfb_dollars — professional claims (no discharge date) are outside this population by construction, and this is inventory standing as of the snapshot rather than a flow accumulated over a window, so narrowing the window does not narrow the figure.",
+   "population_caveat: credit_balance_dollars — this is a balance standing as of the snapshot, not a flow accumulated over a window, so narrowing the window does not narrow the figure.",
+   "suppression: cells counting fewer than 11 entities in their POPULATION are withheld entirely before results leave the engine; a cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped",
+   "transform 'compare' skipped: the question carries no comparison window",
+   "probe_families_empty: 8 metric famil(ies) on this plan were read and produced no published finding, so nothing above speaks for them: denial_rate (portfolio_denial_trend, 1 row(s)); cash_posted (portfolio_cash_trend, 1 row(s)); underpayment_variance (portfolio_underpayment, 12 row(s)); timely_filing_at_risk_dollars (portfolio_filing_risk, 30 row(s)); ar_over_90_pct (portfolio_ar_health, 12 row(s)); dnfb_dollars (portfolio_unbilled, 6 row(s)); credit_balance_dollars (portfolio_credits, 12 row(s)); avg_days_to_pay (portfolio_lag_watch, 12 row(s)). The findings rank within the families that did publish — they are not a cross-family comparison, and a family's absence is not evidence that it is fine."
+  ],
+  "warnings_v2": [
+   {
+    "code": "WINDOW_ASSUMED",
+    "severity": "caution",
+    "message": "window_assumed: the question named no period, so I used 2026-07-01..2026-07-31 on the service basis — the last full month this load can see (newest data date 2026-08-02).",
+    "count": 1
+   },
+   {
+    "code": "FINDINGS_TRUNCATED",
+    "severity": "caution",
+    "message": "findings_truncated: 3 of 12 computed cells are published as findings; the remaining 9 are in the chart and the evidence frame but carry no finding. Superlatives and spread statements on this answer describe the published slice, not the full population.",
+    "count": 1
+   },
+   {
+    "code": "ALTERNATE_BASIS_USED",
+    "severity": "caution",
+    "message": "alternate_basis_used: 'denial_rate' is computed on the 'service' basis — its primary 'remit' basis is not available at the 'claim' grain in this warehouse",
+    "count": 1
+   },
+   {
+    "code": "POPULATION_CAVEAT",
+    "severity": "caution",
+    "message": "population_caveat: denial_rate — claims still awaiting their first remittance (status OPEN) are excluded from both sides — an unadjudicated claim carries a false clean flag for want of evidence, not because a payer denied it, so including it would report the data edge as a denial.",
+    "count": 1
+   },
+   {
+    "code": "ALTERNATE_BASIS_USED",
+    "severity": "caution",
+    "message": "alternate_basis_used: 'denied_dollars' is read on the 'service' basis (primary is 'remit')",
+    "count": 1
+   },
+   {
+    "code": "ALTERNATE_BASIS_USED",
+    "severity": "caution",
+    "message": "alternate_basis_used: 'cash_posted' is read on the 'service' basis (primary is 'post')",
+    "count": 1
+   },
+   {
+    "code": "POPULATION_CAVEAT",
+    "severity": "caution",
+    "message": "population_caveat: timely_filing_at_risk_dollars — this total counts every unbilled open claim regardless of runway, so a claim with a year left and a claim already past its deadline are both in it. Cut it by filing_runway_bucket before acting on it: that dimension joins each claim to the filing limit its PLAN configures and separates `expired` (deadline gone, dollars lost) from the day bands still workable. The limit is the plan record, which is the pack's plan_configuration tier and the most specific rule available; only 7 of the 30 plans in this warehouse match a filing_rules entry that needs no confirmation, so for the rest the deadline is a planning default to confirm against the payer contract before you work the list. Read the total as \"the population a filing watch ages\", and the runway cut as the exposure.",
+    "count": 1
+   },
+   {
+    "code": "POPULATION_CAVEAT",
+    "severity": "caution",
+    "message": "population_caveat: dnfb_dollars — professional claims (no discharge date) are outside this population by construction, and this is inventory standing as of the snapshot rather than a flow accumulated over a window, so narrowing the window does not narrow the figure.",
+    "count": 1
+   },
+   {
+    "code": "POPULATION_CAVEAT",
+    "severity": "caution",
+    "message": "population_caveat: credit_balance_dollars — this is a balance standing as of the snapshot, not a flow accumulated over a window, so narrowing the window does not narrow the figure.",
+    "count": 1
+   },
+   {
+    "code": "SUPPRESSION_APPLIED",
+    "severity": "info",
+    "message": "suppression: cells counting fewer than 11 entities in their POPULATION are withheld entirely before results leave the engine; a cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped",
+    "count": 1
+   },
+   {
+    "code": "TRANSFORM_SKIPPED",
+    "severity": "info",
+    "message": "transform 'compare' skipped: the question carries no comparison window",
+    "count": 1
+   },
+   {
+    "code": "PROBE_FAMILIES_EMPTY",
+    "severity": "caution",
+    "message": "probe_families_empty: 8 metric famil(ies) on this plan were read and produced no published finding, so nothing above speaks for them: denial_rate (portfolio_denial_trend, 1 row(s)); cash_posted (portfolio_cash_trend, 1 row(s)); underpayment_variance (portfolio_underpayment, 12 row(s)); timely_filing_at_risk_dollars (portfolio_filing_risk, 30 row(s)); ar_over_90_pct (portfolio_ar_health, 12 row(s)); dnfb_dollars (portfolio_unbilled, 6 row(s)); credit_balance_dollars (portfolio_credits, 12 row(s)); avg_days_to_pay (portfolio_lag_watch, 12 row(s)). The findings rank within the families that did publish — they are not a cross-family comparison, and a family's absence is not evidence that it is fine.",
+    "count": 1
+   }
+  ],
+  "cohort": null,
+  "evidence": {
+   "probes": [
+    {
+     "id": "portfolio_denial_trend",
+     "hash": "72040726d74b3639cab40f53cd64e896004fd0321625593c7494163d881d0726",
+     "purpose": "Weekly denial rate; detector denial_rate_spike screens for spikes.",
+     "kind": "aggregation",
+     "metrics": [
+      {
+       "id": "denial_rate",
+       "contract_version": 2
+      }
+     ],
+     "cache_hit": true,
+     "rows": 1,
+     "limit": null,
+     "truncated": false,
+     "suppressed_cells": 0,
+     "grade": "direct",
+     "duration_ms": 5
+    },
+    {
+     "id": "portfolio_denied_dollars",
+     "hash": "24d8c51a6a511df84719c44c9273900a571840a7376c8a4e42a0902a61ae8e09",
+     "purpose": "Largest denied-dollar payers this month.",
+     "kind": "aggregation",
+     "metrics": [
+      {
+       "id": "denied_dollars",
+       "contract_version": 2
+      }
+     ],
+     "cache_hit": true,
+     "rows": 12,
+     "limit": 20,
+     "truncated": false,
+     "suppressed_cells": 0,
+     "grade": "direct",
+     "duration_ms": 5
+    },
+    {
+     "id": "portfolio_cash_trend",
+     "hash": "6eada1785e25081d4270070ccdbdb152ea4ef7f08b7e2a7de05927ec327d5102",
+     "purpose": "Weekly posted cash; detector cash_decline_detector screens for drops.",
+     "kind": "aggregation",
+     "metrics": [
+      {
+       "id": "cash_posted",
+       "contract_version": 1
+      }
+     ],
+     "cache_hit": true,
+     "rows": 1,
+     "limit": null,
+     "truncated": false,
+     "suppressed_cells": 0,
+     "grade": "direct",
+     "duration_ms": 3
+    },
+    {
+     "id": "portfolio_underpayment",
+     "hash": "239de82340ba7bf4fc0d08fe422e5028094d773af72dc6bb1d1b2bd39649cfd5",
+     "purpose": "Largest never-netted variance payers; detector underpayment_detector.",
+     "kind": "aggregation",
+     "metrics": [
+      {
+       "id": "underpayment_variance",
+       "contract_version": 2
+      }
+     ],
+     "cache_hit": true,
+     "rows": 12,
+     "limit": 20,
+     "truncated": false,
+     "suppressed_cells": 0,
+     "grade": "direct",
+     "duration_ms": 3
+    },
+    {
+     "id": "portfolio_filing_risk",
+     "hash": "a4ecf7f818d7f0a9ff7fc3cf345ea442b76419748f9e85beebe420ccd8124a0a",
+     "purpose": "Largest UNBILLED OPEN inventories by plan. Ranked on the POPULATION, not on exposure: this probe takes no runway cut, so a claim with a year of runway ranks beside one whose deadline has already passed. Since 2026-08-09 the runway is expressible — `filing_runway_bucket` is certified and legal on this contract — and the portfolio view deliberately stays at plan level for one row per plan; the split that turns this into exposure is `timely_filing_watch`'s `filing_runway_profile` probe, one drill away, where 47% of these dollars turn out to be already expired.",
+     "kind": "snapshot",
+     "metrics": [
+      {
+       "id": "timely_filing_at_risk_dollars",
+       "contract_version": 2
+      }
+     ],
+     "cache_hit": true,
+     "rows": 30,
+     "limit": null,
+     "truncated": false,
+     "suppressed_cells": 0,
+     "grade": "direct",
+     "duration_ms": 2
+    },
+    {
+     "id": "portfolio_ar_health",
+     "hash": "57cfc315d25633e87c53e6c6cae3c179413bfd644adf72330261719883037985",
+     "purpose": "Aged-A/R pressure by payer against the 15-20 percent guidance band.",
+     "kind": "snapshot",
+     "metrics": [
+      {
+       "id": "ar_over_90_pct",
+       "contract_version": 1
+      }
+     ],
+     "cache_hit": true,
+     "rows": 12,
+     "limit": null,
+     "truncated": false,
+     "suppressed_cells": 0,
+     "grade": "direct",
+     "duration_ms": 2
+    },
+    {
+     "id": "portfolio_unbilled",
+     "hash": "7005b9c0c8382033b985567f4c55bbe3feee8857018ba2c6562083213a169e49",
+     "purpose": "DNFB standing by facility.",
+     "kind": "snapshot",
+     "metrics": [
+      {
+       "id": "dnfb_dollars",
+       "contract_version": 1
+      }
+     ],
+     "cache_hit": true,
+     "rows": 6,
+     "limit": null,
+     "truncated": false,
+     "suppressed_cells": 0,
+     "grade": "direct",
+     "duration_ms": 2
+    },
+    {
+     "id": "portfolio_credits",
+     "hash": "bb2f371ade61367895eda59c74249fc615a2f50de82feb758ab1aea453e5255e",
+     "purpose": "Credit-balance liability standing by payer.",
+     "kind": "snapshot",
+     "metrics": [
+      {
+       "id": "credit_balance_dollars",
+       "contract_version": 1
+      }
+     ],
+     "cache_hit": true,
+     "rows": 12,
+     "limit": null,
+     "truncated": false,
+     "suppressed_cells": 0,
+     "grade": "direct",
+     "duration_ms": 2
+    },
+    {
+     "id": "portfolio_lag_watch",
+     "hash": "4de7e9ee0e3c0bb48a706cf8f49a04260fdd8d1e576577d666a99195185e8031",
+     "purpose": "Payment-lag stretch screen; detector posting_lag_stretch.",
+     "kind": "aggregation",
+     "metrics": [
+      {
+       "id": "avg_days_to_pay",
+       "contract_version": 1
+      }
+     ],
+     "cache_hit": true,
+     "rows": 12,
+     "limit": null,
+     "truncated": false,
+     "suppressed_cells": 0,
+     "grade": "direct",
+     "duration_ms": 2
+    }
+   ],
+   "reconciliation": {
+    "status": "not_applicable",
+    "detail": "this is a first turn; there is no parent answer to reconcile to",
+    "summary": "status=not_applicable; reason=this is a first turn; there is no parent answer to reconcile to"
+   },
+   "warehouse_queries": 0,
+   "cache_hits": 9,
+   "zero_probe_turn": true,
+   "answer_grade": "direct"
+  },
+  "metric": {
+   "primary": null,
+   "metrics": [
+    {
+     "id": "denial_rate",
+     "contract_version": 2
+    },
+    {
+     "id": "denied_dollars",
+     "contract_version": 2
+    },
+    {
+     "id": "cash_posted",
+     "contract_version": 1
+    },
+    {
+     "id": "underpayment_variance",
+     "contract_version": 2
+    },
+    {
+     "id": "timely_filing_at_risk_dollars",
+     "contract_version": 2
+    },
+    {
+     "id": "ar_over_90_pct",
+     "contract_version": 1
+    },
+    {
+     "id": "dnfb_dollars",
+     "contract_version": 1
+    },
+    {
+     "id": "credit_balance_dollars",
+     "contract_version": 1
+    },
+    {
+     "id": "avg_days_to_pay",
+     "contract_version": 1
+    }
+   ],
+   "playbook_id": "daily_portfolio",
+   "pack_id": "base-rcm",
+   "pack_version": "1.0.0",
+   "pack_snapshot_id": "8e5f979b791b1d69a0084d7f962469469f414785666fda0f6ae4e5bfb6994a85"
+  },
+  "chart_specs": [
+   {
+    "id": "chart_portfolio_denied_dollars",
+    "chart_type": "stacked_bar",
+    "title": "denied dollars — portfolio denied dollars",
+    "frame_id": "portfolio_denied_dollars",
+    "x": "payer",
+    "series": null,
+    "value": "denied_dollars",
+    "unit": "money_cents",
+    "grade": "direct",
+    "rows": [
+     {
+      "x": "Atlas Commercial",
+      "series": null,
+      "value": 3395490,
+      "referent_id": "F1",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Meridian Health",
+      "series": null,
+      "value": 2861494,
+      "referent_id": "F2",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Silverline Medicare Advantage",
+      "series": null,
+      "value": 2374929,
+      "referent_id": "F3",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Bluestone Mutual",
+      "series": null,
+      "value": 2144225,
+      "referent_id": "D4",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Summit Peak Medicare Advantage",
+      "series": null,
+      "value": 2087702,
+      "referent_id": "D5",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Pinnacle Health Plan",
+      "series": null,
+      "value": 1772375,
+      "referent_id": "D6",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "State Medicaid MCO",
+      "series": null,
+      "value": 1660490,
+      "referent_id": "D7",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "State Medicaid",
+      "series": null,
+      "value": 1150785,
+      "referent_id": "D8",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Northbridge Commercial",
+      "series": null,
+      "value": 634160,
+      "referent_id": "D9",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Federal Medicare",
+      "series": null,
+      "value": 608132,
+      "referent_id": "D10",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Veritas Comp Fund",
+      "series": null,
+      "value": 461825,
+      "referent_id": "D11",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Lakewood Medicaid MCO",
+      "series": null,
+      "value": 327054,
+      "referent_id": "D12",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     }
+    ],
+    "annotations": [],
+    "recipe_id": "denial_code_mix",
+    "sort": {
+     "by": "denied_dollars",
+     "direction": "desc"
+    },
+    "axis_order": null
+   },
+   {
+    "id": "chart_portfolio_underpayment",
+    "chart_type": "bar",
+    "title": "underpayment variance — portfolio underpayment",
+    "frame_id": "portfolio_underpayment",
+    "x": "payer",
+    "series": null,
+    "value": "underpayment_variance",
+    "unit": "money_cents",
+    "grade": "direct",
+    "rows": [
+     {
+      "x": "Bluestone Mutual",
+      "series": null,
+      "value": 9641114,
+      "referent_id": "D4",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Northbridge Commercial",
+      "series": null,
+      "value": 3865880,
+      "referent_id": "D9",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Summit Peak Medicare Advantage",
+      "series": null,
+      "value": 774059,
+      "referent_id": "D5",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Lakewood Medicaid MCO",
+      "series": null,
+      "value": 25667,
+      "referent_id": "D12",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Pinnacle Health Plan",
+      "series": null,
+      "value": 0,
+      "referent_id": "D6",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "State Medicaid MCO",
+      "series": null,
+      "value": 0,
+      "referent_id": "D7",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Silverline Medicare Advantage",
+      "series": null,
+      "value": 0,
+      "referent_id": "F3",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Meridian Health",
+      "series": null,
+      "value": 0,
+      "referent_id": "F2",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Atlas Commercial",
+      "series": null,
+      "value": 0,
+      "referent_id": "F1",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "State Medicaid",
+      "series": null,
+      "value": 0,
+      "referent_id": "D8",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Federal Medicare",
+      "series": null,
+      "value": 0,
+      "referent_id": "D10",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Veritas Comp Fund",
+      "series": null,
+      "value": 0,
+      "referent_id": "D11",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     }
+    ],
+    "annotations": [],
+    "recipe_id": "underpayment_pareto",
+    "sort": {
+     "by": "underpayment_variance",
+     "direction": "desc"
+    },
+    "axis_order": null
+   },
+   {
+    "id": "chart_portfolio_filing_risk",
+    "chart_type": "bar",
+    "title": "timely filing at risk dollars — portfolio filing risk",
+    "frame_id": "portfolio_filing_risk",
+    "x": "plan",
+    "series": null,
+    "value": "timely_filing_at_risk_dollars",
+    "unit": "money_cents",
+    "grade": "direct",
+    "rows": [
+     {
+      "x": "Atlas HMO Complete",
+      "series": null,
+      "value": 119517907,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Atlas National PPO",
+      "series": null,
+      "value": 66901242,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Atlas POS Flex",
+      "series": null,
+      "value": 96608296,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Atlas PPO Select",
+      "series": null,
+      "value": 187299852,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Bluestone Federal PPO",
+      "series": null,
+      "value": 25257347,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Bluestone HMO Blue",
+      "series": null,
+      "value": 40030659,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Bluestone PPO Blue",
+      "series": null,
+      "value": 59528577,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Federal Medicare Part A",
+      "series": null,
+      "value": 89313459,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Federal Medicare Part B",
+      "series": null,
+      "value": 170777021,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Lakewood MCO Core",
+      "series": null,
+      "value": 68555885,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Lakewood MCO Plus",
+      "series": null,
+      "value": 24378140,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Meridian Exchange PPO",
+      "series": null,
+      "value": 22027230,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Meridian HMO Care",
+      "series": null,
+      "value": 49267850,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Meridian POS Choice",
+      "series": null,
+      "value": 42736424,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Meridian PPO Prime",
+      "series": null,
+      "value": 80765447,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Northbridge HMO",
+      "series": null,
+      "value": 41299463,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Northbridge POS",
+      "series": null,
+      "value": 30428548,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Northbridge PPO",
+      "series": null,
+      "value": 78865725,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Pinnacle HMO",
+      "series": null,
+      "value": 30437426,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Pinnacle POS",
+      "series": null,
+      "value": 18381213,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Pinnacle PPO",
+      "series": null,
+      "value": 47314056,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Silverline MA Classic",
+      "series": null,
+      "value": 107181370,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Silverline MA Plus",
+      "series": null,
+      "value": 66610268,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "State MCO Expansion",
+      "series": null,
+      "value": 27959332,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "State MCO Standard",
+      "series": null,
+      "value": 62602878,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "State Medicaid FFS",
+      "series": null,
+      "value": 218360229,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "State Medicaid HMO",
+      "series": null,
+      "value": 234969217,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Summit Peak MA",
+      "series": null,
+      "value": 57299705,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Summit Peak MA Choice",
+      "series": null,
+      "value": 37583776,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Veritas Comp Standard",
+      "series": null,
+      "value": 40341486,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     }
+    ],
+    "annotations": [],
+    "recipe_id": "filing_runway",
+    "sort": {
+     "by": "timely_filing_at_risk_dollars",
+     "direction": "desc"
+    },
+    "axis_order": null
+   },
+   {
+    "id": "chart_portfolio_ar_health",
+    "chart_type": "bar",
+    "title": "ar over 90 pct — portfolio ar health",
+    "frame_id": "portfolio_ar_health",
+    "x": "payer",
+    "series": null,
+    "value": "ar_over_90_pct",
+    "unit": "ratio",
+    "grade": "direct",
+    "rows": [
+     {
+      "x": "Atlas Commercial",
+      "series": null,
+      "value": 0.515619,
+      "referent_id": "F1",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Bluestone Mutual",
+      "series": null,
+      "value": 0.446813,
+      "referent_id": "D4",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Federal Medicare",
+      "series": null,
+      "value": 0.469336,
+      "referent_id": "D10",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Lakewood Medicaid MCO",
+      "series": null,
+      "value": 0.491628,
+      "referent_id": "D12",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Meridian Health",
+      "series": null,
+      "value": 0.450265,
+      "referent_id": "F2",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Northbridge Commercial",
+      "series": null,
+      "value": 0.454262,
+      "referent_id": "D9",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Pinnacle Health Plan",
+      "series": null,
+      "value": 0.376621,
+      "referent_id": "D6",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Silverline Medicare Advantage",
+      "series": null,
+      "value": 0.408065,
+      "referent_id": "F3",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "State Medicaid",
+      "series": null,
+      "value": 0.370972,
+      "referent_id": "D8",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "State Medicaid MCO",
+      "series": null,
+      "value": 0.413912,
+      "referent_id": "D7",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Summit Peak Medicare Advantage",
+      "series": null,
+      "value": 0.454284,
+      "referent_id": "D5",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Veritas Comp Fund",
+      "series": null,
+      "value": 0.389741,
+      "referent_id": "D11",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     }
+    ],
+    "annotations": [],
+    "recipe_id": null,
+    "sort": null,
+    "axis_order": null
+   }
+  ],
+  "metric_display": [],
+  "created_at": "2026-08-09T21:42:16.477445Z"
+ },
+ "bounded_ranking_refused": {
+  "investigation_id": "inv_edfe29ddef8f",
+  "session_id": "sess_040f6c354850",
+  "parent_id": null,
+  "turn_id": "turn_80d5a9e97807",
+  "turn_class": "new_investigation",
+  "status": "complete",
+  "question": "Rank our plans by denial rate for July 2026 — worst first.",
+  "plan_hash": "6b12b254806f0a2052b8091462cf9e77170eee47703bc63d92232b3c20c7f9a5",
+  "context_header": {
+   "window_start": "2026-07-01",
+   "window_end": "2026-07-31",
+   "basis": "service",
+   "comparison_kind": null,
+   "comparison_start": null,
+   "comparison_end": null,
+   "filters": [],
+   "filter_chips": [],
+   "cohort": null,
+   "cohort_size": null,
+   "watermark_id": "wm_003",
+   "as_of": null,
+   "display": "2026-07-01..2026-07-31 (service) · watermark wm_003"
+  },
+  "context_header_restored": true,
+  "watermark_id": "wm_003",
+  "newest_data_date": "2026-08-02",
+  "restoration_notes": [
+   "Restored context: the window, scope, cohort and watermark below are rebuilt from this turn's stored investigation spec at watermark wm_003, not re-computed — the figures are the ones this turn published when it ran.",
+   "The composed narrative is not stored anywhere — the narrative trace keeps its template, redactions and length, not its sentences — so this turn restores without prose. Its findings, warnings and charts are its own record."
+  ],
+  "findings": [
+   {
+    "referent": "F1",
+    "title": "Pinnacle HMO: 47.2% denial rate",
+    "statement": "Pinnacle HMO: 47.2% denial rate over 2026-07-01..2026-07-31. No position is claimed for it — too much of this population carries suppressed numerators for an order to mean anything.",
+    "metric_ids": [
+     "denial_rate"
+    ],
+    "values": [
+     {
+      "name": "denial_rate",
+      "value": 0.472222
+     },
+     {
+      "name": "rank",
+      "value": 7
+     }
+    ],
+    "grade": "direct",
+    "impact_cents": null,
+    "confidence": "high",
+    "suggested_refinements": [
+     "drill into F1"
+    ],
+    "benchmarks": [
+     {
+      "id": "benchmark.denial_rate.marketplace_kff",
+      "metric_id": "denial_rate",
+      "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
+      "value_low": "19",
+      "value_high": "20",
+      "unit": "percent of in-network claims denied",
+      "period": "2023-2024",
+      "authority": "independent analysis of CMS transparency data",
+      "review_status": "machine_researched",
+      "cautions": [
+       "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
+       "Plan-reported data with no initial/final distinction"
+      ],
+      "sources": [
+       "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
+      ]
+     }
+    ],
+    "metric_caveats": []
+   },
+   {
+    "referent": "F2",
+    "title": "State MCO Standard: 30.0% denial rate",
+    "statement": "State MCO Standard: 30.0% denial rate over 2026-07-01..2026-07-31. No position is claimed for it — too much of this population carries suppressed numerators for an order to mean anything.",
+    "metric_ids": [
+     "denial_rate"
+    ],
+    "values": [
+     {
+      "name": "denial_rate",
+      "value": 0.3
+     },
+     {
+      "name": "rank",
+      "value": 9
+     }
+    ],
+    "grade": "direct",
+    "impact_cents": null,
+    "confidence": "high",
+    "suggested_refinements": [
+     "drill into F2"
+    ],
+    "benchmarks": [
+     {
+      "id": "benchmark.denial_rate.marketplace_kff",
+      "metric_id": "denial_rate",
+      "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
+      "value_low": "19",
+      "value_high": "20",
+      "unit": "percent of in-network claims denied",
+      "period": "2023-2024",
+      "authority": "independent analysis of CMS transparency data",
+      "review_status": "machine_researched",
+      "cautions": [
+       "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
+       "Plan-reported data with no initial/final distinction"
+      ],
+      "sources": [
+       "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
+      ]
+     }
+    ],
+    "metric_caveats": []
+   },
+   {
+    "referent": "F3",
+    "title": "Silverline MA Plus: 27.9% denial rate",
+    "statement": "Silverline MA Plus: 27.9% denial rate over 2026-07-01..2026-07-31. No position is claimed for it — too much of this population carries suppressed numerators for an order to mean anything.",
+    "metric_ids": [
+     "denial_rate"
+    ],
+    "values": [
+     {
+      "name": "denial_rate",
+      "value": 0.27907
+     },
+     {
+      "name": "rank",
+      "value": 13
+     }
+    ],
+    "grade": "direct",
+    "impact_cents": null,
+    "confidence": "high",
+    "suggested_refinements": [
+     "drill into F3"
+    ],
+    "benchmarks": [
+     {
+      "id": "benchmark.denial_rate.marketplace_kff",
+      "metric_id": "denial_rate",
+      "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
+      "value_low": "19",
+      "value_high": "20",
+      "unit": "percent of in-network claims denied",
+      "period": "2023-2024",
+      "authority": "independent analysis of CMS transparency data",
+      "review_status": "machine_researched",
+      "cautions": [
+       "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
+       "Plan-reported data with no initial/final distinction"
+      ],
+      "sources": [
+       "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
+      ]
+     }
+    ],
+    "metric_caveats": []
+   },
+   {
+    "referent": "F4",
+    "title": "Federal Medicare Part B: ≤ 7.4% denial rate (upper bound)",
+    "statement": "Federal Medicare Part B: denial rate is AT MOST 7.4% over 2026-07-01..2026-07-31 — the numerator was suppressed over a population of 136, so this is a ceiling and not a measurement. It is published unranked: a bound cannot be ordered against measured cells.",
+    "metric_ids": [
+     "denial_rate"
+    ],
+    "values": [
+     {
+      "name": "denial_rate",
+      "value": 0.073529
+     },
+     {
+      "name": "denial_rate__is_bound",
+      "value": true
+     },
+     {
+      "name": "denial_rate__bound",
+      "value": 0.07352941176470588
+     },
+     {
+      "name": "denial_rate__bound_population",
+      "value": 136
+     }
+    ],
+    "grade": "direct",
+    "impact_cents": null,
+    "confidence": "qualified",
+    "suggested_refinements": [
+     "drill into F4"
+    ],
+    "benchmarks": [
+     {
+      "id": "benchmark.denial_rate.marketplace_kff",
+      "metric_id": "denial_rate",
+      "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
+      "value_low": "19",
+      "value_high": "20",
+      "unit": "percent of in-network claims denied",
+      "period": "2023-2024",
+      "authority": "independent analysis of CMS transparency data",
+      "review_status": "machine_researched",
+      "cautions": [
+       "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
+       "Plan-reported data with no initial/final distinction"
+      ],
+      "sources": [
+       "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
+      ]
+     }
+    ],
+    "metric_caveats": []
+   },
+   {
+    "referent": "F5",
+    "title": "Atlas PPO Select: ≤ 7.5% denial rate (upper bound)",
+    "statement": "Atlas PPO Select: denial rate is AT MOST 7.5% over 2026-07-01..2026-07-31 — the numerator was suppressed over a population of 133, so this is a ceiling and not a measurement. It is published unranked: a bound cannot be ordered against measured cells.",
+    "metric_ids": [
+     "denial_rate"
+    ],
+    "values": [
+     {
+      "name": "denial_rate",
+      "value": 0.075188
+     },
+     {
+      "name": "denial_rate__is_bound",
+      "value": true
+     },
+     {
+      "name": "denial_rate__bound",
+      "value": 0.07518796992481203
+     },
+     {
+      "name": "denial_rate__bound_population",
+      "value": 133
+     }
+    ],
+    "grade": "direct",
+    "impact_cents": null,
+    "confidence": "qualified",
+    "suggested_refinements": [
+     "drill into F5"
+    ],
+    "benchmarks": [
+     {
+      "id": "benchmark.denial_rate.marketplace_kff",
+      "metric_id": "denial_rate",
+      "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
+      "value_low": "19",
+      "value_high": "20",
+      "unit": "percent of in-network claims denied",
+      "period": "2023-2024",
+      "authority": "independent analysis of CMS transparency data",
+      "review_status": "machine_researched",
+      "cautions": [
+       "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
+       "Plan-reported data with no initial/final distinction"
+      ],
+      "sources": [
+       "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
+      ]
+     }
+    ],
+    "metric_caveats": []
+   },
+   {
+    "referent": "F6",
+    "title": "Atlas HMO Complete: ≤ 10.9% denial rate (upper bound)",
+    "statement": "Atlas HMO Complete: denial rate is AT MOST 10.9% over 2026-07-01..2026-07-31 — the numerator was suppressed over a population of 92, so this is a ceiling and not a measurement. It is published unranked: a bound cannot be ordered against measured cells.",
+    "metric_ids": [
+     "denial_rate"
+    ],
+    "values": [
+     {
+      "name": "denial_rate",
+      "value": 0.108696
+     },
+     {
+      "name": "denial_rate__is_bound",
+      "value": true
+     },
+     {
+      "name": "denial_rate__bound",
+      "value": 0.10869565217391304
+     },
+     {
+      "name": "denial_rate__bound_population",
+      "value": 92
+     }
+    ],
+    "grade": "direct",
+    "impact_cents": null,
+    "confidence": "qualified",
+    "suggested_refinements": [
+     "drill into F6"
+    ],
+    "benchmarks": [
+     {
+      "id": "benchmark.denial_rate.marketplace_kff",
+      "metric_id": "denial_rate",
+      "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
+      "value_low": "19",
+      "value_high": "20",
+      "unit": "percent of in-network claims denied",
+      "period": "2023-2024",
+      "authority": "independent analysis of CMS transparency data",
+      "review_status": "machine_researched",
+      "cautions": [
+       "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
+       "Plan-reported data with no initial/final distinction"
+      ],
+      "sources": [
+       "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
+      ]
+     }
+    ],
+    "metric_caveats": []
+   }
+  ],
+  "warnings": [
+   "ranking_refused: 24 of the 30 publishable denial rate cells on this answer carry an upper bound rather than a measurement, leaving 6 measured, so no ranking is published. Ordering ceilings against measurements sorts by population size, not by the measure that was asked about. The bounded cells are listed separately, each with the population its bound was taken over. Of 30 cell(s) on this answer, 24 carry an upper bound, 0 were withheld outright and 6 are measured.",
+   "findings_truncated: 6 of 30 computed cells are published as findings; the remaining 24 are in the chart and the evidence frame but carry no finding. Superlatives and spread statements on this answer describe the published slice, not the full population.",
+   "alternate_basis_used: probe 'main' computes 'denial_rate' on the 'service' basis — its primary 'remit' basis is not available at the 'claim' grain in this warehouse",
+   "population_caveat: denial_rate — claims still awaiting their first remittance (status OPEN) are excluded from both sides — an unadjudicated claim carries a false clean flag for want of evidence, not because a payer denied it, so including it would report the data edge as a denial.",
+   "suppression: cells counting fewer than 11 entities in their POPULATION are withheld entirely before results leave the engine; a cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped",
+   "suppression_bounded: 24 cells had fewer than 11 entities in the numerator over a population large enough to publish. Rather than withhold them — which removes the best-performing cells from a ranking and says nothing — each is shown as an UPPER BOUND of at most 10 over its own population: Atlas HMO Complete (denial rate ≤ 10.9% over 92 entities); Atlas National PPO (denial rate ≤ 19.2% over 52 entities); Atlas POS Flex (denial rate ≤ 12.8% over 78 entities); Atlas PPO Select (denial rate ≤ 7.5% over 133 entities); Bluestone Federal PPO (denial rate ≤ 50.0% over 20 entities); Bluestone HMO Blue (denial rate ≤ 24.4% over 41 entities); Federal Medicare Part A (denial rate ≤ 12.8% over 78 entities); Federal Medicare Part B (denial rate ≤ 7.4% over 136 entities); and 16 more, each shown as a bound in the chart. The true figure is at or below the bound and is NOT a measurement. Of 30 cell(s) on this answer, 24 carry an upper bound, 0 were withheld outright and 6 are measured."
+  ],
+  "warnings_v2": [
+   {
+    "code": "RANKING_REFUSED",
+    "severity": "caution",
+    "message": "ranking_refused: 24 of the 30 publishable denial rate cells on this answer carry an upper bound rather than a measurement, leaving 6 measured, so no ranking is published. Ordering ceilings against measurements sorts by population size, not by the measure that was asked about. The bounded cells are listed separately, each with the population its bound was taken over. Of 30 cell(s) on this answer, 24 carry an upper bound, 0 were withheld outright and 6 are measured.",
+    "count": 1
+   },
+   {
+    "code": "FINDINGS_TRUNCATED",
+    "severity": "caution",
+    "message": "findings_truncated: 6 of 30 computed cells are published as findings; the remaining 24 are in the chart and the evidence frame but carry no finding. Superlatives and spread statements on this answer describe the published slice, not the full population.",
+    "count": 1
+   },
+   {
+    "code": "ALTERNATE_BASIS_USED",
+    "severity": "caution",
+    "message": "alternate_basis_used: probe 'main' computes 'denial_rate' on the 'service' basis — its primary 'remit' basis is not available at the 'claim' grain in this warehouse",
+    "count": 1
+   },
+   {
+    "code": "POPULATION_CAVEAT",
+    "severity": "caution",
+    "message": "population_caveat: denial_rate — claims still awaiting their first remittance (status OPEN) are excluded from both sides — an unadjudicated claim carries a false clean flag for want of evidence, not because a payer denied it, so including it would report the data edge as a denial.",
+    "count": 1
+   },
+   {
+    "code": "SUPPRESSION_APPLIED",
+    "severity": "info",
+    "message": "suppression: cells counting fewer than 11 entities in their POPULATION are withheld entirely before results leave the engine; a cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped",
+    "count": 1
+   },
+   {
+    "code": "SUPPRESSION_BOUNDED",
+    "severity": "caution",
+    "message": "suppression_bounded: 24 cells had fewer than 11 entities in the numerator over a population large enough to publish. Rather than withhold them — which removes the best-performing cells from a ranking and says nothing — each is shown as an UPPER BOUND of at most 10 over its own population: Atlas HMO Complete (denial rate ≤ 10.9% over 92 entities); Atlas National PPO (denial rate ≤ 19.2% over 52 entities); Atlas POS Flex (denial rate ≤ 12.8% over 78 entities); Atlas PPO Select (denial rate ≤ 7.5% over 133 entities); Bluestone Federal PPO (denial rate ≤ 50.0% over 20 entities); Bluestone HMO Blue (denial rate ≤ 24.4% over 41 entities); Federal Medicare Part A (denial rate ≤ 12.8% over 78 entities); Federal Medicare Part B (denial rate ≤ 7.4% over 136 entities); and 16 more, each shown as a bound in the chart. The true figure is at or below the bound and is NOT a measurement. Of 30 cell(s) on this answer, 24 carry an upper bound, 0 were withheld outright and 6 are measured.",
+    "count": 1
+   }
+  ],
+  "cohort": null,
+  "evidence": {
+   "probes": [
+    {
+     "id": "main",
+     "hash": "fad0cf7ca874aee142b0cf6d4102c2c91cf1623e055cf2e0a1ed60e7537279dd",
+     "purpose": "direct metric query",
+     "kind": "aggregation",
+     "metrics": [
+      {
+       "id": "denial_rate",
+       "contract_version": 2
+      }
+     ],
+     "cache_hit": false,
+     "rows": 30,
+     "limit": null,
+     "truncated": false,
+     "suppressed_cells": 22,
+     "grade": "direct",
+     "duration_ms": 40
+    }
+   ],
+   "reconciliation": {
+    "status": "not_applicable",
+    "detail": "this is a first turn; there is no parent answer to reconcile to",
+    "summary": "status=not_applicable; reason=this is a first turn; there is no parent answer to reconcile to"
+   },
+   "warehouse_queries": 1,
+   "cache_hits": 0,
+   "zero_probe_turn": false,
+   "answer_grade": "direct"
+  },
+  "metric": {
+   "primary": {
+    "id": "denial_rate",
+    "contract_version": 2
+   },
+   "metrics": [
+    {
+     "id": "denial_rate",
+     "contract_version": 2
+    }
+   ],
+   "playbook_id": null,
+   "pack_id": "base-rcm",
+   "pack_version": "1.0.0",
+   "pack_snapshot_id": "8e5f979b791b1d69a0084d7f962469469f414785666fda0f6ae4e5bfb6994a85"
+  },
+  "chart_specs": [
+   {
+    "id": "chart_main",
+    "chart_type": "line",
+    "title": "denial rate — main",
+    "frame_id": "main",
+    "x": "plan",
+    "series": null,
+    "value": "denial_rate",
+    "unit": "ratio",
+    "grade": "direct",
+    "rows": [
+     {
+      "x": "Atlas HMO Complete",
+      "series": null,
+      "value": 0.108696,
+      "referent_id": "F6",
+      "is_bound": true,
+      "bound_population": 92,
+      "provisional": false
+     },
+     {
+      "x": "Atlas National PPO",
+      "series": null,
+      "value": 0.192308,
+      "referent_id": "D2",
+      "is_bound": true,
+      "bound_population": 52,
+      "provisional": false
+     },
+     {
+      "x": "Atlas POS Flex",
+      "series": null,
+      "value": 0.128205,
+      "referent_id": "D3",
+      "is_bound": true,
+      "bound_population": 78,
+      "provisional": false
+     },
+     {
+      "x": "Atlas PPO Select",
+      "series": null,
+      "value": 0.075188,
+      "referent_id": "F5",
+      "is_bound": true,
+      "bound_population": 133,
+      "provisional": false
+     },
+     {
+      "x": "Bluestone Federal PPO",
+      "series": null,
+      "value": 0.5,
+      "referent_id": "D5",
+      "is_bound": true,
+      "bound_population": 20,
+      "provisional": false
+     },
+     {
+      "x": "Bluestone HMO Blue",
+      "series": null,
+      "value": 0.243902,
+      "referent_id": "D6",
+      "is_bound": true,
+      "bound_population": 41,
+      "provisional": false
+     },
+     {
+      "x": "Bluestone PPO Blue",
+      "series": null,
+      "value": 0.205882,
+      "referent_id": "D7",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Federal Medicare Part A",
+      "series": null,
+      "value": 0.128205,
+      "referent_id": "D8",
+      "is_bound": true,
+      "bound_population": 78,
+      "provisional": false
+     },
+     {
+      "x": "Federal Medicare Part B",
+      "series": null,
+      "value": 0.073529,
+      "referent_id": "F4",
+      "is_bound": true,
+      "bound_population": 136,
+      "provisional": false
+     },
+     {
+      "x": "Lakewood MCO Core",
+      "series": null,
+      "value": 0.294118,
+      "referent_id": "D10",
+      "is_bound": true,
+      "bound_population": 34,
+      "provisional": false
+     },
+     {
+      "x": "Lakewood MCO Plus",
+      "series": null,
+      "value": 0.714286,
+      "referent_id": "D11",
+      "is_bound": true,
+      "bound_population": 14,
+      "provisional": false
+     },
+     {
+      "x": "Meridian Exchange PPO",
+      "series": null,
+      "value": 0.47619,
+      "referent_id": "D12",
+      "is_bound": true,
+      "bound_population": 21,
+      "provisional": false
+     },
+     {
+      "x": "Meridian HMO Care",
+      "series": null,
+      "value": 0.157895,
+      "referent_id": "D13",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Meridian POS Choice",
+      "series": null,
+      "value": 0.238095,
+      "referent_id": "D14",
+      "is_bound": true,
+      "bound_population": 42,
+      "provisional": false
+     },
+     {
+      "x": "Meridian PPO Prime",
+      "series": null,
+      "value": 0.119048,
+      "referent_id": "D15",
+      "is_bound": true,
+      "bound_population": 84,
+      "provisional": false
+     },
+     {
+      "x": "Northbridge HMO",
+      "series": null,
+      "value": 0.285714,
+      "referent_id": "D16",
+      "is_bound": true,
+      "bound_population": 35,
+      "provisional": false
+     },
+     {
+      "x": "Northbridge POS",
+      "series": null,
+      "value": 0.3125,
+      "referent_id": "D17",
+      "is_bound": true,
+      "bound_population": 32,
+      "provisional": false
+     },
+     {
+      "x": "Northbridge PPO",
+      "series": null,
+      "value": 0.136986,
+      "referent_id": "D18",
+      "is_bound": true,
+      "bound_population": 73,
+      "provisional": false
+     },
+     {
+      "x": "Pinnacle HMO",
+      "series": null,
+      "value": 0.472222,
+      "referent_id": "F1",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Pinnacle POS",
+      "series": null,
+      "value": 0.0,
+      "referent_id": "D20",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Pinnacle PPO",
+      "series": null,
+      "value": 0.243902,
+      "referent_id": "D21",
+      "is_bound": true,
+      "bound_population": 41,
+      "provisional": false
+     },
+     {
+      "x": "Silverline MA Classic",
+      "series": null,
+      "value": 0.135135,
+      "referent_id": "D22",
+      "is_bound": true,
+      "bound_population": 74,
+      "provisional": false
+     },
+     {
+      "x": "Silverline MA Plus",
+      "series": null,
+      "value": 0.27907,
+      "referent_id": "F3",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "State MCO Expansion",
+      "series": null,
+      "value": 0.909091,
+      "referent_id": "D24",
+      "is_bound": true,
+      "bound_population": 11,
+      "provisional": false
+     },
+     {
+      "x": "State MCO Standard",
+      "series": null,
+      "value": 0.3,
+      "referent_id": "F2",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "State Medicaid FFS",
+      "series": null,
+      "value": 0.172414,
+      "referent_id": "D26",
+      "is_bound": true,
+      "bound_population": 58,
+      "provisional": false
+     },
+     {
+      "x": "State Medicaid HMO",
+      "series": null,
+      "value": 0.27027,
+      "referent_id": "D27",
+      "is_bound": true,
+      "bound_population": 37,
+      "provisional": false
+     },
+     {
+      "x": "Summit Peak MA",
+      "series": null,
+      "value": 0.294118,
+      "referent_id": "D28",
+      "is_bound": true,
+      "bound_population": 34,
+      "provisional": false
+     },
+     {
+      "x": "Summit Peak MA Choice",
+      "series": null,
+      "value": 0.526316,
+      "referent_id": "D29",
+      "is_bound": true,
+      "bound_population": 19,
+      "provisional": false
+     },
+     {
+      "x": "Veritas Comp Standard",
+      "series": null,
+      "value": 0.769231,
+      "referent_id": "D30",
+      "is_bound": true,
+      "bound_population": 13,
+      "provisional": false
+     }
+    ],
+    "annotations": [
+     "upper bounds: 24 of 30 marks are ceilings, not measurements — their numerator was suppressed and they cannot be ranked against the measured marks",
+     "ranking_refused: 24 of the 30 publishable marks are upper bounds, leaving 6 measured — too few for an order to mean anything. These marks are NOT ranked, whatever order they are drawn in; sorting ceilings against measurements sorts by population size."
+    ],
+    "recipe_id": "denial_rate_trend",
+    "sort": {
+     "by": "denial_rate",
+     "direction": "desc"
+    },
+    "axis_order": null
+   }
+  ],
+  "metric_display": [],
+  "created_at": "2026-08-09T19:24:23.439107Z"
+ },
+ "comparison_premise": {
+  "investigation_id": "inv_9435ccf2bbef",
+  "session_id": "sess_b15ec20e6ee8",
+  "parent_id": null,
+  "turn_id": "turn_5afcca7adb16",
+  "turn_class": "new_investigation",
+  "status": "complete",
+  "question": "Our denial rate doubled since January. Why?",
+  "plan_hash": "ab5d9b374d8a4c767bc2d32a12b179ec52a74c41e8a062b3e32f50f474bb4238",
+  "context_header": {
+   "window_start": "2026-01-01",
+   "window_end": "2026-08-02",
+   "basis": "service",
+   "comparison_kind": "prior_period",
+   "comparison_start": "2025-01-01",
+   "comparison_end": "2025-08-02",
+   "filters": [],
+   "filter_chips": [],
+   "cohort": null,
+   "cohort_size": null,
+   "watermark_id": "wm_003",
+   "as_of": null,
+   "display": "2026-01-01..2026-08-02 (service) · vs 2025-01-01..2025-08-02 · watermark wm_003"
+  },
+  "context_header_restored": true,
+  "watermark_id": "wm_003",
+  "newest_data_date": "2026-08-02",
+  "restoration_notes": [
+   "Restored context: the window, scope, cohort and watermark below are rebuilt from this turn's stored investigation spec at watermark wm_003, not re-computed — the figures are the ones this turn published when it ran.",
+   "The composed narrative is not stored anywhere — the narrative trace keeps its template, redactions and length, not its sentences — so this turn restores without prose. Its findings, warnings and charts are its own record."
+  ],
+  "findings": [
+   {
+    "referent": "F1",
+    "title": "Premise partly supported: You asked about a doubling in denial rate. It did not double — denial rate rose 11.5%, short of the 100.0% a doubling assumes: 7.1% → 7.9% vs prior year (2025-01-01..2025-08-02)",
+    "statement": "You asked about a doubling in denial rate. It did not double — denial rate rose 11.5%, short of the 100.0% a doubling assumes: 7.1% → 7.9% vs prior year (2025-01-01..2025-08-02). The movement is real and it is not the movement the question names, so nothing here or below may be called a doubling: the cells that follow compose a movement that fell short of the claim.",
+    "metric_ids": [
+     "denial_rate"
+    ],
+    "values": [
+     {
+      "name": "denial_rate",
+      "value": 0.078743
+     },
+     {
+      "name": "denial_rate__prior",
+      "value": 0.070621
+     },
+     {
+      "name": "denial_rate__delta",
+      "value": 0.008122
+     },
+     {
+      "name": "pct_change",
+      "value": 0.115008
+     },
+     {
+      "name": "premise_holds",
+      "value": false
+     },
+     {
+      "name": "premise_magnitude",
+      "value": "short"
+     },
+     {
+      "name": "premise_unverifiable",
+      "value": false
+     },
+     {
+      "name": "asserted_multiple",
+      "value": 2.0
+     },
+     {
+      "name": "premise_asserted_verb",
+      "value": "double"
+     },
+     {
+      "name": "actual_multiple",
+      "value": 1.1150082836550035
+     }
+    ],
+    "grade": "direct",
+    "impact_cents": null,
+    "confidence": "high",
+    "suggested_refinements": [
+     "drill into F1"
+    ],
+    "benchmarks": [
+     {
+      "id": "benchmark.denial_rate.marketplace_kff",
+      "metric_id": "denial_rate",
+      "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
+      "value_low": "19",
+      "value_high": "20",
+      "unit": "percent of in-network claims denied",
+      "period": "2023-2024",
+      "authority": "independent analysis of CMS transparency data",
+      "review_status": "machine_researched",
+      "cautions": [
+       "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
+       "Plan-reported data with no initial/final distinction"
+      ],
+      "sources": [
+       "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
+      ]
+     }
+    ],
+    "metric_caveats": []
+   },
+   {
+    "referent": "F2",
+    "title": "denial rate by month, 2026-01-01..2026-08-02: 7.3% → 9.1% (up 1.9 points); 2026-07 provisional",
+    "statement": "denial rate ran from 7.3% in 2026-01 to 9.1% in 2026-06 (up 1.9 points over 6 months); highest 9.1% in 2026-06, lowest 7.1% in 2026-03. The 2026-07 point (12.8%) is PROVISIONAL and is excluded from that movement: it was computed over 1,544 adjudicated records against a series median of 6,050 (25.5% of it), so the month is still settling and the records that have settled are not a random sample of it.",
+    "metric_ids": [
+     "denial_rate"
+    ],
+    "values": [
+     {
+      "name": "first",
+      "value": 0.072574
+     },
+     {
+      "name": "last",
+      "value": 0.091386
+     },
+     {
+      "name": "delta",
+      "value": 0.018812
+     },
+     {
+      "name": "high",
+      "value": 0.091386
+     },
+     {
+      "name": "low",
+      "value": 0.070732
+     },
+     {
+      "name": "periods",
+      "value": 6
+     },
+     {
+      "name": "provisional_bucket",
+      "value": "2026-07-01"
+     },
+     {
+      "name": "provisional_value",
+      "value": 0.127591
+     },
+     {
+      "name": "terminal_provisional",
+      "value": true
+     }
+    ],
+    "grade": "direct",
+    "impact_cents": null,
+    "confidence": "qualified",
+    "suggested_refinements": [
+     "drill into F2"
+    ],
+    "benchmarks": [
+     {
+      "id": "benchmark.denial_rate.marketplace_kff",
+      "metric_id": "denial_rate",
+      "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
+      "value_low": "19",
+      "value_high": "20",
+      "unit": "percent of in-network claims denied",
+      "period": "2023-2024",
+      "authority": "independent analysis of CMS transparency data",
+      "review_status": "machine_researched",
+      "cautions": [
+       "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
+       "Plan-reported data with no initial/final distinction"
+      ],
+      "sources": [
+       "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
+      ]
+     }
+    ],
+    "metric_caveats": []
+   }
+  ],
+  "warnings": [
+   "premise_partial: You asked about a doubling in denial rate. It did not double — denial rate rose 11.5%, short of the 100.0% a doubling assumes: 7.1% → 7.9% vs prior year (2025-01-01..2025-08-02). The direction the question assumes is right and the size is not, so nothing below may be described in the question's own words for it. What follows is the composition of the movement that did happen.",
+   "adjudication_incomplete: the last point of this series (2026-07) is RIGHT-CENSORED — it was computed over 1,544 adjudicated records against a series median of 6,050 (25.5% of it), so the month is still settling and the records that have settled are not a random sample of it. It is published as provisional and excluded from the first-to-last movement, the high and the low. A rise that terminates on an incompletely adjudicated bucket is a data-maturity artifact until that bucket matures.",
+   "alternate_basis_used: 'denial_rate' is computed on the 'service' basis — its primary 'remit' basis is not available at the 'claim' grain in this warehouse",
+   "population_caveat: denial_rate — claims still awaiting their first remittance (status OPEN) are excluded from both sides — an unadjudicated claim carries a false clean flag for want of evidence, not because a payer denied it, so including it would report the data edge as a denial.",
+   "alternate_basis_used: 'denial_rate' is computed on the 'service' basis — its primary 'remit' basis is not available at the 'claim' grain in this warehouse",
+   "alternate_basis_used: 'denial_rate' is computed on the 'service' basis — its primary 'remit' basis is not available at the 'claim' grain in this warehouse"
+  ],
+  "warnings_v2": [
+   {
+    "code": "PREMISE_PARTIAL",
+    "severity": "caution",
+    "message": "premise_partial: You asked about a doubling in denial rate. It did not double — denial rate rose 11.5%, short of the 100.0% a doubling assumes: 7.1% → 7.9% vs prior year (2025-01-01..2025-08-02). The direction the question assumes is right and the size is not, so nothing below may be described in the question's own words for it. What follows is the composition of the movement that did happen.",
+    "count": 1
+   },
+   {
+    "code": "ADJUDICATION_INCOMPLETE",
+    "severity": "caution",
+    "message": "adjudication_incomplete: the last point of this series (2026-07) is RIGHT-CENSORED — it was computed over 1,544 adjudicated records against a series median of 6,050 (25.5% of it), so the month is still settling and the records that have settled are not a random sample of it. It is published as provisional and excluded from the first-to-last movement, the high and the low. A rise that terminates on an incompletely adjudicated bucket is a data-maturity artifact until that bucket matures.",
+    "count": 1
+   },
+   {
+    "code": "ALTERNATE_BASIS_USED",
+    "severity": "caution",
+    "message": "alternate_basis_used: 'denial_rate' is computed on the 'service' basis — its primary 'remit' basis is not available at the 'claim' grain in this warehouse",
+    "count": 3
+   },
+   {
+    "code": "POPULATION_CAVEAT",
+    "severity": "caution",
+    "message": "population_caveat: denial_rate — claims still awaiting their first remittance (status OPEN) are excluded from both sides — an unadjudicated claim carries a false clean flag for want of evidence, not because a payer denied it, so including it would report the data edge as a denial.",
+    "count": 1
+   }
+  ],
+  "cohort": null,
+  "evidence": {
+   "probes": [
+    {
+     "id": "main",
+     "hash": "6fbef724423bdff3ca65c09af30aa1c5e3c33b289b018cbf17edcb7a9125ea72",
+     "purpose": "direct metric query",
+     "kind": "aggregation",
+     "metrics": [
+      {
+       "id": "denial_rate",
+       "contract_version": 2
+      }
+     ],
+     "cache_hit": true,
+     "rows": 8,
+     "limit": null,
+     "truncated": false,
+     "suppressed_cells": 0,
+     "grade": "direct",
+     "duration_ms": 4
+    },
+    {
+     "id": "main__window",
+     "hash": "d6c4b503a2141928822aced3be516ecd4c7fdcbd622fa3dace55680a82a51522",
+     "purpose": "comparison current window (aggregated over the time bucket)",
+     "kind": "aggregation",
+     "metrics": [
+      {
+       "id": "denial_rate",
+       "contract_version": 2
+      }
+     ],
+     "cache_hit": true,
+     "rows": 1,
+     "limit": null,
+     "truncated": false,
+     "suppressed_cells": 0,
+     "grade": "direct",
+     "duration_ms": 4
+    },
+    {
+     "id": "main__window__prior",
+     "hash": "06974f0e7254b54657ef68ce7e8c148303bcbb9a14dbb0cb5cb2ce232f55ef64",
+     "purpose": "comparison baseline",
+     "kind": "aggregation",
+     "metrics": [
+      {
+       "id": "denial_rate",
+       "contract_version": 2
+      }
+     ],
+     "cache_hit": true,
+     "rows": 1,
+     "limit": null,
+     "truncated": false,
+     "suppressed_cells": 0,
+     "grade": "direct",
+     "duration_ms": 4
+    }
+   ],
+   "reconciliation": {
+    "status": "not_applicable",
+    "detail": "this is a first turn; there is no parent answer to reconcile to",
+    "summary": "status=not_applicable; reason=this is a first turn; there is no parent answer to reconcile to"
+   },
+   "warehouse_queries": 0,
+   "cache_hits": 3,
+   "zero_probe_turn": true,
+   "answer_grade": "direct"
+  },
+  "metric": {
+   "primary": {
+    "id": "denial_rate",
+    "contract_version": 2
+   },
+   "metrics": [
+    {
+     "id": "denial_rate",
+     "contract_version": 2
+    }
+   ],
+   "playbook_id": "denial_spike",
+   "pack_id": "base-rcm",
+   "pack_version": "1.0.0",
+   "pack_snapshot_id": "8e5f979b791b1d69a0084d7f962469469f414785666fda0f6ae4e5bfb6994a85"
+  },
+  "chart_specs": [
+   {
+    "id": "chart_main__window__compare",
+    "chart_type": "line",
+    "title": "denial rate — main  window  compare",
+    "frame_id": "main__window__compare",
+    "x": "denial_rate",
+    "series": "period",
+    "value": "denial_rate",
+    "unit": "ratio",
+    "grade": "direct",
+    "rows": [
+     {
+      "x": "0.078743",
+      "series": "current",
+      "value": 0.078743,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "0.078743",
+      "series": "prior",
+      "value": 0.070621,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     }
+    ],
+    "annotations": [
+     "comparison: two series per category — current is this window and prior is the window it is compared against. They are not summed."
+    ],
+    "recipe_id": "denial_rate_trend",
+    "sort": null,
+    "axis_order": null
+   },
+   {
+    "id": "chart_main",
+    "chart_type": "line",
+    "title": "denial rate — main",
+    "frame_id": "main",
+    "x": "month",
+    "series": null,
+    "value": "denial_rate",
+    "unit": "ratio",
+    "grade": "direct",
+    "rows": [
+     {
+      "x": "2026-01-01",
+      "series": null,
+      "value": 0.072574,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "2026-02-01",
+      "series": null,
+      "value": 0.07228,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "2026-03-01",
+      "series": null,
+      "value": 0.070732,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "2026-04-01",
+      "series": null,
+      "value": 0.072934,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "2026-05-01",
+      "series": null,
+      "value": 0.080222,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "2026-06-01",
+      "series": null,
+      "value": 0.091386,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "2026-07-01",
+      "series": null,
+      "value": 0.127591,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": true
+     },
+     {
+      "x": "2026-08-01",
+      "series": null,
+      "value": null,
+      "referent_id": null,
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     }
+    ],
+    "annotations": [
+     "withheld: 1 of 8 cells were withheld outright per the small-cell policy and are drawn with no value"
+    ],
+    "recipe_id": "denial_rate_trend",
+    "sort": null,
+    "axis_order": null
+   }
+  ],
+  "metric_display": [],
+  "created_at": "2026-08-09T21:35:50.549501Z"
+ },
+ "restored_comparison": {
+  "investigation_id": "inv_b401edf5a840",
+  "session_id": "sess_509079e76d73",
+  "parent_id": null,
+  "turn_id": "turn_eda595d3cfcc",
+  "turn_class": "new_investigation",
+  "status": "complete",
+  "question": "For July 2026 versus June 2026, how did denied dollars change by payer?",
+  "plan_hash": "ff81248c05043bb3b159f7deae1153926b13e70b178a92c056c2aea909ae516e",
+  "context_header": {
+   "window_start": "2026-07-01",
+   "window_end": "2026-07-31",
+   "basis": "remit",
+   "comparison_kind": "prior_period",
+   "comparison_start": "2026-06-01",
+   "comparison_end": "2026-06-30",
+   "filters": [],
+   "filter_chips": [],
+   "cohort": null,
+   "cohort_size": null,
+   "watermark_id": "wm_003",
+   "as_of": null,
+   "display": "2026-07-01..2026-07-31 (remit) · vs 2026-06-01..2026-06-30 · watermark wm_003"
+  },
+  "context_header_restored": true,
+  "watermark_id": "wm_003",
+  "newest_data_date": "2026-08-02",
+  "restoration_notes": [
+   "Restored context: the window, scope, cohort and watermark below are rebuilt from this turn's stored investigation spec at watermark wm_003, not re-computed — the figures are the ones this turn published when it ran.",
+   "The composed narrative is not stored anywhere — the narrative trace keeps its template, redactions and length, not its sentences — so this turn restores without prose. Its findings, warnings and charts are its own record."
+  ],
+  "findings": [
+   {
+    "referent": "F1",
+    "title": "Summit Peak Medicare Advantage denied dollars up $98,222.19 vs prior period (2026-06-01..2026-06-30)",
+    "statement": "Summit Peak Medicare Advantage: denied dollars moved from $77,890.06 to $176,112.25 (up $98,222.19, 126.1% vs prior period (2026-06-01..2026-06-30)).",
+    "metric_ids": [
+     "denied_dollars"
+    ],
+    "values": [
+     {
+      "name": "current_cents",
+      "value": 17611225
+     },
+     {
+      "name": "prior_cents",
+      "value": 7789006
+     },
+     {
+      "name": "delta_cents",
+      "value": 9822219
+     },
+     {
+      "name": "pct_change",
+      "value": 1.261036
+     }
+    ],
+    "grade": "direct",
+    "impact_cents": 9822219,
+    "confidence": "high",
+    "suggested_refinements": [
+     "drill into F1"
+    ],
+    "benchmarks": [],
+    "metric_caveats": []
+   },
+   {
+    "referent": "F2",
+    "title": "Lakewood Medicaid MCO denied dollars up $82,623.40 vs prior period (2026-06-01..2026-06-30)",
+    "statement": "Lakewood Medicaid MCO: denied dollars moved from $19,786.47 to $102,409.87 (up $82,623.40, 417.6% vs prior period (2026-06-01..2026-06-30)).",
+    "metric_ids": [
+     "denied_dollars"
+    ],
+    "values": [
+     {
+      "name": "current_cents",
+      "value": 10240987
+     },
+     {
+      "name": "prior_cents",
+      "value": 1978647
+     },
+     {
+      "name": "delta_cents",
+      "value": 8262340
+     },
+     {
+      "name": "pct_change",
+      "value": 4.175752
+     }
+    ],
+    "grade": "direct",
+    "impact_cents": 8262340,
+    "confidence": "high",
+    "suggested_refinements": [
+     "drill into F2"
+    ],
+    "benchmarks": [],
+    "metric_caveats": []
+   },
+   {
+    "referent": "F3",
+    "title": "Northbridge Commercial denied dollars up $37,085.25 vs prior period (2026-06-01..2026-06-30)",
+    "statement": "Northbridge Commercial: denied dollars moved from $57,937.73 to $95,022.98 (up $37,085.25, 64.0% vs prior period (2026-06-01..2026-06-30)).",
+    "metric_ids": [
+     "denied_dollars"
+    ],
+    "values": [
+     {
+      "name": "current_cents",
+      "value": 9502298
+     },
+     {
+      "name": "prior_cents",
+      "value": 5793773
+     },
+     {
+      "name": "delta_cents",
+      "value": 3708525
+     },
+     {
+      "name": "pct_change",
+      "value": 0.640088
+     }
+    ],
+    "grade": "direct",
+    "impact_cents": 3708525,
+    "confidence": "high",
+    "suggested_refinements": [
+     "drill into F3"
+    ],
+    "benchmarks": [],
+    "metric_caveats": []
+   }
+  ],
+  "warnings": [
+   "findings_truncated: 3 of 12 computed cells are published as findings; the remaining 9 are in the chart and the evidence frame but carry no finding. Superlatives and spread statements on this answer describe the published slice, not the full population.",
+   "suppression: cells counting fewer than 11 entities in their POPULATION are withheld entirely before results leave the engine; a cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped",
+   "comparison_window_length: this is a whole calendar month against the whole calendar month before it (2026-06-01..2026-06-30) — the same kind of period on both sides, which is how a close is read. The calendar makes them 1 day(s) different in length (30d vs 31d), a mechanical share of at most 3.2% of any additive total; nothing is normalized for it and nothing is withheld for it."
+  ],
+  "warnings_v2": [
+   {
+    "code": "FINDINGS_TRUNCATED",
+    "severity": "caution",
+    "message": "findings_truncated: 3 of 12 computed cells are published as findings; the remaining 9 are in the chart and the evidence frame but carry no finding. Superlatives and spread statements on this answer describe the published slice, not the full population.",
+    "count": 1
+   },
+   {
+    "code": "SUPPRESSION_APPLIED",
+    "severity": "info",
+    "message": "suppression: cells counting fewer than 11 entities in their POPULATION are withheld entirely before results leave the engine; a cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped",
+    "count": 1
+   },
+   {
+    "code": "COMPARISON_WINDOW_LENGTH",
+    "severity": "info",
+    "message": "comparison_window_length: this is a whole calendar month against the whole calendar month before it (2026-06-01..2026-06-30) — the same kind of period on both sides, which is how a close is read. The calendar makes them 1 day(s) different in length (30d vs 31d), a mechanical share of at most 3.2% of any additive total; nothing is normalized for it and nothing is withheld for it.",
+    "count": 1
+   }
+  ],
+  "cohort": null,
+  "evidence": {
+   "probes": [
+    {
+     "id": "main",
+     "hash": "95672d57a48b51f4c594a9928bd7328e5d06c56292970801837a225c972f50ca",
+     "purpose": "direct metric query",
+     "kind": "aggregation",
+     "metrics": [
+      {
+       "id": "denied_dollars",
+       "contract_version": 2
+      }
+     ],
+     "cache_hit": true,
+     "rows": 12,
+     "limit": null,
+     "truncated": false,
+     "suppressed_cells": 0,
+     "grade": "direct",
+     "duration_ms": 2
+    },
+    {
+     "id": "main__prior",
+     "hash": "74c501e50958c60ace74f38ec96863f8c2ecfa81c5c4bdbf97b2b6d6998ce446",
+     "purpose": "comparison baseline",
+     "kind": "aggregation",
+     "metrics": [
+      {
+       "id": "denied_dollars",
+       "contract_version": 2
+      }
+     ],
+     "cache_hit": true,
+     "rows": 12,
+     "limit": null,
+     "truncated": false,
+     "suppressed_cells": 0,
+     "grade": "direct",
+     "duration_ms": 1
+    }
+   ],
+   "reconciliation": {
+    "status": "not_applicable",
+    "detail": "this is a first turn; there is no parent answer to reconcile to",
+    "summary": "status=not_applicable; reason=this is a first turn; there is no parent answer to reconcile to"
+   },
+   "warehouse_queries": 0,
+   "cache_hits": 2,
+   "zero_probe_turn": true,
+   "answer_grade": "direct"
+  },
+  "metric": {
+   "primary": {
+    "id": "denied_dollars",
+    "contract_version": 2
+   },
+   "metrics": [
+    {
+     "id": "denied_dollars",
+     "contract_version": 2
+    }
+   ],
+   "playbook_id": null,
+   "pack_id": "base-rcm",
+   "pack_version": "1.0.0",
+   "pack_snapshot_id": "8e5f979b791b1d69a0084d7f962469469f414785666fda0f6ae4e5bfb6994a85"
+  },
+  "chart_specs": [
+   {
+    "id": "chart_main__compare",
+    "chart_type": "stacked_bar",
+    "title": "denied dollars — main  compare",
+    "frame_id": "main__compare",
+    "x": "payer",
+    "series": "period",
+    "value": "denied_dollars",
+    "unit": "money_cents",
+    "grade": "direct",
+    "rows": [
+     {
+      "x": "Atlas Commercial",
+      "series": "current",
+      "value": 13680438,
+      "referent_id": "D1",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Atlas Commercial",
+      "series": "prior",
+      "value": 16048793,
+      "referent_id": "D1",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Bluestone Mutual",
+      "series": "current",
+      "value": 5587063,
+      "referent_id": "D2",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Bluestone Mutual",
+      "series": "prior",
+      "value": 3456923,
+      "referent_id": "D2",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Federal Medicare",
+      "series": "current",
+      "value": 6821646,
+      "referent_id": "D3",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Federal Medicare",
+      "series": "prior",
+      "value": 8576892,
+      "referent_id": "D3",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Lakewood Medicaid MCO",
+      "series": "current",
+      "value": 10240987,
+      "referent_id": "F2",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Lakewood Medicaid MCO",
+      "series": "prior",
+      "value": 1978647,
+      "referent_id": "F2",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Meridian Health",
+      "series": "current",
+      "value": 10488172,
+      "referent_id": "D5",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Meridian Health",
+      "series": "prior",
+      "value": 12367538,
+      "referent_id": "D5",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Northbridge Commercial",
+      "series": "current",
+      "value": 9502298,
+      "referent_id": "F3",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Northbridge Commercial",
+      "series": "prior",
+      "value": 5793773,
+      "referent_id": "F3",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Pinnacle Health Plan",
+      "series": "current",
+      "value": 7121841,
+      "referent_id": "D7",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Pinnacle Health Plan",
+      "series": "prior",
+      "value": 3946623,
+      "referent_id": "D7",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Silverline Medicare Advantage",
+      "series": "current",
+      "value": 15812242,
+      "referent_id": "D8",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Silverline Medicare Advantage",
+      "series": "prior",
+      "value": 16508886,
+      "referent_id": "D8",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "State Medicaid",
+      "series": "current",
+      "value": 16857544,
+      "referent_id": "D9",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "State Medicaid",
+      "series": "prior",
+      "value": 16772530,
+      "referent_id": "D9",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "State Medicaid MCO",
+      "series": "current",
+      "value": 4447888,
+      "referent_id": "D10",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "State Medicaid MCO",
+      "series": "prior",
+      "value": 3788600,
+      "referent_id": "D10",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Summit Peak Medicare Advantage",
+      "series": "current",
+      "value": 17611225,
+      "referent_id": "F1",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Summit Peak Medicare Advantage",
+      "series": "prior",
+      "value": 7789006,
+      "referent_id": "F1",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Veritas Comp Fund",
+      "series": "current",
+      "value": 1141348,
+      "referent_id": "D12",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     },
+     {
+      "x": "Veritas Comp Fund",
+      "series": "prior",
+      "value": 2062147,
+      "referent_id": "D12",
+      "is_bound": false,
+      "bound_population": null,
+      "provisional": false
+     }
+    ],
+    "annotations": [
+     "comparison: two series per category — current is this window and prior is the window it is compared against. They are not summed."
+    ],
+    "recipe_id": "denial_code_mix",
+    "sort": null,
+    "axis_order": null
+   }
+  ],
+  "metric_display": [],
+  "created_at": "2026-08-09T21:34:32.195591Z"
+ }
+}

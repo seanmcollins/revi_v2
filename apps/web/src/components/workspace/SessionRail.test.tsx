@@ -189,7 +189,12 @@ describe("SessionRail — the session list is the server's, or nothing", () => {
 
     renderRail();
 
-    expect(await screen.findByText("1 of 12")).toBeInTheDocument();
+    // BUG 8 moved this off the section heading, where "1 of 12" sat as a
+    // number beside a title, and under the list, where it explains why
+    // the list ends. Same fact, said where it is read.
+    expect(
+      await screen.findByText("Showing the 1 most recent of 12."),
+    ).toBeInTheDocument();
   });
 
   it("names the failure when the list cannot be read", async () => {

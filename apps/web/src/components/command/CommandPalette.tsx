@@ -9,6 +9,7 @@ import {
   Play,
   Repeat,
   RotateCcw,
+  LayoutTemplate,
   Search,
   Settings2,
   Sparkles,
@@ -19,7 +20,14 @@ import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "
 import { Dialog as DialogPrimitive } from "radix-ui";
 
 import { resolveDriverKind } from "@/lib/apiDriver";
+import {
+  ANSWER_VARIANT_HINTS,
+  ANSWER_VARIANT_LABELS,
+  nextAnswerVariant,
+  setAnswerVariant,
+} from "@/lib/answerVariant";
 import { untitledTurnLabel } from "@/lib/format";
+import { useAnswerVariant } from "@/lib/useAnswerVariant";
 import { GUIDE_QUESTIONS } from "@/lib/guideQuestions";
 import { REFERENCE_QUESTIONS } from "@/lib/mock/reference";
 import { useSessionStore } from "@/lib/store";
@@ -62,6 +70,10 @@ export function CommandPalette({
   const openSettings = useSessionStore((s) => s.openSettings);
   const debug = useSessionStore((s) => s.settings.debug);
   const switchingSessionId = useSessionStore((s) => s.switchingSessionId);
+  // The A/B toggle. No reload: the answer surface is a pure function of
+  // the turns already in the store, so a reviewer can flip layouts on the
+  // thread they are judging without losing it.
+  const variant = useAnswerVariant();
   // Mirrors SessionRail's identical guard: any of a turn streaming, a new
   // chat bootstrapping, a replay running, or a session switch in flight
   // means `submit()` either no-ops or would race whichever session wins.
@@ -254,6 +266,19 @@ export function CommandPalette({
         run: () => setTheme(resolvedTheme === "dark" ? "light" : "dark"),
       },
       {
+        // Under judgement, so the row says which layout is on screen and
+        // which one Enter moves to — a toggle that only names its
+        // destination makes a reviewer guess what they have been reading.
+        id: "answer-variant",
+        group: "Workspace",
+        label: `Answer layout: ${ANSWER_VARIANT_LABELS[variant]} → ${
+          ANSWER_VARIANT_LABELS[nextAnswerVariant(variant)]
+        }`,
+        hint: ANSWER_VARIANT_HINTS[nextAnswerVariant(variant)],
+        icon: <LayoutTemplate className="size-3.5" />,
+        run: () => setAnswerVariant(nextAnswerVariant(variant)),
+      },
+      {
         id: "reset",
         group: "Workspace",
         label: "Reset session",
@@ -295,6 +320,7 @@ export function CommandPalette({
     newChat,
     openSettings,
     debug,
+    variant,
   ]);
 
   const filtered = useMemo(() => {
@@ -371,9 +397,9 @@ export function CommandPalette({
                   ? `palette-option-${clampedSelected}`
                   : undefined
               }
-              className="h-11 w-full bg-transparent text-[0.85rem] outline-none placeholder:text-muted-foreground"
+              className="h-11 w-full bg-transparent text-body outline-none placeholder:text-muted-foreground"
             />
-            <kbd className="rounded border bg-surface-sunken px-1.5 py-0.5 font-mono text-[0.6rem] text-muted-foreground">
+            <kbd className="rounded border bg-surface-sunken px-1.5 py-0.5 font-mono text-micro text-muted-foreground">
               esc
             </kbd>
           </div>
@@ -385,7 +411,7 @@ export function CommandPalette({
             className="max-h-[19rem] overflow-y-auto p-1.5"
           >
             {filtered.length === 0 && (
-              <p className="px-3 py-6 text-center text-[0.72rem] text-muted-foreground">
+              <p className="px-3 py-6 text-center text-meta text-muted-foreground">
                 Nothing matches “{query}”.
               </p>
             )}
@@ -397,7 +423,7 @@ export function CommandPalette({
                   {showGroup && (
                     <p
                       role="presentation"
-                      className="px-2.5 pb-1 pt-2.5 text-[0.58rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground"
+                      className="px-2.5 pb-1 pt-2.5 text-micro font-semibold uppercase tracking-[0.14em] text-muted-foreground"
                     >
                       {action.group}
                     </p>
@@ -422,7 +448,7 @@ export function CommandPalette({
                       // is 9.34:1 dark / 3.74:1 light against that same
                       // overlay. Every row reserves the 2px so arrowing
                       // never shifts the labels.
-                      "flex w-full items-center gap-2.5 rounded-md border-l-2 border-l-transparent px-2.5 py-2 text-left text-[0.76rem] transition-colors duration-150",
+                      "flex w-full items-center gap-2.5 rounded-md border-l-2 border-l-transparent px-2.5 py-2 text-left text-body transition-colors duration-150",
                       i === clampedSelected && !action.disabled
                         ? "border-l-ring bg-accent font-medium text-foreground"
                         : "text-secondary-foreground",
@@ -443,7 +469,7 @@ export function CommandPalette({
                         and these are the rows a user most needs to read,
                         because they are the ones that did not respond. */}
                     {(action.disabled ? busyReason : action.hint) && (
-                      <span className="shrink-0 text-[0.6rem] text-muted-foreground">
+                      <span className="shrink-0 text-micro text-muted-foreground">
                         {action.disabled ? busyReason : action.hint}
                       </span>
                     )}
@@ -452,7 +478,7 @@ export function CommandPalette({
               );
             })}
           </div>
-          <div className="flex items-center gap-3 border-t px-3.5 py-2 text-[0.6rem] text-muted-foreground">
+          <div className="flex items-center gap-3 border-t px-3.5 py-2 text-micro text-muted-foreground">
             <span className="flex items-center gap-1">
               <kbd className="rounded border bg-surface-sunken px-1 font-mono">↑↓</kbd> navigate
             </span>

@@ -191,11 +191,7 @@ def finding_payload(
     the title rather than behind a hover.
     """
     metric_ids = [ref.id for ref in finding.metric_refs]
-    names = (
-        {mid: entry.display_name for mid, entry in metric_display.by_metric.items()}
-        if metric_display is not None
-        else None
-    )
+    names = metric_display.names if metric_display is not None else None
     caveats = [
         entry.caveat
         for mid in metric_ids
@@ -711,10 +707,7 @@ async def _compose_narrative(
         for w in warnings
         if w.startswith("population_caveat: ") and ": " in w
     ]
-    display_names = {
-        metric_id: entry.display_name
-        for metric_id, entry in components.metric_display.by_metric.items()
-    }
+    display_names = components.metric_display.names
     # When a card-to-drill strip is on this answer, THAT is the
     # reconciliation the reader compared — the lineage verdict is about
     # something else and reading it out as "reconciliation was not
@@ -945,6 +938,16 @@ async def assemble_turn_response(
     # and an ordinal bucket axis must come off the wire in the order the
     # catalog declares for it rather than alphabetically (R4-14).
     chart_specs, chart_warnings = _police_charts(chart_specs, outcome.frames, components)
+    # A chart title names a metric to a human, so it is a surface the
+    # governed display name owns too (round-6 E-04). Copied only where the
+    # rewrite changes something: most titles name no corrected id.
+    display_names = components.metric_display.names
+    chart_specs = tuple(
+        spec
+        if (titled := apply_metric_display(spec.title, display_names)) == spec.title
+        else spec.model_copy(update={"title": titled})
+        for spec in chart_specs
+    )
     if on_event is not None:
         for spec in chart_specs:
             await on_event("chart_spec", spec.model_dump(mode="json"))
@@ -1010,11 +1013,18 @@ async def assemble_turn_response(
             pack_version=outcome.definitional.pack_version,
             pack_snapshot_id=outcome.definitional.pack_snapshot_id,
         )
+    # Round-6 E-04. ``apply_metric_display`` had exactly one caller — the
+    # finding card — so every OTHER surface that carries a finding's title
+    # to a human carried the raw metric id instead: the referent chip (the
+    # most-clicked control in the refinement loop) read "timely filing at
+    # risk dollars: $22,426,000.28" beside a card reading "Unbilled open
+    # inventory on a running filing clock: $22,426,000.28", and the meta
+    # answer's label said the same thing a third way. One map, every seam.
     meta: MetaAnswerPayload | None = None
     if outcome.meta is not None:
         meta = MetaAnswerPayload(
             referent=outcome.meta.referent,
-            label=outcome.meta.label,
+            label=apply_metric_display(outcome.meta.label, display_names),
             investigation_id=outcome.meta.investigation_id,
             probes=[dict(p) for p in outcome.meta.probes],
             operators=[dict(op) for op in outcome.meta.operators],
@@ -1059,7 +1069,11 @@ async def assemble_turn_response(
         meta_answer=meta,
         definitional=definitional,
         referents=[
-            ReferentPayload(id=e.referent.value, kind=e.referent.kind.value, label=e.label)
+            ReferentPayload(
+                id=e.referent.value,
+                kind=e.referent.kind.value,
+                label=apply_metric_display(e.label, display_names),
+            )
             for e in outcome.referents
         ],
         benchmarks=[benchmark_payload(b) for b in outcome.benchmarks],

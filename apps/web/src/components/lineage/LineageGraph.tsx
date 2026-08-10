@@ -104,7 +104,7 @@ export function LineageGraph() {
 
   if (nodes.length === 0) {
     return (
-      <p className="text-[0.7rem] leading-relaxed text-muted-foreground">
+      <p className="text-meta leading-relaxed text-muted-foreground">
         No turns yet. Every question you ask is recorded here, linked to the one it
         came from, so you can see how the investigation got where it did.
       </p>
@@ -128,13 +128,13 @@ export function LineageGraph() {
                   node.operators.map((op) => (
                     <code
                       key={op}
-                      className="rounded border bg-surface-sunken px-1.5 py-0.5 font-mono text-[0.58rem] text-muted-foreground"
+                      className="rounded border bg-surface-sunken px-1.5 py-0.5 font-mono text-micro text-muted-foreground"
                     >
                       {op}
                     </code>
                   ))
                 ) : (
-                  <code className="rounded border bg-surface-sunken px-1.5 py-0.5 font-mono text-[0.58rem] text-muted-foreground">
+                  <code className="rounded border bg-surface-sunken px-1.5 py-0.5 font-mono text-micro text-muted-foreground">
                     {node.turnClass === "new_investigation" ? "new context" : node.turnClass}
                   </code>
                 )}
@@ -155,7 +155,7 @@ export function LineageGraph() {
           >
             <span
               className={cn(
-                "flex size-7 shrink-0 items-center justify-center rounded-md font-mono text-[0.68rem] font-semibold",
+                "flex size-7 shrink-0 items-center justify-center rounded-md font-mono text-meta font-semibold",
                 node.turnClass === "meta"
                   ? "border border-dashed text-muted-foreground"
                   : "border border-verified/40 bg-verified/10 text-verified",
@@ -164,10 +164,10 @@ export function LineageGraph() {
               {node.label}
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[0.7rem] font-medium leading-snug">
+              <span className="block truncate text-meta font-medium leading-snug">
                 {node.question}
               </span>
-              <span className="mt-0.5 flex items-center gap-1.5 text-[0.6rem] text-muted-foreground">
+              <span className="mt-0.5 flex items-center gap-1.5 text-micro text-muted-foreground">
                 {TURN_CLASS_LABELS[node.turnClass] ?? node.turnClass}
                 {node.citedLabel && (
                   <span className="inline-flex items-center gap-0.5 text-verified">

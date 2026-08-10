@@ -26,6 +26,9 @@
  * number".
  */
 
+import { humanizeIsoDates } from "@/lib/format";
+import { humanizeInline } from "@/lib/humanize";
+
 /** The code the server publishes for a sentence matching no known family. */
 export const UNCLASSIFIED = "UNCLASSIFIED";
 
@@ -207,6 +210,159 @@ export function warningBody(code: string, message: string): string {
   const normalized = head.trim().toUpperCase().replace(/[\s-]+/g, "_");
   if (normalized !== code) return message;
   return message.slice(separator + 2).trim() || message;
+}
+
+/* ------------------------------------------------------------------ */
+/* No internal identifiers on a default surface                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * `(portfolio_denial_trend, 1 row(s))` — a plan node and its row count,
+ * printed inside the sentence that tells an analyst which measures came
+ * back with nothing.
+ *
+ * Live, `PROBE_FAMILIES_EMPTY` reaches the screen as:
+ *
+ *   "8 metric famil(ies) on this plan were read and produced no published
+ *    finding, so nothing above speaks for them: denial_rate
+ *    (portfolio_denial_trend, 1 row(s)); cash_posted
+ *    (portfolio_cash_trend, 1 row(s)); underpayment_variance
+ *    (portfolio_underpayment, 12 row(s)); …"
+ *
+ * Eight frame ids and eight row counts, in the middle of the one caution
+ * that says which parts of the question went unanswered. The frame id is
+ * the engine's handle for a plan node; an analyst has never seen it, can
+ * do nothing with it, and it is the reason this sentence reads as a log
+ * line instead of a caveat.
+ *
+ * Matched narrowly — a snake_case token, a comma, a count, the literal
+ * "row(s)" — so nothing that carries meaning is ever inside the match.
+ */
+const PLAN_NODE_CENSUS = /\s*\(([a-z][a-z0-9]*(?:_[a-z0-9]+)+),\s*[\d,]+\s+rows?\(s\)\)/g;
+
+/**
+ * A bare warehouse identifier inside prose: `denial_rate`,
+ * `'timely_filing_at_risk_dollars'`, `ar_over_90_pct`.
+ *
+ * Deliberately requires at least one underscore. A single lowercase word
+ * is a word — "service", "remit", "claim" are all bases and grains the
+ * engine names in plain English, and re-spelling those would be this
+ * function inventing a correction where there is no defect.
+ */
+const SNAKE_IDENTIFIER = /\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b/g;
+
+/**
+ * Is this token a MEASURE NAME, or is it a handle?
+ *
+ * The difference decides whether re-spelling it helps. `denial_rate` is a
+ * measure and "denial rate" is the same fact in the reader's words;
+ * `wm_003` is a data load's handle and "wm 003" is not a friendlier
+ * version of it, it is a broken one — the same for `inv_0899f9defc32` and
+ * `main__window__prior`. A handle that should not be on a default surface
+ * is a separate defect from a measure that is merely spelled in
+ * warehouse case, and this function refuses to conflate them: anything it
+ * cannot prove is a measure name is left exactly as the engine wrote it.
+ *
+ * Two things have to hold: every segment is entirely letters or entirely
+ * digits (which rules out hashes and ids), and at least two segments are
+ * words of three letters or more (which rules out `wm_003`).
+ */
+function isMeasureName(token: string): boolean {
+  const parts = token.split("_");
+  if (parts.length < 2) return false;
+  if (!parts.every((part) => /^[a-z]+$/.test(part) || /^[0-9]+$/.test(part))) return false;
+  return parts.filter((part) => /^[a-z]{3,}$/.test(part)).length >= 2;
+}
+
+export interface PublicWarningBody {
+  /** What a default surface prints. */
+  text: string;
+  /** True when an identifier or a plan-node census was taken out of it. */
+  redacted: boolean;
+  /** The engine's own sentence, kept so the surface can offer it. */
+  verbatim: string;
+}
+
+/**
+ * The warning body with the engine's internal handles taken out of it —
+ * and the engine's own sentence kept beside it.
+ *
+ * Two rules the platform already holds itself to, applied to one more
+ * surface. "No internal identifiers on any default surface" is why this
+ * exists; "nothing is deleted, only relocated" is why it returns the
+ * verbatim string as well, so the caller can offer the exact wording one
+ * tap away. `answerToText` and the CSV preamble read `warning.message`
+ * directly and are untouched: every export still carries the engine's
+ * sentence byte for byte.
+ *
+ * Conservative by construction. Only three things are ever changed — a
+ * `(plan_node, N row(s))` census is removed, the underscores come out of
+ * a warehouse identifier, which becomes the same name spelled the way the
+ * chart axis and the finding title already spell it, and an ISO date
+ * literal is spelled the way a reader says it. No summarizing, no
+ * reordering, no sentence dropped: a message carrying none of the three
+ * comes back identical and `redacted` is false.
+ *
+ * The DATE rule is the same rule as the identifier rule, applied to the
+ * other machine literal the engine writes into prose. The VERDICT is the
+ * sentence a VP reads first in the calm layout — live, that sentence is
+ * "It did not double — 7.1% → 7.9% vs prior year (2025-01-01..2025-08-02)"
+ * — and a bracketed ISO range in it is the same leak as `denial_rate`
+ * would be. As with every other change here, the engine's exact wording
+ * travels on `verbatim`, the sheet offers it in one tap, and the copied
+ * answer and the CSV preamble read `warning.message` directly and are
+ * untouched.
+ */
+export function publicWarningBody(code: string, message: string): PublicWarningBody {
+  const verbatim = warningBody(code, message);
+  let text = verbatim.replace(PLAN_NODE_CENSUS, "");
+  text = text.replace(SNAKE_IDENTIFIER, (token) =>
+    isMeasureName(token) ? humanizeInline(token) : token,
+  );
+  text = humanizeIsoDates(text);
+  // Collapse a double space or an orphaned separator left where a census
+  // was: "…rate; cash…" not "…rate ; cash…".
+  text = text.replace(/\s+([;,.])/g, "$1").replace(/\s{2,}/g, " ").trim();
+  const redacted = text !== verbatim;
+  return { text: redacted ? text : verbatim, redacted, verbatim };
+}
+
+/* ------------------------------------------------------------------ */
+/* The verdict, and everything else                                    */
+/* ------------------------------------------------------------------ */
+
+export interface WarningPartition<T> {
+  /** The answer to the question that was asked. Never collapsed. */
+  verdicts: T[];
+  /** Everything else, cautions before notes — the "N things to know". */
+  rest: T[];
+}
+
+/**
+ * Warnings split into the two things they actually are.
+ *
+ * A verdict (`PREMISE_*`, `RANKING_REFUSED`, `DIRECTION_UNMATCHED`) is
+ * not a caveat about how to read a number — it IS the answer's finding
+ * about the premise, or about whether an order could be published at
+ * all. Both refined layouts lead with it in prose and tuck the rest
+ * behind one disclosure, and this is the single place that decides which
+ * is which, so the count on the integrity line and the rows in the sheet
+ * cannot disagree about it.
+ *
+ * A stable partition, not a sort: inside each band the engine's own order
+ * is the order the checks ran in, and shuffling it would throw away the
+ * only sequencing the payload carries.
+ */
+export function partitionWarnings<T extends { code: string; severity?: string }>(
+  warnings: readonly T[],
+): WarningPartition<T> {
+  return {
+    verdicts: warnings.filter((w) => isVerdictCode(w.code)),
+    rest: [
+      ...warnings.filter((w) => !isVerdictCode(w.code) && w.severity === "caution"),
+      ...warnings.filter((w) => !isVerdictCode(w.code) && w.severity !== "caution"),
+    ],
+  };
 }
 
 /* ------------------------------------------------------------------ */

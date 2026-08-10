@@ -65,7 +65,7 @@ export function ExportButton({
       title={title}
       onClick={() => void run()}
       className={cn(
-        "h-5 gap-1 rounded-full px-2 text-[0.68rem] font-normal text-muted-foreground hover:text-foreground",
+        "h-5 gap-1 rounded-full px-2 text-meta font-normal text-muted-foreground hover:text-foreground",
         ack === "done" && "text-verified hover:text-verified",
         ack === "failed" && "text-warning hover:text-warning",
         className,

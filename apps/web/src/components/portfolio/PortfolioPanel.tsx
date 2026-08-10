@@ -127,7 +127,7 @@ export function PortfolioPanel() {
   return (
     <section className="space-y-2">
       <header className="flex items-baseline justify-between gap-2">
-        <h3 className="text-[0.68rem] font-semibold uppercase tracking-wide text-muted-foreground">
+        <h3 className="text-meta font-semibold uppercase tracking-wide text-muted-foreground">
           Today&apos;s portfolio
         </h3>
         <span className="flex items-baseline gap-1.5">
@@ -151,7 +151,7 @@ export function PortfolioPanel() {
                   ? query.data.watermark
                   : PORTFOLIO_META.watermark
               }
-              className="h-5 px-1.5 text-[0.6rem]"
+              className="h-5 px-1.5 text-micro"
               csv={() =>
                 portfolioToCsv({
                   items,
@@ -172,7 +172,7 @@ export function PortfolioPanel() {
               }
             />
           )}
-          <span className="num font-mono text-[0.58rem] text-muted-foreground">
+          <span className="num font-mono text-micro text-muted-foreground">
             {mode === "api"
               ? (query.data?.rankingPolicy ?? "")
               : PORTFOLIO_META.rankingPolicy}
@@ -187,7 +187,7 @@ export function PortfolioPanel() {
       <WarningList warnings={warnings.map((w) => ({ ...w, type: "warning" as const }))} />
 
       {emptyNote ? (
-        <p className="px-1 text-[0.62rem] leading-snug text-muted-foreground">{emptyNote}</p>
+        <p className="px-1 text-micro leading-snug text-muted-foreground">{emptyNote}</p>
       ) : (
         <div id={listId} className="space-y-2">
           {groups.map((group) => (
@@ -225,7 +225,7 @@ export function PortfolioPanel() {
               onClick={() => setExpanded(true)}
               aria-expanded={false}
               aria-controls={listId}
-              className="h-6 w-full gap-1 text-[0.65rem] font-normal text-muted-foreground hover:text-foreground"
+              className="h-6 w-full gap-1 text-meta font-normal text-muted-foreground hover:text-foreground"
             >
               <ChevronDown className="size-3" />
               Show all ({items.length})
@@ -238,7 +238,7 @@ export function PortfolioPanel() {
               onClick={() => setExpanded(false)}
               aria-expanded
               aria-controls={listId}
-              className="h-6 w-full gap-1 text-[0.65rem] font-normal text-muted-foreground hover:text-foreground"
+              className="h-6 w-full gap-1 text-meta font-normal text-muted-foreground hover:text-foreground"
             >
               Show top {COLLAPSED_COUNT}
               {groups.length > 1 ? " per lane" : ""}
@@ -247,7 +247,7 @@ export function PortfolioPanel() {
         </div>
       )}
 
-      {footer && <p className="num text-[0.58rem] leading-snug text-muted-foreground">{footer}</p>}
+      {footer && <p className="num text-micro leading-snug text-muted-foreground">{footer}</p>}
     </section>
   );
 }
@@ -306,7 +306,7 @@ function groupByLane(items: PortfolioItem[], lanes: PortfolioLane[]): LaneGroup[
 function LaneHeader({ lane, count }: { lane?: PortfolioLane; count: number }) {
   if (!lane) {
     return (
-      <p className="px-0.5 text-[0.6rem] font-semibold uppercase tracking-wide text-muted-foreground">
+      <p className="px-0.5 text-micro font-semibold uppercase tracking-wide text-muted-foreground">
         Not in a lane ({count})
       </p>
     );
@@ -317,16 +317,16 @@ function LaneHeader({ lane, count }: { lane?: PortfolioLane; count: number }) {
         <TooltipTrigger asChild>
           <button
             type="button"
-            className="rounded text-left text-[0.6rem] font-semibold uppercase tracking-wide text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground focus-ring"
+            className="rounded text-left text-micro font-semibold uppercase tracking-wide text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground focus-ring"
           >
             {lane.label}
           </button>
         </TooltipTrigger>
-        <TooltipContent side="right" className="max-w-80 text-[0.68rem] leading-snug">
+        <TooltipContent side="right" className="max-w-80 text-meta leading-snug">
           {lane.description}
         </TooltipContent>
       </Tooltip>
-      <span className="num text-[0.58rem] text-muted-foreground">
+      <span className="num text-micro text-muted-foreground">
         {lane.itemCount} · {formatWholeDollars(lane.impactCents)}
       </span>
     </div>
@@ -352,11 +352,11 @@ function PortfolioCard({ item, onDrill }: { item: PortfolioItem; onDrill: () => 
       )}
     >
       <div className="flex items-start gap-2">
-        <span className="num mt-px w-3 shrink-0 text-[0.65rem] font-medium text-muted-foreground">
+        <span className="num mt-px w-3 shrink-0 text-meta font-medium text-muted-foreground">
           {item.rank}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="truncate text-[0.7rem] font-medium leading-snug" title={item.title}>
+          <p className="truncate text-meta font-medium leading-snug" title={item.title}>
             {item.title}
           </p>
 
@@ -367,7 +367,7 @@ function PortfolioCard({ item, onDrill }: { item: PortfolioItem; onDrill: () => 
             <span className={cn(item.impactCents < 0 && "text-negative")}>
               {formatWholeDollars(item.impactCents)}
             </span>
-            <span className="ml-1.5 text-[0.6rem] font-normal text-muted-foreground">
+            <span className="ml-1.5 text-micro font-normal text-muted-foreground">
               {item.impactLabel || "detected"}
             </span>
           </p>
@@ -375,7 +375,7 @@ function PortfolioCard({ item, onDrill }: { item: PortfolioItem; onDrill: () => 
           <ImpactAgreement item={item} />
           <RankedOnLabel item={item} />
           {recoverable !== undefined && (
-            <p className="num mt-0.5 text-[0.62rem] leading-snug text-muted-foreground">
+            <p className="num mt-0.5 text-micro leading-snug text-muted-foreground">
               ~{formatWholeDollars(recoverable)} recoverable
               {item.actionabilityLabel && (
                 <>
@@ -386,14 +386,14 @@ function PortfolioCard({ item, onDrill }: { item: PortfolioItem; onDrill: () => 
             </p>
           )}
           {recoverable === undefined && item.actionabilityLabel && (
-            <p className="mt-0.5 text-[0.62rem] leading-snug text-muted-foreground">
+            <p className="mt-0.5 text-micro leading-snug text-muted-foreground">
               <ActionabilityLabel item={item} />
             </p>
           )}
 
           {/* The detector's own grading and how stale it is. */}
           {(item.severity || item.ageDays !== undefined) && (
-            <p className="mt-1 flex items-center gap-1.5 text-[0.58rem] uppercase tracking-wide">
+            <p className="mt-1 flex items-center gap-1.5 text-micro uppercase tracking-wide">
               {item.severity && (
                 <span
                   className={cn(
@@ -412,7 +412,7 @@ function PortfolioCard({ item, onDrill }: { item: PortfolioItem; onDrill: () => 
             </p>
           )}
 
-          <p className="mt-1 line-clamp-2 text-[0.62rem] leading-snug text-muted-foreground">
+          <p className="mt-1 line-clamp-2 text-micro leading-snug text-muted-foreground">
             {item.detail}
           </p>
 
@@ -422,7 +422,7 @@ function PortfolioCard({ item, onDrill }: { item: PortfolioItem; onDrill: () => 
               only for the ids that overclaim, which is why most cards
               show nothing here. */}
           {item.metricDisplayName && (
-            <p className="mt-1 text-[0.6rem] leading-snug text-muted-foreground">
+            <p className="mt-1 text-micro leading-snug text-muted-foreground">
               Measures <span className="font-medium">{item.metricDisplayName}</span>
             </p>
           )}
@@ -448,14 +448,14 @@ function PortfolioCard({ item, onDrill }: { item: PortfolioItem; onDrill: () => 
               <TooltipTrigger asChild>
                 <button
                   type="button"
-                  className="mt-1 flex items-center gap-1 rounded text-left text-[0.58rem] leading-snug text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground focus-ring"
+                  className="mt-1 flex items-center gap-1 rounded text-left text-micro leading-snug text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground focus-ring"
                 >
                   <Info className="size-2.5 shrink-0" />
                   Drills {item.drillMetricId ?? "a different measure"}, not{" "}
                   {item.drillRepointedFrom}
                 </button>
               </TooltipTrigger>
-              <TooltipContent side="right" className="max-w-72 text-[0.68rem] leading-snug">
+              <TooltipContent side="right" className="max-w-72 text-meta leading-snug">
                 {item.drillRepointRationale ??
                   `This card reports ${item.drillRepointedFrom}; its drill probes ${item.drillMetricId ?? "another measure"}.`}
               </TooltipContent>
@@ -474,7 +474,7 @@ function PortfolioCard({ item, onDrill }: { item: PortfolioItem; onDrill: () => 
                 variant="ghost"
                 size="xs"
                 aria-label={`Drill into ${item.title}`}
-                className="h-5 gap-0.5 rounded-full px-1.5 text-[0.62rem] font-normal text-verified opacity-0 transition-opacity duration-150 hover:text-verified group-hover:opacity-100 focus-visible:opacity-100"
+                className="h-5 gap-0.5 rounded-full px-1.5 text-micro font-normal text-verified opacity-0 transition-opacity duration-150 hover:text-verified group-hover:opacity-100 focus-visible:opacity-100"
                 onClick={onDrill}
               >
                 {item.drill?.label ?? "Drill in"}
@@ -503,13 +503,13 @@ function PortfolioCard({ item, onDrill }: { item: PortfolioItem; onDrill: () => 
                     // control's whole content is the platform's refusal,
                     // and dimming it to 2.88:1 (light, at 0.70) made the
                     // most-refused cards the least readable ones.
-                    className="h-5 cursor-not-allowed gap-0.5 rounded-full px-1.5 text-[0.62rem] font-normal text-muted-foreground hover:bg-transparent hover:text-muted-foreground"
+                    className="h-5 cursor-not-allowed gap-0.5 rounded-full px-1.5 text-micro font-normal text-muted-foreground hover:bg-transparent hover:text-muted-foreground"
                   >
                     <Ban className="size-2.5" />
                     Can&apos;t drill
                   </Button>
                 </TooltipTrigger>
-                <TooltipContent side="left" className="max-w-72 text-[0.68rem] leading-snug">
+                <TooltipContent side="left" className="max-w-72 text-meta leading-snug">
                   {/* The platform's own refusal, verbatim. Softening it
                       into "unavailable" would hide which dimension and
                       which grain made it impossible. */}
@@ -550,7 +550,7 @@ function ImpactAgreement({ item }: { item: PortfolioItem }) {
 
   if (agreement === "agreed") {
     return (
-      <p className="num mt-0.5 flex items-center gap-1 text-[0.6rem] leading-snug text-verified">
+      <p className="num mt-0.5 flex items-center gap-1 text-micro leading-snug text-verified">
         <Check className="size-2.5 shrink-0" aria-hidden />
         Matches this platform&apos;s own figure
       </p>
@@ -571,7 +571,7 @@ function ImpactAgreement({ item }: { item: PortfolioItem }) {
         <button
           type="button"
           className={cn(
-            "num mt-0.5 flex items-center gap-1 rounded text-left text-[0.6rem] leading-snug underline decoration-dotted underline-offset-2 focus-ring",
+            "num mt-0.5 flex items-center gap-1 rounded text-left text-micro leading-snug underline decoration-dotted underline-offset-2 focus-ring",
             agreement === "diverged" ? "text-warning" : "text-muted-foreground",
           )}
         >
@@ -603,7 +603,7 @@ function ImpactAgreement({ item }: { item: PortfolioItem }) {
           )}
         </button>
       </TooltipTrigger>
-      <TooltipContent side="right" className="max-w-80 text-[0.68rem] leading-snug">
+      <TooltipContent side="right" className="max-w-80 text-meta leading-snug">
         {note}
       </TooltipContent>
     </Tooltip>
@@ -658,7 +658,7 @@ function RankedOnLabel({ item }: { item: PortfolioItem }) {
       <TooltipTrigger asChild>
         <button
           type="button"
-          className="num mt-0.5 flex items-center gap-1 rounded text-left text-[0.58rem] leading-snug text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground focus-ring"
+          className="num mt-0.5 flex items-center gap-1 rounded text-left text-micro leading-snug text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground focus-ring"
         >
           <ArrowDownWideNarrow className="size-2.5 shrink-0" aria-hidden />
           {label}
@@ -671,7 +671,7 @@ function RankedOnLabel({ item }: { item: PortfolioItem }) {
             )}
         </button>
       </TooltipTrigger>
-      <TooltipContent side="right" className="max-w-80 text-[0.68rem] leading-snug">
+      <TooltipContent side="right" className="max-w-80 text-meta leading-snug">
         {note}
       </TooltipContent>
     </Tooltip>
@@ -704,7 +704,7 @@ function DimensionRepointDisclosure({ repoint }: { repoint: DrillDimensionRepoin
       <TooltipTrigger asChild>
         <button
           type="button"
-          className="mt-1 flex items-start gap-1 rounded text-left text-[0.58rem] leading-snug text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground focus-ring"
+          className="mt-1 flex items-start gap-1 rounded text-left text-micro leading-snug text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground focus-ring"
         >
           <GitCompareArrows className="mt-px size-2.5 shrink-0" aria-hidden />
           <span>
@@ -712,7 +712,7 @@ function DimensionRepointDisclosure({ repoint }: { repoint: DrillDimensionRepoin
           </span>
         </button>
       </TooltipTrigger>
-      <TooltipContent side="right" className="max-w-80 text-[0.68rem] leading-snug">
+      <TooltipContent side="right" className="max-w-80 text-meta leading-snug">
         {/* The server's reasoning, verbatim. It is the sentence that
             explains the drill counts claims where the detector counted
             lines, and summarizing it here would drop exactly that. */}
@@ -737,7 +737,7 @@ function ActionabilityLabel({ item }: { item: PortfolioItem }) {
           {item.actionabilityLabel}
         </button>
       </TooltipTrigger>
-      <TooltipContent side="right" className="max-w-80 text-[0.68rem] leading-snug">
+      <TooltipContent side="right" className="max-w-80 text-meta leading-snug">
         {item.actionabilityRationale}
       </TooltipContent>
     </Tooltip>

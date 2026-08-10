@@ -242,6 +242,39 @@
   --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
 
+  /* -----------------------------------------------------------------
+     THE TYPE SCALE (round-5 uiux P1).
+
+     288 explicit font sizes existed on this app and 213 of them were
+     below 11.2px — including the sentences that say how to read a
+     number. Sizes were being used as a substitute for hierarchy, so
+     the answer surface had fourteen of them and no two elements
+     agreed on what "secondary" meant.
+
+     Five named steps replace the ad-hoc values on every primary
+     surface. `micro` is the FLOOR: nothing on the answer path, the
+     evidence rail or the composer is set smaller than 12px, and the
+     three steps below it that used to exist (8.8px, 9.6px, 10.4px)
+     have no token at all, so they cannot come back by habit.
+
+     Presence still comes from SIZE, never from weight — see `.numeral`.
+     ----------------------------------------------------------------- */
+  /** 12px — labels, counts, captions, chart axes. The floor. */
+  --text-micro: 0.75rem;
+  --text-micro--line-height: 1.45;
+  /** 13px — secondary sentences: statements, caveat bodies, notes. */
+  --text-meta: 0.8125rem;
+  --text-meta--line-height: 1.5;
+  /** 15px — the answer's own prose, and anything a VP reads aloud. */
+  --text-body: 0.9375rem;
+  --text-body--line-height: 1.6;
+  /** 17px — the calm answer's narrative lead and its verdict lead-in. */
+  --text-lead: 1.0625rem;
+  --text-lead--line-height: 1.55;
+  /** 30px — one headline financial figure per answer. */
+  --text-figure: 1.875rem;
+  --text-figure--line-height: 1.05;
+
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
   --radius-lg: var(--radius);
@@ -350,6 +383,37 @@ body {
 .numeral {
   font-variant-numeric: tabular-nums lining-nums;
   letter-spacing: -0.015em;
+}
+
+/* ---------------------------------------------------------------------------
+   THE INTEGRITY LINE — the calm answer's signature.
+
+   One quiet sentence under every answer ("Verified against your data ·
+   3 things to know · 12 checks"), whose three counts are real, come off
+   the payload, and are each a tap target onto the full truth.
+
+   Its whole ornament budget is one dot with a soft halo. Everything
+   else on the line is type. The rule above it is a hairline that stops
+   short of the column edge, so the line reads as a signature under the
+   writing rather than as a section divider between two blocks.
+--------------------------------------------------------------------------- */
+.integrity-dot {
+  box-shadow: 0 0 0 3px color-mix(in oklab, var(--verified) 16%, transparent);
+}
+.integrity-rule {
+  background: linear-gradient(
+    to right,
+    var(--border) 0%,
+    var(--border) 62%,
+    transparent 100%
+  );
+}
+
+/* The verdict lead-in: the answer to the question that was asked, seated
+   above the writing and marked by a rule rather than boxed in amber. A
+   box says "caution, aside"; a rule says "this is the first thing". */
+.verdict-rule {
+  box-shadow: inset 2px 0 0 0 var(--warning);
 }
 
 /* Thin, quiet scrollbars */

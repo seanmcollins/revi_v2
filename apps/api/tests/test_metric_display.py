@@ -111,3 +111,41 @@ def test_a_missing_file_is_an_empty_ruleset_not_a_crash(tmp_path: Path) -> None:
 
 def test_the_ruleset_is_content_hashed(rules) -> None:
     assert len(rules.content_hash) == 64
+
+
+class TestEverySurfaceThatNamesAMetricUsesTheGovernedName:
+    """Round-6 E-04. ``apply_metric_display`` had exactly one caller — the
+    finding card — so the referent CHIP built from that same title, the meta
+    answer's label and the chart title all carried the raw id. Live, the
+    chip read "timely filing at risk dollars: $22,426,000.28" beside a card
+    reading "Unbilled open inventory on a running filing clock:
+    $22,426,000.28", about one finding.
+    """
+
+    def test_the_rules_expose_the_substitution_map_they_all_share(self, rules) -> None:
+        assert rules.names[TIMELY] == rules.name_for(TIMELY)
+        assert set(rules.names) == set(rules.by_metric)
+
+    def test_a_title_rewritten_once_is_rewritten_the_same_way_everywhere(
+        self, rules
+    ) -> None:
+        from revi_presentation.narrative import apply_metric_display
+
+        title = "State Medicaid HMO: $2,349,692.17 timely filing at risk dollars"
+
+        rewritten = apply_metric_display(title, rules.names)
+
+        assert rules.name_for(TIMELY) in rewritten
+        assert "timely filing at risk dollars" not in rewritten
+        # …and the chart title, which is composed from the metric id with
+        # underscores swapped for spaces, goes through the same door.
+        assert rules.name_for(TIMELY) in apply_metric_display(
+            "timely filing at risk dollars — main", rules.names
+        )
+
+    def test_an_id_with_no_governed_name_is_left_exactly_alone(self, rules) -> None:
+        """The common and honest case: most ids say what they measure."""
+        from revi_presentation.narrative import apply_metric_display
+
+        title = "Atlas Commercial: $33,954.90 denied dollars"
+        assert apply_metric_display(title, rules.names) == title

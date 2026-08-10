@@ -94,6 +94,7 @@ Every compare row is also registered as a dimension-value referent
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from enum import StrEnum
@@ -112,6 +113,7 @@ from revi_investigation.application.comparison import (
     render_comparison,
 )
 from revi_investigation.application.execution import (
+    TOO_SMALL_TO_MEASURE,
     BoundedCell,
     SuppressionCensus,
     bound_index,
@@ -125,6 +127,9 @@ from revi_investigation.application.rendering import (
 )
 from revi_investigation.application.rendering import (
     MONEY_UNIT as _MONEY_UNIT,
+)
+from revi_investigation.application.rendering import (
+    RATIO_UNIT as _RATIO_UNIT,
 )
 from revi_investigation.application.rendering import (
     format_value,
@@ -381,14 +386,37 @@ class SelectionCensus:
     def bounded_share(self) -> float:
         return self.bounded / self.publishable if self.publishable else 0.0
 
-    def arithmetic(self) -> str:
-        """The frame's own census, worded as the suppression disclosure
-        words it, so the two sentences on the card cannot disagree."""
-        empty = f", {self.empty} were empty" if self.empty else ""
-        return (
-            f" Of {self.total} cell(s) on this answer, {self.bounded} carry an upper bound, "
-            f"{self.withheld} were withheld outright{empty} and {self.measured} are measured."
-        )
+    def as_payload(self) -> dict[str, int]:
+        """The full census, for the trace.
+
+        It used to be a SENTENCE, appended to the answer's own disclosure —
+        so the most important paragraph on the page stated its arithmetic
+        twice, once in words and once in the machine's ("Of 30 cell(s) on
+        this answer, 24 carry an upper bound…"). The page now says the
+        count once, in words; the complete partition is recorded here,
+        where an auditor can check it and a reader is not asked to.
+        """
+        return {
+            "total_rows": self.total,
+            "bounded_rows": self.bounded,
+            "measured_rows": self.measured,
+            "empty_rows": self.empty,
+            "withheld_rows": self.withheld,
+        }
+
+
+def _row_noun(dimension_columns: Sequence[str]) -> str:
+    """What the rows of this answer ARE, in the analyst's vocabulary.
+
+    "24 of 30 plans are too small to measure exactly" is a sentence a
+    director acts on; "24 of the 30 publishable denial rate cells" is one
+    they stop reading. The cut's own id is the closest thing the engine has
+    to the reader's word for its rows, so it is the word used.
+    """
+    if not dimension_columns:
+        return "rows"
+    label = dimension_columns[0].replace("_", " ")
+    return label if label.endswith("s") else f"{label}s"
 
 
 def _unranked_bounds_warning(
@@ -397,34 +425,38 @@ def _unranked_bounds_warning(
     measure: str,
     unrankable: bool,
     order: object | None,
+    noun: str = "rows",
 ) -> str:
-    """What a ranking owes a reader once some of its cells are ceilings.
+    """What a ranking owes a reader once some of its rows are ceilings.
 
-    Round-3 R3-02, and the population arithmetic R3-18 asked for in the
-    same breath: the counts are computed once, in :class:`SelectionCensus`,
-    from the frame the findings were selected from, so neither the
-    narrative nor the suppression disclosure can invent a different
-    denominator for them.
+    Round-3 R3-02 and the population arithmetic R3-18 asked for in the same
+    breath — rewritten in round 6 for the reader who has to act on it. A
+    fresh-eyes review could not parse this paragraph: it opened with a
+    count rather than with what the count MEANT, said "publishable … cells"
+    and "cell(s)" in machine voice, carried three words for two ideas
+    ("upper bound", "ceiling", "measurement"), and stated the same census
+    twice — once in English and once as arithmetic.
+
+    So: the meaning leads, the count is stated ONCE in words, and the full
+    partition goes to the trace (:meth:`SelectionCensus.as_payload`), where
+    an auditor can check it and a reader is not asked to.
     """
     label = metric_label(measure)
-    noun = "cell" if census.bounded == 1 else "cells"
     if unrankable:
         return (
-            f"ranking_refused: {census.bounded} of the {census.publishable} publishable {label} "
-            f"{noun} on this answer carry an upper bound rather than a measurement, leaving "
-            f"{census.measured} measured, so no ranking is published. Ordering ceilings against "
-            "measurements sorts by population size, not by the measure that was asked about. The "
-            "bounded cells are listed separately, each with the population its bound was taken "
-            f"over.{census.arithmetic()}"
+            f"ranking_refused: most of these {noun} are {TOO_SMALL_TO_MEASURE}, so no ranking "
+            f"is published. {census.bounded} of {census.total} are {TOO_SMALL_TO_MEASURE} — for "
+            "those only a ceiling is known, and putting ceilings in order beside measured "
+            f"figures sorts by how big each group is rather than by {label}. The "
+            f"{census.measured} that could be measured are published above; the rest are listed "
+            "separately, each with the size of the group its ceiling was taken over."
         )
-    asked = " (the order you asked for applies to the measured cells only)" if order else ""
-    measured_noun = "cell" if census.measured == 1 else "cells"
+    asked = " (the order you asked for applies to the measured rows only)" if order else ""
     return (
-        f"bounded_cells_unranked: {census.bounded} of {census.publishable} {label} {noun} had a "
-        f"suppressed numerator and are published as upper bounds in their own block, "
-        f"unranked{asked}. The ranking above covers the {census.measured} measured "
-        f"{measured_noun} only — a ceiling has no position in an order it was never measured "
-        f"for.{census.arithmetic()}"
+        f"bounded_cells_unranked: {census.bounded} of {census.total} {noun} are "
+        f"{TOO_SMALL_TO_MEASURE} — for those only a ceiling is known, so they are listed below "
+        f"the ranking rather than inside it{asked}. The ranking covers the {census.measured} "
+        "that could be measured: a ceiling has no place in an order it was never measured for."
     )
 
 
@@ -960,7 +992,7 @@ def _as_int(value: Scalar) -> int | None:
     return value
 
 
-def _as_number(value: Scalar) -> Decimal | None:
+def as_number(value: Scalar) -> Decimal | None:
     """Any numeric cell as a Decimal, or ``None`` when there is no number.
 
     Movement selection used to read deltas through :func:`_as_int`, which
@@ -1185,7 +1217,7 @@ def verify_premise(
         if measure is None:
             continue
         row = frame.rows[0]
-        delta = _as_number(row[frame.schema.index_of(f"{measure}__delta")])
+        delta = as_number(row[frame.schema.index_of(f"{measure}__delta")])
         if delta is None:
             continue
         contract = pack.metric(measure)
@@ -1290,8 +1322,8 @@ def _magnitude_verdict(
     the movement was at least half the claim, which made "it doubled" true
     of +72.6% and of +900% alike.
     """
-    prior_value = _as_number(prior)
-    current_value = _as_number(current)
+    prior_value = as_number(prior)
+    current_value = as_number(current)
     if prior_value is None or current_value is None or prior_value == 0:
         return MagnitudeVerdict.UNVERIFIABLE, None
     actual = Decimal(current_value) / Decimal(prior_value)
@@ -1387,8 +1419,8 @@ def premise_verdict_sentence(
         f"{format_value(premise.prior, premise.unit)} → "
         f"{format_value(premise.current, premise.unit)}"
     )
-    pct = f", {ratio_pct(premise.pct)}" if isinstance(premise.pct, Decimal) else ""
     moved = "fell" if premise.delta < 0 else ("rose" if premise.delta > 0 else "did not move")
+    movement = _movement_text(premise)
     if premise.unverifiable:
         return _unverifiable_sentence(premise, noun, label, phrase, figures)
     if premise.magnitude_short:
@@ -1398,23 +1430,23 @@ def premise_verdict_sentence(
         # "Premise confirmed … It happened: 7.4% → 12.8%, 72.6%" was
         # published against ``asserted_multiple: 2.0`` on the same card.
         return (
-            f"You asked about {noun} in {label}. It did not {verb} — {label} {moved} "
-            f"{_movement_text(premise)}, short of the {_asserted_change_text(spec)} "
-            f"{noun} assumes: {figures} {phrase}"
+            f"You asked about {noun} in {label}. It did not {verb} — {figures} {phrase}, "
+            f"{moved} {movement}, short of the {_asserted_change_text(spec)} {noun} assumes"
         )
     if premise.magnitude_beyond:
         return (
-            f"You asked about {noun} in {label}. It happened, and by more than that — {label} "
-            f"{moved} {_movement_text(premise)}, past the {_asserted_change_text(spec)} "
-            f"{noun} assumes: {figures} {phrase}"
+            f"You asked about {noun} in {label}. It happened, and by more than that — "
+            f"{figures} {phrase}, {moved} {movement}, past the "
+            f"{_asserted_change_text(spec)} {noun} assumes"
         )
     if premise.holds:
         return (
-            f"You asked about {noun} in {label}. It happened: {figures}{pct} {phrase}"
+            f"You asked about {noun} in {label}. It happened: {figures} {phrase}, "
+            f"{moved} {movement}"
         )
     return (
-        f"You asked about {noun} in {label}. It did not happen — {label} {moved} "
-        f"{magnitude(premise.delta, premise.unit)}{pct} {phrase}: {figures}"
+        f"You asked about {noun} in {label}. It did not happen — {figures} {phrase}, "
+        f"{label} {moved} {movement}"
     )
 
 
@@ -1461,12 +1493,31 @@ def _unverifiable_sentence(
     )
 
 
+def movement_forms(delta: Scalar, pct: Scalar, unit: str | None) -> str:
+    """A movement in BOTH of its readings, each named.
+
+    Round-6 answer-surface review. "denial rate rose 11.5%" printed beside
+    "7.1% → 7.9%" is read as *11.5 points* by every director who scans it —
+    two different facts, one sentence, and nothing in the sentence to tell
+    them apart. A rate moved 0.8 points AND 11.5% relative; both are true,
+    neither implies the other, and a card that states one without saying
+    which has stated nothing checkable.
+
+    Money needs no such care — dollars and percentages do not look alike —
+    so it keeps the shorter form with the relative change parenthesised.
+    """
+    absolute = magnitude(delta, unit)
+    if not isinstance(pct, Decimal):
+        return absolute
+    relative = ratio_pct(abs(pct))
+    if unit == _RATIO_UNIT:
+        return f"{absolute}, a {relative} relative change"
+    return f"{absolute} ({relative})"
+
+
 def _movement_text(premise: PremiseCheck) -> str:
-    """The movement that happened, as a percentage when there is a base for
-    one and in the contract's own unit when there is not."""
-    if isinstance(premise.pct, Decimal):
-        return ratio_pct(abs(premise.pct))
-    return magnitude(premise.delta, premise.unit)
+    """The movement a premise verdict states, in both of its readings."""
+    return movement_forms(premise.delta, premise.pct, premise.unit)
 
 
 def _asserted_change_text(spec: AnalysisSpec) -> str:
@@ -1679,7 +1730,7 @@ class EvaluateFindingsService:
         findings: list[Finding] = []
         referents: list[RegisteredReferent] = []
         limit = self._limit(spec)
-        eligible = [row for row in rows if _as_number(row[idx_delta]) is not None]
+        eligible = [row for row in rows if as_number(row[idx_delta]) is not None]
         bounds = self._bounds(shape.frame)
         row_positions = {id(row): i for i, row in enumerate(shape.frame.rows)}
         # The cells the direction filter removed are not gone, they are
@@ -1689,7 +1740,7 @@ class EvaluateFindingsService:
         # already said the premise was only partly supported. When the
         # analyst named a count, the asked-for set is published first and
         # the counter-direction cells fill the rest of it, labelled.
-        counter_eligible = [row for row in counter if _as_number(row[idx_delta]) is not None]
+        counter_eligible = [row for row in counter if as_number(row[idx_delta]) is not None]
         # Only a count the ANALYST named opens the set: the default top-3 is
         # this platform's own choice of how much to show, and filling it
         # with cells that moved the other way would answer a question
@@ -1840,10 +1891,10 @@ class EvaluateFindingsService:
             return sorted(
                 candidates,
                 key=lambda row: (
-                    _as_number(row[idx_delta]) is None,  # NULL deltas last
-                    -(_as_number(row[idx_delta]) or 0)
+                    as_number(row[idx_delta]) is None,  # NULL deltas last
+                    -(as_number(row[idx_delta]) or 0)
                     if descending
-                    else (_as_number(row[idx_delta]) or 0),
+                    else (as_number(row[idx_delta]) or 0),
                 ),
             )
 
@@ -1866,7 +1917,7 @@ class EvaluateFindingsService:
         matched = [
             row
             for row in rows
-            if (value := _as_number(row[idx_delta])) is not None
+            if (value := as_number(row[idx_delta])) is not None
             and (value > 0 if wanted > 0 else value < 0)
         ]
         assert spec.direction is not None
@@ -1875,7 +1926,7 @@ class EvaluateFindingsService:
             removed = [
                 row
                 for row in rows
-                if (value := _as_number(row[idx_delta])) is not None
+                if (value := as_number(row[idx_delta])) is not None
                 and not (value > 0 if wanted > 0 else value < 0)
             ]
             return (
@@ -2127,7 +2178,7 @@ class EvaluateFindingsService:
         measure = shape.measure
         current = row[schema.index_of(measure)]
         prior = row[schema.index_of(f"{measure}__prior")]
-        delta = _as_number(row[schema.index_of(f"{measure}__delta")])
+        delta = as_number(row[schema.index_of(f"{measure}__delta")])
         pct = row[schema.index_of(f"{measure}__pct_change")]
         assert delta is not None  # caller filtered NULL deltas
 
@@ -2151,11 +2202,13 @@ class EvaluateFindingsService:
         )
         current_text = bound_text(current, shape.unit, bounded=bound is not None)
         title = f"{label} {measure_label} {direction} {amount} {period_phrase}"
-        pct_text = ratio_pct(pct) if isinstance(pct, Decimal) else "n/a"
+        # Both readings, each named. "up 0.8 points, a 11.5% relative
+        # change" — never the bare "11.5%" beside "7.1% → 7.9%", which a
+        # director reads as points (round-6 answer-surface review).
+        movement = movement_forms(delta, pct, shape.unit)
         statement = (
             f"{label}: {measure_label} moved from {format_value(prior, shape.unit)} to "
-            f"{current_text} "
-            f"({direction} {amount}, {pct_text} {period_phrase})."
+            f"{current_text} ({direction} {movement} {period_phrase})."
         )
         if bound is not None:
             # A movement computed off a bounded endpoint is a movement
@@ -2355,10 +2408,17 @@ class EvaluateFindingsService:
             period_phrase = comparison.phrase if comparison is not None else "vs prior period"
             prior_text = format_value(prior, shape.unit)
             title = f"{label}: {current_text}, {movement} {prior_text} {period_phrase}"
-            pct_text = f" ({ratio_pct(pct)} change)" if isinstance(pct, Decimal) else ""
+            # Both readings, each named. "(39.6% change)" printed under
+            # "12.8%, up from 9.1%" is read as 39.6 POINTS by a director
+            # scanning the card — the ambiguity the title above already
+            # refuses to publish, re-introduced one line down (round-6
+            # answer-surface review).
+            # The direction is already in ``movement`` ("up from"), so the
+            # parenthesis carries only the SIZE — in both of its readings.
+            moved = f" ({movement_forms(delta, pct, shape.unit)})" if delta is not None else ""
             statement = (
                 f"{label} is {current_text} {period_text}, {movement} {prior_text} "
-                f"{period_phrase}{pct_text}."
+                f"{period_phrase}{moved}."
             )
         else:
             title = f"{label}: {current_text} {period_paren}"
@@ -2488,18 +2548,24 @@ class EvaluateFindingsService:
         schema = shape.frame.schema
         idx_bucket = schema.index_of(shape.bucket_column)
         idx_value = schema.index_of(shape.measure)
+        # Round-6 A-05: the trend was the one shape family that never asked
+        # which of its points are ceilings. The chart under it drew them as
+        # bounds while the title above it stated "7.5% → 9.0% (up 1.5
+        # points)" — a measured-looking movement between two ceilings — and
+        # the export, which prints this title verbatim, inherited the claim.
+        row_bounds = self._bounds(shape.frame)
         points = [
-            (row[idx_bucket], value)
-            for row in shape.frame.rows
-            if (value := _as_number(row[idx_value])) is not None
+            (row[idx_bucket], value, row_bounds.get(index, {}).get(shape.measure))
+            for index, row in enumerate(shape.frame.rows)
+            if (value := as_number(row[idx_value])) is not None
         ]
         if len(points) < 2:
             return None  # a series of one is not a trend, and nor is silence
         points.sort(key=lambda point: str(point[0]))
         provisional = points[-1] if censoring is not None else None
         settled = points[:-1] if (censoring is not None and len(points) > 2) else points
-        (first_bucket, first_value) = settled[0]
-        (last_bucket, last_value) = settled[-1]
+        (first_bucket, first_value, first_bound) = settled[0]
+        (last_bucket, last_value, last_bound) = settled[-1]
         low = min(settled, key=lambda point: point[1])
         high = max(settled, key=lambda point: point[1])
         delta = last_value - first_value
@@ -2507,23 +2573,34 @@ class EvaluateFindingsService:
         window = spec.context.window.range
         noun = _bucket_noun(shape.frame, shape.bucket_column)
         direction = "down" if delta < 0 else ("up" if delta > 0 else "flat")
-        movement = (
-            f"{direction} {magnitude(delta, shape.unit)}"
-            if delta
-            else "unchanged end to end"
-        )
+        bounded_ends = first_bound is not None or last_bound is not None
+        if bounded_ends:
+            # A movement between ceilings is not a movement. The direction
+            # word survives (the ceilings really did move), the SIZE does
+            # not: the true endpoints sit somewhere at or below the two
+            # bounds, so their difference is unknown.
+            movement = "movement between ceilings — size unknown"
+        else:
+            movement = (
+                f"{direction} {magnitude(delta, shape.unit)}"
+                if delta
+                else "unchanged end to end"
+            )
+        first_text = bound_text(first_value, shape.unit, bounded=first_bound is not None)
+        last_text = bound_text(last_value, shape.unit, bounded=last_bound is not None)
         title = (
             f"{label} by {noun}, "
             f"{window.start.isoformat()}..{window.end.isoformat()}: "
-            f"{format_value(first_value, shape.unit)} → "
-            f"{format_value(last_value, shape.unit)} ({movement})"
+            f"{first_text} → {last_text} ({movement})"
         )
         statement = (
-            f"{label} ran from {format_value(first_value, shape.unit)} in "
-            f"{_bucket_text(first_bucket, noun)} to {format_value(last_value, shape.unit)} in "
+            f"{label} ran from {first_text} in "
+            f"{_bucket_text(first_bucket, noun)} to {last_text} in "
             f"{_bucket_text(last_bucket, noun)} ({movement} over {len(settled)} {noun}s); highest "
-            f"{format_value(high[1], shape.unit)} in {_bucket_text(high[0], noun)}, lowest "
-            f"{format_value(low[1], shape.unit)} in {_bucket_text(low[0], noun)}."
+            f"{bound_text(high[1], shape.unit, bounded=high[2] is not None)} in "
+            f"{_bucket_text(high[0], noun)}, lowest "
+            f"{bound_text(low[1], shape.unit, bounded=low[2] is not None)} in "
+            f"{_bucket_text(low[0], noun)}."
         )
         values: list[tuple[str, Scalar]] = [
             ("first", first_value),
@@ -2533,14 +2610,34 @@ class EvaluateFindingsService:
             ("low", low[1]),
             ("periods", len(settled)),
         ]
+        # The bound, as named values rather than as prose, so a card, a CSV
+        # and an emailed export can all ask "is this a measurement?" of a
+        # trend without re-deriving the suppression policy from the chart.
+        #
+        # ``__is_bound`` is the scalar contract's own name and means what it
+        # means everywhere: this figure is not a measurement. There is
+        # deliberately no series-level ``__bound`` — a series has no single
+        # ceiling, and publishing one endpoint's as the trend's would be a
+        # third answer to a question the two per-end names already answer.
+        if bounded_ends:
+            values.append((f"{shape.measure}__is_bound", True))
+        for side, bound in (("first", first_bound), ("last", last_bound)):
+            if bound is not None:
+                values.extend(
+                    [
+                        (f"{shape.measure}__{side}__is_bound", True),
+                        (f"{shape.measure}__{side}__bound", bound.bound),
+                        (f"{shape.measure}__{side}__bound_population", bound.population),
+                    ]
+                )
         if provisional is not None and censoring is not None:
             # The point is published — dropping it would hide the newest
             # data the analyst asked for — and it is published as
             # provisional, outside the movement the sentence claims.
             statement = (
                 f"{statement} The {_bucket_text(provisional[0], noun)} point "
-                f"({format_value(provisional[1], shape.unit)}) is PROVISIONAL and is excluded "
-                f"from that movement: {censoring.reason}"
+                f"({bound_text(provisional[1], shape.unit, bounded=provisional[2] is not None)}) "
+                f"is PROVISIONAL and is excluded from that movement: {censoring.reason}"
             )
             title = f"{title}; {_bucket_text(provisional[0], noun)} provisional"
             values.extend(
@@ -2564,6 +2661,10 @@ class EvaluateFindingsService:
                 "qualified"
                 if (
                     censoring is not None
+                    # A movement measured between two ceilings is not a
+                    # measurement, whatever the grade of the frame it came
+                    # from (round-6 A-05).
+                    or bounded_ends
                     or self._requires_qualification(shape.frame.evidence_grade, pack, playbook)
                 )
                 else "high"
@@ -2728,6 +2829,10 @@ class EvaluateFindingsService:
                     measure=shape.measure,
                     unrankable=unrankable,
                     order=spec.order,
+                    # The reader's own noun for the rows in front of them —
+                    # "plans", "payers", "providers" — rather than "cells",
+                    # which is the engine's word for its own arithmetic.
+                    noun=_row_noun(shape.dimension_columns),
                 )
             )
         truncation = _truncation_warning(

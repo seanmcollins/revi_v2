@@ -85,6 +85,7 @@ from revi_investigation.application.refinement_llm import (
 )
 from revi_investigation.application.submit_turn import OpenSessionService, SubmitTurnService
 from revi_investigation.application.validation import PlanValidationService
+from revi_investigation.application.window_maturity import WindowMaturityService
 from revi_investigation.domain.context import PackVersionRef
 from revi_investigation.domain.records import Session
 from revi_investigation_contracts.api import TypedInvestigationSpec
@@ -322,6 +323,7 @@ def build_components(
         traces=stores.traces,
         frames=stores.frames,
         events=event_bus,
+        window_maturity=WindowMaturityService(repository, pack_port),
     )
 
     def drillability(spec: TypedInvestigationSpec, watermark: DataWatermark) -> str | None:

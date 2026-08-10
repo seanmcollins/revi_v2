@@ -77,13 +77,13 @@ export function SettingsPanel() {
         <DialogPrimitive.Content className="panel-in fixed left-1/2 top-[10%] z-50 flex max-h-[80vh] w-[34rem] max-w-[calc(100vw-2rem)] -translate-x-1/2 flex-col overflow-hidden rounded-xl border bg-surface-overlay shadow-2xl shadow-black/20">
           <div className="flex items-center gap-2 border-b px-4 py-3">
             <SlidersHorizontal className="size-3.5 shrink-0 text-muted-foreground" />
-            <DialogPrimitive.Title className="text-[0.82rem] font-semibold tracking-tight">
+            <DialogPrimitive.Title className="text-body font-semibold tracking-tight">
               Settings
             </DialogPrimitive.Title>
-            <span className="rounded-full border border-warning/40 bg-warning/10 px-1.5 py-0.5 text-[0.55rem] font-semibold uppercase tracking-[0.12em] text-warning">
+            <span className="rounded-full border border-warning/40 bg-warning/10 px-1.5 py-0.5 text-micro font-semibold uppercase tracking-[0.12em] text-warning">
               Internal
             </span>
-            <kbd className="ml-auto rounded border bg-surface-sunken px-1.5 py-0.5 font-mono text-[0.6rem] text-muted-foreground">
+            <kbd className="ml-auto rounded border bg-surface-sunken px-1.5 py-0.5 font-mono text-micro text-muted-foreground">
               esc
             </kbd>
           </div>
@@ -98,7 +98,7 @@ export function SettingsPanel() {
             {lastPolicyDenial && (
               <div
                 role="alert"
-                className="flex items-start gap-2 rounded-md border border-negative/50 bg-negative/10 px-3 py-2 text-[0.72rem] leading-snug"
+                className="flex items-start gap-2 rounded-md border border-negative/50 bg-negative/10 px-3 py-2 text-meta leading-snug"
               >
                 <ShieldAlert className="mt-0.5 size-3.5 shrink-0 text-negative" />
                 <div>
@@ -109,7 +109,7 @@ export function SettingsPanel() {
             )}
 
             {capabilitiesState === "loading" && (
-              <p className="text-[0.72rem] text-muted-foreground">
+              <p className="text-meta text-muted-foreground">
                 Reading what this deployment accepts…
               </p>
             )}
@@ -117,7 +117,7 @@ export function SettingsPanel() {
             {capabilitiesState === "unavailable" && (
               <div
                 role="alert"
-                className="rounded-md border bg-surface-sunken/60 px-3 py-2.5 text-[0.72rem] leading-snug text-muted-foreground"
+                className="rounded-md border bg-surface-sunken/60 px-3 py-2.5 text-meta leading-snug text-muted-foreground"
               >
                 <p className="font-medium text-secondary-foreground">
                   No controls — this deployment&rsquo;s bounds could not be read.
@@ -126,7 +126,7 @@ export function SettingsPanel() {
                 <Button
                   variant="outline"
                   size="xs"
-                  className="mt-2 text-[0.65rem] font-normal"
+                  className="mt-2 text-meta font-normal"
                   onClick={() => void loadCapabilities()}
                 >
                   Try again
@@ -139,14 +139,14 @@ export function SettingsPanel() {
             )}
 
             <section className="space-y-1.5">
-              <h3 className="text-[0.6rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+              <h3 className="text-micro font-semibold uppercase tracking-[0.14em] text-muted-foreground">
                 Effective configuration
               </h3>
-              <p className="text-[0.68rem] leading-snug text-muted-foreground">
+              <p className="text-meta leading-snug text-muted-foreground">
                 Read-only — what this deployment is actually running. Change it in the
                 server&rsquo;s environment, not here.
               </p>
-              <dl className="num grid grid-cols-[9rem_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-md border bg-surface-sunken/50 px-3 py-2.5 text-[0.68rem]">
+              <dl className="num grid grid-cols-[9rem_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-md border bg-surface-sunken/50 px-3 py-2.5 text-meta">
                 <Fact label="API" value={apiBaseUrl()} />
                 <Fact label="Connection" value={`${connection.mode} · ${connection.state}`} />
                 <Fact label="Model" value={connection.llmMode ?? capabilities?.llm ?? "unknown"} />
@@ -196,7 +196,7 @@ export function SettingsPanel() {
                 />
               </dl>
               {bounds && !bounds.modelTierEffective && (
-                <p className="text-[0.65rem] leading-snug text-muted-foreground">
+                <p className="text-meta leading-snug text-muted-foreground">
                   Model tier is not offered here: this deployment&rsquo;s language model
                   applies no per-call override, so choosing a tier would change nothing
                   about the answer.
@@ -206,13 +206,13 @@ export function SettingsPanel() {
           </div>
 
           <div className="flex items-center gap-3 border-t px-4 py-2.5">
-            <p className="text-[0.62rem] leading-snug text-muted-foreground">
+            <p className="text-micro leading-snug text-muted-foreground">
               Applies to the next turn you send. Kept in this browser only.
             </p>
             <Button
               variant="ghost"
               size="xs"
-              className="ml-auto gap-1 text-[0.65rem] font-normal text-muted-foreground"
+              className="ml-auto gap-1 text-meta font-normal text-muted-foreground"
               onClick={resetSettings}
             >
               <RotateCcw className="size-3" />
@@ -271,7 +271,7 @@ function ControlList({
   return (
     <div className="space-y-5">
       {offered === 0 && (
-        <p className="text-[0.72rem] leading-snug text-muted-foreground">
+        <p className="text-meta leading-snug text-muted-foreground">
           This deployment offers no adjustable settings — everything below is fixed in
           its environment.
         </p>
@@ -324,11 +324,11 @@ function ControlList({
                 aria-label="Per-turn cost ceiling in USD"
                 className="h-1 min-w-0 flex-1 accent-[var(--verified)] disabled:opacity-40"
               />
-              <span className="num w-14 shrink-0 text-right text-[0.72rem] tabular-nums">
+              <span className="num w-14 shrink-0 text-right text-meta tabular-nums">
                 {current === null ? "off" : `$${settings.maxTurnCostUsd}`}
               </span>
             </div>
-            <label className="flex items-center gap-2 text-[0.68rem] text-muted-foreground">
+            <label className="flex items-center gap-2 text-meta text-muted-foreground">
               <input
                 type="checkbox"
                 checked={current === null}
@@ -342,7 +342,7 @@ function ControlList({
               No per-turn ceiling (deployment per-call cap only)
             </label>
             {overCeiling && (
-              <p className="text-[0.65rem] leading-snug text-warning">
+              <p className="text-meta leading-snug text-warning">
                 Above this deployment&rsquo;s published ceiling of ${bounds.maxTurnCostUsd} — it
                 will be sent as chosen and the API will refuse it.
               </p>
@@ -404,7 +404,7 @@ function ControlList({
             aria-checked={settings.debug}
             onClick={() => patchSettings({ debug: !settings.debug })}
             className={cn(
-              "inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-[0.7rem] font-medium transition-colors duration-150",
+              "inline-flex h-6 items-center gap-1.5 rounded-full border px-2.5 text-meta font-medium transition-colors duration-150",
               settings.debug
                 ? "border-warning/40 bg-warning/10 text-warning"
                 : "text-muted-foreground hover:text-foreground",
@@ -430,8 +430,8 @@ function Control({
 }) {
   return (
     <section className="space-y-1.5">
-      <h3 className="text-[0.75rem] font-medium tracking-tight">{label}</h3>
-      <p className="text-[0.68rem] leading-snug text-muted-foreground">{hint}</p>
+      <h3 className="text-body font-medium tracking-tight">{label}</h3>
+      <p className="text-meta leading-snug text-muted-foreground">{hint}</p>
       <div className="pt-0.5">{children}</div>
     </section>
   );
@@ -459,7 +459,7 @@ function Segmented({
           title={option.hint}
           onClick={() => onChange(option.value)}
           className={cn(
-            "rounded-md border px-2 py-1 text-left text-[0.7rem] transition-colors duration-150",
+            "rounded-md border px-2 py-1 text-left text-meta transition-colors duration-150",
             option.value === value
               ? "border-ring/50 bg-accent font-medium text-foreground"
               : "text-muted-foreground hover:border-ring/40 hover:text-foreground",
@@ -467,7 +467,7 @@ function Segmented({
         >
           {option.label}
           {option.hint && (
-            <span className="ml-1.5 text-[0.6rem] text-muted-foreground">{option.hint}</span>
+            <span className="ml-1.5 text-micro text-muted-foreground">{option.hint}</span>
           )}
         </button>
       ))}

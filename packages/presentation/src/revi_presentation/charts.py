@@ -27,9 +27,14 @@ from decimal import Decimal
 
 from revi_investigation_contracts.api import ChartRow, ChartSort, ChartSpec, ChartType
 from revi_kernel.filters import Scalar
-from revi_kernel.frame import EvidenceFrame
+from revi_kernel.frame import (
+    EvidenceFrame,
+    primary_measure,
+    published_measures,
+    withheld_row_indices,
+)
 from revi_kernel.maturity import terminal_bucket_verdict
-from revi_kernel.refs import DimensionRef, MetricRef
+from revi_kernel.refs import DimensionRef
 
 _TIME_BUCKET_PREFIX = "time_bucket:"
 
@@ -78,23 +83,6 @@ def _time_column(frame: EvidenceFrame) -> str | None:
         if isinstance(col.ref, DimensionRef) and col.ref.id.startswith(_TIME_BUCKET_PREFIX):
             return col.name
     return None
-
-
-def _measure_columns(frame: EvidenceFrame) -> tuple[str, ...]:
-    return tuple(
-        col.name
-        for col in frame.schema.columns
-        if isinstance(col.ref, MetricRef) and "__" not in col.name
-    )
-
-
-def _primary_measure(frame: EvidenceFrame) -> str | None:
-    measures = _measure_columns(frame)
-    for name in measures:
-        col = frame.schema.columns[frame.schema.index_of(name)]
-        if col.unit == "money_cents":
-            return name
-    return measures[0] if measures else None
 
 
 def _coerce_type(raw: str) -> ChartType | None:
@@ -206,7 +194,7 @@ def provisional_bucket(frame: EvidenceFrame, measure: str) -> str | None:
 def _pick_recipe(
     frame: EvidenceFrame, recipes: Sequence[RecipeSpec], playbook_id: str | None
 ) -> RecipeSpec | None:
-    targets = set(_measure_columns(frame))
+    targets = set(published_measures(frame))
     if playbook_id is not None:
         targets.add(playbook_id)
     for recipe in recipes:
@@ -251,7 +239,7 @@ def build_chart_spec(
     findings above them were ordered. It is passed through, never derived:
     a chart with no plan ordering says so rather than implying one.
     """
-    value = _primary_measure(frame)
+    value = primary_measure(frame)
     if value is None:
         return None
     dims = _dimension_columns(frame)
@@ -372,28 +360,27 @@ def build_chart_spec(
             "measurements — their numerator was suppressed and they cannot be ranked "
             "against the measured marks"
         )
-    withheld = sum(
-        1
-        for row in frame.rows
-        if row[frame.schema.index_of(value)] is None
-    )
+    # The census rule lives in the kernel and is asked, never re-derived:
+    # this annotation and the engine's own `Of N cell(s) on this answer…`
+    # sentence used to count a null row two different ways (round-6 A-02).
+    withheld = len(withheld_row_indices(frame, value))
     # Round-4 R4-02: the answer refused to rank these cells and the chart
     # 400px below it sorted them by value anyway — "ordered by denial_rate,
     # high to low" over a column that is mostly ceilings, which orders by
     # panel size. The refusal is restated on the figure so a renderer can
     # suppress the ordering, and a reader who only sees the chart is told.
-    publishable = len(frame.rows) - withheld
-    if bounds and publishable and len(bounds) / publishable > _MAX_BOUNDED_SHARE_FOR_RANKING:
+    drawn = len(frame.rows) - withheld
+    if bounds and drawn and len(bounds) / drawn > _MAX_BOUNDED_SHARE_FOR_RANKING:
         annotations.append(
-            f"ranking_refused: {len(bounds)} of the {publishable} publishable marks are upper "
-            f"bounds, leaving {publishable - len(bounds)} measured — too few for an order to "
-            "mean anything. These marks are NOT ranked, whatever order they are drawn in; "
-            "sorting ceilings against measurements sorts by population size."
+            f"ranking_refused: {len(bounds)} of the {drawn} marks with a figure are ceilings, "
+            f"leaving {drawn - len(bounds)} measured — too few for an order to mean anything. "
+            "These marks are NOT ranked, whatever order they are drawn in; putting ceilings in "
+            "order beside measured figures sorts by how big each group is."
         )
     if withheld:
         annotations.append(
-            f"withheld: {withheld} of {len(frame.rows)} cells were withheld outright per the "
-            "small-cell policy and are drawn with no value"
+            f"withheld: {withheld} of {len(frame.rows)} groups are too small to publish at all "
+            "and are drawn with no value"
         )
     elif frame.suppressed_cells > 0 and not bounds:
         annotations.append(

@@ -48,6 +48,43 @@ const GRADE_META: Record<
 const GRADE_LAW =
   "A result is only as strong as its weakest input: combining weak evidence with strong evidence cannot turn it into a certified conclusion.";
 
+/**
+ * The grade, at row scale.
+ *
+ * A dot is enough for `direct` — the expected case, on most rows, where a
+ * pill per row is eight pills of the same word. It is NOT enough for
+ * anything else: "proxy" and "uncertified" are the grades that change
+ * what a number may be used for, and leaving those to a hue would be
+ * identity carried by colour alone on the one signal that says how much
+ * to trust the figure beside it. So the exceptions keep their word, and
+ * every dot carries its grade in its accessible name and its tooltip.
+ */
+export function GradeDot({ grade, className }: { grade: EvidenceGrade; className?: string }) {
+  const meta = GRADE_META[grade];
+  const spelled = grade !== "direct";
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          className={cn(
+            "inline-flex shrink-0 cursor-default items-center gap-1 text-micro font-medium",
+            meta.textClass,
+            className,
+          )}
+        >
+          <span aria-hidden className={cn("size-1.5 rounded-full", meta.dotClass)} />
+          {spelled ? meta.label : <span className="sr-only">{meta.label} evidence</span>}
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="top" className="max-w-64">
+        <p className="mb-1 font-medium">{meta.label} evidence</p>
+        <p className="text-micro leading-snug opacity-90">{meta.explanation}</p>
+        <p className="mt-1.5 text-micro leading-snug opacity-70">{GRADE_LAW}</p>
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
 export function GradeBadge({
   grade,
   size = "sm",
@@ -64,7 +101,7 @@ export function GradeBadge({
         <span
           className={cn(
             "inline-flex cursor-default items-center gap-1.5 rounded-full border px-2 font-medium",
-            size === "sm" ? "h-5 text-[0.7rem]" : "h-[1.05rem] text-[0.65rem]",
+            size === "sm" ? "h-5 text-meta" : "h-[1.2rem] text-micro",
             meta.textClass,
             className,
           )}
@@ -75,8 +112,8 @@ export function GradeBadge({
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-64">
         <p className="mb-1 font-medium">{meta.label} evidence</p>
-        <p className="text-[0.7rem] leading-snug opacity-90">{meta.explanation}</p>
-        <p className="mt-1.5 text-[0.65rem] leading-snug opacity-70">{GRADE_LAW}</p>
+        <p className="text-meta leading-snug opacity-90">{meta.explanation}</p>
+        <p className="mt-1.5 text-meta leading-snug opacity-70">{GRADE_LAW}</p>
       </TooltipContent>
     </Tooltip>
   );

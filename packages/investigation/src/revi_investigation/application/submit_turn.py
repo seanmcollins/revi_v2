@@ -47,7 +47,7 @@ from __future__ import annotations
 import re
 import time
 import uuid
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from decimal import Decimal
@@ -77,9 +77,13 @@ from revi_investigation.application.findings import (
     FindingsResult,
     find_primary_compare,
 )
+from revi_investigation.application.findings import (
+    as_number as _as_number,
+)
 from revi_investigation.application.gestures import drill_suggestion, parse_gesture
 from revi_investigation.application.interpretation import (
     OPTIONS_DROPPED_MARKER,
+    PRESENTATION_CHANGE_REQUEST,
     ClassificationOutcome,
     ClassifyTurnService,
     DefinitionalAnswer,
@@ -88,6 +92,7 @@ from revi_investigation.application.interpretation import (
     InterpretQuestionService,
     PendingClarification,
     display_scope_limit,
+    presentation_order_request,
     requested_finding_limit,
 )
 from revi_investigation.application.llm.schemas import AnyRefinementOperator
@@ -117,6 +122,7 @@ from revi_investigation.application.refinement_llm import (
     EmitRefinementsService,
     ReferentResolution,
     ResolveReferentsService,
+    referent_tokens,
     resolve_referent_tokens,
     to_domain_operators,
 )
@@ -128,6 +134,7 @@ from revi_investigation.application.validation import (
     ValidatedPlan,
     map_predicates,
 )
+from revi_investigation.application.window_maturity import WindowMaturityService
 from revi_investigation.domain.context import (
     AnalysisSpec,
     ContextPin,
@@ -177,7 +184,7 @@ from revi_kernel.errors import (
     UnsupportedConceptError,
 )
 from revi_kernel.filters import EMPTY_SCOPE, Predicate, PredicateOp, and_merge, iter_predicates
-from revi_kernel.frame import EvidenceFrame
+from revi_kernel.frame import EvidenceFrame, primary_measure
 from revi_kernel.probes import AggregationProbe, EvidenceProbe, SnapshotProbe
 from revi_kernel.refs import SERVICE, DimensionRef, EntityGrain, Grain, MetricRef, ReferentId
 from revi_kernel.scope import (
@@ -643,10 +650,58 @@ def _finding_money(finding: Finding) -> tuple[int | None, int | None]:
     return level, delta
 
 
+def _parent_whole(parent: Investigation, measure: str | None) -> Finding | None:
+    """The parent finding that speaks for the WHOLE population, if any.
+
+    Only an undimensioned parent has one: an answer already cut by payer
+    published twelve cells and no total, and calling any one of them "the
+    whole" would reconcile a breakdown against a slice. One money finding
+    over a spec with no cuts is the figure a breakdown of it must sum to.
+
+    Matched on the child's OWN money measure, which is load-bearing rather
+    than tidy: money is cents-as-int on a finding and ``_finding_money``
+    truncates, so a RATE finding carrying ``Decimal("0.294")`` reads back as
+    ``0`` — "a figure of zero" rather than "no figure" — and a breakdown
+    reconciled against it would publish ``RECONCILIATION_FAILED … parent
+    F1=$0.00`` about two numbers that were never comparable.
+    """
+    if parent.spec.dimensions or measure is None:
+        return None
+    monied = [
+        finding
+        for finding in parent.findings
+        if measure in {ref.id for ref in finding.metric_refs}
+        and any(value is not None for value in _finding_money(finding))
+    ]
+    return monied[0] if len(monied) == 1 else None
+
+
+def _splits_parent(spec: AnalysisSpec | None, parent: Investigation) -> bool:
+    """Did this turn cut the parent's population along a new dimension?
+
+    Read off the SPECS, not off the operator names (round-6 E-02). "Break
+    that out by payer" reached the engine as a ``set_dimensions`` on one
+    session and as something else on another, and the second reported
+    ``this turn neither split nor drilled the parent's population`` about a
+    turn that plainly had. A turn that gained a cut split the population,
+    whichever operator got it there.
+    """
+    if spec is None:
+        return False
+    gained = {d.id for d in spec.dimensions} - {d.id for d in parent.spec.dimensions}
+    return bool(gained)
+
+
 def containment_reconciliation(
     parent: Investigation,
     calculation: CalculationResult,
     operators: tuple[Refinement, ...],
+    spec: AnalysisSpec | None = None,
+    #: The session's published findings, as a THUNK: only a drill whose
+    #: handle is not on the immediate parent reads it, and on a breakdown —
+    #: the shape this function was extended for — the store round trip it
+    #: costs would buy nothing.
+    session_findings: Callable[[], Sequence[Finding]] = tuple,
 ) -> tuple[str, bool] | None:
     """Reconcile a drill against the PARENT FINDING it was launched from.
 
@@ -688,24 +743,62 @@ def containment_reconciliation(
     naming the mismatch when they cannot be matched at all — never
     ``failed``, which is a claim that two figures for one cell disagree.
     """
-    targets = {op.target.value for op in operators if isinstance(op, DrillInto)}
-    if not targets:
-        return None
-    finding = next((f for f in parent.findings if f.referent.value in targets), None)
-    if finding is None:
-        return None
-    parent_level, parent_delta = _finding_money(finding)
-    if parent_level is None and parent_delta is None:
-        return None
     child_level, child_delta, measure = _frame_money_totals(calculation.frames)
     if child_level is None:
         return None
+    targets = {op.target.value for op in operators if isinstance(op, DrillInto)}
+    finding = next((f for f in parent.findings if f.referent.value in targets), None)
+    if finding is None and targets:
+        # A thread drills what is ON SCREEN, and what is on screen is every
+        # handle the session has published — not only the last turn's
+        # (round-6 E-02). Live, a CARC breakdown of a payer cell reconciled
+        # against nothing because the cell it decomposed had been published
+        # two turns earlier: 13 cells summing to $176,112.25 beside a figure
+        # of $176,112.25, and the product made the reader do the arithmetic.
+        #
+        # Strictly the SAME METRIC across turns, which the immediate-parent
+        # case can take for granted and this one cannot: an older handle in
+        # a long thread is as likely to measure something else, and tying a
+        # denied-dollar drill out against a cash finding is a disagreement
+        # this platform would then have to explain.
+        finding = next(
+            (
+                f
+                for f in session_findings()
+                if f.referent.value in targets
+                and measure is not None
+                and measure in {ref.id for ref in f.metric_refs}
+            ),
+            None,
+        )
+    breakdown = False
+    if finding is None:
+        # Round-6 E-02: a BREAKDOWN of a whole is the same containment
+        # question a drill asks, and it was never asked. "Break that out by
+        # payer" off a $1,193,126.92 July total published twelve cells that
+        # sum to $1,193,126.92 and said ``not_applicable; this turn produced
+        # no compared money frame`` — the arithmetic every reader of a
+        # breakdown does by hand, available and withheld.
+        if targets or not _splits_parent(spec, parent):
+            return None
+        finding = _parent_whole(parent, measure)
+        if finding is None:
+            return None
+        breakdown = True
+    parent_level, parent_delta = _finding_money(finding)
+    if parent_level is None and parent_delta is None:
+        return None
     same_measure = measure is not None and measure in {ref.id for ref in finding.metric_refs}
-    scope = (
-        f"the same metric ({measure}) over the cell {finding.referent.value} names"
-        if same_measure
-        else f"{measure or 'this turn'} against {finding.referent.value}"
-    )
+    if not same_measure:
+        scope = f"{measure or 'this turn'} against {finding.referent.value}"
+    elif breakdown:
+        cells = max((len(frame.rows) for _, frame in calculation.frames), default=0)
+        scope = (
+            f"the {cells} row(s) this breakdown published, summed, against the whole "
+            f"{finding.referent.value} measured"
+        )
+    else:
+        scope = f"the same metric ({measure}) over the cell {finding.referent.value} names"
     if parent_delta is not None and child_delta is not None:
         kind, parent_cents, child_cents = "movement vs movement", parent_delta, child_delta
     elif parent_level is not None:
@@ -727,7 +820,8 @@ def containment_reconciliation(
     fraction = Decimal(delta) / Decimal(abs(parent_cents) or 1)
     passed = abs(fraction) <= _CONTAINMENT_TOLERANCE
     summary = (
-        f"status={'passed' if passed else 'failed'}; scope=containment ({kind}); "
+        f"status={'passed' if passed else 'failed'}; "
+        f"scope={'breakdown' if breakdown else 'containment'} ({kind}); "
         f"parent {finding.referent.value}={money(parent_cents)}; child={money(child_cents)}; "
         f"delta={money(delta)} ({float(fraction):+.1%}); basis={scope}"
     )
@@ -951,6 +1045,95 @@ def _with_resumed_context(
     return spec.with_context(context), window_explicit, notes
 
 
+def claim_referent_predicates(
+    spec: AnalysisSpec, entries: Sequence[RegisteredReferent]
+) -> tuple[AnalysisSpec, list[str]]:
+    """Take every referent handle back out of the scope before it is judged.
+
+    Round-6 E-03, defence in depth behind ``_referent_resume``. A predicate
+    whose value is ``F1`` is not a claim about the data; it is a claim about
+    something this platform published, and the value-existence guard has no
+    business refusing it as a missing facility. Where the registry knows
+    what the handle stood for — a row IS a ``(dimension, value)`` pair — the
+    predicate is rewritten to that pair; where it does not, the predicate is
+    dropped, and either way the substitution is disclosed.
+    """
+    predicates = list(iter_predicates(spec.context.scope))
+    # Rewritten only where the rewrite is provably meaning-preserving: a
+    # flat conjunction of POSITIVE membership tests. Taking a value out of
+    # one side of an OR changes what the other side means, and dropping a
+    # NOT turns an exclusion into an inclusion — a scope this engine did
+    # not build is one it must not silently edit. Anything else keeps its
+    # handle and gets the value-existence guard's honest refusal, which is
+    # worse copy but a true statement.
+    if not predicates or and_merge(*predicates) != spec.context.scope:
+        return spec, []
+    if any(p.op not in (PredicateOp.EQ, PredicateOp.IN) for p in predicates):
+        return spec, []
+    known = {entry.referent.value: entry.dimension_value for entry in entries}
+    notes: list[str] = []
+    kept_predicates: list[Predicate] = []
+    additions: list[Predicate] = []
+    for predicate in predicates:
+        claimed = {
+            handle: known[handle]
+            for value in predicate.values
+            if REFERENT_HANDLE.fullmatch(str(value).strip())
+            and (handle := str(value).strip().upper()) in known
+        }
+        if not claimed:
+            kept_predicates.append(predicate)
+            continue
+        for handle, pair in claimed.items():
+            if pair is None:
+                notes.append(
+                    f"referent_claimed: {handle} is a handle this session published, not a "
+                    f"{predicate.dimension.id} value, so it was not applied as a filter."
+                )
+                continue
+            dimension, value = pair
+            notes.append(
+                f"referent_claimed: {handle} is the row this session published for "
+                f"{dimension} {value!r}, so it was read as that rather than as a "
+                f"{predicate.dimension.id} value this warehouse does not hold."
+            )
+            additions.append(
+                Predicate(dimension=DimensionRef(dimension), op=PredicateOp.EQ, values=(value,))
+            )
+        remaining = tuple(
+            value for value in predicate.values if str(value).strip().upper() not in claimed
+        )
+        if remaining:
+            kept_predicates.append(
+                replace(
+                    predicate,
+                    op=PredicateOp.IN if len(remaining) > 1 else PredicateOp.EQ,
+                    values=remaining,
+                )
+            )
+    if not notes:
+        return spec, []
+    constrained = {p.dimension.id for p in kept_predicates}
+    kept_predicates.extend(p for p in additions if p.dimension.id not in constrained)
+    scope = and_merge(*kept_predicates) if kept_predicates else EMPTY_SCOPE
+    return spec.with_context(replace(spec.context, scope=scope)), notes
+
+
+def scope_names_a_handle(spec: AnalysisSpec) -> bool:
+    """Does this scope filter on something SHAPED like a referent handle?
+
+    The pure precondition for :func:`claim_referent_predicates` doing
+    anything at all, so the registry read behind it is not paid on every
+    new-investigation turn — a first turn has no referents to claim and a
+    handle-shaped filter value is rare on any turn.
+    """
+    return any(
+        REFERENT_HANDLE.fullmatch(str(value).strip())
+        for predicate in iter_predicates(spec.context.scope)
+        for value in predicate.values
+    )
+
+
 def _same_findings(served: Sequence[Finding], parent: Sequence[Finding]) -> bool:
     """Would a reader see the same rows? (round-5 E-01)
 
@@ -964,22 +1147,6 @@ def _same_findings(served: Sequence[Finding], parent: Sequence[Finding]) -> bool
     ]
 
 
-#: An utterance that asks for the answer to be RE-ARRANGED rather than
-#: merely re-shown. Deliberately narrow and deliberately deterministic: the
-#: point is not to guess an operator, it is to notice that something was
-#: asked for and refuse to let the turn go out silent about it (round-5
-#: E-01). "Sort them by percent change, largest first" came back as a
-#: presentation_only re-serve, in the parent's original order, with
-#: ``refinement_operators: []`` and no note of any kind.
-_PRESENTATION_CHANGE_REQUEST = re.compile(
-    r"(?<!\w)(?:sort|sorted|sorting|re-?sort|order\s+(?:them|these|it|by)|reorder|re-?order|"
-    r"rank(?:ed|ing)?\s+by|re-?rank|group\s+by|grouped\s+by|filter|filtered|exclude|excluding|"
-    r"alphabetical(?:ly)?|ascending|descending|largest\s+first|smallest\s+first|"
-    r"highest\s+first|lowest\s+first)(?!\w)",
-    re.IGNORECASE,
-)
-
-
 def _unapplied_presentation_request(question: str) -> str | None:
     """Name what a re-presentation was asked to change and did not do.
 
@@ -988,7 +1155,7 @@ def _unapplied_presentation_request(question: str) -> str | None:
     rows in the parent's order while reading like a fresh analysis that had
     honoured the request.
     """
-    match = _PRESENTATION_CHANGE_REQUEST.search(question)
+    match = PRESENTATION_CHANGE_REQUEST.search(question)
     if match is None:
         return None
     return (
@@ -997,6 +1164,146 @@ def _unapplied_presentation_request(question: str) -> str | None:
         "applied to them. Name the column to order by (or ask for the cut you want) and I will "
         "re-run it."
     )
+
+
+#: Words that say which END of an ordering comes first.
+_ORDER_DESCENDING = re.compile(
+    r"(?<!\w)(?:largest|biggest|highest|greatest|most|worst|descending|desc|"
+    r"high\s+to\s+low)(?!\w)",
+    re.IGNORECASE,
+)
+_ORDER_ASCENDING = re.compile(
+    r"(?<!\w)(?:smallest|lowest|least|best|ascending|asc|low\s+to\s+high)(?!\w)",
+    re.IGNORECASE,
+)
+_ORDER_BY_NAME = re.compile(r"(?<!\w)(?:alphabetical(?:ly)?|by\s+name|by\s+title)(?!\w)", re.IGNORECASE)
+
+#: The analyst's words for the parts a published value name is built from.
+#: A key is only chosen when EVERY one of its parts is named, so "percent
+#: change" selects ``pct_change`` and never ``delta_cents``.
+_VALUE_PART_WORDS: Mapping[str, tuple[str, ...]] = {
+    "pct": ("pct", "percent", "percentage"),
+    "change": ("change", "changes", "movement", "moved", "difference", "delta"),
+    "delta": ("delta", "change", "changes", "movement", "moved", "difference"),
+    "cents": ("dollars", "dollar", "amount", "amounts", "value", "values", "size", "magnitude"),
+    "current": ("current", "value", "values", "level", "size"),
+    "prior": ("prior", "previous", "baseline"),
+    "rank": ("rank", "ranking", "position"),
+    "share": ("share", "percent", "percentage"),
+    "first": ("first",),
+    "last": ("last",),
+    "high": ("high", "highest"),
+    "low": ("low", "lowest"),
+    "periods": ("periods",),
+}
+
+
+def presentation_ordering(
+    question: str, findings: Sequence[Finding]
+) -> tuple[str, bool] | None:
+    """``(value key, descending)`` the utterance asks the SHOWN rows to be in.
+
+    Round-6 A-01/A-03. "Sort them by percent change, largest first" names a
+    column the served findings already carry (``pct_change``), so the honest
+    answer is to serve them in that order — not to re-plan the question from
+    scratch (which collapsed twelve rows back to three), and not to re-serve
+    the parent's order under a note saying the request was ignored.
+
+    Deliberately conservative. A key is chosen only when every part of its
+    name is named by the analyst and exactly one key qualifies, and only
+    when EVERY served finding carries a number for it — a partial order over
+    a list where some rows have no value is a different list, not a sorted
+    one. ``("", ascending)`` is the by-title case; ``None`` means the
+    request could not be resolved, and the caller says so.
+    """
+    if not findings:
+        return None
+    # An ordering is applied only when one was ASKED for. "Show me that
+    # ranking again" names a column and instructs nothing; re-ordering it
+    # would be the engine rearranging an answer nobody asked it to touch.
+    if PRESENTATION_CHANGE_REQUEST.search(question) is None:
+        return None
+    descending = _ORDER_ASCENDING.search(question) is None
+    if _ORDER_BY_NAME.search(question) is not None:
+        # "alphabetically" states its own direction; "reverse alphabetical"
+        # is the one that needs the descending word to be read.
+        return "", _ORDER_DESCENDING.search(question) is not None
+    tokens = {token.casefold() for token in re.findall(r"[A-Za-z']+", question)}
+    published = [dict(finding.values) for finding in findings]
+    # The free test first — a name the analyst did not say cannot be the
+    # column they asked to sort by, and the coverage test below reads every
+    # row of every candidate.
+    named = [
+        key
+        for key in published[0]
+        if (parts := [part for part in key.split("_") if part])
+        and all(
+            any(word in tokens for word in _VALUE_PART_WORDS.get(part, (part,)))
+            for part in parts
+        )
+    ]
+    # …and only then: a partial order over a list where some rows have no
+    # value is a different list, not a sorted one.
+    qualifying = [
+        key
+        for key in named
+        if all(_as_number(values.get(key)) is not None for values in published)
+    ]
+    if len(qualifying) != 1:
+        return None
+    return qualifying[0], descending
+
+
+def _reordered(
+    findings: Sequence[Finding], key: str, descending: bool
+) -> tuple[Finding, ...]:
+    """The same findings, in the order the analyst asked for.
+
+    ``key`` is one :func:`presentation_ordering` has already proved every
+    finding carries a number for, so the sort key cannot be missing.
+    """
+    if not key:
+        return tuple(sorted(findings, key=lambda f: f.title.casefold(), reverse=descending))
+    return tuple(
+        sorted(
+            findings,
+            key=lambda f: _as_number(dict(f.values).get(key)) or Decimal(0),
+            reverse=descending,
+        )
+    )
+
+
+def _chart_sorts_for(
+    frames: Sequence[tuple[str, EvidenceFrame]], key: str, descending: bool
+) -> tuple[tuple[str, str, bool], ...]:
+    """The chart ordering that matches a re-served finding order.
+
+    A ranked answer and the chart under it must not disagree about which
+    cell is first (R3-13). The finding value name and the frame column name
+    are not always the same string — a compared rate publishes ``pct_change``
+    on the finding and ``<measure>__pct_change`` on the frame — so the
+    PUBLISHED measure's own spelling is looked for first. That precedence is
+    load-bearing: a ratio frame also carries ``<measure>__num__pct_change``,
+    the numerator's movement, which sorts by a different number entirely.
+    """
+    if not key:
+        return ()
+    out: list[tuple[str, str, bool]] = []
+    for frame_id, frame in frames:
+        names = frame.schema.names
+        measure = primary_measure(frame)
+        candidates = [
+            f"{measure}__{key}" if measure else None,
+            key,
+            *sorted(
+                (name for name in names if name.endswith(f"__{key}")),
+                key=lambda name: name.count("__"),
+            ),
+        ]
+        column = next((c for c in candidates if c is not None and c in names), None)
+        if column is not None:
+            out.append((frame_id, column, descending))
+    return tuple(out)
 
 
 def _option_window_assumed(spec: AnalysisSpec) -> str:
@@ -1129,6 +1436,55 @@ def _answers_pending(reply: str, pending: PendingClarification) -> bool:
 #: as a question above an empty row of buttons (round-4 R4-12 defect 1).
 NO_OPTIONS_REASON = "CLARIFICATION_NO_OPTIONS"
 
+#: Words that carry no identity in a reply to "which of these did you mean?"
+#: — function words, and the counting/superlative words that describe a
+#: choice without naming one ("the two biggest commercial ones").
+_UNSELECTIVE_WORDS = frozenset(
+    {
+        "all", "and", "any", "are", "both", "but", "each", "for", "from", "how",
+        "its", "just", "largest", "least", "biggest", "bigger", "smallest",
+        "smaller", "most", "much", "many", "one", "ones", "only", "other", "our",
+        "out", "please", "rest", "same", "several", "some", "that", "the", "their",
+        "them", "then", "these", "they", "this", "those", "three", "top", "two",
+        "want", "was", "were", "what", "which", "with", "you", "your", "four",
+        "five", "six", "seven", "eight", "nine", "ten", "eleven", "twelve",
+    }
+)
+
+
+def _identifying_words(text: str) -> frozenset[str]:
+    return frozenset(
+        word
+        for word in re.findall(r"[A-Za-z]{3,}", text.casefold())
+        if word not in _UNSELECTIVE_WORDS
+    )
+
+
+def options_named(reply: str, options: Sequence[str]) -> tuple[str, ...]:
+    """Which of the offered options the analyst's reply actually names.
+
+    Round-6 A-04. The value-existence refusal is the best thing this
+    platform does — "there is no payer named 'UnitedHealthcare' in this
+    data", all twelve real values enumerated — and answering it with
+    anything but a verbatim value replayed it BYTE-IDENTICALLY: same
+    question, same twelve options, same reason, for a reply ("the two
+    biggest commercial ones") that had narrowed the twelve to two.
+
+    Word overlap only, and only on words that identify: a reply naming a
+    count or a superlative names no value, and this must never invent one.
+    The BEST overlap wins outright — "federal medicare" names 'Federal
+    Medicare' and not also 'Summit Peak Medicare Advantage', which shares
+    one word with it and none of the ones that pick it out.
+    """
+    words = _identifying_words(reply)
+    if not words:
+        return ()
+    scored = [(len(words & _identifying_words(option)), option) for option in options]
+    best = max((score for score, _ in scored), default=0)
+    if best == 0:
+        return ()
+    return tuple(option for score, option in scored if score == best)
+
 
 def _subject_option(parent: Investigation | None) -> ClarificationBinding | None:
     """The thread's own subject, as an option that can be applied.
@@ -1173,6 +1529,58 @@ def _no_options_card(clarification: ClarificationRequest) -> ClarificationReques
     return replace(
         clarification,
         reason=f"{reason}; {NO_OPTIONS_REASON}" if reason else NO_OPTIONS_REASON,
+    )
+
+
+#: Marks a question that was ASKED AGAIN because the reply could not be
+#: matched — narrowed where the reply narrowed it, and named as a repeat
+#: either way, so the second ask is never mistaken for the first.
+CLARIFICATION_REPEATED_REASON = "CLARIFICATION_REPEATED"
+
+
+def _no_replay(
+    state: _TurnState, clarification: ClarificationRequest, narrowed: Sequence[str]
+) -> ClarificationRequest:
+    """The same impasse, said differently — never the same words twice.
+
+    Round-6 A-04. Two outcomes, both honest and neither a replay: when the
+    reply narrowed the offered set, the question narrows with it and says
+    what it read; when it narrowed nothing, the question stops being a
+    question about values and becomes a plain statement that the reply
+    could not be matched to any of them.
+    """
+    pending = state.pending
+    asked = pending.streak + 1 if pending is not None else 2
+    reply = state.utterance or state.question
+    if narrowed and len(narrowed) < len(clarification.options):
+        return replace(
+            clarification,
+            question=(
+                f"I read {reply!r} as pointing at "
+                f"{', '.join(repr(option) for option in narrowed)} — that is as far as I can "
+                "narrow it without guessing which you meant. Name the one you want."
+            ),
+            options=tuple(narrowed),
+            bindings=_bindings_for(clarification, tuple(narrowed)),
+            reason=(
+                f"{clarification.reason}; {CLARIFICATION_REPEATED_REASON}: ask {asked} "
+                f"narrowed {len(clarification.options)} option(s) to {len(narrowed)} from the "
+                "reply"
+            ),
+        )
+    return replace(
+        clarification,
+        question=(
+            f"I could not match {reply!r} to any of the "
+            f"{len(clarification.options)} value(s) I offered, and asking you the same "
+            "question a second time would not change that. Name one of them exactly — or "
+            "ask me which of them is largest and I will measure it, which is a question I "
+            "can answer."
+        ),
+        reason=(
+            f"{clarification.reason}; {CLARIFICATION_REPEATED_REASON}: ask {asked} would have "
+            "repeated ask 1 verbatim; the reply matched none of the offered values"
+        ),
     )
 
 
@@ -1272,6 +1680,11 @@ class _TurnState:
     investigation_id: str
     trace_id: str
     question: str
+    #: What the analyst actually typed, before any resume joined the
+    #: interrupted question onto it. ``question`` is the RESOLVED utterance
+    #: the pipeline runs; this is the one to quote back at them and the one
+    #: to match against options they were offered (round-6 A-04).
+    utterance: str = ""
     #: The controls in force for this turn (session settings, or the
     #: per-turn override the caller sent).
     settings: SessionSettings = DEFAULT_SESSION_SETTINGS
@@ -1364,6 +1777,10 @@ class SubmitTurnService:
         traces: TraceStore,
         frames: FrameStore,
         events: TurnEventBus,
+        #: The load's settling curve (round-6 E-01). Optional so a test
+        #: harness with no warehouse still builds an engine; a deployment
+        #: without it simply makes no maturity claim about a window.
+        window_maturity: WindowMaturityService | None = None,
     ) -> None:
         self._open_session = open_session
         self._classifier = classifier
@@ -1384,6 +1801,7 @@ class SubmitTurnService:
         self._traces = traces
         self._frames = frames
         self._events = events
+        self._window_maturity = window_maturity
 
     # ----------------------------------------------------------------- api
 
@@ -1396,6 +1814,7 @@ class SubmitTurnService:
             investigation_id=_new_id("inv"),
             trace_id=_new_id("trace"),
             question=request.question,
+            utterance=request.question,
             # a per-turn override applies to this turn only; the session's
             # own settings are the default and are never rewritten here
             settings=request.settings if request.settings is not None else session.settings,
@@ -1483,6 +1902,25 @@ class SubmitTurnService:
                 ),
                 pending,
             )
+
+        # "Sort them by percent change, largest first" is a statement about
+        # the ORDER of rows this platform is already holding, and it is
+        # decidable without a model for the same reason a display-scope
+        # request is (round-6 A-03: the classifier returned presentation_only
+        # at 0.76 and 0.68 — below its threshold — so the utterance
+        # ``refinement_not_applied`` was written for diverted into a
+        # clarification asking whether percent change was already a column,
+        # which the engine can answer from the findings it published).
+        #
+        # Never while a question of ours is on screen: with a clarification
+        # outstanding the same words are an ANSWER to it, and reading them
+        # as a fresh instruction would drop the dialogue this platform
+        # started.
+        if pending is None and presentation_order_request(state.question):
+            ordered_parent = await self._latest_investigation(session, analytical=True)
+            if ordered_parent is not None and ordered_parent.findings:
+                state.time_stage("classify")
+                return await self._presentation_turn(session, state, None, ordered_parent)
 
         known = await self._classification_by_construction(session, pending, state.question)
         if known is not None:
@@ -1673,6 +2111,20 @@ class SubmitTurnService:
         # thing this platform named, and the thing is applied to the
         # question it interrupted (round-3 R3-07).
         binding = pending.binding_for(state.question)
+        # …but WHICH pipeline resumes is decided by the turn that asked, not
+        # by the default (round-6 A-01). A clarification raised on a
+        # re-presentation is answered by re-presenting: replanning it as a
+        # first turn is how a twelve-row answer came back as three, in the
+        # engine's default order, narrated as a new investigation with
+        # ``reason=this is a first turn``.
+        presented = await self._presentation_resume(session, state, classified, pending, binding)
+        if presented is not None:
+            return presented
+        # A handle this platform minted is an identifier, never a dimension
+        # value — on every path, including this one (round-6 E-03).
+        claimed = await self._referent_resume(session, state, classified, pending)
+        if claimed is not None:
+            return claimed
         if binding is not None and pending.original_question:
             state.question = pending.original_question
             state.lineage_parent = pending.investigation_id
@@ -1710,6 +2162,98 @@ class SubmitTurnService:
         # in a 13-investigation session was saved as a ROOT node.
         state.lineage_parent = pending.investigation_id
         return await self._new_investigation_turn(session, state, classified)
+
+    async def _presentation_resume(
+        self,
+        session: Session,
+        state: _TurnState,
+        classified: ClassificationOutcome | None,
+        pending: PendingClarification,
+        binding: ClarificationBinding | None,
+    ) -> TurnOutcome | None:
+        """Resume a clarification that was raised on a RE-PRESENTATION.
+
+        Round-6 A-01, a regression the round-5 close chain found in one
+        move. "Show me all twelve" published twelve payer rows; "sort them
+        by percent change, largest first" came back as a clarification; the
+        analyst answered it with its own first option — and the resume ran
+        ``_new_investigation_turn``, which re-planned the sentence from
+        scratch. Three findings, the engine's own order, ``reconciliation:
+        this is a first turn``, and a lineage in which a
+        ``new_investigation`` hangs off a ``presentation_only``. The twelve
+        rows the analyst was looking at were simply gone.
+
+        A clarification is an interruption, and what it interrupts decides
+        what resumes. When the turn that ASKED was a re-presentation, the
+        answer to it is a re-presentation of the same served set — the
+        analytical answer on screen when the question was asked — with the
+        presentation op applied to THAT, never to a freshly planned one.
+
+        ``None`` when this clarification did not come from a presentation
+        turn, or when there is no served set left to re-present, in which
+        case the ordinary resume paths stand.
+        """
+        asking = await self._investigations.get(pending.investigation_id or "")
+        if asking is None or asking.turn_class is not TurnClass.PRESENTATION_ONLY:
+            return None
+        if not _answers_pending(state.question, pending):
+            return None  # a new question is a new question, whoever asked last
+        parent = await self._latest_investigation(session, analytical=True)
+        if parent is None or not parent.findings:
+            return None
+        answer = binding.option if binding is not None else state.question
+        state.question = _join_question_and_answer(pending.original_question, answer)
+        state.lineage_parent = pending.investigation_id
+        state.assumptions.append(
+            f"Read as an answer to the question above: {pending.question!r} → {answer!r}. "
+            f"That question was asked about a re-presentation, so this answer re-serves the "
+            f"{len(parent.findings)} row(s) the turn above it published, with your request "
+            "applied to them — nothing was re-planned and nothing was re-measured."
+        )
+        return await self._presentation_turn(session, state, classified, parent)
+
+    async def _referent_resume(
+        self,
+        session: Session,
+        state: _TurnState,
+        classified: ClassificationOutcome | None,
+        pending: PendingClarification,
+    ) -> TurnOutcome | None:
+        """A reply that names a HANDLE is a referent answer, never a value.
+
+        Round-6 E-03, the threaded-drill dead end. The platform asked "By
+        'that', do you mean F1 (finding)?" — optionless, over a handle it
+        had minted itself — and the analyst answered in its own words:
+        "Yes, F1 — Summit Peak Medicare Advantage". That reply was joined
+        onto the original sentence and re-interpreted as a NEW
+        investigation, where ``F1`` was read as a dimension value and the
+        §6.6 value-existence guard refused it: *"There is no facility named
+        'F1' in this data"*. Excellent machinery pointed at the platform's
+        own identifier, and the payer name supplied beside it dropped.
+
+        §7.6 already says a handle is resolved by lookup and not by
+        language. This is that rule applied one turn earlier than the
+        refinement path: a reply carrying a handle re-enters the REFINEMENT
+        pipeline, where ``resolve_referent_tokens`` claims the token at
+        confidence 1.0 before any planner or validator sees it.
+        """
+        tokens = referent_tokens(state.question)
+        if not tokens:
+            return None
+        entries = await self._referents.list_for_session(session.id)
+        if not any(entry.referent.value in tokens for entry in entries):
+            return None
+        if await self._latest_investigation(session, analytical=True) is None:
+            return None
+        state.question = _join_question_and_answer(pending.original_question, state.question)
+        state.lineage_parent = pending.investigation_id
+        state.assumptions.append(
+            f"Read as an answer to the question above: {pending.question!r} → "
+            f"{', '.join(tokens)}. Those are handles this session published, so they are "
+            "resolved against what was shown rather than read as values in the data, and "
+            f"{pending.original_question!r} is resumed against them."
+        )
+        return await self._refinement_turn(session, state, classified, dto_ops=None)
 
     async def _apply_binding(
         self,
@@ -2039,6 +2583,22 @@ class SubmitTurnService:
         return None, (), ()
 
     @staticmethod
+    def _repeats_pending(state: _TurnState, clarification: ClarificationRequest) -> bool:
+        """Is this the question already on screen, word for word?
+
+        The strictest possible test, because it is the one the analyst
+        applies: same text, same options. Anything the funnel has already
+        changed — a dropped refuted value, a narrowed subject — is a
+        different question and gets asked.
+        """
+        pending = state.pending
+        if pending is None:
+            return False
+        return clarification.question.strip() == pending.question.strip() and tuple(
+            clarification.options
+        ) == tuple(pending.options)
+
+    @staticmethod
     def _bounded_clarification(
         state: _TurnState, clarification: ClarificationRequest
     ) -> ClarificationRequest:
@@ -2252,6 +2812,14 @@ class SubmitTurnService:
         spec = _with_chosen_values(spec, state.scope_override)
         if pins:
             spec = spec.with_context(replace(spec.context, pins=pins))
+        # A handle this platform minted must never reach the value-existence
+        # guard as a dimension value (round-6 E-03). Gated on the pure test
+        # so the registry read is paid only by a turn that could use it.
+        if scope_names_a_handle(spec):
+            spec, claimed = claim_referent_predicates(
+                spec, await self._referents.list_for_session(session.id)
+            )
+            prelude.extend(claimed)
 
         return await self._run_analysis(
             session,
@@ -2757,6 +3325,11 @@ class SubmitTurnService:
         findings_result = self._guard_comparison_maturity(
             findings_result, calculation, extra_warnings
         )
+        # …and the same guard applied to the shape neither the series rule
+        # nor the comparison rule can see: ONE window, one number (E-01).
+        findings_result = await self._guard_window_maturity(
+            findings_result, spec, extra_warnings, state
+        )
         for detail in calculation.warnings:
             await self._events.publish(
                 TurnEvent(
@@ -2767,7 +3340,7 @@ class SubmitTurnService:
             )
         reconciliation = (
             await self._reconcile_with_parent(
-                parent, validated.plan, calculation, operators, extra_warnings, state
+                parent, validated.plan, calculation, operators, extra_warnings, state, spec
             )
             if parent is not None
             else _not_applicable("this is a first turn; there is no parent answer to reconcile to")
@@ -2866,6 +3439,12 @@ class SubmitTurnService:
             # Structured, never prose: which kind of nothing this turn
             # produced, and what was filtering when it did.
             "emptiness": emptiness.as_payload() if emptiness is not None else None,
+            # The §15 cell arithmetic in full. It used to be appended to the
+            # answer's own suppression sentence, so the paragraph a reader
+            # most needs to parse stated its census twice — once in English
+            # and once in the engine's. The page now says the count once, in
+            # words; the partition is auditable here.
+            "census": census.as_payload() if census is not None else None,
         }
         if trace_extra is not None:
             extra.update(dict(trace_extra))
@@ -3148,6 +3727,58 @@ class SubmitTurnService:
         )
         return replace(findings, findings=qualified)
 
+    async def _guard_window_maturity(
+        self,
+        findings: FindingsResult,
+        spec: AnalysisSpec,
+        warnings: list[str],
+        state: _TurnState,
+    ) -> FindingsResult:
+        """Apply the adjudication guard to a SINGLE WINDOW (round-6 E-01).
+
+        The series rule needs three buckets and a time axis; the comparison
+        rule needs a prior panel. A month-end aggregate — "how many dollars
+        did we lose to denials in July" — has neither, so the most common
+        answer in the product was the one shape no maturity rule could
+        reach. Two July denied-dollar figures for one payer landed 6.7x
+        apart at ``confidence: high`` with nothing on either card about it.
+
+        Silent where another guard has already spoken: a turn that carries
+        ``adjudication_incomplete`` from its series or its comparison does
+        not need a third sentence about the same fact. Silent, too, on a
+        comparison — the panel rule owns that axis and states the asymmetry
+        between the two sides, which is the stronger fact.
+        """
+        if self._window_maturity is None or not findings.findings:
+            return findings
+        if spec.context.comparison is not None:
+            return findings
+        if any(w.startswith("adjudication_incomplete:") for w in warnings):
+            return findings
+        verdict = await self._window_maturity.verdict(spec)
+        if verdict is None:
+            return findings
+        warnings.append(verdict.warning)
+        await self._events.publish(
+            TurnEvent(
+                kind="warning",
+                turn_id=state.turn_id,
+                payload={
+                    "code": "ADJUDICATION_INCOMPLETE",
+                    "detail": verdict.warning,
+                    "window_population": verdict.population,
+                    "settled_window_population": verdict.expected,
+                },
+            )
+        )
+        return replace(
+            findings,
+            findings=tuple(
+                f if f.confidence != "high" else replace(f, confidence="qualified")
+                for f in findings.findings
+            ),
+        )
+
     def _benchmarks_for(self, findings: FindingsResult) -> tuple[BenchmarkSpec, ...]:
         """Benchmark ranges for every metric the turn's findings cite, in
         finding order, deduplicated by benchmark id."""
@@ -3168,6 +3799,7 @@ class SubmitTurnService:
         operators: tuple[Refinement, ...],
         warnings: list[str],
         state: _TurnState,
+        spec: AnalysisSpec | None = None,
     ) -> str:
         """On splits (SetDimensions) and drills (DrillInto), check that the
         child's cells sum to the parent totals the analyst was shown.
@@ -3186,7 +3818,13 @@ class SubmitTurnService:
         semicolon-separated detail, so ``not_applicable`` carries a
         machine-readable ``reason=`` naming which path was taken.
         """
-        if not any(isinstance(op, (SetDimensions, DrillInto)) for op in operators):
+        # Split-or-drill is read off the SPECS as well as the operators: a
+        # turn that gained a cut split the parent's population whichever
+        # operator got it there, and "this turn neither split nor drilled"
+        # was published over a turn that plainly had (round-6 E-02).
+        if not any(
+            isinstance(op, (SetDimensions, DrillInto)) for op in operators
+        ) and not _splits_parent(spec, parent):
             return _not_applicable("this turn neither split nor drilled the parent's population")
         # A drill of a named parent finding reconciles against THAT
         # finding's published figure, whether or not this turn produced a
@@ -3195,7 +3833,22 @@ class SubmitTurnService:
         # comparison the reader actually made — two figures on two
         # consecutive screens — and the sum-of-cells check below is the
         # comparison the lineage makes.
-        containment = containment_reconciliation(parent, calculation, operators)
+        # Only a drill whose handle the immediate parent did not publish
+        # needs the session's older findings, and that is the rarer half of
+        # the rarer branch — a breakdown never reads them. The registry is
+        # therefore fetched under exactly that condition rather than as an
+        # argument, which is a store round trip on every split turn.
+        drilled = {op.target.value for op in operators if isinstance(op, DrillInto)}
+        elsewhere: tuple[Finding, ...] = ()
+        if drilled and not any(f.referent.value in drilled for f in parent.findings):
+            elsewhere = tuple(
+                entry.finding
+                for entry in await self._referents.list_for_session(parent.session_id)
+                if entry.finding is not None
+            )
+        containment = containment_reconciliation(
+            parent, calculation, operators, spec, session_findings=lambda: elsewhere
+        )
         if containment is not None:
             summary, passed = containment
             if not passed:
@@ -3258,9 +3911,14 @@ class SubmitTurnService:
     # ------------------------------------------------- zero-probe turn paths
 
     async def _presentation_turn(
-        self, session: Session, state: _TurnState, classified: ClassificationOutcome
+        self,
+        session: Session,
+        state: _TurnState,
+        classified: ClassificationOutcome | None,
+        parent: Investigation | None = None,
     ) -> TurnOutcome:
-        parent = await self._latest_investigation(session, analytical=True)
+        if parent is None:
+            parent = await self._latest_investigation(session, analytical=True)
         if parent is None:
             return await self._clarification_outcome(
                 session,
@@ -3298,20 +3956,49 @@ class SubmitTurnService:
         # never fired anywhere. Turn two of a session asked for a sort,
         # received the parent's own order, and was told nothing.
         warnings = (
+            # Assumptions lead here too (§2.8). A re-presentation reached by
+            # RESUMING a clarification has a decision in it — "I read your
+            # reply as an answer to the question above" — and this path
+            # published the parent's caveats without it, so the one sentence
+            # the reader has to meet before the rows was the one dropped.
+            *state.assumptions,
             *parent.warnings,
             "refinement_reused_plan: this answer re-serves the previous turn's plan "
             f"({parent.plan_hash}) — the same evidence, the same findings and every caveat "
             "that came with them. Nothing was re-measured and nothing changed but the "
             "presentation.",
         )
-        not_applied = _unapplied_presentation_request(state.question)
-        if not_applied is not None:
-            warnings = (*warnings, not_applied)
+        # An ordering the analyst named over a column the served rows already
+        # carry is APPLIED, not merely reported as unapplied (round-6 A-01,
+        # A-03): the rows are the parent's, and putting the parent's rows in
+        # the order that was asked for is the whole of what a presentation
+        # turn is for. ``refinement_not_applied`` is what is owed when the
+        # request cannot be resolved against them, and only then.
+        served = parent.findings
+        chart_sorts = plan_context.chart_sorts
+        ordering = presentation_ordering(state.question, served)
+        if ordering is not None:
+            key, descending = ordering
+            served = _reordered(served, key, descending)
+            direction = "largest first" if descending else "smallest first"
+            column = key or "row label"
+            warnings = (
+                *warnings,
+                f"presentation_applied: these are the previous turn's {len(served)} row(s), "
+                f"re-served in the order you asked for — sorted by {column}, {direction}. "
+                "Nothing was re-measured: the figures, the handles and every caveat are the "
+                "ones the answer above carried.",
+            )
+            chart_sorts = _chart_sorts_for(frames, key, descending) or chart_sorts
+        else:
+            not_applied = _unapplied_presentation_request(state.question)
+            if not_applied is not None:
+                warnings = (*warnings, not_applied)
         investigation = replace(
             self._minimal_investigation(session, state, InvestigationStatus.COMPLETE, classified),
             spec=parent.spec,
             parent_id=parent.id,
-            findings=parent.findings,
+            findings=served,
             frame_refs=parent.frame_refs,
             plan_hash=parent.plan_hash,
             warnings=warnings,
@@ -3334,7 +4021,7 @@ class SubmitTurnService:
                         "evidence_depth": plan_context.evidence_depth.value,
                         "chart_sorts": [
                             {"frame_id": frame_id, "by": by, "descending": descending}
-                            for frame_id, by, descending in plan_context.chart_sorts
+                            for frame_id, by, descending in chart_sorts
                         ],
                     },
                 },
@@ -3344,7 +4031,7 @@ class SubmitTurnService:
         return TurnOutcome(
             session=session,
             investigation=investigation,
-            findings=parent.findings,
+            findings=served,
             header=build_context_header(parent.spec, session, pack=self._pack),
             frames=frames,
             warnings=warnings,
@@ -3353,11 +4040,9 @@ class SubmitTurnService:
             trace_id=state.trace_id,
             referents=await self._referents_of(session, parent.id),
             watermark_stale=state.watermark_stale,
-            benchmarks=self._benchmarks_for(
-                FindingsResult(findings=parent.findings, referents=())
-            ),
+            benchmarks=self._benchmarks_for(FindingsResult(findings=served, referents=())),
             settings=state.settings,
-            chart_sorts=plan_context.chart_sorts,
+            chart_sorts=chart_sorts,
         )
 
     async def _meta_turn(
@@ -3736,6 +4421,28 @@ class SubmitTurnService:
         # 3. …then the subject: a clarification about rendering-provider
         #    denial rates must not offer payer options (R4-12 defect 3).
         clarification = await self._on_subject(session, clarification, state.question)
+        # 3b. …then the one thing a dialogue may never do: ask the question
+        #     it has just asked, word for word, of an analyst who answered
+        #     it (round-6 A-04). This branch covers the clarifications the
+        #     VALIDATOR raises — the value-existence refusal — which reach
+        #     this funnel from `_run_analysis` and never through
+        #     `classified.clarification`, so the model-requested convergence
+        #     counter below has never seen them.
+        if self._repeats_pending(state, clarification):
+            narrowed = options_named(state.utterance or state.question, clarification.options)
+            if len(narrowed) == 1 and not state.applied_bindings:
+                lone = clarification.binding_for(narrowed[0])
+                if lone is not None:
+                    state.applied_bindings.append(lone.option)
+                    state.assumptions.append(
+                        f"clarification_answer_applied: {lone.option} — I had already asked "
+                        f"{clarification.question!r} once and your reply "
+                        f"({state.question!r}) names exactly one of the values it offered, so "
+                        "it was applied rather than asked about a second time. Say so if you "
+                        "meant a different one and I will re-run it."
+                    )
+                    return await self._apply_binding(session, state, classified, lone)
+            clarification = _no_replay(state, clarification, narrowed)
         # 4. …then convergence, counted across EVERY clarification the
         #    engine issues rather than only the interpreter's (defect 4).
         clarification = await self._converge_on_subject(session, state, clarification)

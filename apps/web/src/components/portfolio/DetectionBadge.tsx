@@ -42,7 +42,7 @@ export function DetectionBadge({
         <span
           className={cn(
             "inline-flex h-[1.05rem] cursor-default items-center gap-1 rounded-[3px] border border-dashed",
-            "border-muted-foreground/40 px-1.5 font-mono text-[0.58rem] font-medium uppercase",
+            "border-muted-foreground/40 px-1.5 font-mono text-micro font-medium uppercase",
             "tracking-[0.06em] text-muted-foreground",
             className,
           )}
@@ -53,13 +53,13 @@ export function DetectionBadge({
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-72">
         <p className="mb-1 font-medium">Externally detected — not an evidence grade</p>
-        <p className="text-[0.7rem] leading-snug opacity-90">
+        <p className="text-meta leading-snug opacity-90">
           This card is a record read from an external detection system, not a number this platform
           computed from certified semantics — so it carries no DIRECT/DERIVED/PROXY grade. Drill in
           and the resulting answer does.
         </p>
         {(priorityFormulaVersion || sourceWatermarkId) && (
-          <dl className="num mt-1.5 space-y-0.5 text-[0.65rem] leading-snug opacity-70">
+          <dl className="num mt-1.5 space-y-0.5 text-meta leading-snug opacity-70">
             {priorityFormulaVersion && (
               <div className="flex gap-1.5">
                 <dt>Ranked by</dt>
@@ -81,7 +81,7 @@ export function DetectionBadge({
             compliance card whose score was raised to the floor did not
             earn its position by size, and says so. */}
         {priority && (
-          <dl className="num mt-1.5 space-y-0.5 border-t border-current/15 pt-1.5 text-[0.65rem] leading-snug opacity-70">
+          <dl className="num mt-1.5 space-y-0.5 border-t border-current/15 pt-1.5 text-meta leading-snug opacity-70">
             <Term label="Impact" value={priority.impactTerm} />
             <Term label="Recency" value={priority.recencyTerm} />
             <Term label="Recoverable" value={priority.actionabilityTerm} />

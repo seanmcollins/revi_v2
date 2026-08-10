@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { AnswerCard } from "@/components/answer/AnswerCard";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import { resetAnswerVariantCache, setAnswerVariant } from "@/lib/answerVariant";
 import { DEFAULT_SETTINGS } from "@/lib/settings";
 import { emptyAnswer, useSessionStore, type TurnRecord } from "@/lib/store";
 import type { DebugTrace } from "@/lib/types";
@@ -85,12 +86,31 @@ function renderCard(record: TurnRecord) {
   );
 }
 
+/**
+ * This file pins the LEGACY layout's anatomy — a banner per warning, the
+ * trust row with its chips, findings as cards — which is what "default
+ * mode" meant when it was written. The calm layout is the default now
+ * (see `lib/answerVariant`), so the layout under test is named rather
+ * than assumed; `current` is retired from the toggle and kept in the code
+ * for one round, and these are the tests that say what it does.
+ *
+ * The copy discipline this file is really about — no engine vocabulary on
+ * a default surface, the verdict never buried, one caution stated once —
+ * is asserted for the calm and detailed layouts in `AnswerVariants`,
+ * `LiveAnswers` and `LiveCalmTurns`.
+ */
 beforeEach(() => {
+  window.localStorage.clear();
+  window.history.replaceState(null, "", "/");
+  resetAnswerVariantCache();
+  setAnswerVariant("current");
   useSessionStore.setState({ settings: DEFAULT_SETTINGS });
 });
 
 afterEach(() => {
   cleanup();
+  window.localStorage.clear();
+  resetAnswerVariantCache();
   useSessionStore.setState({ settings: DEFAULT_SETTINGS });
 });
 
@@ -938,8 +958,13 @@ describe("AnswerCard — a caution is printed once, not twice", () => {
       screen.getByText(/Denial rate is concentrated in the tail/),
     ).toBeInTheDocument();
     expect(screen.getByText(/The pattern holds across payers/)).toBeInTheDocument();
+    // Deliberately positionless: the cautions sit above the writing in
+    // two layouts and behind the integrity line in the third, so a note
+    // that named a position would be wrong on one of them.
     expect(
-      screen.getByText(/repeated a caution above word for word and is not printed twice/),
+      screen.getByText(
+        /repeated a caution this answer already carries, word for word, and is not printed twice/,
+      ),
     ).toBeInTheDocument();
   });
 

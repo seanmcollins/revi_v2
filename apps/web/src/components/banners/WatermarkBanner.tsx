@@ -25,8 +25,8 @@ export function WatermarkBanner() {
     >
       <RefreshCw className="size-4 shrink-0 text-warning" />
       <div className="min-w-0 flex-1">
-        <p className="text-[0.78rem] font-medium">Data refreshed since this session began</p>
-        <p className="num text-[0.68rem] text-muted-foreground">
+        <p className="text-body font-medium">Data refreshed since this session began</p>
+        <p className="num text-meta text-muted-foreground">
           This session is using {current.loadedAt} (data through{" "}
           {mediumDate(current.newestDataDate)}) · newer load {banner.newWatermark.loadedAt} (through{" "}
           {mediumDate(banner.newWatermark.newestDataDate)})

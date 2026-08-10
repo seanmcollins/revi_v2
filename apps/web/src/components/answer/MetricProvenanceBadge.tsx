@@ -46,7 +46,7 @@ export function MetricProvenanceBadge({ metric }: { metric: MetricProvenance }) 
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="inline-flex h-5 items-center gap-1 rounded-full border border-verified/40 bg-verified/10 px-2 text-[0.7rem] font-medium text-verified transition-colors duration-150 hover:bg-verified/20"
+          className="inline-flex h-5 items-center gap-1 rounded-full border border-verified/40 bg-verified/10 px-2 text-meta font-medium text-verified transition-colors duration-150 hover:bg-verified/20"
         >
           <ShieldCheck className="size-3" />
           Governed
@@ -54,10 +54,10 @@ export function MetricProvenanceBadge({ metric }: { metric: MetricProvenance }) 
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 p-0 text-xs">
         <div className="space-y-0.5 px-4 py-3">
-          <p className="text-[0.8rem] font-semibold">
+          <p className="text-body font-semibold">
             {primary ? "Governed metric contract" : `${metrics.length} governed metric contracts`}
           </p>
-          <p className="font-mono text-[0.68rem] text-muted-foreground">
+          <p className="font-mono text-meta text-muted-foreground">
             {primary ? refLabel(primary) : (playbookId ?? "no playbook recorded")}
           </p>
         </div>
@@ -65,10 +65,10 @@ export function MetricProvenanceBadge({ metric }: { metric: MetricProvenance }) 
         <dl className="space-y-2.5 px-4 py-3">
           {!primary && (
             <div>
-              <dt className="text-[0.65rem] font-medium uppercase tracking-wide text-muted-foreground">
+              <dt className="text-meta font-medium uppercase tracking-wide text-muted-foreground">
                 Metrics read
               </dt>
-              <dd className="mt-0.5 space-y-0.5 font-mono text-[0.68rem] leading-snug">
+              <dd className="mt-0.5 space-y-0.5 font-mono text-meta leading-snug">
                 {metrics.map((ref) => (
                   <p key={ref.id}>{refLabel(ref)}</p>
                 ))}
@@ -77,28 +77,28 @@ export function MetricProvenanceBadge({ metric }: { metric: MetricProvenance }) 
           )}
           {primary && playbookId && (
             <div>
-              <dt className="text-[0.65rem] font-medium uppercase tracking-wide text-muted-foreground">
+              <dt className="text-meta font-medium uppercase tracking-wide text-muted-foreground">
                 Playbook
               </dt>
-              <dd className="mt-0.5 font-mono text-[0.68rem]">{playbookId}</dd>
+              <dd className="mt-0.5 font-mono text-meta">{playbookId}</dd>
             </div>
           )}
           <div>
-            <dt className="text-[0.65rem] font-medium uppercase tracking-wide text-muted-foreground">
+            <dt className="text-meta font-medium uppercase tracking-wide text-muted-foreground">
               Pack
             </dt>
-            <dd className="mt-0.5 font-mono text-[0.68rem]">
+            <dd className="mt-0.5 font-mono text-meta">
               {pack.packId}@{pack.version}
             </dd>
             {packSnapshotId && (
-              <dd className="mt-0.5 font-mono text-[0.62rem] text-muted-foreground">
+              <dd className="mt-0.5 font-mono text-micro text-muted-foreground">
                 snapshot {packSnapshotId.slice(0, 12)}…
               </dd>
             )}
           </div>
         </dl>
         <Separator />
-        <p className="px-4 py-2.5 text-[0.65rem] leading-snug text-muted-foreground">
+        <p className="px-4 py-2.5 text-meta leading-snug text-muted-foreground">
           “Governed” means a human authored and versioned these definitions in the
           metric contract — it is not a statement of model confidence. The version
           shown is the one this turn read

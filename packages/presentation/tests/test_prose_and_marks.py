@@ -267,8 +267,9 @@ class TestRefusedRankingsAreAnnotated:
         assert spec is not None
         refusal = [a for a in spec.annotations if a.startswith("ranking_refused:")]
         assert refusal, spec.annotations
-        assert "3 of the 4 publishable marks" in refusal[0]
+        assert "3 of the 4 marks with a figure are ceilings" in refusal[0]
         assert "leaving 1 measured" in refusal[0]
+        assert "publishable" not in refusal[0]
 
     def test_a_mostly_measured_chart_is_left_alone(self) -> None:
         frame = self._providers(

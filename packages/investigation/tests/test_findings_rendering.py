@@ -586,16 +586,17 @@ class TestScalarComparison:
         self, pack_port: PackSnapshotPort
     ) -> None:
         """A rate that moved 0.010083 rose by one percentage POINT, not by
-        1.0%. Rendering that delta in the metric's own unit would publish
-        an ambiguity, so both levels are stated instead and the relative
-        change is labelled as a change."""
+        1.0%. Rendering that delta in the metric's own unit would publish an
+        ambiguity, so the title states both levels — and since round 6 the
+        statement states BOTH readings of the size, each named: "16.7%"
+        printed alone under "7.0%, up from 6.0%" is read as 16.7 points."""
         frame = _scalar_frame(value=Decimal("0.070418"), prior=Decimal("0.060335"))
         spec = _spec(_comparison_of(ComparisonKind.PRIOR_YEAR), dimensions=())
         [finding] = await _evaluate(
             _scalar_plan(compared=True), "main__compare", frame, spec, pack_port
         )
         assert "1.0%" not in finding.title
-        assert "16.7% change" in finding.statement
+        assert "1.0 points, a 16.7% relative change" in finding.statement
 
     async def test_a_rising_rate_is_never_reported_as_unchanged(
         self, pack_port: PackSnapshotPort

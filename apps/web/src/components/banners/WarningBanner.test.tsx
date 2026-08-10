@@ -23,6 +23,7 @@
 
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
 import { afterEach, describe, expect, it } from "vitest";
 
 import { WarningBanner } from "@/components/banners/WarningBanner";
@@ -37,6 +38,10 @@ interface Live {
   message: string;
   /** The first words a reader should see after the title. */
   opens: string;
+  /** True when a machine literal is taken off the default surface. */
+  redacted?: boolean;
+  /** What the surface prints where the engine wrote that literal. */
+  spelled?: string;
 }
 
 const LIVE: Live[] = [
@@ -52,6 +57,14 @@ const LIVE: Live[] = [
       "question's own words for it. What follows is the composition of the movement that did " +
       "happen.",
     opens: "You asked about a doubling in denial rate.",
+    // The engine writes the comparison window as an ISO literal, and in
+    // the calm layout this sentence is the first thing a VP reads — so
+    // the date is spelled the way they would say it, under the same rule
+    // and the same guarantee as a plan handle: the surface shows the
+    // plain wording, the engine's exact wording is one tap away, and
+    // every export carries the message byte for byte.
+    redacted: true,
+    spelled: "vs prior quarter (Apr 1–May 2, 2026, 32d vs 33d, not length-normalized)",
   },
   {
     code: "COMPARISON_PRIOR_UNKNOWN",
@@ -97,7 +110,13 @@ const LIVE: Live[] = [
       "rows that share only 3 distinct keys. The rows were summed to the declared grain " +
       "(total 44180798 preserved) rather than letting a renderer keep the last one and drop " +
       "the rest.",
-    opens: "denial_concentration declared x=month",
+    // BUG 1 — `denial_concentration` is the engine's handle for a plan
+    // node, and it was being printed at an analyst inside the sentence
+    // that says the chart cannot be keyed. The plain wording is what the
+    // banner shows; the exact wording is one tap away on the banner and
+    // travels whole in every export.
+    opens: "denial concentration declared x=month",
+    redacted: true,
   },
 ];
 
@@ -127,7 +146,27 @@ describe("WarningBanner — the mid-wave titles over the engine's own sentences"
     const body = banner?.textContent ?? "";
     expect(body).not.toContain(`${live.code.toLowerCase()}:`);
     expect(body).toContain(live.opens);
-    expect(body).toContain(live.message.slice(live.message.indexOf(": ") + 2));
+    if (live.spelled) expect(body).toContain(live.spelled);
+    if (live.redacted !== true) {
+      expect(body).toContain(live.message.slice(live.message.indexOf(": ") + 2));
+    }
+  });
+
+  it("keeps the engine's exact wording one tap away when a handle came off", async () => {
+    const live = LIVE.find((entry) => entry.code === "CHART_ROWS_COLLAPSED");
+    expect(live, "one live fixture must carry an engine handle").toBeDefined();
+    render(<WarningBanner warning={event(live!)} />);
+
+    // Not on the face of it.
+    expect(screen.queryByText(/denial_concentration/)).not.toBeInTheDocument();
+
+    // NOTHING IS DELETED, ONLY RELOCATED.
+    await userEvent.click(
+      screen.getByRole("button", { name: "Show the engine's exact wording" }),
+    );
+    expect(
+      screen.getByText(live!.message.slice(live!.message.indexOf(": ") + 2)),
+    ).toBeInTheDocument();
   });
 
   it("shows the §12 code only in debug, never beside the analyst's sentence", () => {

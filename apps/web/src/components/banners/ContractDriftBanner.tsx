@@ -25,10 +25,10 @@ export function ContractDriftBanner() {
       <div className="flex items-start gap-2.5">
         <TriangleAlert className="mt-0.5 size-4 shrink-0 text-negative" />
         <div className="min-w-0 flex-1 space-y-1.5">
-          <p className="text-[0.78rem] font-medium text-negative">
+          <p className="text-body font-medium text-negative">
             API contract drift detected
           </p>
-          <p className="text-[0.68rem] leading-snug text-muted-foreground">
+          <p className="text-meta leading-snug text-muted-foreground">
             The server&apos;s responses are missing required fields, so the affected
             frames were not rendered. Field paths (also in the console):
           </p>
@@ -36,7 +36,7 @@ export function ContractDriftBanner() {
             {paths.map((path) => (
               <code
                 key={path}
-                className="rounded border border-negative/30 bg-surface-sunken px-1.5 py-0.5 font-mono text-[0.6rem] text-negative"
+                className="rounded border border-negative/30 bg-surface-sunken px-1.5 py-0.5 font-mono text-micro text-negative"
               >
                 {path}
               </code>

@@ -124,22 +124,22 @@ export function ClarificationPrompt({ clarification }: { clarification: Clarific
         <div className="flex items-start gap-2.5">
           <History className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1 space-y-2">
-            <p className="text-[0.8rem] font-medium leading-snug">
+            <p className="text-body font-medium leading-snug">
               This turn ended with a question
             </p>
             {clarification.question !== "" && (
-              <p className="text-[0.75rem] leading-snug text-foreground">
+              <p className="text-body leading-snug text-foreground">
                 {clarification.question}
               </p>
             )}
             {reasonText && (
-              <p className="text-[0.7rem] leading-snug text-muted-foreground">{reasonText}</p>
+              <p className="text-meta leading-snug text-muted-foreground">{reasonText}</p>
             )}
             {/* Whatever the store DID keep. Listed, not tapped: these are
                 the interpretations that were offered at the time, and the
                 one that was taken is the turn below this card. */}
             {clarification.options.length > 0 && (
-              <ul className="space-y-0.5 text-[0.7rem] leading-snug text-muted-foreground">
+              <ul className="space-y-0.5 text-meta leading-snug text-muted-foreground">
                 {clarification.options.map((option) => (
                   <li key={option} className="flex gap-1.5">
                     <span aria-hidden>·</span>
@@ -148,7 +148,7 @@ export function ClarificationPrompt({ clarification }: { clarification: Clarific
                 ))}
               </ul>
             )}
-            <p className="text-[0.68rem] leading-snug text-muted-foreground">
+            <p className="text-meta leading-snug text-muted-foreground">
               {clarification.options.length > 0
                 ? "Restored from this session's history — the options above are a record of what was offered, not live choices. Ask again below to continue."
                 : "Restored from this session's history. The wording of the question and the interpretations it offered were not stored with the investigation — ask it again below to see them."}
@@ -196,21 +196,21 @@ export function ClarificationPrompt({ clarification }: { clarification: Clarific
               stops the card reading as "pick one" when there is no one to
               pick. */}
           {noOptions && (
-            <p className="text-[0.8rem] font-medium leading-snug text-warning">
+            <p className="text-body font-medium leading-snug text-warning">
               There is no answerable option to offer here.
             </p>
           )}
           <p
             className={
               noOptions
-                ? "text-[0.75rem] leading-snug text-foreground"
-                : "text-[0.8rem] font-medium leading-snug"
+                ? "text-body leading-snug text-foreground"
+                : "text-body font-medium leading-snug"
             }
           >
             {clarification.question}
           </p>
           {reasonText && (
-            <p className="text-[0.7rem] leading-snug text-muted-foreground">{reasonText}</p>
+            <p className="text-meta leading-snug text-muted-foreground">{reasonText}</p>
           )}
           {/* Rendered only when there is something in it. An empty flex row
               still occupies a gap and still reads to a screen reader as the

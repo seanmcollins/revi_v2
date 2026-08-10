@@ -11,6 +11,7 @@ import {
   formatSignedCents,
   formatSignedPct,
 } from "@/lib/format";
+import { statementBeyondTitle } from "@/lib/findingText";
 import { useSessionStore } from "@/lib/store";
 import type { Finding } from "@/lib/types";
 import { useCountUp } from "@/lib/useCountUp";
@@ -49,6 +50,9 @@ export function FindingCard({ finding, turnId }: { finding: Finding; turnId: str
       ? deltaTone(finding.impactCents, finding.directionOfGood)
       : "neutral";
 
+  // What the statement says that the title has not already said.
+  const statement = statementBeyondTitle(finding.title, finding.statement);
+
   // The impact stat lands with a short count-up (reduced-motion snaps).
   const animatedCents = useCountUp(finding.impactCents ?? 0);
   const impact =
@@ -84,9 +88,9 @@ export function FindingCard({ finding, turnId }: { finding: Finding; turnId: str
             published without its bound is the flattering half of a
             governed entry, which is worse than shipping neither. */}
         <div className="min-w-0 space-y-1">
-          <h3 className="text-[0.78rem] font-semibold leading-snug">{finding.title}</h3>
+          <h3 className="text-body font-semibold leading-snug">{finding.title}</h3>
           {finding.metricDisplay?.caveat && (
-            <p className="text-[0.66rem] leading-snug text-muted-foreground">
+            <p className="text-meta leading-snug text-muted-foreground">
               {finding.metricDisplay.caveat}
             </p>
           )}
@@ -99,7 +103,7 @@ export function FindingCard({ finding, turnId }: { finding: Finding; turnId: str
           {impact ? (
             <p
               className={cn(
-                "numeral text-[1.55rem] font-medium leading-none",
+                "numeral text-figure font-medium",
                 // A ceiling wears the qualified tint, not the measured
                 // ink: the treatment is the second signal (after the "≤")
                 // that says this number is an edge and not a reading.
@@ -115,7 +119,7 @@ export function FindingCard({ finding, turnId }: { finding: Finding; turnId: str
               // the two sides meaningless). An empty stat slot reads as a
               // rendering failure; the refusal reads as the engine being
               // careful, which is what actually happened.
-              <p className="text-[0.7rem] font-medium leading-tight text-muted-foreground">
+              <p className="text-meta font-medium leading-tight text-muted-foreground">
                 No impact figure
                 <span className="ml-1 font-normal">— {finding.impactWithheldReason}</span>
               </p>
@@ -128,7 +132,7 @@ export function FindingCard({ finding, turnId }: { finding: Finding; turnId: str
               the engine's own (`__bound_population`) and is stated in the
               same words the finding's statement uses. */}
           {bound && (
-            <p className="mt-1 text-[0.62rem] font-medium leading-snug text-warning">
+            <p className="mt-1 text-micro font-medium leading-snug text-warning">
               upper bound
               {bound.boundPopulation !== undefined
                 ? ` over a population of ${formatCount(bound.boundPopulation)}`
@@ -147,7 +151,7 @@ export function FindingCard({ finding, turnId }: { finding: Finding; turnId: str
               one. What the card publishes is the absence, above the
               engine's own sentence rather than instead of it. */}
           {movement && (
-            <p className="mt-1 text-[0.62rem] font-medium leading-snug text-warning">
+            <p className="mt-1 text-micro font-medium leading-snug text-warning">
               Movement not measurable
               <span className="ml-1 font-normal text-muted-foreground">
                 — {movementEndpoints(movement)}. A difference between ceilings is not a measured
@@ -155,7 +159,7 @@ export function FindingCard({ finding, turnId }: { finding: Finding; turnId: str
               </span>
             </p>
           )}
-          <p className="mt-1.5 flex items-center gap-1.5 text-[0.65rem] text-muted-foreground">
+          <p className="mt-1.5 flex items-center gap-1.5 text-meta text-muted-foreground">
             {finding.impactLabel}
             {/* Suppressed on a movement between ceilings for the same
                 reason the stat is: a percent change computed from two
@@ -170,7 +174,18 @@ export function FindingCard({ finding, turnId }: { finding: Finding; turnId: str
         {finding.comparison && <MiniBars comparison={finding.comparison} tone={tone} />}
       </div>
 
-      <p className="text-[0.72rem] leading-snug text-muted-foreground">{finding.statement}</p>
+      {/* BUG 6 — the card does not print its own title twice.
+          Live, the statement OPENS with the title verbatim ("Pinnacle
+          HMO: 47.2% denial rate over 2026-07-01..2026-07-31. No position
+          is claimed for it — …"), so the heading, the display figure and
+          this paragraph were three copies of one clause, and the sentence
+          that mattered arrived fourth. Only a leading clause that repeats
+          the title is dropped; anything the statement adds is kept in
+          full, and every export keeps the statement whole regardless.
+          See `statementBeyondTitle`. */}
+      {statement && (
+        <p className="text-meta leading-snug text-muted-foreground">{statement}</p>
+      )}
 
       {/* The governed external ranges this finding's measure carries. Up
           to seven per finding reached the wire and were rendered nowhere,
@@ -188,7 +203,7 @@ export function FindingCard({ finding, turnId }: { finding: Finding; turnId: str
       <footer className="mt-auto flex items-center justify-between gap-2 border-t pt-2.5">
         <div className="flex items-center gap-1.5">
           <GradeBadge grade={finding.grade} size="xs" />
-          <span className="text-[0.62rem] uppercase tracking-wide text-muted-foreground">
+          <span className="text-micro uppercase tracking-wide text-muted-foreground">
             {finding.confidence} conf
           </span>
         </div>
@@ -198,7 +213,7 @@ export function FindingCard({ finding, turnId }: { finding: Finding; turnId: str
               key={s.label}
               variant="outline"
               size="xs"
-              className="h-5 rounded-full px-2 text-[0.65rem] font-normal text-muted-foreground hover:text-foreground"
+              className="h-5 rounded-full px-2 text-meta font-normal text-muted-foreground hover:text-foreground"
               onClick={() =>
                 emitRefinement(s.refinement, { turnId, referent: finding.referent.value })
               }
@@ -269,12 +284,12 @@ function MiniBars({
               style={{ width: `${Math.max((row.cents / max) * 100, 2)}%` }}
             />
           </div>
-          <span className="num w-14 text-right text-[0.6rem] leading-none text-muted-foreground">
+          <span className="num w-14 text-right text-micro leading-none text-muted-foreground">
             {compactMoney(row.cents)}
           </span>
         </div>
       ))}
-      <div className="flex justify-between text-[0.55rem] uppercase tracking-wide text-muted-foreground">
+      <div className="flex justify-between text-micro uppercase tracking-wide text-muted-foreground">
         <span>{rows[0].label}</span>
         <span>{rows[1].label}</span>
       </div>

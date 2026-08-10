@@ -107,13 +107,15 @@ describe("InvestigationChart — what the figure states in words", () => {
   it("names what put the bars in this order, and stays silent when nothing did", () => {
     expect(
       orderNote(spec({ order: { basis: "value", by: "denied_dollars", descending: true } })),
-    ).toBe("ordered by denied_dollars, high to low");
+      // BUG 1 — the note is composed by this client, not by the engine,
+      // so it names the measure the way the figure's own title does.
+    ).toBe("ordered by denied dollars, high to low");
     expect(orderNote(spec({ order: { basis: "ordinal-bucket" } }))).toBe("ordered by bucket");
     // A DECLARED order and an INFERRED one read differently on purpose:
     // one is the pack's published fact, the other is this client reading
     // numbers out of label text.
     expect(orderNote(spec({ order: { basis: "axis-order", by: "ar_age_bucket" } }))).toBe(
-      "in the catalog's declared order for ar_age_bucket",
+      "in the catalog's declared order for AR age bucket",
     );
     expect(orderNote(spec({ order: { basis: "axis-order" } }))).toBe(
       "in the catalog's declared bucket order",
@@ -138,7 +140,7 @@ describe("InvestigationChart — what the figure states in words", () => {
           order: { basis: "value", by: "denial_rate", descending: true, boundedExcluded: 4 },
         }),
       ),
-    ).toBe("ordered by denial_rate, high to low; 4 bounded cells held out of it, at the end");
+    ).toBe("ordered by denial rate, high to low; 4 bounded cells held out of it, at the end");
   });
 });
 
@@ -370,6 +372,43 @@ describe("axis labels name one entity each", () => {
     const twins = ["A".repeat(60), `${"A".repeat(60)}!`];
     const ticks = axisTickLabels(twins, 12, 20);
     expect(ticks.get(twins[0])).not.toBe(ticks.get(twins[1]));
+  });
+
+  /**
+   * BUG 2 — the middle cut is for the case it was built for, and nothing
+   * else. The thirty-plan filing chart came out as "Bluestone…ral PPO",
+   * "Meridian …e PPO": labels legible on neither end, on an axis whose
+   * names mostly differ in their first fifteen characters.
+   */
+  it("cuts from the end on names a plain cut can tell apart", () => {
+    const plans = [
+      "Atlas HMO Complete",
+      "Atlas National PPO",
+      "Atlas POS Flex",
+      "Atlas PPO Select",
+      "Bluestone Federal PPO",
+      "Bluestone HMO Blue",
+      "Meridian Exchange PPO",
+      "Meridian HMO Care",
+    ];
+    const ticks = axisTickLabels(plans, 18);
+    expect(new Set(plans.map((p) => ticks.get(p))).size).toBe(plans.length);
+    for (const plan of plans) {
+      const drawn = ticks.get(plan) ?? "";
+      expect(drawn, `${plan} must not be cut out of the middle`).not.toMatch(/\S…\S/);
+      // Whatever is drawn, it starts where the name starts.
+      expect(plan.startsWith(drawn.replace(/…$/, "").trimEnd())).toBe(true);
+    }
+  });
+
+  it("still cuts the middle when only the tail tells two names apart", () => {
+    // "Federal Medicare Part A" and "…Part B" differ nowhere else, and a
+    // plain cut cannot separate them inside the budget.
+    const plans = ["Federal Medicare Part A", "Federal Medicare Part B", "Atlas POS Flex"];
+    const ticks = axisTickLabels(plans, 14, 18);
+    expect(new Set(plans.map((p) => ticks.get(p))).size).toBe(3);
+    expect(ticks.get("Federal Medicare Part A")).toContain("Part A");
+    expect(ticks.get("Federal Medicare Part B")).toContain("Part B");
   });
 });
 

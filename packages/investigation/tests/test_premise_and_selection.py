@@ -510,12 +510,14 @@ class TestZeroIsAMeasurement:
         _, warnings = await self._evaluate(frame, pack_port, make_spec)
 
         refusal = next(w for w in warnings if w.startswith("ranking_refused:"))
-        assert "3 of the 5 publishable" in refusal
-        assert "leaving 2 measured" in refusal
-        # …and the arithmetic reconciles to the frame, in the same words the
-        # suppression disclosure uses: 3 + 1 + 2 == 6.
-        assert "Of 6 cell(s) on this answer, 3 carry an upper bound, 1 were withheld" in refusal
-        assert "and 2 are measured" in refusal
+        # Round-6 answer-surface review: the meaning leads, the count is
+        # stated ONCE in words, and the full 3 + 1 + 2 == 6 partition is on
+        # the trace rather than in the paragraph a reader has to act on.
+        assert refusal.startswith("ranking_refused: most of these providers are too small")
+        assert "3 of 6 are too small to measure exactly" in refusal
+        assert "The 2 that could be measured are published above" in refusal
+        assert "cell(s)" not in refusal
+        assert "publishable" not in refusal
 
     async def test_an_additive_zero_is_still_padding(
         self, pack_port: PackSnapshotPort, make_spec: SpecFactory

@@ -33,7 +33,7 @@ export function FeedbackTriage({ turnId }: { turnId: string }) {
 
   return (
     <div className="flex min-h-6 flex-wrap items-center gap-2">
-      <span className="text-[0.65rem] text-muted-foreground">Did this answer it?</span>
+      <span className="text-meta text-muted-foreground">Did this answer it?</span>
       <div className="flex gap-1">
         {CHOICES.map((c) => (
           <Button
@@ -41,7 +41,7 @@ export function FeedbackTriage({ turnId }: { turnId: string }) {
             variant={choice === c.id ? "secondary" : "ghost"}
             size="xs"
             className={cn(
-              "h-5 gap-1 rounded-full px-2 text-[0.65rem] font-normal text-muted-foreground",
+              "h-5 gap-1 rounded-full px-2 text-meta font-normal text-muted-foreground",
               choice === c.id && "font-medium text-foreground",
             )}
             onClick={() => setFeedback(turnId, c.id)}
@@ -52,7 +52,7 @@ export function FeedbackTriage({ turnId }: { turnId: string }) {
         ))}
       </div>
       {choice && (
-        <span className="text-[0.62rem] italic text-muted-foreground">{CLOSURE[choice]}</span>
+        <span className="text-micro italic text-muted-foreground">{CLOSURE[choice]}</span>
       )}
     </div>
   );

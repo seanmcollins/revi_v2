@@ -186,20 +186,98 @@ export function formatWindow(window: ResolvedWindow): string {
 
 /**
  * The compact chip form used in the §10.3 verbatim header:
- * "Jul 27–Aug 2 (post date)".
+ * "Jul 27–Aug 2, 2026 (post date)".
+ *
+ * The YEAR is not optional, and dropping it was a live defect rather than
+ * a tightening. On a year-over-year answer the header printed "WINDOW
+ * Jan 1–Aug 2" beside "VS Jan 1–Aug 2" — two identical strings over two
+ * different years — and the first honest reading of that is "it compared
+ * the period to itself". One digit is the difference between a comparison
+ * a reader can check and one they will not trust.
  */
 export function windowChipLabel(window: ResolvedWindow): string {
-  return `${shortDate(window.start)}–${shortDate(window.end)} (${DATE_BASIS_LABELS[window.basis]})`;
+  return `${bareRangeLabel(window.start, window.end)} (${DATE_BASIS_LABELS[window.basis]})`;
 }
 
-/** Comparison chip form: "vs Jul 20–26" (same-month end collapses the month). */
+/** Comparison chip form: "vs Jul 20–26, 2026" — same rule, same years. */
 export function comparisonChipLabel(window: ResolvedWindow): string {
-  const a = parseIsoDate(window.start);
-  const b = parseIsoDate(window.end);
-  if (a.y === b.y && a.m === b.m) {
-    return `vs ${MONTHS[a.m - 1]} ${a.d}–${b.d}`;
-  }
-  return `vs ${shortDate(window.start)}–${shortDate(window.end)}`;
+  return `vs ${bareRangeLabel(window.start, window.end)}`;
+}
+
+/**
+ * A date range with its years, as compact as it can be without losing one.
+ *
+ *   same month   "Jul 20–26, 2026"
+ *   same year    "Jan 1–Aug 2, 2026"
+ *   otherwise    "Dec 29, 2025–Jan 4, 2026"
+ *
+ * The month collapses when both ends share it; the year never collapses
+ * out of the string entirely, only out of the first half of it.
+ */
+function bareRangeLabel(start: string, end: string): string {
+  const a = parseIsoDate(start);
+  const b = parseIsoDate(end);
+  if (a.y !== b.y) return `${mediumDate(start)}–${mediumDate(end)}`;
+  if (a.m === b.m) return `${MONTHS[a.m - 1]} ${a.d}–${b.d}, ${a.y}`;
+  return `${shortDate(start)}–${shortDate(end)}, ${a.y}`;
+}
+
+/**
+ * "2026-07-01..2026-07-31" → "Jul 1–31, 2026".
+ *
+ * The engine writes windows into finding titles and statements as ISO
+ * literals, and a machine date literal on the surface a VP reads is the
+ * same class of leak as a snake_case column id: "Atlas Commercial ranks
+ * #1 of 12 measured by denied dollars over 2026-07-01..2026-07-31" is a
+ * log line with a company name in it.
+ *
+ * Applied to the FACT surfaces — the rows on the answer and the rows in
+ * the rail's Facts section, which are the same rows in two places. The
+ * evidence bundle's own probe descriptions, the debug trace and every
+ * export keep the engine's literal, because those are read by whoever has
+ * to reproduce the query and an ISO date is the reproducible form.
+ */
+export function humanizeIsoDates(text: string): string {
+  return text
+    .replace(ISO_RANGE, (whole, start: string, end: string) => {
+      try {
+        return isoRangeLabel(start, end);
+      } catch {
+        return whole;
+      }
+    })
+    .replace(ISO_DAY, (iso) => {
+      try {
+        return mediumDate(iso);
+      } catch {
+        return iso;
+      }
+    })
+    .replace(ISO_MONTH, (whole, year: string, month: string) => {
+      const index = Number(month) - 1;
+      return MONTHS[index] === undefined ? whole : `${MONTHS[index]} ${year}`;
+    });
+}
+
+/**
+ * Strict on purpose: month 01–12, day 01–31.
+ *
+ * `2026-13-45` is not a date and re-spelling it would print
+ * "undefined 45, 2026" over whatever the engine actually meant. A token
+ * this cannot prove is a date is left exactly as it was written — the
+ * same rule `isMeasureName` follows for identifiers.
+ */
+const ISO_DAY_SOURCE = "\\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\\d|3[01])";
+const ISO_DAY = new RegExp(`\\b${ISO_DAY_SOURCE}\\b`, "g");
+const ISO_RANGE = new RegExp(
+  `\\b(${ISO_DAY_SOURCE})\\s*(?:\\.\\.|–|—|\\sto\\s|\\s-\\s)\\s*(${ISO_DAY_SOURCE})\\b`,
+  "g",
+);
+const ISO_MONTH = /\b(\d{4})-(0[1-9]|1[0-2])\b(?!-)/g;
+
+/** "2026-07-01", "2026-07-31" → "Jul 1–31, 2026". Throws on non-ISO input. */
+export function isoRangeLabel(start: string, end: string): string {
+  return bareRangeLabel(start, end);
 }
 
 /** Big count with grouping: 120000 → "120,000". */

@@ -38,7 +38,7 @@ export function ChatThread() {
       <WatermarkBanner />
       {showFailurePreview && (
         <div className="space-y-1">
-          <p className="text-[0.62rem] uppercase tracking-wide text-muted-foreground">
+          <p className="text-micro uppercase tracking-wide text-muted-foreground">
             Failure-state preview (demo toggle)
           </p>
           <ReconciliationBanner
@@ -74,7 +74,7 @@ function UserBubble({ submission }: { submission: TurnSubmission }) {
   if (text) {
     return (
       <div className="flex justify-end">
-        <p className="max-w-[85%] rounded-2xl rounded-br-md bg-secondary px-4 py-2 text-[0.82rem] leading-snug">
+        <p className="max-w-[85%] rounded-2xl rounded-br-md bg-secondary px-4 py-2 text-body leading-snug">
           {text}
         </p>
       </div>
@@ -87,7 +87,7 @@ function UserBubble({ submission }: { submission: TurnSubmission }) {
           {submission.refinements.map((refinement, i) => (
             <code
               key={`${refinement.op}-${i}`}
-              className="rounded border bg-surface-sunken px-1.5 py-0.5 font-mono text-[0.62rem]"
+              className="rounded border bg-surface-sunken px-1.5 py-0.5 font-mono text-micro"
             >
               {describeRefinement(refinement)}
             </code>
@@ -123,14 +123,21 @@ function EmptyState() {
       <div aria-hidden className="hero-glow pointer-events-none absolute inset-x-0 -top-16 h-[30rem]" />
 
       <div className="fade-up relative space-y-3">
-        <p className="text-[0.6rem] font-medium uppercase tracking-[0.3em] text-muted-foreground">
+        <p className="text-micro font-medium uppercase tracking-[0.3em] text-muted-foreground">
           RCM Investigations
         </p>
         <h2 className="text-[3.25rem] font-semibold leading-none tracking-[-0.045em]">Revi</h2>
-        <p className="mx-auto max-w-md text-pretty text-[0.83rem] leading-relaxed text-muted-foreground">
+        <p className="mx-auto max-w-md text-pretty text-body leading-relaxed text-muted-foreground">
           Ask about cash, denials, AR. Every answer states the window, scope,
           cohort and data date it used — and every number traces back to the
           query behind it.
+        </p>
+        {/* BUG 5 — the standing disclaimer, said once, here, where a
+            first-time reader meets the product. It used to sit under the
+            composer on every screen of every session. */}
+        <p className="mx-auto max-w-md text-pretty text-meta leading-relaxed text-muted-foreground">
+          Every number is computed from your data — the model reads the question and writes
+          the answer, it never makes the numbers up.
         </p>
       </div>
 
@@ -139,7 +146,7 @@ function EmptyState() {
       <div className="relative w-full space-y-2.5">
         <div className="flex items-center gap-2 border-t pt-2.5">
           <span aria-hidden className="accent-gradient size-1.5 shrink-0 rounded-[1px]" />
-          <p className="text-[0.58rem] font-medium uppercase tracking-[0.1em] text-muted-foreground">
+          <p className="text-micro font-medium uppercase tracking-[0.1em] text-muted-foreground">
             Start with
           </p>
         </div>
@@ -150,7 +157,7 @@ function EmptyState() {
               type="button"
               disabled={busy}
               onClick={() => void submit({ utterance: question })}
-              className="fade-up group flex items-center justify-between gap-2 rounded-lg border bg-card/55 px-3 py-2 text-left text-[0.72rem] leading-snug backdrop-blur-sm transition-all duration-150 hover:-translate-y-px hover:border-ring/40 hover:bg-card hover:shadow-sm disabled:opacity-50"
+              className="fade-up group flex items-center justify-between gap-2 rounded-lg border bg-card/55 px-3 py-2 text-left text-meta leading-snug backdrop-blur-sm transition-all duration-150 hover:-translate-y-px hover:border-ring/40 hover:bg-card hover:shadow-sm disabled:opacity-50"
               style={{ animationDelay: `${80 + i * 40}ms` }}
             >
               <span className="text-pretty">{question}</span>
@@ -161,12 +168,12 @@ function EmptyState() {
       </div>
 
       <p
-        className="fade-up relative text-[0.64rem] text-muted-foreground"
+        className="fade-up relative text-micro text-muted-foreground"
         style={{ animationDelay: "400ms" }}
       >
         Same question, same answer · governed metrics · auditable evidence
         <span aria-hidden className="mx-2 text-border">·</span>
-        <kbd className="rounded border bg-surface-sunken px-1 py-0.5 font-mono text-[0.58rem]">⌘K</kbd>{" "}
+        <kbd className="rounded border bg-surface-sunken px-1 py-0.5 font-mono text-micro">⌘K</kbd>{" "}
         to command
       </p>
     </div>
@@ -188,7 +195,7 @@ function SwitchingState() {
       className="flex flex-col items-center gap-3 pb-8 pt-24 text-center text-muted-foreground"
     >
       <Loader2 className="size-5 animate-spin" />
-      <p className="text-[0.78rem]">Opening that session…</p>
+      <p className="text-body">Opening that session…</p>
     </div>
   );
 }

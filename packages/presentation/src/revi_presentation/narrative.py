@@ -753,9 +753,18 @@ MANDATORY_DISCLOSURE_CODES: tuple[str, ...] = (
 #: card/answer reconciliation).
 _COMPOSED_CODES = frozenset({"SUPPRESSION_APPLIED", "RECONCILIATION_FAILED"})
 
-#: The engine's own frame-level cell arithmetic, recognised so this module
-#: does not publish a second one beside it (R3-18).
-_CENSUS_CLAUSE = "cell(s) on this answer"
+#: The engine's own frame-level count, recognised so this module does not
+#: publish a second one beside it (R3-18). The phrase is
+#: ``revi_investigation.application.execution.TOO_SMALL_TO_MEASURE``, held
+#: as a literal because a presentation package may not import an
+#: investigation one — the pair is pinned by a test on both sides.
+_CENSUS_CLAUSE = "too small to measure exactly"
+
+#: Every code whose message carries that count. It used to be checked on
+#: SUPPRESSION_BOUNDED alone, so a ranking that refused itself — and stated
+#: the count in doing so — still got a second, differently-derived sentence
+#: composed beneath it.
+_CENSUS_CODES = ("SUPPRESSION_BOUNDED", "RANKING_REFUSED", "BOUNDED_CELLS_UNRANKED")
 
 
 def _sentence(text: str) -> str:
@@ -904,7 +913,9 @@ def mandatory_disclosures(
     # count derived here from ``suppressed_cells`` — which counts nulled
     # VALUES, several per row — is a second, different population for one
     # control, and two arithmetics in one paragraph is the defect.
-    engine_counted = _CENSUS_CLAUSE in by_code.get("SUPPRESSION_BOUNDED", "")
+    engine_counted = any(
+        _CENSUS_CLAUSE in by_code.get(code, "") for code in _CENSUS_CODES
+    )
     if "SUPPRESSION_APPLIED" in by_code and suppressed_cells > 0 and not engine_counted:
         scope = f" of {total_cells}" if total_cells else ""
         noun = "cell" if suppressed_cells == 1 else "cells"

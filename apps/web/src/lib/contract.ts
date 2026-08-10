@@ -70,6 +70,7 @@ import type {
 } from "@/lib/types";
 import { GRADE_STRENGTH } from "@/lib/types";
 import { formatMeasure, type MeasureUnit } from "@/lib/format";
+import { humanizeColumn } from "@/lib/humanize";
 import { dedupeWarnings } from "@/lib/warnings";
 import type {
   PortfolioItem,
@@ -640,26 +641,13 @@ export function readChartSort(raw: UnknownRecord): ChartSortHint | undefined {
 }
 
 /** "denied_dollars" → "Denied dollars"; "carc" → "CARC". */
-const COLUMN_ACRONYMS: Record<string, string> = {
-  carc: "CARC",
-  rarc: "RARC",
-  ar: "AR",
-  dnfb: "DNFB",
-  cpt: "CPT",
-  drg: "DRG",
-  msdrg: "MS-DRG",
-  npi: "NPI",
-  pct: "%",
-};
-
-export function humanizeColumn(column: string): string {
-  const words = column.split(/[_\s]+/).filter(Boolean);
-  if (words.length === 0) return column;
-  const spelled = words.map((word) => COLUMN_ACRONYMS[word.toLowerCase()] ?? word);
-  const [head, ...tail] = spelled;
-  const lead = COLUMN_ACRONYMS[words[0].toLowerCase()] ? head : head[0].toUpperCase() + head.slice(1);
-  return [lead, ...tail].join(" ");
-}
+/**
+ * The spelling table and `humanizeColumn` now live in `lib/humanize.ts`,
+ * so `lib/warnings.ts` — which this module imports — can use them without
+ * a cycle. Re-exported here because every existing caller imports it from
+ * the contract module.
+ */
+export { humanizeColumn };
 
 /**
  * A human title from the frame's own columns: "Cash posted by payer".
@@ -1842,6 +1830,39 @@ export function selectRenderableCharts(specs: readonly ChartSpec[]): ChartSpec[]
     out.push(resolved);
   }
   return out;
+}
+
+/**
+ * The ONE figure an answer is allowed to lead with.
+ *
+ * The engine names its plan nodes, and the node that answers the question
+ * asked is `main` — everything else is a supporting read (`premise`, the
+ * windowed twins `main__window__compare`, a portfolio family). A turn can
+ * publish four charts, and four charts on the first screen is four
+ * invitations to work out which one is the answer.
+ *
+ * The rule is the engine's own naming, not a heuristic about size:
+ *
+ *   1. the `main` frame exactly, if it is renderable;
+ *   2. otherwise the first `main__…` frame in WIRE ORDER — a comparison
+ *      turn publishes only `main__compare`, and that is its main chart;
+ *   3. otherwise the first renderable chart, which is what a turn with no
+ *      `main` frame at all (a worklist answer, whose frames are named for
+ *      the portfolio families they came from) actually leads with.
+ *
+ * Wire order throughout, never a re-rank: the engine emitted these in the
+ * order its plan ran, and picking "the biggest" would let a supporting
+ * read outrank the answer because it happened to have more rows.
+ *
+ * Returns `undefined` for a turn with nothing worth drawing — which is a
+ * real outcome and not a fallback: `selectRenderableCharts` has already
+ * dropped every frame that draws fewer than two marks.
+ */
+export function selectPrimaryChart(charts: readonly ChartSpec[]): ChartSpec | undefined {
+  const exact = charts.find((chart) => chart.frameId === "main");
+  if (exact !== undefined) return exact;
+  const family = charts.find((chart) => chart.frameId?.startsWith("main__") === true);
+  return family ?? charts[0];
 }
 
 /* ------------------------------------------------------------------ */

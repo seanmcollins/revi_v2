@@ -68,9 +68,9 @@ export function AnomalyReconciliationStrip({
         <Icon className={cn("mt-0.5 size-4 shrink-0", tone.accent)} aria-hidden />
         <div className="min-w-0 flex-1">
           <p className="flex flex-wrap items-baseline gap-x-2 gap-y-0.5">
-            <span className="text-[0.75rem] font-semibold">{tone.title}</span>
+            <span className="text-body font-semibold">{tone.title}</span>
             {reconciliation.anomalyId && (
-              <span className="font-mono text-[0.62rem] text-muted-foreground">
+              <span className="font-mono text-micro text-muted-foreground">
                 {reconciliation.anomalyId}
               </span>
             )}
@@ -109,7 +109,7 @@ export function AnomalyReconciliationStrip({
               here would drop the window, the basis or the population —
               which is the whole explanation. */}
           {(reconciliation.detail || reconciliation.summary) && (
-            <p className="mt-1.5 text-[0.7rem] leading-snug text-muted-foreground">
+            <p className="mt-1.5 text-meta leading-snug text-muted-foreground">
               {reconciliation.detail || reconciliation.summary}
             </p>
           )}
@@ -148,7 +148,7 @@ function Figure({
 }) {
   return (
     <div>
-      <dt className="text-[0.58rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+      <dt className="text-micro font-semibold uppercase tracking-[0.12em] text-muted-foreground">
         <Tooltip>
           <TooltipTrigger asChild>
             <button
@@ -158,7 +158,7 @@ function Figure({
               {label}
             </button>
           </TooltipTrigger>
-          <TooltipContent side="bottom" className="max-w-72 text-[0.68rem] leading-snug">
+          <TooltipContent side="bottom" className="max-w-72 text-meta leading-snug">
             {hint}
           </TooltipContent>
         </Tooltip>
@@ -166,14 +166,14 @@ function Figure({
       <dd
         className={cn(
           "numeral text-[0.95rem] font-medium leading-tight",
-          muted && "text-[0.75rem] font-normal text-muted-foreground",
+          muted && "text-body font-normal text-muted-foreground",
           accent,
         )}
       >
         {value}
       </dd>
       {metricId && (
-        <dd className="font-mono text-[0.58rem] leading-tight text-muted-foreground">
+        <dd className="font-mono text-micro leading-tight text-muted-foreground">
           {metricId}
         </dd>
       )}

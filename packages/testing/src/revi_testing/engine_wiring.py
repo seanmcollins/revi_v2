@@ -38,6 +38,7 @@ from revi_investigation.application.refinement_llm import (
 )
 from revi_investigation.application.submit_turn import OpenSessionService, SubmitTurnService
 from revi_investigation.application.validation import PlanValidationService, ValidationLimits
+from revi_investigation.application.window_maturity import WindowMaturityService
 from revi_kernel.capabilities import AnalyticalRepository
 from revi_pack.domain import PackSnapshot
 from revi_pack.loader import load_layer
@@ -140,6 +141,7 @@ def build_engine(
         traces=trace_store,
         frames=frame_store,
         events=event_bus,
+        window_maturity=WindowMaturityService(spy, pack_port),
     )
     return WiredEngine(
         submit=submit,

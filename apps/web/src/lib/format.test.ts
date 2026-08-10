@@ -11,6 +11,7 @@ import {
   formatSignedCents,
   formatSignedPct,
   formatWindow,
+  humanizeIsoDates,
   MINUS,
   mediumDate,
   parseIsoDate,
@@ -111,20 +112,75 @@ describe("dates and windows", () => {
       formatWindow({ start: "2025-12-29", end: "2026-01-04", basis: "post" }),
     ).toBe("Dec 29, 2025 – Jan 4, 2026 (post date)");
   });
-  it("renders the verbatim §10.3 header chip", () => {
+  it("renders the verbatim §10.3 header chip, with its year", () => {
     expect(
       windowChipLabel({ start: "2026-07-27", end: "2026-08-02", basis: "post" }),
-    ).toBe("Jul 27–Aug 2 (post date)");
+    ).toBe("Jul 27–Aug 2, 2026 (post date)");
   });
-  it("collapses same-month comparison chips", () => {
+  it("collapses same-month comparison chips, keeping the year", () => {
     expect(
       comparisonChipLabel({ start: "2026-07-20", end: "2026-07-26", basis: "post" }),
-    ).toBe("vs Jul 20–26");
+    ).toBe("vs Jul 20–26, 2026");
   });
   it("keeps cross-month comparison chips explicit", () => {
     expect(
       comparisonChipLabel({ start: "2026-01-01", end: "2026-03-31", basis: "remit" }),
-    ).toBe("vs Jan 1–Mar 31");
+    ).toBe("vs Jan 1–Mar 31, 2026");
+  });
+  /**
+   * The year is what makes a year-over-year comparison legible. Live, the
+   * header printed "WINDOW Jan 1–Aug 2" beside "VS Jan 1–Aug 2" — two
+   * identical strings over two different years, which reads as an answer
+   * that compared a period to itself.
+   */
+  it("never prints two identical chips for two different years", () => {
+    const current = { start: "2026-01-01", end: "2026-08-02", basis: "service" } as const;
+    const prior = { start: "2025-01-01", end: "2025-08-02", basis: "service" } as const;
+    expect(windowChipLabel(current)).toBe("Jan 1–Aug 2, 2026 (service date)");
+    expect(comparisonChipLabel(prior)).toBe("vs Jan 1–Aug 2, 2025");
+    expect(windowChipLabel(current)).not.toContain(comparisonChipLabel(prior).slice(3));
+  });
+  it("spells both years on a window that crosses one", () => {
+    expect(
+      windowChipLabel({ start: "2025-12-29", end: "2026-01-04", basis: "post" }),
+    ).toBe("Dec 29, 2025–Jan 4, 2026 (post date)");
+  });
+});
+
+/**
+ * Machine date literals, off the surfaces a VP reads.
+ *
+ * The engine writes windows into finding titles and statements as ISO
+ * ranges — "ranks #1 of 12 measured by denied dollars over
+ * 2026-07-01..2026-07-31" — and that literal in the middle of an English
+ * sentence is the same class of leak as a snake_case column id.
+ */
+describe("humanizeIsoDates", () => {
+  it("spells an ISO range as a reader says it", () => {
+    expect(humanizeIsoDates("ranks #1 of 12 over 2026-07-01..2026-07-31.")).toBe(
+      "ranks #1 of 12 over Jul 1–31, 2026.",
+    );
+  });
+  it("keeps both months when a range crosses one", () => {
+    expect(humanizeIsoDates("over 2026-01-01..2026-08-02")).toBe("over Jan 1–Aug 2, 2026");
+  });
+  it("keeps both years when a range crosses one", () => {
+    expect(humanizeIsoDates("over 2025-12-29..2026-01-04")).toBe(
+      "over Dec 29, 2025–Jan 4, 2026",
+    );
+  });
+  it("spells a lone date and a lone month", () => {
+    expect(humanizeIsoDates("as of 2026-08-02")).toBe("as of Aug 2, 2026");
+    expect(humanizeIsoDates("in 2026-07 the rate rose")).toBe("in Jul 2026 the rate rose");
+  });
+  it("leaves prose with no date literal byte-identical", () => {
+    const text = "Atlas Commercial ranks #1 of 12 measured by denied dollars.";
+    expect(humanizeIsoDates(text)).toBe(text);
+  });
+  it("leaves a number that is not a date alone", () => {
+    expect(humanizeIsoDates("plan 2026-13-45 is not a date")).toBe(
+      "plan 2026-13-45 is not a date",
+    );
   });
 });
 

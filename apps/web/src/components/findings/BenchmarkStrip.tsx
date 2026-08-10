@@ -69,11 +69,11 @@ export function BenchmarkStrip({
   return (
     <section className="border-t pt-2" aria-label="External benchmark ranges">
       <p className="flex flex-wrap items-center gap-x-1.5 gap-y-1">
-        <span className="text-[0.55rem] font-semibold uppercase tracking-[0.14em] text-muted-foreground">
+        <span className="text-micro font-semibold uppercase tracking-[0.14em] text-muted-foreground">
           External {benchmarks.length === 1 ? "range" : "ranges"}
         </span>
         {benchmarks.length > 1 && (
-          <span className="num text-[0.58rem] text-muted-foreground">{benchmarks.length}</span>
+          <span className="num text-micro text-muted-foreground">{benchmarks.length}</span>
         )}
         {uniformStatus && <ReviewChip status={uniformStatus} />}
       </p>
@@ -96,7 +96,7 @@ export function BenchmarkStrip({
           onClick={() => setShowAll((s) => !s)}
           aria-expanded={showAll}
           aria-controls={listId}
-          className="focus-ring mt-1.5 inline-flex items-center gap-1 rounded text-[0.62rem] text-muted-foreground hover:text-foreground"
+          className="focus-ring mt-1.5 inline-flex items-center gap-1 rounded text-micro text-muted-foreground hover:text-foreground"
         >
           <ChevronRight className={cn("size-2.5 transition-transform", showAll && "rotate-90")} />
           {showAll
@@ -130,25 +130,25 @@ function BenchmarkRow({
   return (
     <li className="space-y-0.5">
       <p className="flex flex-wrap items-baseline gap-x-1.5">
-        <span className="num text-[0.78rem] font-medium leading-none">
+        <span className="num text-body font-medium leading-none">
           {rangeText(benchmark)}
         </span>
         {benchmark.unit && (
-          <span className="text-[0.62rem] text-muted-foreground">{benchmark.unit}</span>
+          <span className="text-micro text-muted-foreground">{benchmark.unit}</span>
         )}
         {showStatus && <ReviewChip status={benchmark.reviewStatus} />}
       </p>
 
       {/* The population, the period and who published it — on screen, at
           the same weight, because the range means nothing without them. */}
-      <p className="text-[0.62rem] leading-snug text-muted-foreground">
+      <p className="text-micro leading-snug text-muted-foreground">
         {[benchmark.cohortLabel, benchmark.period, benchmark.authority]
           .filter((part) => part !== "")
           .join(" · ")}
       </p>
 
       {comparison && (
-        <p className="text-[0.65rem] leading-snug">
+        <p className="text-meta leading-snug">
           <span className="font-medium">{referent}</span>
           <span className="text-muted-foreground">{comparison}</span>
         </p>
@@ -161,7 +161,7 @@ function BenchmarkRow({
             onClick={() => setOpenCautions((o) => !o)}
             aria-expanded={openCautions}
             aria-controls={cautionsId}
-            className="focus-ring inline-flex items-center gap-1 rounded text-[0.6rem] text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground"
+            className="focus-ring inline-flex items-center gap-1 rounded text-micro text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground"
           >
             <ChevronRight
               className={cn("size-2.5 transition-transform", openCautions && "rotate-90")}
@@ -173,7 +173,7 @@ function BenchmarkRow({
           {openCautions && (
             <ul
               id={cautionsId}
-              className="mt-1 space-y-0.5 border-l pl-2 text-[0.6rem] leading-snug text-muted-foreground"
+              className="mt-1 space-y-0.5 border-l pl-2 text-micro leading-snug text-muted-foreground"
             >
               {notes.map((note) => (
                 <li key={note}>{note}</li>
@@ -199,7 +199,7 @@ function ReviewChip({ status }: { status: string }) {
   return (
     <span
       className={cn(
-        "inline-flex h-[0.9rem] items-center rounded-full border px-1.5 text-[0.55rem] font-medium uppercase tracking-wide",
+        "inline-flex h-[1.15rem] items-center rounded-full border px-1.5 text-micro font-medium uppercase tracking-wide",
         unreviewed ? "border-warning/40 text-warning" : "border-border text-muted-foreground",
       )}
       title={

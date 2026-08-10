@@ -33,9 +33,20 @@ import { cn } from "@/lib/utils";
 export function ContextHeader({
   header,
   pinnedEpoch,
+  suppressRestored = false,
 }: {
   header: ContextHeaderData;
   pinnedEpoch?: boolean;
+  /**
+   * BUG 3 — the restore is stated ONCE.
+   *
+   * Two surfaces were both saying it: the answer card's "Restored from
+   * this session's history" line, and this chip immediately under it. The
+   * line owns the fact wherever it is drawn, so the chip stands down —
+   * and the server's own `restoration_notes` are still reachable, in the
+   * line's tooltip, which carries the same account.
+   */
+  suppressRestored?: boolean;
 }) {
   // A SNAPSHOT contract states a balance AT a moment. The payload still
   // publishes window_start/window_end on those turns and they are not what
@@ -48,7 +59,7 @@ export function ContextHeader({
 
   return (
     <div className="flex flex-wrap items-center gap-1.5">
-      {header.restored && (
+      {header.restored && !suppressRestored && (
         <RestoredChip
           {...(header.restorationNotes && header.restorationNotes.length > 0
             ? { notes: header.restorationNotes }
@@ -171,13 +182,19 @@ export function ContextHeader({
       {/* Same fact as before — the pinned data load — under the name an
           analyst uses for it. "Watermark" is the engine's word and stays
           available in debug mode and the settings panel. */}
+      {/* BUG 4 — the chip states the DATA DATE, not the load instant.
+          "2026-08-03 04:10" is a machine timestamp printed to the minute
+          in the analyst's most-trusted line, and the minute is never the
+          fact anyone acts on: how far the data runs is. The load instant
+          is one tap away, in the explanation that owns it, to the same
+          precision the server published. */}
       <Chip
         icon={<Database className="size-3" />}
-        name="Data as of"
-        label={header.watermark.loadedAt}
+        name="Data through"
+        label={safeMediumDate(header.watermark.newestDataDate)}
         trailing={pinnedEpoch ? <Pin className="size-2.5 text-muted-foreground" /> : undefined}
       >
-        <ChipDoc title="Data as of">
+        <ChipDoc title="Data through">
           <p>
             Every number in this answer was computed against the data load of{" "}
             <span className="font-medium">{header.watermark.loadedAt}</span> (newest
@@ -226,10 +243,10 @@ function RestoredChip({ notes }: { notes?: readonly string[] }) {
       <PopoverTrigger asChild>
         <button
           type="button"
-          className="focus-ring inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full border bg-surface-sunken px-2.5 text-[0.7rem] font-medium text-muted-foreground transition-colors duration-150 hover:border-ring/40 hover:text-foreground"
+          className="focus-ring inline-flex h-6 shrink-0 items-center gap-1.5 rounded-full border bg-surface-sunken px-2.5 text-meta font-medium text-muted-foreground transition-colors duration-150 hover:border-ring/40 hover:text-foreground"
         >
           <History className="size-3 shrink-0 opacity-70" />
-          <span className="text-[0.55rem] font-semibold uppercase tracking-[0.14em]">Restored</span>
+          <span className="text-micro font-semibold uppercase tracking-[0.14em]">Restored</span>
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 p-3.5 text-xs leading-snug">
@@ -310,7 +327,7 @@ function CohortChip({ cohort }: { cohort: NonNullable<ContextHeaderData["cohort"
         // tint is 5.58:1 (light) / 8.51:1 (dark) once `--verified` is the
         // darkened light-theme token; the size distinction that the
         // opacity was carrying is already carried by the type scale.
-        <span className="num shrink-0 text-[0.6rem] font-normal text-verified">{sized}</span>
+        <span className="num shrink-0 text-micro font-normal text-verified">{sized}</span>
       }
       accent
     >
@@ -356,7 +373,7 @@ function CohortChip({ cohort }: { cohort: NonNullable<ContextHeaderData["cohort"
         )}
         {/* The handle, where a handle belongs — reachable when an
             operator needs it, never the name an analyst is shown. */}
-        <p className="mt-1.5 font-mono text-[0.62rem] text-muted-foreground">{cohort.id}</p>
+        <p className="mt-1.5 font-mono text-micro text-muted-foreground">{cohort.id}</p>
       </ChipDoc>
     </Chip>
   );
@@ -410,7 +427,7 @@ function Chip({
         <button
           type="button"
           className={cn(
-            "inline-flex h-6 max-w-full items-center gap-1.5 rounded-full border bg-surface-sunken px-2.5 text-[0.7rem] font-medium text-secondary-foreground transition-colors duration-150 hover:border-ring/40 hover:text-foreground",
+            "inline-flex h-6 max-w-full items-center gap-1.5 rounded-full border bg-surface-sunken px-2.5 text-meta font-medium text-secondary-foreground transition-colors duration-150 hover:border-ring/40 hover:text-foreground",
             accent && "border-verified/40 bg-verified/10 text-verified hover:text-verified",
           )}
         >
@@ -421,7 +438,7 @@ function Chip({
               // accent tint measured 2.76:1 at 8.8px in light. The
               // micro-label is the smallest text in the header and was
               // the least legible thing in the product.
-              "shrink-0 text-[0.55rem] font-semibold uppercase tracking-[0.14em]",
+              "shrink-0 text-micro font-semibold uppercase tracking-[0.14em]",
               accent ? "text-verified" : "text-muted-foreground",
             )}
           >
@@ -441,7 +458,7 @@ function Chip({
 function ChipDoc({ title, children }: { title: string; children: ReactNode }) {
   return (
     <div>
-      <p className="mb-1.5 text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">
+      <p className="mb-1.5 text-meta font-semibold uppercase tracking-wide text-muted-foreground">
         {title}
       </p>
       {children}

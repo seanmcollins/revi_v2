@@ -67,7 +67,12 @@ from revi_investigation.application.ports import EvidenceCache, TurnEvent, TurnE
 from revi_investigation.application.rendering import metric_label, ratio_pct
 from revi_kernel.capabilities import AnalyticalRepository
 from revi_kernel.filters import Scalar
-from revi_kernel.frame import EvidenceFrame, FrameRow, ProbeProvenance
+from revi_kernel.frame import (
+    EvidenceFrame,
+    FrameRow,
+    ProbeProvenance,
+    withheld_row_indices,
+)
 from revi_kernel.grades import EvidenceGrade
 from revi_kernel.refs import DimensionRef, MetricRef
 from revi_kernel.watermark import DataWatermark
@@ -147,6 +152,18 @@ class SuppressionCensus:
         }
 
 
+#: The one plain-English phrase for "the group behind this number is under
+#: the publication threshold". Every answer-facing sentence about a ceiling
+#: uses it verbatim — the round-6 answer-surface review could not parse the
+#: most important paragraph on the page because it carried three words
+#: ("upper bound", "ceiling", "measurement") for two ideas, printed
+#: ``cell(s)`` in machine voice, and stated the same census twice. The full
+#: technical census now lives on the trace instead; the page says it once,
+#: in words. :mod:`revi_presentation.narrative` matches this phrase to know
+#: the engine has already counted (it may not import this package).
+TOO_SMALL_TO_MEASURE = "too small to measure exactly"
+
+
 def bounded_cells_warning(
     cells: Sequence[BoundedCell],
     threshold: int,
@@ -166,8 +183,9 @@ def bounded_cells_warning(
     147 of 150 values were bounds and the remaining 3 were zeros; and the
     count was stated without the withheld cells beside it, so a reader
     adding the two disclosures got a population that does not exist. When a
-    :class:`SuppressionCensus` is supplied the arithmetic is stated from it
-    and nothing is claimed about cells the census does not cover.
+    :class:`SuppressionCensus` is supplied the count is stated from it —
+    ONCE, in words — and nothing is claimed about rows the census does not
+    cover.
     """
     if not cells:
         return None
@@ -184,20 +202,19 @@ def bounded_cells_warning(
         # mandatory disclosure — a sentence nobody finishes is a disclosure
         # nobody reads. The full set is on the frame and in the chart.
         named += f"; and {len(ordered) - len(shown)} more, each shown as a bound in the chart"
-    noun = "cell" if len(cells) == 1 else "cells"
-    if census is not None:
-        arithmetic = (
-            f" Of {census.total} cell(s) on this answer, {census.bounded} carry an upper bound, "
-            f"{census.withheld} were withheld outright and {census.measured} are measured."
-        )
-    else:
-        arithmetic = ""
+    bounded = census.bounded if census is not None else len(cells)
+    total = census.total if census is not None else len(cells)
+    group = "group" if total == 1 else "groups"
+    withheld = (
+        f" A further {census.withheld} could not be published at all."
+        if census is not None and census.withheld
+        else ""
+    )
     return (
-        f"suppression_bounded: {len(cells)} {noun} had fewer than {threshold} entities in the "
-        "numerator over a population large enough to publish. Rather than withhold them — which "
-        "removes the best-performing cells from a ranking and says nothing — each is shown as an "
-        f"UPPER BOUND of at most {threshold - 1} over its own population: {named}. The true "
-        f"figure is at or below the bound and is NOT a measurement.{arithmetic}"
+        f"suppression_bounded: {bounded} of {total} {group} here are {TOO_SMALL_TO_MEASURE} — "
+        f"fewer than {threshold} things sit behind each of those numbers — so each shows a "
+        f"ceiling instead of a figure: {named}. The true value is at or below the ceiling and "
+        f"is not a measurement.{withheld}"
     )
 
 
@@ -292,23 +309,22 @@ def bound_index(frame: EvidenceFrame, threshold: int) -> dict[int, dict[str, Bou
 def suppression_census(frame: EvidenceFrame, threshold: int) -> SuppressionCensus:
     """Count this frame's cells once: total, bounded, withheld.
 
-    See :class:`SuppressionCensus`. A withheld row is one whose every
-    measure came back NULL — what the small-population branch of
-    :func:`apply_small_cell_suppression` leaves behind. Rows that were
-    simply empty at source are not withheld, so a frame with no
-    ``suppressed_cells`` reports zero however many NULLs it holds.
+    Round-6 A-02, the second census to disagree with the first. A withheld
+    row used to be one whose EVERY metric column came back NULL — anatomy
+    columns (``denial_rate__num``, ``denial_rate__den``) included — and only
+    on a frame that admitted ``suppressed_cells``. A trend cell whose rate
+    was nulled while its numerator survived therefore counted as *measured*,
+    and one payload published "0 were withheld outright" beside a chart
+    annotation reading "1 of 8 cells were withheld outright" about the same
+    eight rows.
+
+    The rule now lives in :func:`revi_kernel.frame.withheld_row_indices` and
+    is asked here and by the chart builder alike: a row the answer publishes
+    no value for is withheld, whatever nulled it. That is the count a reader
+    can check against the marks in front of them.
     """
-    measure_idx = [
-        i for i, col in enumerate(frame.schema.columns) if isinstance(col.ref, MetricRef)
-    ]
     bounded_rows = set(bound_index(frame, threshold))
-    withheld = 0
-    if frame.suppressed_cells and measure_idx:
-        withheld = sum(
-            1
-            for i, row in enumerate(frame.rows)
-            if i not in bounded_rows and all(row[j] is None for j in measure_idx)
-        )
+    withheld = len(withheld_row_indices(frame) - frozenset(bounded_rows))
     return SuppressionCensus(
         total=len(frame.rows), bounded=len(bounded_rows), withheld=withheld
     )

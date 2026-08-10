@@ -1,10 +1,11 @@
 "use client";
 
 import { AlertTriangle, Info } from "lucide-react";
+import { useId, useState } from "react";
 
 import type { WarningEvent } from "@/lib/types";
 import { cn } from "@/lib/utils";
-import { isVerdictCode, warningBody, warningTitle } from "@/lib/warnings";
+import { isVerdictCode, publicWarningBody, warningTitle } from "@/lib/warnings";
 
 /**
  * One warning, rendered from its CODE rather than from its prose.
@@ -56,7 +57,15 @@ export function WarningBanner({
   // the analyst read "ranking_refused: 52 of the 52 publishable denial rate
   // cells…" — the flagship refusal of the release, wearing a log line. The
   // title is what a missing entry costs; the raw code is not.
-  const body = warningBody(warning.code, warning.message);
+  //
+  // BUG 1 — and the engine's plan handles come off with it. Live,
+  // `PROBE_FAMILIES_EMPTY` reached this banner carrying eight frame ids
+  // and eight row counts. The exact wording is one tap away on the
+  // banner itself and travels whole in every export; see
+  // `publicWarningBody`.
+  const body = publicWarningBody(warning.code, warning.message);
+  const [verbatim, setVerbatim] = useState(false);
+  const bodyId = useId();
   const count = warning.count ?? 1;
 
   return (
@@ -65,7 +74,7 @@ export function WarningBanner({
       data-severity={warning.severity}
       {...(verdict ? { "data-verdict": "true" } : {})}
       className={cn(
-        "flex items-start gap-2 rounded-md border px-3 py-2 text-[0.72rem] leading-snug",
+        "flex items-start gap-2 rounded-md border px-3 py-2 text-meta leading-snug",
         caution
           ? "border-warning/40 bg-warning/10"
           : "border-border bg-surface-sunken/60 text-muted-foreground",
@@ -84,7 +93,7 @@ export function WarningBanner({
               className={cn(
                 "font-medium",
                 caution && "text-foreground",
-                verdict && "text-[0.82rem] font-semibold",
+                verdict && "text-body font-semibold",
               )}
             >
               {title}
@@ -92,7 +101,7 @@ export function WarningBanner({
             {count > 1 && (
               <span
                 className={cn(
-                  "num inline-flex h-[0.95rem] items-center rounded-full border px-1.5 text-[0.58rem] font-medium",
+                  "num inline-flex h-[1.15rem] items-center rounded-full border px-1.5 text-micro font-medium",
                   caution
                     ? "border-warning/40 text-warning"
                     : "border-border text-muted-foreground",
@@ -111,27 +120,41 @@ export function WarningBanner({
             )}
           </p>
         )}
-        <p className={cn(title && "mt-0.5")}>
+        <p id={bodyId} className={cn(title && "mt-0.5")}>
           {/* The §12 code is engine vocabulary — precise, and useless to
               an analyst reading a caution. The sentence carries the same
               meaning; the code stays one debug toggle away. */}
           {debug && (
-            <code className="mr-1.5 font-mono text-[0.62rem] text-muted-foreground">
+            <code className="mr-1.5 font-mono text-micro text-muted-foreground">
               {warning.code}
             </code>
           )}
-          {body}
+          {verbatim ? body.verbatim : body.text}
           {/* An untitled warning has nowhere else to put the count. */}
           {!title && count > 1 && (
-            <span className="num ml-1.5 text-[0.62rem] text-muted-foreground">
+            <span className="num ml-1.5 text-micro text-muted-foreground">
               (raised {count} times)
             </span>
           )}
         </p>
+        {/* NOTHING IS DELETED, ONLY RELOCATED. Offered only when the two
+            spellings actually differ — on the warnings that carried a
+            plan-node census or a warehouse id. */}
+        {body.redacted && (
+          <button
+            type="button"
+            onClick={() => setVerbatim(!verbatim)}
+            aria-expanded={verbatim}
+            aria-controls={bodyId}
+            className="focus-ring mt-1 rounded text-micro text-muted-foreground underline-offset-2 hover:text-foreground hover:underline"
+          >
+            {verbatim ? "Show plain wording" : "Show the engine's exact wording"}
+          </button>
+        )}
         {/* The plan nodes the collapsed entries differed by. Operator
             material — it belongs beside the trace, not above the verdict. */}
         {debug && warning.probes && warning.probes.length > 1 && (
-          <p className="mt-1 break-words font-mono text-[0.6rem] text-muted-foreground">
+          <p className="mt-1 break-words font-mono text-micro text-muted-foreground">
             probes: {warning.probes.join(", ")}
           </p>
         )}

@@ -14,7 +14,7 @@ export function ConnectionPill() {
 
   if (connection.mode === "mock") {
     return (
-      <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border bg-surface-sunken px-2 py-0.5 text-[0.62rem] font-medium text-muted-foreground">
+      <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border bg-surface-sunken px-2 py-0.5 text-micro font-medium text-muted-foreground">
         <span className="size-1.5 rounded-full bg-muted-foreground/50" />
         Mock driver
       </span>
@@ -44,7 +44,7 @@ export function ConnectionPill() {
           : connection.detail
       }
       className={cn(
-        "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2 py-0.5 text-[0.62rem] font-medium",
+        "inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border px-2 py-0.5 text-micro font-medium",
         look.pill,
       )}
     >
@@ -104,13 +104,13 @@ function DegradedBadge({ label, explanation }: { label: string; explanation: str
         <TooltipTrigger asChild>
           <button
             type="button"
-            className="focus-ring inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-[0.62rem] font-medium text-warning"
+            className="focus-ring inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border border-warning/40 bg-warning/10 px-2 py-0.5 text-micro font-medium text-warning"
           >
             <span className="size-1.5 rounded-full bg-warning" />
             {label}
           </button>
         </TooltipTrigger>
-        <TooltipContent side="bottom" className="max-w-80 text-[0.68rem] leading-snug">
+        <TooltipContent side="bottom" className="max-w-80 text-meta leading-snug">
           {explanation}
         </TooltipContent>
       </Tooltip>

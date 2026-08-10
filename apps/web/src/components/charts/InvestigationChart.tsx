@@ -19,6 +19,7 @@ import {
 import { DownloadCsvButton } from "@/components/answer/AnswerActions";
 import { Button } from "@/components/ui/button";
 import { capChartSeries, humanizeColumn, OTHERS_SERIES_KEY } from "@/lib/contract";
+import { humanizeInline } from "@/lib/humanize";
 import { chartToCsv } from "@/lib/export";
 import {
   formatMeasure,
@@ -145,13 +146,36 @@ function humanizeCategory(label: string): string {
 }
 
 /**
+ * A warehouse column reaching the figure as a LABEL — the axis caption,
+ * a series name in the legend and the hover.
+ *
+ * BUG 1, on the figure. `xLabel` and the series keys are the wire's own
+ * column names, and a single-series trend was captioned `denial_rate`
+ * under a title reading "Denial rate by month". Re-spelled here, at the
+ * render site and nowhere else, because these same strings name the CSV's
+ * columns — an export whose header changed to suit a caption would be a
+ * different file from the one the analyst has been diffing.
+ *
+ * Only tokens that are unmistakably identifiers are touched: a label with
+ * no underscore is somebody's word ("payer", "month", "carc"), and
+ * "+13 others" is this client's own rollup name.
+ */
+const WAREHOUSE_LABEL = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/;
+
+function displayLabel(label: string): string {
+  // `humanizeInline`, not a plain lowercase: "AR over 90 %" is the
+  // pack's own spelling and "ar over 90 %" is a typo of it.
+  return WAREHOUSE_LABEL.test(label) ? humanizeInline(label) : label;
+}
+
+/**
  * Shorten from the MIDDLE, never from the identifying end.
  *
  * "Dr. Arden Riverstone (033)" cut to a prefix is "Dr. Arden …" — which is
  * what fifteen consecutive providers were called on one axis. The number
  * in the tail is the identity; so is the "MCO" that separates two payers.
  */
-function elide(text: string, width: number): string {
+function elideMiddle(text: string, width: number): string {
   if (text.length <= width) return text;
   if (width <= 4) return `${text.slice(0, Math.max(1, width - 1))}…`;
   // Half the budget to the tail: the identifying end of a warehouse name
@@ -160,6 +184,24 @@ function elide(text: string, width: number): string {
   const head = Math.max(1, width - 1 - tail);
   return `${text.slice(0, head).trimEnd()}…${text.slice(-tail).trimStart()}`;
 }
+
+/** The ordinary cut: keep the beginning, mark the cut. "Bluestone Fed…" */
+function elideTail(text: string, width: number): string {
+  if (text.length <= width) return text;
+  return `${text.slice(0, Math.max(1, width - 1)).trimEnd()}…`;
+}
+
+/**
+ * How much wider an axis may go to avoid cutting out of the MIDDLE.
+ *
+ * A middle cut is the strongest tool here and the least readable
+ * result — "Bluestone…ral PPO", "Federal M…Part A" — and it exists for
+ * one case: names whose only distinguishing part is the tail. Where a
+ * plain cut can tell the labels apart within a few more characters, a
+ * few more characters is much the cheaper price, so this is the budget
+ * that buys them. Beyond it, correctness wins and the middle cut stands.
+ */
+const PLAIN_CUT_BUDGET = 6;
 
 /**
  * Axis ticks that never put two different entities under one label.
@@ -178,6 +220,20 @@ function elide(text: string, width: number): string {
  * indistinguishable at the ceiling are printed whole — an axis that is
  * cramped is a worse figure, an axis that is wrong is a worse decision.
  *
+ * BUG 2 — and the cut is a PLAIN one wherever a plain one will do.
+ *
+ * The middle cut was applied unconditionally, so the thirty-plan filing
+ * chart came out as "Bluestone…ral PPO", "Meridian …e PPO", "Federal
+ * M…Part A": labels that are legible on neither end, on an axis whose
+ * names are perfectly ordinary and mostly differ in their first fifteen
+ * characters. A middle cut is for the case it was built for — "Dr. Arden
+ * Riverstone (033)", where the tail is the identity — and nothing else.
+ *
+ * So each width is tried with a plain cut first, and the middle cut only
+ * wins when no plain cut within `PLAIN_CUT_BUDGET` more characters can
+ * tell the labels apart. One style per axis, never mixed: two cut shapes
+ * on one row of ticks reads as a rendering fault.
+ *
  * Returned as a map from the full label so the tooltip, the CSV and the
  * drill target keep using the identity the wire published; only the tick
  * is shortened.
@@ -189,22 +245,39 @@ export function axisTickLabels(
 ): Map<string, string> {
   const unique = [...new Set(labels)];
   const spelled = new Map(unique.map((label) => [label, humanizeCategory(label)]));
-  for (let width = base; width <= max; width += 2) {
+
+  /** Every label shortened this way at this width — or null if two collide. */
+  const attempt = (
+    width: number,
+    cut: (text: string, width: number) => string,
+  ): Map<string, string> | null => {
     const short = new Map<string, string>();
     const seen = new Map<string, string>();
-    let collision = false;
     for (const label of unique) {
-      const text = elide(spelled.get(label) ?? label, width);
+      const text = cut(spelled.get(label) ?? label, width);
       const owner = seen.get(text);
-      if (owner !== undefined && owner !== label) {
-        collision = true;
-        break;
-      }
+      if (owner !== undefined && owner !== label) return null;
       seen.set(text, label);
       short.set(label, text);
     }
-    if (!collision) return short;
+    return short;
+  };
+
+  let middle: { width: number; map: Map<string, string> } | null = null;
+  for (let width = base; width <= max; width += 2) {
+    const plain = attempt(width, elideTail);
+    if (plain !== null) {
+      // A plain cut works here. Take it unless it costs more than the
+      // budget over a middle cut that already worked further back.
+      if (middle === null || width <= middle.width + PLAIN_CUT_BUDGET) return plain;
+      return middle.map;
+    }
+    if (middle === null) {
+      const cut = attempt(width, elideMiddle);
+      if (cut !== null) middle = { width, map: cut };
+    }
   }
+  if (middle !== null) return middle.map;
   // Nothing short enough tells them apart. The names go on whole.
   return new Map(unique.map((label) => [label, spelled.get(label) ?? label]));
 }
@@ -280,7 +353,7 @@ export function InvestigationChart({
   const stackId =
     spec.stacked && spec.kind !== "line" && spec.comparison === undefined ? spec.id : undefined;
   const seriesLabel = (s: ChartSeries): string =>
-    periodSeriesLabel(spec, s.key, comparisonWindows) ?? s.label;
+    periodSeriesLabel(spec, s.key, comparisonWindows) ?? displayLabel(s.label);
 
   /**
    * Draw in ONCE, fast (260ms ease-out) — Recharts' 1.5s default is a
@@ -393,7 +466,7 @@ export function InvestigationChart({
     stroke: "var(--chart-axis)",
     tickLine: false,
     axisLine: false,
-    tick: { fontSize: 10, fill: "var(--chart-axis)" },
+    tick: { fontSize: 12, fill: "var(--chart-axis)" },
   } as const;
 
   // The axis says which categories are ceilings, in text. Colour and
@@ -408,9 +481,25 @@ export function InvestigationChart({
   const withheldLabels = new Set(
     spec.rows.filter((row) => row.withheld === true).map((row) => row.label),
   );
-  // Rotated ticks read along their own axis, so they get roughly twice the
-  // character budget of horizontal ones before they collide.
-  const rotateTicks = spec.kind !== "line" && data.length > 6;
+  /**
+   * BUG 2 — horizontal labels wherever they fit.
+   *
+   * The rule was "more than six categories, rotate", which put a 35°
+   * slant under axes whose labels are "0–30 days" and "Jan" — unreadable
+   * for no reason, and the rotation is what pushes the first and last
+   * label past the container's edge. Rotation is a cost, so it is paid
+   * only when the labels cannot sit flat: short names across a modest
+   * number of categories stay horizontal.
+   *
+   * Twelve characters over up to twelve categories is roughly the point
+   * at which a 3xl-column figure runs out of room at the 12px tick size.
+   */
+  const longestLabel = spec.rows.reduce(
+    (longest, row) => Math.max(longest, humanizeCategory(row.label).length),
+    0,
+  );
+  const rotateTicks =
+    spec.kind !== "line" && data.length > 6 && !(longestLabel <= 12 && data.length <= 12);
   const tickText = useMemo(
     () =>
       axisTickLabels(
@@ -443,8 +532,7 @@ export function InvestigationChart({
       {...(spec.comparison !== undefined ? { comparison: spec.comparison } : {})}
       seriesLabel={(key: string) =>
         periodSeriesLabel(spec, key, comparisonWindows) ??
-        spec.series.find((s) => s.key === key)?.label ??
-        key
+        displayLabel(spec.series.find((s) => s.key === key)?.label ?? key)
       }
       seriesColor={(key: string) => colors[key] ?? "var(--chart-current)"}
     />
@@ -453,7 +541,7 @@ export function InvestigationChart({
   return (
     <figure className="rounded-lg border bg-card p-3.5">
       <figcaption className="mb-1 flex items-baseline justify-between gap-2">
-        <span className="text-[0.72rem] font-medium" title={spec.wireTitle}>
+        <span className="text-meta font-medium" title={spec.wireTitle}>
           {/* Composed from the frame's own columns ("Cash posted by
               payer"), not the engine's frame bookkeeping ("cash posted —
               cash by payer  compare"). The published title stays on the
@@ -473,7 +561,7 @@ export function InvestigationChart({
             {spec.series.map((s) => (
               <span
                 key={s.key}
-                className="flex items-center gap-1 text-[0.62rem] text-muted-foreground"
+                className="flex items-center gap-1 text-micro text-muted-foreground"
               >
                 <span className="size-2 rounded-[2px]" style={{ background: colors[s.key] }} />
                 {seriesLabel(s)}
@@ -487,7 +575,7 @@ export function InvestigationChart({
           know eleven series were folded into one mark is reading a
           different chart from the one the data supports. */}
       {capNote && (
-        <p className="mb-1.5 text-[0.62rem] leading-snug text-muted-foreground">{capNote}</p>
+        <p className="mb-1.5 text-micro leading-snug text-muted-foreground">{capNote}</p>
       )}
 
       {/* The engine's own census of this figure. It rides on the wire as
@@ -501,7 +589,7 @@ export function InvestigationChart({
           alone dropped the upper-bound census, the prior-only census and
           the withheld census on exactly the figures that carry them. */}
       {(spec.notes ?? (spec.note !== undefined ? [spec.note] : [])).map((note) => (
-        <p key={note} className="mb-1.5 text-[0.62rem] leading-snug text-warning">
+        <p key={note} className="mb-1.5 text-micro leading-snug text-warning">
           {note}
         </p>
       ))}
@@ -511,7 +599,7 @@ export function InvestigationChart({
           value 400px below a banner explaining that ordering ceilings
           against measurements sorts by population size. */}
       {spec.order?.refused && (
-        <p className="mb-1.5 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-[0.65rem] leading-snug">
+        <p className="mb-1.5 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-meta leading-snug">
           <span className="font-medium">No ranking is published on this answer.</span>{" "}
           <span className="text-muted-foreground">
             These marks are in the order the engine emitted them — read them as a set, not as a
@@ -525,15 +613,20 @@ export function InvestigationChart({
           no figure to draw and none is drawn. The rows are still in the
           CSV, exactly as they arrived. */}
       {spec.keying?.mode === "unkeyable" ? (
-        <div className="rounded-md border border-dashed bg-surface-sunken/60 px-3 py-4 text-[0.7rem] leading-snug text-muted-foreground">
+        <div className="rounded-md border border-dashed bg-surface-sunken/60 px-3 py-4 text-meta leading-snug text-muted-foreground">
           <p className="font-medium text-foreground">This chart is not drawn</p>
           <p className="mt-1">{spec.keying.note}</p>
         </div>
       ) : (
-      <div className={cn("w-full", rotateTicks ? "h-64" : "h-52")}>
+      <div className={cn("w-full", rotateTicks ? "h-72" : "h-52")}>
         <ResponsiveContainer width="100%" height="100%">
           {spec.kind === "line" ? (
-            <LineChart data={data} margin={{ top: 8, right: 8, bottom: 0, left: 0 }}>
+            // BUG 2 — the figure keeps its own padding. `preserveStartEnd`
+            // draws the first and last tick, and both of them sit ON the
+            // plot's edge: at the old zero margins the axis printed
+            // "…s Medicaid HMO" with the rest of the name outside the
+            // card. The margin is the gutter those two labels need.
+            <LineChart data={data} margin={{ top: 8, right: 18, bottom: 0, left: 6 }}>
               <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
               {/* The same tick vocabulary the bars use. A time axis whose
                   ceilings say nothing is the axis under the trend that drew
@@ -542,6 +635,7 @@ export function InvestigationChart({
                 dataKey="label"
                 {...axisProps}
                 interval="preserveStartEnd"
+                padding={{ left: 8, right: 8 }}
                 tickFormatter={categoryTick}
               />
               <YAxis {...axisProps} tickFormatter={formatTick} width={48} />
@@ -595,7 +689,11 @@ export function InvestigationChart({
           ) : (
             <BarChart
               data={data}
-              margin={{ top: 8, right: 8, bottom: 0, left: 0 }}
+              // A rotated tick runs down and to the LEFT of its bar, so
+              // the leftmost label needs a gutter the plot area does not
+              // otherwise give it — and the rightmost needs one for its
+              // ascender. See BUG 2.
+              margin={rotateTicks ? { top: 8, right: 16, bottom: 0, left: 10 } : { top: 8, right: 12, bottom: 0, left: 0 }}
               barGap={2}
               barCategoryGap="26%"
             >
@@ -611,7 +709,11 @@ export function InvestigationChart({
                 interval={data.length <= 24 ? 0 : "preserveStartEnd"}
                 tickFormatter={categoryTick}
                 {...(rotateTicks
-                  ? { angle: -35, textAnchor: "end" as const, height: 58, tickMargin: 4 }
+                  ? // Taller than before because the ticks are now 12px
+                    // rather than 10px: at -35° a label needs about 1.75×
+                    // its own length in vertical room, and the old 58px
+                    // clipped the descender off every long name.
+                    { angle: -35, textAnchor: "end" as const, height: 74, tickMargin: 6 }
                   : {})}
               />
               <YAxis {...axisProps} tickFormatter={formatTick} width={48} />
@@ -695,7 +797,7 @@ export function InvestigationChart({
           distinct keys; the old mapper kept whichever arrived last and drew
           $3,468 of $441,808. */}
       {spec.keying?.mode === "summed" && (
-        <p className="mt-1.5 text-[0.62rem] leading-snug text-warning">{spec.keying.note}</p>
+        <p className="mt-1.5 text-micro leading-snug text-warning">{spec.keying.note}</p>
       )}
 
       {/* What the marks mean when some of them are not measurements.
@@ -704,7 +806,7 @@ export function InvestigationChart({
           and searched for, and a phrase split across three text nodes is
           none of those things. */}
       {(hasBounded || hasProvisional || hasWithheld || absentLabels.size > 0) && (
-        <p className="mt-1.5 text-[0.62rem] leading-snug text-muted-foreground">
+        <p className="mt-1.5 text-micro leading-snug text-muted-foreground">
           {hasBounded && <span className="block">{boundedLegend(spec)}</span>}
           {/* The absence, said out loud on the figure. The engine's own
               annotation above the picture counts them; this says what the
@@ -738,8 +840,12 @@ export function InvestigationChart({
       )}
 
       <div className="mt-1.5 flex items-center justify-between gap-2">
-        <span className="text-[0.62rem] text-muted-foreground">
-          {spec.xLabel ?? (spec.kind !== "line" ? "click a bar to drill in" : "")}
+        <span className="text-micro text-muted-foreground">
+          {spec.xLabel !== undefined
+            ? displayLabel(spec.xLabel)
+            : spec.kind !== "line"
+              ? "click a bar to drill in"
+              : ""}
           {/* What put the bars in this order. The chart sits under findings
               that read "best to worst", so an axis whose order it does not
               state is an axis the reader has to assume — and the assumption
@@ -753,7 +859,7 @@ export function InvestigationChart({
             <Button
               variant="ghost"
               size="xs"
-              className="h-5 gap-1 px-1.5 text-[0.65rem] font-normal text-warning hover:text-warning"
+              className="h-5 gap-1 px-1.5 text-meta font-normal text-warning hover:text-warning"
               onClick={() => emitRefinement({ op: "Expand" }, { turnId })}
             >
               showing top {spec.truncation.shown} of {spec.truncation.total}
@@ -775,7 +881,7 @@ export function InvestigationChart({
             filenameKind="chart"
             filenameTag={published.title || published.id}
             {...(watermarkId ? { watermark: watermarkId } : {})}
-            className="h-5 px-1.5 text-[0.62rem]"
+            className="h-5 px-1.5 text-micro"
             csv={() =>
               chartToCsv(published, {
                 ...(windowLabel ? { windowLabel } : {}),
@@ -866,15 +972,19 @@ export function orderNote(spec: ChartSpec): string | undefined {
   // The catalog SAID so, and the difference from the line below it is
   // worth the extra words: one is a published fact about the dimension,
   // the other is this client reading numbers out of label text.
+  // BUG 1 — the measure is named the way the rest of the product names
+  // it. This note is composed HERE, not by the engine, and it was putting
+  // `timely_filing_at_risk_dollars` under a figure whose own title reads
+  // "Timely filing at risk dollars by plan". The raw column keeps
+  // travelling on the CSV, where a machine reads it.
+  const by = order.by === undefined ? undefined : humanizeInline(order.by);
   if (order.basis === "axis-order")
-    return order.by
-      ? `in the catalog's declared order for ${order.by}${held}`
+    return by
+      ? `in the catalog's declared order for ${by}${held}`
       : `in the catalog's declared bucket order${held}`;
   if (order.basis === "ordinal-bucket") return `ordered by bucket${held}`;
   const direction = order.descending === false ? "low to high" : "high to low";
-  return order.by
-    ? `ordered by ${order.by}, ${direction}${held}`
-    : `ordered ${direction}${held}`;
+  return by ? `ordered by ${by}, ${direction}${held}` : `ordered ${direction}${held}`;
 }
 
 interface TooltipEntry {
@@ -959,7 +1069,7 @@ export function ChartTooltipContent({
         <p className="mb-1 flex items-center gap-1.5 font-medium">
           {String(label)}
           {referent && (
-            <span className="rounded border border-verified/40 bg-verified/10 px-1 font-mono text-[0.6rem] text-verified">
+            <span className="rounded border border-verified/40 bg-verified/10 px-1 font-mono text-micro text-verified">
               {referent}
             </span>
           )}
@@ -1013,7 +1123,7 @@ export function ChartTooltipContent({
             return (
               <p
                 key={`bound:${line.key}`}
-                className="mt-1 max-w-56 border-t pt-1 text-[0.65rem] leading-snug text-warning"
+                className="mt-1 max-w-56 border-t pt-1 text-meta leading-snug text-warning"
               >
                 {seriesLabel?.(line.key) ?? line.key} is an upper bound
                 {n !== undefined ? ` over n = ${n}` : ""} — a ceiling, not a measurement. It has no
@@ -1022,13 +1132,13 @@ export function ChartTooltipContent({
             );
           })}
         {(currentAbsent || priorAbsent) && (
-          <p className="mt-1 max-w-56 border-t pt-1 text-[0.65rem] leading-snug text-warning">
+          <p className="mt-1 max-w-56 border-t pt-1 text-meta leading-snug text-warning">
             No figure was measured for this category in that window. The zero on the wire is the
             join between the two windows, not a reading — an absence, not a measured zero.
           </p>
         )}
         {provisional && (
-          <p className="mt-1 max-w-56 border-t pt-1 text-[0.65rem] leading-snug text-warning">
+          <p className="mt-1 max-w-56 border-t pt-1 text-meta leading-snug text-warning">
             Provisional — this bucket is calendar-partial or still adjudicating, so the value will
             move.
           </p>
@@ -1049,7 +1159,7 @@ export function ChartTooltipContent({
       <p className="mb-1 flex items-center gap-1.5 font-medium">
         {String(label)}
         {referent && (
-          <span className="rounded border border-verified/40 bg-verified/10 px-1 font-mono text-[0.6rem] text-verified">
+          <span className="rounded border border-verified/40 bg-verified/10 px-1 font-mono text-micro text-verified">
             {referent}
           </span>
         )}
@@ -1076,19 +1186,19 @@ export function ChartTooltipContent({
         ))}
       </ul>
       {bounded && (
-        <p className="mt-1 max-w-56 border-t pt-1 text-[0.65rem] leading-snug text-warning">
+        <p className="mt-1 max-w-56 border-t pt-1 text-meta leading-snug text-warning">
           Upper bound{denominator !== undefined ? ` over n = ${denominator}` : ""} — a ceiling, not
           a measurement. It has no position in a ranking.
         </p>
       )}
       {provisional && (
-        <p className="mt-1 max-w-56 border-t pt-1 text-[0.65rem] leading-snug text-warning">
+        <p className="mt-1 max-w-56 border-t pt-1 text-meta leading-snug text-warning">
           Provisional — this bucket is calendar-partial or still adjudicating, so the value will
           move.
         </p>
       )}
       {row?.withheld === true && (
-        <p className="mt-1 max-w-56 border-t pt-1 text-[0.65rem] leading-snug text-warning">
+        <p className="mt-1 max-w-56 border-t pt-1 text-meta leading-snug text-warning">
           Withheld — the engine published no value for this cell under the small-cell policy. The
           gap is a refusal, not a zero.
         </p>

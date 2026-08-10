@@ -41,11 +41,11 @@ export function DebugTracePanel({ turnId, answer }: { turnId: string; answer: An
     // recorded the trace anyway, so it can still be read.
     if (!answer.investigationId) return null;
     return (
-      <div className="flex flex-wrap items-center gap-2 text-[0.68rem] text-muted-foreground">
+      <div className="flex flex-wrap items-center gap-2 text-meta text-muted-foreground">
         <Button
           variant="outline"
           size="xs"
-          className="gap-1 text-[0.65rem] font-normal"
+          className="gap-1 text-meta font-normal"
           disabled={answer.traceFetch === "loading"}
           onClick={() => void loadTrace(turnId)}
         >
@@ -80,8 +80,8 @@ export function DebugTracePanel({ turnId, answer }: { turnId: string; answer: An
           )}
         />
         <Bug className="size-3 shrink-0 text-warning" />
-        <span className="text-[0.7rem] font-medium">Decision trace</span>
-        <span className="num min-w-0 flex-1 truncate text-[0.65rem] text-muted-foreground">
+        <span className="text-meta font-medium">Decision trace</span>
+        <span className="num min-w-0 flex-1 truncate text-meta text-muted-foreground">
           {trace.turnClass ?? "unclassified"}
           {trace.classificationConfidence !== undefined &&
             ` (${trace.classificationConfidence.toFixed(2)})`}
@@ -93,7 +93,7 @@ export function DebugTracePanel({ turnId, answer }: { turnId: string; answer: An
       </button>
 
       {open && (
-        <div className="space-y-3.5 border-t border-warning/25 px-3 py-3 text-[0.68rem]">
+        <div className="space-y-3.5 border-t border-warning/25 px-3 py-3 text-meta">
           <Classification trace={trace} />
           <Interpretation trace={trace} />
           <Refinements trace={trace} />
@@ -184,7 +184,7 @@ function Refinements({ trace }: { trace: DebugTrace }) {
       )}
       {trace.referentResolutions.length > 0 && (
         <div className="mt-1.5 space-y-1">
-          <p className="text-[0.62rem] uppercase tracking-wide text-muted-foreground">
+          <p className="text-micro uppercase tracking-wide text-muted-foreground">
             referent resolutions
           </p>
           {trace.referentResolutions.map((entry, i) => (
@@ -216,7 +216,7 @@ function PlanSection({ trace }: { trace: DebugTrace }) {
       )}
       {trace.calculationOperators.length > 0 && (
         <div className="mt-1.5 space-y-1">
-          <p className="text-[0.62rem] uppercase tracking-wide text-muted-foreground">
+          <p className="text-micro uppercase tracking-wide text-muted-foreground">
             calculation operators
           </p>
           {trace.calculationOperators.map((op, i) => (
@@ -242,11 +242,11 @@ function Probes({ trace }: { trace: DebugTrace }) {
   return (
     <Section title={`Probes (${trace.probes.length})`}>
       <div className="overflow-x-auto rounded-md border">
-        <Table className="text-[0.62rem]">
+        <Table className="text-micro">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               {["probe", "hash", "purpose", "rows", "limit", "grade", "ms", "flags"].map((h) => (
-                <TableHead key={h} className="h-6 whitespace-nowrap px-2 font-mono text-[0.58rem]">
+                <TableHead key={h} className="h-6 whitespace-nowrap px-2 font-mono text-micro">
                   {h}
                 </TableHead>
               ))}
@@ -306,14 +306,14 @@ function LlmCalls({ trace }: { trace: DebugTrace }) {
   return (
     <Section title={`LLM calls (${trace.llmCalls.length})`}>
       <div className="overflow-x-auto rounded-md border">
-        <Table className="text-[0.62rem]">
+        <Table className="text-micro">
           <TableHeader>
             <TableRow className="hover:bg-transparent">
               {["template", "model", "in", "out", "cost", "retries", "attempts", "ms", "failure"].map(
                 (h) => (
                   <TableHead
                     key={h}
-                    className="h-6 whitespace-nowrap px-2 font-mono text-[0.58rem]"
+                    className="h-6 whitespace-nowrap px-2 font-mono text-micro"
                   >
                     {h}
                   </TableHead>
@@ -352,7 +352,7 @@ function LlmCalls({ trace }: { trace: DebugTrace }) {
         </Table>
       </div>
       {Object.keys(trace.templateHashes).length > 0 && (
-        <p className="num mt-1 break-all text-[0.6rem] text-muted-foreground">
+        <p className="num mt-1 break-all text-micro text-muted-foreground">
           {Object.entries(trace.templateHashes)
             .map(([template, hash]) => `${template}=${hash}`)
             .join(" · ")}
@@ -436,7 +436,7 @@ function Provenance({ trace }: { trace: DebugTrace }) {
 function Section({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section>
-      <h4 className="mb-1 text-[0.6rem] font-semibold uppercase tracking-[0.12em] text-muted-foreground">
+      <h4 className="mb-1 text-micro font-semibold uppercase tracking-[0.12em] text-muted-foreground">
         {title}
       </h4>
       {children}
@@ -463,7 +463,7 @@ function Row({
 }) {
   return (
     <>
-      <dt className="font-mono text-[0.6rem] text-muted-foreground">{label}</dt>
+      <dt className="font-mono text-micro text-muted-foreground">{label}</dt>
       <dd className={cn("min-w-0", mono && "num", wrap ? "break-all" : "break-words")}>{value}</dd>
     </>
   );
@@ -472,12 +472,12 @@ function Row({
 function ChipList({ label, entries }: { label: string; entries: string[] }) {
   return (
     <div className="mt-1.5">
-      <p className="mb-0.5 text-[0.6rem] uppercase tracking-wide text-muted-foreground">{label}</p>
+      <p className="mb-0.5 text-micro uppercase tracking-wide text-muted-foreground">{label}</p>
       <div className="flex flex-wrap gap-1">
         {entries.map((entry) => (
           <span
             key={entry}
-            className="rounded border bg-surface-sunken px-1.5 py-0.5 font-mono text-[0.6rem] text-muted-foreground"
+            className="rounded border bg-surface-sunken px-1.5 py-0.5 font-mono text-micro text-muted-foreground"
           >
             {entry}
           </span>
@@ -489,7 +489,7 @@ function ChipList({ label, entries }: { label: string; entries: string[] }) {
 
 function Json({ value }: { value: Record<string, unknown> }) {
   return (
-    <pre className="overflow-x-auto rounded border bg-surface-sunken px-2 py-1 font-mono text-[0.6rem] leading-snug">
+    <pre className="overflow-x-auto rounded border bg-surface-sunken px-2 py-1 font-mono text-micro leading-snug">
       {JSON.stringify(value)}
     </pre>
   );

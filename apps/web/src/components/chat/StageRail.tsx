@@ -57,7 +57,7 @@ export function StageRail({
         // The chevron is the only thing that said this summary opens.
         aria-expanded={false}
         aria-controls={listId}
-        className="group flex items-center gap-1.5 text-[0.68rem] text-muted-foreground transition-colors duration-150 hover:text-foreground"
+        className="group flex items-center gap-1.5 text-meta text-muted-foreground transition-colors duration-150 hover:text-foreground"
       >
         <Check className="size-3 text-verified" />
         {debug ? (
@@ -187,7 +187,7 @@ function StageNode({ node }: { node: RailNode }) {
        */
       {...(node.state === "active" ? { role: "status" } : {})}
       className={cn(
-        "inline-flex h-5 items-center gap-1 rounded-full px-1.5 text-[0.65rem] transition-all duration-200",
+        "inline-flex h-5 items-center gap-1 rounded-full px-1.5 text-meta transition-all duration-200",
         node.state === "done" && "text-secondary-foreground",
         node.state === "active" && "bg-verified/10 font-medium text-verified",
         // Opacity on TEXT is a contrast failure, not a hierarchy device:

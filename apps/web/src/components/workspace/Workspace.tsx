@@ -241,7 +241,7 @@ export default function Workspace({
                   the server derives it for the rail. It used to be a fixed
                   string ("Cash decline — week of Jul 27") that outlived
                   whatever was actually on screen. */}
-              <h1 className="truncate text-[0.85rem] font-semibold tracking-tight">
+              <h1 className="truncate text-body font-semibold tracking-tight">
                 {sessionTitle}
               </h1>
               {/* Default: the two facts an analyst acts on — how fresh the
@@ -251,12 +251,20 @@ export default function Workspace({
                   Before a session exists there is no pin to state, and the
                   line says that rather than showing a date it cannot
                   stand behind — see `pinned`. */}
-              <p className="num truncate text-[0.62rem] text-muted-foreground">
+              <p className="num truncate text-micro text-muted-foreground">
                 {pinned ? (
                   <>
-                    Data through {mediumDate(watermark.newestDataDate)} · loaded{" "}
-                    {watermark.loadedAt}
-                    {debug && ` · ${watermark.id} · ${pack.packId}@${pack.version}`}
+                    {/* BUG 4 — how far the data runs, not the minute the
+                        loader finished. "loaded 2026-08-03 04:10" is a
+                        machine instant, and it was the second thing on
+                        the page: on a 1280px header it truncated to
+                        "loaded 2026-…" anyway, which is a timestamp
+                        rendered as noise. It stays available beside the
+                        data-load id in debug and in the settings panel's
+                        effective-configuration block. */}
+                    Data through {mediumDate(watermark.newestDataDate)}
+                    {debug &&
+                      ` · loaded ${watermark.loadedAt} · ${watermark.id} · ${pack.packId}@${pack.version}`}
                   </>
                 ) : (
                   <>New chat — the data load pins when you ask your first question</>
@@ -272,7 +280,7 @@ export default function Workspace({
               {sessionLive && sessionId && <SessionLink sessionId={sessionId} />}
               <ConnectionPill />
               <DegradedModeBadge />
-              <p className="num whitespace-nowrap text-[0.62rem] text-muted-foreground">
+              <p className="num whitespace-nowrap text-micro text-muted-foreground">
                 {turns.length} turn{turns.length === 1 ? "" : "s"}
               </p>
               <Tooltip>
@@ -281,12 +289,12 @@ export default function Workspace({
                     type="button"
                     onClick={openSettings}
                     aria-label="Open settings"
-                    className="flex items-center rounded-md border bg-surface-sunken/70 px-1.5 py-1 text-[0.62rem] font-medium text-muted-foreground transition-colors duration-150 hover:border-ring/40 hover:text-foreground"
+                    className="flex items-center rounded-md border bg-surface-sunken/70 px-1.5 py-1 text-micro font-medium text-muted-foreground transition-colors duration-150 hover:border-ring/40 hover:text-foreground"
                   >
                     <Settings2 className="size-3" />
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom" className="text-[0.65rem]">
+                <TooltipContent side="bottom" className="text-meta">
                   Settings · internal
                 </TooltipContent>
               </Tooltip>
@@ -296,13 +304,13 @@ export default function Workspace({
                     type="button"
                     onClick={() => setPaletteOpen(true)}
                     aria-label="Open command palette"
-                    className="flex items-center gap-1 rounded-md border bg-surface-sunken/70 px-1.5 py-1 text-[0.62rem] font-medium text-muted-foreground transition-colors duration-150 hover:border-ring/40 hover:text-foreground"
+                    className="flex items-center gap-1 rounded-md border bg-surface-sunken/70 px-1.5 py-1 text-micro font-medium text-muted-foreground transition-colors duration-150 hover:border-ring/40 hover:text-foreground"
                   >
                     <Command className="size-3" />
                     <span className="font-mono">K</span>
                   </button>
                 </TooltipTrigger>
-                <TooltipContent side="bottom" className="text-[0.65rem]">
+                <TooltipContent side="bottom" className="text-meta">
                   Command palette · ⌘K
                 </TooltipContent>
               </Tooltip>
@@ -348,7 +356,7 @@ function SessionLink({ sessionId }: { sessionId: string }) {
             label="Copy link"
             doneLabel="Link copied"
             title="Copy a link to this session"
-            className="h-5 px-2 text-[0.62rem]"
+            className="h-5 px-2 text-micro"
             text={() =>
               sessionLinkFor(
                 sessionId,
@@ -358,7 +366,7 @@ function SessionLink({ sessionId }: { sessionId: string }) {
           />
         </span>
       </TooltipTrigger>
-      <TooltipContent side="bottom" className="max-w-72 text-[0.65rem] leading-snug">
+      <TooltipContent side="bottom" className="max-w-72 text-meta leading-snug">
         Opens this session and rebuilds its answers from what the server kept. It is a link
         to the session, not a snapshot — a turn asked after you send it will be there too.
       </TooltipContent>

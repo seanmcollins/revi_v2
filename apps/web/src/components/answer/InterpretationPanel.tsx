@@ -25,7 +25,7 @@ export function InterpretationPanel({ interpretation }: { interpretation: Interp
       <CollapsibleTrigger asChild>
         <button
           type="button"
-          className="group flex w-full items-center gap-2 rounded-md border border-dashed bg-surface-sunken/60 px-2.5 py-1.5 text-left text-[0.7rem] text-muted-foreground transition-colors duration-150 hover:text-foreground"
+          className="group flex w-full items-center gap-2 rounded-md border border-dashed bg-surface-sunken/60 px-2.5 py-1.5 text-left text-meta text-muted-foreground transition-colors duration-150 hover:text-foreground"
         >
           <Languages className="size-3 shrink-0 opacity-70" />
           <span className="truncate">
@@ -44,9 +44,9 @@ export function InterpretationPanel({ interpretation }: { interpretation: Interp
         </button>
       </CollapsibleTrigger>
       <CollapsibleContent>
-        <div className="mt-1 grid gap-3 rounded-md border bg-surface-sunken/60 p-3 text-[0.72rem] leading-snug sm:grid-cols-2">
+        <div className="mt-1 grid gap-3 rounded-md border bg-surface-sunken/60 p-3 text-meta leading-snug sm:grid-cols-2">
           <section>
-            <h4 className="mb-1 text-[0.62rem] font-semibold uppercase tracking-wide text-muted-foreground">
+            <h4 className="mb-1 text-micro font-semibold uppercase tracking-wide text-muted-foreground">
               Resolution
             </h4>
             <ul className="space-y-1">
@@ -69,13 +69,13 @@ export function InterpretationPanel({ interpretation }: { interpretation: Interp
               {interpretation.playbook && (
                 <li>
                   <span className="text-muted-foreground">Playbook · </span>
-                  <span className="font-mono text-[0.68rem]">{interpretation.playbook}</span>
+                  <span className="font-mono text-meta">{interpretation.playbook}</span>
                 </li>
               )}
             </ul>
           </section>
           <section>
-            <h4 className="mb-1 text-[0.62rem] font-semibold uppercase tracking-wide text-muted-foreground">
+            <h4 className="mb-1 text-micro font-semibold uppercase tracking-wide text-muted-foreground">
               {interpretation.planDiff ? "Plan diff" : "Synonym mappings"}
             </h4>
             {interpretation.planDiff ? (
@@ -92,7 +92,7 @@ export function InterpretationPanel({ interpretation }: { interpretation: Interp
             )}
             {interpretation.planDiff && mappings.length > 0 && (
               <>
-                <h4 className="mb-1 mt-2.5 text-[0.62rem] font-semibold uppercase tracking-wide text-muted-foreground">
+                <h4 className="mb-1 mt-2.5 text-micro font-semibold uppercase tracking-wide text-muted-foreground">
                   Synonym mappings
                 </h4>
                 <MappingList mappings={mappings} />
@@ -112,7 +112,7 @@ function MappingList({ mappings }: { mappings: InterpretationData["synonymMappin
         <li key={m.from}>
           <span className="font-medium">“{m.from}”</span>
           <span className="text-muted-foreground"> → </span>
-          <span className="font-mono text-[0.68rem]">{m.to}</span>
+          <span className="font-mono text-meta">{m.to}</span>
           {m.note && <span className="text-muted-foreground"> — {m.note}</span>}
         </li>
       ))}

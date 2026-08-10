@@ -63,7 +63,7 @@ export function SessionRail() {
             R
           </span>
           <span className="text-[0.9rem] font-semibold tracking-tight">Revi</span>
-          <span className="mt-0.5 text-[0.55rem] font-medium uppercase tracking-widest text-muted-foreground">
+          <span className="mt-0.5 text-micro font-medium uppercase tracking-widest text-muted-foreground">
             RCM
           </span>
         </div>
@@ -79,7 +79,7 @@ export function SessionRail() {
           // hardest to read: white on the display gradient measured
           // 3.74:1 light and 2.49:1 dark. The CTA stops carry the same
           // white at 5.21:1 → 5.48:1 across the sweep, in both themes.
-          className="accent-gradient-cta w-full gap-1.5 text-[0.72rem] font-medium text-white shadow-sm transition-all duration-150 hover:brightness-110 hover:shadow-md"
+          className="accent-gradient-cta w-full gap-1.5 text-meta font-medium text-white shadow-sm transition-all duration-150 hover:brightness-110 hover:shadow-md"
         >
           <MessageSquarePlus className="size-3" />
           New chat
@@ -114,7 +114,7 @@ export function SessionRail() {
             <>
               <Separator />
               <section className="space-y-1.5">
-                <h3 className="flex items-center gap-1.5 px-1 text-[0.68rem] font-semibold uppercase tracking-wide text-muted-foreground">
+                <h3 className="flex items-center gap-1.5 px-1 text-meta font-semibold uppercase tracking-wide text-muted-foreground">
                   <FlaskConical className="size-3" />
                   Fixture previews
                 </h3>
@@ -122,7 +122,7 @@ export function SessionRail() {
                   <Button
                     variant="outline"
                     size="xs"
-                    className="w-full justify-start gap-1.5 text-[0.65rem] font-normal"
+                    className="w-full justify-start gap-1.5 text-meta font-normal"
                     onClick={simulateWatermarkRefresh}
                   >
                     <RefreshCw className="size-3" />
@@ -132,7 +132,7 @@ export function SessionRail() {
                     variant="outline"
                     size="xs"
                     className={cn(
-                      "w-full justify-start gap-1.5 text-[0.65rem] font-normal",
+                      "w-full justify-start gap-1.5 text-meta font-normal",
                       showFailurePreview && "border-negative/50 text-negative",
                     )}
                     onClick={toggleFailurePreview}
@@ -147,13 +147,15 @@ export function SessionRail() {
       </ScrollArea>
 
       <div className="border-t px-4 py-2.5">
-        <p className="num text-[0.58rem] leading-relaxed text-muted-foreground">
+        {/* BUG 8 — one line, and only when it says something. The live
+            deployment names itself; the sentence about which driver is
+            "the product" was an argument with a reader who is not having
+            it, in the corner of every screen. The fixture keeps its full
+            warning, because there a reader IS looking at invented data
+            and needs to be told so. */}
+        <p className="num text-micro leading-relaxed text-muted-foreground">
           {mode === "api" ? (
-            <>
-              Live API · {apiBaseUrl()}
-              <br />
-              This is the product — mock is a dev/test fixture
-            </>
+            <>Live API · {apiBaseUrl()}</>
           ) : (
             <>
               Mock data · seed 20260807 · snap_003
@@ -192,7 +194,7 @@ function ReplayDemoButton({
   if (confirming) {
     return (
       <section className="space-y-1.5 rounded-md border border-warning/40 bg-warning/10 p-2">
-        <p className="text-[0.62rem] leading-snug">
+        <p className="text-micro leading-snug">
           Replaying starts a new chat — this thread is cleared and cannot be brought back. It
           then runs {REFERENCE_QUESTIONS.length} live turns.
         </p>
@@ -200,7 +202,7 @@ function ReplayDemoButton({
           <Button
             size="xs"
             variant="secondary"
-            className="h-6 flex-1 text-[0.65rem] font-medium"
+            className="h-6 flex-1 text-meta font-medium"
             onClick={() => {
               setConfirming(false);
               onReplay();
@@ -211,7 +213,7 @@ function ReplayDemoButton({
           <Button
             size="xs"
             variant="ghost"
-            className="h-6 flex-1 text-[0.65rem] font-normal"
+            className="h-6 flex-1 text-meta font-normal"
             onClick={() => setConfirming(false)}
           >
             Keep this thread
@@ -228,14 +230,13 @@ function ReplayDemoButton({
         disabled={disabled}
         variant="outline"
         size="sm"
-        className="w-full gap-1.5 text-[0.72rem] font-medium"
+        className="w-full gap-1.5 text-meta font-medium"
       >
         <Play className="size-3" />
         {progress ? `Replaying ${progress.index}/${progress.total}…` : "Replay reference demo"}
       </Button>
-      <p className="px-1 text-[0.58rem] leading-snug text-muted-foreground">
-        Runs {REFERENCE_QUESTIONS.length} live turns in a new chat — real model calls, billed
-        like any other question.
+      <p className="px-1 text-micro leading-snug text-muted-foreground">
+        {REFERENCE_QUESTIONS.length} live turns, in a new chat.
       </p>
     </section>
   );
@@ -292,16 +293,14 @@ function SessionList() {
 
   return (
     <section className="space-y-1">
-      <h3 className="flex items-center justify-between gap-1.5 px-1 text-[0.68rem] font-semibold uppercase tracking-wide text-muted-foreground">
-        <span className="flex items-center gap-1.5">
-          <MessagesSquare className="size-3" />
-          Sessions
-        </span>
-        {state === "ready" && total > allSessions.length && (
-          <span className="num text-[0.6rem] font-normal text-muted-foreground">
-            {allSessions.length} of {total}
-          </span>
-        )}
+      {/* BUG 8 — the header names the section and stops there. The
+          "50 of 409" it used to carry is a fact about a page boundary,
+          not about anybody's work; it is stated once under the list,
+          where it explains why the list ends rather than decorating its
+          title. */}
+      <h3 className="flex items-center gap-1.5 px-1 text-meta font-semibold uppercase tracking-wide text-muted-foreground">
+        <MessagesSquare className="size-3" />
+        Sessions
       </h3>
 
       {/* Offered once the list is long enough to need it. Client-side over
@@ -316,9 +315,9 @@ function SessionList() {
             type="search"
             value={query}
             onChange={(event) => setQuery(event.target.value)}
-            placeholder={`Filter these ${allSessions.length} sessions`}
+            placeholder="Filter sessions"
             aria-label={`Filter the ${allSessions.length} sessions loaded in this rail by title`}
-            className="focus-ring w-full rounded-md border bg-surface-sunken/60 py-1 pl-7 pr-2 text-[0.65rem] placeholder:text-muted-foreground"
+            className="focus-ring w-full rounded-md border bg-surface-sunken/60 py-1 pl-7 pr-2 text-meta placeholder:text-muted-foreground"
           />
         </div>
       )}
@@ -326,7 +325,7 @@ function SessionList() {
       {switchError && (
         <p
           role="alert"
-          className="flex items-start gap-1.5 px-1 text-[0.62rem] leading-snug text-negative"
+          className="flex items-start gap-1.5 px-1 text-micro leading-snug text-negative"
         >
           <AlertTriangle className="mt-0.5 size-3 shrink-0" />
           {switchError}
@@ -334,21 +333,21 @@ function SessionList() {
       )}
 
       {state === "unavailable" ? (
-        <p role="alert" className="px-1 text-[0.62rem] leading-snug text-muted-foreground">
+        <p role="alert" className="px-1 text-micro leading-snug text-muted-foreground">
           {error}
         </p>
       ) : state !== "ready" && sessions.length === 0 ? (
         // Includes "idle" — before the read has answered, "no sessions" is
         // a claim the app has not earned yet.
-        <p className="px-1 text-[0.62rem] leading-snug text-muted-foreground">Loading sessions…</p>
+        <p className="px-1 text-micro leading-snug text-muted-foreground">Loading sessions…</p>
       ) : allSessions.length === 0 ? (
-        <p className="px-1 text-[0.62rem] leading-snug text-muted-foreground">
+        <p className="px-1 text-micro leading-snug text-muted-foreground">
           No sessions yet. Ask a question and this one appears here.
         </p>
       ) : sessions.length === 0 ? (
         // Never "no sessions match": this searched the 50 rows the rail
         // read, and the tenant may have 219.
-        <p className="px-1 text-[0.62rem] leading-snug text-muted-foreground">
+        <p className="px-1 text-micro leading-snug text-muted-foreground">
           Nothing in the {allSessions.length} session{allSessions.length === 1 ? "" : "s"}{" "}
           loaded here matches “{query.trim()}”
           {total > allSessions.length && ` — this tenant has ${total} in all`}.
@@ -402,7 +401,7 @@ function SessionList() {
                     // `--ring` on the same surface is 3.61:1 light /
                     // 10.22:1 dark. Every row reserves the 2px so
                     // selecting one never nudges the text.
-                    "flex w-full items-baseline justify-between gap-2 rounded-md border-l-2 border-l-transparent px-2 py-1.5 text-left text-[0.7rem] transition-colors duration-150 focus-ring",
+                    "flex w-full items-baseline justify-between gap-2 rounded-md border-l-2 border-l-transparent px-2 py-1.5 text-left text-meta transition-colors duration-150 focus-ring",
                     // Room for the archive control, which sits over the
                     // row's right edge rather than in its flow — so
                     // revealing it never re-flows the title.
@@ -414,7 +413,11 @@ function SessionList() {
                   )}
                 >
                   <span className="truncate">{title}</span>
-                  <span className="num flex shrink-0 items-center gap-1 text-[0.6rem] text-muted-foreground">
+                  {/* BUG 8 — the age, in the quietest ink on the rail.
+                      It is a scanning aid, not a column of data; the
+                      exact instant and the turn count are on the row's
+                      accessible name and its title. */}
+                  <span className="num flex shrink-0 items-center gap-1 text-micro text-muted-foreground/70">
                     {pending ? (
                       <Loader2 className="size-2.5 animate-spin" />
                     ) : (
@@ -447,6 +450,12 @@ function SessionList() {
             );
           })}
         </ul>
+      )}
+
+      {state === "ready" && total > allSessions.length && needle === "" && (
+        <p className="num px-1 pt-1 text-micro text-muted-foreground/70">
+          Showing the {allSessions.length} most recent of {total}.
+        </p>
       )}
     </section>
   );
@@ -486,7 +495,7 @@ function ArchiveConfirm({
 }) {
   return (
     <div className="space-y-1.5 rounded-md border border-warning/40 bg-warning/10 p-2">
-      <p className="text-[0.62rem] leading-snug">
+      <p className="text-micro leading-snug">
         Remove <span className="font-medium">{title}</span> from this list? Its answers are
         kept and it stays reachable at its link — only the row goes. Take the link first: once
         the row is gone, this rail has no way back to it.
@@ -495,7 +504,7 @@ function ArchiveConfirm({
         label="Copy this session's link"
         doneLabel="Link copied"
         title="Copy the permalink to this session, so it can be re-opened after the row leaves this list"
-        className="h-5 px-1.5 text-[0.62rem]"
+        className="h-5 px-1.5 text-micro"
         text={() =>
           sessionLinkFor(sessionId, typeof window === "undefined" ? "" : window.location.origin)
         }
@@ -504,7 +513,7 @@ function ArchiveConfirm({
         <Button
           size="xs"
           variant="secondary"
-          className="h-6 flex-1 text-[0.65rem] font-medium"
+          className="h-6 flex-1 text-meta font-medium"
           onClick={onConfirm}
         >
           Archive
@@ -512,7 +521,7 @@ function ArchiveConfirm({
         <Button
           size="xs"
           variant="ghost"
-          className="h-6 flex-1 text-[0.65rem] font-normal"
+          className="h-6 flex-1 text-meta font-normal"
           onClick={onCancel}
         >
           Keep it

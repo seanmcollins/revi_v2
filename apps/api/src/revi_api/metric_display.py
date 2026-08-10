@@ -63,6 +63,17 @@ class MetricDisplayRules:
         entry = self.by_metric.get(metric_id)
         return entry.display_name if entry is not None else None
 
+    @property
+    def names(self) -> dict[str, str]:
+        """``{metric id: display name}`` — the substitution map itself.
+
+        One accessor, because every surface that renders a metric id to a
+        human needs the same map and three of them were building it inline
+        (round-6 E-04): the finding card had it, the referent chip beside
+        it did not, and the two disagreed about the same finding's title.
+        """
+        return {mid: entry.display_name for mid, entry in self.by_metric.items()}
+
     def payloads_for(self, metric_ids: Iterable[str]) -> list[MetricDisplayPayload]:
         """Entries for the metrics named, in the order named, deduplicated.
 

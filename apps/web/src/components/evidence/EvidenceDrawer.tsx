@@ -40,7 +40,7 @@ export function EvidenceDrawer({ evidence }: { evidence: EvidenceBundle }) {
   return (
     <div className="space-y-4 text-xs">
       {evidence.zeroProbeTurn && (
-        <div className="flex items-start gap-2 rounded-md border border-verified/40 bg-verified/10 p-2.5 text-[0.7rem] leading-snug text-verified">
+        <div className="flex items-start gap-2 rounded-md border border-verified/40 bg-verified/10 p-2.5 text-meta leading-snug text-verified">
           <Zap className="mt-0.5 size-3.5 shrink-0" />
           <p>
             Answered without going back to the warehouse — everything this answer needed
@@ -57,7 +57,7 @@ export function EvidenceDrawer({ evidence }: { evidence: EvidenceBundle }) {
           Data checks ({evidence.probes.length})
         </SectionTitle>
         {evidence.probes.length === 0 ? (
-          <p className="text-[0.7rem] text-muted-foreground">None ran this turn.</p>
+          <p className="text-meta text-muted-foreground">None ran this turn.</p>
         ) : (
           <>
             <ul className="space-y-1.5">
@@ -65,7 +65,7 @@ export function EvidenceDrawer({ evidence }: { evidence: EvidenceBundle }) {
                 <ProbeNode key={probe.probeId} probe={probe} index={i + 1} debug={debug} />
               ))}
             </ul>
-            <p className="num mt-1.5 text-[0.62rem] text-muted-foreground">
+            <p className="num mt-1.5 text-micro text-muted-foreground">
               {formatCount(evidence.warehouseQueries)} queried the warehouse ·{" "}
               {formatCount(evidence.cacheHits)} reused from this session
             </p>
@@ -110,14 +110,14 @@ function ReconciliationSection({
       </SectionTitle>
       <div
         className={cn(
-          "rounded-md border p-2.5 text-[0.7rem] leading-snug",
+          "rounded-md border p-2.5 text-meta leading-snug",
           passed && "border-verified/40 bg-verified/5",
           status === "failed" && "border-negative/50 bg-negative/10",
         )}
       >
         <p
           className={cn(
-            "mb-1 text-[0.7rem] font-semibold",
+            "mb-1 text-meta font-semibold",
             passed && "text-verified",
             status === "failed" && "text-negative",
             !passed && status !== "failed" && "text-muted-foreground",
@@ -137,7 +137,7 @@ function ReconciliationSection({
         </p>
         {reconciliation?.detail && <p>{reconciliation.detail}</p>}
         {debug && reconciliation && (
-          <code className="mt-1.5 block font-mono text-[0.6rem] text-muted-foreground">
+          <code className="mt-1.5 block font-mono text-micro text-muted-foreground">
             {reconciliation.summary}
           </code>
         )}
@@ -154,7 +154,7 @@ function SectionTitle({
   children: React.ReactNode;
 }) {
   return (
-    <h4 className="mb-1.5 flex items-center gap-1.5 text-[0.65rem] font-semibold uppercase tracking-wide text-muted-foreground">
+    <h4 className="mb-1.5 flex items-center gap-1.5 text-meta font-semibold uppercase tracking-wide text-muted-foreground">
       {icon}
       {children}
     </h4>
@@ -195,13 +195,13 @@ function ProbeNode({
         <ChevronRight
           className={cn("size-3 shrink-0 text-muted-foreground transition-transform duration-150", open && "rotate-90")}
         />
-        <span className="num shrink-0 rounded bg-surface-sunken px-1 py-0.5 text-[0.62rem] text-muted-foreground">
+        <span className="num shrink-0 rounded bg-surface-sunken px-1 py-0.5 text-micro text-muted-foreground">
           {index}
         </span>
-        <span className="min-w-0 flex-1 truncate text-[0.7rem]">{probe.description}</span>
+        <span className="min-w-0 flex-1 truncate text-meta">{probe.description}</span>
         {probe.cacheHit && (
           <span
-            className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-verified/10 px-1.5 py-0.5 text-[0.6rem] font-medium text-verified"
+            className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-verified/10 px-1.5 py-0.5 text-micro font-medium text-verified"
             title="Reused from an earlier turn in this session instead of querying again."
           >
             <Zap className="size-2.5" />
@@ -210,7 +210,7 @@ function ProbeNode({
         )}
       </button>
       {open && (
-        <div id={detailId} className="space-y-1.5 border-t px-2.5 py-2 pl-7 text-[0.68rem]">
+        <div id={detailId} className="space-y-1.5 border-t px-2.5 py-2 pl-7 text-meta">
           {probe.grade && (
             <div className="flex flex-wrap items-center gap-1.5">
               <GradeBadge grade={probe.grade} size="xs" />
@@ -243,34 +243,34 @@ function ProbeNode({
           <button
             type="button"
             onClick={() => setShowTechnical(!showTechnical)}
-            className="text-[0.62rem] text-muted-foreground underline-offset-2 hover:underline"
+            className="text-micro text-muted-foreground underline-offset-2 hover:underline"
           >
             {showTechnical ? "Hide technical details" : "Technical details"}
           </button>
           {showTechnical && (
             <div className="flex flex-wrap items-center gap-1.5 pt-0.5">
               <code
-                className="max-w-[12rem] truncate rounded bg-surface-sunken px-1 py-0.5 font-mono text-[0.6rem] text-verified"
+                className="max-w-[12rem] truncate rounded bg-surface-sunken px-1 py-0.5 font-mono text-micro text-verified"
                 title={probe.probeHash}
               >
                 {probe.probeHash.slice(0, 12)}
               </code>
               {probe.kind && (
-                <span className="rounded-full border px-1.5 py-0.5 font-mono text-[0.6rem] text-muted-foreground">
+                <span className="rounded-full border px-1.5 py-0.5 font-mono text-micro text-muted-foreground">
                   {probe.kind}
                 </span>
               )}
               {probe.metrics.map((metric) => (
                 <span
                   key={metric.id}
-                  className="rounded-full border border-verified/40 px-1.5 py-0.5 font-mono text-[0.6rem] text-verified"
+                  className="rounded-full border border-verified/40 px-1.5 py-0.5 font-mono text-micro text-verified"
                 >
                   {metric.id}
                   {metric.contractVersion !== undefined ? `@${metric.contractVersion}` : ""}
                 </span>
               ))}
               {probe.durationMs > 0 && (
-                <span className="num rounded-full border px-1.5 py-0.5 text-[0.6rem] text-muted-foreground">
+                <span className="num rounded-full border px-1.5 py-0.5 text-micro text-muted-foreground">
                   {probe.durationMs} ms
                 </span>
               )}

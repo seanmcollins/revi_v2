@@ -521,6 +521,88 @@ def display_scope_limit(question: str) -> int | None:
     return limit
 
 
+#: An utterance that asks for the answer already on screen to be RE-ARRANGED
+#: rather than merely re-shown. **One vocabulary, two readers**: this is the
+#: gate ``presentation_order_request`` admits a turn on AND the gate
+#: :func:`revi_investigation.application.submit_turn.presentation_ordering`
+#: resolves it with. They were two regexes for one intent and the wider one
+#: was the gate: "reverse the order" and "flip it" passed admission, matched
+#: nothing on resolution, and re-served the parent's rows in the parent's
+#: order under "nothing changed but the presentation" — round-5 E-01
+#: reopened by the fix for round-6 A-03.
+PRESENTATION_CHANGE_REQUEST = re.compile(
+    r"(?<!\w)(?:sort|sorts|sorted|sorting|re-?sort|order|orders|ordered|ordering|"
+    r"reorder|re-?order|rank|ranks|ranked|ranking|re-?rank|reverse|reversed|flip|"
+    r"group\s+by|grouped\s+by|filter|filtered|exclude|excluding|"
+    r"alphabetical(?:ly)?|ascending|descending|largest\s+first|smallest\s+first|"
+    r"highest\s+first|lowest\s+first)(?!\w)",
+    re.IGNORECASE,
+)
+
+#: Every word an utterance may contain and still be *only* an instruction
+#: about the order of rows already on screen. The closed-list discipline is
+#: :func:`display_scope_limit`'s, and for the same reason: the moment a
+#: sentence names a metric, a cut, a payer or a period it is asking for
+#: something new, and "rank our providers by denial rate" must not be
+#: mistaken for "sort them by percent change, largest first".
+#:
+#: The column words in here are the ones a frame on screen already has a
+#: column for — percent, change, delta, dollars, value, rank, name. Nothing
+#: in this list can select data; the worst a wrong match can do is order a
+#: set of rows the reader is already looking at, and say that it did.
+_PRESENTATION_ORDER_WORDS = frozenset(
+    [
+        "a", "absolute", "again", "all", "already", "alphabetical", "alphabetically",
+        "also", "amount", "amounts", "and", "another", "asc", "ascending", "at",
+        "back", "best", "big", "bigger", "biggest", "but", "by", "can", "change",
+        "changes", "column", "columns", "could", "delta", "desc", "descending",
+        "difference", "display", "do", "dollar", "dollars", "down", "exclude",
+        "excluding", "existing", "filter", "filtered",
+        "first", "flip", "for", "from", "get", "give", "greatest", "group",
+        "grouped", "high", "higher",
+        "highest", "i", "in", "instead", "is", "it", "its", "just", "keep", "largest",
+        "last", "least", "leave", "level", "list", "low", "lower", "lowest",
+        "magnitude", "me", "most", "movement", "moved", "my", "name", "names", "now",
+        "of", "on", "one", "only", "order", "ordered", "ordering", "orders", "our",
+        "percent", "percentage", "pct", "please", "point", "points", "position",
+        "put", "rank", "ranked", "ranking", "ranks", "re", "rearrange", "reorder",
+        "resort", "rest", "reverse", "reversed", "row", "rows", "same", "see",
+        "share", "show", "showing", "shown", "size", "small", "smaller", "smallest",
+        "sort", "sorted", "sorting", "sorts",
+        "that", "the", "their", "them", "then", "there", "these", "this",
+        "those", "to", "top", "up", "value", "values", "want", "way", "we", "with",
+        "worst", "would", "you", "your",
+    ]
+)
+
+
+def presentation_order_request(question: str) -> bool:
+    """Is this utterance *only* an instruction about the order on screen?
+
+    Round-6 A-03. ``refinement_not_applied`` was written for exactly one
+    utterance — "sort them by percent change, largest first" — and that
+    utterance stopped reaching the path it lives on: the classifier came
+    back ``presentation_only`` at 0.76 and 0.68, below its threshold, so the
+    turn ended as a clarification ("is percent change already a column?")
+    over a question the engine can answer itself from the rows it is
+    holding. Two model calls, no answer, and the analyst's own re-sort
+    request diverted into a dialogue.
+
+    Decided here, before any model call, on the same closed-vocabulary rule
+    :func:`display_scope_limit` uses: the utterance must ask for a
+    re-arrangement (:data:`PRESENTATION_CHANGE_REQUEST` — the same gate the
+    resolver uses, so nothing can be admitted here that cannot be answered
+    there), and every word in it must be one that says nothing about WHAT to
+    measure.
+    """
+    if PRESENTATION_CHANGE_REQUEST.search(question) is None:
+        return False
+    return all(
+        token.casefold() in _PRESENTATION_ORDER_WORDS
+        for token in re.findall(r"[A-Za-z']+", question)
+    )
+
+
 def out_of_range_question(period_label: str, watermark: DataWatermark) -> str:
     """Say which period was asked for and which one exists.
 

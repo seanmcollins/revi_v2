@@ -71,11 +71,11 @@ export function AnswerWorklist({
   return (
     <section className="rounded-lg border bg-card/60 p-3">
       <header className="flex items-baseline justify-between gap-2">
-        <h3 className="flex items-center gap-1.5 text-[0.75rem] font-medium">
+        <h3 className="flex items-center gap-1.5 text-body font-medium">
           <ListOrdered className="size-3.5 text-muted-foreground" aria-hidden />
           {worklist.label || "What to work first"}
         </h3>
-        <span className="num shrink-0 font-mono text-[0.58rem] text-muted-foreground">
+        <span className="num shrink-0 font-mono text-micro text-muted-foreground">
           {worklist.formulaVersion}
         </span>
       </header>
@@ -85,7 +85,7 @@ export function AnswerWorklist({
           and finds the "these are not this turn's findings" note further
           down has already read them as findings. */}
       {intro && (
-        <p className="mt-1.5 rounded-md border border-dashed bg-surface-sunken/60 px-2.5 py-1.5 text-[0.66rem] leading-snug text-muted-foreground">
+        <p className="mt-1.5 rounded-md border border-dashed bg-surface-sunken/60 px-2.5 py-1.5 text-meta leading-snug text-muted-foreground">
           {warningBody(intro.code, intro.message)}
         </p>
       )}
@@ -94,7 +94,7 @@ export function AnswerWorklist({
           words, never re-derived here. It carries the totals, the lane
           split and the ranking basis in one sentence. */}
       {worklist.statement && (
-        <p className="mt-1.5 text-[0.68rem] leading-snug text-muted-foreground">
+        <p className="mt-1.5 text-meta leading-snug text-muted-foreground">
           {worklist.statement}
         </p>
       )}
@@ -107,7 +107,7 @@ export function AnswerWorklist({
             <li
               key={`${warning.code}:${warning.message}`}
               className={cn(
-                "border-l-2 pl-2 text-[0.62rem] leading-snug",
+                "border-l-2 pl-2 text-micro leading-snug",
                 warning.severity === "caution"
                   ? "border-l-warning/60 text-foreground/80"
                   : "border-l-border text-muted-foreground",
@@ -133,7 +133,7 @@ export function AnswerWorklist({
                   variant="outline"
                   size="xs"
                   disabled={streaming}
-                  className="h-5 rounded-full px-2 text-[0.62rem] font-normal"
+                  className="h-5 rounded-full px-2 text-micro font-normal"
                   onClick={() =>
                     void submit({
                       worklist: { lane: lane.id, limit: worklist.limit || shown },
@@ -143,7 +143,7 @@ export function AnswerWorklist({
                   {lane.label}
                 </Button>
               </TooltipTrigger>
-              <TooltipContent side="bottom" className="max-w-80 text-[0.68rem] leading-snug">
+              <TooltipContent side="bottom" className="max-w-80 text-meta leading-snug">
                 <p className="mb-1 font-medium">
                   {lane.itemCount} card{lane.itemCount === 1 ? "" : "s"} ·{" "}
                   {formatWholeDollars(lane.impactCents)}
@@ -165,7 +165,7 @@ export function AnswerWorklist({
           population and `items` is a slice of it, and a block that showed
           eight rows over a list of 33 without saying so would read as the
           whole worklist. */}
-      <p className="num mt-2 text-[0.58rem] leading-snug text-muted-foreground">
+      <p className="num mt-2 text-micro leading-snug text-muted-foreground">
         {shown} of {worklist.totalItems} ranked card
         {worklist.totalItems === 1 ? "" : "s"} at data load {worklist.watermarkId}
         {worklist.totalRecoverableCentsEstimate > 0 && (
@@ -211,14 +211,14 @@ function WorklistRow({ item }: { item: PortfolioItem }) {
         !item.drillable && "border-dashed",
       )}
     >
-      <span className="num mt-px w-3.5 shrink-0 text-[0.62rem] font-medium text-muted-foreground">
+      <span className="num mt-px w-3.5 shrink-0 text-micro font-medium text-muted-foreground">
         {item.rank}
       </span>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-[0.68rem] font-medium leading-snug" title={item.title}>
+        <p className="truncate text-meta font-medium leading-snug" title={item.title}>
           {item.title}
         </p>
-        <p className="num mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-[0.62rem] leading-snug text-muted-foreground">
+        <p className="num mt-0.5 flex flex-wrap items-baseline gap-x-1.5 text-micro leading-snug text-muted-foreground">
           <span className={cn("font-medium text-foreground", figure < 0 && "text-negative")}>
             {formatWholeDollars(figure)}
           </span>
@@ -232,7 +232,7 @@ function WorklistRow({ item }: { item: PortfolioItem }) {
           variant="ghost"
           size="xs"
           aria-label={`Drill into ${item.title}`}
-          className="h-5 shrink-0 gap-0.5 rounded-full px-1.5 text-[0.6rem] font-normal text-verified opacity-0 transition-opacity duration-150 hover:text-verified focus-visible:opacity-100 group-hover/row:opacity-100"
+          className="h-5 shrink-0 gap-0.5 rounded-full px-1.5 text-micro font-normal text-verified opacity-0 transition-opacity duration-150 hover:text-verified focus-visible:opacity-100 group-hover/row:opacity-100"
           onClick={() => {
             if (item.drillSpec) {
               // A card is a typed FIRST turn, exactly as it is from the
@@ -261,13 +261,13 @@ function WorklistRow({ item }: { item: PortfolioItem }) {
               size="xs"
               aria-disabled
               aria-label={`Cannot drill into ${item.title} — ${item.drillUnavailableReason ?? "the platform refused this drill"}`}
-              className="h-5 shrink-0 cursor-not-allowed gap-0.5 rounded-full px-1.5 text-[0.6rem] font-normal text-muted-foreground hover:bg-transparent hover:text-muted-foreground"
+              className="h-5 shrink-0 cursor-not-allowed gap-0.5 rounded-full px-1.5 text-micro font-normal text-muted-foreground hover:bg-transparent hover:text-muted-foreground"
             >
               <Ban className="size-2.5" />
               Can&apos;t drill
             </Button>
           </TooltipTrigger>
-          <TooltipContent side="left" className="max-w-72 text-[0.68rem] leading-snug">
+          <TooltipContent side="left" className="max-w-72 text-meta leading-snug">
             {item.drillUnavailableReason ??
               "This deployment cannot open this card as an investigation."}
           </TooltipContent>
@@ -320,7 +320,7 @@ function RowBasis({ item }: { item: PortfolioItem }) {
         <button
           type="button"
           className={cn(
-            "num mt-0.5 flex items-center gap-1 rounded text-left text-[0.58rem] leading-snug underline decoration-dotted underline-offset-2 focus-ring",
+            "num mt-0.5 flex items-center gap-1 rounded text-left text-micro leading-snug underline decoration-dotted underline-offset-2 focus-ring",
             agreement === "diverged" ? "text-warning" : "text-muted-foreground",
           )}
         >
@@ -328,7 +328,7 @@ function RowBasis({ item }: { item: PortfolioItem }) {
           {label}
         </button>
       </TooltipTrigger>
-      <TooltipContent side="right" className="max-w-80 text-[0.68rem] leading-snug">
+      <TooltipContent side="right" className="max-w-80 text-meta leading-snug">
         {note}
       </TooltipContent>
     </Tooltip>

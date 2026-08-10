@@ -120,8 +120,13 @@ class TestBoundsSurviveDelivery:
 
         assert text is not None
         assert "every other figure here is measured" not in text
-        assert "is NOT a measurement" in text
-        assert "Of 2 cell(s) on this answer, 1 carry an upper bound" in text
+        assert "is not a measurement" in text
+        # The count, once, in words — and never in the engine's own voice:
+        # the round-6 answer-surface review could not parse this paragraph
+        # when it stated its census twice and printed "cell(s)".
+        assert "1 of 2 groups here are too small to measure exactly" in text
+        assert "cell(s)" not in text
+        assert "publishable" not in text
 
 
 class TestRankingRefusesCeilings:

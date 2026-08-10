@@ -56,7 +56,7 @@ export function TurnInput({ suggestions }: { suggestions: string[] }) {
               type="button"
               disabled={busy}
               onClick={() => send(s)}
-              className="rounded-full border bg-surface-sunken px-2.5 py-1 text-[0.68rem] text-muted-foreground transition-colors duration-150 hover:border-ring/40 hover:text-foreground disabled:opacity-50"
+              className="rounded-full border bg-surface-sunken px-2.5 py-1 text-meta text-muted-foreground transition-colors duration-150 hover:border-ring/40 hover:text-foreground disabled:opacity-50"
             >
               {s}
             </button>
@@ -95,7 +95,7 @@ export function TurnInput({ suggestions }: { suggestions: string[] }) {
           }
           disabled={busy}
           rows={2}
-          className="max-h-40 resize-none pr-12 text-[0.8rem]"
+          className="max-h-40 resize-none pr-12 text-body"
         />
         <Button
           type="submit"
@@ -111,13 +111,22 @@ export function TurnInput({ suggestions }: { suggestions: string[] }) {
           )}
         </Button>
       </form>
-      <p className="num text-[0.62rem] text-muted-foreground">
-        {pending > 0
-          ? mode === "api"
+      {/* BUG 5 — the composer says something only when it has something
+          to say. The standing disclaimer ("every number is computed from
+          your data…") was printed under every keystroke of every session
+          forever, which is how a true and important sentence becomes
+          furniture nobody reads. It is said once, where a first-time
+          reader actually meets the product — the empty state — and the
+          integrity line under every answer is where the same promise is
+          kept per answer. This line is now only for what is happening
+          right now: queued gestures waiting on the pipeline. */}
+      {pending > 0 && (
+        <p className="num text-micro text-muted-foreground">
+          {mode === "api"
             ? `${pending} typed refinement${pending === 1 ? "" : "s"} queued — submitting when this turn completes`
-            : `${pending} typed refinement${pending === 1 ? "" : "s"} queued (logged to console — mock driver)`
-          : "Every number is computed from your data — the model reads the question and writes the answer, it never makes the numbers up."}
-      </p>
+            : `${pending} typed refinement${pending === 1 ? "" : "s"} queued (logged to console — mock driver)`}
+        </p>
+      )}
     </div>
   );
 }

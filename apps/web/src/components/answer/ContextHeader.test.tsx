@@ -190,10 +190,10 @@ describe("ContextHeader — snapshot metrics (as_of)", () => {
     expect(screen.getByText(/No start–end window applies to this number/)).toBeInTheDocument();
   });
 
-  it("renders the window exactly as before for a flow metric", () => {
+  it("renders the window for a flow metric, with the year on it", () => {
     render(<ContextHeader header={BASE} />);
     expect(screen.getByText("Window")).toBeInTheDocument();
-    expect(screen.getByText("Jun 1–Jul 31 (service date)")).toBeInTheDocument();
+    expect(screen.getByText("Jun 1–Jul 31, 2026 (service date)")).toBeInTheDocument();
   });
 });
 

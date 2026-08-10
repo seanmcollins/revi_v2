@@ -26,10 +26,10 @@ export function ReconciliationBanner({ result }: { result?: ReconciliationResult
         {/* Softened wording, identical meaning: the breakdown is still
             called out loudly and the numbers are still shown. The stable
             §12 code stays available in debug mode's decision trace. */}
-        <p className="text-[0.75rem] font-semibold text-negative">
+        <p className="text-body font-semibold text-negative">
           These rows don&rsquo;t add up to the total
         </p>
-        <p className="mt-0.5 text-[0.75rem] leading-snug">
+        <p className="mt-0.5 text-body leading-snug">
           {result.detail ??
             "The breakdown does not sum to the number it came from. Don't act on these rows until it's resolved."}
         </p>
