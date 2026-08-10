@@ -15,11 +15,11 @@ from typing import Any
 
 from revi_investigation.application.ports import (
     EMPTY_SESSION_TITLE,
+    MonitorsLead,
+    MonitorsLoad,
+    MonitorsPin,
+    MonitorsPinResult,
     RegisteredReferent,
-    RoundsLead,
-    RoundsLoad,
-    RoundsPin,
-    RoundsPinResult,
     SessionPage,
     SessionSummary,
     TraceRecord,
@@ -245,7 +245,7 @@ class MemoryTurnReceiptStore:
         self.receipts.setdefault((tenant, session_id, key), response)
 
 
-# --- Rounds (the proactive surface) -----------------------------------------
+# --- Monitors (the proactive surface) -----------------------------------------
 #
 # Ordering is the thing these four have to get exactly right, because the
 # whole surface is load-over-load: "the prior load" is decided by the
@@ -255,21 +255,21 @@ class MemoryTurnReceiptStore:
 # deployment used hashes or dates for watermark ids.
 
 
-class MemoryRoundsPinStore:
-    """``RoundsPinStore``: pinned typed specs, tenant-scoped."""
+class MemoryMonitorsPinStore:
+    """``MonitorsPinStore``: pinned typed specs, tenant-scoped."""
 
     def __init__(self) -> None:
-        self.pins: dict[str, RoundsPin] = {}
+        self.pins: dict[str, MonitorsPin] = {}
 
-    async def save(self, pin: RoundsPin) -> None:
+    async def save(self, pin: MonitorsPin) -> None:
         self.pins[pin.id] = pin
 
-    async def get(self, pin_id: str) -> RoundsPin | None:
+    async def get(self, pin_id: str) -> MonitorsPin | None:
         return self.pins.get(pin_id)
 
     async def list_for_tenant(
         self, tenant: str, *, include_archived: bool = False
-    ) -> tuple[RoundsPin, ...]:
+    ) -> tuple[MonitorsPin, ...]:
         rows = [
             pin
             for pin in self.pins.values()
@@ -291,55 +291,55 @@ class MemoryRoundsPinStore:
         )
 
 
-class MemoryRoundsPinResultStore:
-    """``RoundsPinResultStore``: one evaluated tile per (pin, load)."""
+class MemoryMonitorsPinResultStore:
+    """``MonitorsPinResultStore``: one evaluated tile per (pin, load)."""
 
     def __init__(self) -> None:
-        self.results: dict[tuple[str, str], RoundsPinResult] = {}
+        self.results: dict[tuple[str, str], MonitorsPinResult] = {}
 
-    async def put(self, result: RoundsPinResult) -> None:
+    async def put(self, result: MonitorsPinResult) -> None:
         self.results[(result.pin_id, result.watermark_id)] = result
 
-    async def get(self, pin_id: str, watermark_id: str) -> RoundsPinResult | None:
+    async def get(self, pin_id: str, watermark_id: str) -> MonitorsPinResult | None:
         return self.results.get((pin_id, watermark_id))
 
-    async def history(self, pin_id: str, *, limit: int = 12) -> tuple[RoundsPinResult, ...]:
+    async def history(self, pin_id: str, *, limit: int = 12) -> tuple[MonitorsPinResult, ...]:
         rows = [r for (pid, _), r in self.results.items() if pid == pin_id]
         rows.sort(key=lambda r: (r.watermark_loaded_at, r.watermark_id), reverse=True)
         return tuple(rows[:limit])
 
 
-class MemoryRoundsLoadStore:
-    """``RoundsLoadStore``: the detection-feed census per (tenant, load)."""
+class MemoryMonitorsLoadStore:
+    """``MonitorsLoadStore``: the detection-feed census per (tenant, load)."""
 
     def __init__(self) -> None:
-        self.loads: dict[tuple[str, str], RoundsLoad] = {}
+        self.loads: dict[tuple[str, str], MonitorsLoad] = {}
 
-    async def put(self, load: RoundsLoad) -> None:
+    async def put(self, load: MonitorsLoad) -> None:
         self.loads[(load.tenant, load.watermark_id)] = load
 
-    async def get(self, tenant: str, watermark_id: str) -> RoundsLoad | None:
+    async def get(self, tenant: str, watermark_id: str) -> MonitorsLoad | None:
         return self.loads.get((tenant, watermark_id))
 
-    async def list_for_tenant(self, tenant: str, *, limit: int = 12) -> tuple[RoundsLoad, ...]:
+    async def list_for_tenant(self, tenant: str, *, limit: int = 12) -> tuple[MonitorsLoad, ...]:
         rows = [load for (t, _), load in self.loads.items() if t == tenant]
         rows.sort(key=lambda load: (load.watermark_loaded_at, load.watermark_id), reverse=True)
         return tuple(rows[:limit])
 
 
-class MemoryRoundsLeadStore:
-    """``RoundsLeadStore``: lead lifecycle, keyed by the detector's own id."""
+class MemoryMonitorsLeadStore:
+    """``MonitorsLeadStore``: lead lifecycle, keyed by the detector's own id."""
 
     def __init__(self) -> None:
-        self.leads: dict[tuple[str, str], RoundsLead] = {}
+        self.leads: dict[tuple[str, str], MonitorsLead] = {}
 
-    async def put(self, lead: RoundsLead) -> None:
+    async def put(self, lead: MonitorsLead) -> None:
         self.leads[(lead.tenant, lead.anomaly_id)] = lead
 
-    async def get(self, tenant: str, anomaly_id: str) -> RoundsLead | None:
+    async def get(self, tenant: str, anomaly_id: str) -> MonitorsLead | None:
         return self.leads.get((tenant, anomaly_id))
 
-    async def list_for_tenant(self, tenant: str) -> tuple[RoundsLead, ...]:
+    async def list_for_tenant(self, tenant: str) -> tuple[MonitorsLead, ...]:
         rows = [lead for (t, _), lead in self.leads.items() if t == tenant]
         rows.sort(key=lambda lead: lead.anomaly_id)
         return tuple(rows)

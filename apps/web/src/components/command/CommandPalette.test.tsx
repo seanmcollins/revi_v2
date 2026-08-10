@@ -6,7 +6,7 @@ import { CommandPalette } from "@/components/command/CommandPalette";
 import { useSessionStore } from "@/lib/store";
 
 /**
- * The palette navigates now — "Open Rounds" is the ⌘K route to the surface
+ * The palette navigates now — "Open Monitors" is the ⌘K route to the surface
  * an analyst starts their day on, and it was the one primary destination
  * in the product with no keyboard verb. `useRouter` throws outside the app
  * router, which no unit test mounts, so the router is a spy here and the

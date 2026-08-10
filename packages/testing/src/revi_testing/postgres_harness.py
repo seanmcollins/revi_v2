@@ -10,7 +10,7 @@ never see stale state and the default ``revi`` database is left untouched.
 
 Lives in ``revi_testing`` because more than one package now needs a real
 Postgres: the store adapters are held to the shared contract suite, and the
-Rounds service is exercised end-to-end across loads against a real
+Monitors service is exercised end-to-end across loads against a real
 database, which is where a JSONB round-trip or an ordering assumption would
 actually break.
 """

@@ -13,7 +13,7 @@
  * Usage (with the API running and a warehouse behind it):
  *
  *     node scripts/capture-fixtures.mjs                 # all groups
- *     node scripts/capture-fixtures.mjs rounds          # one group
+ *     node scripts/capture-fixtures.mjs monitors          # one group
  *     REVI_API=http://localhost:8018 node scripts/capture-fixtures.mjs
  *
  * Every capture is a REAL request against a real deployment. Nothing here
@@ -21,7 +21,7 @@
  * hand-written field in it is a test that passes against a server that
  * does not exist.
  *
- * The `rounds` group is TYPED-ONLY: every request it makes either reads a
+ * The `monitors` group is TYPED-ONLY: every request it makes either reads a
  * route or posts a typed spec, so it costs no model calls and can be run
  * against a `REVI_LLM_MOCK=1` deployment. The `answers` group replays
  * natural-language questions and therefore does spend model calls; it is
@@ -63,7 +63,7 @@ function write(name, payload) {
 }
 
 /**
- * The Rounds surface, whole: the brief, the tiles, the pins behind them
+ * The Monitors surface, whole: the brief, the tiles, the pins behind them
  * and one lead's lifecycle record.
  *
  * Captured together and at ONE watermark on purpose. A brief that diffed
@@ -71,29 +71,29 @@ function write(name, payload) {
  * cannot happen, and a test built on it would assert a shape the product
  * never produces.
  */
-async function captureRounds() {
+async function captureMonitors() {
   const health = await get("/v1/health");
-  const brief = await get("/v1/rounds/brief");
-  const rounds = await get("/v1/rounds");
-  const pins = await get("/v1/rounds/pins");
+  const brief = await get("/v1/monitors/brief");
+  const monitors = await get("/v1/monitors");
+  const pins = await get("/v1/monitors/pins");
   const portfolio = await get("/v1/portfolio/latest");
 
   // A lead with a real lifecycle on it. Preferred over an untouched one:
   // `open` is the state that needs no fixture, and the verification note
   // is the sentence the surface must render verbatim.
   const worked = portfolio.items.find((item) => item.lead_status && item.lead_status !== "open");
-  const lead = worked ? await get(`/v1/rounds/leads/${worked.anomaly_id}`) : null;
+  const lead = worked ? await get(`/v1/monitors/leads/${worked.anomaly_id}`) : null;
 
-  write("live-rounds.json", {
+  write("live-monitors.json", {
     _meta: {
-      captured_from: `${API} — GET /v1/rounds/brief, /v1/rounds, /v1/rounds/pins, /v1/rounds/leads/{id}`,
-      captured_by: "scripts/capture-fixtures.mjs rounds",
+      captured_from: `${API} — GET /v1/monitors/brief, /v1/monitors, /v1/monitors/pins, /v1/monitors/leads/{id}`,
+      captured_by: "scripts/capture-fixtures.mjs monitors",
       watermark_id: health.watermark,
       store_mode: health.store_mode,
       llm_mode: health.llm_mode,
     },
     brief,
-    rounds,
+    monitors,
     pins,
     lead,
     // Two cards, not thirty-three: the ones that carry the fields this
@@ -168,7 +168,7 @@ const TYPED_SPECS = {
   },
 };
 
-const GROUPS = { rounds: captureRounds, warnings: captureWireWarnings };
+const GROUPS = { monitors: captureMonitors, warnings: captureWireWarnings };
 
 const requested = process.argv.slice(2);
 const names = requested.length > 0 ? requested : Object.keys(GROUPS);

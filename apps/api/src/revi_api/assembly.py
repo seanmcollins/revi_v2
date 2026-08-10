@@ -59,12 +59,12 @@ from revi_investigation_contracts.api import (
     InvestigationResponse,
     MetaAnswerPayload,
     MetricProvenancePayload,
+    MonitorRefusedPayload,
     ReferentPayload,
     TermPayload,
     TurnAnswer,
     TurnClarification,
     UsageSummary,
-    WatchRefusedPayload,
     WorklistPayload,
 )
 from revi_investigation_contracts.header import build_header_payload
@@ -401,7 +401,7 @@ def investigation_response(
     snapshot_metric_ids: frozenset[str] = frozenset(),
     benchmarks_for_metric: BenchmarksForMetric | None = None,
     pack_version: str | None = None,
-    watch_refused: WatchRefusedPayload | None = None,
+    monitor_refused: MonitorRefusedPayload | None = None,
 ) -> InvestigationResponse:
     """A stored investigation on the wire.
 
@@ -453,11 +453,11 @@ def investigation_response(
             "current figures, not a snapshot of what was shown at the time."
         )
     return InvestigationResponse(
-        # A watch declaration this turn refused. Restored beside the
+        # A monitor declaration this turn refused. Restored beside the
         # warnings that say the same thing in prose, because a refusal
         # renders where the confirmation would have gone and a client that
         # only had the sentence had nowhere to put it (round-7 FN-3).
-        watch_refused=watch_refused,
+        monitor_refused=monitor_refused,
         investigation_id=investigation.id,
         session_id=investigation.session_id,
         parent_id=investigation.parent_id,

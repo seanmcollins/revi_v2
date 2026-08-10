@@ -42,6 +42,12 @@ from revi_api.auth import AuthorizationError, Principal
 from revi_api.cohort_payload import cohort_id_from_trace, cohort_payload_for
 from revi_api.debug_trace import build_debug_trace
 from revi_api.error_copy import budget_subcode, plain_message
+from revi_api.monitor_intent import (
+    MonitorDeclaration,
+    legal_threshold_phrases,
+    parse_monitor_declaration,
+)
+from revi_api.monitors import MonitorsService, annotate_time_to_impact
 from revi_api.portfolio import (
     SNAPSHOT_NOT_COMPARABLE,
     build_portfolio,
@@ -57,15 +63,9 @@ from revi_api.rederive import (
     money_total,
     non_money_reason,
 )
-from revi_api.rounds import RoundsService, annotate_time_to_impact
 from revi_api.settings_policy import DEBUG_TRACE_ENV
 from revi_api.usage_ledger import bind_ledger, unbind_ledger
 from revi_api.warning_codes import structured_warnings
-from revi_api.watch_intent import (
-    WatchDeclaration,
-    legal_threshold_phrases,
-    parse_watch_declaration,
-)
 from revi_api.wiring import ApiComponents
 from revi_api.worklist import (
     WorklistReference,
@@ -74,7 +74,7 @@ from revi_api.worklist import (
     worklist_reference_warning,
 )
 from revi_investigation.application.dto_mapping import refinement_to_dto
-from revi_investigation.application.ports import AnomalyRecord, RoundsWatch, TraceRecord
+from revi_investigation.application.ports import AnomalyRecord, Monitor, TraceRecord
 from revi_investigation.application.submit_turn import SubmitTurnRequest, TurnOutcome
 from revi_investigation.domain.records import Investigation, Session
 from revi_investigation.domain.settings import SessionSettings
@@ -86,6 +86,7 @@ from revi_investigation_contracts.api import (
     ErrorEnvelope,
     InvestigationResponse,
     LineageEdgePayload,
+    MonitorRefusedPayload,
     OpenSessionRequest,
     PortfolioResponse,
     SessionLineageResponse,
@@ -97,7 +98,6 @@ from revi_investigation_contracts.api import (
     TurnError,
     TurnRequest,
     TurnResponse,
-    WatchRefusedPayload,
     WorklistPayload,
     WorklistQuery,
 )
@@ -119,14 +119,14 @@ _TURN_RESULT_ADAPTER: TypeAdapter[TurnResult] = TypeAdapter(TurnResponse)
 #: resolves against the rows the analyst was actually shown (round-3 R3-09).
 WORKLIST_TRACE_SUFFIX = ":worklist"
 
-#: Suffix of the supplementary record a turn writes when a watch DECLARATION
+#: Suffix of the supplementary record a turn writes when a monitor DECLARATION
 #: ended in a clarification, so the declaration survives the question it
 #: triggered (round-7 FN-5).
 #:
 #: The engine returns early on a clarification reply and nothing carried the
-#: parsed declaration across the boundary, so "watch denied dollars for
+#: parsed declaration across the boundary, so "monitor denied dollars for
 #: Meridian HMO Care and tell me if it moves more than 2%" — answered
-#: correctly, clarified correctly, resolved correctly — registered no watch
+#: correctly, clarified correctly, resolved correctly — registered no monitor
 #: and said nothing about it. In a pack that refuses any imprecise payer
 #: name BY DESIGN, that is not an edge case: clarification is the MODAL
 #: branch of the flagship acquisition path for the flagship surface.
@@ -135,15 +135,15 @@ WORKLIST_TRACE_SUFFIX = ":worklist"
 #: the engine finishes its own trace before the API knows any of this, and
 #: rewriting somebody else's finished record is how two writers come to
 #: disagree about one row.
-WATCH_TRACE_SUFFIX = ":watch"
+MONITOR_TRACE_SUFFIX = ":monitor"
 
 #: Suffix of the record carrying what the API added to the published answer
 #: AFTER the engine saved its own (round-7 FN-3, restore half).
 #:
 #: The engine stores the investigation with the warnings IT produced. Four
 #: of the six sentences on one live answer came from there; the other two —
-#: the named-cut disclosure a watch declaration earns, and the refusal that
-#: says nothing is being watched — were appended by this module afterwards.
+#: the named-cut disclosure a monitor declaration earns, and the refusal that
+#: says nothing is being monitored — were appended by this module afterwards.
 #: A restored or permalinked turn therefore lost exactly the warnings whose
 #: whole purpose is to survive being read later, which is the same class of
 #: drop FN-3 exists to kill, one layer down.
@@ -160,7 +160,7 @@ API_TRACE_SUFFIX = ":api"
 _SUPPLEMENTARY_SUFFIXES = (
     NARRATIVE_TRACE_SUFFIX,
     WORKLIST_TRACE_SUFFIX,
-    WATCH_TRACE_SUFFIX,
+    MONITOR_TRACE_SUFFIX,
     API_TRACE_SUFFIX,
 )
 
@@ -209,12 +209,12 @@ def _playbook_of(trace: TraceRecord | None) -> str | None:
     return raw if isinstance(raw, str) else None
 
 
-def _resolve_watch_turn(request: TurnRequest) -> tuple[TurnRequest, WatchDeclaration | None]:
-    """Strip a watch lead-in and run the remainder as an ordinary turn.
+def _resolve_monitor_turn(request: TurnRequest) -> tuple[TurnRequest, MonitorDeclaration | None]:
+    """Strip a monitor lead-in and run the remainder as an ordinary turn.
 
-    "Watch Silverline's denial rate" is one instruction and one question.
+    "Monitor Silverline's denial rate" is one instruction and one question.
     The instruction is read here — from a closed lead-in vocabulary, see
-    :mod:`revi_api.watch_intent` — and the question is handed to the
+    :mod:`revi_api.monitor_intent` — and the question is handed to the
     ordinary pipeline unchanged, so a declaration earns the same
     interpretation, the same §6.6 validation and the same clarification a
     bare question would.
@@ -230,74 +230,74 @@ def _resolve_watch_turn(request: TurnRequest) -> tuple[TurnRequest, WatchDeclara
         or request.clarification_response
     ):
         return request, None
-    declaration = parse_watch_declaration(request.utterance)
+    declaration = parse_monitor_declaration(request.utterance)
     if declaration is None:
         return request, None
     return request.model_copy(update={"utterance": declaration.subject}), declaration
 
 
-def _declaration_payload(declaration: WatchDeclaration) -> dict[str, Any]:
+def _declaration_payload(declaration: MonitorDeclaration) -> dict[str, Any]:
     """The parsed declaration, flattened for the supplementary record."""
-    watch = declaration.watch
+    monitor = declaration.monitor
     return {
         "matched_phrase": declaration.matched_phrase,
         "subject": declaration.subject,
         "threshold_phrase": declaration.threshold_phrase,
         "threshold_unreadable": declaration.threshold_unreadable,
-        "watch": None
-        if watch is None
+        "monitor": None
+        if monitor is None
         else {
-            "mode": watch.mode,
-            "value": None if watch.value is None else str(watch.value),
-            "unit": watch.unit,
-            "direction": watch.direction,
-            "note": watch.note,
+            "mode": monitor.mode,
+            "value": None if monitor.value is None else str(monitor.value),
+            "unit": monitor.unit,
+            "direction": monitor.direction,
+            "note": monitor.note,
         },
     }
 
 
-def _declaration_from_payload(raw: Mapping[str, Any]) -> WatchDeclaration | None:
+def _declaration_from_payload(raw: Mapping[str, Any]) -> MonitorDeclaration | None:
     """The declaration a clarification interrupted, read back."""
     subject = str(raw.get("subject") or "")
     if not subject:
         return None
-    watch_raw = raw.get("watch")
-    watch = None
-    if isinstance(watch_raw, dict):
-        value = watch_raw.get("value")
-        watch = RoundsWatch(
-            mode=str(watch_raw.get("mode", "governed_default")),
+    monitor_raw = raw.get("monitor")
+    monitor = None
+    if isinstance(monitor_raw, dict):
+        value = monitor_raw.get("value")
+        monitor = Monitor(
+            mode=str(monitor_raw.get("mode", "governed_default")),
             value=None if value is None else Decimal(str(value)),
-            unit=watch_raw.get("unit"),
-            direction=str(watch_raw.get("direction", "any")),
-            note=str(watch_raw.get("note", "")),
+            unit=monitor_raw.get("unit"),
+            direction=str(monitor_raw.get("direction", "any")),
+            note=str(monitor_raw.get("note", "")),
         )
-    return WatchDeclaration(
+    return MonitorDeclaration(
         matched_phrase=str(raw.get("matched_phrase") or ""),
         subject=subject,
-        watch=watch,
+        monitor=monitor,
         threshold_phrase=str(raw.get("threshold_phrase") or ""),
         threshold_unreadable=bool(raw.get("threshold_unreadable")),
     )
 
 
-#: What the platform says while a watch declaration is waiting on a
+#: What the platform says while a monitor declaration is waiting on a
 #: clarification. Silence is the one unacceptable option here: the analyst
-#: has said "watch this", and an ordinary-looking question with no mention
-#: of the watch is how somebody walks away believing they are being watched.
-WATCH_PENDING_WARNING = (
-    "watch_pending_clarification: this turn read as a watch declaration ({phrase!r}), and the "
-    "question above has to be answered before it can be. NOTHING is being watched yet — "
-    "answer it and Revi answers {subject!r} once and starts watching that."
+#: has said "monitor this", and an ordinary-looking question with no mention
+#: of the monitor is how somebody walks away believing they are being monitored.
+MONITOR_PENDING_WARNING = (
+    "monitor_pending_clarification: this turn read as a monitor declaration ({phrase!r}), and the "
+    "question above has to be answered before it can be. NOTHING is being monitored yet — "
+    "answer it and Revi answers {subject!r} once and starts monitoring that."
 )
 
 
-def watch_declaration_warning(declaration: WatchDeclaration) -> str:
+def monitor_declaration_warning(declaration: MonitorDeclaration) -> str:
     """What the platform read, said on the answer that acted on it.
 
     The analyst's own words are not thrown away by the rewrite: this states
     the lead-in that was matched and the question it was reduced to, so a
-    reader can see the platform's reading rather than infer it from a watch
+    reader can see the platform's reading rather than infer it from a monitor
     appearing.
     """
     threshold = (
@@ -306,9 +306,9 @@ def watch_declaration_warning(declaration: WatchDeclaration) -> str:
         else " No sensitivity was stated, so the governed threshold for the measure applies."
     )
     return (
-        f"named_cut_applied: read {declaration.matched_phrase!r} as a watch declaration and "
+        f"named_cut_applied: read {declaration.matched_phrase!r} as a monitor declaration and "
         f"investigated the rest of the sentence — {declaration.subject!r} — as an ordinary "
-        f"question, so this watch is defined by a spec that was planned, validated and "
+        f"question, so this monitor is defined by a spec that was planned, validated and "
         f"answered rather than by the phrasing.{threshold}"
     )
 
@@ -443,20 +443,20 @@ class ApiService:
 
     def __init__(self, components: ApiComponents) -> None:
         self._components = components
-        # Rounds is handed THIS service's portfolio builder rather than
+        # Monitors is handed THIS service's portfolio builder rather than
         # building its own: a brief's "new lead" and the rail's card have to
         # be the same object from the same build, which is the rule the
         # conversational worklist already follows.
-        self._rounds = RoundsService(components, portfolio_for=self._portfolio_for)
+        self._monitors = MonitorsService(components, portfolio_for=self._portfolio_for)
 
     @property
     def components(self) -> ApiComponents:
         return self._components
 
     @property
-    def rounds(self) -> RoundsService:
-        """The Rounds surface: watches, per-load evaluation, brief, leads."""
-        return self._rounds
+    def monitors(self) -> MonitorsService:
+        """The Monitors surface: monitors, per-load evaluation, brief, leads."""
+        return self._monitors
 
     # ------------------------------------------------------------ authorization
 
@@ -585,17 +585,17 @@ class ApiService:
         # this platform printed, becomes the card's own stored drill —
         # before anything is classified or interpreted (round-3 R3-09).
         request, worklist_reference = await self._resolve_worklist_turn(session_id, request)
-        # "Watch X" is an INSTRUCTION about the question that follows it, so
+        # "Monitor X" is an INSTRUCTION about the question that follows it, so
         # the lead-in is stripped here and the remainder runs as an ordinary
         # turn: same classification, same interpretation, same §6.6 pass.
-        # The watch is registered from the answer, not from the words.
-        request, declaration = _resolve_watch_turn(request)
+        # The monitor is registered from the answer, not from the words.
+        request, declaration = _resolve_monitor_turn(request)
         if declaration is None and request.clarification_response:
-            # A watch this session declared, whose question is being
+            # A monitor this session declared, whose question is being
             # answered right now. Picked up here — before the turn runs —
             # so the resolved answer registers it through exactly the same
             # path a declaration that never clarified goes through.
-            declaration = await self._pending_watch_declaration(session_id)
+            declaration = await self._pending_monitor_declaration(session_id)
         default_question = (
             "(typed investigation)" if request.spec is not None else "(typed gesture)"
         )
@@ -661,7 +661,7 @@ class ApiService:
                     outcome, worklist_reference_warning(worklist_reference)
                 )
             if declaration is not None:
-                outcome = _with_warning(outcome, watch_declaration_warning(declaration))
+                outcome = _with_warning(outcome, monitor_declaration_warning(declaration))
             outcome, strip = await self._anomaly_reconciliation(request, outcome)
             # Read once here and handed to the assembler: the worklist
             # routing reads the plan context off it and the assembler needs
@@ -704,18 +704,18 @@ class ApiService:
                 except Exception:  # pragma: no cover - defensive
                     logger.warning("worklist context not recorded", exc_info=True)
             if declaration is not None and isinstance(response, TurnAnswer):
-                # The watch is registered from the ANSWER: the spec that was
+                # The monitor is registered from the ANSWER: the spec that was
                 # just planned, validated and measured, with the measured
-                # value as its baseline. A watch registered from a spec
+                # value as its baseline. A monitor registered from a spec
                 # nobody confirmed would brief the wrong number every
                 # morning, silently, forever.
-                response = await self._register_declared_watch(
+                response = await self._register_declared_monitor(
                     principal, declaration, outcome, response
                 )
             elif declaration is not None and isinstance(response, TurnClarification):
                 # The declaration outlives the question it triggered, and
                 # the question says so while it is on screen (round-7 FN-5).
-                response = await self._defer_declared_watch(
+                response = await self._defer_declared_monitor(
                     declaration, outcome, response
                 )
             if isinstance(response, TurnAnswer):
@@ -767,26 +767,26 @@ class ApiService:
             )
         return response
 
-    async def _register_declared_watch(
+    async def _register_declared_monitor(
         self,
         principal: Principal,
-        declaration: WatchDeclaration,
+        declaration: MonitorDeclaration,
         outcome: TurnOutcome,
         response: TurnAnswer,
     ) -> TurnAnswer:
-        """Register the watch this turn declared, and confirm it on the answer.
+        """Register the monitor this turn declared, and confirm it on the answer.
 
-        Best-effort by design: a Rounds store hiccup must not cost the
+        Best-effort by design: a Monitors store hiccup must not cost the
         analyst the answer they were shown. When registration fails the
-        answer stands and says the watch was NOT created, because a
+        answer stands and says the monitor was NOT created, because a
         declaration that silently registered nothing is the worst outcome
-        available — the analyst walks away believing they are being watched.
+        available — the analyst walks away believing they are being monitored.
         """
-        # What the analyst SAID, carried through as said. The watch's title
+        # What the analyst SAID, carried through as said. The monitor's title
         # is composed from the RESOLVED spec inside register_intent_pin
-        # (round-8 FIX-10) — this used to be the label itself, so "watch
+        # (round-8 FIX-10) — this used to be the label itself, so "monitor
         # Silverline Health" kept a payer name the platform had already
-        # resolved to a different one, and "watch this" produced a tile whose
+        # resolved to a different one, and "monitor this" produced a tile whose
         # entire title was the pronoun.
         units = self._units_for_answer(outcome)
         if declaration.threshold_unreadable:
@@ -796,18 +796,18 @@ class ApiService:
             # confirmation sentence did not mention the instruction — so
             # "three points" would have briefed at 0.5, forever, silently.
             logger.info(
-                "watch declaration not registered: unreadable threshold %r",
+                "monitor declaration not registered: unreadable threshold %r",
                 declaration.threshold_phrase,
             )
-            return self._watch_refused(
+            return self._monitor_refused(
                 response,
-                WatchRefusedPayload(
+                MonitorRefusedPayload(
                     reason_code="threshold_unreadable",
                     reason=(
                         f"I could not read {declaration.threshold_phrase.strip()!r} as a "
                         "sensitivity, and I will not quietly substitute the governed "
                         "threshold for one you stated — say it again in one of the forms "
-                        "below and the watch is created from this same answer"
+                        "below and the monitor is created from this same answer"
                     ),
                     subject=declaration.subject,
                     threshold_phrase=declaration.threshold_phrase,
@@ -817,18 +817,18 @@ class ApiService:
                 ),
             )
         try:
-            payload = await self._rounds.register_intent_pin(
+            payload = await self._monitors.register_intent_pin(
                 principal,
                 outcome,
                 stated_subject=declaration.subject,
-                watch=declaration.watch,
+                monitor=declaration.monitor,
                 matched_phrase=declaration.matched_phrase,
             )
         except ReviError as exc:
-            logger.warning("watch declaration refused: %s", exc.message)
-            return self._watch_refused(
+            logger.warning("monitor declaration refused: %s", exc.message)
+            return self._monitor_refused(
                 response,
-                WatchRefusedPayload(
+                MonitorRefusedPayload(
                     reason_code="threshold_illegal",
                     reason=exc.message,
                     subject=declaration.subject,
@@ -839,28 +839,28 @@ class ApiService:
         except Exception:  # pragma: no cover - defensive
             # ``not_stored`` is a claim about the STORE, and it has to be
             # true. It was not: the confirmation payload used to be composed
-            # after the pin was written, so a watch the wire could not
+            # after the pin was written, so a monitor the wire could not
             # describe was live in the store while this sentence told the
-            # analyst nothing was watching — and they said it again, which
-            # is how one tenant ended up with two identical days watches.
+            # analyst nothing was monitoring — and they said it again, which
+            # is how one tenant ended up with two identical days monitors.
             # register_intent_pin now composes before it writes, so reaching
             # here means nothing was written (round-8 FIX-3).
-            logger.exception("watch declaration could not be registered")
-            return self._watch_refused(
+            logger.exception("monitor declaration could not be registered")
+            return self._monitor_refused(
                 response,
-                WatchRefusedPayload(
+                MonitorRefusedPayload(
                     reason_code="not_stored",
                     reason=(
-                        "this turn read as a watch declaration and the watch could not be "
+                        "this turn read as a monitor declaration and the monitor could not be "
                         "stored (the attempt is recorded in the API log); nothing was "
-                        "written, so there is no half-created watch to clean up"
+                        "written, so there is no half-created monitor to clean up"
                     ),
                     subject=declaration.subject,
                     threshold_phrase=declaration.threshold_phrase,
                     legal_alternatives=legal_threshold_phrases(units[0] if units else None),
                 ),
             )
-        return response.model_copy(update={"watch": payload})
+        return response.model_copy(update={"monitor": payload})
 
     def _units_for_answer(self, outcome: TurnOutcome) -> list[str | None]:
         """The declared units of the metrics this answer measured."""
@@ -873,8 +873,8 @@ class ApiService:
         return units
 
     @staticmethod
-    def _watch_refused(
-        response: TurnAnswer, refusal: WatchRefusedPayload
+    def _monitor_refused(
+        response: TurnAnswer, refusal: MonitorRefusedPayload
     ) -> TurnAnswer:
         """Publish a refused declaration where the confirmation would have gone.
 
@@ -883,7 +883,7 @@ class ApiService:
         client renders the structured list whenever it is non-empty. So the
         server refused exemplarily, the payload carried the sentence, and
         the screen showed an ordinary answer with no indication that nothing
-        was being watched. Three things now happen together, or none does:
+        was being monitored. Three things now happen together, or none does:
         the payload field, the prose warning, and its classified twin.
         """
         alternatives = (
@@ -894,13 +894,13 @@ class ApiService:
             else ""
         )
         sentence = (
-            f"watch_not_created: this turn read as a watch declaration and NO watch was "
+            f"monitor_not_created: this turn read as a monitor declaration and NO monitor was "
             f"created: {refusal.reason}. The answer above stands on its own; nothing is "
-            f"being watched.{alternatives}"
+            f"being monitored.{alternatives}"
         )
         return response.model_copy(
             update={
-                "watch_refused": refusal,
+                "monitor_refused": refusal,
                 "warnings": [*response.warnings, sentence],
                 "warnings_v2": [
                     *response.warnings_v2,
@@ -909,38 +909,38 @@ class ApiService:
             }
         )
 
-    async def _defer_declared_watch(
+    async def _defer_declared_monitor(
         self,
-        declaration: WatchDeclaration,
+        declaration: MonitorDeclaration,
         outcome: TurnOutcome,
         response: TurnClarification,
     ) -> TurnClarification:
         """Hold a declaration across the clarification it triggered.
 
         Best-effort on the STORE and never on the SPEECH: if the record
-        cannot be written the clarification still says the watch is not
+        cannot be written the clarification still says the monitor is not
         created yet, because the failure mode this closes is silence and a
         silent failure to defer would be the same silence one level down.
         """
-        sentence = WATCH_PENDING_WARNING.format(
+        sentence = MONITOR_PENDING_WARNING.format(
             phrase=declaration.matched_phrase, subject=declaration.subject
         )
         try:
             await self._components.traces.save(
                 TraceRecord(
-                    trace_id=f"{outcome.trace_id}{WATCH_TRACE_SUFFIX}",
+                    trace_id=f"{outcome.trace_id}{MONITOR_TRACE_SUFFIX}",
                     session_id=outcome.session.id,
                     investigation_id=outcome.investigation.id,
                     turn_id=outcome.investigation.turn_id,
                     created_at=datetime.now(UTC),
-                    payload={"watch_declaration": _declaration_payload(declaration)},
+                    payload={"monitor_declaration": _declaration_payload(declaration)},
                 )
             )
         except Exception:  # pragma: no cover - defensive
-            logger.warning("pending watch declaration not recorded", exc_info=True)
+            logger.warning("pending monitor declaration not recorded", exc_info=True)
             sentence = (
-                "watch_pending_clarification: this turn read as a watch declaration and the "
-                "watch was NOT created; the declaration could not be held across this "
+                "monitor_pending_clarification: this turn read as a monitor declaration and the "
+                "monitor was NOT created; the declaration could not be held across this "
                 "question either (the attempt is recorded in the API log), so repeat it once "
                 "you have answered."
             )
@@ -961,9 +961,9 @@ class ApiService:
 
         Round-7 FN-3, restore half. The engine saves the investigation with
         the warnings IT produced; this module then appends the ones only it
-        can know — the named-cut disclosure a watch declaration earns, the
+        can know — the named-cut disclosure a monitor declaration earns, the
         worklist reference it resolved, the refusal that says nothing is
-        being watched. None of those reached the record, so a permalinked or
+        being monitored. None of those reached the record, so a permalinked or
         re-opened turn restored four of six warnings and lost the two whose
         entire purpose is to be readable later. The same drop FN-3 exists to
         kill, one layer down.
@@ -993,7 +993,7 @@ class ApiService:
         added = [w for w in response.warnings if w and w not in stored]
         prose = response.narrative.strip() if response.narrative else ""
         narrative = prose or investigation.narrative
-        if not added and narrative == investigation.narrative and response.watch_refused is None:
+        if not added and narrative == investigation.narrative and response.monitor_refused is None:
             return
         try:
             if added or narrative != investigation.narrative:
@@ -1003,7 +1003,7 @@ class ApiService:
                     ),
                     None,
                 )
-            if response.watch_refused is not None:
+            if response.monitor_refused is not None:
                 await self._components.traces.save(
                     TraceRecord(
                         trace_id=f"{outcome.trace_id}{API_TRACE_SUFFIX}",
@@ -1012,7 +1012,7 @@ class ApiService:
                         turn_id=investigation.turn_id,
                         created_at=datetime.now(UTC),
                         payload={
-                            "watch_refused": response.watch_refused.model_dump(mode="json")
+                            "monitor_refused": response.monitor_refused.model_dump(mode="json")
                         },
                     )
                 )
@@ -1023,13 +1023,13 @@ class ApiService:
                 exc_info=True,
             )
 
-    async def _pending_watch_declaration(self, session_id: str) -> WatchDeclaration | None:
-        """The watch declaration the outstanding clarification interrupted.
+    async def _pending_monitor_declaration(self, session_id: str) -> MonitorDeclaration | None:
+        """The monitor declaration the outstanding clarification interrupted.
 
         Read from the MOST RECENT investigation in the session only. That is
         what makes it self-clearing: once the resolving turn writes its own
         investigation, the record is no longer the newest and cannot be
-        applied twice — a declaration that registered a second watch three
+        applied twice — a declaration that registered a second monitor three
         turns later would be its own defect.
         """
         try:
@@ -1041,7 +1041,7 @@ class ApiService:
             return None
         newest = max(lineage.investigations, key=lambda inv: inv.created_at)
         for record in await self._components.traces.for_investigation(newest.id):
-            raw = record.payload.get("watch_declaration")
+            raw = record.payload.get("monitor_declaration")
             if isinstance(raw, dict):
                 return _declaration_from_payload(raw)
         return None
@@ -1251,9 +1251,9 @@ class ApiService:
             # The refusal, restored as the shape it is. Its prose twin rode
             # back on the investigation's own warnings, which is why the
             # lineage listing needs no second read to stay honest.
-            watch_refused=(
-                WatchRefusedPayload.model_validate(extras["watch_refused"])
-                if isinstance(extras.get("watch_refused"), dict)
+            monitor_refused=(
+                MonitorRefusedPayload.model_validate(extras["monitor_refused"])
+                if isinstance(extras.get("monitor_refused"), dict)
                 else None
             ),
         )
@@ -1425,15 +1425,15 @@ class ApiService:
         # versioned formula decision, and smuggling urgency into an existing
         # version would make two builds of one dataset disagree with no
         # version string to explain it. Lead status is what the humans have
-        # done about each card, read from the Rounds lifecycle store so a
+        # done about each card, read from the Monitors lifecycle store so a
         # card and a brief entry cannot disagree about who is working what.
         portfolio = annotate_time_to_impact(
             portfolio,
             {record.anomaly_id: record for record in records},
             newest_data_date=watermark.newest_data_date,
-            policy=components.rounds_policy,
+            policy=components.monitors_policy,
         )
-        return await self._rounds.decorate_cards(tenant, portfolio)
+        return await self._monitors.decorate_cards(tenant, portfolio)
 
     def _scope_dimensions(self, metric_id: str) -> frozenset[str]:
         """The dimensions the pack's contract for ``metric_id`` may be cut by."""

@@ -105,7 +105,7 @@ packs/base-rcm/                           governed content: 49 metric contracts,
                                           concepts, display names, monitor materiality
 warehouse/                                deterministic generator + catalog + answer key
 apps/api/                                 FastAPI + SSE; assembly.py projects engine output
-                                          to the wire; rounds.py is the Monitors backend
+                                          to the wire; monitors.py is the Monitors backend
 apps/web/                                 Next.js UI; lib/ maps wire → view models
 contracts/openapi.json                    exported API surface (make openapi)
 docs/reviews/adversarial/                 ten rounds of persona review — the "why" behind
@@ -144,8 +144,6 @@ prose shown to users: "data load" (never watermark or `wm_003`), "monitor" /
 "Monitor this", "check" (never probe), metric display names from
 `packs/base-rcm/metric_display.yaml` (never snake_case ids). Internal
 identifiers never appear on default surfaces — Evidence and exports carry them.
-(Naming note: the Monitors surface is `rounds*` in code paths and routes until
-the in-flight rename lands; treat "monitor" as the canonical term.)
 
 ## Things that look like bugs but are features
 

@@ -15,7 +15,7 @@
 // hand-mirrored domain record like the rest of this file. Importing the
 // type here (instead of re-declaring it) is what keeps the event union and
 // the parser from drifting apart.
-import type { WatchDeclaration, WatchRefusal, WorklistData } from "@/lib/contract";
+import type { MonitorDeclaration, MonitorRefusal, WorklistData } from "@/lib/contract";
 
 /* ------------------------------------------------------------------ */
 /* Grades (revi_kernel.grades)                                         */
@@ -212,7 +212,7 @@ export interface ContextHeaderData {
   asOf?: string;
   /**
    * True when this header was rebuilt from a stored investigation rather
-   * than watched as the turn streamed. The chips are the same facts; the
+   * than monitored as the turn streamed. The chips are the same facts; the
    * marker says where they came from, because a restored turn's stage
    * timings and composed prose were never persisted and the reader is
    * entitled to know which surfaces survived.
@@ -1249,22 +1249,22 @@ export interface TurnCompleteEvent {
    */
   worklist?: WorklistData;
   /**
-   * `TurnAnswer.watch` — this turn was a WATCH DECLARATION ("watch
+   * `TurnAnswer.monitor` — this turn was a MONITOR DECLARATION ("monitor
    * Silverline's denial rate"), the platform compiled it, answered it, and
-   * registered the watch. The payload carries the confirmation sentence,
-   * the compiled threshold and the baseline the watch starts from.
+   * registered the monitor. The payload carries the confirmation sentence,
+   * the compiled threshold and the baseline the monitor starts from.
    *
    * Absent on every ordinary turn, which is what makes it safe for a card
    * to render as a state change: a turn carrying this has a real pin
    * server-side.
    */
-  watch?: WatchDeclaration;
+  monitor?: MonitorDeclaration;
   /**
-   * `TurnAnswer.watch_refused` — the same turn class, refused. The watch
-   * was NOT created and nothing is being watched; the answer stands on its
+   * `TurnAnswer.monitor_refused` — the same turn class, refused. The monitor
+   * was NOT created and nothing is being monitored; the answer stands on its
    * own. Rendered where the confirmation would have been.
    */
-  watchRefused?: WatchRefusal;
+  monitorRefused?: MonitorRefusal;
   /** Present only when the settings in force for the turn had debug on. */
   debug?: DebugTrace;
 }

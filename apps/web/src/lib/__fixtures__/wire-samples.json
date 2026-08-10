@@ -2563,7 +2563,7 @@
     "metric_display": [],
     "created_at": "2026-08-09T19:26:40.002402Z"
   },
-  "watch_refused_turn": {
+  "monitor_refused_turn": {
     "outcome": "answer",
     "session_id": "sess_3394a3b4485e",
     "investigation_id": "inv_82f6309a515f",
@@ -2645,8 +2645,8 @@
       "alternate_basis_used: 'denial_rate' is computed on the 'service' basis — its primary 'remit' basis is not available at the 'claim' grain in this warehouse",
       "population_caveat: denial_rate — claims still awaiting their first remittance (status OPEN) are excluded from both sides — an unadjudicated claim carries a false clean flag for want of evidence, not because a payer denied it, so including it would report the data edge as a denial.",
       "adjudication_incomplete: this answer's window (2026-07-01..2026-07-31, service basis) has not finished settling. Across this whole load it holds 1,544 settled record(s) where a window of this length normally holds about 5,878 — 26.3% of it. What HAS settled is not a random sample of what has not: the fastest cases reach a decision first, so a total measured here is understated and a rate measured here is skewed. The count is the one 'clean_claim_rate' declares, and the norm is the median month of this load. Ask again over the last settled period, or on a basis whose events are already recorded, to read this without the caveat.",
-      "named_cut_applied: read 'Watch' as a watch declaration and investigated the rest of the sentence — 'Pinnacle Health Plan denial rate' — as an ordinary question, so this watch is defined by a spec that was planned, validated and answered rather than by the phrasing. Sensitivity read from 'and alert me if it moves more than $5,000.'.",
-      "watch_not_created: this turn read as a watch declaration and NO watch was created: this watch's threshold cannot be applied honestly: a threshold in 'cents' is only honest for a 'money_cents' contract, and this watch measures 'ratio'. Cents describe money; for a rate state the threshold in points, or as relative_pct.. The answer above stands on its own; nothing is being watched. Phrasings that work here: 'more than 2 points'; 'more than half a point'; 'when it crosses 15%'; 'on any movement'."
+      "named_cut_applied: read 'Monitor' as a monitor declaration and investigated the rest of the sentence — 'Pinnacle Health Plan denial rate' — as an ordinary question, so this monitor is defined by a spec that was planned, validated and answered rather than by the phrasing. Sensitivity read from 'and alert me if it moves more than $5,000.'.",
+      "monitor_not_created: this turn read as a monitor declaration and NO monitor was created: this monitor's threshold cannot be applied honestly: a threshold in 'cents' is only honest for a 'money_cents' contract, and this monitor measures 'ratio'. Cents describe money; for a rate state the threshold in points, or as relative_pct.. The answer above stands on its own; nothing is being monitored. Phrasings that work here: 'more than 2 points'; 'more than half a point'; 'when it crosses 15%'; 'on any movement'."
     ],
     "warnings_v2": [
       {
@@ -2676,20 +2676,20 @@
       {
         "code": "NAMED_CUT_APPLIED",
         "severity": "info",
-        "message": "named_cut_applied: read 'Watch' as a watch declaration and investigated the rest of the sentence — 'Pinnacle Health Plan denial rate' — as an ordinary question, so this watch is defined by a spec that was planned, validated and answered rather than by the phrasing. Sensitivity read from 'and alert me if it moves more than $5,000.'.",
+        "message": "named_cut_applied: read 'Monitor' as a monitor declaration and investigated the rest of the sentence — 'Pinnacle Health Plan denial rate' — as an ordinary question, so this monitor is defined by a spec that was planned, validated and answered rather than by the phrasing. Sensitivity read from 'and alert me if it moves more than $5,000.'.",
         "count": 1
       },
       {
-        "code": "WATCH_NOT_CREATED",
+        "code": "MONITOR_NOT_CREATED",
         "severity": "caution",
-        "message": "watch_not_created: this turn read as a watch declaration and NO watch was created: this watch's threshold cannot be applied honestly: a threshold in 'cents' is only honest for a 'money_cents' contract, and this watch measures 'ratio'. Cents describe money; for a rate state the threshold in points, or as relative_pct.. The answer above stands on its own; nothing is being watched. Phrasings that work here: 'more than 2 points'; 'more than half a point'; 'when it crosses 15%'; 'on any movement'.",
+        "message": "monitor_not_created: this turn read as a monitor declaration and NO monitor was created: this monitor's threshold cannot be applied honestly: a threshold in 'cents' is only honest for a 'money_cents' contract, and this monitor measures 'ratio'. Cents describe money; for a rate state the threshold in points, or as relative_pct.. The answer above stands on its own; nothing is being monitored. Phrasings that work here: 'more than 2 points'; 'more than half a point'; 'when it crosses 15%'; 'on any movement'.",
         "count": 1
       }
     ],
-    "watch": null,
-    "watch_refused": {
+    "monitor": null,
+    "monitor_refused": {
       "reason_code": "threshold_illegal",
-      "reason": "this watch's threshold cannot be applied honestly: a threshold in 'cents' is only honest for a 'money_cents' contract, and this watch measures 'ratio'. Cents describe money; for a rate state the threshold in points, or as relative_pct.",
+      "reason": "this monitor's threshold cannot be applied honestly: a threshold in 'cents' is only honest for a 'money_cents' contract, and this monitor measures 'ratio'. Cents describe money; for a rate state the threshold in points, or as relative_pct.",
       "subject": "Pinnacle Health Plan denial rate",
       "threshold_phrase": "and alert me if it moves more than $5,000.",
       "legal_alternatives": [

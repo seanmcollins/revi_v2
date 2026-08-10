@@ -87,9 +87,9 @@ export type ParseResult<T> = { ok: true; value: T } | { ok: false; missing: stri
 export type UnknownRecord = Record<string, unknown>;
 
 /**
- * The four wire-reading primitives, exported for `lib/rounds.ts`.
+ * The four wire-reading primitives, exported for `lib/monitors.ts`.
  *
- * Rounds parses its own payloads in its own module — the Rounds shapes are
+ * Monitors parses its own payloads in its own module — the Monitors shapes are
  * a surface of their own and this file is already four thousand lines —
  * but it reads them with THESE functions rather than four near-identical
  * ones beside them. A second `asNumber` that treated `NaN` differently is
@@ -3084,24 +3084,24 @@ export type TurnResponseData =
        */
       worklist?: WorklistData;
       /**
-       * `TurnAnswer.watch` — this turn was a WATCH DECLARATION ("watch
+       * `TurnAnswer.monitor` — this turn was a MONITOR DECLARATION ("monitor
        * Silverline's denial rate"), and the answer below it is also the
-       * baseline the watch starts from.
+       * baseline the monitor starts from.
        *
        * Present on ordinary turns never, which is what makes it safe to
        * render as a state change: a card carrying this has registered a
        * real pin server-side, and the confirmation sentence beside it is
        * the server's, composed from the same answer.
        */
-      watch?: WatchDeclaration;
+      monitor?: MonitorDeclaration;
       /**
-       * `TurnAnswer.watch_refused` — this turn read as a watch declaration
-       * and NO WATCH EXISTS. The mirror of `watch`, and the half a reader
+       * `TurnAnswer.monitor_refused` — this turn read as a monitor declaration
+       * and NO MONITOR EXISTS. The mirror of `monitor`, and the half a reader
        * cannot afford to miss: without it the screen shows an ordinary
        * answer and the analyst walks away believing they are being
-       * watched.
+       * monitored.
        */
-      watchRefused?: WatchRefusal;
+      monitorRefused?: MonitorRefusal;
       /** Published only when the settings in force had debug on. */
       debug?: DebugTrace;
     }
@@ -3178,7 +3178,7 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
     // A CLARIFICATION CARRIES WARNINGS TOO, now that the server publishes
     // them. It used to be the one outcome with no channel for a fact about
     // the turn — and the fact that fell through the gap was "I read this as
-    // a watch, and I am holding it while I ask you this question". Read
+    // a monitor, and I am holding it while I ask you this question". Read
     // with the same reader as an answer's, so one classified list means one
     // thing everywhere.
     const clarificationWarnings = readTurnWarnings(
@@ -3298,23 +3298,23 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
       ...(anomalyReconciliation !== undefined ? { anomalyReconciliation } : {}),
       ...(metricDisplay.length > 0 ? { metricDisplay } : {}),
       ...(worklist !== undefined ? { worklist } : {}),
-      // A watch declaration answered. Read here rather than in a Rounds
+      // A monitor declaration answered. Read here rather than in a Monitors
       // component because the pin already exists by the time this frame
       // arrives: the turn registered it, and the card is reporting a
       // change that has happened, not offering to make one.
-      ...(mapWatchDeclaration(raw.watch) !== undefined
-        ? { watch: mapWatchDeclaration(raw.watch) }
+      ...(mapMonitorDeclaration(raw.monitor) !== undefined
+        ? { monitor: mapMonitorDeclaration(raw.monitor) }
         : {}),
       // AND THE REFUSAL, which is the half that was landing nowhere. The
       // server appends it to `warnings` after `warnings_v2` has been
       // built, so `readTurnWarnings` — which prefers the structured list
       // whenever it is non-empty — dropped the one sentence that says
-      // nothing is being watched. Read from the first-class field when it
+      // nothing is being monitored. Read from the first-class field when it
       // is published and from the classified warning otherwise.
-      ...(readWatchRefusal(mapWatchRefusal(raw.watch_refused), turnWarnings) !== undefined
+      ...(readMonitorRefusal(mapMonitorRefusal(raw.monitor_refused), turnWarnings) !== undefined
         ? {
-            watchRefused: readWatchRefusal(
-              mapWatchRefusal(raw.watch_refused),
+            monitorRefused: readMonitorRefusal(
+              mapMonitorRefusal(raw.monitor_refused),
               turnWarnings,
             ),
           }
@@ -3546,18 +3546,18 @@ export function parseInvestigationResponse(
       // fallback exists for, since investigations stored before
       // `warnings_v2` shipped carry only sentences.
       warnings: restoredTurnWarnings,
-      // A REFUSED WATCH SURVIVES THE PERMALINK, the day the store keeps
+      // A REFUSED MONITOR SURVIVES THE PERMALINK, the day the store keeps
       // it. Read defensively from both halves for the same reason the live
-      // path does: a turn that read as a watch declaration and registered
+      // path does: a turn that read as a monitor declaration and registered
       // nothing is a fact about the world, and a permalink that quietly
       // drops it is the same defect the live path just closed, one route
       // over. (Live today: `GET /v1/investigations/{iid}` publishes
-      // neither `watch_refused` nor the `WATCH_NOT_CREATED` warning, so
+      // neither `monitor_refused` nor the `MONITOR_NOT_CREATED` warning, so
       // this renders nothing — and starts rendering the moment it does.)
-      ...(readWatchRefusal(mapWatchRefusal(raw.watch_refused), restoredTurnWarnings) !== undefined
+      ...(readMonitorRefusal(mapMonitorRefusal(raw.monitor_refused), restoredTurnWarnings) !== undefined
         ? {
-            watchRefused: readWatchRefusal(
-              mapWatchRefusal(raw.watch_refused),
+            monitorRefused: readMonitorRefusal(
+              mapMonitorRefusal(raw.monitor_refused),
               restoredTurnWarnings,
             ),
           }
@@ -3847,14 +3847,14 @@ export function turnResponseToEvents(
     // it is only whole once the turn is, and the server publishes no
     // `worklist` SSE frame.
     ...(response.worklist ? { worklist: response.worklist } : {}),
-    // The watch this turn registered, on the terminal frame with the rest:
+    // The monitor this turn registered, on the terminal frame with the rest:
     // the declaration's baseline IS the answer, so it is not settled until
     // the answer is.
-    ...(response.watch ? { watch: response.watch } : {}),
+    ...(response.monitor ? { monitor: response.monitor } : {}),
     // And the refusal, on the same frame and for the same reason. A
     // declaration that registered nothing is a state change the reader
     // must be told about, so it travels wherever the confirmation does.
-    ...(response.watchRefused ? { watchRefused: response.watchRefused } : {}),
+    ...(response.monitorRefused ? { monitorRefused: response.monitorRefused } : {}),
     ...(response.debug ? { debug: response.debug } : {}),
   });
   return events;
@@ -4213,7 +4213,7 @@ export function mapWorklist(raw: unknown, drift: string[] = []): WorklistData | 
 }
 
 /* ------------------------------------------------------------------ */
-/* Rounds shapes that ride on TurnAnswer and AnomalyCard                */
+/* Monitors shapes that ride on TurnAnswer and AnomalyCard                */
 /* ------------------------------------------------------------------ */
 
 /**
@@ -4326,18 +4326,18 @@ export function mapTimeToImpact(raw: unknown): TimeToImpact | undefined {
 }
 
 /* ------------------------------------------------------------------ */
-/* The watch shapes that ride on TurnAnswer                             */
+/* The monitor shapes that ride on TurnAnswer                             */
 /* ------------------------------------------------------------------ */
 
 /**
- * `RoundsWatchMode` — how a watch decides a movement deserves a brief
+ * `MonitorMode` — how a monitor decides a movement deserves a brief
  * entry. `crosses` is the odd one out: its reference is a LEVEL, not a
  * prior value.
  */
-export type WatchMode = "governed_default" | "any_movement" | "delta_gte" | "crosses";
+export type MonitorMode = "governed_default" | "any_movement" | "delta_gte" | "crosses";
 
 /**
- * `RoundsWatchUnit` — how a threshold is STATED, which is not the metric's
+ * `MonitorUnit` — how a threshold is STATED, which is not the metric's
  * own unit. `points` for a rate (0.5 = half a percentage point), `cents`
  * for money, `days` for a lag, `relative_pct` for a fraction of the
  * reference value.
@@ -4348,50 +4348,50 @@ export type WatchMode = "governed_default" | "any_movement" | "delta_gte" | "cro
  * sentence that teaches with a control that quietly cannot be wrong.
  *
  * `days` was the third copy of this enum to learn it. The engine
- * (`WATCH_THRESHOLD_UNITS`) and the wire (`RoundsWatchUnit`) were pinned
- * equal in CI after round 8; this file was not, so a stored days watch
+ * (`MONITOR_THRESHOLD_UNITS`) and the wire (`MonitorUnit`) were pinned
+ * equal in CI after round 8; this file was not, so a stored days monitor
  * reached a settings control that could not name its unit — the editor
  * rendered a 2-days threshold as "2 percentage points" and Save submitted
  * `points`, which the server correctly refused, leaving the VC's signed
- * condition-precedent watch uneditable. {@link WATCH_UNITS} is now pinned
- * against the API's own list in `contract-watch-units.test.ts`.
+ * condition-precedent monitor uneditable. {@link MONITOR_UNITS} is now pinned
+ * against the API's own list in `contract-monitor-units.test.ts`.
  */
-export type WatchUnit = "points" | "relative_pct" | "cents" | "days";
+export type MonitorUnit = "points" | "relative_pct" | "cents" | "days";
 
-/** `RoundsWatchModel` — one watch's own sensitivity, overriding the pack. */
-export interface WatchModel {
-  mode: WatchMode;
+/** `MonitorModel` — one monitor's own sensitivity, overriding the pack. */
+export interface MonitorModel {
+  mode: MonitorMode;
   /** Required for `delta_gte` and `crosses`; refused for the other two. */
   value?: number;
-  unit?: WatchUnit;
+  unit?: MonitorUnit;
   direction: "any" | "up" | "down";
-  /** Why this watch is set the way it is, in the analyst's own words. */
+  /** Why this monitor is set the way it is, in the analyst's own words. */
   note: string;
 }
 
-const WATCH_MODES: ReadonlySet<string> = new Set<WatchMode>([
+const MONITOR_MODES: ReadonlySet<string> = new Set<MonitorMode>([
   "governed_default",
   "any_movement",
   "delta_gte",
   "crosses",
 ]);
 /** Exported so CI can assert it IS the API's enum, rather than resembling it. */
-export const WATCH_UNITS: ReadonlySet<string> = new Set<WatchUnit>([
+export const MONITOR_UNITS: ReadonlySet<string> = new Set<MonitorUnit>([
   "points",
   "relative_pct",
   "cents",
   "days",
 ]);
 
-export function mapWatchModel(raw: unknown): WatchModel | undefined {
+export function mapMonitorModel(raw: unknown): MonitorModel | undefined {
   if (!isRecord(raw)) return undefined;
   const mode =
-    typeof raw.mode === "string" && WATCH_MODES.has(raw.mode as WatchMode)
-      ? (raw.mode as WatchMode)
+    typeof raw.mode === "string" && MONITOR_MODES.has(raw.mode as MonitorMode)
+      ? (raw.mode as MonitorMode)
       : "governed_default";
   const unit =
-    typeof raw.unit === "string" && WATCH_UNITS.has(raw.unit as WatchUnit)
-      ? (raw.unit as WatchUnit)
+    typeof raw.unit === "string" && MONITOR_UNITS.has(raw.unit as MonitorUnit)
+      ? (raw.unit as MonitorUnit)
       : undefined;
   return {
     mode,
@@ -4402,34 +4402,34 @@ export function mapWatchModel(raw: unknown): WatchModel | undefined {
   };
 }
 
-/** The watch as a request body — the inverse of `mapWatchModel`. */
-export function watchToWire(watch: WatchModel): UnknownRecord {
+/** The monitor as a request body — the inverse of `mapMonitorModel`. */
+export function monitorToWire(monitor: MonitorModel): UnknownRecord {
   return {
-    mode: watch.mode,
-    ...(watch.value !== undefined ? { value: watch.value } : {}),
-    ...(watch.unit !== undefined ? { unit: watch.unit } : {}),
-    direction: watch.direction,
-    ...(watch.note !== "" ? { note: watch.note } : {}),
+    mode: monitor.mode,
+    ...(monitor.value !== undefined ? { value: monitor.value } : {}),
+    ...(monitor.unit !== undefined ? { unit: monitor.unit } : {}),
+    direction: monitor.direction,
+    ...(monitor.note !== "" ? { note: monitor.note } : {}),
   };
 }
 
 /**
- * `WatchDeclarationPayload` — the one-time confirmation a "watch X" turn
+ * `MonitorDeclarationPayload` — the one-time confirmation a "monitor X" turn
  * answers with.
  *
- * A watch declaration is not a question and it is not a silent
+ * A monitor declaration is not a question and it is not a silent
  * registration: it is an ordinary turn whose answer doubles as the
- * BASELINE, so the analyst can see they are watching the right cell before
+ * BASELINE, so the analyst can see they are monitoring the right cell before
  * they walk away from it. Every figure in `statement` is a fact from the
  * answer beside it, which is why the sentence is rendered and never
  * recomposed — a confirmation written client-side would put a number on
  * screen that the turn did not measure.
  */
-export interface WatchDeclaration {
+export interface MonitorDeclaration {
   pinId: string;
   label: string;
   statement: string;
-  watch: WatchModel;
+  monitor: MonitorModel;
   /** The gate in words: "more than half a point", "any movement at all". */
   thresholdStatement: string;
   baselineValueText: string;
@@ -4439,7 +4439,7 @@ export interface WatchDeclaration {
 }
 
 /**
- * `WATCH_NOT_CREATED` — the code a refused watch declaration travels under.
+ * `MONITOR_NOT_CREATED` — the code a refused monitor declaration travels under.
  *
  * A refusal is NOT a `population_caveat` (which is how it first reached the
  * wire), and it is not a note about how to read a number: it is a state
@@ -4448,13 +4448,13 @@ export interface WatchDeclaration {
  * it out of the warning list and draw it where the confirmation would have
  * gone.
  */
-export const WATCH_NOT_CREATED = "WATCH_NOT_CREATED";
+export const MONITOR_NOT_CREATED = "MONITOR_NOT_CREATED";
 
 /**
- * `TurnAnswer.watch_refused` — the turn read as a watch declaration and NO
- * WATCH EXISTS.
+ * `TurnAnswer.monitor_refused` — the turn read as a monitor declaration and NO
+ * MONITOR EXISTS.
  *
- * The mirror of `WatchDeclaration`, and the more important half. The
+ * The mirror of `MonitorDeclaration`, and the more important half. The
  * confirmation is a nicety; this is the one warning on the answer that
  * changes what the analyst will do tomorrow morning, and it was reaching
  * the screen as nothing at all — appended to `warnings` after
@@ -4462,17 +4462,17 @@ export const WATCH_NOT_CREATED = "WATCH_NOT_CREATED";
  * structured list whenever it is non-empty.
  *
  * Read from EITHER shape, because the two halves of this fix ship
- * independently: a first-class `watch_refused` object if the server
- * publishes one, and otherwise the `WATCH_NOT_CREATED` warning lifted out
+ * independently: a first-class `monitor_refused` object if the server
+ * publishes one, and otherwise the `MONITOR_NOT_CREATED` warning lifted out
  * of the classified list. Both carry the server's own sentence; neither is
  * composed here.
  */
-export interface WatchRefusal {
+export interface MonitorRefusal {
   /**
    * `threshold_illegal` (a legal grammar, an illegal unit for this
    * metric's contract), `threshold_unreadable` (a sensitivity clause the
    * grammar cannot read — never silently replaced by the governed
-   * default), `not_stored` (the Rounds store refused it). Absent on a
+   * default), `not_stored` (the Monitors store refused it). Absent on a
    * refusal read out of the classified warning, which carries no code of
    * its own.
    */
@@ -4493,7 +4493,7 @@ const REFUSAL_REASONS: ReadonlySet<string> = new Set([
   "not_stored",
 ]);
 
-export function mapWatchRefusal(raw: unknown): WatchRefusal | undefined {
+export function mapMonitorRefusal(raw: unknown): MonitorRefusal | undefined {
   if (!isRecord(raw)) return undefined;
   // Three spellings of the sentence. `reason` is the published field; the
   // other two are read because this half of the contract and the client
@@ -4507,7 +4507,7 @@ export function mapWatchRefusal(raw: unknown): WatchRefusal | undefined {
   const subject = asString(raw.subject) || asString(raw.label);
   return {
     ...(typeof raw.reason_code === "string" && REFUSAL_REASONS.has(raw.reason_code)
-      ? { reasonCode: raw.reason_code as WatchRefusal["reasonCode"] }
+      ? { reasonCode: raw.reason_code as MonitorRefusal["reasonCode"] }
       : {}),
     reason,
     legalAlternatives: alternatives,
@@ -4526,17 +4526,17 @@ export function mapWatchRefusal(raw: unknown): WatchRefusal | undefined {
  * that list is the pre-classification fallback, and a client matching
  * sentences would start rendering a state change off a phrase.
  */
-export function readWatchRefusal(
-  payloadRefusal: WatchRefusal | undefined,
+export function readMonitorRefusal(
+  payloadRefusal: MonitorRefusal | undefined,
   warnings: readonly Omit<WarningEvent, "type">[],
-): WatchRefusal | undefined {
+): MonitorRefusal | undefined {
   if (payloadRefusal) return payloadRefusal;
-  const classified = warnings.find((w) => w.code === WATCH_NOT_CREATED);
+  const classified = warnings.find((w) => w.code === MONITOR_NOT_CREATED);
   if (!classified) return undefined;
   return { reason: classified.message, legalAlternatives: [] };
 }
 
-export function mapWatchDeclaration(raw: unknown): WatchDeclaration | undefined {
+export function mapMonitorDeclaration(raw: unknown): MonitorDeclaration | undefined {
   if (!isRecord(raw)) return undefined;
   const pinId = asString(raw.pin_id);
   const statement = asString(raw.statement);
@@ -4549,7 +4549,7 @@ export function mapWatchDeclaration(raw: unknown): WatchDeclaration | undefined 
     pinId,
     label: asString(raw.label),
     statement,
-    watch: mapWatchModel(raw.watch) ?? { mode: "governed_default", direction: "any", note: "" },
+    monitor: mapMonitorModel(raw.monitor) ?? { mode: "governed_default", direction: "any", note: "" },
     thresholdStatement: asString(raw.threshold_statement),
     baselineValueText: asString(raw.baseline_value_text),
     baselineWatermarkId: asString(raw.baseline_watermark_id),
@@ -4842,7 +4842,7 @@ function mapAnomalyCard(
         ? { drill: record.drill as unknown as PortfolioItem["drill"] }
         : {}),
 
-      // Rounds. Both are additive and both default to the behaviour a
+      // Monitors. Both are additive and both default to the behaviour a
       // client had before they existed: no status shown on an untouched
       // lead, no timing lane on a deployment that ships no governed
       // time-to-impact content.

@@ -398,9 +398,9 @@ class AnomalySource(Protocol):
     async def list_anomalies(self, watermark: DataWatermark) -> tuple[AnomalyRecord, ...]: ...
 
 
-# --- Rounds: the proactive surface ------------------------------------------
+# --- Monitors: the proactive surface ------------------------------------------
 #
-# A pin is a WATCH, never a snapshot: what persists is the TYPED SPEC, and
+# A pin is a MONITOR, never a snapshot: what persists is the TYPED SPEC, and
 # every load re-runs it at the new watermark through the ordinary typed
 # pipeline. The four ports below are the application state that makes that
 # possible — the pins themselves, one evaluated result per (pin, load) so a
@@ -413,19 +413,19 @@ class AnomalySource(Protocol):
 # investigation capability, and both the API and the Postgres adapters need
 # one declaration of their semantics rather than two.
 #
-# AUTH DEBT (v1, deliberate): every Rounds record is TENANT-scoped, not
-# user-scoped. Two analysts in one tenant share one set of Rounds. The
+# AUTH DEBT (v1, deliberate): every Monitors record is TENANT-scoped, not
+# user-scoped. Two analysts in one tenant share one set of Monitors. The
 # design intends per-user pins; the credential this deployment issues
 # carries a tenant and a subject, and nothing downstream of the token
 # consumes the subject yet. Per-user scoping is therefore a column and a
 # filter away — it is recorded here rather than implied by silence.
 
 
-#: How a watch decides that a movement deserves a brief entry.
-WATCH_MODES: tuple[str, ...] = ("governed_default", "any_movement", "delta_gte", "crosses")
+#: How a monitor decides that a movement deserves a brief entry.
+MONITOR_MODES: tuple[str, ...] = ("governed_default", "any_movement", "delta_gte", "crosses")
 
 #: The units a threshold may be STATED in. A rate threshold in dollars and
-#: a money threshold in points are both nonsense; see :class:`RoundsWatch`.
+#: a money threshold in points are both nonsense; see :class:`Monitor`.
 #:
 #: ``days`` is here because a lag metric is the one contract whose unit is
 #: also the natural way a human states a threshold for it — "tell me if
@@ -433,20 +433,20 @@ WATCH_MODES: tuple[str, ...] = ("governed_default", "any_movement", "delta_gte",
 #: ``days`` contract, refused by name everywhere else, for the same reason
 #: ``cents`` is refused over a rate: "2 days" on a denial rate has no
 #: meaning, and coercing it into the metric's own unit would produce a
-#: watch that fires for a reason nobody can see.
-WATCH_THRESHOLD_UNITS: tuple[str, ...] = ("points", "relative_pct", "cents", "days")
+#: monitor that fires for a reason nobody can see.
+MONITOR_THRESHOLD_UNITS: tuple[str, ...] = ("points", "relative_pct", "cents", "days")
 
 
 @dataclass(frozen=True, slots=True)
-class RoundsWatch:
-    """The analyst's own sensitivity for one watch, overriding the pack's.
+class Monitor:
+    """The analyst's own sensitivity for one monitor, overriding the pack's.
 
-    ``mode`` is one of :data:`WATCH_MODES`:
+    ``mode`` is one of :data:`MONITOR_MODES`:
 
     * ``governed_default`` — the pack's threshold for the metric's unit
-      kind. What every watch gets unless somebody says otherwise;
+      kind. What every monitor gets unless somebody says otherwise;
     * ``any_movement`` — brief me on any change at all. Deliberately
-      available: a director watching one payer's denial rate may genuinely
+      available: a director monitoring one payer's denial rate may genuinely
       want every wobble, and refusing that would push them back to a
       spreadsheet. It is also the setting most likely to produce fatigue,
       which is why the brief counts what it produced and says so once;
@@ -461,29 +461,29 @@ class RoundsWatch:
     money, ``days`` for a lag metric, ``relative_pct`` for a fraction of the
     reference value (legal for
     any metric). Validated against the pinned spec's own contracts when the
-    watch is created — a dishonest pairing is refused with the reason, never
+    monitor is created — a dishonest pairing is refused with the reason, never
     coerced into the nearest legal one, because a threshold in the wrong
-    unit produces a watch that never fires (or always does) for a reason
+    unit produces a monitor that never fires (or always does) for a reason
     nobody can see on the screen.
 
     An analyst's threshold may LOOSEN the governed gate as well as tighten
     it. That is a deliberate reversal of the safer-looking rule: somebody
-    watching one specific cell has knowledge the pack's blanket threshold
+    monitoring one specific cell has knowledge the pack's blanket threshold
     does not. It is paid for rather than refused — every brief entry says
-    which threshold briefed it, and a watch whose own threshold keeps firing
+    which threshold briefed it, and a monitor whose own threshold keeps firing
     on movements the governed gate calls normal is counted and named once
-    (see ``fatigue`` in ``packs/base-rcm/rounds.yaml``).
+    (see ``fatigue`` in ``packs/base-rcm/monitors.yaml``).
 
     BASELINE SEMANTICS (stated here because it is the thing a reader of a
-    delta most needs to know): a watch's reference point is its
+    delta most needs to know): a monitor's reference point is its
     CREATION-LOAD value — what the metric read the moment somebody started
-    watching — for every mode except ``crosses``, whose reference is the
+    monitoring — for every mode except ``crosses``, whose reference is the
     crossing level itself. The brief always states the movement since the
     PRIOR load, and additionally states the movement since the baseline
     whenever the two differ materially: a tile that has drifted four points
     since it was pinned while moving 0.2 points overnight is telling two
     different true stories, and a surface showing only the overnight one
-    would hide the reason the watch exists.
+    would hide the reason the monitor exists.
     """
 
     mode: str = "governed_default"
@@ -494,11 +494,11 @@ class RoundsWatch:
 
 
 @dataclass(frozen=True, slots=True)
-class RoundsPin:
-    """One watch: a typed spec, how to render it, and how sensitive it is.
+class MonitorsPin:
+    """One monitor: a typed spec, how to render it, and how sensitive it is.
 
-    A pin created from an artifact ("add this chart to Rounds") and a watch
-    created by intent ("watch Silverline's denial rate") are the SAME row
+    A pin created from an artifact ("add this chart to Monitors") and a monitor
+    created by intent ("monitor Silverline's denial rate") are the SAME row
     with different :attr:`created_from_kind` provenance. One store, one
     model, one evaluation path — because they are the same object: a typed
     spec somebody wants re-run every load.
@@ -529,44 +529,44 @@ class RoundsPin:
     presentation: str  # chart | finding | worklist_slice | scalar
     window_mode: str  # relative | absolute | anchored
     created_at: datetime
-    #: How this watch came to exist: ``artifact`` (pinned from something on
-    #: screen), ``intent`` ("watch X", compiled through interpretation), or
+    #: How this monitor came to exist: ``artifact`` (pinned from something on
+    #: screen), ``intent`` ("monitor X", compiled through interpretation), or
     #: ``spec`` (a caller that already held a typed spec). Provenance, not
     #: behaviour — all three evaluate identically.
     created_from_kind: str = "spec"
     created_from_investigation_id: str | None = None
     created_from_referent: str | None = None
-    watch: RoundsWatch | None = None
+    monitor: Monitor | None = None
     archived_at: datetime | None = None
     #: The token subject that created it — recorded, never enforced (see
     #: the AUTH DEBT note above).
     created_by: str = ""
-    #: The BASELINE: what this watch read at the load it was created on,
+    #: The BASELINE: what this monitor read at the load it was created on,
     #: captured once at first evaluation and never rewritten.
     #:
     #: Stored on the pin rather than derived from the oldest stored result
-    #: because the baseline is a fact about the WATCH ("this is where you
-    #: started watching from") and must survive result history being
-    #: trimmed. ``None`` until the first load evaluates it — a watch created
+    #: because the baseline is a fact about the MONITOR ("this is where you
+    #: started monitoring from") and must survive result history being
+    #: trimmed. ``None`` until the first load evaluates it — a monitor created
     #: between loads has no baseline yet, and inventing one from the
     #: previous load's value would attribute a movement to a period nobody
-    #: was watching.
+    #: was monitoring.
     baseline_watermark_id: str | None = None
     baseline_value: Decimal | None = None
     baseline_unit: str | None = None
     baseline_captured_at: datetime | None = None
 
 
-class RoundsPinStore(Protocol):
+class MonitorsPinStore(Protocol):
     """Pinned specs, tenant-scoped."""
 
-    async def save(self, pin: RoundsPin) -> None: ...
+    async def save(self, pin: MonitorsPin) -> None: ...
 
-    async def get(self, pin_id: str) -> RoundsPin | None: ...
+    async def get(self, pin_id: str) -> MonitorsPin | None: ...
 
     async def list_for_tenant(
         self, tenant: str, *, include_archived: bool = False
-    ) -> tuple[RoundsPin, ...]:
+    ) -> tuple[MonitorsPin, ...]:
         """The tenant's pins, oldest first. Archived ones are excluded by
         default: un-pinning is soft, so the evaluated history a brief already
         published stays readable."""
@@ -585,7 +585,7 @@ class RoundsPinStore(Protocol):
 
 
 @dataclass(frozen=True, slots=True)
-class RoundsPinResult:
+class MonitorsPinResult:
     """One pin, evaluated at one load.
 
     ``payload`` is the serialized tile. Kept generic on purpose (like the
@@ -606,18 +606,18 @@ class RoundsPinResult:
     payload: Mapping[str, Any]
 
 
-class RoundsPinResultStore(Protocol):
-    async def put(self, result: RoundsPinResult) -> None: ...
+class MonitorsPinResultStore(Protocol):
+    async def put(self, result: MonitorsPinResult) -> None: ...
 
-    async def get(self, pin_id: str, watermark_id: str) -> RoundsPinResult | None: ...
+    async def get(self, pin_id: str, watermark_id: str) -> MonitorsPinResult | None: ...
 
-    async def history(self, pin_id: str, *, limit: int = 12) -> tuple[RoundsPinResult, ...]:
+    async def history(self, pin_id: str, *, limit: int = 12) -> tuple[MonitorsPinResult, ...]:
         """This pin's evaluated loads, NEWEST FIRST."""
         ...
 
 
 @dataclass(frozen=True, slots=True)
-class RoundsLoad:
+class MonitorsLoad:
     """What the detection feed said for one tenant at one load.
 
     The census a brief diffs against: without it "new lead" and "self-
@@ -632,12 +632,12 @@ class RoundsLoad:
     payload: Mapping[str, Any]
 
 
-class RoundsLoadStore(Protocol):
-    async def put(self, load: RoundsLoad) -> None: ...
+class MonitorsLoadStore(Protocol):
+    async def put(self, load: MonitorsLoad) -> None: ...
 
-    async def get(self, tenant: str, watermark_id: str) -> RoundsLoad | None: ...
+    async def get(self, tenant: str, watermark_id: str) -> MonitorsLoad | None: ...
 
-    async def list_for_tenant(self, tenant: str, *, limit: int = 12) -> tuple[RoundsLoad, ...]:
+    async def list_for_tenant(self, tenant: str, *, limit: int = 12) -> tuple[MonitorsLoad, ...]:
         """The tenant's evaluated loads, NEWEST FIRST (by the load's own
         ``loaded_at``, never by id order)."""
         ...
@@ -664,7 +664,7 @@ LEAD_STATUSES_HUMAN_SETTABLE: frozenset[str] = frozenset(
 
 
 @dataclass(frozen=True, slots=True)
-class RoundsLead:
+class MonitorsLead:
     """One detected lead's lifecycle state, tenant-scoped.
 
     Keyed by ``anomaly_id`` — the detection feed's own handle — so a lead
@@ -697,11 +697,11 @@ class RoundsLead:
     history: tuple[Mapping[str, Any], ...] = ()
 
 
-class RoundsLeadStore(Protocol):
-    async def put(self, lead: RoundsLead) -> None: ...
+class MonitorsLeadStore(Protocol):
+    async def put(self, lead: MonitorsLead) -> None: ...
 
-    async def get(self, tenant: str, anomaly_id: str) -> RoundsLead | None: ...
+    async def get(self, tenant: str, anomaly_id: str) -> MonitorsLead | None: ...
 
-    async def list_for_tenant(self, tenant: str) -> tuple[RoundsLead, ...]:
+    async def list_for_tenant(self, tenant: str) -> tuple[MonitorsLead, ...]:
         """The tenant's leads, by anomaly id."""
         ...

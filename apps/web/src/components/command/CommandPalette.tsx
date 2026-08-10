@@ -243,38 +243,38 @@ export function CommandPalette({
       });
     }
 
-    // ROUNDS HAS A ⌘K VERB. It is where an analyst starts their day and it
+    // MONITORS HAS A ⌘K VERB. It is where an analyst starts their day and it
     // was the only primary destination in the product with no keyboard
     // route to it — reachable from the rail's link and nowhere else.
     list.push({
-      id: "rounds",
+      id: "monitors",
       group: "Navigate",
-      label: "Open Rounds",
+      label: "Open Monitors",
       hint: "what changed at this data load",
       icon: <Eye className="size-3.5" />,
-      run: () => router.push("/rounds"),
+      run: () => router.push("/monitors"),
     });
 
-    // And the gesture Rounds is made of, on the answer being read. The
+    // And the gesture Monitors is made of, on the answer being read. The
     // control exists on charts, findings and worklists; the keyboard had
     // no way to reach any of them.
-    const watchable = [...turns].reverse().find((t) => t.answer.investigationId);
-    if (watchable?.answer.investigationId) {
-      const referent = watchable.answer.findings[0]?.referent.value;
-      const label = watchable.answer.findings[0]?.title ?? "this answer";
+    const monitorable = [...turns].reverse().find((t) => t.answer.investigationId);
+    if (monitorable?.answer.investigationId) {
+      const referent = monitorable.answer.findings[0]?.referent.value;
+      const label = monitorable.answer.findings[0]?.title ?? "this answer";
       list.push({
-        id: "watch-answer",
+        id: "monitor-answer",
         group: "Investigate",
-        label: "Watch this answer",
-        // What it will actually watch, named — a watch registered on
+        label: "Monitor this answer",
+        // What it will actually monitor, named — a monitor registered on
         // something the analyst did not mean is a tile that interrupts
         // them tomorrow about a cell they never asked about.
         hint: referent ? `re-runs ${label} every load` : "re-runs this question every load",
         icon: <Eye className="size-3.5" />,
         disabled: streaming,
         run: () =>
-          void useSessionStore.getState().createWatch(`palette:${watchable.id}`, {
-            investigationId: watchable.answer.investigationId!,
+          void useSessionStore.getState().createMonitor(`palette:${monitorable.id}`, {
+            investigationId: monitorable.answer.investigationId!,
             ...(referent ? { referent, presentation: "finding" as const } : {}),
           }),
       });

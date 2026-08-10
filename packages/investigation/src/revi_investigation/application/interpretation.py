@@ -252,7 +252,7 @@ _FORWARD_PHRASE = re.compile(
 
 #: "Now" said about a quantity that only exists over a period (round-8
 #: FIX-6). "Who is my worst payer on denial rate RIGHT NOW, and is that a
-#: change from last month?" — the sentence the whole Rounds pitch is built
+#: change from last month?" — the sentence the whole Monitors pitch is built
 #: on — resolved to 2026-08-01..2026-08-02, the two days since the month
 #: boundary, compared against a same-length slice of July, and returned a
 #: blank page in a customer room. The identical question with the months

@@ -2,7 +2,7 @@
 
 import { ArrowUpRight, Ban, GitCompareArrows, ListOrdered } from "lucide-react";
 
-import { WatchThis } from "@/components/rounds/WatchThis";
+import { MonitorThis } from "@/components/monitors/MonitorThis";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { WorklistData } from "@/lib/contract";
@@ -57,7 +57,7 @@ export function AnswerWorklist({
    */
   intro?: Omit<WarningEvent, "type">;
   /**
-   * The turn this list arrived on — what a watch over it is registered
+   * The turn this list arrived on — what a monitor over it is registered
    * against. Absent while the turn is still streaming, and the affordance
    * is simply not there yet.
    */
@@ -84,13 +84,13 @@ export function AnswerWorklist({
           {worklist.label || "What to work first"}
         </h3>
         <span className="flex shrink-0 items-baseline gap-1.5">
-          {/* WATCH THIS, at the list's own pin point. A worklist is the
+          {/* MONITOR THIS, at the list's own pin point. A worklist is the
               artifact on this page that changes most between loads —
-              cards arrive, cards leave, figures move — so a watch over it
-              is a watch over the whole ranked population rather than over
+              cards arrive, cards leave, figures move — so a monitor over it
+              is a monitor over the whole ranked population rather than over
               one number in it. */}
           {investigationId && (
-            <WatchThis
+            <MonitorThis
               artifactKey={`${investigationId}:worklist`}
               investigationId={investigationId}
               presentation="worklist_slice"

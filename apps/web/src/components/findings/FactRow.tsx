@@ -4,7 +4,7 @@ import { ChevronRight } from "lucide-react";
 
 import { GradeDot } from "@/components/answer/GradeBadge";
 import { ReferentChip } from "@/components/answer/ReferentChip";
-import { WatchThis } from "@/components/rounds/WatchThis";
+import { MonitorThis } from "@/components/monitors/MonitorThis";
 import { Button } from "@/components/ui/button";
 import {
   formatCents,
@@ -68,7 +68,7 @@ export function FactRow({
   const emitRefinement = useSessionStore((s) => s.emitRefinement);
   const focused = useSessionStore((s) => s.focusedReferent === finding.referent.value);
   /**
-   * The server id of the turn this fact belongs to — what a watch is
+   * The server id of the turn this fact belongs to — what a monitor is
    * registered against.
    *
    * Read from the store rather than threaded through `FactList`, which is
@@ -76,8 +76,8 @@ export function FactRow({
    * of the turn, every one of those callers already names the turn, and a
    * fourth prop on all of them would be the same lookup written four
    * times. Absent while a turn is still streaming, and the affordance
-   * simply is not there yet — a watch registered against a turn with no id
-   * is a watch over nothing.
+   * simply is not there yet — a monitor registered against a turn with no id
+   * is a monitor over nothing.
    */
   const investigationId = useSessionStore(
     (s) => s.turns.find((t) => t.id === turnId)?.answer.investigationId,
@@ -200,7 +200,7 @@ export function FactRow({
 
       {/* The row's two forward gestures, on one line: go deeper into this
           fact, or ask to be told when it changes. Both are quiet and both
-          are PRESENT — "Watch this" used to fade in on hover, which on a
+          are PRESENT — "Monitor this" used to fade in on hover, which on a
           touch screen, in a screenshot and on a projector means the one
           gesture that starts proactive monitoring was not there at all.
           Lower contrast is the density control; invisibility is not. */}
@@ -220,10 +220,10 @@ export function FactRow({
             </Button>
           )}
           {investigationId && (
-            <WatchThis
+            <MonitorThis
               // Keyed by the artifact, not by the turn: the same finding
               // reached from the answer and from the Evidence rail is one
-              // thing to watch, and watching it twice would put two tiles
+              // thing to monitor, and monitoring it twice would put two tiles
               // over one measure.
               artifactKey={`${investigationId}:${finding.referent.value}`}
               investigationId={investigationId}

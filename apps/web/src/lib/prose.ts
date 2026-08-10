@@ -23,7 +23,7 @@
  * already had one: "…anything over a point.)." → "…anything over a
  * point.)".
  *
- * Live on `/rounds`, in the materiality note of the JOC account's tile —
+ * Live on `/monitors`, in the materiality note of the JOC account's tile —
  * the reviewer's own note was rewritten twice and the stacked stop
  * survived both rewrites, because it is not in either half. It is made
  * where they join.
@@ -37,7 +37,7 @@ const STACKED_STOP = /\.\)([.,;:])/g;
  * `replace("..", ".")`: `2026-07-01..2026-07-31` is an ISO range and the
  * dots are its operator. The dot guard keeps an ellipsis whole — "Ask
  * again once the thinner side matures.." is a defect and "Reading this
- * watch's settings..." is not.
+ * monitor's settings..." is not.
  */
 const DOUBLED_STOP = /(?<![.\d])\.\.(?![.\d])/g;
 

@@ -370,21 +370,21 @@ describe("every warning survives the move — calm layout", () => {
 });
 
 /* ------------------------------------------------------------------ */
-/* The watch path — the one warning that was landing nowhere            */
+/* The monitor path — the one warning that was landing nowhere            */
 /* ------------------------------------------------------------------ */
 
 /**
- * A REFUSED WATCH DECLARATION REACHES THE READER.
+ * A REFUSED MONITOR DECLARATION REACHES THE READER.
  *
- * Live, "Watch Pinnacle Health Plan denial rate and alert me if it moves
- * more than $5,000" came back with `outcome: answer`, `watch: null`, six
+ * Live, "Monitor Pinnacle Health Plan denial rate and alert me if it moves
+ * more than $5,000" came back with `outcome: answer`, `monitor: null`, six
  * prose `warnings` and five `warnings_v2`. The missing sixth was the
  * refusal — a threshold in cents over a metric measured as a ratio — and
  * it was appended to `warnings` AFTER `warnings_v2` had been built, so
  * `readTurnWarnings` (which prefers the structured list whenever it is
  * non-empty) dropped it. On screen: an ordinary answer, no confirmation,
  * no warning, and an analyst who walks away believing they are being
- * watched.
+ * monitored.
  *
  * The conservation rule this file already enforces is what would have
  * caught it, so it is extended here to the shape that broke it: whatever
@@ -392,15 +392,15 @@ describe("every warning survives the move — calm layout", () => {
  * sheet, or in the refusal note that renders where the confirmation would
  * have gone.
  */
-describe("a refused watch declaration is not silently dropped", () => {
+describe("a refused monitor declaration is not silently dropped", () => {
   const REFUSAL =
-    "this turn read as a watch declaration, and the watch was NOT created: a threshold in " +
-    "'cents' is only honest for a 'money_cents' contract, and this watch measures 'ratio'. " +
+    "this turn read as a monitor declaration, and the monitor was NOT created: a threshold in " +
+    "'cents' is only honest for a 'money_cents' contract, and this monitor measures 'ratio'. " +
     "State it in percentage points or as a relative percentage.";
 
   const refusalWarning: WarningEvent = {
     type: "warning",
-    code: "WATCH_NOT_CREATED",
+    code: "MONITOR_NOT_CREATED",
     severity: "caution",
     message: REFUSAL,
     structured: true,
@@ -409,21 +409,21 @@ describe("a refused watch declaration is not silently dropped", () => {
   const refusedTurn = () =>
     turn({
       warnings: [...WARNINGS, refusalWarning],
-      watchRefused: { reason: REFUSAL, legalAlternatives: ["percentage points", "relative %"] },
+      monitorRefused: { reason: REFUSAL, legalAlternatives: ["percentage points", "relative %"] },
     });
 
   it("renders the refusal where the confirmation would have gone", () => {
     setAnswerVariant("b");
     const { container } = renderCard(refusedTurn());
 
-    const note = container.querySelector("[data-watch-refused]");
+    const note = container.querySelector("[data-monitor-refused]");
     expect(note, "a refused declaration must render its own note").not.toBeNull();
     // The server's sentence, verbatim — it names the units this contract
     // WOULD take, which is the only part that tells the analyst how to ask
     // again.
     expect(note?.textContent).toContain(REFUSAL);
     // And the fact that decides tomorrow morning, in words.
-    expect(screen.getByText(/Nothing is being watched/)).toBeInTheDocument();
+    expect(screen.getByText(/Nothing is being monitored/)).toBeInTheDocument();
     // It is an alert, not a footnote: a state the reader was expecting did
     // not happen.
     expect(note).toHaveAttribute("role", "alert");
@@ -449,28 +449,28 @@ describe("a refused watch declaration is not silently dropped", () => {
     for (const warning of payload) {
       expect(reachable.has(warning.code), `${warning.code} must reach the reader`).toBe(true);
     }
-    expect(reachable.has("WATCH_NOT_CREATED")).toBe(true);
+    expect(reachable.has("MONITOR_NOT_CREATED")).toBe(true);
   });
 
-  it("says nothing about watching on an ordinary answer", () => {
+  it("says nothing about monitoring on an ordinary answer", () => {
     setAnswerVariant("b");
     const { container } = renderCard();
-    expect(container.querySelector("[data-watch-refused]")).toBeNull();
-    expect(container.querySelector("[data-watch-declaration]")).toBeNull();
+    expect(container.querySelector("[data-monitor-refused]")).toBeNull();
+    expect(container.querySelector("[data-monitor-declaration]")).toBeNull();
   });
 
   /**
    * THE LIVE PAYLOAD, THROUGH THE REAL SEAM.
    *
-   * `wire-samples.json#watch_refused_turn` is the exec's own repro — "Watch
+   * `wire-samples.json#monitor_refused_turn` is the exec's own repro — "Monitor
    * Pinnacle Health Plan denial rate and alert me if it moves more than
    * $5,000" — captured verbatim from a running deployment: `outcome:
-   * answer`, `watch: null`, six warnings, six classified warnings, and the
-   * `watch_refused` payload naming the four phrasings that would work.
+   * answer`, `monitor: null`, six warnings, six classified warnings, and the
+   * `monitor_refused` payload naming the four phrasings that would work.
    */
   it("renders the live refusal end to end, from the wire", async () => {
     setAnswerVariant("b");
-    const parsed = parseTurnResponse(SAMPLES.watch_refused_turn, {
+    const parsed = parseTurnResponse(SAMPLES.monitor_refused_turn, {
       watermark: { id: "wm_003", loadedAt: "2026-08-03 04:10", newestDataDate: "2026-08-02" },
       pack: { packId: "base-rcm", version: "1.0.0" },
     });
@@ -485,13 +485,13 @@ describe("a refused watch declaration is not silently dropped", () => {
       id: "turn_live",
       index: 0,
       submission: {
-        utterance: "Watch Pinnacle Health Plan denial rate and alert me if it moves more than $5,000.",
+        utterance: "Monitor Pinnacle Health Plan denial rate and alert me if it moves more than $5,000.",
       },
       answer,
     });
 
     // The note, where the confirmation would have been.
-    const note = container.querySelector("[data-watch-refused]");
+    const note = container.querySelector("[data-monitor-refused]");
     expect(note).not.toBeNull();
     expect(note?.textContent).toContain("Pinnacle Health Plan denial rate");
     expect(note?.textContent).toContain("only honest for a 'money_cents' contract");
@@ -501,7 +501,7 @@ describe("a refused watch declaration is not silently dropped", () => {
 
     // And the conservation rule holds on the live payload: every code the
     // server classified is reachable.
-    const payload = SAMPLES.watch_refused_turn.warnings_v2 as Array<{ code: string }>;
+    const payload = SAMPLES.monitor_refused_turn.warnings_v2 as Array<{ code: string }>;
     const onAnswer = codesIn(container);
     await userEvent.click(screen.getByRole("button", { name: /things to know/ }));
     const dialog = await screen.findByRole("dialog");

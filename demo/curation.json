@@ -3,7 +3,7 @@
     "The curated demo tenant, as data. Read by scripts/demo_curate.py:",
     "  make demo-curate ARGS='--manifest demo/curation.json --clean-rail'",
     "",
-    "pins: the seven watches the monitors surface is built around. An eighth,",
+    "pins: the seven monitors the Monitors surface is built around. An eighth,",
     "pin_5adb19e075f6 ('Atlas Commercial - days in ar'), was minted by a review",
     "battery and measures the same metric as pin_df42253af604 ('days in A/R by",
     "payer') under a different spelling; it is absent from this list on purpose",
@@ -16,7 +16,7 @@
     "session ids here and drop --clean-rail; the command will then keep exactly",
     "these and archive the rest.",
     "",
-    "This file is not a seed. Nothing here creates a watch; it names the ones",
+    "This file is not a seed. Nothing here creates a monitor; it names the ones",
     "that must survive a curation pass, so the pass can be run again."
   ],
   "expected_pins": 7,

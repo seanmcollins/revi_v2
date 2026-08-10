@@ -40,26 +40,26 @@ import {
   refinementsToWire,
   trackReceived,
   turnResponseToEvents,
-  watchToWire,
+  monitorToWire,
   type ErrorEnvelopeData,
   type LeadStatus,
   type PortfolioSnapshotData,
   type ReceivedTurnState,
   type SessionBootstrap,
   type TurnResponseParse,
-  type WatchModel,
+  type MonitorModel,
   type WirePin,
 } from "@/lib/contract";
 import {
   mapLeadState,
-  mapRoundsPin,
+  mapMonitorsPin,
   parseBrief,
-  parseRounds,
+  parseMonitors,
   type BriefData,
   type LeadState,
-  type RoundsData,
-  type RoundsPin,
-} from "@/lib/rounds";
+  type MonitorsData,
+  type MonitorsPin,
+} from "@/lib/monitors";
 import type {
   ConnectionState,
   DriverKind,
@@ -359,52 +359,52 @@ export async function fetchInvestigation(
 }
 
 /* ------------------------------------------------------------------ */
-/* Rounds — the proactive surface's reads and writes                    */
+/* Monitors — the proactive surface's reads and writes                    */
 /* ------------------------------------------------------------------ */
 
 /**
- * `GET /v1/rounds` — every active watch, evaluated at the newest load.
+ * `GET /v1/monitors` — every active monitor, evaluated at the newest load.
  *
  * The route EVALUATES on request: a deployment whose sweep interval is 0,
- * or one nobody has opened since the load landed, walks the Rounds here.
+ * or one nobody has opened since the load landed, walks the Monitors here.
  * That is why this read is slower than the other GETs and why the surface
  * says it is walking rather than showing a spinner with no account of
  * itself.
  */
-export async function fetchRounds(options: RequestOptions = {}): Promise<RoundsData> {
+export async function fetchMonitors(options: RequestOptions = {}): Promise<MonitorsData> {
   const base = options.baseUrl ?? apiBaseUrl();
-  const raw = await requestJson(`${base}/v1/rounds`, { method: "GET" }, options);
-  const { value, drift } = parseRounds(raw);
-  if (drift.length > 0) reportDriftToConsole(drift, "GET /v1/rounds", options.onDrift);
-  if (!value) throw new Error("rounds response failed contract validation");
+  const raw = await requestJson(`${base}/v1/monitors`, { method: "GET" }, options);
+  const { value, drift } = parseMonitors(raw);
+  if (drift.length > 0) reportDriftToConsole(drift, "GET /v1/monitors", options.onDrift);
+  if (!value) throw new Error("monitors response failed contract validation");
   return value;
 }
 
-/** `GET /v1/rounds/brief` — what changed at this load, gated and counted. */
-export async function fetchRoundsBrief(options: RequestOptions = {}): Promise<BriefData> {
+/** `GET /v1/monitors/brief` — what changed at this load, gated and counted. */
+export async function fetchMonitorsBrief(options: RequestOptions = {}): Promise<BriefData> {
   const base = options.baseUrl ?? apiBaseUrl();
-  const raw = await requestJson(`${base}/v1/rounds/brief`, { method: "GET" }, options);
+  const raw = await requestJson(`${base}/v1/monitors/brief`, { method: "GET" }, options);
   const { value, drift } = parseBrief(raw);
-  if (drift.length > 0) reportDriftToConsole(drift, "GET /v1/rounds/brief", options.onDrift);
+  if (drift.length > 0) reportDriftToConsole(drift, "GET /v1/monitors/brief", options.onDrift);
   if (!value) throw new Error("brief response failed contract validation");
   return value;
 }
 
-/** `GET /v1/rounds/pins` — the stored watches, with their specs and thresholds. */
-export async function fetchRoundsPins(options: RequestOptions = {}): Promise<RoundsPin[]> {
+/** `GET /v1/monitors/pins` — the stored monitors, with their specs and thresholds. */
+export async function fetchMonitorsPins(options: RequestOptions = {}): Promise<MonitorsPin[]> {
   const base = options.baseUrl ?? apiBaseUrl();
-  const raw = await requestJson(`${base}/v1/rounds/pins`, { method: "GET" }, options);
-  const pins: RoundsPin[] = [];
+  const raw = await requestJson(`${base}/v1/monitors/pins`, { method: "GET" }, options);
+  const pins: MonitorsPin[] = [];
   const list = typeof raw === "object" && raw !== null ? (raw as { pins?: unknown }).pins : undefined;
   for (const entry of Array.isArray(list) ? list : []) {
-    const pin = mapRoundsPin(entry);
+    const pin = mapMonitorsPin(entry);
     if (pin !== null) pins.push(pin);
   }
   return pins;
 }
 
 /**
- * What a "Watch this" click sends. Exactly one of `investigationId` or
+ * What a "Monitor this" click sends. Exactly one of `investigationId` or
  * `spec` — a body carrying both is refused server-side rather than
  * resolved, because either resolution order would be a guess about which
  * the caller meant.
@@ -416,25 +416,25 @@ export interface CreatePinRequest {
   spec?: Record<string, unknown>;
   presentation?: "chart" | "finding" | "worklist_slice" | "scalar";
   label?: string;
-  watch?: WatchModel;
+  monitor?: MonitorModel;
 }
 
 /**
- * `POST /v1/rounds/pins` — add a watch.
+ * `POST /v1/monitors/pins` — add a monitor.
  *
  * Errors propagate untouched. The server refuses an illegal threshold unit
  * with a sentence naming the legal alternatives, and that sentence is the
  * whole value of the refusal — a client that caught it and said "could not
- * create watch" would replace the one thing that teaches with the one
+ * create monitor" would replace the one thing that teaches with the one
  * thing that does not.
  */
-export async function createRoundsPin(
+export async function createMonitorsPin(
   request: CreatePinRequest,
   options: RequestOptions = {},
-): Promise<RoundsPin> {
+): Promise<MonitorsPin> {
   const base = options.baseUrl ?? apiBaseUrl();
   const raw = await requestJson(
-    `${base}/v1/rounds/pins`,
+    `${base}/v1/monitors/pins`,
     {
       method: "POST",
       headers: { "Content-Type": "application/json" },
@@ -446,41 +446,41 @@ export async function createRoundsPin(
         ...(request.spec !== undefined ? { spec: request.spec } : {}),
         ...(request.presentation !== undefined ? { presentation: request.presentation } : {}),
         ...(request.label !== undefined ? { label: request.label } : {}),
-        ...(request.watch !== undefined ? { watch: watchToWire(request.watch) } : {}),
+        ...(request.monitor !== undefined ? { monitor: monitorToWire(request.monitor) } : {}),
       }),
     },
     options,
   );
-  const pin = mapRoundsPin(raw);
+  const pin = mapMonitorsPin(raw);
   if (pin === null) {
-    reportDriftToConsole(["pin_id"], "POST /v1/rounds/pins", options.onDrift);
-    throw new Error("the watch was created but the response does not name it");
+    reportDriftToConsole(["pin_id"], "POST /v1/monitors/pins", options.onDrift);
+    throw new Error("the monitor was created but the response does not name it");
   }
   return pin;
 }
 
 /**
- * `DELETE /v1/rounds/pins/{pin_id}` — un-watch.
+ * `DELETE /v1/monitors/pins/{pin_id}` — un-monitor.
  *
  * A SOFT archive server-side, like every other dismissal on this platform:
  * the evaluated history a brief already published stays readable and a
  * permalink into a tile's investigation does not 404 because somebody
- * tidied their Rounds.
+ * tidied their Monitors.
  */
-export async function deleteRoundsPin(
+export async function deleteMonitorsPin(
   pinId: string,
   options: RequestOptions = {},
 ): Promise<void> {
   const base = options.baseUrl ?? apiBaseUrl();
   await requestOk(
-    `${base}/v1/rounds/pins/${encodeURIComponent(pinId)}`,
+    `${base}/v1/monitors/pins/${encodeURIComponent(pinId)}`,
     { method: "DELETE" },
     options,
   );
 }
 
 /**
- * `PATCH /v1/rounds/leads/{anomaly_id}` — move one lead along its
+ * `PATCH /v1/monitors/leads/{anomaly_id}` — move one lead along its
  * lifecycle.
  *
  * Only the four human-settable statuses are accepted. Asking for
@@ -497,7 +497,7 @@ export async function patchLeadStatus(
 ): Promise<LeadState> {
   const base = options.baseUrl ?? apiBaseUrl();
   const raw = await requestJson(
-    `${base}/v1/rounds/leads/${encodeURIComponent(anomalyId)}`,
+    `${base}/v1/monitors/leads/${encodeURIComponent(anomalyId)}`,
     {
       method: "PATCH",
       headers: { "Content-Type": "application/json" },
@@ -507,7 +507,7 @@ export async function patchLeadStatus(
   );
   const lead = mapLeadState(raw);
   if (lead === null) {
-    reportDriftToConsole(["anomaly_id"], `PATCH /v1/rounds/leads/${anomalyId}`, options.onDrift);
+    reportDriftToConsole(["anomaly_id"], `PATCH /v1/monitors/leads/${anomalyId}`, options.onDrift);
     throw new Error("the status changed but the response does not name the lead");
   }
   return lead;
@@ -621,24 +621,24 @@ export class ApiDriver implements TurnDriver {
   }
 
   /**
-   * `POST /v1/rounds/pins` — start watching. Errors propagate so the
+   * `POST /v1/monitors/pins` — start monitoring. Errors propagate so the
    * server's own refusal reaches the analyst verbatim.
    */
-  async createRoundsPin(request: CreatePinRequest): Promise<RoundsPin> {
-    return createRoundsPin(request, this.requestOptions());
+  async createMonitorsPin(request: CreatePinRequest): Promise<MonitorsPin> {
+    return createMonitorsPin(request, this.requestOptions());
   }
 
-  /** `GET /v1/rounds/pins` — the stored watches and what each one IS. */
-  async listRoundsPins(): Promise<RoundsPin[]> {
-    return fetchRoundsPins(this.requestOptions());
+  /** `GET /v1/monitors/pins` — the stored monitors and what each one IS. */
+  async listMonitorsPins(): Promise<MonitorsPin[]> {
+    return fetchMonitorsPins(this.requestOptions());
   }
 
-  /** `DELETE /v1/rounds/pins/{pin_id}` — stop watching (a soft archive). */
-  async deleteRoundsPin(pinId: string): Promise<void> {
-    return deleteRoundsPin(pinId, this.requestOptions());
+  /** `DELETE /v1/monitors/pins/{pin_id}` — stop monitoring (a soft archive). */
+  async deleteMonitorsPin(pinId: string): Promise<void> {
+    return deleteMonitorsPin(pinId, this.requestOptions());
   }
 
-  /** `PATCH /v1/rounds/leads/{anomaly_id}` — move a lead along its lifecycle. */
+  /** `PATCH /v1/monitors/leads/{anomaly_id}` — move a lead along its lifecycle. */
   async setLeadStatus(anomalyId: string, status: LeadStatus, note: string): Promise<LeadState> {
     return patchLeadStatus(anomalyId, status, note, this.requestOptions());
   }

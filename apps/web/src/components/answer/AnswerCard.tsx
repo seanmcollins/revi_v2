@@ -9,7 +9,7 @@ import { useAnswerModel } from "@/components/answer/useAnswerModel";
 import { ClarificationPrompt } from "@/components/clarification/ClarificationPrompt";
 import { DebugTracePanel } from "@/components/debug/DebugTracePanel";
 import { FeedbackTriage } from "@/components/feedback/FeedbackTriage";
-import { WatchDeclarationNote, WatchRefusedNote } from "@/components/rounds/WatchDeclarationNote";
+import { MonitorDeclarationNote, MonitorRefusedNote } from "@/components/monitors/MonitorDeclarationNote";
 import { StageRail } from "@/components/chat/StageRail";
 import { AnswerWorklist } from "@/components/worklist/AnswerWorklist";
 import { Button } from "@/components/ui/button";
@@ -71,7 +71,7 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
       <AnswerWorklist
         worklist={a.worklist}
         {...(model.worklistIntro ? { intro: model.worklistIntro } : {})}
-        // The turn this list arrived on, so the block can offer to watch
+        // The turn this list arrived on, so the block can offer to monitor
         // the slice it is showing. A worklist is a ranked population that
         // moves every load, which makes it the artifact on this page most
         // worth being told about.
@@ -99,7 +99,7 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
           className="answer-glow pointer-events-none absolute -inset-x-10 -top-8 -z-10 h-80"
         />
       )}
-      {/* A turn rebuilt when this session was re-opened was never watched
+      {/* A turn rebuilt when this session was re-opened was never monitored
           running, and the server keeps no stage timings — so it says where
           it came from instead of drawing a pipeline nobody observed.
 
@@ -135,22 +135,22 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
         />
       )}
 
-      {/* A WATCH WAS STARTED BY THIS TURN. Above the answer rather than
+      {/* A MONITOR WAS STARTED BY THIS TURN. Above the answer rather than
           below it, and in all three layouts: the answer is what was asked
           for, but a state now exists on the server that will interrupt
           this person tomorrow morning, and that belongs where they will
           see it before they scroll. */}
-      {a.watch && <WatchDeclarationNote watch={a.watch} />}
+      {a.monitor && <MonitorDeclarationNote monitor={a.monitor} />}
 
-      {/* AND THE REFUSAL, in the same slot. A watch declaration has two
+      {/* AND THE REFUSAL, in the same slot. A monitor declaration has two
           outcomes and only one of them was reaching the screen: the
           confirmation rendered here, and the refusal — the sentence saying
-          NOTHING is being watched — was appended to the prose warning list
+          NOTHING is being monitored — was appended to the prose warning list
           after the classified list had been built, so no surface drew it.
-          A reader saw an ordinary answer and walked away believing a watch
+          A reader saw an ordinary answer and walked away believing a monitor
           existed. Whichever outcome happened is stated in the same place,
           at the same weight. */}
-      {a.watchRefused && <WatchRefusedNote refusal={a.watchRefused} />}
+      {a.monitorRefused && <MonitorRefusedNote refusal={a.monitorRefused} />}
 
       {variant === "b" ? (
         <AnswerBodyCalm

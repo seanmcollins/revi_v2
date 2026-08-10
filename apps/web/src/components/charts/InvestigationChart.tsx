@@ -17,7 +17,7 @@ import {
 } from "recharts";
 
 import { DownloadCsvButton } from "@/components/answer/AnswerActions";
-import { WatchThis } from "@/components/rounds/WatchThis";
+import { MonitorThis } from "@/components/monitors/MonitorThis";
 import { Button } from "@/components/ui/button";
 import { capChartSeries, humanizeColumn, OTHERS_SERIES_KEY } from "@/lib/contract";
 import { humanizeInline } from "@/lib/humanize";
@@ -1109,13 +1109,13 @@ export function InvestigationChart({
           )}
         </span>
         <span className="flex items-center gap-1">
-          {/* WATCH THIS, at the figure's own pin point — beside the export,
+          {/* MONITOR THIS, at the figure's own pin point — beside the export,
               which is the other "take this away with you" gesture on the
               chart. What it registers is the SPEC behind the figure, so
               tomorrow's tile re-runs this question at the new load rather
               than remembering today's bars. */}
           {investigationId && (
-            <WatchThis
+            <MonitorThis
               artifactKey={`${investigationId}:chart:${published.id}`}
               investigationId={investigationId}
               referent={published.id}

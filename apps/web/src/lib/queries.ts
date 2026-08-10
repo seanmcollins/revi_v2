@@ -9,12 +9,12 @@ import { useQuery } from "@tanstack/react-query";
 
 import {
   fetchPortfolioLatest,
-  fetchRounds,
-  fetchRoundsBrief,
+  fetchMonitors,
+  fetchMonitorsBrief,
   fetchSessionLineage,
 } from "@/lib/apiDriver";
 import type { PortfolioSnapshotData } from "@/lib/contract";
-import type { BriefData, RoundsData } from "@/lib/rounds";
+import type { BriefData, MonitorsData } from "@/lib/monitors";
 import { useSessionStore } from "@/lib/store";
 import type { SessionLineageData } from "@/lib/types";
 
@@ -32,23 +32,23 @@ export function usePortfolioQuery(enabled: boolean) {
 }
 
 /**
- * `GET /v1/rounds/brief` — what changed at this load.
+ * `GET /v1/monitors/brief` — what changed at this load.
  *
  * `staleTime: Infinity` and no interval, on purpose. A brief is a
  * statement about ONE data load: it does not change until a new load
  * lands, and a surface that silently re-fetched it would be a live
- * dashboard, which is the thing Rounds is positioned against. New loads
+ * dashboard, which is the thing Monitors is positioned against. New loads
  * arrive through the watermark, and the watermark is in the query key.
  *
- * `retry: false`. This route EVALUATES — it re-runs every watch and
+ * `retry: false`. This route EVALUATES — it re-runs every monitor and
  * verifies every claimed resolution — so a failed call has usually done
  * real work before failing, and three silent retries would triple it while
  * the analyst reads a spinner.
  */
 export function useBriefQuery(enabled: boolean, watermarkId: string) {
   return useQuery<BriefData>({
-    queryKey: ["rounds", "brief", watermarkId],
-    queryFn: () => fetchRoundsBrief({ onDrift }),
+    queryKey: ["monitors", "brief", watermarkId],
+    queryFn: () => fetchMonitorsBrief({ onDrift }),
     enabled,
     staleTime: Infinity,
     retry: false,
@@ -56,21 +56,21 @@ export function useBriefQuery(enabled: boolean, watermarkId: string) {
 }
 
 /*
- * `GET /v1/rounds/pins` is deliberately NOT a query hook.
+ * `GET /v1/monitors/pins` is deliberately NOT a query hook.
  *
- * It lives on the store (`loadWatches`), because the component that needs
- * it most is `WatchThis` — a leaf that renders inside a chart's action row,
+ * It lives on the store (`loadMonitors`), because the component that needs
+ * it most is `MonitorThis` — a leaf that renders inside a chart's action row,
  * on a finding, and on a worklist header. A `useQuery` there would make
  * every one of those call sites, and every test that mounts an answer,
  * require a `QueryClientProvider` they have no other reason to have. The
  * store is already the seam every one of them reads.
  */
 
-/** `GET /v1/rounds` — the watches, evaluated. Same discipline as the brief. */
-export function useRoundsQuery(enabled: boolean, watermarkId: string) {
-  return useQuery<RoundsData>({
-    queryKey: ["rounds", "tiles", watermarkId],
-    queryFn: () => fetchRounds({ onDrift }),
+/** `GET /v1/monitors` — the monitors, evaluated. Same discipline as the brief. */
+export function useMonitorsQuery(enabled: boolean, watermarkId: string) {
+  return useQuery<MonitorsData>({
+    queryKey: ["monitors", "tiles", watermarkId],
+    queryFn: () => fetchMonitors({ onDrift }),
     enabled,
     staleTime: Infinity,
     retry: false,

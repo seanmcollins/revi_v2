@@ -8,8 +8,8 @@
 import { create } from "zustand";
 
 import type { CreatePinRequest } from "@/lib/apiDriver";
-import type { LeadStatus, WatchDeclaration, WatchRefusal, WorklistData } from "@/lib/contract";
-import type { LeadState, RoundsPin } from "@/lib/rounds";
+import type { LeadStatus, MonitorDeclaration, MonitorRefusal, WorklistData } from "@/lib/contract";
+import type { LeadState, MonitorsPin } from "@/lib/monitors";
 import { envDriverKind } from "@/lib/driver";
 import type {
   ConnectionState,
@@ -107,16 +107,16 @@ export interface AnswerState {
    */
   worklist?: WorklistData;
   /**
-   * `TurnAnswer.watch` — this turn declared a watch in words and the
+   * `TurnAnswer.monitor` — this turn declared a monitor in words and the
    * platform registered it, so the answer below is also the baseline the
-   * watch starts from. Present on that one turn class and no other; the
+   * monitor starts from. Present on that one turn class and no other; the
    * card renders the server's confirmation sentence rather than composing
    * one, because every figure in it is a fact from the answer beside it.
    */
-  watch?: WatchDeclaration;
+  monitor?: MonitorDeclaration;
   /**
-   * `TurnAnswer.watch_refused` — this turn read as a watch declaration and
-   * the watch was NOT created.
+   * `TurnAnswer.monitor_refused` — this turn read as a monitor declaration and
+   * the monitor was NOT created.
    *
    * The one warning on this answer that changes what the analyst does
    * tomorrow, and until now it reached the screen as nothing: the server
@@ -125,7 +125,7 @@ export interface AnswerState {
    * field so the card can render it where the confirmation would have been
    * rather than hoping it survives a warning list.
    */
-  watchRefused?: WatchRefusal;
+  monitorRefused?: MonitorRefusal;
   /**
    * The governed display-name corrections this turn's measures carry.
    * Already applied to finding titles and chart titles at the seam; kept
@@ -142,7 +142,7 @@ export interface AnswerState {
   error?: { code: string; message: string; subcode?: string; usage?: TurnUsage };
   /**
    * Rebuilt from stored server state when this session was re-opened,
-   * rather than watched as it streamed. What the server kept comes back —
+   * rather than monitored as it streamed. What the server kept comes back —
    * findings, warnings, the evidence bundle projected from the turn's
    * recorded trace, and charts rebuilt from the frames it persisted. The
    * stage timeline and the composed narrative were never stored, so this
@@ -246,8 +246,8 @@ export function applyEventToAnswer(answer: AnswerState, event: TurnEvent): Answe
         metric: event.metric ?? answer.metric,
         anomalyReconciliation: event.anomalyReconciliation ?? answer.anomalyReconciliation,
         worklist: event.worklist ?? answer.worklist,
-        watch: event.watch ?? answer.watch,
-        watchRefused: event.watchRefused ?? answer.watchRefused,
+        monitor: event.monitor ?? answer.monitor,
+        monitorRefused: event.monitorRefused ?? answer.monitorRefused,
         metricDisplay: event.metricDisplay ?? answer.metricDisplay,
         status:
           event.status === "clarification_required"
@@ -376,49 +376,49 @@ interface SessionState {
   /** The server's own words when a switch failed. */
   switchError: string | null;
 
-  /* -- Rounds (the proactive surface) ------------------------------ */
+  /* -- Monitors (the proactive surface) ------------------------------ */
   /**
-   * Watches registered from THIS browser session, keyed by the artifact
+   * Monitors registered from THIS browser session, keyed by the artifact
    * they were started from (`turnId:referent`, `turnId:chart:id`,
    * `turnId:worklist`).
    *
-   * Local, and deliberately so: the affordance has to switch to "Watching ·
+   * Local, and deliberately so: the affordance has to switch to "Monitoring ·
    * baseline 12.4%" the instant the server confirms, and re-reading the
    * whole pin list to discover a pin this client just created would show a
-   * button that still says "Watch this" over a watch that exists. It is
+   * button that still says "Monitor this" over a monitor that exists. It is
    * keyed by artifact rather than by pin id because the affordance is on
-   * the artifact and that is the question it asks: is THIS thing watched.
+   * the artifact and that is the question it asks: is THIS thing monitored.
    *
-   * It is not a cache of the tenant's watches. Rounds itself reads
-   * `GET /v1/rounds` and this map has nothing to say about it.
+   * It is not a cache of the tenant's monitors. Monitors itself reads
+   * `GET /v1/monitors` and this map has nothing to say about it.
    */
-  watches: Record<string, RoundsPin>;
+  monitors: Record<string, MonitorsPin>;
   /**
-   * Every watch this TENANT has, as the server lists them.
+   * Every monitor this TENANT has, as the server lists them.
    *
    * The store above remembers what this browser registered; this is what
    * already existed. Both are needed and neither replaces the other: the
    * first is what makes a click feel immediate, and the second is what
    * stops an analyst who opens a permalink the next morning from being
-   * offered "Watch this" over a watch that has been running all week —
+   * offered "Monitor this" over a monitor that has been running all week —
    * which would put two tiles over one measure.
    *
    * On the STORE rather than behind a query hook because the component
-   * that needs it is a leaf on the answer path (`WatchThis`, in a chart's
+   * that needs it is a leaf on the answer path (`MonitorThis`, in a chart's
    * action row and on every finding), and a `useQuery` there would drag a
    * `QueryClientProvider` into every surface and every test that mounts an
    * answer.
    */
-  knownWatches: RoundsPin[];
-  watchesLoaded: boolean;
-  /** A `loadWatches` read is in flight — the single-flight latch. */
-  watchesLoading: boolean;
+  knownMonitors: MonitorsPin[];
+  monitorsLoaded: boolean;
+  /** A `loadMonitors` read is in flight — the single-flight latch. */
+  monitorsLoading: boolean;
   /**
-   * Why this tenant's watches could not be read — the server's own
+   * Why this tenant's monitors could not be read — the server's own
    * sentence, or this client's when the failure was not the server's.
    *
    * It exists because the alternative was measured live and is worse than
-   * any error copy: `GET /v1/rounds/pins` 500'd off one malformed watch,
+   * any error copy: `GET /v1/monitors/pins` 500'd off one malformed monitor,
    * this store swallowed it in an empty `catch {}`, and every tile's
    * settings menu rendered "Change what it takes to brief you" as a
    * DISABLED button with nothing on screen to say why — a control that
@@ -426,9 +426,9 @@ interface SessionState {
    * once. A failed read is a fact about the deployment and it is stated;
    * it is never presented as an affordance that simply does not work.
    */
-  watchesError: string | null;
-  /** The artifact key a watch is being created for, while the POST is in flight. */
-  watchPendingKey: string | null;
+  monitorsError: string | null;
+  /** The artifact key a monitor is being created for, while the POST is in flight. */
+  monitorPendingKey: string | null;
   /**
    * The server's refusal, verbatim, and the artifact it was about.
    *
@@ -436,7 +436,7 @@ interface SessionState {
    * illegal for a particular contract, and a refusal shown next to the
    * wrong artifact would name a unit the reader's metric does have.
    */
-  watchError: { key: string; message: string } | null;
+  monitorError: { key: string; message: string } | null;
   /**
    * Lead lifecycle states this browser has changed, keyed by anomaly id.
    *
@@ -503,41 +503,41 @@ interface SessionState {
    */
   archiveSession: (sessionId: string) => Promise<void>;
   /**
-   * Start watching an artifact (`POST /v1/rounds/pins`).
+   * Start monitoring an artifact (`POST /v1/monitors/pins`).
    *
    * `key` identifies the artifact on screen, so the affordance beside it
-   * can switch to its watching state and no other affordance does. Never
+   * can switch to its monitoring state and no other affordance does. Never
    * rejects: a driver with no deployment says so, and the server's own
    * refusal — "a `points` threshold cannot be applied to a money
    * contract; the legal units here are …" — is kept verbatim and shown
    * next to the control that caused it.
    */
-  createWatch: (key: string, request: CreatePinRequest) => Promise<void>;
+  createMonitor: (key: string, request: CreatePinRequest) => Promise<void>;
   /**
-   * Read this tenant's watches (`GET /v1/rounds/pins`) so an affordance
-   * can tell "not watched" from "watched, by somebody, last Tuesday".
+   * Read this tenant's monitors (`GET /v1/monitors/pins`) so an affordance
+   * can tell "not monitored" from "monitored, by somebody, last Tuesday".
    *
-   * Single-flight and idempotent: every `WatchThis` on a page asks for it
+   * Single-flight and idempotent: every `MonitorThis` on a page asks for it
    * on mount, and one read answers all of them. Never rejects — a failed
-   * read leaves `watchesLoaded` false and the affordance offers the watch,
+   * read leaves `monitorsLoaded` false and the affordance offers the monitor,
    * which is the harmless direction to fail in (the server refuses a
    * duplicate spec on its own terms; a hidden control cannot be recovered
-   * from at all) — and it RECORDS the failure in `watchesError` so every
+   * from at all) — and it RECORDS the failure in `monitorsError` so every
    * surface that gates on a pin can say why it has none.
    *
    * `force` re-reads a list that already loaded (or already failed): it is
    * what the retry beside the error sentence does, and without it the
    * single-flight latch would make "try again" a no-op.
    */
-  loadWatches: (options?: { force?: boolean }) => Promise<void>;
+  loadMonitors: (options?: { force?: boolean }) => Promise<void>;
   /**
-   * Stop watching (`DELETE /v1/rounds/pins/{pin_id}`) — a soft archive
+   * Stop monitoring (`DELETE /v1/monitors/pins/{pin_id}`) — a soft archive
    * server-side. `key` is the artifact whose affordance goes back to
-   * offering the watch.
+   * offering the monitor.
    */
-  removeWatch: (key: string, pinId: string) => Promise<void>;
+  removeMonitor: (key: string, pinId: string) => Promise<void>;
   /**
-   * Move a lead along its lifecycle (`PATCH /v1/rounds/leads/{id}`).
+   * Move a lead along its lifecycle (`PATCH /v1/monitors/leads/{id}`).
    *
    * NOT optimistic, unlike `archiveSession`. What comes back is not the
    * status that was sent: claiming a resolution makes the platform
@@ -683,13 +683,13 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   switchingSessionId: null,
   switchError: null,
 
-  watches: {},
-  knownWatches: [],
-  watchesLoaded: false,
-  watchesLoading: false,
-  watchesError: null,
-  watchPendingKey: null,
-  watchError: null,
+  monitors: {},
+  knownMonitors: [],
+  monitorsLoaded: false,
+  monitorsLoading: false,
+  monitorsError: null,
+  monitorPendingKey: null,
+  monitorError: null,
   leadStates: {},
   leadPendingId: null,
   leadError: null,
@@ -934,126 +934,126 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     // selectable row for it, so nothing here re-selects one.
   },
 
-  loadWatches: async (options) => {
-    const { driver, watchesLoaded, watchesLoading } = get();
-    if (watchesLoading) return;
-    if (watchesLoaded && options?.force !== true) return;
-    if (!driver?.listRoundsPins) {
+  loadMonitors: async (options) => {
+    const { driver, monitorsLoaded, monitorsLoading } = get();
+    if (monitorsLoading) return;
+    if (monitorsLoaded && options?.force !== true) return;
+    if (!driver?.listMonitorsPins) {
       // Not a failure and not silence either: this driver has no
-      // deployment to list watches from (the mock fixture, or a store that
+      // deployment to list monitors from (the mock fixture, or a store that
       // has not been given a driver yet), and saying so is what stops a
       // surface from blaming the server for it.
       set({
-        watchesError:
+        monitorsError:
           driver === null
-            ? "This browser has not connected to a deployment yet, so no watch settings could be read."
-            : "This browser is running the mock fixture, which stores no watches — their settings live on the deployment.",
+            ? "This browser has not connected to a deployment yet, so no monitor settings could be read."
+            : "This browser is running the mock fixture, which stores no monitors — their settings live on the deployment.",
       });
       return;
     }
     // Single-flight across every affordance on the page. The latch is set
     // before the await, so twelve fact rows mounting at once make one GET.
-    set({ watchesLoading: true, watchesError: null });
+    set({ monitorsLoading: true, monitorsError: null });
     try {
-      const pins = await driver.listRoundsPins();
-      set({ knownWatches: pins, watchesLoaded: true, watchesError: null });
+      const pins = await driver.listMonitorsPins();
+      set({ knownMonitors: pins, monitorsLoaded: true, monitorsError: null });
     } catch (error) {
-      // Left unloaded on purpose. The affordance then offers the watch,
+      // Left unloaded on purpose. The affordance then offers the monitor,
       // and the server is the authority on whether that is a duplicate —
       // a control hidden because a list could not be read is a control
       // nobody can recover from.
       //
       // But NOT left unsaid. The server's own sentence is kept so the
       // menu that needs a pin can explain itself instead of drawing a
-      // grey button: measured live, one malformed watch 500'd this read
+      // grey button: measured live, one malformed monitor 500'd this read
       // tenant-wide and every tile's settings control went dead with no
       // sentence anywhere on the page.
       set({
-        watchesError:
+        monitorsError:
           error instanceof Error && error.message !== ""
             ? error.message
-            : "The request for this tenant's watches did not complete.",
+            : "The request for this tenant's monitors did not complete.",
       });
     } finally {
-      set({ watchesLoading: false });
+      set({ monitorsLoading: false });
     }
   },
 
-  createWatch: async (key, request) => {
-    const { driver, watchPendingKey } = get();
-    if (watchPendingKey !== null) return;
-    if (!driver?.createRoundsPin) {
+  createMonitor: async (key, request) => {
+    const { driver, monitorPendingKey } = get();
+    if (monitorPendingKey !== null) return;
+    if (!driver?.createMonitorsPin) {
       set({
-        watchError: {
+        monitorError: {
           key,
-          message: "This driver has no deployment to register a watch with — Rounds is the live API's.",
+          message: "This driver has no deployment to register a monitor with — Monitors is the live API's.",
         },
       });
       return;
     }
-    set({ watchPendingKey: key, watchError: null });
+    set({ monitorPendingKey: key, monitorError: null });
     try {
-      const pin = await driver.createRoundsPin(request);
+      const pin = await driver.createMonitorsPin(request);
       set((state) => ({
-        watches: { ...state.watches, [key]: pin },
+        monitors: { ...state.monitors, [key]: pin },
         // Into the tenant's list too, so a second surface showing the same
         // artifact (the Evidence rail's copy of a finding) does not offer
-        // to watch what was just watched.
-        knownWatches: [...state.knownWatches, pin],
-        watchError: null,
+        // to monitor what was just monitored.
+        knownMonitors: [...state.knownMonitors, pin],
+        monitorError: null,
       }));
     } catch (error) {
       // The server's own sentence. An illegal threshold unit is refused
       // with the legal alternatives named, and that naming is the entire
-      // value of the refusal — "could not create watch" would throw away
+      // value of the refusal — "could not create monitor" would throw away
       // the one thing that tells the analyst what to type instead.
       set({
-        watchError: {
+        monitorError: {
           key,
           message:
             error instanceof Error
               ? error.message
-              : "Could not start this watch. Nothing was registered.",
+              : "Could not start this monitor. Nothing was registered.",
         },
       });
     } finally {
-      set({ watchPendingKey: null });
+      set({ monitorPendingKey: null });
     }
   },
 
-  removeWatch: async (key, pinId) => {
-    const { driver, watchPendingKey } = get();
-    if (watchPendingKey !== null) return;
-    if (!driver?.deleteRoundsPin) {
+  removeMonitor: async (key, pinId) => {
+    const { driver, monitorPendingKey } = get();
+    if (monitorPendingKey !== null) return;
+    if (!driver?.deleteMonitorsPin) {
       set({
-        watchError: { key, message: "This driver cannot remove a watch — the live API can." },
+        monitorError: { key, message: "This driver cannot remove a monitor — the live API can." },
       });
       return;
     }
-    set({ watchPendingKey: key, watchError: null });
+    set({ monitorPendingKey: key, monitorError: null });
     try {
-      await driver.deleteRoundsPin(pinId);
+      await driver.deleteMonitorsPin(pinId);
       set((state) => {
-        const watches = { ...state.watches };
-        delete watches[key];
+        const monitors = { ...state.monitors };
+        delete monitors[key];
         return {
-          watches,
-          knownWatches: state.knownWatches.filter((pin) => pin.pinId !== pinId),
-          watchError: null,
+          monitors,
+          knownMonitors: state.knownMonitors.filter((pin) => pin.pinId !== pinId),
+          monitorError: null,
         };
       });
     } catch (error) {
       set({
-        watchError: {
+        monitorError: {
           key,
           message:
             error instanceof Error
               ? error.message
-              : "Could not stop this watch — it is still in your Rounds.",
+              : "Could not stop this monitor — it is still in your Monitors.",
         },
       });
     } finally {
-      set({ watchPendingKey: null });
+      set({ monitorPendingKey: null });
     }
   },
 
@@ -1064,7 +1064,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       set({
         leadError: {
           anomalyId,
-          message: "This driver has no deployment to record a status on — Rounds is the live API's.",
+          message: "This driver has no deployment to record a status on — Monitors is the live API's.",
         },
       });
       return;

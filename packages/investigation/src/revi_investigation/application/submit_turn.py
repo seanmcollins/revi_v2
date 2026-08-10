@@ -1043,7 +1043,7 @@ class Containment:
     own level, restated ON THE CHILD as a mandatory disclosure. The exec's
     live t2 stated 29.5%, 22.9% and 18.8% by payer and never once said the
     12.8% it descends from, so "a reader who lands on the breakdown — which
-    is exactly what a Rounds tile links to — comes away believing denial
+    is exactly what a Monitors tile links to — comes away believing denial
     rates run 19-29%". ``None`` when there is no parent LEVEL to anchor to
     (a movement tied out against a movement anchors nothing).
     """
@@ -1261,7 +1261,7 @@ def _parent_anchor(
     """The parent's own level, restated on the child (FN-10).
 
     The reconciliation summary states it too, and that is not enough: a
-    reader who lands on a breakdown from a Rounds tile reads the cells, and
+    reader who lands on a breakdown from a Monitors tile reads the cells, and
     the seam verdict is a line they have to go looking for. This sentence is
     a MANDATORY disclosure — composed here from a figure the parent already
     certified, published verbatim ahead of whatever the composer writes, and

@@ -51,7 +51,7 @@ no API routes:
 | Next | react-router v7 |
 |---|---|
 | `app/page.tsx` → `<Workspace/>` | `<Route path="/" element>` |
-| `app/rounds/page.tsx` | `<Route path="/monitors">` (post-rename) |
+| `app/monitors/page.tsx` | `<Route path="/monitors">` |
 | `app/s/[sessionId]/page.tsx` | `<Route path="/s/:sessionId">` + `useParams` |
 | `app/i/[investigationId]/page.tsx` | `<Route path="/i/:investigationId">` + `useParams` |
 | `app/layout.tsx` (providers, fonts, metadata) | Layout route: providers + `<Outlet/>`; `<title>` via the host's head mechanism |

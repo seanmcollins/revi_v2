@@ -221,19 +221,19 @@ FAMILIES: list[tuple[str, str, str]] = [
         "second measurement of the whole.",
     ),
     (
-        "WATCH_NOT_CREATED",
+        "MONITOR_NOT_CREATED",
         "caution",
-        "watch_not_created: this turn read as a watch declaration and no watch was created: "
-        "this watch's threshold cannot be applied honestly — a threshold in 'cents' is only "
-        "honest for a 'money_cents' contract, and this watch measures 'ratio'. The answer "
-        "above stands on its own; nothing is being watched.",
+        "monitor_not_created: this turn read as a monitor declaration and no monitor was created: "
+        "this monitor's threshold cannot be applied honestly — a threshold in 'cents' is only "
+        "honest for a 'money_cents' contract, and this monitor measures 'ratio'. The answer "
+        "above stands on its own; nothing is being monitored.",
     ),
     (
-        "WATCH_PENDING_CLARIFICATION",
+        "MONITOR_PENDING_CLARIFICATION",
         "caution",
-        "watch_pending_clarification: this turn read as a watch declaration and the question "
-        "above has to be answered first. Nothing is being watched yet; answer it and the "
-        "watch is registered from the answer.",
+        "monitor_pending_clarification: this turn read as a monitor declaration and the question "
+        "above has to be answered first. Nothing is being monitored yet; answer it and the "
+        "monitor is registered from the answer.",
     ),
     (
         "SNAPSHOT_AS_OF",
@@ -499,16 +499,16 @@ class TestConservation:
     Every client renders the structured list whenever it is non-empty and
     never falls back to the prose, so a sentence appended to ``warnings``
     alone is a sentence nobody sees. The API appended one there — the
-    refusal of a watch declaration, the single warning whose absence lets
-    somebody walk away believing they are being watched.
+    refusal of a monitor declaration, the single warning whose absence lets
+    somebody walk away believing they are being monitored.
     """
 
     def test_a_sentence_with_no_classified_twin_is_named(self) -> None:
-        warnings = [FAMILIES[0][2], "watch_not_created: nothing is being watched"]
+        warnings = [FAMILIES[0][2], "monitor_not_created: nothing is being monitored"]
         structured = structured_warnings([FAMILIES[0][2]])
 
         assert unconserved(warnings, structured) == (
-            "watch_not_created: nothing is being watched",
+            "monitor_not_created: nothing is being monitored",
         )
 
     def test_deduplication_is_not_a_drop(self) -> None:

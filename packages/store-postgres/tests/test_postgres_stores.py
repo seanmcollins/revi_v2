@@ -25,11 +25,11 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.pool import NullPool
 
 from revi_store_postgres.engine import ENV_VAR, create_engine, database_url
-from revi_store_postgres.rounds_stores import (
-    PostgresRoundsLeadStore,
-    PostgresRoundsLoadStore,
-    PostgresRoundsPinResultStore,
-    PostgresRoundsPinStore,
+from revi_store_postgres.monitors_stores import (
+    PostgresMonitorsLeadStore,
+    PostgresMonitorsLoadStore,
+    PostgresMonitorsPinResultStore,
+    PostgresMonitorsPinStore,
 )
 from revi_store_postgres.stores import (
     PostgresCohortStore,
@@ -41,7 +41,7 @@ from revi_store_postgres.stores import (
     PostgresTraceStore,
 )
 from revi_store_postgres.tables import ALL_SCHEMAS
-from revi_testing.rounds_store_contract import RoundsStoreContract, RoundsStores
+from revi_testing.monitors_store_contract import MonitorsStoreContract, MonitorsStores
 from revi_testing.store_contract import ApplicationStateStoreContract, ApplicationStores
 
 pytestmark = pytest.mark.postgres
@@ -162,22 +162,22 @@ class TestPostgresApplicationStores(ApplicationStateStoreContract):
         )
 
 
-class TestPostgresRoundsStores(RoundsStoreContract):
-    """The Rounds adapters against the same suite the memory ones pass.
+class TestPostgresMonitorsStores(MonitorsStoreContract):
+    """The Monitors adapters against the same suite the memory ones pass.
 
     Migration 0005's schema, exercised by behaviour rather than by reading
     the DDL back: ordering by the load's own clock, tenant scoping, soft
-    archive, and exact round-tripping of the typed spec a watch re-runs
+    archive, and exact round-tripping of the typed spec a monitor re-runs
     every load.
     """
 
     @pytest.fixture
-    def rounds(self, engine: Engine) -> RoundsStores:
-        return RoundsStores(
-            pins=PostgresRoundsPinStore(engine),
-            results=PostgresRoundsPinResultStore(engine),
-            loads=PostgresRoundsLoadStore(engine),
-            leads=PostgresRoundsLeadStore(engine),
+    def monitors(self, engine: Engine) -> MonitorsStores:
+        return MonitorsStores(
+            pins=PostgresMonitorsPinStore(engine),
+            results=PostgresMonitorsPinResultStore(engine),
+            loads=PostgresMonitorsLoadStore(engine),
+            leads=PostgresMonitorsLeadStore(engine),
         )
 
 
@@ -195,20 +195,20 @@ class TestMigrations:
     def test_migrated_to_head(self, engine: Engine) -> None:
         with engine.connect() as conn:
             version = conn.execute(sa.text("SELECT version_num FROM alembic_version")).scalar_one()
-        assert version == "0006"
+        assert version == "0007"
 
-    def test_rounds_tables_exist(self, engine: Engine) -> None:
-        """Migration 0005. Rounds is a capability, so it gets a
+    def test_monitors_tables_exist(self, engine: Engine) -> None:
+        """Migration 0005. Monitors is a capability, so it gets a
         capability-named schema; the four tables are the four questions a
         load-over-load surface cannot answer without stored state — what is
-        watched, what each watch read at each load, what the detection feed
+        monitored, what each monitor read at each load, what the detection feed
         said at each load, and where each lead stands."""
         with engine.connect() as conn:
             tables = set(
                 conn.execute(
                     sa.text(
                         "SELECT table_name FROM information_schema.tables "
-                        "WHERE table_schema = 'revi_rounds'"
+                        "WHERE table_schema = 'revi_monitors'"
                     )
                 ).scalars()
             )
@@ -227,14 +227,14 @@ class TestMigrations:
                 for row in conn.execute(
                     sa.text(
                         "SELECT indexname, indexdef FROM pg_indexes "
-                        "WHERE schemaname = 'revi_rounds'"
+                        "WHERE schemaname = 'revi_monitors'"
                     )
                 )
             }
-        assert "ix_revi_rounds_pin_results_pin_loaded" in indexes
-        assert "watermark_loaded_at" in indexes["ix_revi_rounds_pin_results_pin_loaded"]
-        assert "ix_revi_rounds_loads_tenant_loaded" in indexes
-        assert "watermark_loaded_at" in indexes["ix_revi_rounds_loads_tenant_loaded"]
+        assert "ix_revi_monitors_pin_results_pin_loaded" in indexes
+        assert "watermark_loaded_at" in indexes["ix_revi_monitors_pin_results_pin_loaded"]
+        assert "ix_revi_monitors_loads_tenant_loaded" in indexes
+        assert "watermark_loaded_at" in indexes["ix_revi_monitors_loads_tenant_loaded"]
 
     def test_sessions_can_be_soft_archived(self, engine: Engine) -> None:
         """Migration 0004. The rail had no way to dismiss a session, and a

@@ -15,7 +15,7 @@
  * live worklist as well as the fixture.
  */
 
-import type { LeadStatus, TimeToImpact } from "@/lib/rounds";
+import type { LeadStatus, TimeToImpact } from "@/lib/monitors";
 import type { Refinement } from "@/lib/types";
 
 /**
@@ -322,7 +322,7 @@ export interface PortfolioItem {
    */
   drill?: { label: string; refinement: Refinement };
 
-  /* --- Rounds: where this lead stands, and when it hits cash -------- */
+  /* --- Monitors: where this lead stands, and when it hits cash -------- */
 
   /**
    * `AnomalyCard.lead_status` — where this lead stands with the humans

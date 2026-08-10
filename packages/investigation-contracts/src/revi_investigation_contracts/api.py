@@ -639,19 +639,19 @@ class TurnAnswer(ClosedModel):
     #: The ranked anomaly worklist, when this turn asked for it or resolved
     #: the pack's governed worklist routing. See :class:`WorklistPayload`.
     worklist: WorklistPayload | None = None
-    #: Present only when this turn was a WATCH DECLARATION — "watch
+    #: Present only when this turn was a MONITOR DECLARATION — "monitor
     #: Silverline's denial rate" — in which case the answer below is also
-    #: the baseline the watch starts from. See
-    #: :class:`WatchDeclarationPayload`. ``None`` on every ordinary turn.
-    watch: WatchDeclarationPayload | None = None
-    #: Present when this turn read as a watch declaration and NO watch was
+    #: the baseline the monitor starts from. See
+    #: :class:`MonitorDeclarationPayload`. ``None`` on every ordinary turn.
+    monitor: MonitorDeclarationPayload | None = None
+    #: Present when this turn read as a monitor declaration and NO monitor was
     #: created — the threshold was illegal against the metric's contract,
     #: the sensitivity clause could not be read, or the store refused it.
-    #: Published here, beside :attr:`watch`, so the refusal lands exactly
+    #: Published here, beside :attr:`monitor`, so the refusal lands exactly
     #: where the confirmation would have: a refusal that only reached
     #: :attr:`warnings` was rendered nowhere, and the analyst walked away
-    #: believing they were being watched (round-7 FN-3, FN-6).
-    watch_refused: WatchRefusedPayload | None = None
+    #: believing they were being monitored (round-7 FN-3, FN-6).
+    monitor_refused: MonitorRefusedPayload | None = None
     reconciliation: str | None = None
     plan_hash: str | None = None
     watermark_stale: bool = False
@@ -698,9 +698,9 @@ class TurnClarification(ClosedModel):
     #:
     #: A clarification used to carry no warnings channel at all, which made
     #: it the one outcome where a fact about the turn had nowhere to go —
-    #: and the fact that fell through the gap was "I read this as a watch".
+    #: and the fact that fell through the gap was "I read this as a monitor".
     #: In a pack that refuses any imprecise payer name BY DESIGN, a
-    #: clarification is the MODAL branch of the watch-declaration path, so a
+    #: clarification is the MODAL branch of the monitor-declaration path, so a
     #: declaration that clarified was destroyed by the question it triggered
     #: (round-7 FN-5). The declaration is now carried across the boundary
     #: and registered from the resolved answer; this says so while the
@@ -739,13 +739,13 @@ TurnResponse = Annotated[
 
 
 class InvestigationResponse(ClosedModel):
-    #: A watch declaration this turn refused, restored with it.
+    #: A monitor declaration this turn refused, restored with it.
     #:
     #: A refusal that only lives on the live response is a refusal that
     #: disappears the moment somebody re-opens the session or follows the
-    #: permalink — and "nothing is being watched" is the one statement whose
+    #: permalink — and "nothing is being monitored" is the one statement whose
     #: value is entirely in being read later (round-7 FN-3).
-    watch_refused: WatchRefusedPayload | None = None
+    monitor_refused: MonitorRefusedPayload | None = None
     investigation_id: str
     session_id: str
     parent_id: str | None = None
@@ -985,90 +985,90 @@ class DrillDimensionRepoint(ClosedModel):
     rationale: str
 
 
-#: How a watch decides a movement deserves a brief entry. ``crosses`` is
+#: How a monitor decides a movement deserves a brief entry. ``crosses`` is
 #: the odd one out: its reference is a LEVEL, not a prior value.
-RoundsWatchMode = Literal["governed_default", "any_movement", "delta_gte", "crosses"]
+MonitorMode = Literal["governed_default", "any_movement", "delta_gte", "crosses"]
 
 #: How a threshold is STATED — not the metric's own unit. ``points`` for a
 #: rate (0.5 = half a percentage point), ``cents`` for money, ``days`` for a
 #: lag contract ("tell me if posting lag stretches by more than 2 days"),
 #: ``relative_pct`` for a fraction of the reference value (legal anywhere).
 #:
-#: MUST equal ``revi_investigation.application.ports.WATCH_THRESHOLD_UNITS``,
+#: MUST equal ``revi_investigation.application.ports.MONITOR_THRESHOLD_UNITS``,
 #: which is the engine's own list and the one the parser, the pack and the
 #: materiality policy all read. It did not: ``days`` was legal everywhere
 #: inside the engine and absent from this literal, so a stored ``days``
-#: watch could not be serialized — one such row 500'd
-#: ``GET /v1/rounds/pins`` for the WHOLE tenant, and a days declaration
+#: monitor could not be serialized — one such row 500'd
+#: ``GET /v1/monitors/pins`` for the WHOLE tenant, and a days declaration
 #: stored its pin and then reported ``not_stored`` when the confirmation
-#: failed to validate. ``tests/test_watch_unit_contract.py`` asserts the two
+#: failed to validate. ``tests/test_monitor_unit_contract.py`` asserts the two
 #: lists are the same set on every CI run so the skew cannot return.
-RoundsWatchUnit = Literal["points", "relative_pct", "cents", "days"]
+MonitorUnit = Literal["points", "relative_pct", "cents", "days"]
 
 
-class RoundsWatchModel(ClosedModel):
-    """One watch's own sensitivity, overriding the pack's default gate.
+class MonitorModel(ClosedModel):
+    """One monitor's own sensitivity, overriding the pack's default gate.
 
-    (Lives here rather than in ``rounds.py`` because a turn answer carries
-    it — see :class:`WatchDeclarationPayload` — and one definition beats
+    (Lives here rather than in ``monitors.py`` because a turn answer carries
+    it — see :class:`MonitorDeclarationPayload` — and one definition beats
     two that have to agree.)
 
     Unit honesty is enforced at creation, not at fire time: a ``points``
     threshold on a money contract, or ``cents`` on a rate, is REFUSED with
     the reason rather than coerced into the nearest legal unit. A threshold
-    in the wrong unit produces a watch that never fires — or always does —
+    in the wrong unit produces a monitor that never fires — or always does —
     for a reason nobody can see on the screen, which is the worst of the
     available failures.
 
     A threshold may LOOSEN the governed gate as well as tighten it.
-    Somebody watching one specific cell knows things the pack's blanket
+    Somebody monitoring one specific cell knows things the pack's blanket
     threshold does not, and refusing that pushes them back to a
     spreadsheet. It is paid for rather than refused: every brief entry says
-    which threshold briefed it, and a watch whose own threshold keeps
+    which threshold briefed it, and a monitor whose own threshold keeps
     firing on movements the governed gate calls normal variation is counted
     and named once per load.
 
-    BASELINE SEMANTICS: a watch's reference point is its CREATION-LOAD
+    BASELINE SEMANTICS: a monitor's reference point is its CREATION-LOAD
     value for every mode except ``crosses``, whose reference is the
     crossing level. Deltas are stated against the PRIOR load always, and
     against the baseline additionally whenever the two differ materially —
     a tile that drifted four points since it was created while moving 0.2
     overnight is telling two true stories, and showing only the second
-    would hide the reason the watch exists.
+    would hide the reason the monitor exists.
     """
 
-    mode: RoundsWatchMode = "governed_default"
+    mode: MonitorMode = "governed_default"
     #: The threshold, in ``unit``. Required for ``delta_gte`` and
     #: ``crosses``; refused for the other two, where it would be a number
     #: with nothing to compare against.
     value: float | None = None
-    unit: RoundsWatchUnit | None = None
+    unit: MonitorUnit | None = None
     #: Restrict to one direction of movement. Applies to every mode.
     direction: Literal["any", "up", "down"] = "any"
-    #: Why this watch is set the way it is, in the analyst's words.
+    #: Why this monitor is set the way it is, in the analyst's words.
     #: Recorded so a threshold is a decision somebody made rather than a
     #: setting nobody remembers.
     note: str = ""
 
 
-class WatchDeclarationPayload(ClosedModel):
-    """The one-time confirmation a "watch X" turn answers with.
+class MonitorDeclarationPayload(ClosedModel):
+    """The one-time confirmation a "monitor X" turn answers with.
 
-    A watch declaration is not a question and it is not a silent
+    A monitor declaration is not a question and it is not a silent
     registration. It is an ordinary turn — the same interpretation, the
     same planning, the same §6.6 validation, the same findings — whose
-    answer doubles as the BASELINE: what the thing being watched reads
-    right now, so the analyst can see they are watching the right cell
+    answer doubles as the BASELINE: what the thing being monitored reads
+    right now, so the analyst can see they are monitoring the right cell
     before they walk away from it.
 
-        Watching: Silverline MA denial rate, monthly — currently 12.4%.
+        Monitoring: Silverline MA denial rate, monthly — currently 12.4%.
         I'll brief you when it moves more than half a point.
 
     Everything in that sentence is a fact from the answer beside it: the
     spec the platform compiled, the value it measured, and the threshold it
     will gate on. A declaration that could not be compiled clarifies
-    exactly as a question would — a watch registered against a spec nobody
-    confirmed is a watch that briefs the wrong number every morning.
+    exactly as a question would — a monitor registered against a spec nobody
+    confirmed is a monitor that briefs the wrong number every morning.
     """
 
     pin_id: str
@@ -1077,13 +1077,13 @@ class WatchDeclarationPayload(ClosedModel):
     #: model, and never containing a figure the answer does not carry.
     statement: str
     #: What the platform compiled the declaration into. Published because a
-    #: watch whose definition the analyst cannot check is a watch they
+    #: monitor whose definition the analyst cannot check is a monitor they
     #: cannot trust.
     spec: TypedInvestigationSpec
-    watch: RoundsWatchModel
+    monitor: MonitorModel
     #: The gate in words: "more than half a point", "any movement at all".
     threshold_statement: str
-    #: The baseline this watch starts from, and the load it was taken at.
+    #: The baseline this monitor starts from, and the load it was taken at.
     baseline_value_text: str = ""
     baseline_watermark_id: str = ""
     #: The lead-in the analyst used, verbatim ("keep an eye on"), so the
@@ -1093,31 +1093,31 @@ class WatchDeclarationPayload(ClosedModel):
     #: the words admit one. "more than 2%" against a RATE is either two
     #: percentage points or two percent of the current value; the platform
     #: commits to the reading that is legal against every contract and says
-    #: what the other one would have been, rather than leaving a watch
+    #: what the other one would have been, rather than leaving a monitor
     #: gated four times tighter than anybody asked for (round-7 FN-6).
     threshold_alternative: str = ""
 
 
-class WatchRefusedPayload(ClosedModel):
-    """A watch declaration that was read and NOT registered.
+class MonitorRefusedPayload(ClosedModel):
+    """A monitor declaration that was read and NOT registered.
 
     The worst outcome available to this feature is silence: an analyst says
-    "watch this and tell me when it moves", the platform cannot honour the
+    "monitor this and tell me when it moves", the platform cannot honour the
     instruction, and the screen shows an ordinary answer. They walk away
-    believing they are being watched, and nothing is watching.
+    believing they are being monitored, and nothing is monitoring.
 
     So a refusal is a payload, not a sentence appended to a list — it
     renders where the confirmation would have gone, it carries what the
     platform DID understand (so the analyst can see how close they were),
     and it names the phrasings that would work. Everything here is also
-    published as a classified warning (``WATCH_NOT_CREATED``) so the
+    published as a classified warning (``MONITOR_NOT_CREATED``) so the
     integrity line counts it.
     """
 
     #: ``threshold_illegal`` (a legal grammar, an illegal unit for this
     #: metric's contract), ``threshold_unreadable`` (a sensitivity clause
     #: this grammar cannot read — never silently replaced by the governed
-    #: default), or ``not_stored`` (the Rounds store refused it).
+    #: default), or ``not_stored`` (the Monitors store refused it).
     reason_code: Literal["threshold_illegal", "threshold_unreadable", "not_stored"]
     #: The platform's own sentence for why, verbatim.
     reason: str
@@ -1345,7 +1345,7 @@ class AnomalyCard(ClosedModel):
     #: ordinary card, and never silent on the ones that use it: the
     #: repointed drill measures a related population, not the same rows.
     drill_dimension_repoints: list[DrillDimensionRepoint] = Field(default_factory=list)
-    # --- Rounds: lifecycle and timing (additive; both default to the
+    # --- Monitors: lifecycle and timing (additive; both default to the
     # behaviour a client had before they existed) -------------------------
     #: Where this lead stands with the humans working it. ``open`` is the
     #: default and also the honest reading of a lead nobody has touched.

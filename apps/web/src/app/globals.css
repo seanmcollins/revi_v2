@@ -55,8 +55,8 @@
      `shadow-[0_1px_2px_rgba(0,0,0,0.03)]` was written into the tile itself
      and measured as nothing: its darkest pixel is 1.064:1 against the light
      page and 1.000:1 against the dark one — i.e. in dark there was no
-     shadow at all, and at twenty tiles the only thing between one watch's
-     number and the next watch's caveat sentence was 12px of gap.
+     shadow at all, and at twenty tiles the only thing between one monitor's
+     number and the next monitor's caveat sentence was 12px of gap.
 
      Light: a two-layer drop shadow. Edge over the page measures 1.144:1
      (was 1.064:1), and the card face itself is 1.092:1 over the page.
@@ -470,7 +470,7 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
-   THE BRIEF SPINE — Rounds' one structural device.
+   THE BRIEF SPINE — Monitors' one structural device.
 
    A hairline down the left of this load's brief, with one mark per entry
    sitting on it. It is the same left-rule grammar the verdict lead-in

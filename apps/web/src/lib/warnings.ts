@@ -140,15 +140,15 @@ export const WARNING_TITLES: Readonly<Record<string, string>> = {
   // This platform's own dimension swap, disclosed on the turn that made
   // it: the drill does not read the cut the card was detected on.
   DIMENSION_REPOINTED: "This drill reads a different cut",
-  // A watch declaration that registered NOTHING. Deliberately not "Watch
+  // A monitor declaration that registered NOTHING. Deliberately not "Monitor
   // not created", which reads as bookkeeping: the fact an analyst has to
   // take away is that the thing they asked for is not happening, and the
   // engine's sentence underneath names the phrasings that would work.
-  WATCH_NOT_CREATED: "Nothing is being watched",
+  MONITOR_NOT_CREATED: "Nothing is being monitored",
   // The other half: the declaration is being HELD while the clarification
   // it triggered is on screen. Not a refusal and not a confirmation — the
-  // one state where saying nothing is what destroyed the watch.
-  WATCH_PENDING_CLARIFICATION: "Your watch is waiting on the question below",
+  // one state where saying nothing is what destroyed the monitor.
+  MONITOR_PENDING_CLARIFICATION: "Your monitor is waiting on the question below",
   /* -- what the platform did with the answer (does not change it) ---- */
   SUPPRESSION_APPLIED: "Small cells were suppressed",
   NARRATIVE_REDACTED: "A sentence was cut from the write-up",

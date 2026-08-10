@@ -30,7 +30,7 @@ seam is closed on money and open on rates, which is the drill an RCM
 director performs every single day."
 
 **FN-14 (P1) — "179.5 days days in ar".** Reported at round 5, shipped
-through M22 and M23, and promoted onto a Rounds tile headline a user reads
+through M22 and M23, and promoted onto a Monitors tile headline a user reads
 every morning. The ungrouped scalar path renders correctly, so the defect
 is the *juxtaposition*: a rendered value carries its unit and the measure's
 own display name already is "days in ar".
@@ -963,5 +963,5 @@ class TestTheGroupedTitleIsTheSurfaceThatBroke:
         assert _token_count(finding.title, "days") == 1, finding.title
         assert "179.5" in finding.title
         # The registered referent's label is the title, and it is what a
-        # Rounds tile headline is built from.
+        # Monitors tile headline is built from.
         assert result.referents[0].label == finding.title

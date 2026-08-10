@@ -6,7 +6,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import liveRounds from "@/lib/__fixtures__/live-rounds.json";
+import liveMonitors from "@/lib/__fixtures__/live-monitors.json";
 import liveTurns from "@/lib/__fixtures__/live-turns.json";
 import { readableStatement, scalarizeRankOfOne, tidyProse } from "@/lib/prose";
 
@@ -17,10 +17,10 @@ describe("tidyProse — a stop printed twice where two builders met", () => {
     // belongs to the sentence is the one to keep.
     expect(
       tidyProse(
-        "this watch briefs at 1 points and the tile moved 3.6 points (Anything over a point on any payer is worth my morning.). Since you started watching it",
+        "this monitor briefs at 1 points and the tile moved 3.6 points (Anything over a point on any payer is worth my morning.). Since you started monitoring it",
       ),
     ).toBe(
-      "this watch briefs at 1 points and the tile moved 3.6 points (Anything over a point on any payer is worth my morning). Since you started watching it",
+      "this monitor briefs at 1 points and the tile moved 3.6 points (Anything over a point on any payer is worth my morning). Since you started monitoring it",
     );
   });
 
@@ -36,8 +36,8 @@ describe("tidyProse — a stop printed twice where two builders met", () => {
   });
 
   it("leaves an ellipsis whole", () => {
-    expect(tidyProse("Reading this watch's settings...")).toBe(
-      "Reading this watch's settings...",
+    expect(tidyProse("Reading this monitor's settings...")).toBe(
+      "Reading this monitor's settings...",
     );
   });
 
@@ -47,16 +47,16 @@ describe("tidyProse — a stop printed twice where two builders met", () => {
   });
 
   it("repairs the live brief entry that carries it", () => {
-    // The `.).` the reviewer measured on /rounds, read out of the capture
+    // The `.).` the reviewer measured on /monitors, read out of the capture
     // rather than transcribed: it is in the brief line for the JOC
-    // account's watch, where the curated reviewer note is quoted.
-    const statement = (liveRounds.brief.entries as { statement?: string }[])
+    // account's monitor, where the curated reviewer note is quoted.
+    const statement = (liveMonitors.brief.entries as { statement?: string }[])
       .map((entry) => entry.statement ?? "")
       .find((text) => text.includes(".)."));
     expect(statement, "the capture must still carry the stacked stop").toBeDefined();
     const repaired = tidyProse(statement as string);
     expect(repaired).not.toContain(".).");
-    expect(repaired).toContain("worth my morning). Since you started watching");
+    expect(repaired).toContain("worth my morning). Since you started monitoring");
     // And the ISO range three clauses later is untouched.
     expect(repaired).toContain("2026-07-01..2026-07-31");
   });

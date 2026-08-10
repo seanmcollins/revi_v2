@@ -32,8 +32,8 @@ function PopoverContent({
         sideOffset={sideOffset}
         // THE PRIMARY ACTION IS ALWAYS REACHABLE.
         //
-        // Measured at 1512×772 with the watch menu open: the popover was
-        // 662px tall at y=150, so "Save and restart this watch" sat at
+        // Measured at 1512×772 with the monitor menu open: the popover was
+        // 662px tall at y=150, so "Save and restart this monitor" sat at
         // y=774 — two pixels past the bottom of the viewport, with
         // `maxHeight: none`, `overflowY: visible`, no scroll container and
         // nothing below it to scroll to. The width was capped and the

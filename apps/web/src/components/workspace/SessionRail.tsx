@@ -26,7 +26,7 @@ import { apiBaseUrl } from "@/lib/apiDriver";
 import { displaySessionTitle, relativeTime } from "@/lib/format";
 import { sessionLinkFor } from "@/lib/links";
 import { REFERENCE_QUESTIONS } from "@/lib/mock/reference";
-import { hasUnseenLoad } from "@/lib/roundsVisit";
+import { hasUnseenLoad } from "@/lib/monitorsVisit";
 import { useSessionStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -88,7 +88,7 @@ export function SessionRail() {
           <MessageSquarePlus className="size-3" />
           New chat
         </Button>
-        <RoundsLink />
+        <MonitorsLink />
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
@@ -175,7 +175,7 @@ export function SessionRail() {
 }
 
 /**
- * The way into Rounds, and the one honest thing it can say about it.
+ * The way into Monitors, and the one honest thing it can say about it.
  *
  * It carries a dot when this browser has not been briefed on the newest
  * load — a fact this client already holds from the health poll, so no
@@ -187,7 +187,7 @@ export function SessionRail() {
  * It is quiet on the mock fixture, which has no deployment to walk, rather
  * than offering a link to a page that will explain it cannot help.
  */
-function RoundsLink() {
+function MonitorsLink() {
   const mode = useSessionStore((s) => s.connection.mode);
   const newest = useSessionStore((s) => s.connection.newestWatermarkId);
   /**
@@ -202,20 +202,20 @@ function RoundsLink() {
     () => hasUnseenLoad(newest),
     () => false,
   );
-  // Never on the page the dot is pointing AT. Sitting on Rounds reading
+  // Never on the page the dot is pointing AT. Sitting on Monitors reading
   // the new load under a badge announcing a new load is the app arguing
   // with itself, and "you are here" is the one thing the rail always knows.
-  const here = usePathname() === "/rounds";
+  const here = usePathname() === "/monitors";
   const unseen = stored && !here;
 
   if (mode !== "api") return null;
   return (
     <Link
-      href="/rounds"
+      href="/monitors"
       className="focus-ring flex w-full items-center gap-1.5 rounded-md border px-2 py-1.5 text-meta font-medium text-muted-foreground transition-colors duration-200 hover:border-ring/40 hover:text-foreground"
     >
       <Stethoscope aria-hidden className="size-3" />
-      Rounds
+      Monitors
       {unseen && (
         <span className="ml-auto inline-flex items-center gap-1 text-micro font-normal text-verified">
           <span aria-hidden className="integrity-dot inline-block size-1.5 rounded-full bg-verified" />

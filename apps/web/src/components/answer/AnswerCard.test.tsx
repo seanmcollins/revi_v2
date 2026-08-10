@@ -568,7 +568,7 @@ describe("AnswerCard — a governed name's caveat travels with it (FN-5)", () =>
     suggestedRefinements: [],
     impactCents: 2_242_600_028,
     impactLabel: "at this data load",
-    // The pack's live entry. The "watch proxy" label came off when
+    // The pack's live entry. The "monitor proxy" label came off when
     // `timely_filing_at_risk_dollars` grew its claim → plan → filing-rule
     // join: the runway is real and measurable now, so the number is no
     // longer standing in for a measurement nobody could make. What is left

@@ -145,13 +145,13 @@ export function ContextLine({
 
       {/* A RESTORED turn says so once, quietly. The line above is the same
           set of facts the live turn published; this mark says they were
-          read back rather than watched, and the popover's own Restored
+          read back rather than monitored, and the popover's own Restored
           chip carries the server's account of what the store kept.
 
           Solid muted ink, not 80% of it: `--muted-foreground` at 80%
           measures 3.48:1 on card, 3.27:1 on the page and 3.16:1 on sunken
           — under the 4.5:1 AA floor at 12px. Solid: 5.24 / 4.80 / 4.57.
-          The Rounds surface banned the class after round 8 and this was
+          The Monitors surface banned the class after round 8 and this was
           the straggler; the ban is repo-wide now. */}
       {header.restored && (
         <span className="inline-flex items-center gap-1 text-micro text-muted-foreground">

@@ -21,7 +21,7 @@ import { displaySessionTitle, mediumDate, untitledTurnLabel } from "@/lib/format
 import { sessionLinkFor } from "@/lib/links";
 import { REFERENCE_QUESTIONS } from "@/lib/mock/reference";
 import { MockDriver } from "@/lib/mockDriver";
-import { hasUnseenLoad, noteRoundsRedirect } from "@/lib/roundsVisit";
+import { hasUnseenLoad, noteMonitorsRedirect } from "@/lib/monitorsVisit";
 import { sessionLinkDisclosure } from "@/lib/shareDisclosure";
 import { useSessionStore } from "@/lib/store";
 
@@ -195,8 +195,8 @@ export default function Workspace({
    * BRIEF-FIRST COLD START.
    *
    * When a data load has landed that this browser has not been briefed on,
-   * the app opens on Rounds. That is the whole product claim made
-   * structural: Revi walks your Rounds every load and tells you what
+   * the app opens on Monitors. That is the whole product claim made
+   * structural: Revi walks your Monitors every load and tells you what
    * changed, so the first thing on screen is what changed — not an empty
    * composer waiting to be asked.
    *
@@ -210,8 +210,8 @@ export default function Workspace({
    *     route redirects.
    *   IT NEVER INTERRUPTS WORK. A thread already on screen (a resumed
    *     session, a turn just asked) is not swapped out from under the
-   *     analyst; the rail's Rounds link carries the dot instead.
-   *   IT HAPPENS ONCE. `redirected` latches, so hitting Back from Rounds
+   *     analyst; the rail's Monitors link carries the dot instead.
+   *   IT HAPPENS ONCE. `redirected` latches, so hitting Back from Monitors
    *     returns here and stays here.
    */
   const newestWatermarkId = useSessionStore((s) => s.connection.newestWatermarkId);
@@ -229,11 +229,11 @@ export default function Workspace({
     // move focus: a navigation nobody asked for is silent to a screen
     // reader otherwise, and this is the one navigation this app makes on
     // the analyst's behalf.
-    noteRoundsRedirect();
+    noteMonitorsRedirect();
     // `router.push`, not `location.assign`: a client-side navigation keeps
     // the store, the driver and the health poll this component just set
-    // up, so Rounds opens without re-bootstrapping everything it needs.
-    router.push("/rounds");
+    // up, so Monitors opens without re-bootstrapping everything it needs.
+    router.push("/monitors");
   }, [
     router,
     connectionMode,

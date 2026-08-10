@@ -163,19 +163,19 @@ _RULES: tuple[_Rule, ...] = (
     _rule("PROBE_TEMPLATE_SKIPPED", INFO, r"^probe template '.+' skipped:"),
     _rule("TRANSFORM_NOT_EXECUTABLE", INFO, r"^transform '?.+'? is not executable"),
     _rule("TRANSFORM_SKIPPED", INFO, r"^transform '?.+'? skipped:"),
-    # -- the watch a turn declared, and what became of it ------------------
-    # Round-7 FN-3. A refused watch declaration was appended to `warnings`
+    # -- the monitor a turn declared, and what became of it ------------------
+    # Round-7 FN-3. A refused monitor declaration was appended to `warnings`
     # AFTER `warnings_v2` had been built, so the one sentence that mattered
-    # — "nothing is being watched" — was classified nowhere, counted by no
+    # — "nothing is being monitored" — was classified nowhere, counted by no
     # integrity line, and rendered on no screen. It was also mis-coded as a
     # `population_caveat`, which is a statement about who is in a number and
-    # not about whether a watch exists.
-    _rule("WATCH_NOT_CREATED", CAUTION, r"^watch_not_created:"),
+    # not about whether a monitor exists.
+    _rule("MONITOR_NOT_CREATED", CAUTION, r"^monitor_not_created:"),
     # Round-7 FN-5. The declaration is held across the clarification it
     # triggered and registered from the resolved answer; while the question
     # is on screen, this says so. Silence here is the same defect wearing a
     # different mask.
-    _rule("WATCH_PENDING_CLARIFICATION", CAUTION, r"^watch_pending_clarification:"),
+    _rule("MONITOR_PENDING_CLARIFICATION", CAUTION, r"^monitor_pending_clarification:"),
     # -- worklist-level facts about the portfolio -------------------------
     _rule("PORTFOLIO_CARDS_NOT_INVESTIGABLE", CAUTION, r"detected anomalies .* are not investigable"),
     _rule("PORTFOLIO_FEED_EMPTY", INFO, r"^no detected anomalies at this watermark"),
@@ -231,8 +231,8 @@ def unconserved(
     prose. So a sentence that reaches ``warnings`` alone is a sentence
     nobody sees, and the API has appended to ``warnings`` alone at least
     once for every field it added after the assembler ran (round-7 FN-3: the
-    refusal of a watch declaration, which is the one warning whose absence
-    lets somebody walk away believing they are being watched).
+    refusal of a monitor declaration, which is the one warning whose absence
+    lets somebody walk away believing they are being monitored).
 
     The check is by MESSAGE and not by count. ``structured_warnings``
     deduplicates identical sentences into one entry with a ``count``, so

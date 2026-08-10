@@ -22,11 +22,11 @@ from revi_api.memory_stores import (
     MemoryEvidenceCache,
     MemoryFrameStore,
     MemoryInvestigationStore,
+    MemoryMonitorsLeadStore,
+    MemoryMonitorsLoadStore,
+    MemoryMonitorsPinResultStore,
+    MemoryMonitorsPinStore,
     MemoryReferentRegistryStore,
-    MemoryRoundsLeadStore,
-    MemoryRoundsLoadStore,
-    MemoryRoundsPinResultStore,
-    MemoryRoundsPinStore,
     MemorySessionStore,
     MemoryTraceStore,
 )
@@ -34,7 +34,7 @@ from revi_investigation.application.ports import EMPTY_SESSION_TITLE
 from revi_investigation.domain.context import PackVersionRef
 from revi_investigation.domain.records import Session
 from revi_kernel.watermark import DataWatermark, WatermarkEpoch
-from revi_testing.rounds_store_contract import RoundsStoreContract, RoundsStores
+from revi_testing.monitors_store_contract import MonitorsStoreContract, MonitorsStores
 from revi_testing.store_contract import ApplicationStateStoreContract, ApplicationStores
 
 
@@ -88,8 +88,8 @@ class TestMemorySessionListJoin:
         assert page.sessions[0].title == EMPTY_SESSION_TITLE
 
 
-class TestMemoryRoundsStores(RoundsStoreContract):
-    """The API's fallback Rounds stores against the shared port contract.
+class TestMemoryMonitorsStores(MonitorsStoreContract):
+    """The API's fallback Monitors stores against the shared port contract.
 
     Same reason the application-state stores are held to theirs: these are
     what every local demo and every CI run of the API suite actually uses,
@@ -98,10 +98,10 @@ class TestMemoryRoundsStores(RoundsStoreContract):
     """
 
     @pytest.fixture
-    def rounds(self) -> RoundsStores:
-        return RoundsStores(
-            pins=MemoryRoundsPinStore(),
-            results=MemoryRoundsPinResultStore(),
-            loads=MemoryRoundsLoadStore(),
-            leads=MemoryRoundsLeadStore(),
+    def monitors(self) -> MonitorsStores:
+        return MonitorsStores(
+            pins=MemoryMonitorsPinStore(),
+            results=MemoryMonitorsPinResultStore(),
+            loads=MemoryMonitorsLoadStore(),
+            leads=MemoryMonitorsLeadStore(),
         )

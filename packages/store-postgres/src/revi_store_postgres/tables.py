@@ -20,7 +20,7 @@ TRACE_SCHEMA = "revi_trace"
 COHORT_SCHEMA = "revi_cohort"
 PACK_SCHEMA = "revi_pack"
 CACHE_SCHEMA = "revi_cache"
-ROUNDS_SCHEMA = "revi_rounds"
+MONITORS_SCHEMA = "revi_monitors"
 
 ALL_SCHEMAS: tuple[str, ...] = (
     SESSION_SCHEMA,
@@ -28,7 +28,7 @@ ALL_SCHEMAS: tuple[str, ...] = (
     COHORT_SCHEMA,
     PACK_SCHEMA,
     CACHE_SCHEMA,
-    ROUNDS_SCHEMA,
+    MONITORS_SCHEMA,
 )
 
 metadata = sa.MetaData()
@@ -170,7 +170,7 @@ evidence = sa.Table(
     schema=CACHE_SCHEMA,
 )
 
-# --- Rounds: the proactive surface (migration 0005) -------------------------
+# --- Monitors: the proactive surface (migration 0005) -------------------------
 
 #: A pinned artifact = its TYPED SPEC, never a snapshot. ``spec`` holds the
 #: ``TypedInvestigationSpec`` as JSON so every load can re-run it at the new
@@ -181,7 +181,7 @@ evidence = sa.Table(
 #: ``tenant`` is the scope in v1 (see the AUTH DEBT note on
 #: ``revi_investigation.application.ports``): per-user pins are a column and
 #: a filter away, and the index below is already the one they would need.
-rounds_pins = sa.Table(
+monitors_pins = sa.Table(
     "pins",
     metadata,
     sa.Column("id", sa.Text, primary_key=True),
@@ -190,7 +190,7 @@ rounds_pins = sa.Table(
     sa.Column("presentation", sa.Text, nullable=False),
     sa.Column("window_mode", sa.Text, nullable=False),
     sa.Column("spec", JSONB, nullable=False),
-    sa.Column("watch", JSONB, nullable=True),
+    sa.Column("monitor", JSONB, nullable=True),
     sa.Column("created_from_kind", sa.Text, nullable=False, server_default="spec"),
     sa.Column("created_from_investigation_id", sa.Text, nullable=True),
     sa.Column("created_from_referent", sa.Text, nullable=True),
@@ -199,9 +199,9 @@ rounds_pins = sa.Table(
     # Soft un-pin, exactly like the session archive: the evaluated history a
     # brief already published stays readable, and nothing dangles.
     sa.Column("archived_at", sa.DateTime(timezone=True), nullable=True),
-    # The BASELINE: what this watch read at the load it was created on,
+    # The BASELINE: what this monitor read at the load it was created on,
     # captured once and never rewritten. Stored on the pin rather than
-    # derived from the oldest result because it is a fact about the WATCH
+    # derived from the oldest result because it is a fact about the MONITOR
     # and must survive result history being trimmed. ``Text`` for the value
     # because a threshold or a baseline that round-trips through a float is
     # not the number that was measured.
@@ -209,15 +209,15 @@ rounds_pins = sa.Table(
     sa.Column("baseline_value", sa.Text, nullable=True),
     sa.Column("baseline_unit", sa.Text, nullable=True),
     sa.Column("baseline_captured_at", sa.DateTime(timezone=True), nullable=True),
-    sa.Index("ix_revi_rounds_pins_tenant", "tenant"),
-    schema=ROUNDS_SCHEMA,
+    sa.Index("ix_revi_monitors_pins_tenant", "tenant"),
+    schema=MONITORS_SCHEMA,
 )
 
 #: One evaluated tile per (pin, load). ``watermark_loaded_at`` is stored
 #: beside the id because "the prior load" is ordered by the load's own
 #: clock — watermark ids are opaque strings and sorting them lexically is a
 #: guess that happens to work on ``wm_001``.
-rounds_pin_results = sa.Table(
+monitors_pin_results = sa.Table(
     "pin_results",
     metadata,
     sa.Column("pin_id", sa.Text, primary_key=True),
@@ -226,15 +226,15 @@ rounds_pin_results = sa.Table(
     sa.Column("watermark_loaded_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("evaluated_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("payload", JSONB, nullable=False),
-    sa.Index("ix_revi_rounds_pin_results_pin_loaded", "pin_id", "watermark_loaded_at"),
-    schema=ROUNDS_SCHEMA,
+    sa.Index("ix_revi_monitors_pin_results_pin_loaded", "pin_id", "watermark_loaded_at"),
+    schema=MONITORS_SCHEMA,
 )
 
 #: The detection-feed census per (tenant, load). Without it "new lead" and
 #: "self-resolved" are unanswerable: the feed is read per snapshot, so a
 #: lead that was fixed simply stops appearing and there is nothing to
 #: compare against.
-rounds_loads = sa.Table(
+monitors_loads = sa.Table(
     "loads",
     metadata,
     sa.Column("tenant", sa.Text, primary_key=True),
@@ -242,13 +242,13 @@ rounds_loads = sa.Table(
     sa.Column("watermark_loaded_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("evaluated_at", sa.DateTime(timezone=True), nullable=False),
     sa.Column("payload", JSONB, nullable=False),
-    sa.Index("ix_revi_rounds_loads_tenant_loaded", "tenant", "watermark_loaded_at"),
-    schema=ROUNDS_SCHEMA,
+    sa.Index("ix_revi_monitors_loads_tenant_loaded", "tenant", "watermark_loaded_at"),
+    schema=MONITORS_SCHEMA,
 )
 
 #: Lead lifecycle, keyed by the detection feed's own anomaly id so a status
 #: survives the card object being rebuilt on every load.
-rounds_leads = sa.Table(
+monitors_leads = sa.Table(
     "leads",
     metadata,
     sa.Column("tenant", sa.Text, primary_key=True),
@@ -262,5 +262,5 @@ rounds_leads = sa.Table(
     sa.Column("confirming_watermarks", JSONB, nullable=False),
     sa.Column("verification_note", sa.Text, nullable=False, server_default=""),
     sa.Column("history", JSONB, nullable=False),
-    schema=ROUNDS_SCHEMA,
+    schema=MONITORS_SCHEMA,
 )

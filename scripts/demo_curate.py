@@ -4,20 +4,20 @@ Round-10 R10-7. On the morning of the first owner demo the tenant held 163
 sessions, and the first eighteen rows of the rail — the left edge of every
 screen and every screenshot a prospect takes home — were reviewer probes
 ("Who is my worst payer on deni…" four times, "(typed investigation)" six).
-Beside the seven curated watches sat an eighth minted by a review battery,
+Beside the seven curated monitors sat an eighth minted by a review battery,
 measuring the same metric as its curated twin under a different spelling.
 Curation had been done once, by hand, and there was no way to do it again.
 
 So this is a COMMAND, not a runbook. It is idempotent — running it twice
 changes nothing the second time — and it does three things in this order:
 
-1. **Curate.** Archive every session and every watch that is not on the
+1. **Curate.** Archive every session and every monitor that is not on the
    keep list. Both archives are SOFT (``DELETE /v1/sessions/{id}`` and
-   ``DELETE /v1/rounds/pins/{id}``), so a permalink somebody shared does
+   ``DELETE /v1/monitors/pins/{id}``), so a permalink somebody shared does
    not 404 because the rail was tidied.
 2. **Verify.** Read the monitors surface back and check what a room will
    see: the expected number of tiles, every tile naming the cell its
-   number is about, every watch's delta agreeing between the tile grid and
+   number is about, every monitor's delta agreeing between the tile grid and
    the brief, and the brief carrying entries at all.
 3. **Report.** Print a demo-readiness checklist, including the one item
    that is a decision rather than a check.
@@ -79,7 +79,7 @@ from revi_api.scripted_llm import demo_language_model  # noqa: E402
 from revi_api.service import MAX_SESSION_LIST_LIMIT, ApiService  # noqa: E402
 from revi_api.wiring import build_components  # noqa: E402
 
-#: The documented shape of a curated demo tenant. Seven watches is what the
+#: The documented shape of a curated demo tenant. Seven monitors is what the
 #: monitors surface is built around and what every screenshot in the review
 #: record shows; it is an argument rather than a constant because a
 #: different demo may walk a different set.
@@ -245,9 +245,9 @@ async def _curate_sessions(
 async def _curate_pins(
     service: ApiService, caller: Principal, manifest: Manifest, *, apply: bool, report: Report
 ) -> None:
-    listing = await service.rounds.list_pins(caller)
+    listing = await service.monitors.list_pins(caller)
     pins = [pin for pin in listing.pins if pin.archived_at is None]
-    print(f"\nWATCHES — {len(pins)} active")
+    print(f"\nMONITORS — {len(pins)} active")
     for pin in pins:
         print(f"  · {pin.pin_id}  {pin.label[:60]!r}  ({pin.created_from_kind})")
     if manifest.pins:
@@ -259,31 +259,31 @@ async def _curate_pins(
         for pin in drop:
             print(f"  {'archive ' if apply else 'would   '} {pin.pin_id}  {pin.label[:56]!r}")
             if apply:
-                await service.rounds.archive_pin(caller, pin.pin_id)
+                await service.monitors.archive_pin(caller, pin.pin_id)
         if apply and drop:
-            listing = await service.rounds.list_pins(caller)
+            listing = await service.monitors.list_pins(caller)
             pins = [pin for pin in listing.pins if pin.archived_at is None]
     else:
         report.note(
-            "no watch was named to keep, so none was archived — a probe pin beside its "
+            "no monitor was named to keep, so none was archived — a probe pin beside its "
             "curated twin is invisible to this command until the curated set is named."
         )
     report.check(
         len(pins) == manifest.expected_pins,
-        f"the monitors surface carries {manifest.expected_pins} watches "
+        f"the monitors surface carries {manifest.expected_pins} monitors "
         f"(it carries {len(pins)})",
     )
     if listing.unreadable:
-        report.check(False, f"every stored watch is readable ({listing.unreadable} are not)")
+        report.check(False, f"every stored monitor is readable ({listing.unreadable} are not)")
 
 
 async def _verify_surface(service: ApiService, caller: Principal, report: Report) -> None:
     """What a room will see, read back off the same routes the room reads."""
-    surface = await service.rounds.rounds(caller)
-    brief = await service.rounds.brief(caller)
+    surface = await service.monitors.monitors(caller)
+    brief = await service.monitors.brief(caller)
     pins = {
         pin.pin_id: pin
-        for pin in (await service.rounds.list_pins(caller)).pins
+        for pin in (await service.monitors.list_pins(caller)).pins
         if pin.archived_at is None
     }
     tiles = {tile.pin_id: tile for tile in surface.tiles}
@@ -316,7 +316,7 @@ async def _verify_surface(service: ApiService, caller: Principal, report: Report
     )
     report.check(
         not first_readings,
-        "every watch has history to back-walk — none is stuck on 'first reading' "
+        "every monitor has history to back-walk — none is stuck on 'first reading' "
         f"({first_readings} are)",
     )
 
@@ -342,7 +342,7 @@ async def _verify_surface(service: ApiService, caller: Principal, report: Report
             )
     report.check(
         not disagreed,
-        f"the brief and the tiles agree on every watch ({disagreed} do not)",
+        f"the brief and the tiles agree on every monitor ({disagreed} do not)",
     )
 
     print(f"\nBRIEF — {brief.status}, {len(brief.entries)} entry(ies)")
@@ -354,7 +354,7 @@ async def _verify_surface(service: ApiService, caller: Principal, report: Report
     report.check(bool(brief.entries), "the brief has something to say this morning")
     report.check(
         brief.pins_evaluated == len(tiles),
-        f"the brief and the grid count the same watches "
+        f"the brief and the grid count the same monitors "
         f"({brief.pins_evaluated} briefed vs {len(tiles)} tiled)",
     )
 
@@ -454,7 +454,7 @@ def main(argv: list[str] | None = None) -> int:
         action="append",
         default=[],
         metavar="ID_OR_LABEL",
-        help="a watch the demo shows; repeatable",
+        help="a monitor the demo shows; repeatable",
     )
     parser.add_argument("--manifest", default=None, help="JSON: {sessions, pins, expected_pins}")
     parser.add_argument(
