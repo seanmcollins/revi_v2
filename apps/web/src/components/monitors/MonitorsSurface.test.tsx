@@ -23,7 +23,6 @@ import { MemoryRouter } from "react-router-dom";
 import { MonitorsSurface } from "@/components/monitors/MonitorsSurface";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import live from "@/lib/__fixtures__/live-monitors.json";
-import { noteMonitorsRedirect } from "@/lib/monitorsVisit";
 import { useSessionStore } from "@/lib/store";
 
 function draw() {
@@ -96,30 +95,25 @@ describe("Monitors speaks while it works", () => {
     expect(heading).toHaveAttribute("tabindex", "-1");
   });
 
-  it("moves focus to the heading when the cold start sent the analyst here", async () => {
-    // The redirect is real and it latches once; what it did not do was
-    // tell anybody it had happened. A screen-reader user's focus stayed on
-    // a composer that is no longer mounted.
-    noteMonitorsRedirect();
-    draw();
-    await waitFor(() =>
-      expect(document.activeElement).toBe(
-        screen.getByRole("heading", { level: 1, name: "Monitors" }),
-      ),
-    );
-    // And it says so, once, in the app's own polite region.
-    const announcer = document.getElementById("revi-live-announcer");
-    await waitFor(() => expect(announcer?.textContent).toContain("Opened Monitors"));
-  });
-
-  it("answers the redirect only once — a bookmark is not a redirect", () => {
-    noteMonitorsRedirect();
-    const first = draw();
-    first.unmount();
-    document.getElementById("revi-live-announcer")?.remove();
+  /**
+   * THE REDIRECT IS GONE, AND SO IS THE ARRIVAL ANNOUNCEMENT.
+   *
+   * This route used to be reached by the one navigation the app made on
+   * anybody's behalf — the brief-first cold start, `/` → `/monitors` —
+   * which is why it grabbed focus and said "Opened Monitors" on arrival.
+   * `/` is Home now and opens on the brief itself, so every visit here is
+   * a link somebody followed: taking their focus would be the app moving
+   * the cursor for no reason. What replaced it is asserted on Home
+   * (`Home.test.tsx`: a load nobody has been briefed on announces its
+   * headline and moves focus to the zone carrying it).
+   */
+  it("takes nobody's focus on arrival — this route is not a redirect target", () => {
     draw();
     expect(document.activeElement).not.toBe(
       screen.getByRole("heading", { level: 1, name: "Monitors" }),
+    );
+    expect(document.getElementById("revi-live-announcer")?.textContent ?? "").not.toContain(
+      "Opened Monitors",
     );
   });
 

@@ -31,6 +31,7 @@ import { useAnswerVariant } from "@/lib/useAnswerVariant";
 import { GUIDE_QUESTIONS } from "@/lib/guideQuestions";
 import { REFERENCE_QUESTIONS } from "@/lib/mock/reference";
 import { useSessionStore } from "@/lib/store";
+import { useAsk } from "@/lib/useAsk";
 import { scrollIntoViewRespectingMotion } from "@/lib/useReducedMotion";
 import { cn } from "@/lib/utils";
 
@@ -57,7 +58,11 @@ export function CommandPalette({
   onOpenChange: (open: boolean) => void;
 }) {
   const navigate = useNavigate();
-  const submit = useSessionStore((s) => s.submit);
+  // The palette is mounted on Home as well as in the workspace, and Home
+  // renders no thread — so asking from here submits through the store and
+  // then goes where the answer will be. In the workspace it is the same
+  // submission and the address is already right, so nothing moves.
+  const ask = useAsk();
   const streaming = useSessionStore((s) => s.streamingTurnId !== null);
   const newChatPending = useSessionStore((s) => s.newChatPending);
   const turns = useSessionStore((s) => s.turns);
@@ -152,7 +157,7 @@ export function CommandPalette({
         hint: "Next in the reference drill-down",
         icon: <MessageSquareText className="size-3.5" />,
         disabled: newChatBusy,
-        run: () => void submit({ utterance: nextQuestion }),
+        run: () => ask({ utterance: nextQuestion }),
       });
     }
     list.push(
@@ -163,7 +168,7 @@ export function CommandPalette({
         hint: "Definition",
         icon: <CircleHelp className="size-3.5" />,
         disabled: newChatBusy,
-        run: () => void submit({ utterance: "What is PR3?" }),
+        run: () => ask({ utterance: "What is PR3?" }),
       },
       {
         id: "replay",
@@ -195,7 +200,7 @@ export function CommandPalette({
         label: `Ask: ${question}`,
         icon: <Sparkles className="size-3.5" />,
         disabled: newChatBusy,
-        run: () => void submit({ utterance: question }),
+        run: () => ask({ utterance: question }),
       });
     }
 
@@ -341,7 +346,7 @@ export function CommandPalette({
     newChatBusy,
     replayProgress,
     replayReference,
-    submit,
+    ask,
     turns,
     referents,
     openDrawer,

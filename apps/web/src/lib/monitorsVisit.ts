@@ -57,44 +57,22 @@ export function hasUnseenLoad(newestWatermarkId: string | undefined): boolean {
 }
 
 /* ------------------------------------------------------------------ */
-/* The redirect, as a fact the destination can read                    */
+/* What used to live here: the redirect                                */
 /* ------------------------------------------------------------------ */
 
-const REDIRECT_KEY = "revi-monitors-redirected";
-
-/**
- * ARRIVING SOMEWHERE YOU DID NOT ASK TO GO IS AN EVENT.
+/*
+ * A `noteMonitorsRedirect` / `consumeMonitorsRedirect` pair recorded that
+ * the cold start had pushed somebody from `/` to `/monitors`, so the
+ * destination could move focus and say where they were — a navigation
+ * nobody asked for is silent to a screen reader otherwise.
  *
- * The cold start pushes an analyst from `/` to `/monitors`. For a sighted
- * pointer user the page visibly changes; for a screen-reader user nothing
- * is announced and focus stays where it was, so the app silently becomes a
- * different app under a focus ring pointing at an element that no longer
- * exists. The redirect records itself here and Monitors consumes it — moving
- * focus to its own heading and saying, once, where they are.
+ * `/` is Home now and opens on the brief itself, so there is no navigation
+ * to disclose and the pair is gone rather than left behind as dead
+ * vocabulary. The a11y behaviour it existed for did NOT go: Home reads
+ * `hasUnseenLoad` below, announces the headline through the app's own
+ * polite region and moves focus to the zone carrying it.
  *
- * `sessionStorage`, not a query parameter: the destination is a permalink
- * people bookmark, and a `?redirected=1` in it would be re-announced every
- * time that bookmark was opened.
+ * The two functions above stay because both still have live readers:
+ * `hasUnseenLoad` drives the rail's "New load" dot and Home's announcement,
+ * and `markMonitorsSeen` is written by both surfaces that render a brief.
  */
-export function noteMonitorsRedirect(): void {
-  if (typeof window === "undefined") return;
-  try {
-    window.sessionStorage.setItem(REDIRECT_KEY, "1");
-  } catch {
-    // Storage unavailable. Monitors then behaves as if the analyst typed the
-    // URL, which is the harmless direction to fail in.
-  }
-}
-
-/** Was this visit a redirect? Answers once — reading clears it. */
-export function consumeMonitorsRedirect(): boolean {
-  if (typeof window === "undefined") return false;
-  try {
-    const value = window.sessionStorage.getItem(REDIRECT_KEY);
-    if (value === null) return false;
-    window.sessionStorage.removeItem(REDIRECT_KEY);
-    return true;
-  } catch {
-    return false;
-  }
-}

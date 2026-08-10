@@ -1,15 +1,15 @@
 "use client";
 
-import { ArrowUpRight, Loader2 } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useEffect, useRef } from "react";
 
 import { AnswerCard } from "@/components/answer/AnswerCard";
 import { ContractDriftBanner } from "@/components/banners/ContractDriftBanner";
 import { WatermarkBanner } from "@/components/banners/WatermarkBanner";
 import { ReconciliationBanner } from "@/components/banners/ReconciliationBanner";
+import { HeroQuestions } from "@/components/chat/HeroQuestions";
 import type { TurnSubmission } from "@/lib/driver";
 import { describeRefinement } from "@/lib/format";
-import { HERO_QUESTIONS } from "@/lib/guideQuestions";
 import { useSessionStore } from "@/lib/store";
 import { scrollIntoViewRespectingMotion } from "@/lib/useReducedMotion";
 
@@ -155,21 +155,7 @@ function EmptyState() {
             Start with
           </p>
         </div>
-        <div className="grid w-full items-stretch gap-1.5 text-left @lg:grid-cols-2">
-          {HERO_QUESTIONS.map((question, i) => (
-            <button
-              key={question}
-              type="button"
-              disabled={busy}
-              onClick={() => void submit({ utterance: question })}
-              className="fade-up group flex items-center justify-between gap-2 rounded-lg border bg-card/55 px-3 py-2 text-left text-meta leading-snug backdrop-blur-sm transition-all duration-150 hover:-translate-y-px hover:border-ring/40 hover:bg-card hover:shadow-sm disabled:opacity-50"
-              style={{ animationDelay: `${80 + i * 40}ms` }}
-            >
-              <span className="text-pretty">{question}</span>
-              <ArrowUpRight className="size-3 shrink-0 text-muted-foreground opacity-0 transition-opacity duration-150 group-hover:opacity-100" />
-            </button>
-          ))}
-        </div>
+        <HeroQuestions disabled={busy} onAsk={(question) => void submit({ utterance: question })} />
       </div>
 
       <p

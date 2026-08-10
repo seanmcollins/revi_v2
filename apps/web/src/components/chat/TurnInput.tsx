@@ -11,8 +11,29 @@ import { useSessionStore } from "@/lib/store";
  * Multiline composer. Enter sends, Shift+Enter breaks; disabled while a
  * turn streams (the pipeline is single-flight per session) or while a
  * reference-demo replay is submitting its own sequential turns.
+ *
+ * TWO OPTIONAL PROPS, BOTH FOR HOME, NEITHER A FORK.
+ *
+ * `onAsk` replaces what happens with the typed text, not how it is typed:
+ * Home submits through the same store action and then navigates into the
+ * session the turn mints, because Home renders no thread for the answer to
+ * arrive in. Defaulting to the store keeps the workspace's behaviour
+ * byte-identical.
+ *
+ * `autoFocus` because Home IS the composer's page — "New chat" lands here
+ * and the analyst should be typing, not tabbing. The workspace does not
+ * pass it: a session being re-opened must not steal focus from the thread
+ * being read.
  */
-export function TurnInput({ suggestions }: { suggestions: string[] }) {
+export function TurnInput({
+  suggestions,
+  onAsk,
+  autoFocus = false,
+}: {
+  suggestions: string[];
+  onAsk?: (utterance: string) => void;
+  autoFocus?: boolean;
+}) {
   const [value, setValue] = useState("");
   const submit = useSessionStore((s) => s.submit);
   const streaming = useSessionStore((s) => s.streamingTurnId !== null);
@@ -39,11 +60,18 @@ export function TurnInput({ suggestions }: { suggestions: string[] }) {
     wasBusy.current = busy;
   }, [busy]);
 
+  // Own effect, own dependency list: this fires once on mount, where the
+  // one above fires on every busy→idle edge.
+  useEffect(() => {
+    if (autoFocus) composerRef.current?.focus();
+  }, [autoFocus]);
+
   const send = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || busy) return;
     setValue("");
-    void submit({ utterance: trimmed });
+    if (onAsk) onAsk(trimmed);
+    else void submit({ utterance: trimmed });
   };
 
   return (

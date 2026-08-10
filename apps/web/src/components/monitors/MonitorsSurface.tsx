@@ -1,7 +1,7 @@
 "use client";
 
 import { AlertTriangle, ArrowLeft } from "lucide-react";
-import { Link, useNavigate } from "react-router-dom";
+import { Link } from "react-router-dom";
 import { useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
 
 import { WarningList } from "@/components/banners/WarningBanner";
@@ -9,15 +9,15 @@ import { BriefPanel } from "@/components/monitors/BriefPanel";
 import type { BriefLeadHandle } from "@/components/monitors/BriefEntryRow";
 import { LeadLifecyclePanel, type LeadRow } from "@/components/monitors/LeadLifecycle";
 import { MonitorTile } from "@/components/monitors/MonitorTile";
+import { useLeadHandles, useOpenLead } from "@/components/monitors/useLeadHandles";
 import { ConnectionPill } from "@/components/workspace/ConnectionPill";
 import { SessionRail } from "@/components/workspace/SessionRail";
 import { announce } from "@/lib/announce";
 import { ApiDriver, fetchHealthDetail, resolveDriverKind } from "@/lib/apiDriver";
 import { envDriverKind, type DriverKind, type TurnDriver } from "@/lib/driver";
 import { mediumDate } from "@/lib/format";
-import type { PortfolioItem } from "@/lib/mock/portfolio";
 import { MockDriver } from "@/lib/mockDriver";
-import { consumeMonitorsRedirect, markMonitorsSeen } from "@/lib/monitorsVisit";
+import { markMonitorsSeen } from "@/lib/monitorsVisit";
 import { useBriefQuery, usePortfolioQuery, useMonitorsQuery } from "@/lib/queries";
 import { useSessionStore } from "@/lib/store";
 import { orderTilesForGrid, tileCensus } from "@/lib/monitors";
@@ -49,11 +49,12 @@ const noopSubscribe = () => () => {};
  * feel like somewhere else.
  *
  * WHAT IT SAYS OUT LOUD. This route is genuinely slow the first time a
- * load is opened — it re-runs every monitor and verifies every claimed fix —
- * and it is also the one place the app navigates on the analyst's behalf.
- * Both are announced: the pending states are live regions, the brief
- * announces itself when it lands, and a cold-start redirect moves focus to
- * the heading of the page it just opened.
+ * load is opened — it re-runs every monitor and verifies every claimed
+ * fix — and silence over a thirty-second wait is indistinguishable from a
+ * broken page. So the pending states are live regions and the brief
+ * announces itself when it lands. (It used to be reached by a redirect too,
+ * and announced its own arrival; Home opens on the brief now, so every
+ * visit here is a link somebody followed.)
  */
 export function MonitorsSurface() {
   const driverKind = useSyncExternalStore<DriverKind>(
@@ -76,7 +77,6 @@ export function MonitorsSurface() {
   const setDriver = useSessionStore((s) => s.setDriver);
   const newestWatermarkId = useSessionStore((s) => s.connection.newestWatermarkId);
   const live = driverKind === "api";
-  const navigate = useNavigate();
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
@@ -84,17 +84,16 @@ export function MonitorsSurface() {
   }, [driver, setDriver]);
 
   /**
-   * ARRIVED HERE WITHOUT ASKING. The cold start pushes `/` → `/monitors`,
-   * and a client-side navigation moves no focus and announces nothing —
-   * so a screen-reader user's focus stays on a composer that is no longer
-   * mounted while the app becomes a different app. Focus goes to this
-   * page's own heading, and one sentence says where they are.
+   * NOBODY ARRIVES HERE WITHOUT ASKING ANY MORE.
+   *
+   * The cold start used to push `/` → `/monitors`, so this route moved
+   * focus to its own heading and said where the reader was: a navigation
+   * nobody asked for is silent to a screen reader otherwise. Home opens on
+   * the brief natively now, the redirect is retired, and every visit here
+   * is a link somebody followed — which announces itself the way any
+   * navigation does. The heading keeps its `tabIndex={-1}`: it is the skip
+   * links' landing place.
    */
-  useEffect(() => {
-    if (!consumeMonitorsRedirect()) return;
-    headingRef.current?.focus();
-    announce("Opened Monitors: this data load has not been briefed yet.");
-  }, []);
 
   // The deployment's newest load, which is what Monitors is about. It also
   // keys both queries: a brief is a statement about ONE data load, so a new
@@ -137,15 +136,14 @@ export function MonitorsSurface() {
   const loadMonitors = useSessionStore((s) => s.loadMonitors);
   const knownMonitors = useSessionStore((s) => s.knownMonitors);
   const leadStates = useSessionStore((s) => s.leadStates);
-  const submit = useSessionStore((s) => s.submit);
   useEffect(() => {
     void loadMonitors();
   }, [loadMonitors, driver]);
 
   // "Seen" is recorded once the brief for this load has actually been
-  // rendered — not on navigation. A cold start that redirected here and
-  // then failed to load would otherwise mark the load read, and the next
-  // morning would open on a thread with the brief never shown.
+  // rendered — not on navigation. A page that marked the load read and then
+  // failed to read it would leave a load nobody is ever briefed on. Home
+  // records the same fact the same way, from the same payload.
   useEffect(() => {
     if (brief.data) markMonitorsSeen(brief.data.watermarkId);
   }, [brief.data]);
@@ -174,42 +172,14 @@ export function MonitorsSurface() {
    * claimed resolutions — and the worklist card carries the typed spec
    * that opens it. Submitting it opens a real investigation in the thread,
    * which is where an answer belongs, so the navigation follows the turn.
+   *
+   * It used to follow it to `/`, which was the workspace. `/` is Home now
+   * and renders no thread, so the destination is the session the turn
+   * mints — `useOpenLead` submits through the store and goes there. Shared
+   * with Home, which renders the same brief rows.
    */
-  const openLead = useMemo(
-    () =>
-      (item: PortfolioItem): (() => void) | undefined => {
-        if (!item.drillable || !item.drillSpec) return undefined;
-        return () => {
-          void submit({ spec: item.drillSpec!, anomalyRef: item.referent });
-          navigate("/");
-        };
-      },
-    [submit, navigate],
-  );
-
-  const leadHandles = useMemo(() => {
-    const handles = new Map<string, BriefLeadHandle>();
-    for (const item of portfolio.data?.items ?? []) {
-      // What this browser changed a minute ago beats the snapshot, which
-      // was composed when the load landed — and it is the only record that
-      // carries what the platform MEASURED about the claim.
-      const liveState = leadStates[item.referent];
-      const open = openLead(item);
-      handles.set(item.referent, {
-        ...(liveState?.status ?? item.leadStatus
-          ? { status: liveState?.status ?? item.leadStatus! }
-          : {}),
-        ...(liveState?.verificationNote || liveState?.note || item.leadStatusNote
-          ? { note: liveState?.verificationNote || liveState?.note || item.leadStatusNote! }
-          : {}),
-        ...(open ? { open } : {}),
-        ...(!open && item.drillUnavailableReason
-          ? { unavailableReason: item.drillUnavailableReason }
-          : {}),
-      });
-    }
-    return handles;
-  }, [portfolio.data, leadStates, openLead]);
+  const openLead = useOpenLead();
+  const leadHandles = useLeadHandles(portfolio.data?.items);
 
   const leadRows = useMemo<LeadRow[]>(() => {
     const rows: LeadRow[] = [];

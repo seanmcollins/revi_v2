@@ -18,6 +18,8 @@ import path from "node:path";
 
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { MemoryRouter } from "react-router-dom";
+
 import { PortfolioPanel } from "@/components/portfolio/PortfolioPanel";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import RAW_SAMPLES from "@/lib/__fixtures__/wire-samples.json";
@@ -151,9 +153,15 @@ vi.mock("@/lib/queries", () => ({
 
 function renderPanel() {
   return render(
-    <TooltipProvider>
-      <PortfolioPanel />
-    </TooltipProvider>,
+    // A real router: drilling a card opens an investigation, and since Home
+    // took over `/` the panel has to be able to GO there — `useAsk` reads
+    // the current path to decide whether the address already points at the
+    // session it just submitted into.
+    <MemoryRouter initialEntries={["/"]}>
+      <TooltipProvider>
+        <PortfolioPanel />
+      </TooltipProvider>
+    </MemoryRouter>,
   );
 }
 

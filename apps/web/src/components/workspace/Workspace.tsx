@@ -21,7 +21,6 @@ import { displaySessionTitle, mediumDate, untitledTurnLabel } from "@/lib/format
 import { sessionLinkFor } from "@/lib/links";
 import { REFERENCE_QUESTIONS } from "@/lib/mock/reference";
 import { MockDriver } from "@/lib/mockDriver";
-import { hasUnseenLoad, noteMonitorsRedirect } from "@/lib/monitorsVisit";
 import { sessionLinkDisclosure } from "@/lib/shareDisclosure";
 import { useSessionStore } from "@/lib/store";
 
@@ -206,59 +205,24 @@ export default function Workspace({
   }, [hydrateSettings]);
 
   /**
-   * BRIEF-FIRST COLD START.
+   * THE BRIEF-FIRST COLD START USED TO LIVE HERE, AS A REDIRECT.
    *
-   * When a data load has landed that this browser has not been briefed on,
-   * the app opens on Monitors. That is the whole product claim made
-   * structural: Revi walks your Monitors every load and tells you what
-   * changed, so the first thing on screen is what changed — not an empty
-   * composer waiting to be asked.
+   * When a data load had landed that this browser had not been briefed on,
+   * `/` pushed itself to `/monitors` — once, latched, never over a
+   * permalink and never over a thread already on screen. It was the only
+   * navigation this app ever made on somebody's behalf, and it existed for
+   * one reason: the front door was an empty composer, so the only way to
+   * open on what changed was to leave.
    *
-   * Three things it will not do, and each of them is a way this pattern
-   * usually goes wrong:
+   * `/` is Home now and opens on what changed by construction, so the
+   * redirect is gone rather than retained as a second path to the same
+   * place. What was worth keeping was the a11y half — a load nobody has
+   * been briefed on announces its headline politely and moves focus to it —
+   * and that moved to Home with the brief. See `components/home/Home.tsx`.
    *
-   *   IT NEVER OVERRIDES A LINK. A permalink is somebody being sent
-   *     somewhere specific — `initialSessionId` and `initialInvestigationId`
-   *     are exactly that — and redirecting past it would break the one
-   *     promise the archive dialog makes in writing. Only the bare `/`
-   *     route redirects.
-   *   IT NEVER INTERRUPTS WORK. A thread already on screen (a resumed
-   *     session, a turn just asked) is not swapped out from under the
-   *     analyst; the rail's Monitors link carries the dot instead.
-   *   IT HAPPENS ONCE. `redirected` latches, so hitting Back from Monitors
-   *     returns here and stays here.
+   * The workspace no longer renders at `/` at all in api mode, so there is
+   * nothing left here to gate.
    */
-  const newestWatermarkId = useSessionStore((s) => s.connection.newestWatermarkId);
-  const redirected = useRef(false);
-  useEffect(() => {
-    if (redirected.current) return;
-    if (connectionMode !== "api") return;
-    if (initialSessionId || initialInvestigationId) return;
-    if (turns.length > 0 || sessionLive) return;
-    if (window.location.pathname !== "/") return;
-    if (!hasUnseenLoad(newestWatermarkId)) return;
-    redirected.current = true;
-    // Recorded before the push so the destination can announce itself and
-    // move focus: a navigation nobody asked for is silent to a screen
-    // reader otherwise, and this is the one navigation this app makes on
-    // the analyst's behalf.
-    noteMonitorsRedirect();
-    // A router push, not `location.assign`: a client-side navigation keeps
-    // the store, the driver and the health poll this component just set
-    // up, so Monitors opens without re-bootstrapping everything it needs.
-    // A PUSH and not a replace — Back from Monitors has to return here,
-    // and the `redirected` latch above is what stops it bouncing straight
-    // back out again.
-    navigate("/monitors");
-  }, [
-    navigate,
-    connectionMode,
-    initialSessionId,
-    initialInvestigationId,
-    turns.length,
-    sessionLive,
-    newestWatermarkId,
-  ]);
 
   // Connection state machine (api mode): connecting → online ⇄ offline,
   // driven by a health heartbeat — fast retries while offline, slow while

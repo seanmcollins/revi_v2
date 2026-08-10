@@ -1,0 +1,529 @@
+/**
+ * HOME — the demo's opening shot, against live-captured payloads.
+ *
+ * Five things are pinned here, and every one of them was a decision rather
+ * than a layout:
+ *
+ *   WHAT CHANGED is the brief's own headline, one line, expandable in place
+ *     to the brief itself — not a summary of it. A quiet load renders the
+ *     proud sentence and offers nothing to expand.
+ *   THE EVOLUTION RULE actually re-orders the page: zero monitors →
+ *     invitation under the anomalies; a monitor that moved → digest above
+ *     them; monitors that held still → digest below. `homeLayout.test.ts`
+ *     asserts the arithmetic; this asserts the DOM order it produces.
+ *   THE COMPOSER GOES SOMEWHERE. Home renders no thread, so a question
+ *     asked here has to arrive at `/s/{id}` or it has not been asked.
+ *   THE COLD START ANNOUNCES ITSELF instead of redirecting. A load nobody
+ *     has been briefed on says its headline in the app's polite region and
+ *     moves focus to the zone carrying it — the a11y half of the retired
+ *     `/` → `/monitors` push, kept without the navigation.
+ *   THE HONESTY MARKS TRAVEL. A bounded tile is still a ceiling in the
+ *     digest, in words, beside the `≤`.
+ *
+ * Nothing is mocked except the two things a jsdom render cannot have: the
+ * network, and the deployment wiring that owns a real health heartbeat.
+ */
+
+import "@testing-library/jest-dom/vitest";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
+
+import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
+
+import { TooltipProvider } from "@/components/ui/tooltip";
+import live from "@/lib/__fixtures__/live-monitors.json";
+import type { TurnDriver, TurnSubmission } from "@/lib/driver";
+import { INITIAL_PACK, useSessionStore } from "@/lib/store";
+import type { TurnEvent } from "@/lib/types";
+
+// Home's own driver + health heartbeat. The store's driver is installed
+// directly below so a submission can be watched end to end without a
+// fake SSE stream.
+vi.mock("@/lib/useDeployment", () => ({
+  useDeployment: () => ({ driverKind: "api" as const, driver: null, live: true }),
+}));
+
+import { Home } from "@/components/home/Home";
+
+/* ------------------------------------------------------------------ */
+/* Payloads                                                            */
+/* ------------------------------------------------------------------ */
+
+type Json = Record<string, unknown>;
+
+const BRIEF = live.brief as unknown as Json;
+const MONITORS = live.monitors as unknown as Json;
+const TILES = MONITORS.tiles as Json[];
+
+/** The captured worklist, wrapped in the snapshot envelope the route sends. */
+const PORTFOLIO: Json = {
+  status: "ok",
+  tenant: "demo",
+  watermark_id: "wm_003",
+  formula_version: "anomaly_priority@3",
+  items: live.cards,
+  lanes: [
+    {
+      id: "compliance",
+      label: "Must do regardless of size",
+      description: "Work the rule requires whatever it is worth.",
+      kind: "governance",
+      anomaly_ids: [(live.cards as Json[])[0].anomaly_id],
+      item_count: 1,
+      impact_cents: 17_821_682,
+    },
+    {
+      id: "value",
+      label: "Ranked by value recoverable",
+      description: "Ordered by what is left to save.",
+      kind: "governance",
+      anomaly_ids: (live.cards as Json[]).slice(1).map((c) => c.anomaly_id),
+      item_count: 3,
+      impact_cents: 40_000_000,
+    },
+  ],
+  cash_timing_lanes: [
+    {
+      id: "pre_cash",
+      label: "Still catchable",
+      description: "The cash effect has not landed yet.",
+      kind: "cash_timing",
+      anomaly_ids: [(live.cards as Json[])[0].anomaly_id],
+      item_count: 1,
+      impact_cents: 17_821_682,
+      recoverable_cents_estimate: 16_930_598,
+      soonest_deadline_date: "2026-08-19",
+      soonest_deadline_days: 9,
+      dated_item_count: 1,
+    },
+  ],
+  warnings: [],
+};
+
+/** A brief with nothing in it — the proud, quiet morning. */
+const QUIET_BRIEF: Json = {
+  ...BRIEF,
+  status: "nothing_material",
+  headline: "Nothing crossed the threshold since the Aug 1 load.",
+  entries: [],
+  entries_total: 0,
+};
+
+/** Monitors that all held still: no material delta, and no brief movement. */
+const STILL_MONITORS: Json = {
+  ...MONITORS,
+  tiles: TILES.map((tile) => ({
+    ...tile,
+    delta: tile.delta ? { ...(tile.delta as Json), material: false } : null,
+  })),
+};
+
+const NO_MONITORS: Json = { ...MONITORS, tiles: [] };
+
+/** A brief carrying no `pin_movement` / `rank_flip` line. */
+const NO_MOVEMENT_BRIEF: Json = {
+  ...BRIEF,
+  entries: (BRIEF.entries as Json[]).filter(
+    (e) => e.kind !== "pin_movement" && e.kind !== "rank_flip",
+  ),
+};
+
+/** One monitor whose headline value is an upper bound, not a measurement. */
+const BOUNDED_MONITORS: Json = {
+  ...MONITORS,
+  tiles: TILES.map((tile, i) =>
+    i === 1
+      ? {
+          ...tile,
+          label: "monthly denial rate for Veritas Comp Fund",
+          value_text: "≤ 76.9%",
+          integrity: { ...(tile.integrity as Json), is_bound: true, provisional: true },
+        }
+      : tile,
+  ),
+};
+
+/* ------------------------------------------------------------------ */
+/* Harness                                                             */
+/* ------------------------------------------------------------------ */
+
+interface Served {
+  brief?: Json;
+  monitors?: Json;
+  portfolio?: Json;
+}
+
+function serve({ brief = BRIEF, monitors = MONITORS, portfolio = PORTFOLIO }: Served = {}) {
+  vi.stubGlobal(
+    "fetch",
+    vi.fn((input: RequestInfo | URL) => {
+      const url = String(input);
+      const json = (body: unknown) =>
+        Promise.resolve(
+          new Response(JSON.stringify(body), {
+            status: 200,
+            headers: { "content-type": "application/json" },
+          }),
+        );
+      if (url.includes("/v1/health")) return json({ watermark: "wm_003", store_mode: "postgres" });
+      if (url.includes("/v1/monitors/brief")) return json(brief);
+      if (url.includes("/v1/monitors/pins")) return json({ pins: live.pins.pins });
+      if (url.includes("/v1/monitors")) return json(monitors);
+      if (url.includes("/v1/portfolio")) return json(portfolio);
+      return json({});
+    }),
+  );
+}
+
+/** Where a submitted turn is supposed to end up. */
+function SessionProbe() {
+  const { sessionId } = useParams<{ sessionId: string }>();
+  return <div data-testid="session-route">{sessionId}</div>;
+}
+
+function draw() {
+  const client = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
+  return render(
+    <MemoryRouter initialEntries={["/"]}>
+      <QueryClientProvider client={client}>
+        <TooltipProvider>
+          <Routes>
+            <Route path="/" element={<Home />} />
+            <Route path="/s/:sessionId" element={<SessionProbe />} />
+          </Routes>
+        </TooltipProvider>
+      </QueryClientProvider>
+    </MemoryRouter>,
+  );
+}
+
+/**
+ * A driver that mints a session the way the live one does — inside the
+ * submission, before the answer — because that instant is exactly what
+ * `useAsk` follows.
+ */
+function fakeDriver(): TurnDriver & { asked: TurnSubmission[] } {
+  const asked: TurnSubmission[] = [];
+  return {
+    asked,
+    async submit(submission: TurnSubmission, emit: (event: TurnEvent) => void) {
+      asked.push(submission);
+      useSessionStore.getState().adoptSession({
+        sessionId: "sess_home_1",
+        watermark: useSessionStore.getState().watermark,
+        pack: INITIAL_PACK,
+      });
+      emit({
+        type: "turn_complete",
+        status: "complete",
+        investigationId: "inv_1",
+      } as TurnEvent);
+    },
+    async newSession() {},
+  };
+}
+
+beforeAll(() => {
+  globalThis.ResizeObserver ??= class {
+    observe(): void {}
+    unobserve(): void {}
+    disconnect(): void {}
+  } as unknown as typeof ResizeObserver;
+});
+
+beforeEach(() => {
+  window.localStorage.clear();
+  window.sessionStorage.clear();
+  window.localStorage.setItem("revi-driver", "api");
+  Element.prototype.scrollIntoView = vi.fn();
+  useSessionStore.setState({
+    connection: {
+      mode: "api",
+      state: "online",
+      newestWatermarkId: "wm_003",
+      healthChecked: true,
+    },
+    driver: fakeDriver(),
+    turns: [],
+    sessionLive: false,
+    sessionId: "",
+    streamingTurnId: null,
+    sessions: [],
+    leadStates: {},
+  });
+  serve();
+});
+
+afterEach(() => {
+  cleanup();
+  vi.unstubAllGlobals();
+  document.getElementById("revi-live-announcer")?.remove();
+  window.localStorage.clear();
+  window.sessionStorage.clear();
+});
+
+/** Which of the two evolving zones comes first in the document. */
+function firstZone(): "monitors" | "anomalies" {
+  const monitors = document.getElementById("home-monitors");
+  const anomalies = document.getElementById("home-anomalies");
+  expect(monitors, "the monitors zone must be on the page").not.toBeNull();
+  expect(anomalies, "the anomalies zone must be on the page").not.toBeNull();
+  const relation = monitors!.compareDocumentPosition(anomalies!);
+  return relation & Node.DOCUMENT_POSITION_FOLLOWING ? "monitors" : "anomalies";
+}
+
+/* ------------------------------------------------------------------ */
+
+describe("Home — what changed, first and in one line", () => {
+  it("renders the brief's own headline, collapsed, with a way into the detail", async () => {
+    draw();
+    await screen.findByText(/4 thing\(s\) changed/);
+    // Collapsed: the sentence and nothing else. The brief's entries are
+    // behind the toggle, which says how many there are. (Asserted on the
+    // entry rows rather than on a title, because two of these leads are
+    // also cards in the anomalies zone below — which is the point of
+    // having both zones.)
+    expect(document.querySelectorAll("[data-brief-entry]")).toHaveLength(0);
+    expect(screen.getByRole("button", { name: /Show what changed — 4 lines/ })).toHaveAttribute(
+      "aria-expanded",
+      "false",
+    );
+  });
+
+  it("expands IN PLACE to the brief itself — the same panel Monitors renders", async () => {
+    draw();
+    const toggle = await screen.findByRole("button", { name: /Show what changed/ });
+    await userEvent.click(toggle);
+
+    // The real entries, with the real component behind them: the eyebrow
+    // kinds and the walk census are `BriefPanel`'s, not a second rendering
+    // of the same payload.
+    await waitFor(() =>
+      expect(document.querySelectorAll("[data-brief-entry]")).toHaveLength(4),
+    );
+    expect(screen.getByText(/New at this load: ANM-029/)).toBeInTheDocument();
+    expect(screen.getByText(/Gone without being worked: ANM-032/)).toBeInTheDocument();
+    expect(document.querySelector("[data-walk-census]")).not.toBeNull();
+    expect(screen.getByRole("button", { name: /Hide what changed/ })).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    // One headline on screen, not two: the collapsed line steps aside for
+    // the panel's own lead. (Scoped to the zone — the polite live region
+    // carries the same sentence, which is the point of it.)
+    const zone = document.getElementById("home-what-changed")!;
+    expect(within(zone).getAllByText(/4 thing\(s\) changed/)).toHaveLength(1);
+  });
+
+  it("gives a quiet load the proud sentence, and nothing to expand", async () => {
+    serve({ brief: QUIET_BRIEF });
+    draw();
+    expect(await screen.findByText("Nothing material changed.")).toBeInTheDocument();
+    expect(
+      screen.getByText("Nothing crossed the threshold since the Aug 1 load."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Show what changed/ })).not.toBeInTheDocument();
+    // And it still publishes the work behind the claim — a quiet brief that
+    // could not say how much it walked is indistinguishable from one that
+    // did not run.
+    expect(document.querySelector("[data-walk-census]")).not.toBeNull();
+  });
+});
+
+describe("Home — the evolution rule, on the page", () => {
+  it("MONITORS THAT MOVED: the digest is above the anomalies", async () => {
+    draw();
+    await screen.findByText("Denial rate by payer, monthly");
+    await waitFor(() => expect(firstZone()).toBe("monitors"));
+    expect(
+      screen.getByText(/4 monitors re-run at this load, 1 moved enough to brief you/),
+    ).toBeInTheDocument();
+  });
+
+  it("MONITORS, NOTHING MOVED: the digest stays below the anomalies", async () => {
+    serve({ monitors: STILL_MONITORS, brief: NO_MOVEMENT_BRIEF });
+    draw();
+    await screen.findByText("Denial rate by payer, monthly");
+    await waitFor(() => expect(firstZone()).toBe("anomalies"));
+    expect(
+      screen.getByText(/4 monitors re-run at this load, none moved enough to brief you/),
+    ).toBeInTheDocument();
+  });
+
+  it("NO MONITORS: an invitation, under the anomalies, naming a real affordance", async () => {
+    serve({ monitors: NO_MONITORS });
+    draw();
+    const invitation = await waitFor(() => {
+      const node = document.querySelector("[data-monitor-invitation]");
+      expect(node).not.toBeNull();
+      return node!;
+    });
+    expect(invitation.textContent).toContain("Nothing is being monitored yet");
+    expect(invitation.textContent).toContain("Monitor this");
+    expect(invitation.textContent).toContain("watch Halvern");
+    expect(firstZone()).toBe("anomalies");
+  });
+
+  it("keeps the honesty marks on a bounded value in the digest", async () => {
+    serve({ monitors: BOUNDED_MONITORS });
+    draw();
+    const value = await screen.findByText(/≤ 76.9%/);
+    // The `≤` is the server's, and the words beside it say what it means.
+    expect(value.textContent).toContain("a ceiling, not a measurement");
+    expect(value.textContent).toContain("still settling");
+  });
+});
+
+describe("Home — the anomalies zone", () => {
+  it("renders the lanes the server split, and the dollars still catchable", async () => {
+    draw();
+    expect(await screen.findByText("Must do regardless of size")).toBeInTheDocument();
+    expect(screen.getByText("Ranked by value recoverable")).toBeInTheDocument();
+    const catchable = document.querySelector("[data-cash-timing]");
+    expect(catchable).not.toBeNull();
+    expect(within(catchable as HTMLElement).getByText("Still catchable")).toBeInTheDocument();
+    expect(catchable!.textContent).toContain("$169,306 recoverable");
+  });
+
+  it("offers a drill on a card the server published a handle for", async () => {
+    draw();
+    expect(
+      await screen.findByLabelText(/Drill into DNFB accumulation/),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("Home — the composer is one keystroke away, and it goes somewhere", () => {
+  it("takes focus on arrival, so New chat lands on a cursor", async () => {
+    draw();
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByLabelText("Ask a question")),
+    );
+  });
+
+  it("offers the four hero questions beside it", async () => {
+    draw();
+    for (const question of [
+      "Where are denials rising, and which payers are driving it?",
+      "Why did cash come in low last week?",
+      "What should my team work on first today?",
+      "Is anything about to miss a filing deadline?",
+    ]) {
+      expect(await screen.findByRole("button", { name: new RegExp(question) })).toBeInTheDocument();
+    }
+  });
+
+  it("submitting a hero question opens the session the turn mints", async () => {
+    draw();
+    const chip = await screen.findByRole("button", {
+      name: /What should my team work on first today\?/,
+    });
+    await userEvent.click(chip);
+
+    const probe = await screen.findByTestId("session-route");
+    expect(probe).toHaveTextContent("sess_home_1");
+    // Through the store's own submit path — the turn is in the store, in
+    // the session that was minted for it.
+    const state = useSessionStore.getState();
+    expect(state.turns).toHaveLength(1);
+    expect(state.turns[0].submission.utterance).toBe(
+      "What should my team work on first today?",
+    );
+  });
+
+  it("submitting typed text opens the session the turn mints", async () => {
+    draw();
+    const composer = await screen.findByLabelText("Ask a question");
+    await userEvent.type(composer, "Do I have a COB problem?{Enter}");
+
+    const probe = await screen.findByTestId("session-route");
+    expect(probe).toHaveTextContent("sess_home_1");
+    expect(useSessionStore.getState().turns[0].submission.utterance).toBe(
+      "Do I have a COB problem?",
+    );
+  });
+});
+
+describe("Home — the cold start announces itself instead of redirecting", () => {
+  it("says the headline once and moves focus to the zone carrying it", async () => {
+    // Nothing recorded for wm_003: a load this browser has not been
+    // briefed on, which is exactly what used to trigger the `/` →
+    // `/monitors` push.
+    draw();
+    const announcer = await waitFor(() => {
+      const node = document.getElementById("revi-live-announcer");
+      expect(node?.textContent).toContain("What changed at this load");
+      return node!;
+    });
+    expect(announcer.textContent).toContain("4 thing(s) changed");
+    expect(announcer.getAttribute("aria-live")).toBe("polite");
+    await waitFor(() =>
+      expect(document.activeElement).toBe(document.getElementById("home-what-changed")),
+    );
+  });
+
+  it("records the load as briefed, so the rail's New load dot goes out", async () => {
+    draw();
+    await waitFor(() =>
+      expect(window.localStorage.getItem("revi-monitors-seen-watermark")).toBe("wm_003"),
+    );
+  });
+
+  it("says nothing, and takes no focus, on a load already read", async () => {
+    window.localStorage.setItem("revi-monitors-seen-watermark", "wm_003");
+    draw();
+    await screen.findByText(/4 thing\(s\) changed/);
+    expect(document.getElementById("revi-live-announcer")?.textContent ?? "").toBe("");
+    // Focus stays where Home puts it by default: on the composer.
+    await waitFor(() =>
+      expect(document.activeElement).toBe(screen.getByLabelText("Ask a question")),
+    );
+  });
+
+  it("navigates nowhere — Home IS the brief-first cold start now", async () => {
+    draw();
+    await screen.findByText(/4 thing\(s\) changed/);
+    expect(screen.queryByTestId("session-route")).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { level: 1, name: "Where things stand" })).toBeInTheDocument();
+  });
+});
+
+describe("Home — reachable without a mouse", () => {
+  it("puts the skip links first in the document, ahead of the rail", () => {
+    const { container } = draw();
+    const focusable = [...container.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+      (el) => !el.hasAttribute("disabled") && el.getAttribute("tabindex") !== "-1",
+    );
+    expect(focusable.length).toBeGreaterThan(3);
+    expect(focusable[0]).toHaveAccessibleName("Skip to what changed");
+    expect(focusable[1]).toHaveAccessibleName("Skip to the composer");
+  });
+
+  it("lands each skip link on something that can take focus", () => {
+    draw();
+    for (const [name, id] of [
+      ["Skip to what changed", "home-what-changed"],
+      ["Skip to the composer", "turn-composer"],
+    ] as const) {
+      const link = screen.getByRole("link", { name });
+      expect(link).toHaveAttribute("href", `#${id}`);
+      expect(document.getElementById(id), `#${id} must exist`).not.toBeNull();
+    }
+  });
+
+  it("names all three zones for a screen reader", async () => {
+    draw();
+    await screen.findByText(/4 thing\(s\) changed/);
+    for (const name of ["What changed", "Detected anomalies", "Your monitors"]) {
+      expect(screen.getByRole("region", { name })).toBeInTheDocument();
+    }
+  });
+});
+
+/** Everything the browser will stop on, in document order. */
+const FOCUSABLE =
+  'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])';

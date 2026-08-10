@@ -12,7 +12,7 @@ import {
   Search,
   Stethoscope,
 } from "lucide-react";
-import { Link, useLocation } from "react-router-dom";
+import { Link, useLocation, useNavigate } from "react-router-dom";
 import { useEffect, useState, useSyncExternalStore } from "react";
 
 import { CopyTextButton } from "@/components/answer/AnswerActions";
@@ -26,9 +26,12 @@ import { sessionLinkFor } from "@/lib/links";
 import { REFERENCE_QUESTIONS } from "@/lib/mock/reference";
 import { hasUnseenLoad } from "@/lib/monitorsVisit";
 import { useSessionStore } from "@/lib/store";
+import { sessionPath } from "@/lib/useAsk";
 import { cn } from "@/lib/utils";
 
 export function SessionRail() {
+  const navigate = useNavigate();
+  const pathname = useLocation().pathname;
   const simulateWatermarkRefresh = useSessionStore((s) => s.simulateWatermarkRefresh);
   const toggleFailurePreview = useSessionStore((s) => s.toggleFailurePreview);
   const showFailurePreview = useSessionStore((s) => s.showFailurePreview);
@@ -73,7 +76,17 @@ export function SessionRail() {
 
       <div className="space-y-1.5 px-3 pb-3">
         <Button
-          onClick={() => void newChat()}
+          onClick={() => {
+            void newChat();
+            // AND GO HOME. The store's `newChat` abandons the session and
+            // the workspace's own address effect used to be what took the
+            // browser back to `/`; from Monitors — and now from Home — no
+            // workspace is mounted to do it, so the click that says "start
+            // something new" would clear the thread and leave the reader
+            // where they were. Home is where a new question is asked, and
+            // its composer takes focus on arrival.
+            if (pathname !== "/") navigate("/");
+          }}
           disabled={newChatBusy}
           size="sm"
           // The app's most prominent button, and the one whose label was
@@ -102,8 +115,19 @@ export function SessionRail() {
             onReplay={() => void replayReference()}
           />
 
-          <Separator />
-          <PortfolioPanel />
+          {/* NOT ON HOME, where this same worklist is the centre of the
+              page. Two copies of the ranked leads on one screen is two
+              places for a card's drill refusal and its recoverable
+              estimate to be read, and the rail's is the compressed one.
+              Everywhere else the rail carries it, exactly as before —
+              including the mock fixture, whose front door is still the
+              workspace. */}
+          {!(pathname === "/" && mode === "api") && (
+            <>
+              <Separator />
+              <PortfolioPanel />
+            </>
+          )}
 
           {/*
             Fixture-only previews. Both of these fabricate state — a
@@ -318,6 +342,8 @@ function ReplayDemoButton({
  * panel used to do, and every one of them was a dead button.
  */
 function SessionList() {
+  const navigate = useNavigate();
+  const pathname = useLocation().pathname;
   const listed = useSessionStore((s) => s.sessions);
   const total = useSessionStore((s) => s.sessionsTotal);
   const state = useSessionStore((s) => s.sessionsState);
@@ -389,6 +415,27 @@ function SessionList() {
   // no deployment behind it, and a control that would silently do nothing
   // is worse than one that is not there.
   const canArchive = driver?.archiveSession !== undefined;
+
+  /**
+   * OPENING A SESSION IS A NAVIGATION, and it did not used to be one.
+   *
+   * `switchSession` re-joins the session server-side and rebuilds its
+   * thread in the store; the ADDRESS then followed, from an effect inside
+   * the workspace. That worked while the workspace was mounted on every
+   * route a rail could be clicked from. It is not, any more: from Home and
+   * from Monitors a click here would load somebody's whole conversation
+   * into a store nothing on screen renders.
+   *
+   * So the click does both, in that order — the store first, so a driver
+   * that cannot re-open a session says so on this rail rather than on a
+   * blank route, and the address after, guarded so the workspace's own
+   * rewrite is not fought over a session already open at its own link.
+   */
+  const openSession = async (id: string): Promise<void> => {
+    await switchSession(id);
+    const path = sessionPath(id);
+    if (pathname !== path) navigate(path);
+  };
 
   return (
     <section className="space-y-1">
@@ -492,7 +539,7 @@ function SessionList() {
                   title={`${title} · ${session.turnCount} turn${
                     session.turnCount === 1 ? "" : "s"
                   } · last activity ${session.lastActivity}`}
-                  onClick={() => void switchSession(session.sessionId)}
+                  onClick={() => void openSession(session.sessionId)}
                   className={cn(
                     // The 2px rail is the SELECTED indicator; the tint is
                     // only its backing. `bg-accent` alone measured 1.15:1

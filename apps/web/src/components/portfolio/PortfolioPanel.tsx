@@ -19,6 +19,8 @@ import { TimeToImpactLine } from "@/components/monitors/TimeToImpactLine";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { portfolioToCsv } from "@/lib/export";
+import { groupByLane } from "@/lib/portfolioLanes";
+import { useAsk } from "@/lib/useAsk";
 import {
   dataLoadDate,
   formatSignedPct,
@@ -81,7 +83,10 @@ const SEVERITY_TONE: Record<string, string> = {
  */
 export function PortfolioPanel() {
   const emitRefinement = useSessionStore((s) => s.emitRefinement);
-  const submit = useSessionStore((s) => s.submit);
+  // Drilling opens an investigation, and this panel lives in the rail on
+  // every route — including Home, which renders no thread. `useAsk` submits
+  // through the same store path and then goes where the answer will be.
+  const ask = useAsk();
   const mode = useSessionStore((s) => s.connection.mode);
   const query = usePortfolioQuery(mode === "api");
   const [expanded, setExpanded] = useState(false);
@@ -244,7 +249,7 @@ export function PortfolioPanel() {
                         // it opens its own investigation (§18.1-10). The
                         // card's id rides along so the answer can reconcile
                         // its own figure against the one on this card.
-                        void submit({ spec: item.drillSpec, anomalyRef: item.referent });
+                        ask({ spec: item.drillSpec, anomalyRef: item.referent });
                       } else if (item.drill) {
                         emitRefinement(item.drill.refinement, { referent: item.referent });
                       }
@@ -322,7 +327,7 @@ export function PortfolioPanel() {
  *     travels with it, so a horizon computed from three of thirty-one is
  *     read as a fact about three.
  */
-function CashTimingSummary({ lanes }: { lanes: PortfolioLane[] }) {
+export function CashTimingSummary({ lanes }: { lanes: PortfolioLane[] }) {
   if (lanes.length === 0) return null;
   const order = ["pre_cash", "already_hit", "unknown"];
   const sorted = [...lanes].sort(
@@ -403,50 +408,6 @@ function safeMediumDate(iso: string): string {
   }
 }
 
-/** One rendered section of the rail: a published lane, or the leftovers. */
-interface LaneGroup {
-  id: string;
-  lane?: PortfolioLane;
-  items: PortfolioItem[];
-}
-
-/**
- * Split the cards the way the server split them.
- *
- * `lanes` carries its own membership AND its own order (`anomalyIds` is
- * the ranking), so this follows it rather than re-deriving a ranking from
- * scores the client does not own. Two rules keep it honest:
- *
- *   a lane names a card the snapshot does not carry → skipped silently,
- *     because there is nothing to draw;
- *   a card no lane names → kept, in a trailing ungrouped section. A
- *     worklist that quietly drops work is the one failure this panel
- *     cannot have.
- *
- * With no lanes published (mock mode, or a deployment that does not split)
- * everything lands in a single unlabelled group and the rail looks exactly
- * as it did.
- */
-function groupByLane(items: PortfolioItem[], lanes: PortfolioLane[]): LaneGroup[] {
-  if (lanes.length === 0) return items.length > 0 ? [{ id: "all", items }] : [];
-  const byReferent = new Map(items.map((item) => [item.referent, item]));
-  const claimed = new Set<string>();
-  const groups: LaneGroup[] = [];
-  for (const lane of lanes) {
-    const laneItems: PortfolioItem[] = [];
-    for (const id of lane.anomalyIds) {
-      const item = byReferent.get(id);
-      if (item === undefined || claimed.has(id)) continue;
-      claimed.add(id);
-      laneItems.push(item);
-    }
-    if (laneItems.length > 0) groups.push({ id: lane.id, lane, items: laneItems });
-  }
-  const orphans = items.filter((item) => !claimed.has(item.referent));
-  if (orphans.length > 0) groups.push({ id: "ungrouped", items: orphans });
-  return groups;
-}
-
 /**
  * A lane heading with the server's own explanation of why the lane
  * exists. Compliance work is done because the rule says so — a $824
@@ -454,7 +415,7 @@ function groupByLane(items: PortfolioItem[], lanes: PortfolioLane[]): LaneGroup[
  * work is ranked by what is recoverable; mixing them into one ordered list
  * is what let a small mandatory refund sink below discretionary work.
  */
-function LaneHeader({ lane, count }: { lane?: PortfolioLane; count: number }) {
+export function LaneHeader({ lane, count }: { lane?: PortfolioLane; count: number }) {
   if (!lane) {
     return (
       <p className="px-0.5 text-micro font-semibold uppercase tracking-wide text-muted-foreground">
@@ -484,7 +445,7 @@ function LaneHeader({ lane, count }: { lane?: PortfolioLane; count: number }) {
   );
 }
 
-function PortfolioCard({ item, onDrill }: { item: PortfolioItem; onDrill: () => void }) {
+export function PortfolioCard({ item, onDrill }: { item: PortfolioItem; onDrill: () => void }) {
   const canDrill = item.drillable && (item.drillSpec !== undefined || item.drill !== undefined);
   // Only worth saying when the two numbers disagree — a card whose whole
   // impact is recoverable should not spend a line repeating itself.
