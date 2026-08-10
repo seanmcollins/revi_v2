@@ -59,6 +59,8 @@ mypy_path = [
     "packages/catalog/src",
     "packages/calculation-contracts/src",
     "packages/calculation/src",
+    "packages/statistics-contracts/src",
+    "packages/statistics/src",
     "packages/pack-contracts/src",
     "packages/pack/src",
     "packages/pack-learning/src",
@@ -85,6 +87,8 @@ root_packages = [
     "revi_catalog",
     "revi_calculation_contracts",
     "revi_calculation",
+    "revi_statistics_contracts",
+    "revi_statistics",
     "revi_pack_contracts",
     "revi_pack",
     "revi_pack_learning",
@@ -107,6 +111,7 @@ forbidden_modules = [
     "revi_investigation", "revi_investigation_contracts",
     "revi_catalog", "revi_catalog_contracts",
     "revi_calculation", "revi_calculation_contracts",
+    "revi_statistics", "revi_statistics_contracts",
     "revi_pack", "revi_pack_contracts", "revi_pack_learning",
     "revi_presentation", "revi_connector_duckdb", "revi_store_postgres",
     "revi_adapter_claude", "revi_testing", "revi_warehouse", "revi_api", "revi_scheduler",
@@ -120,6 +125,7 @@ modules = [
     "revi_investigation",
     "revi_catalog",
     "revi_calculation",
+    "revi_statistics",
     "revi_pack",
     "revi_pack_learning",
     "revi_presentation",
@@ -131,6 +137,7 @@ type = "forbidden"
 source_modules = [
     "revi_kernel", "revi_investigation", "revi_investigation_contracts",
     "revi_catalog", "revi_catalog_contracts", "revi_calculation", "revi_calculation_contracts",
+    "revi_statistics", "revi_statistics_contracts",
     "revi_pack", "revi_pack_contracts", "revi_pack_learning", "revi_presentation",
     "revi_store_postgres", "revi_adapter_claude", "revi_api", "revi_scheduler",
 ]
@@ -148,6 +155,7 @@ type = "forbidden"
 source_modules = [
     "revi_kernel", "revi_investigation", "revi_investigation_contracts",
     "revi_catalog", "revi_catalog_contracts", "revi_calculation", "revi_calculation_contracts",
+    "revi_statistics", "revi_statistics_contracts",
     "revi_pack", "revi_pack_contracts", "revi_pack_learning", "revi_presentation",
     "revi_connector_duckdb", "revi_store_postgres", "revi_testing", "revi_warehouse",
     "revi_api", "revi_scheduler",
@@ -163,6 +171,7 @@ type = "forbidden"
 source_modules = [
     "revi_kernel", "revi_investigation", "revi_investigation_contracts",
     "revi_catalog", "revi_catalog_contracts", "revi_calculation", "revi_calculation_contracts",
+    "revi_statistics", "revi_statistics_contracts",
     "revi_pack", "revi_pack_contracts", "revi_pack_learning", "revi_presentation",
     "revi_connector_duckdb", "revi_adapter_claude", "revi_warehouse",
 ]
@@ -174,8 +183,49 @@ type = "forbidden"
 source_modules = [
     "revi_kernel", "revi_investigation", "revi_investigation_contracts",
     "revi_catalog", "revi_catalog_contracts", "revi_calculation", "revi_calculation_contracts",
+    "revi_statistics", "revi_statistics_contracts",
     "revi_pack", "revi_pack_contracts", "revi_pack_learning", "revi_presentation",
     "revi_connector_duckdb", "revi_store_postgres", "revi_adapter_claude", "revi_warehouse",
     "revi_scheduler",
 ]
 forbidden_modules = ["fastapi", "starlette", "uvicorn"]
+
+# The statistics capability is a pure estimation kernel: typed rows in,
+# estimates out. Two contracts keep it that way.
+#
+# It may see the shared kernel and its own contracts, and nothing else. In
+# particular no numeric vendor: every estimator here is stdlib `math`, and
+# that is a deliberate choice rather than an accident waiting to be
+# "fixed" by someone reaching for scipy to get one quantile function. A
+# statistics package that grows a numeric stack also grows that stack's
+# version-dependent numerics, and this one's output has to be identical
+# across runs and machines.
+[[tool.importlinter.contracts]]
+name = "Statistics sees only the kernel and its own contracts (and no numeric vendor)"
+type = "forbidden"
+source_modules = ["revi_statistics", "revi_statistics_contracts"]
+forbidden_modules = [
+    "revi_investigation", "revi_investigation_contracts",
+    "revi_catalog", "revi_catalog_contracts",
+    "revi_calculation", "revi_calculation_contracts",
+    "revi_pack", "revi_pack_contracts", "revi_pack_learning",
+    "revi_presentation", "revi_connector_duckdb", "revi_store_postgres",
+    "revi_adapter_claude", "revi_testing", "revi_warehouse", "revi_api", "revi_scheduler",
+    "numpy", "scipy", "pandas", "statsmodels", "sklearn", "pydantic", "yaml",
+]
+
+# Nothing consumes statistics yet. Deep research (phase 3) is the intended
+# and only caller; until it exists, an accidental import from the engine or
+# the API would create a dependency nobody designed. Deleting this contract
+# is the deliberate act that admits the first consumer.
+[[tool.importlinter.contracts]]
+name = "Nothing imports statistics yet (phase 3 is its only intended consumer)"
+type = "forbidden"
+source_modules = [
+    "revi_kernel", "revi_investigation", "revi_investigation_contracts",
+    "revi_catalog", "revi_catalog_contracts", "revi_calculation", "revi_calculation_contracts",
+    "revi_pack", "revi_pack_contracts", "revi_pack_learning", "revi_presentation",
+    "revi_connector_duckdb", "revi_store_postgres", "revi_adapter_claude",
+    "revi_testing", "revi_warehouse", "revi_api", "revi_scheduler",
+]
+forbidden_modules = ["revi_statistics", "revi_statistics_contracts"]

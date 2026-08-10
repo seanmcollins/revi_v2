@@ -38,7 +38,8 @@ jobs:
             packages/calculation-contracts/src packages/pack/src \
             packages/catalog-contracts/src packages/catalog/src \
             packages/connector-duckdb/src packages/investigation/src \
-            packages/store-postgres/src
+            packages/store-postgres/src \
+            packages/statistics/src packages/statistics-contracts/src
       - name: Generate warehouse
         run: make warehouse
       - name: Tests (default + reference)

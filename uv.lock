@@ -26,6 +26,8 @@ members = [
     "revi-pack-learning",
     "revi-presentation",
     "revi-scheduler",
+    "revi-statistics",
+    "revi-statistics-contracts",
     "revi-store-postgres",
     "revi-testing",
     "revi-warehouse",
@@ -1675,6 +1677,32 @@ requires-dist = [
     { name = "revi-pack", editable = "packages/pack" },
     { name = "revi-store-postgres", editable = "packages/store-postgres" },
 ]
+
+[[package]]
+name = "revi-statistics"
+version = "0.1.0"
+source = { editable = "packages/statistics" }
+dependencies = [
+    { name = "revi-kernel" },
+    { name = "revi-statistics-contracts" },
+]
+
+[package.metadata]
+requires-dist = [
+    { name = "revi-kernel", editable = "packages/kernel" },
+    { name = "revi-statistics-contracts", editable = "packages/statistics-contracts" },
+]
+
+[[package]]
+name = "revi-statistics-contracts"
+version = "0.1.0"
+source = { editable = "packages/statistics-contracts" }
+dependencies = [
+    { name = "revi-kernel" },
+]
+
+[package.metadata]
+requires-dist = [{ name = "revi-kernel", editable = "packages/kernel" }]
 
 [[package]]
 name = "revi-store-postgres"
