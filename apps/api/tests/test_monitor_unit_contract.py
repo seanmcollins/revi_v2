@@ -1,24 +1,11 @@
 """The wire's monitor vocabulary must be the engine's monitor vocabulary.
 
-Round-8 FIX-3. ``days`` was legal in
-:data:`revi_investigation.application.ports.MONITOR_THRESHOLD_UNITS` — the
-list the phrase parser, the pack and the materiality policy all read — and
-absent from the ``MonitorUnit`` literal on the wire. One token of skew
-cost three separate failures on one live tenant:
-
-* ``GET /v1/monitors/pins`` returned **500 for the whole tenant** off ONE
-  stored ``days`` monitor, because composing the list validates every pin's
-  monitor through ``MonitorModel``;
-* "tell me when it moves more than 2 days" STORED its pin and then reported
-  ``monitor_refused: not_stored``, because the confirmation payload could not
-  be built after the write had already happened — and the analyst, told
-  nothing was monitored, said it again, storing a second pin;
-* the settings control on every tile was disabled, because the client reads
-  the pin list to render it.
-
-An enum that exists twice is a defect waiting for the next unit. These are
-asserted equal as SETS on every CI run, in both directions, so adding a unit
-to either list without the other fails here rather than in a demo.
+Regression: ``days`` was legal in
+:data:`revi_investigation.application.ports.MONITOR_THRESHOLD_UNITS` and absent
+from the ``MonitorUnit`` literal on the wire. One token of skew took the pin
+list to a 500 for a whole tenant, stored a pin while reporting it unstored, and
+disabled the settings control on every tile. The two lists are asserted equal as
+sets, in both directions, so the next unit added to one alone fails here.
 """
 
 from __future__ import annotations

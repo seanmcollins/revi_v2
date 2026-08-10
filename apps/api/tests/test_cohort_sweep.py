@@ -1,4 +1,4 @@
-"""Cohort reclamation in the API process (review finding D6).
+"""Cohort reclamation in the API process.
 
 The defect being pinned is not "the sweep drops the wrong tables" — it is
 that the sweep was *never called* by the only long-lived process that creates
@@ -163,7 +163,7 @@ class TestScheduler:
 
 
 class TestAppLifespan:
-    """The whole of D6's wiring half: entering the app's lifespan must sweep."""
+    """The wiring half: entering the app's lifespan must sweep."""
 
     async def test_startup_sweeps_the_wired_repository(self, monkeypatch: pytest.MonkeyPatch) -> None:
         import revi_api.app as app_module

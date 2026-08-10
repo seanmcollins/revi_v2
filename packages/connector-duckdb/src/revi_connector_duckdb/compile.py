@@ -24,18 +24,16 @@ a ``FILTER (WHERE …)`` clause), then the probe-time derived registry below,
 then as a catalog-declared view column. Contract-internal ``Filtered`` scopes
 and contract ``exclusions`` also become ``FILTER`` clauses.
 
-**Probe-time derived measures.** Eight fields are computed by this compiler
-rather than stored (``_DERIVED_MEASURES``; the same list the base pack's
-NOTES.md declares, plus the snapshot's ``open_balance_cents``). Each is a
-deterministic expression over the entity's curated base view — a date
-difference, a floored variance, a filing deadline read off the claim's plan,
-or a per-claim rollup joined on the certified
-``claim_id`` path. They are *adapter conventions over the catalog*, in the
-same sense as ``resolved_date`` and the ``ar_age_bucket`` CASE arms: the
-catalog governs every column, row filter and join they touch, and each one
-declares the probe shapes it is valid for (a snapshot-time age cannot be
-computed inside a flow aggregation, and the compiler says so rather than
-inventing an as-of).
+**Probe-time derived measures.** The fields in ``_DERIVED_MEASURES`` are
+computed by this compiler rather than stored (the base pack's ``NOTES.md``
+mirrors the list). Each is a deterministic expression over the entity's
+curated base view — a date difference, a floored variance, a filing deadline
+read off the claim's plan, or a per-claim rollup joined on the certified
+``claim_id`` path. They are *adapter conventions over the catalog*, like
+``resolved_date`` and the ``ar_age_bucket`` CASE arms: the catalog governs
+every column, row filter and join they touch, and each declares the probe
+shapes it is valid for — a snapshot-time age cannot be computed inside a flow
+aggregation, and the compiler refuses rather than inventing an as-of.
 
 **Cross-entity ratio-of-sums.** A ratio metric may name a numerator and a
 denominator that live at different entity grains (``net_collection_rate``:
@@ -67,7 +65,7 @@ column (and a REMIT cohort may filter denial/transaction probes through
 the executing watermark (``WatermarkStaleError`` otherwise — drill-down
 children must reconcile with the parent's numbers).
 
-**Snapshot probes** (the subtlest builder — see ``compile_snapshot``): state
+**Snapshot probes** (see :meth:`ProbeCompiler.compile_snapshot`): state
 as-of a date at the CLAIM grain. Open inventory is claims with
 ``service_date <= as_of`` (the claim exists as-of) AND
 ``(submission_date IS NULL OR submission_date <= as_of)`` AND
@@ -168,8 +166,8 @@ _CHARGE_ENTRY_DATE_COLUMN = "charge_entry_date"
 #: limit half of the claim -> plan -> filing rule join; the anchor half is the
 #: catalog's SERVICE basis column. Checked against the catalog before use.
 _FILING_LIMIT_DAYS_COLUMN = "timely_filing_days"
-#: The certified boolean marking a claim that has already left the door. Only an
-#: unsubmitted claim has a filing clock still running, so it gates both the
+#: The certified boolean marking a claim that has already been submitted. Only
+#: an unsubmitted claim has a filing clock still running, so it gates both the
 #: derived runway measure and the `filed` arm of the runway bucket.
 _BILLED_FLAG_DIMENSION = "billed_flag"
 #: The certified discharge flag. Stored in the base view from the CURRENT
@@ -236,21 +234,22 @@ class CompiledQuery:
     single_thread: bool = False  # force threads=1 (deterministic sampling)
 
 
-#: Probe shapes a derived measure can be computed for (the kernel's own
-#: vocabulary, so the shape this compiler enforces and the shape the
-#: planner negotiates in §6.6 are the same value, never two spellings).
+#: Probe shapes a derived measure can be computed for. Spelled in the
+#: kernel's own vocabulary so the shape this compiler enforces and the shape
+#: the planner negotiates in §6.6 are the same value, not two spellings.
 AGGREGATION_SHAPE = ProbeShape.AGGREGATION
 SNAPSHOT_SHAPE = ProbeShape.SNAPSHOT
 
 
 @dataclass(frozen=True, slots=True)
 class _DerivedSpec:
-    """One probe-time derived measure: what it means, where it lives, and which
-    probe shapes can compute it. The SQL is built by
-    :meth:`ProbeCompiler._derived_binding`; this table is the governed
-    declaration the pack's NOTES.md registry mirrors, and
+    """One probe-time derived measure: what it means, where it lives, and
+    which probe shapes can compute it.
+
+    The governed declaration; the SQL is built by
+    :meth:`ProbeCompiler._derived_binding` and
     :func:`derived_measure_capabilities` publishes it across the repository
-    port so the planner refuses exactly what this compiler would refuse."""
+    port, so the planner refuses exactly what this compiler would refuse."""
 
     id: str
     entity: str  # catalog entity name
@@ -350,12 +349,10 @@ _DERIVED_CAPABILITIES: tuple[DerivedMeasure, ...] = tuple(
 def derived_measure_capabilities() -> tuple[DerivedMeasure, ...]:
     """The registry above, stated in the repository port's vocabulary.
 
-    This is the whole of what §6.6 is told about probe-time derivation:
-    which field, at which catalog entity, in which probe shapes. Built
-    from ``_DERIVED_MEASURES`` rather than written out again, so a
-    derivation added, moved or restricted here changes what the planner
-    validates in the same edit — the two verdicts cannot drift apart
-    because there is only one list.
+    This is the whole of what §6.6 is told about probe-time derivation: which
+    field, at which catalog entity, in which probe shapes. Derived from
+    ``_DERIVED_MEASURES`` rather than restated, so the compiler's verdict and
+    the planner's cannot drift apart — there is only one list.
     """
     return _DERIVED_CAPABILITIES
 
@@ -759,9 +756,9 @@ class ProbeCompiler:
     def _require_declared_column(self, column: str, entity: EntityDef) -> str:
         """A base-view column a derived measure reads, checked against the
         catalog's declared set for the entity (``declared_columns:`` in
-        ``entities.yaml``). Keeps an adapter constant from silently outrunning
-        the catalog: if the declaration is dropped, the derivation refuses
-        rather than emitting SQL for a column the catalog never bound."""
+        ``entities.yaml``). Stops an adapter constant from outrunning the
+        catalog: if the declaration is dropped, the derivation refuses rather
+        than emitting SQL for a column the catalog never bound."""
         if column not in self._catalog.declared_columns(entity.name):
             raise UnsupportedConceptError(
                 f"probe-time derived measures on {entity.name!r} require declared "
@@ -1416,8 +1413,8 @@ class ProbeCompiler:
         parsed: ``filed`` (the claim has been submitted, so the clock it was
         racing is closed) and ``expired`` (unsubmitted, deadline already
         passed). Both must be declared in the catalog's bucket list, and the
-        numeric edges must ascend, or the binding refuses — a mislabelled
-        runway is worse than no runway.
+        numeric edges must ascend, or the binding refuses rather than
+        mislabelling claims.
 
         Returns ``{}`` when the catalog does not carry the dimension or the
         claim entity does not declare the plan's filing limit, so a catalog
@@ -1475,11 +1472,11 @@ class ProbeCompiler:
 
         Only ``discharged_flag`` qualifies today: it restates a nullable date
         the base view still carries, so the snapshot builder can re-derive it
-        the way it already re-derives ``resolved_date``'s effect, instead of
+        the way it already re-derives ``resolved_date``'s effect instead of
         reading a truth that belongs to the watermark. ``status``,
-        ``clean_claim`` and ``first_pass_paid`` cannot be re-derived from claim
-        columns at all — they summarise remits and cash — and the catalog's
-        ``status`` note says so rather than pretending otherwise.
+        ``clean_claim`` and ``first_pass_paid`` cannot be re-derived from
+        claim columns at all — they summarise remits and cash — and the
+        catalog's ``status`` note records that.
         """
         dim = self._catalog.dimension(_DISCHARGED_FLAG_DIMENSION)
         if dim is None:

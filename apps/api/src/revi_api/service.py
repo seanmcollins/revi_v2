@@ -10,13 +10,12 @@ re-executing anything.
 caller's :class:`~revi_api.auth.Principal`, and every ``{session_id}`` /
 ``{investigation_id}`` lookup resolves the owning session and compares its
 tenant before returning a byte. That placement is the point: an
-authorization check in an HTTP middleware protects the HTTP transport and
+authorization check in HTTP middleware protects the HTTP transport and
 leaves ``InProcessInvestigationClient`` — the same API, a different
 door — wide open. The rule belongs to the service, so both doors get it.
 
-The tenant a turn executes under now comes from the principal. It used to
-be the literal string ``"api"``, hardcoded, which meant every session
-opened over HTTP belonged to the same tenant no matter who asked.
+The tenant a turn executes under comes from the principal, never from the
+request body.
 """
 
 from __future__ import annotations
@@ -116,37 +115,33 @@ _TURN_RESULT_ADAPTER: TypeAdapter[TurnResult] = TypeAdapter(TurnResponse)
 
 #: Suffix of the supplementary record a turn writes to remember which page
 #: of the ranked worklist it published, so a later "open the top item"
-#: resolves against the rows the analyst was actually shown (round-3 R3-09).
+#: resolves against the rows the analyst was actually shown.
 WORKLIST_TRACE_SUFFIX = ":worklist"
 
 #: Suffix of the supplementary record a turn writes when a monitor DECLARATION
 #: ended in a clarification, so the declaration survives the question it
-#: triggered (round-7 FN-5).
+#: triggered.
 #:
-#: The engine returns early on a clarification reply and nothing carried the
-#: parsed declaration across the boundary, so "monitor denied dollars for
-#: Meridian HMO Care and tell me if it moves more than 2%" — answered
-#: correctly, clarified correctly, resolved correctly — registered no monitor
-#: and said nothing about it. In a pack that refuses any imprecise payer
-#: name BY DESIGN, that is not an edge case: clarification is the MODAL
-#: branch of the flagship acquisition path for the flagship surface.
+#: The engine returns early on a clarification reply and carries nothing
+#: across the boundary, so without this record a declaration that clarified
+#: registered no monitor and said nothing about it. In a pack that refuses
+#: imprecise payer names by design, clarification is the modal branch of the
+#: declaration path, not an edge case.
 #:
-#: Written the same way the worklist context is, and for the same reason:
+#: Written as a separate record rather than folded into the decision trace:
 #: the engine finishes its own trace before the API knows any of this, and
 #: rewriting somebody else's finished record is how two writers come to
 #: disagree about one row.
 MONITOR_TRACE_SUFFIX = ":monitor"
 
 #: Suffix of the record carrying what the API added to the published answer
-#: AFTER the engine saved its own (round-7 FN-3, restore half).
+#: AFTER the engine saved its own.
 #:
-#: The engine stores the investigation with the warnings IT produced. Four
-#: of the six sentences on one live answer came from there; the other two —
-#: the named-cut disclosure a monitor declaration earns, and the refusal that
-#: says nothing is being monitored — were appended by this module afterwards.
-#: A restored or permalinked turn therefore lost exactly the warnings whose
-#: whole purpose is to survive being read later, which is the same class of
-#: drop FN-3 exists to kill, one layer down.
+#: The engine stores the investigation with the warnings IT produced; the
+#: named-cut disclosure a monitor declaration earns and the refusal that says
+#: nothing is being monitored are appended by this module afterwards. Without
+#: this write, a restored or permalinked turn lost exactly the warnings whose
+#: whole purpose is to survive being read later.
 #:
 #: The SENTENCES are merged back onto the investigation record itself, so
 #: every restore path gets them with no extra read. This record carries the
@@ -154,9 +149,8 @@ MONITOR_TRACE_SUFFIX = ":monitor"
 API_TRACE_SUFFIX = ":api"
 
 #: Every supplementary record's suffix. The decision trace is the one with
-#: none of them, and this is the single list that decides it — a rule spread
-#: across call sites breaks the next time a writer is added, which is
-#: precisely how it broke before.
+#: none of them, and this is the single list that decides it — the same rule
+#: spread across call sites breaks the next time a writer is added.
 _SUPPLEMENTARY_SUFFIXES = (
     NARRATIVE_TRACE_SUFFIX,
     WORKLIST_TRACE_SUFFIX,
@@ -167,8 +161,7 @@ _SUPPLEMENTARY_SUFFIXES = (
 #: How far back a worklist reference looks for the list it names. Three
 #: turns: the list, a question about it, and a follow-up to that. Beyond
 #: that "the top item" is a memory rather than a reference, and answering it
-#: from a list four turns gone would be the platform pointing at a screen
-#: nobody is on.
+#: from a list four turns gone would point at rows nobody is looking at.
 _WORKLIST_CONTEXT_DEPTH = 3
 
 #: Page size for ``GET /v1/sessions`` when the caller names none.
@@ -389,12 +382,11 @@ def _own_envelope(
 ) -> TurnResult:
     """The envelope's identity, taken from THIS request's resolved objects.
 
-    Round-8 FIX-5. ``session_id`` is the path parameter and
-    ``outcome.investigation`` is the record this call awaited — both are
-    facts about this request that were in hand before the response was
-    assembled. Anything else on the envelope is a read of shared state, and
-    a read of shared state under concurrency is how two turns posted to one
-    session came back naming a stranger's.
+    ``session_id`` is the path parameter and ``outcome.investigation`` is the
+    record this call awaited — both facts about this request that were in
+    hand before the response was assembled. Anything else on the envelope is
+    a read of shared state, and under concurrency that is how two turns
+    posted to one session came back naming a stranger's.
 
     A mismatch is a defect and is logged as one; the envelope is corrected
     rather than published wrong, because the alternative is a permalink into
@@ -583,7 +575,7 @@ class ApiService:
                 return _TURN_RESULT_ADAPTER.validate_python(stored)
         # A row of the ranked worklist, addressed by the id or the position
         # this platform printed, becomes the card's own stored drill —
-        # before anything is classified or interpreted (round-3 R3-09).
+        # before anything is classified or interpreted.
         request, worklist_reference = await self._resolve_worklist_turn(session_id, request)
         # "Monitor X" is an INSTRUCTION about the question that follows it, so
         # the lead-in is stripped here and the remainder runs as an ordinary
@@ -601,8 +593,8 @@ class ApiService:
         )
         utterance = request.utterance or request.clarification_response or default_question
         # Every model call this turn makes is tallied here, so a turn that
-        # FAILS can still say what it spent (review F19). The binding is a
-        # contextvar, so concurrent turns cannot read each other's ledger.
+        # FAILS can still say what it spent. The binding is a contextvar, so
+        # concurrent turns cannot read each other's ledger.
         ledger, ledger_token = bind_ledger()
         try:
             # A per-turn override is bounds-checked exactly like a session
@@ -626,13 +618,13 @@ class ApiService:
                 re_anchor=request.re_anchor,
                 settings=turn_settings,
                 # The dedicated channel, carried as the fact it is rather
-                # than flattened into ``utterance`` (round-3 R3-07). It was
-                # flattened here, which is why a verbatim option sent on it
-                # came back re-classified as a bare refinement at confidence
-                # 0.45, rooted, with the analyst's question dropped.
+                # than flattened into ``utterance``. Flattened, a verbatim
+                # option sent on it came back re-classified as a bare
+                # refinement at confidence 0.45, rooted, with the analyst's
+                # question dropped.
                 clarification_response=bool(request.clarification_response),
                 # A body carrying only ``worklist`` is the lane chip the
-                # platform drew, and it is a complete request (R3-09).
+                # platform drew, and it is a complete request.
                 worklist_only=(
                     request.worklist is not None
                     and not request.utterance
@@ -647,11 +639,10 @@ class ApiService:
             # for certain before the engine was called — so an outcome
             # carrying a different one is not a fact about the analyst's
             # session, it is another caller's identity on this caller's wire.
-            # It happened: under concurrent load two turns posted to one
-            # session came back naming a stranger's session and
-            # investigations, and the client adopts response ids — "Copy
-            # link" copied a stranger's investigation, and the leaked
-            # permalink rendered a stranger's transcript (round-8 FIX-5).
+            # Under concurrent load two turns posted to one session came back
+            # naming a stranger's session and investigations, and clients
+            # adopt response ids: "Copy link" copied a stranger's
+            # investigation and the permalink rendered their transcript.
             # Refused here, loudly, rather than published: an error the
             # analyst can retry is recoverable, and a permalink into
             # somebody else's data is not.
@@ -697,8 +688,8 @@ class ApiService:
             response = _own_envelope(session_id, outcome, response)
             if worklist is not None:
                 # Which page was shown, so the NEXT turn can address it by
-                # id or by position (round-3 R3-09). Best-effort: a lost
-                # context record costs a later reference, never this answer.
+                # id or by position. Best-effort: a lost context record costs
+                # a later reference, never this answer.
                 try:
                     await self._record_worklist_context(outcome, worklist)
                 except Exception:  # pragma: no cover - defensive
@@ -714,16 +705,15 @@ class ApiService:
                 )
             elif declaration is not None and isinstance(response, TurnClarification):
                 # The declaration outlives the question it triggered, and
-                # the question says so while it is on screen (round-7 FN-5).
+                # the question says so while it is on screen.
                 response = await self._defer_declared_monitor(
                     declaration, outcome, response
                 )
             if isinstance(response, TurnAnswer):
                 # What was PUBLISHED is what is STORED. Everything above
                 # this line can add to the answer after the engine has
-                # already written its own record, and a permalink that
-                # restores four of six warnings drops precisely the two
-                # this module added (round-7 FN-3, restore half).
+                # already written its own record, so without this write a
+                # permalink drops precisely the warnings this module added.
                 await self._persist_published_extras(outcome, response)
         except ReviError as exc:
             # The engine's own sentence, always, in the log: the plain
@@ -783,18 +773,17 @@ class ApiService:
         available — the analyst walks away believing they are being monitored.
         """
         # What the analyst SAID, carried through as said. The monitor's title
-        # is composed from the RESOLVED spec inside register_intent_pin
-        # (round-8 FIX-10) — this used to be the label itself, so "monitor
-        # Silverline Health" kept a payer name the platform had already
-        # resolved to a different one, and "monitor this" produced a tile whose
-        # entire title was the pronoun.
+        # is composed from the RESOLVED spec inside register_intent_pin, not
+        # from this subject: used as the label, "monitor Silverline Health"
+        # kept a payer name the platform had already resolved to a different
+        # one, and "monitor this" produced a tile titled by the pronoun.
         units = self._units_for_answer(outcome)
         if declaration.threshold_unreadable:
             # A stated sensitivity this grammar could not read is NEVER
-            # silently replaced by the pack's (round-7 FN-6). "more than
-            # half a point" registered `governed_default` and the
-            # confirmation sentence did not mention the instruction — so
-            # "three points" would have briefed at 0.5, forever, silently.
+            # silently replaced by the pack's. "more than half a point"
+            # registered `governed_default` with no mention of the
+            # instruction, so "three points" would have briefed at 0.5
+            # forever, silently.
             logger.info(
                 "monitor declaration not registered: unreadable threshold %r",
                 declaration.threshold_phrase,
@@ -838,13 +827,13 @@ class ApiService:
             )
         except Exception:  # pragma: no cover - defensive
             # ``not_stored`` is a claim about the STORE, and it has to be
-            # true. It was not: the confirmation payload used to be composed
-            # after the pin was written, so a monitor the wire could not
-            # describe was live in the store while this sentence told the
-            # analyst nothing was monitoring — and they said it again, which
-            # is how one tenant ended up with two identical days monitors.
-            # register_intent_pin now composes before it writes, so reaching
-            # here means nothing was written (round-8 FIX-3).
+            # true. Composing the confirmation payload AFTER the pin was
+            # written broke it: a monitor the wire could not describe was
+            # live in the store while this sentence said nothing was
+            # monitoring, so the analyst declared it again and the tenant
+            # ended up with two identical monitors. register_intent_pin
+            # composes before it writes, so reaching here means nothing was
+            # written.
             logger.exception("monitor declaration could not be registered")
             return self._monitor_refused(
                 response,
@@ -878,13 +867,11 @@ class ApiService:
     ) -> TurnAnswer:
         """Publish a refused declaration where the confirmation would have gone.
 
-        Round-7 FN-3. The refusal used to be appended to ``warnings`` alone,
-        AFTER the assembler had already built ``warnings_v2`` — and every
-        client renders the structured list whenever it is non-empty. So the
-        server refused exemplarily, the payload carried the sentence, and
-        the screen showed an ordinary answer with no indication that nothing
-        was being monitored. Three things now happen together, or none does:
-        the payload field, the prose warning, and its classified twin.
+        Three things happen together, or none does: the payload field, the
+        prose warning, and its classified twin. Appending to ``warnings``
+        alone — after the assembler has already built ``warnings_v2`` — puts
+        the refusal on no screen, because every client renders the structured
+        list whenever it is non-empty.
         """
         alternatives = (
             " Phrasings that work here: "
@@ -959,30 +946,27 @@ class ApiService:
     ) -> None:
         """Make the stored turn carry what the published turn carried.
 
-        Round-7 FN-3, restore half. The engine saves the investigation with
-        the warnings IT produced; this module then appends the ones only it
-        can know — the named-cut disclosure a monitor declaration earns, the
-        worklist reference it resolved, the refusal that says nothing is
-        being monitored. None of those reached the record, so a permalinked or
-        re-opened turn restored four of six warnings and lost the two whose
-        entire purpose is to be readable later. The same drop FN-3 exists to
-        kill, one layer down.
+        The engine saves the investigation with the warnings IT produced;
+        this module then appends the ones only it can know — the named-cut
+        disclosure a monitor declaration earns, the worklist reference it
+        resolved, the refusal that says nothing is being monitored. Without
+        this write, a permalinked or re-opened turn restores the engine's
+        warnings and loses exactly the ones whose purpose is to be readable
+        later.
 
         Two writes and both are additive: the SENTENCES merge onto the
         investigation itself, so every restore path picks them up with no
         extra read, and the structured refusal rides on a supplementary
         record because a refusal is a shape rather than a sentence.
 
-        The composed NARRATIVE rides the same write (round-10 R10-4). The
-        engine has already stored this investigation by the time the prose
-        exists — it is composed here, one layer up, from the outcome the
-        engine returned — so the turn's own record could never carry it, and
-        "Copy link" shipped a page with the analysis removed: a cold open
+        The composed NARRATIVE rides the same write. The engine has already
+        stored this investigation by the time the prose exists — it is
+        composed here, one layer up, from the outcome the engine returned —
+        so the turn's own record could never carry it, and a restored turn
         rendered "The written analysis was not stored for this turn" where
-        the live turn published two thousand characters, and a mid-demo
-        refresh did it to every turn at once. What is stored is the
-        POST-VALIDATION text — the sentences that survived grounding — so a
-        restored turn shows what was published and never what was composed
+        the live turn published two thousand characters. What is stored is
+        the POST-VALIDATION text — the sentences that survived grounding — so
+        a restored turn shows what was published and never what was composed
         and then redacted.
 
         Best-effort. The analyst has their answer; a store hiccup here costs
@@ -1051,12 +1035,12 @@ class ApiService:
     ) -> tuple[TurnOutcome, AnomalyReconciliationPayload | None]:
         """Reconcile a drill's answer against the card it was launched from.
 
-        The defect this closes (review F1): a card said ``$178,217``, its
-        own drill answered ``$195,873.92``, and the only reconciliation
-        anywhere on the answer read ``not_applicable — this is a first
-        turn``. That verdict is about the investigation LINEAGE and is
-        correct; it is simply not about the two numbers the analyst had
-        just compared, and nothing else was.
+        The defect this closes: a card said ``$178,217``, its own drill
+        answered ``$195,873.92``, and the only reconciliation anywhere on
+        the answer read ``not_applicable — this is a first turn``. That
+        verdict is about the investigation LINEAGE and is correct; it is
+        simply not about the two numbers the analyst had just compared, and
+        nothing else was.
 
         The figure compared is the money total of the answer's own final
         frame — the same quantity :mod:`revi_api.rederive` sums for the
@@ -1106,9 +1090,9 @@ class ApiService:
                 ),
                 None,
             )
-        # The same declared-unit gate the portfolio's re-derivation applies
-        # (FN-1): a ratio contract's frame may carry a money numerator, and
-        # summing it publishes a dollar figure the metric does not measure.
+        # The same declared-unit gate the portfolio's re-derivation applies:
+        # a ratio contract's frame may carry a money numerator, and summing
+        # it publishes a dollar figure the metric does not measure.
         refusal = non_money_reason(tuple(request.spec.metric_ids), self._components.pack_port)
         if refusal is None:
             cents, measure, rows = money_total(outcome.frames)
@@ -1139,14 +1123,13 @@ class ApiService:
             ),
         )
         # The card's OWN reconciliation sentence, not the raw comparison
-        # note (round-3 R3-11). ``detail=comparison.note`` published "the
-        # detector's window, population or valuation basis is not the
-        # contract's" on a drill whose population differs because THIS
-        # PLATFORM substituted the cut — laying the platform's own dimension
-        # swap at the detector's door, on the one screen where a human reads
-        # the gap. ``_reconciliation_fields`` is the function the card uses
-        # (portfolio.py:776); routing through it is what makes the drill say
-        # what the card says.
+        # note. ``detail=comparison.note`` published "the detector's window,
+        # population or valuation basis is not the contract's" on a drill
+        # whose population differs because THIS PLATFORM substituted the cut
+        # — laying the platform's own dimension swap at the detector's door.
+        # :func:`revi_api.portfolio.reconciliation_note` is what the card
+        # uses; routing through it is what makes the drill say what the card
+        # says.
         repoints = dimension_repoints_for(
             record,
             self._components.actionability,
@@ -1371,7 +1354,7 @@ class ApiService:
             newest_watermark_id=newest.id,
             llm=components.llm_mode,
             # Fetched once by a client, so any surface that shows a metric
-            # id can show what the number actually is (review F9).
+            # id can show what the number actually is.
             metric_display=components.metric_display.all_payloads(),
             # Published so a client renders the controls this deployment
             # actually has — and does not render one that would be refused
@@ -1409,9 +1392,9 @@ class ApiService:
             drillability=components.drillability,
             rederived=await self._rederived_impacts(records, watermark),
             metric_display=components.metric_display,
-            # FN-2: a snapshot contract is an as-of balance and applies no
-            # window, so the gap between it and a card's windowed figure is
-            # not a divergence anybody can lay at the detector's door.
+            # A snapshot contract is an as-of balance and applies no window,
+            # so the gap between it and a card's windowed figure is not a
+            # divergence anybody can lay at the detector's door.
             snapshot_metric_ids=self._snapshot_metric_ids(),
             # Which cuts each governed contract accepts — so a card whose
             # detector cut has no legal equivalent at the drilled
@@ -1447,14 +1430,14 @@ class ApiService:
     ) -> tuple[TurnRequest, WorklistReference | None]:
         """Rewrite a turn that names a worklist row into that row's drill.
 
-        Round-3 R3-09. The rewrite is total and deliberate: the request
-        becomes ``{spec: <the card's own stored drill_spec>, anomaly_ref:
-        <the card's id>}`` — byte-for-byte what ``PortfolioPanel`` posts
-        when the analyst clicks the same row — while keeping the analyst's
-        own words as the utterance so the turn is titled by what they
-        asked. One path, so the reconciliation strip and the repoint
-        disclosure fire for a typed reference exactly as they do for a
-        click, and there is no second definition of "open a card".
+        The rewrite is total and deliberate: the request becomes ``{spec:
+        <the card's own stored drill_spec>, anomaly_ref: <the card's id>}``
+        — byte-for-byte what the portfolio panel posts when the analyst
+        clicks the same row — while keeping the analyst's own words as the
+        utterance so the turn is titled by what they asked. One path, so the
+        reconciliation strip and the repoint disclosure fire for a typed
+        reference exactly as they do for a click, and there is no second
+        definition of "open a card".
 
         Only ever attempted against a worklist this session has actually
         SHOWN (see :meth:`_session_worklist`): resolving "the top item"
@@ -1569,23 +1552,21 @@ class ApiService:
     ) -> WorklistPayload | None:
         """The ranked worklist this turn should carry, or ``None``.
 
-        Round-2 deferred P1: the conversation could not reach the worklist
-        the platform already computes. It reaches it through governed
-        content — ``packs/base-rcm/worklist.yaml`` names the playbook and
-        concept ids that mean "which work should I pick up" — and through
-        an explicit typed request, and through nothing else. No question
-        text is matched here or anywhere else in the platform.
+        The conversation reaches the worklist through governed content —
+        ``packs/base-rcm/worklist.yaml`` names the playbook and concept ids
+        that mean "which work should I pick up" — and through an explicit
+        typed request, and through nothing else. No question text is matched
+        here or anywhere else in the platform.
 
         A failure to build one is a warning on the answer, never an error:
         an unreadable detection feed must not cost the analyst the answer
         they actually asked for.
 
         ``carried`` says this turn is a worklist-scoped follow-up — it
-        opened a row of the list by name — so the list is re-attached
-        rather than dropped. Round-3 R3-09: "which items are
-        compliance-mandatory", asked one turn after the list was published,
-        came back without it, and the analyst had to re-ask for the list to
-        ask about the list.
+        opened a row of the list by name — so the list is re-attached rather
+        than dropped. Without it, "which items are compliance-mandatory",
+        asked one turn after the list was published, came back without the
+        list, and the analyst had to re-ask for it to ask about it.
         """
         routing = self._components.worklist
         query = request.worklist
@@ -1613,8 +1594,6 @@ class ApiService:
             matched_id=matched[1],
             query=query,
         )
-
-
 
     def _snapshot_metric_ids(self) -> frozenset[str]:
         """Pack metrics whose contract ``kind`` is ``snapshot``.

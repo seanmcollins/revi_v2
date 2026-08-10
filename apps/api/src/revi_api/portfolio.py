@@ -27,19 +27,16 @@ decomposed components so the ranking is never a black box. Resolved /
 self-resolved records are excluded (and absent-at-watermark anomalies
 never appear, because the source reads per snapshot).
 
-Ranking the disputed figure (``@3``, round-2 deferred P1)
-=========================================================
-``@2`` published two figures per card and ranked on one of them without
-saying which: ``impact_norm`` came from ``impact_cents``, the DETECTOR's
-assertion, including on the six cards whose re-derivation the same
-payload calls a divergence. So the order of the Monday worklist was set
-by the side of the platform's own disagreement it does not stand behind
-— a card re-derived 39.3% higher sorted on the lower number, and the
-recoverable estimate beside it was a governed fraction of that same
-disputed figure ("this platform: $151" one line above "~$3,750
-recoverable").
+Ranking the disputed figure
+===========================
+A card publishes two figures and must say which one ordered it. Ranking on
+``impact_cents`` — the DETECTOR's assertion — while the same payload calls
+the re-derivation a divergence sets the worklist order by the side of the
+platform's own disagreement it does not stand behind, and prices the
+recoverable estimate off that same disputed figure.
 
-``@3`` ranks each card on the figure the platform is prepared to defend:
+Each card is therefore ranked on the figure the platform is prepared to
+defend:
 
 * ``impact_agreement == "diverged"`` and a re-derivation exists →
   ``reconciled_impact_cents`` ranks the card (``ranked_on="platform"``);
@@ -48,36 +45,33 @@ recoverable").
   balance and the card's is a flow, and substituting one for the other
   would be a different claim rather than a better one;
 * ``agreed`` / ``unavailable`` → the detector's figure ranks it
-  (``ranked_on="detector"``), which is what it always was.
+  (``ranked_on="detector"``).
 
 Nothing is overwritten. ``impact_cents`` remains the detection system's
 assertion — the card's provenance — and ``reconciled_impact_cents``
-remains this platform's. What is new is that every card now says WHICH of
-them ordered it (``ranked_on``), what that figure was
-(``ranked_impact_cents``), why (``ranked_on_note``), and what the
-population's normalizer was (``priority.impact_normalizer_cents``). The
-recoverable estimate follows the same figure, the normalizer is taken
-over the same figures, and the relative compliance floor is the median of
-the resulting scores — so the whole worklist is priced on one consistent
-basis instead of two.
+remains this platform's. Every card says WHICH of them ordered it
+(``ranked_on``), what that figure was (``ranked_impact_cents``), why
+(``ranked_on_note``), and what the population's normalizer was
+(``priority.impact_normalizer_cents``). The recoverable estimate follows
+the same figure, the normalizer is taken over the same figures, and the
+relative compliance floor is the median of the resulting scores — so the
+whole worklist is priced on one consistent basis instead of two.
 
-What changed in ``@2`` (round-1 review F17)
-===========================================
-The compliance floor was the constant ``0.60``, and the top of the
-worklist read: an $824 credit balance at rank 1 and rank 2, then a
-$178,217 critical DNFB card at rank 3. The policy behind that — a
-compliance-mandatory item must be worked regardless of size — is right
-and is kept. The *serving* of it was wrong twice over.
+The compliance floor
+====================
+A compliance-mandatory item must be worked regardless of size. Serving
+that policy as a constant floor of ``0.60`` put an $824 credit balance
+above a $178,217 critical DNFB card, so it is served three ways instead:
 
-- **The floor is now relative**: the median score of the non-floored
+- **The floor is relative**: the median score of the non-floored
   population, computed at build time. A compliance item is lifted to "as
   important as the middle of the worklist", which is what "must do
   regardless of size" actually means, rather than to a constant that
-  outranked every real finding on the list. The absolute governed value
+  outranks every real finding on the list. The absolute governed value
   remains the fallback for a build with nothing left un-floored to take a
   median of, and the response says which basis was used. Detection
   provenance is untouched: this is a serving-time formula with a version
-  string, and the string is bumped.
+  string.
 - **Compliance items are their own lane.** ``items`` stays one ranked
   array; each card names its ``lane`` and the response lists the lanes,
   so a UI renders "must-do regardless of size" as a section instead of
@@ -87,15 +81,16 @@ and is kept. The *serving* of it was wrong twice over.
   score before the floor and the floor itself — so the ranking is
   checkable with a calculator instead of trusted.
 
-Card/drill agreement (round-1 review F1)
-========================================
-A card published ``$178,217``; drilling it answered ``$195,873.92``;
-nothing on either screen said they disagreed. They are two different
-claims — the detector's assertion in its own window, population and
-basis, against this platform's governed contract re-derived at the pinned
-watermark — and both are honest. What was not honest was the silence.
+Card/drill agreement
+====================
+A card's figure and its drill's answer are two different claims — the
+detector's assertion in its own window, population and basis, against this
+platform's governed contract re-derived at the pinned watermark — and both
+are honest. The silence about the gap was not: a card published
+``$178,217``, drilling it answered ``$195,873.92``, and nothing on either
+screen said they disagreed.
 
-So each drillable card's figure is now **re-derived at build time**
+So each drillable card's figure is **re-derived at build time**
 (:mod:`revi_api.rederive`, the drillability pipeline continued two stages
 further) and published beside the detector's as
 ``reconciled_impact_cents``, with the delta, the agreement verdict and
@@ -108,15 +103,14 @@ platform computed from certified semantics, so each card is stamped
 ``provenance="external_detection"`` with the priority formula version and
 the source watermark. See :class:`AnomalyCard` for the full rationale.
 
-Ranking honesty (round-1 review D5)
-===================================
+Ranking honesty
+===============
 The governed priority formula answers "what matters most". It does not
-answer "what can I open", and the two were anti-correlated almost
-perfectly: 33 cards, 6 drillable, first drillable card at **rank 17**,
-~90% of the ranked dollars behind an error dialog. Ranks 1 and 2 were
-``UNSUPPORTED_CONCEPT``; rank 3 was ``DATE_BASIS_INVALID``.
-
-Two things changed, neither of which touches the formula:
+answer "what can I open", and the two can be almost perfectly
+anti-correlated: one build ranked 33 cards of which 6 were drillable, put
+the first drillable one at **rank 17**, and left ~90% of the ranked
+dollars behind an error dialog. Two things address that, neither of which
+touches the formula:
 
 - **Drillability is decided before the card is published.** Each drill
   spec is run through the *real* planning and §6.6 validation pass — no
@@ -192,12 +186,13 @@ class PriorityPolicy:
     Actionability deliberately carries the dominant default weight: an
     un-fixable pile of dollars must not outrank fixable ones.
 
-    ``compliance_floor`` changed role in ``anomaly_priority@2``: it is no
-    longer the floor that is applied, it is the FALLBACK floor for a build
-    where every detected anomaly is compliance-mandatory and there is no
-    non-floored population to take a median of. It is still governed, still
-    bounded, and still published in ``weights``; the floor actually applied
-    is on the response as ``compliance_floor_value``/``_basis``."""
+    ``compliance_floor`` is not the floor that is applied: it is the
+    FALLBACK floor for a build where every detected anomaly is
+    compliance-mandatory and there is no non-floored population to take a
+    median of. It is governed, bounded and published in ``weights``; the
+    floor actually applied is on the response as
+    ``compliance_floor_value``/``_basis``.
+    """
 
     impact_weight: Decimal = Decimal("0.25")
     recency_weight: Decimal = Decimal("0.15")
@@ -386,8 +381,8 @@ _NOT_ATTEMPTED = (
 
 
 #: Why a ``kind: snapshot`` contract and a detector's windowed figure are
-#: not two measurements of the same thing (round-2 FN-2). A snapshot is a
-#: balance as of the watermark; it applies no start..end range at all, so
+#: not two measurements of the same thing. A snapshot is a balance as of
+#: the watermark; it applies no start..end range at all, so
 #: the gap between it and a card fired over a window is a difference of
 #: *kind*, not a disagreement this platform can lay at the detector's door.
 SNAPSHOT_NOT_COMPARABLE = (
@@ -435,11 +430,11 @@ def reconciliation_note(
 ) -> str:
     """The sentence a card — or its drill — owes about a repointed cut.
 
-    Exported (round-3 R3-11) because the drill strip must say what the card
-    says: ``service.py`` set ``detail=comparison.note`` straight off the raw
-    :class:`ImpactComparison` and shipped the shared "the detector's window,
-    population or valuation basis is not the contract's" on a -40.3% gap
-    this platform had created itself. One function, both surfaces.
+    Exported because the drill strip must say what the card says: reading
+    ``comparison.note`` straight off the raw :class:`ImpactComparison`
+    shipped the shared "the detector's window, population or valuation
+    basis is not the contract's" on a gap this platform had created itself.
+    One function, both surfaces.
     """
     note = comparison.note
     if dimension_repoints and comparison.status in ("diverged", "unavailable"):
@@ -461,12 +456,11 @@ def dimension_repointed_warning(
 ) -> str:
     """The turn-level disclosure a repointed drill owes its reader.
 
-    The card carried its ``drill_dimension_repoints`` and its rationale and
-    the drill answer carried neither: rcm-exec grepped a full live ANM-013
-    drill response for "repoint", "dominant" and "not identical" and found
-    zero occurrences. This is that fact as a coded warning, so it reaches
-    the narrative's mandatory disclosures and the structured warning table
-    rather than living only on a card the analyst has navigated away from.
+    The card carries its ``drill_dimension_repoints`` and its rationale;
+    the drill answer carried neither. This is that fact as a coded warning,
+    so it reaches the narrative's mandatory disclosures and the structured
+    warning table rather than living only on a card the analyst has
+    navigated away from.
 
     The rationale is the pack's own, verbatim — a substitution stated in
     the platform's words and not the pack author's would be a second,
@@ -900,17 +894,17 @@ def _reconciliation_warnings(cards: list[AnomalyCard]) -> list[str]:
     # Counted, and counted apart. A card whose contract is a ratio or a
     # snapshot never had a comparable dollar figure to diverge FROM, and
     # folding it into the divergence statistic is how "-99.6% divergence"
-    # got published about a percentage (FN-1) and how a balance-vs-flow gap
-    # got attributed to the detector (FN-2).
+    # got published about a percentage and how a balance-vs-flow gap got
+    # attributed to the detector.
     all_diverged = [c for c in drillable if c.impact_agreement == "diverged"]
-    # …and a THIRD class, for the same reason (round-3 R3-11). A card whose
-    # drill this platform repointed onto a different cut measures a related
-    # population, not the same one, so the gap is partly ours. Publishing it
-    # as detector divergence is a self-inflicted population change reported
-    # as somebody else's error — and it was the headline: "largest gap
-    # 100.0%" was ANM-030, a $256.67 card this platform itself zeroed via
-    # that swap. The two classes are counted apart and the headline gap is
-    # computed over the detector's alone.
+    # …and a THIRD class, for the same reason. A card whose drill this
+    # platform repointed onto a different cut measures a related population,
+    # not the same one, so the gap is partly ours. Publishing it as detector
+    # divergence reports a self-inflicted population change as somebody
+    # else's error, and it dominated the headline: the largest gap in one
+    # build was a card this platform itself zeroed via that swap. The two
+    # classes are counted apart and the headline gap is computed over the
+    # detector's alone.
     repointed = [c for c in all_diverged if c.drill_dimension_repoints]
     diverged = [c for c in all_diverged if not c.drill_dimension_repoints]
     not_comparable = [c for c in drillable if c.impact_agreement == "not_comparable"]

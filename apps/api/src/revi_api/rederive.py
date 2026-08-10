@@ -1,12 +1,10 @@
 """Re-derive an anomaly card's headline figure from certified semantics.
 
-Round-1 review F1: a card published ``$178,217`` and the drill it hands
-the analyst answered ``$195,873.92`` — a 9.9% disagreement between two
-numbers on two consecutive screens, with nothing anywhere saying they
-disagreed or why. The turn's own reconciliation verdict read
-``not_applicable; reason=this is a first turn``, which is true about the
-*investigation lineage* and silent about the thing the reader actually
-compared.
+A card's headline figure and the drill it hands the analyst can disagree
+by several percent on two consecutive screens, with nothing saying they
+disagreed or why. The turn's own reconciliation verdict does not cover it:
+that verdict is about *investigation lineage*, and is silent about the two
+numbers the reader actually compared.
 
 The two figures are not a bug in either one. They are two different
 claims:
@@ -113,15 +111,14 @@ class ImpactComparison:
 def non_money_reason(metric_ids: Sequence[str], pack: object) -> str | None:
     """Why this drill's contracts cannot produce a dollar figure — or ``None``.
 
-    Round-2 FN-1. :func:`money_total` reads the *frame*: it sums the first
-    column stamped ``money_cents`` in the last money-bearing frame. That is
-    blind to what the drill's metric contract actually declares, and a
-    ratio contract whose numerator happens to be money — ``late_charge_pct``
-    is ``unit: ratio`` over ``{sum: late_charge_cents}`` — leaks its
-    internal numerator out as the platform's headline re-derivation. Live,
-    card ANM-026 published ``$37,504 detected / $151 re-derived / -99.6%``
-    while the drill of that same card answered ``0.023362`` and its own
-    narrative said the metric "is not a measure of dollars at risk".
+    :func:`money_total` reads the *frame*: it sums the first column stamped
+    ``money_cents`` in the last money-bearing frame. That is blind to what
+    the drill's metric contract actually declares, and a ratio contract
+    whose numerator happens to be money — ``late_charge_pct`` is
+    ``unit: ratio`` over ``{sum: late_charge_cents}`` — would leak its
+    internal numerator out as the platform's headline re-derivation,
+    publishing a near-total "divergence" against a card whose drill answers
+    a ratio and says outright that it is not a measure of dollars at risk.
 
     So the *declared* unit decides. A drill that names no money contract
     has no comparable dollar figure, and the honest answer is that there is
@@ -161,8 +158,8 @@ def compare_impact(
     The card's strip and the drill answer's strip must never be able to
     describe the same pair of numbers differently, so both call this.
 
-    ``not_comparable_reason`` is the round-2 FN-2 guard: when the two
-    figures are not measuring over the same kind of period at all — a
+    ``not_comparable_reason`` guards the case where the two figures are not
+    measuring over the same kind of period at all — a
     ``kind: snapshot`` contract is an as-of balance and applies no window,
     while the detector fired over a start..end range — a percentage delta
     is not a disagreement between two systems, it is an artifact of
@@ -288,7 +285,7 @@ def build_rederiver(
         # Before any planning or query: does this drill's own contract even
         # produce dollars? A ratio contract does not, and summing whatever
         # money column its frame happens to carry publishes a fabricated
-        # headline (FN-1). Cheap, and it fails the same way every time.
+        # headline. Cheap, and it fails the same way every time.
         refusal = non_money_reason(tuple(spec.metric_ids), pack)
         if refusal is not None:
             return ReDerivedImpact(unavailable_reason=refusal)

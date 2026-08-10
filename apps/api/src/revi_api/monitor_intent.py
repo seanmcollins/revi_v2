@@ -1,9 +1,8 @@
 """Reading "monitor X" as a monitor declaration, before anything is classified.
 
 An analyst who has just been shown a denial rate should be able to say
-*"keep an eye on that for Silverline"* and have it become a monitor. Making
-them find a pin icon, or a settings page, is the difference between a
-surface people use and one they configure once and forget.
+*"keep an eye on that for Silverline"* and have it become a monitor,
+without going to find a pin icon or a settings page.
 
 **What this module does and does not do.** It recognises a closed LEAD-IN
 vocabulary — "monitor", "watch", "keep an eye on", "track", "alert me
@@ -11,9 +10,8 @@ when", "let me know when" — strips it, and hands the REMAINDER to the
 ordinary interpretation path. That remainder is a question like any other:
 it is classified, interpreted against the pack and catalog, planned,
 validated at §6.6 and answered. Nothing here parses the analyst's subject
-matter, matches a metric, or guesses a scope. The lead-in is the only
-language this module reads, and the rest of the sentence is handled by the
-machinery that already handles sentences.
+matter, matches a metric, or guesses a scope: the lead-in is the only
+language this module reads.
 
 That distinction is the whole design. A monitor is not a new kind of
 question — it is an ordinary question plus the instruction "and tell me
@@ -56,10 +54,9 @@ from revi_investigation.application.ports import Monitor
 #: compile time so "keep an eye on" wins over "keep".
 #:
 #: "watch" is accepted as an input word and never used as an output one:
-#: the product word is "monitor", and an analyst who has used any other
-#: tool will type "watch" for years yet. Reading somebody's "watch" and
-#: answering with "Monitoring:" is the right asymmetry — accept what people
-#: type, publish one vocabulary.
+#: the product word is "monitor". Reading somebody's "watch" and answering
+#: with "Monitoring:" is the intended asymmetry — accept what people type,
+#: publish one vocabulary.
 _LEAD_INS: tuple[str, ...] = (
     "keep an eye on",
     "keep track of",
@@ -79,13 +76,14 @@ _LEAD_INS: tuple[str, ...] = (
     "track",
 )
 
+#: Punctuation that may separate a lead-in from its subject. The en and em
+#: dashes a chat box turns "--" into are spelled by codepoint so the source
+#: carries no ambiguous glyph a reader has to squint at.
+_SEPARATORS = ":-" + "\u2013\u2014"
+
 #: Filler that may sit between the lead-in and the subject. Stripped so
 #: "monitor the denial rate for Silverline" and "monitor denial rate for
 #: Silverline" compile identically.
-#: Punctuation that may separate a lead-in from its subject, including
-#: the en and em dashes a chat box turns "--" into.
-_SEPARATORS = ":-" + "\u2013\u2014"
-
 _LEADING_FILLER = re.compile(r"^(?:the|our|my|on|for)\s+", re.IGNORECASE)
 
 _LEAD_IN_RE = re.compile(
@@ -104,11 +102,11 @@ _ANY_MOVEMENT = re.compile(
     re.IGNORECASE,
 )
 #: Number words this grammar reads, so a stated threshold is not lost to
-#: the analyst having typed it the way people speak. "half a point" was a
-#: real utterance from a real buyer and it registered the governed default
-#: silently — the confirmation sentence never mentioned the instruction
-#: (round-7 FN-6). Small and closed, like every other vocabulary here: this
-#: is not a number parser, it is the dozen words an RCM analyst types.
+#: the analyst having typed it the way people speak: "half a point" used to
+#: register the governed default silently, with the confirmation sentence
+#: never mentioning the instruction. Small and closed, like every other
+#: vocabulary here: this is not a number parser, it is the dozen words an
+#: RCM analyst types.
 _NUMBER_WORDS: dict[str, str] = {
     "half": "0.5",
     "a half": "0.5",
@@ -215,7 +213,7 @@ class MonitorDeclaration:
     #: not read it. The caller must refuse or clarify — never register the
     #: governed default, because a monitor that silently gates at 0.5 points
     #: when somebody typed "three points" briefs the wrong number every
-    #: morning and says nothing about it (round-7 FN-6).
+    #: morning and says nothing about it.
     #:
     #: Distinct from ``monitor is None`` on its own, which is the ordinary
     #: and honest "no sensitivity was stated, so the pack's applies".
@@ -237,9 +235,6 @@ def parse_monitor_declaration(utterance: str) -> MonitorDeclaration | None:
     if match is None:
         return None
     remainder = text[match.end() :].strip()
-    # Punctuation an analyst may put between the lead-in and the subject.
-    # The dashes are spelled by codepoint so the source carries no
-    # ambiguous glyph a reviewer would have to squint at.
     remainder = remainder.lstrip(_SEPARATORS).strip()
     remainder = _LEADING_FILLER.sub("", remainder).strip()
     if not remainder:
@@ -253,10 +248,9 @@ def parse_monitor_declaration(utterance: str) -> MonitorDeclaration | None:
     # A clause that says something about SIZE and that this grammar could
     # not read is reported as unreadable, never resolved to the governed
     # default. The direction-only branch of `_monitor_from_clause` is not
-    # this case: "tell me if it rises" is a complete instruction about
-    # direction and says nothing about size, so the governed magnitude is
-    # the honest completion of it rather than a substitution for something
-    # the analyst asked for.
+    # this case: "tell me if it rises" says nothing about size, so the
+    # governed magnitude completes it rather than substituting for
+    # something the analyst asked for.
     unreadable = bool(
         threshold_phrase
         and (monitor is None or monitor.mode == "governed_default")
@@ -428,7 +422,7 @@ def _threshold_unit(raw: str | None, clause: str) -> str:
     tighter than the pack's own gate. That is a legal reading of the words
     and it is not the only one, so :func:`revi_api.monitors._monitor_confirmation`
     names the alternative rather than leaving the analyst to discover the
-    difference from the brief (round-7 FN-6).
+    difference from the brief.
     """
     text = (raw or "").lower()
     if text.startswith(("point", "pt", "percentage point")):

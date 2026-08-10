@@ -1,25 +1,22 @@
 """Monitors wire shapes: pins, tiles, the brief, and lead lifecycle.
 
-Monitors is the proactive surface. Revi walks it every data load and briefs
-what changed. Three rules shape every model in this module, and each of
-them is a defect somebody could ship without it:
+Monitors is the proactive surface: it is walked every data load and briefs
+what changed. Three rules shape every model in this module.
 
 **A pin is a MONITOR, not a snapshot.** :class:`MonitorsPinPayload` carries the
 ``TypedInvestigationSpec`` that produced the artifact, never the artifact.
 Each load re-runs that spec at the new watermark through the identical
 typed pipeline — zero model calls, plan-hash cached — so
 :class:`MonitorsTilePayload` is a *current* answer with a current grade, not
-a value frozen the day somebody pinned it. A tile that showed a stale
-number under a fresh date would be worse than no tile.
+a value frozen the day somebody pinned it.
 
 **A tile carries its caveats or it is not shipped.**
-:class:`MonitorsTileIntegrity` is the M22 integrity-line atom as a payload:
+:class:`MonitorsTileIntegrity` is the integrity-line atom as a payload:
 the answer-level grade, the count of things to know, the caveat CODES
-behind that count, and the checks that were run. Six adversarial monitors
-went into making an answer say ``≤ 45.5%`` instead of ``45.5%`` and
-"provisional" instead of a settled-looking point; a tile that renders the
-number and drops the marks undoes all of it on the one surface a person
-looks at every morning without reading.
+behind that count, and the checks that were run. A tile that renders the
+number and drops the marks discards exactly the work that makes an answer
+say ``≤ 45.5%`` instead of ``45.5%``, and "provisional" instead of a
+settled-looking point.
 
 **The brief gates on governed materiality.** Alert fatigue is the death
 mode of a daily surface: a brief that cries wolf twice is a brief nobody
@@ -27,7 +24,7 @@ opens again. Every entry passes a threshold that lives in the pack
 (``packs/base-rcm/monitors.yaml``), never in engine code, and the thresholds
 that were applied ride on the response (:class:`MonitorsMaterialityPayload`)
 so a reader can check the gate rather than trust it. "Nothing material
-changed" is a first-class, proud outcome — :attr:`MonitorsBriefResponse.status`
+changed" is a first-class outcome — :attr:`MonitorsBriefResponse.status`
 ``nothing_material`` — with the counts that back the claim.
 """
 
@@ -156,9 +153,8 @@ class MonitorsPinPayload(ClosedModel):
     #: The stored spec in the reader's own nouns — "Denial rate, broken
     #: down by payer, filtered to Pinnacle Health Plan — last full month
     #: (service basis)". The panel headed "What this monitor measures" is the
-    #: one control that lets somebody catch a monitor that is measuring the
-    #: wrong cell, and it had every part of this on the wire and rendered
-    #: none of it (round-7 FN-18).
+    #: one control that lets somebody catch a monitor measuring the wrong
+    #: cell, so this must be rendered and not merely carried.
     spec_summary: str = ""
     #: What could not be carried onto this monitor, and anything the platform
     #: did to the spec at creation — the cell it narrowed to, a duplicate it
@@ -169,7 +165,7 @@ class MonitorsPinPayload(ClosedModel):
     #: True when this create returned a monitor that already existed on the
     #: same tenant with the same spec, rather than making a second one. A
     #: duplicate re-evaluates every load and can brief one movement N times,
-    #: which is the alert fatigue the pack spends 300 lines preventing.
+    #: which is the alert fatigue the governed gate exists to prevent.
     already_existed: bool = False
     monitor: MonitorModel | None = None
     #: What this monitor read at the load it was created on — the reference
@@ -208,7 +204,7 @@ class MonitorsPinListResponse(ClosedModel):
 
 
 class MonitorsTileIntegrity(ClosedModel):
-    """The M22 integrity line, as a payload (the tile's honesty contract).
+    """The tile's integrity line, as a payload (the tile's honesty contract).
 
     Every field here is a count of something the tile also carries, so a
     renderer states facts rather than inventing a score:
@@ -285,23 +281,22 @@ class MonitorsDeltaPayload(ClosedModel):
     #: ranked breakdown headlines whatever ranks first at that load, so two
     #: loads can be two measurements of two different payers — and a
     #: percentage between them looks exactly like a movement. When these
-    #: disagree the delta is not comparable and no delta is published
-    #: (round-7 FN-2: a brief reported a payer's denial rate "up 3.6 points"
-    #: when that payer had FALLEN 6.6, and explained the phantom rise as
-    #: adjudication run-out).
+    #: disagree the delta is not comparable and no delta is published. A
+    #: brief once reported a payer's denial rate "up 3.6 points" when that
+    #: payer had FALLEN 6.6, and explained the phantom rise as adjudication
+    #: run-out.
     subject_label: str = ""
     prior_subject_label: str = ""
     #: True when BOTH loads resolved to the same dates. The number is right
     #: either way; what changes is what it means. A same-window change is
     #: late-arriving data settling — adjudication run-out, back-dated
-    #: charges — and reporting it as a movement in the business would be the
-    #: claims run-out plotted as deterioration, which is a defect this
-    #: platform has already fixed once on the trend path.
+    #: charges — and reporting it as a movement in the business is the
+    #: claims run-out plotted as deterioration.
     #:
     #: Always false when :attr:`comparable` is false: this qualifies a
     #: movement, and a payload with no movement has nothing for it to
-    #: qualify. It was true beside a withheld delta once, and a run-out
-    #: sentence rode out on a rank flip that never moved anything.
+    #: qualify. Set beside a withheld delta, it sends a run-out sentence out
+    #: on a rank flip that moved nothing.
     same_window: bool = False
     #: Did this movement clear the materiality gate?
     material: bool = False
@@ -365,10 +360,10 @@ class MonitorsTilePayload(ClosedModel):
     #: a display title. Empty for a monitor with no dimension at all.
     #:
     #: Load-bearing twice over. A tile whose LABEL names one payer and
-    #: whose VALUE is another payer's is the defect that gated round 7, and
-    #: this is the field that makes it checkable rather than eyeballed; and
-    #: a load-over-load delta between two different subjects is not a
-    #: movement at all, which is what :attr:`MonitorsDeltaPayload.subject_label`
+    #: whose VALUE is another payer's is a silent mis-attribution, and this
+    #: is the field that makes it checkable rather than eyeballed; and a
+    #: load-over-load delta between two different subjects is not a movement
+    #: at all, which is what :attr:`MonitorsDeltaPayload.subject_label`
     #: guards on.
     headline_subject: dict[str, str] = Field(default_factory=dict)
     #: The same cell as one human phrase ("Pinnacle Health Plan"), rendered
@@ -421,10 +416,9 @@ class MonitorsLeadPayload(ClosedModel):
     """One lead's lifecycle state.
 
     ``resolved_confirmed`` and ``regressed`` are verdicts the PLATFORM
-    reaches from data across loads; a human can claim resolution and
-    cannot assert it. That asymmetry is the feature: "mark as resolved" on
-    every other tool in this category is a checkbox, and a checkbox is an
-    opinion.
+    reaches from data across loads; a human can claim resolution and cannot
+    assert it. That asymmetry is deliberate: a status settable by hand is an
+    opinion, not a measurement.
     """
 
     anomaly_id: str
@@ -508,8 +502,8 @@ class MonitorsBriefEntry(ClosedModel):
     * ``rank_flip`` — the cell a ranked monitor headlines is not the cell it
       headlined last load. This is NOT a movement and never carries a
       delta: it is the fact that "your worst payer" is now a different
-      payer, which is the headline the movement it replaced was pretending
-      to be (round-7 FN-2).
+      payer, which is the real headline a spurious cross-subject delta
+      would have obscured.
     """
 
     kind: Literal[
@@ -562,10 +556,10 @@ class MonitorsMaterialityPayload(ClosedModel):
     new_lead_min_impact_cents: int = 0
     always_material_lanes: list[str] = Field(default_factory=list)
     max_entries: int = 0
-    #: The order the cap drops entries in, worst-to-lose first. The cap used
-    #: to bite in INSERTION order, which put verified regressions and
+    #: The order the cap drops entries in, worst-to-lose first. A cap that
+    #: bites in INSERTION order instead puts verified regressions and
     #: confirmations — the verdicts about the team's own work — at the front
-    #: of the queue to be deleted (round-7 FN-11).
+    #: of the queue to be deleted.
     priority_order: list[str] = Field(default_factory=list)
     #: Kinds the overall cap may never drop. A regression an analyst does
     #: not see is an analyst who believes something is fixed.
@@ -594,7 +588,7 @@ class MonitorsImmaterialSummary(ClosedModel):
     #: ``pins_evaluated == briefed + pin_movements + not_yet_comparable +
     #: unavailable``. A total that does not reconcile to its parts is the
     #: one thing a surface whose whole claim is "withheld visibly, never
-    #: silently" cannot publish (round-7 FN-12).
+    #: silently" cannot publish.
     not_yet_comparable: int = 0
     #: Monitors whose stored spec could not be answered at this load. They
     #: are neither material nor immaterial; they are unmeasured, and the
@@ -643,10 +637,9 @@ class MonitorsBriefResponse(ClosedModel):
     ``status`` has three values and the middle one is the point:
 
     * ``first_load`` — nothing to diff against yet, said plainly;
-    * ``nothing_material`` — the loud, proud outcome. Revi walked the
-      Monitors, measured everything, and there is nothing you need to do.
-      That is the answer, with the counts that back it, and it is not an
-      empty page;
+    * ``nothing_material`` — everything was measured and nothing needs
+      acting on. That is an answer, published with the counts that back it,
+      not an empty page;
     * ``material_changes`` — entries follow.
     """
 
@@ -657,8 +650,7 @@ class MonitorsBriefResponse(ClosedModel):
     prior_watermark_id: str | None = None
     #: The data date of the load this brief diffs AGAINST. Published because
     #: the brief speaks in dates and not in warehouse ids: "since the Aug 1
-    #: load" is a sentence a VP reads, and ``wm_002`` is one they forward to
-    #: somebody else to explain (round-7 FN-8). The ids stay on
+    #: load" is readable and ``wm_002`` is not. The ids stay on
     #: :attr:`prior_watermark_id` and in provenance, where they belong.
     prior_newest_data_date: date | None = None
     #: One sentence, composed from the counts below. The thing a person

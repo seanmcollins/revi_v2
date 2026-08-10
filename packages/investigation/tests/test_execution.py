@@ -98,14 +98,14 @@ def _ratio_frame(rows: tuple[tuple[object, ...], ...]) -> EvidenceFrame:
 
 
 class TestNumeratorIsBoundedNotDropped:
-    """Round-3 FN-1: the §15 subject is the population, not the numerator.
+    """The §15 subject is the population, not the numerator.
 
-    Live, "which payer had the lowest denial rate in July 2026" answered
-    *Atlas Commercial at 8.2%* while Federal Medicare sat at 4.21% over 214
-    adjudicated claims — 9 denials, under the threshold, so the whole row
-    was censored. Four of twelve payers vanished and all four were among the
-    best. Suppression that removes the good cells from a ranking is not a
-    privacy control, it is a lie with a policy attached.
+    Regression: "which payer had the lowest denial rate in July 2026"
+    answered *Atlas Commercial at 8.2%* while Federal Medicare sat at 4.21%
+    over 214 adjudicated claims — 9 denials, under the threshold, so the
+    whole row was censored. Four of twelve payers vanished and all four were
+    among the best. Suppression that removes the good cells from a ranking
+    is not a privacy control, it is a lie with a policy attached.
     """
 
     def test_small_numerator_over_a_large_population_is_bounded(self) -> None:

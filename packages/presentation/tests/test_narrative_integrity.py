@@ -1,17 +1,14 @@
-"""Round-9 narrative fixes: the write-up may not print itself twice, and a
-redacted superlative may not leave a hole where the answer was.
+"""Narrative integrity: the write-up never prints itself twice, and a
+redacted superlative leaves a sentence rather than a hole.
 
-* **R9-04** (uiux P0, live session ``sess_8f6e08789df4``) — a 1,436-character
-  narrative whose tail repeated four caution sentences verbatim, glued
-  mid-word at the seam ("…has matured.prior month — the true value…"),
-  directly above the product's own note saying those sentences "are not
-  printed twice". Intermittent: a second identical run came back clean at
-  2,370 characters, which is worse in a room.
-* **R9-09** (product-designer P1, his #3 of "the three I'd fix before the
-  room") — "Who is my worst payer on denial rate right now…" produced 402
-  words in which the words worst, highest and top never appear. The
-  superlative guard was right to fire over a truncated list; deleting the
-  answering sentence was the wrong remedy.
+Three regressions pinned here. A composed narrative repeated four caution
+sentences verbatim, glued mid-word at the seam ("…has matured.prior month —
+the true value…"), directly above its own note saying those sentences are not
+printed twice. The superlative guard was right to fire over a truncated list
+but deleted the answering sentence, so an answer to "who is my worst payer"
+contained none of the words worst, highest or top. And the substitute that
+replaced it was spliced into a NOUN slot, so a two-sentence premise verdict
+landed as the object of "the largest movement is ___".
 """
 
 from __future__ import annotations
@@ -29,6 +26,7 @@ from revi_presentation.narrative import (
     compose_narrative,
     dedupe_sentences,
     doubled_span,
+    spliced_sentence,
     split_sentences,
     validate_narrative,
 )
@@ -75,8 +73,8 @@ class TestAWriteUpNeverPrintsItselfTwice:
         assert len(dropped) == 4
 
     def test_the_note_can_only_be_composed_from_the_emitted_text(self) -> None:
-        """The invariant behind R9-04: whenever there is something to say
-        about repetition, the emitted string differs from the original."""
+        """The invariant: whenever there is something to say about
+        repetition, the emitted string differs from the original."""
         original = CAUTIONS + CAUTIONS
         emitted, dropped = dedupe_sentences(original)
         assert bool(dropped) is (emitted != original.strip())
@@ -228,10 +226,9 @@ class TestARedactedSuperlativeIsAnsweredNotDeleted:
         assert Decimal("1") == Decimal(1)  # keeps the Decimal import honest
 
     def test_a_ceiling_is_never_named_as_the_highest_measured_figure(self) -> None:
-        """Live, on the opener WITH a comparison, F1 is "Veritas Comp Fund
-        denial rate at most ≤ 76.9%" — a ceiling over 13 entities, ranked
-        first by its own delta. Replacing a redacted superlative with a
-        false one is not a fix."""
+        """On the opener WITH a comparison the leading finding is a ceiling
+        over 13 entities, ranked first by its own delta. Replacing a
+        redacted superlative with a false one is not a fix."""
         ceiling = FindingPayload(
             referent="F1",
             title="Veritas Comp Fund denial rate at most ≤ 76.9% vs prior month",
@@ -274,3 +271,179 @@ class TestARedactedSuperlativeIsAnsweredNotDeleted:
             findings=[ceiling], header=_header(), disclosures=[TRUNCATED, BOUNDED]
         )
         assert facts.superlative_substitute is None
+
+# ---------------------------------------------------------------------------
+# A substitution may replace a clause, never a noun slot
+#
+# regression: the certifiable statement that closed the superlative hole was
+# put in the wrong grammatical place. The leading finding on the turn was the
+# VERDICT on the question's premise, whose title is two sentences, and it went
+# into the object slot of "the largest movement is ___".
+
+
+#: The exact splice, as it rendered on screen after foldComposedDisclosures.
+LIVE_SPLICE = (
+    "Of the 8 payers measurable this window, the largest movement is Premise cannot be "
+    "verified: You asked about an increase in denial rate. Ask again once the thinner side "
+    "matures. (F2)."
+)
+
+#: The premise verdict's title, verbatim from the payload that produced it —
+#: ``findings._build_premise_finding`` composes it as
+#: ``f"Premise cannot be verified: {sentence}"``.
+UNVERIFIABLE_TITLE = (
+    "Premise cannot be verified: You asked about an increase in denial rate. Ask again "
+    "once the thinner side matures."
+)
+
+def _unverifiable_premise(referent: str = "F2") -> FindingPayload:
+    """The live finding, with the verdict carried as data the way it is."""
+    return FindingPayload(
+        referent=referent,
+        title=UNVERIFIABLE_TITLE,
+        statement=(
+            "You asked about an increase in denial rate. Ask again once the thinner side "
+            "matures. Nothing below may be called an increase or offered as evidence "
+            "against it: the cells that follow are the composition of a movement this "
+            "answer cannot certify."
+        ),
+        metric_ids=["denial_rate"],
+        values=[
+            FindingValue(name="denial_rate", value=0.295082),
+            FindingValue(name="denial_rate__delta", value=0.219919),
+            FindingValue(name="premise_holds", value=False),
+            FindingValue(name="premise_unverifiable", value=True),
+        ],
+    )
+
+
+def _payer_row() -> FindingPayload:
+    return FindingPayload(
+        referent="F3",
+        title="State Medicaid MCO denial rate up 22.0 points vs prior month",
+        statement="State Medicaid MCO.",
+        metric_ids=["denial_rate"],
+        values=[
+            FindingValue(name="denial_rate", value=0.295082),
+            FindingValue(name="denial_rate__delta", value=0.219919),
+        ],
+    )
+
+
+class TestTheSpliceIsRecognisedAtAll:
+    def test_the_live_sentence_is_a_splice(self) -> None:
+        assert spliced_sentence(LIVE_SPLICE) is not None
+
+    def test_the_copula_collision_is_named(self) -> None:
+        """"…the largest movement **is Premise cannot** be verified…"."""
+        offender = spliced_sentence(
+            "Of the 8 payers measurable this window, the largest movement is Premise "
+            "cannot be verified today."
+        )
+        assert offender is not None
+        assert "is Premise cannot" in offender
+
+    def test_a_stranded_citation_is_named(self) -> None:
+        """The nested full stop's other residue: "…matures. (F2)."."""
+        assert spliced_sentence("Ask again once the thinner side matures. (F2).") is not None
+
+    def test_good_prose_is_left_alone(self) -> None:
+        clean = (
+            "State Medicaid MCO leads the measurable payers on denial rate at 29.5% (F1). "
+            "The comparison covers 2026-07-01..2026-07-31 and the load reaches 2026-08-02 "
+            "(F1). Four payers publish a ceiling rather than a figure."
+        )
+        assert spliced_sentence(clean) is None
+
+    def test_the_verdict_is_fine_as_PROSE_and_only_broken_as_a_NAME(self) -> None:
+        """Nothing is wrong with the verdict's own words — it is a finding
+        title, and it reads. The defect is entirely the slot it was put in,
+        which is why the fix is grammatical rather than editorial."""
+        assert spliced_sentence(UNVERIFIABLE_TITLE) is None
+        # …and appending a citation to it is already the defect, because the
+        # title ends on a full stop of its own: "…matures. (F2)."
+        assert spliced_sentence(f"{UNVERIFIABLE_TITLE} (F2).") is not None
+
+
+class TestAnUnverifiablePremiseYieldsItsOwnSentence:
+    def test_the_substitute_is_a_complete_sentence_not_a_name(self) -> None:
+        facts = build_narrative_facts(
+            findings=[_unverifiable_premise(), _payer_row()],
+            header=_header(),
+            disclosures=[TRUNCATED, BOUNDED],
+        )
+        assert facts.superlative_substitute is not None
+        assert facts.superlative_substitute == (
+            "The largest movement cannot be named: the premise itself is unverified (F2)."
+        )
+
+    def test_the_verdict_title_never_enters_the_noun_slot(self) -> None:
+        facts = build_narrative_facts(
+            findings=[_unverifiable_premise(), _payer_row()],
+            header=_header(),
+            disclosures=[TRUNCATED, BOUNDED],
+        )
+        assert facts.superlative_substitute is not None
+        assert "the largest movement is" not in facts.superlative_substitute
+        assert "Premise cannot be verified:" not in facts.superlative_substitute
+        assert spliced_sentence(facts.superlative_substitute) is None
+
+    def test_the_live_turn_reproduces_clean_end_to_end(self) -> None:
+        """The turn as it happened: the composer reaches for a superlative
+        over a truncated list, the guard fires, and what is published is a
+        sentence a room can read out loud."""
+        facts = build_narrative_facts(
+            findings=[_unverifiable_premise(), _payer_row()],
+            header=_header(),
+            disclosures=[TRUNCATED, BOUNDED],
+        )
+        result = validate_narrative(
+            "State Medicaid MCO is the worst payer on denial rate this window.", facts
+        )
+        assert result.redactions
+        assert spliced_sentence(result.text) is None
+        assert "cannot be named" in result.text
+        assert "Premise cannot be verified" not in result.text
+
+    def test_a_premise_that_WAS_verifiable_still_names_its_leader(self) -> None:
+        """The substitute is not withdrawn — only the verdict is kept out of
+        the noun slot. A confirmed premise ranks the rows underneath it."""
+        confirmed = FindingPayload(
+            referent="F1",
+            title="Premise confirmed: denial rate rose 7.3 points vs prior month",
+            statement="Premise confirmed.",
+            metric_ids=["denial_rate"],
+            values=[
+                FindingValue(name="denial_rate__delta", value=0.073),
+                FindingValue(name="premise_holds", value=True),
+                FindingValue(name="premise_unverifiable", value=False),
+            ],
+        )
+        facts = build_narrative_facts(
+            findings=[confirmed, _payer_row()],
+            header=_header(),
+            disclosures=[TRUNCATED, BOUNDED],
+        )
+        assert facts.superlative_substitute is not None
+        assert "State Medicaid MCO denial rate up 22.0 points" in facts.superlative_substitute
+        assert "(F3)" in facts.superlative_substitute
+        assert "Premise confirmed" not in facts.superlative_substitute
+        assert spliced_sentence(facts.superlative_substitute) is None
+
+
+class TestNoSubstituteThisModuleBuildsIsASplice:
+    def test_every_shape_the_builder_can_reach_reads_as_one_sentence(self) -> None:
+        leader = FindingPayload(
+            referent="F1",
+            title="State Medicaid MCO: 29.5% denial rate",
+            statement="State Medicaid MCO leads.",
+            metric_ids=["denial_rate"],
+            values=[FindingValue(name="denial_rate", value=0.295082)],
+        )
+        for disclosures in ([TRUNCATED], [TRUNCATED, BOUNDED]):
+            for findings in ([leader], [leader, _payer_row()]):
+                facts = build_narrative_facts(
+                    findings=findings, header=_header(), disclosures=disclosures
+                )
+                if facts.superlative_substitute is not None:
+                    assert spliced_sentence(facts.superlative_substitute) is None

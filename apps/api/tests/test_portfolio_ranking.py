@@ -1,18 +1,13 @@
 """``anomaly_priority@3``: the worklist ranks on the figure it defends.
 
-Round-2 deferred P1. ``@2`` published two figures per card — the
-detector's assertion and this platform's re-derivation — and ranked on
-the detector's even where the payload itself called the two a divergence.
-So the order of the worklist, and the recoverable estimate under every
-row, were computed from the side of the platform's own disagreement it
-does not stand behind.
+Regression in ``@2``: two figures were published per card — the detector's
+assertion and this platform's re-derivation — and the ranking used the
+detector's even where the payload itself called the two a divergence.
 
-These tests pin the four cases that must not regress: a diverged card
-ranks (and prices its recoverable estimate) on the reconciled figure; a
-``not_comparable`` one keeps the detector's and says so; agreed and
-un-derivable cards are unchanged; and the normalizer is taken over the
-same figures the scores are, so ``impact_norm`` is checkable from the
-payload alone.
+Four cases are pinned: a diverged card ranks (and prices its recoverable
+estimate) on the reconciled figure; a ``not_comparable`` one keeps the
+detector's and says so; agreed and un-derivable cards are unchanged; and the
+normalizer is taken over the same figures the scores are.
 """
 
 from __future__ import annotations
@@ -227,14 +222,13 @@ class TestRankedOn:
 
 
 class TestDimensionRepoints:
-    """The detector's CUT, repointed onto the one the contract accepts.
+    """The detector's cut, repointed onto the one the contract accepts.
 
-    Four cards — ANM-013 ($493,266, the largest on the worklist and the
-    anchor of impact normalisation) plus ANM-011/012/030 — named a
-    claim-grain contract beside a `proc_group` value and refused with
-    GRAIN_INCOMPATIBLE, because procedures bind at claim_line. The catalog
-    now certifies `primary_proc_group` at the claim grain and both
-    contracts accept it (v2, scope only).
+    Four reference cards — including the largest on the worklist, the anchor of
+    impact normalisation — named a claim-grain contract beside a `proc_group`
+    value and refused with GRAIN_INCOMPATIBLE, because procedures bind at
+    claim_line. The catalog now certifies `primary_proc_group` at the claim
+    grain and both contracts accept it (v2, scope only).
     """
 
     def test_a_needed_and_legal_substitution_is_made_and_published(

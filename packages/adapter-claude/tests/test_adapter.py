@@ -465,7 +465,7 @@ def test_constructor_rejects_bad_budget_and_turns() -> None:
 
 
 # ---------------------------------------------------------------------------
-# the operational envelope (review finding D10)
+# the operational envelope
 #
 # The adapter shipped with no wall-clock bound, no retry, and no bound on
 # concurrent CLI subprocesses. These tests pin the policy that replaced that,

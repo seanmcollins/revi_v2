@@ -1,6 +1,6 @@
 """Production Claude Agent SDK adapter implementing the ``LanguageModelPort``.
 
-Every constraint in this module traces to the M2a spike
+Every constraint in this module traces to the SDK spike
 (``packages/adapter-claude/spikes/RESULTS.md``, SDK 0.2.132 / bundled CLI 2.1.224):
 
 - ``tools=[]`` is the pure-LLM mode. ``disallowed_tools=["*"]`` would deny the
@@ -47,9 +47,9 @@ exception after the ``ResultMessage``           swallowed; result still used
 Messages attached to translated errors are sanitized: they carry the exception
 *type* and result subtype only — never prompt text, provider payloads, or keys.
 
-**Operational envelope (review finding D10).** Every call runs inside a
-wall-clock deadline, a bounded retry for transient transport failures only,
-and a concurrency cap on live SDK subprocesses. The policy lives in
+**Operational envelope.** Every call runs inside a wall-clock deadline, a
+bounded retry for transient transport failures only, and a concurrency cap
+on live SDK subprocesses. The policy lives in
 :mod:`revi_adapter_claude.envelope`; this module applies it:
 
 - The deadline is set once per port call and *shared* by every attempt, so a

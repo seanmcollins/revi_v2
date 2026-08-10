@@ -1,13 +1,13 @@
 """Exact money: integer cents, ``Decimal`` parsing, ``ROUND_HALF_UP``.
 
-Regression-trap rules (each has a test that fails if "simplified"):
+Rules, each guarded by a test that fails if it is "simplified" away:
 
 - All monetary amounts are ``int`` cents. No monetary float exists anywhere.
 - Dollar strings/Decimals convert with ``ROUND_HALF_UP`` (half a cent rounds
   away from zero — ``"0.005"`` → 1¢, ``"-0.005"`` → -1¢).
 - ``float`` input is rejected outright: binary floats cannot represent most
-  decimal dollar values, and a silent cast loses cents (measured in the old
-  prototype at 1¢/row, always in the same direction).
+  decimal dollar values, so a silent cast loses cents, and the loss is
+  directionally biased rather than cancelling out.
 """
 
 from __future__ import annotations

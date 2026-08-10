@@ -154,7 +154,7 @@ DEEP_TOP_N_MULTIPLIER = 4
 #: How many cells a comparison's PRIOR side may be read whole at, before
 #: the plan keeps its top-N and lets the honesty guard handle the rest.
 #:
-#: Round-4 R4-08. Every cut in this catalog is far under it — the widest is
+#: Every cut in this catalog is far under it — the widest is
 #: ``rendering_provider`` at ~150 — so in practice the prior side of every
 #: comparison is retrieved complete and a key missing from it is a real
 #: absence rather than a retrieval decision. The cap exists so that a
@@ -267,10 +267,10 @@ class InvestigationPlan:
     #: which for a runway dimension IS urgency order (``expired``, ``0-30``,
     #: ``31-60``, …).
     #:
-    #: Round-3 R3-08: the narrative sequenced the ``90+`` band ahead of
-    #: ``61-90`` — work the least urgent first and let the 61-90 band age
-    #: into expired — because findings were ordered by SIZE and nothing
-    #: downstream knew the buckets had a direction. The catalog declares it
+    #: Without it, findings are ordered by SIZE and nothing downstream knows
+    #: the buckets have a direction, so the narrative sequences the ``90+``
+    #: band ahead of ``61-90`` — work the least urgent first and let the
+    #: 61-90 band age into expired. The catalog declares the order
     #: (``dimensions.yaml``: ``buckets: ["expired", "0-30", "31-60",
     #: "61-90", "90+", "filed"]``); the plan carries it to the layer that
     #: orders sentences.
@@ -314,10 +314,11 @@ def frame_window(plan: InvestigationPlan, frame_id: str) -> TimeWindow | None:
     measures denial rate over ``{quantity: 4, unit: week, mode: full_periods}``
     — which the planner resolves and applies instead of the investigation
     window whenever the analyst named no window of their own
-    (:meth:`PlanBuilder._build_playbook`). That resolution was correct and
-    completely undisclosed: the findings layer titled every cell with
-    ``spec.context.window``, so "denial rate: 14.3% (2026-07-01..2026-07-31)"
-    named a month over a figure computed across 2026-07-06..2026-08-02.
+    (:meth:`PlanBuilder._build_playbook`). That resolution is correct and
+    invisible unless a finding can ask about it: titling every cell with
+    ``spec.context.window`` publishes "denial rate: 14.3%
+    (2026-07-01..2026-07-31)" over a figure computed across
+    2026-07-06..2026-08-02.
 
     The probe knows its window. This is how a finding gets to ask.
 
@@ -364,12 +365,12 @@ def declared_probe_windows(plan: InvestigationPlan) -> tuple[tuple[str, TimeWind
 def resolved_orderings(plan: InvestigationPlan) -> tuple[tuple[str, str, bool], ...]:
     """``(frame id, column, descending)`` for every frame this plan ordered.
 
-    Round-3 R3-13: the ordering a ranked question resolves exists in three
-    places inside the plan — an :class:`~revi_kernel.probes.Ordering` on the
-    probe, ``by``/``descending`` args on a rank step, and the ``{by}__rank``
-    column the rank operator appends — and reached the renderer through
-    none of them. So the findings obeyed "best to worst" and the chart
-    directly beneath them was drawn alphabetically, off the same rows.
+    The ordering a ranked question resolves exists in three places inside
+    the plan — an :class:`~revi_kernel.probes.Ordering` on the probe,
+    ``by``/``descending`` args on a rank step, and the ``{by}__rank`` column
+    the rank operator appends — and none of them reaches the renderer on its
+    own. Without this the findings obey "best to worst" while the chart
+    directly beneath them is drawn alphabetically, off the same rows.
 
     Both sources are read, transform steps last so they win: a rank step is
     a later and more specific decision than the probe's own ``ORDER BY``,
@@ -507,7 +508,7 @@ class BuildInvestigationPlanService:
         Read off the catalog rather than inferred from the values, because
         the values do not carry it: sorted lexically, ``expired`` follows
         ``90+``, and sorted by size the most urgent band leads only by
-        accident (round-3 R3-08).
+        accident.
         """
         out: list[tuple[str, tuple[str, ...]]] = []
         seen: set[str] = set()
@@ -536,14 +537,13 @@ class BuildInvestigationPlanService:
     ) -> list[ProbeNode]:
         """A probe for a governed dimension the utterance named and no template cut by.
 
-        Round-3 R3-08, unanimous across six seats: asked in business English
-        — "on service dates, break my unbilled inventory down by filing
-        runway bucket and tell me how much is already expired" — the answer
-        came back cut by plan and facility, with prose instructing the
-        reader to run the cut themselves ("Before anyone works this list,
-        cut F1 by filing_runway_bucket…"). The number was exactly right and
-        reachable only by typing the internal identifier. A governed
-        dimension the analyst names is the primary cut, not a suggestion.
+        A governed dimension the analyst names is the primary cut, not a
+        suggestion. Without this probe, "on service dates, break my unbilled
+        inventory down by filing runway bucket and tell me how much is
+        already expired" comes back cut by plan and facility, with prose
+        instructing the reader to run the cut themselves ("Before anyone
+        works this list, cut F1 by filing_runway_bucket…") — a correct
+        number reachable only by typing the internal identifier.
         """
         if not spec.dimensions:
             return []
@@ -600,9 +600,9 @@ class BuildInvestigationPlanService:
         """Breakdowns the question asked for that no probe actually cuts by.
 
         A dropped grain is the quietest wrong answer this engine can give:
-        the analyst asked "by payer", every probe aggregated over payer, and
-        the totals that came back were *averages* presented as the answer to
-        a split. Nothing in the pipeline noticed, because a plan that
+        the analyst asks "by payer", every probe aggregates over payer, and
+        the totals that come back are *averages* presented as the answer to
+        a split. Nothing else in the pipeline notices, because a plan that
         ignores a dimension is a perfectly valid plan. So the plan says it
         — surfaced as a turn warning like every other note — and the answer
         is caveated rather than silently flattened.
@@ -629,10 +629,10 @@ class BuildInvestigationPlanService:
         """The aggregate probe a stated movement has to be checked against.
 
         "Why did denials at Federal Medicare double in July?" asserts a
-        movement. Answered as a query it returns the cells that rose — live,
-        three CARC cells totalling $3,204 of increases, presented as the
+        movement. Answered as a query it returns the cells that rose — three
+        CARC cells totalling $3,204 of increases, presented as the
         explanation, inside a move from $58,983.54 to $10,915.24. Every
-        number was right and the answer was false, because nothing had
+        number is right and the answer is false, because nothing has
         computed the thing the question took for granted.
 
         So an asserted direction plans ONE extra probe, cloned from the
@@ -674,11 +674,11 @@ class BuildInvestigationPlanService:
         *ranked population* question — "which cells hold the most?" —
         which is exactly the shape the concentration finding path reads.
         Without this step such a plan executes perfectly and then answers
-        **nothing**: correct evidence, no findings. That was the silent
-        emptiness M13 fixed for playbooks; a typed first turn (a portfolio
-        card drill, a chart click from a fresh session) makes direct
-        queries hit it too, so the same generic step is emitted here
-        rather than a second finding shape being invented.
+        **nothing**: correct evidence, no findings. The playbook path already
+        avoids that; a typed first turn (a portfolio card drill, a chart
+        click from a fresh session) makes direct queries hit it too, so the
+        same generic step is emitted here rather than a second finding shape
+        being invented.
 
         Ranked by the group's first measure, descending — biggest first,
         whatever the unit — unless the analyst asked for an order, in which
@@ -780,7 +780,7 @@ class BuildInvestigationPlanService:
             limit=_scaled_top_n(spec.limit, evidence_depth),
         )
         # Prepended, so the cut the question NAMED is the frame the
-        # findings path reads first (R3-08).
+        # findings path reads first.
         nodes[:0] = named
         nodes.extend(self._premise_nodes(spec, nodes))
         prior_steps = self._pair_comparisons(nodes, spec, node_contracts)
@@ -854,10 +854,10 @@ class BuildInvestigationPlanService:
         CO-50 — a contractual write-off nobody can appeal — in the same row
         as PI-50, which is disputable money: $21,234 and $5,752 merged under
         one label, with the rendering layer left to disclose "(all
-        adjustment groups)" over a number that had already lost the
+        adjustment groups)" over a number that has already lost the
         distinction. Every pack playbook that cuts by ``carc`` conjoins
-        ``group_code`` by hand; a free-form question got the merged version,
-        so the same product answered the same question two ways.
+        ``group_code`` by hand; applied here, a free-form question gets the
+        same treatment instead of the merged version.
 
         A companion is added only when the governing contracts actually
         allow that cut — a metric that cannot be sliced by ``group_code``
@@ -987,19 +987,18 @@ class BuildInvestigationPlanService:
     ) -> list[TransformPlanStep]:
         """Give every flow probe a prior-window twin and a compare step.
 
-        Two invariants this pairing exists to hold, both round-4 R4-08 —
-        the defect class the review found alive after three fix waves.
+        Two invariants this pairing exists to hold.
 
         **The join may not key on a time bucket.** A comparison is movement
         between two WINDOWS. A monthly-bucketed probe over 2026-04..06
         joined against its prior twin over 2026-01..03 shares *no* key at
         all: every current cell reads as "absent from prior", and for an
-        additive unit absent fills as zero. Live, that published "CO / 16 —
-        denied dollars moved from $0.00 to $41,918.23" at direct/high with
-        an impact figure, when CO/16 had actually FALLEN $15,780; and the
-        $41,918 was one month's figure published as the quarter's, three
-        times over, once per bucket, each claiming a different rank over
-        one window. So a bucketed probe is compared through a de-bucketed
+        additive unit absent fills as zero. That publishes "CO / 16 — denied
+        dollars moved from $0.00 to $41,918.23" at direct/high with an impact
+        figure over a cell that had actually FALLEN $15,780, and the $41,918
+        is one month's figure published as the quarter's — three times over,
+        once per bucket, each claiming a different rank over one window. So
+        a bucketed probe is compared through a de-bucketed
         twin — the aggregate over the stated window, which is the thing the
         question asked about — and the bucketed frame keeps its trend.
 
@@ -1206,23 +1205,20 @@ class BuildInvestigationPlanService:
                     )
                 continue
             if operator in ANSWERING_TRANSFORMS:
-                # …and the ones whose absence changes WHAT the answer is
-                # (round-8 FIX-9(2), FIX-12(c)). Both were live this hour,
-                # both at severity INFO under an answer about something
-                # else:
+                # …and the ones whose absence changes WHAT the answer is.
+                # Recording them as skipped enrichments at INFO produces
+                # answers to different questions:
                 #
-                # * "Build me a payer scorecard for Pinnacle, I have a JOC
-                #   next week" ran six probes, got direct-grade rows from
-                #   every one, recorded `transform 'pivot' is not
-                #   executable` and published ZERO findings beside four
-                #   one-row charts. The pivot is what makes a scorecard a
-                #   scorecard;
-                # * "Will my cash increase next month?" — a chip on the
-                #   hero — recorded `project_lagged_realization is not
-                #   executable` at INFO and handed over $6,355,211.10 of
-                #   cash posted over the playbook's own trailing window,
-                #   with the words "forecast" and "cannot" nowhere in the
-                #   response.
+                # * "Build me a payer scorecard for Pinnacle" runs six
+                #   probes, gets direct-grade rows from every one, records
+                #   `transform 'pivot' is not executable` and publishes ZERO
+                #   findings beside four one-row charts. The pivot is what
+                #   makes a scorecard a scorecard;
+                # * "Will my cash increase next month?" records
+                #   `project_lagged_realization is not executable` at INFO
+                #   and hands over $6,355,211.10 of cash posted over the
+                #   playbook's own trailing window, with the words
+                #   "forecast" and "cannot" nowhere in the response.
                 #
                 # A skipped enrichment is a caveat; a skipped ANSWER is a
                 # refusal, and it is raised here so no probe runs, no chart
@@ -1263,9 +1259,9 @@ class BuildInvestigationPlanService:
         first — that default is the pack's judgement about an unprompted
         sweep, and it is exactly wrong for a question that named the other
         direction. "Which payers had the biggest increase in denials" ranked
-        ascending returns the three biggest *decreases*; the analyst asked
-        about a rise and was shown three falls, narrated as improvements.
-        So an asserted direction wins over the default: a wanted delta sign
+        ascending returns the three biggest *decreases*, narrated as
+        improvements. So an asserted direction wins over the default: a
+        wanted delta sign
         of ``+1`` ranks descending, ``-1`` ascending, and ``smallest``
         flips whichever of those applies.
         """
@@ -1287,12 +1283,12 @@ class BuildInvestigationPlanService:
             if not has_compare:
                 # "Rank by impact" with nothing to compare against means
                 # rank by SIZE — the dollars standing there, not a movement.
-                # Returning None instead dropped the rank step entirely, and
+                # Returning None instead drops the rank step entirely, and
                 # with it every finding the frame could produce: the daily
-                # portfolio planned nine probes, retrieved 97 ranked rows of
-                # payers and plans, emitted no rank step because its
-                # ``compare`` had no comparison window to work from, and
-                # published two ungrouped scalars as the whole answer to
+                # portfolio plans nine probes, retrieves ~100 ranked rows of
+                # payers and plans, emits no rank step because its
+                # ``compare`` has no comparison window to work from, and
+                # publishes two ungrouped scalars as the whole answer to
                 # "what should I work first today".
                 return money.id, asked_order if asked_order is not None else True
             wanted = wanted_delta_sign(spec.direction, money.sign)

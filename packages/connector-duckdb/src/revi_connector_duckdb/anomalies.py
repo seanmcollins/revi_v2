@@ -3,9 +3,9 @@
 The warehouse generator persists planted scenarios as-if an external
 anomaly-detection system wrote them, one table per snapshot schema — so
 reading per-snapshot naturally excludes anomalies that are absent (or
-self-resolved away) at the pinned watermark. The table is landing in a
-concurrent generator change: a missing table yields an EMPTY result, never
-an error (callers surface a warning).
+self-resolved away) at the pinned watermark. A snapshot schema need not carry
+the table: its absence yields an EMPTY result, never an error (callers
+surface a warning).
 
 Row shape: anomaly_id, detected_at, category, title, description,
 metric_id, dimensions (JSON object of dimension → value), window_start,
@@ -13,19 +13,19 @@ window_end, impact_cents, severity, confidence, status, evidence (JSON
 object of facts).
 
 **Onset.** For this feed ``window_start`` *is* the onset of the observation
-window: the generator plants each scenario with an ``onset`` date and writes
-it as the window start, and the detector only counts events inside
+window: each scenario is planted with an ``onset`` date written as the window
+start, and the detector only counts events inside
 ``window_start..window_end``. ``detected_at`` is the load timestamp of the
-snapshot that observed it, identical for every row, so it says when the feed
-ran, never when the problem began. The source therefore publishes an
+snapshot that observed it — identical for every row — so it says when the
+feed ran, never when the problem began. The source therefore publishes an
 ``onset_date`` evidence fact derived from ``window_start``.
 
-This belongs in the source, not in the consumer: the source is the only
-component that knows this feed's row shape, and the governed
+That derivation belongs in the source, not the consumer: the source is the
+only component that knows this feed's row shape, and the governed
 ``anomaly_priority`` formula must stay expressed in evidence facts rather
-than learning DuckDB column names. An explicit ``onset_date`` already
-present in the row's evidence always wins — a real detection feed that
-knows its own onset must not be overwritten by our derivation.
+than learning DuckDB column names. An explicit ``onset_date`` already present
+in the row's evidence always wins — a detection feed that knows its own onset
+must not be overwritten by this derivation.
 """
 
 from __future__ import annotations
@@ -114,8 +114,7 @@ class DuckDbAnomalySource:
                     "ORDER BY impact_cents DESC, anomaly_id"
                 ).fetchall()
             except duckdb.CatalogException:
-                # the anomaly table lands with a concurrent generator change;
-                # its absence is an empty portfolio, never an error
+                # a schema without the table is an empty portfolio, not an error
                 logger.warning(
                     "no detected_anomalies table in schema %s — serving an empty portfolio",
                     schema,

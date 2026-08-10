@@ -1,12 +1,13 @@
-"""Human-verified goldens — the harness's anchor points.
+"""Reference goldens — the harness's anchor points.
 
-``goldens.json`` holds numbers a human (or a persona reviewer running SQL by
-hand) computed against the generated warehouse, each with the passage it came
-from. Re-deriving them proves the *audit* path is still honest; the corpus
-replay proves the *product* path agrees with the audit path. Together the two
-close the triangle: human == audit == product.
+``goldens.json`` holds numbers derived OUTSIDE the product's calculation
+path — hand-run SQL against the generated warehouse, some of it by the
+project's reviewer harness rather than by a person — each with the passage it
+came from. Re-deriving them proves the *audit* path is still honest; the
+corpus replay proves the *product* path agrees with the audit path. Together
+the two close the triangle: reference == audit == product.
 
-Entries flagged ``v1_derivable: false`` record a human-verified number the v1
+Entries flagged ``v1_derivable: false`` record a reference number the v1
 deriver deliberately refuses. The harness asserts the refusal *reason* instead
 of the number, so a hole stays visible and cannot silently become coverage.
 """

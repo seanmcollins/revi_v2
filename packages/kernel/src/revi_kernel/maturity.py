@@ -1,4 +1,4 @@
-"""Has the last point of a series settled? (design §6.4, round-3 R3-06.)
+"""Has the last point of a series settled? (design §6.4.)
 
 A time-bucketed frame's terminal bucket is the newest thing the analyst
 asked for and the least trustworthy thing in the answer. Two independent
@@ -15,11 +15,9 @@ The rule lives in the kernel because two capabilities must reach the same
 verdict about the same frame and may not import each other (capability
 independence, import-linter enforced): the findings evaluator names the
 point PROVISIONAL in prose, and the chart builder must break the line at
-the same bucket. Round-4 R4-03 is precisely what happens when they don't —
-the finding title read "the week of 2026-07-20 point (66.7%) is
-PROVISIONAL and is excluded from that movement" while the chart drew an
-unbroken solid line terminating on that very point, because ``provisional``
-was never true on the wire. One rule, one bucket, both surfaces.
+the same bucket. When the verdict is computed twice, the two surfaces
+disagree — prose excluding a point the chart still draws as a solid,
+unbroken line. One rule, one bucket, both surfaces.
 
 This module states the *verdict*; the sentences that describe it belong to
 whoever publishes them.
@@ -47,12 +45,9 @@ DENOMINATOR_SUFFIX = "__den"
 
 #: How small a terminal bucket's own denominator may be, as a fraction of
 #: the series median, before the point it produces is a data-maturity
-#: artifact rather than a measurement.
-#:
-#: Live: adjudicated denominators 6,049 / 6,133 / 5,723 / 1,544 across
-#: 2026-01..2026-07. The July point was computed on 25% of the median panel
-#: — the fastest-adjudicating quarter of the month, which skews heavily to
-#: denials — and published as "up 5.5 points", ``direct``, ``high``.
+#: artifact rather than a measurement. A terminal bucket holding a quarter
+#: of the median population is not a small sample of the period, it is the
+#: fastest-settling slice of it, which is biased.
 TERMINAL_BUCKET_MIN_SHARE = Decimal("0.6")
 
 #: A series shorter than this has no shape to judge a terminal point

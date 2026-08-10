@@ -1,16 +1,11 @@
-"""Round-4 R4-09 / R4-14: what a published chart must guarantee.
+"""What a published chart must guarantee: addressable rows, ordinal axes.
 
-R4-09 is the defect the design reviewer called unshippable: the server
-declares ``x`` and ``series`` and then sends rows that are indistinguishable
-under them, so any renderer keying on the declared axes keeps the last write
-and silently drops the rest — 99.2% of the money on one live chart, inside a
-CSV whose preamble carries the watermark, the pack version, the
-investigation id and a full CAVEATS block that says nothing about it.
-
-R4-14 is the ordinal one: ``ar_age_bucket`` came off the API alphabetically
-(``120+`` in slot two) while its sibling ``filing_runway_bucket`` did not,
-because the catalog's declared order reached the findings path and stopped
-there.
+Two regressions are pinned here. A spec declared ``x`` and ``series`` over rows
+indistinguishable under them, so any renderer keying on the declared axes kept
+the last write and silently dropped the rest — under a CAVEATS block that said
+nothing about it. And an ordinal dimension (``ar_age_bucket``) came off the API
+alphabetically, because the catalog's declared order stopped at the findings
+path.
 """
 
 from __future__ import annotations
@@ -69,9 +64,9 @@ class TestEveryRowIsAddressableByTheDeclaredAxes:
         assert repaired is spec
 
     def test_an_undeclared_grouping_column_becomes_part_of_the_key(self) -> None:
-        """The live shape: a frame cut three ways, a spec declaring two. The
-        third column is published as part of ``series`` rather than left to
-        collapse a chart's rows by last-write-wins."""
+        """A frame cut three ways, a spec declaring two. The third column is
+        published as part of ``series`` rather than left to collapse a chart's
+        rows by last-write-wins."""
         frame = _frame(
             ("payer", "service_line", "group_code"),
             (
@@ -100,8 +95,8 @@ class TestEveryRowIsAddressableByTheDeclaredAxes:
 
     def test_an_unkeyable_additive_chart_is_summed_and_says_so(self) -> None:
         """No column explains the repeats — the frame is finer than any of
-        its dimensions. Summing is the honest cell; keeping the last one is
-        the 190x understatement."""
+        its dimensions. Summing is the honest cell; keeping the last one
+        understates the total by orders of magnitude."""
         frame = _frame(("payer",), (("Atlas", 100), ("Atlas", 200)))
         spec = _spec("payer", None, [ChartRow(x="Atlas", value=100),
                                      ChartRow(x="Atlas", value=200)])

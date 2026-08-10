@@ -132,7 +132,7 @@ _MIN_CLASSIFICATION_CONFIDENCE = 0.5
 _DEFAULT_WINDOW = RelativeRange(Decimal(1), TimeUnit.MONTH, RangeMode.FULL_PERIODS)
 
 #: The contract ``kind`` that reports a balance at a moment rather than a
-#: quantity accumulated over a window (round-2 FN-2).
+#: quantity accumulated over a window.
 _SNAPSHOT_KIND = "snapshot"
 _DESCRIPTION_CLIP = 160
 
@@ -175,7 +175,7 @@ class Coverage(StrEnum):
 
 
 def window_coverage(window: AbsoluteRange, watermark: DataWatermark) -> Coverage:
-    """Does this load hold the period that was asked about? (round-3 FN-11)
+    """Does this load hold the period that was asked about?
 
     The upper bound is always known — a load knows the newest activity it
     can see — so a period that starts after it is unanswerable, full stop.
@@ -210,14 +210,14 @@ def absolute_label(window: AbsoluteRange) -> str:
 
 
 #: Relative period vocabulary the resolver understands directly, mapped to
-#: the closed kernel shape it resolves to (round-3 R3-16).
+#: the closed kernel shape it resolves to.
 #:
-#: "What should my denial team work first THIS WEEK to recover the most
-#: cash?" and "what is at risk in the NEXT 30 DAYS" both came back with
-#: ``window_assumed: the question named no period`` — a false statement
-#: about the analyst's own sentence, printed directly under it, over a
-#: silent widening of a 7-day horizon to a 31-day month. Everything here is
-#: anchored on the newest data date, exactly like "June 2026".
+#: Without it, "what should my denial team work first THIS WEEK…" and "what
+#: is at risk in the NEXT 30 DAYS" both come back with ``window_assumed: the
+#: question named no period`` — a false statement about the analyst's own
+#: sentence, printed directly under it, over a silent widening of a 7-day
+#: horizon to a 31-day month. Everything here is anchored on the newest data
+#: date, exactly like "June 2026".
 _RELATIVE_WINDOW_VOCABULARY: tuple[tuple[str, str, RelativeRange | None], ...] = (
     ("week to date", "week to date", RelativeRange(Decimal(1), TimeUnit.WEEK, RangeMode.TO_DATE)),
     ("wtd", "WTD", RelativeRange(Decimal(1), TimeUnit.WEEK, RangeMode.TO_DATE)),
@@ -243,19 +243,18 @@ _TRAILING_PHRASE = re.compile(
 )
 
 #: ``next 30 days`` / ``coming 2 weeks`` — a horizon for WORK, not a
-#: measurement window. There is no data after the newest data date and
-#: pretending a month of history answers it is the substitution R3-16 names.
+#: measurement window. There is no data after the newest data date, so
+#: substituting a month of history answers a different question.
 _FORWARD_PHRASE = re.compile(
     r"\b(?:next|coming|upcoming|following)\s+(\d{1,3})\s+(day|week|month|quarter|year)s?\b",
     re.IGNORECASE,
 )
 
-#: "Now" said about a quantity that only exists over a period (round-8
-#: FIX-6). "Who is my worst payer on denial rate RIGHT NOW, and is that a
-#: change from last month?" — the sentence the whole Monitors pitch is built
-#: on — resolved to 2026-08-01..2026-08-02, the two days since the month
-#: boundary, compared against a same-length slice of July, and returned a
-#: blank page in a customer room. The identical question with the months
+#: "Now" said about a quantity that only exists over a period. Read
+#: literally, "who is my worst payer on denial rate RIGHT NOW, and is that a
+#: change from last month?" resolves to the two days since the month
+#: boundary, compares them against a same-length slice of the prior month,
+#: and returns a blank page — while the identical question with the months
 #: named returns three findings.
 #:
 #: A denial RATE has no value at an instant: it is a numerator over a
@@ -279,15 +278,14 @@ _NOW_PHRASE_LABELS: frozenset[str] = frozenset({"today"})
 
 #: A period named as the thing being COMPARED AGAINST rather than as the
 #: window to measure — "is that a change FROM LAST MONTH", "vs last month",
-#: "compared to a year ago". Two jobs, both round-8 FIX-6:
+#: "compared to a year ago". Two jobs:
 #:
 #: 1. it is not the window. The vocabulary scan above matches "last month"
 #:    wherever it appears, so an utterance that names its window with a now
-#:    phrase and its baseline with "from last month" used to be measured
-#:    over the baseline;
+#:    phrase and its baseline with "from last month" would otherwise be
+#:    measured over the baseline;
 #: 2. it IS a comparison. A question that asks for a change and gets a level
-#:    is a dead end even when the level is right, and the demo opener asks
-#:    for one in plain English.
+#:    is a dead end even when the level is right.
 #:
 #: Deterministic and closed, like every other phrase table here: the model
 #: is asked for a comparison first and this catches the ones it drops.
@@ -348,7 +346,7 @@ def recognize_relative_period(question: str) -> RelativePeriod | None:
 
 
 def recognize_now_phrase(question: str) -> str | None:
-    """The "now" this utterance says, if it says one (round-8 FIX-6)."""
+    """The "now" this utterance says, if it says one."""
     match = _NOW_PHRASE.search(question)
     return match.group(0).lower() if match is not None else None
 
@@ -378,8 +376,8 @@ def without_comparison_clause(question: str) -> str:
 
     Only ever used to decide what the WINDOW is. "Last month" names a
     period wherever it appears and the vocabulary scan cannot tell the two
-    roles apart, so an utterance that names its window one way and its
-    baseline another was measured over the baseline (round-8 FIX-6).
+    roles apart, so without this an utterance that names its window one way
+    and its baseline another is measured over the baseline.
     """
     return _COMPARISON_PHRASE.sub(" ", question)
 
@@ -408,22 +406,17 @@ _PERIOD_UNITS: tuple[TimeUnit, ...] = (TimeUnit.MONTH, TimeUnit.QUARTER, TimeUni
 def _open_period_clause(
     literal: AbsoluteRange, full_period: AbsoluteRange, watermark: DataWatermark
 ) -> str:
-    """How much of the literal window sits in the period still open (R9-10).
-
-    The clause used the literal window's LENGTH as its operand, so a
-    trailing-31-day "right now" straddling a month boundary published *"31
-    day(s) of the period that is still open"* over 2026-07-03..2026-08-02 —
-    of which exactly two days, Aug 1-2, are in the open month. The sentence
-    exists to say how little settled data the literal reading would have
-    rested on, and stating the whole window made it meaningless: by its own
-    arithmetic every day of July was unsettled too.
+    """How much of the literal window sits in the period still open.
 
     The operand is the INTERSECTION of the literal window with the open
     partial period — everything after the last full period this load can
-    see, up to the newest data date. A differently-phrased run whose literal
-    window was 2026-08-01..2026-08-02 printed "2 day(s)" correctly, because
-    there the two happened to coincide; this makes them coincide by
-    construction.
+    see, up to the newest data date. Using the literal window's own LENGTH
+    instead makes the clause meaningless: a trailing-31-day "right now"
+    straddling a month boundary reads *"31 day(s) of the period that is
+    still open"* over 2026-07-03..2026-08-02, of which exactly two days are
+    in the open month, and by its own arithmetic every day of July was
+    unsettled too. The sentence exists to say how little settled data the
+    literal reading would have rested on.
     """
     open_start = full_period.end + timedelta(days=1)
     open_end = min(literal.end, watermark.newest_data_date)
@@ -474,7 +467,7 @@ def _period_names_prior_window(
 #: The sizes an assertion can name, as a multiple of the prior level. A
 #: closed vocabulary of magnitude words, read off the utterance the same way
 #: the period vocabulary above is: "doubled" is not a direction, it is a
-#: quantity, and the premise check tested only the sign (round-3 R3-03).
+#: quantity, and a premise check that tests only the sign never sees it.
 _MAGNITUDE_WORDS: tuple[tuple[str, Decimal], ...] = (
     ("quadrupled", Decimal(4)),
     ("quadruple", Decimal(4)),
@@ -500,9 +493,8 @@ _MAGNITUDE_WORDS: tuple[tuple[str, Decimal], ...] = (
 )
 
 #: Sizes stated as arithmetic rather than as a word — "jumped 300%", "up by
-#: 40%", "5x". Round-5 A-02(3): the closed table held "halved" and not
-#: "halve", "quadrupled" and not "quadruple", "2x"/"3x" and no numeric form
-#: at all, and an unparsed size silently became a confirmed DIRECTION —
+#: 40%", "5x". A gap in the closed table above ("halved" but not "halve", no
+#: numeric form at all) turns an unparsed size into a confirmed DIRECTION:
 #: "Premise confirmed … It happened: -8.0%" over a question that said HALVE.
 _PERCENT_MOVE = re.compile(
     r"(?<!\w)(?:by\s+)?(\d{1,4}(?:\.\d+)?)\s*(?:%|percent)(?!\w)", re.IGNORECASE
@@ -541,10 +533,10 @@ def asserted_multiple(
     is a query over cells, while "why did denials double?" is a premise
     about the aggregate, and only the second is checked here.
 
-    The closed table is a deterministic OVERRIDE, not the sole source
-    (round-5 A-02d): a word this platform recognises is resolved here and
-    never asked of a model, and ``proposed`` — the interpretation's own
-    typed reading — fills the long tail of phrasings a table cannot hold.
+    The closed table is a deterministic OVERRIDE, not the sole source: a
+    word this platform recognises is resolved here and never asked of a
+    model, and ``proposed`` — the interpretation's own typed reading — fills
+    the long tail of phrasings a table cannot hold.
     """
     if not direction_asserted:
         return None
@@ -598,9 +590,9 @@ def size_asserted_unparsed(question: str, direction_asserted: bool) -> bool:
 FULL_RANKING_LIMIT = 100
 
 #: Counts an analyst says out loud rather than types. "Show me all twelve"
-#: names TWELVE, and resolving it to the 100-row ``FULL_RANKING_LIMIT``
-#: made the shortfall notice quote a ceiling this platform invented back at
-#: an analyst who had named a number (round-5 A-04).
+#: names TWELVE; resolving it to the 100-row ``FULL_RANKING_LIMIT`` makes
+#: the shortfall notice quote a ceiling this platform invented back at an
+#: analyst who had named a number.
 _NUMBER_WORDS: dict[str, int] = {
     "two": 2, "three": 3, "four": 4, "five": 5, "six": 6, "seven": 7,
     "eight": 8, "nine": 9, "ten": 10, "eleven": 11, "twelve": 12,
@@ -624,12 +616,12 @@ _UNCOUNTED_ALL = re.compile(
 
 
 def requested_finding_limit(question: str) -> int | None:
-    """How many rows the analyst asked to see, when they asked (R3-04).
+    """How many rows the analyst asked to see, when they asked.
 
-    ``top_n = 3`` was a constructor default nothing could lift, so "show me
-    all twelve payers, not just three" returned three findings, and "every
-    one of our 12 payers" returned three with no omission notice. A count
-    the question names is an instruction.
+    ``top_n = 3`` is a constructor default; nothing else can lift it, so
+    without this "show me all twelve payers, not just three" returns three
+    findings and "every one of our 12 payers" returns three with no omission
+    notice. A count the question names is an instruction.
     """
     explicit = _EXPLICIT_LIMIT.search(question)
     if explicit is not None:
@@ -682,11 +674,10 @@ _DISPLAY_SCOPE_WORDS = frozenset(
 def display_scope_limit(question: str) -> int | None:
     """A request that changes ONLY how many rows are shown, and how many.
 
-    Round-4 R4-11, 6 of 6 personas, zero successes: "show me all twelve"
-    reached the classifier, came back at confidence 0.45-0.50, and was
-    answered with a clarification asking whether the twelve had already
-    been computed — a question the platform could answer itself from the
-    frame it was holding. The limit lift then sat on the one path a
+    "Show me all twelve" reaching the classifier comes back at confidence
+    0.45-0.50 and is answered with a clarification asking whether the twelve
+    have already been computed — a question the platform can answer itself
+    from the frame it is holding — leaving the limit lift on a path a
     follow-up can never reach.
 
     A display-scope request is decidable without a model, so it is decided
@@ -708,11 +699,10 @@ def display_scope_limit(question: str) -> int | None:
 #: rather than merely re-shown. **One vocabulary, two readers**: this is the
 #: gate ``presentation_order_request`` admits a turn on AND the gate
 #: :func:`revi_investigation.application.submit_turn.presentation_ordering`
-#: resolves it with. They were two regexes for one intent and the wider one
-#: was the gate: "reverse the order" and "flip it" passed admission, matched
-#: nothing on resolution, and re-served the parent's rows in the parent's
-#: order under "nothing changed but the presentation" — round-5 E-01
-#: reopened by the fix for round-6 A-03.
+#: resolves it with. Two regexes for one intent lets the wider one be the
+#: gate: "reverse the order" and "flip it" pass admission, match nothing on
+#: resolution, and re-serve the parent's rows in the parent's order under
+#: "nothing changed but the presentation".
 PRESENTATION_CHANGE_REQUEST = re.compile(
     r"(?<!\w)(?:sort|sorts|sorted|sorting|re-?sort|order|orders|ordered|ordering|"
     r"reorder|re-?order|rank|ranks|ranked|ranking|re-?rank|reverse|reversed|flip|"
@@ -762,14 +752,12 @@ _PRESENTATION_ORDER_WORDS = frozenset(
 def presentation_order_request(question: str) -> bool:
     """Is this utterance *only* an instruction about the order on screen?
 
-    Round-6 A-03. ``refinement_not_applied`` was written for exactly one
-    utterance — "sort them by percent change, largest first" — and that
-    utterance stopped reaching the path it lives on: the classifier came
-    back ``presentation_only`` at 0.76 and 0.68, below its threshold, so the
-    turn ended as a clarification ("is percent change already a column?")
-    over a question the engine can answer itself from the rows it is
-    holding. Two model calls, no answer, and the analyst's own re-sort
-    request diverted into a dialogue.
+    Routing this through the classifier loses it: "sort them by percent
+    change, largest first" comes back ``presentation_only`` at 0.76 and
+    0.68, below the confidence threshold, so the turn ends as a
+    clarification ("is percent change already a column?") over a question
+    the engine can answer itself from the rows it is holding — two model
+    calls, no answer, and a re-sort request diverted into a dialogue.
 
     Decided here, before any model call, on the same closed-vocabulary rule
     :func:`display_scope_limit` uses: the utterance must ask for a
@@ -789,9 +777,9 @@ def presentation_order_request(question: str) -> bool:
 def out_of_range_question(period_label: str, watermark: DataWatermark) -> str:
     """Say which period was asked for and which one exists.
 
-    Live, "…in January 2019" came back with a July 2026 window and the
-    warning "the question named no period", rendered directly under the
-    analyst's own words. The period was named; it was simply not there.
+    Without it, "…in January 2019" comes back with a current-month window
+    and the warning "the question named no period", rendered directly under
+    the analyst's own words. The period was named; it was simply not there.
     """
     return (
         f"You asked about {period_label} — {data_range_phrase(watermark)}, so there is nothing "
@@ -893,10 +881,10 @@ class PendingClarification:
 
     Classification without it is classification without the one fact that
     decides the answer: an utterance is only "an answer to a question I
-    haven't asked" if no question is outstanding. Live, a session that
-    replied to a clarification with a VERBATIM option string was read fresh
-    each time and clarified four turns running — the model was never told
-    it had asked anything.
+    haven't asked" if no question is outstanding. A session whose reply
+    repeats an offered option VERBATIM is otherwise read fresh each time and
+    clarifies turn after turn, because the model is never told it asked
+    anything.
     """
 
     #: The question the platform put to the analyst.
@@ -910,8 +898,8 @@ class PendingClarification:
     #: How many clarifications this thread has issued back-to-back.
     streak: int = 0
     #: The investigation that ASKED, so an answer can be parented to it.
-    #: Round-3 R3-07: the resolved turn was saved as a root node, leaving
-    #: the clarification and its own answer in two disconnected trees.
+    #: Without it the resolved turn is saved as a root node, leaving the
+    #: clarification and its own answer in two disconnected trees.
     investigation_id: str | None = None
     #: What each offered option means in governed ids. A reply that matches
     #: one is resolved by lookup, not by re-reading it as language.
@@ -1179,8 +1167,7 @@ class InterpretQuestionService:
         cannot be read on the submission basis here — which should I
         use?"), being ANSWERED. The answer is a governed basis id the
         platform offered, so re-running the analyst's original question
-        with it applied is a substitution, not a second interpretation
-        (round-3 R3-07).
+        with it applied is a substitution, not a second interpretation.
         """
         prompt = render_template(self._template.text, {**self._vocabulary(), "question": question})
         assert_safe_payload(prompt)
@@ -1226,7 +1213,7 @@ class InterpretQuestionService:
                 # How many ways forward this platform removed before the
                 # analyst saw the question. The turn engine reads it to
                 # decide whether a lone survivor is a real choice or the
-                # last thing left standing (round-4 R4-12 defect 5).
+                # last thing left standing.
                 + _dropped_marker(len(parsed.clarification_options), len(options)),
                 result.usage,
                 template_hash,
@@ -1298,16 +1285,15 @@ class InterpretQuestionService:
         now_phrase = recognize_now_phrase(question)
         comparison_named = recognize_comparison_phrase(question)
         # The model is asked for a window first; this catches the phrases it
-        # drops (round-3 R3-16). "This week" and "the next 30 days" were
-        # both answered with ``the question named no period``, printed under
-        # the analyst's own sentence, over a silent widening to a 31-day
-        # month.
+        # drops. Otherwise "this week" and "the next 30 days" are both
+        # answered with ``the question named no period``, printed under the
+        # analyst's own sentence, over a silent widening to a 31-day month.
         relative_named: RelativePeriod | None = None
         if not window_explicit:
             # …read off the utterance MINUS its baseline clause when the
             # window is named by a "now": "worst payer right now, is that a
-            # change from last month" names July and June, not July twice
-            # (round-8 FIX-6).
+            # change from last month" names two different periods, not the
+            # same one twice.
             relative_named = recognize_relative_period(
                 without_comparison_clause(question)
                 if now_phrase is not None and comparison_named is not None
@@ -1338,7 +1324,7 @@ class InterpretQuestionService:
             )
             window_explicit = True  # a period WAS named; do not claim otherwise
             period_label = relative_named.quoted
-        # "Right now" on a quantity that only exists over a period (FIX-6).
+        # "Right now" on a quantity that only exists over a period.
         # Everything above has run, so this sees the window the model or the
         # vocabulary actually resolved — and re-anchors it to the last FULL
         # period when that window is a slice of the period still open. The
@@ -1395,12 +1381,12 @@ class InterpretQuestionService:
                 options=in_range_options(session.watermark),
             )
         if coverage is Coverage.PARTIAL and window.range.end > session.watermark.newest_data_date:
-            # Round-3 R3-05: the warning was right and nothing acted on it.
-            # "Compare denied dollars in Q3 2026 to Q3 2025" published the
-            # REQUESTED window in the header, the finding title and the
-            # narrative — 92 days against 33 of data — and reported denials
-            # "down 56.9% year over year" when per-day they were UP ~20%.
-            # The comparison is derived from the window below, and the
+            # Warning about the shortfall is not enough on its own:
+            # "compare denied dollars in Q3 2026 to Q3 2025" otherwise
+            # publishes the REQUESTED window in the header, the finding title
+            # and the narrative — 92 days against 33 of data — and reports
+            # denials "down 56.9% year over year" when per-day they are UP
+            # ~20%. The comparison is derived from the window below, and the
             # length gate reads it, so truncating HERE is what makes every
             # downstream surface state the window that was actually read.
             requested_range = window.range
@@ -1439,10 +1425,10 @@ class InterpretQuestionService:
                 context, comparison=derive_comparison(window, ComparisonKind(parsed.comparison))
             )
         elif comparison_named is not None:
-            # The model dropped a baseline the utterance names (round-8
-            # FIX-6): "…and is that a change from last month?" came back as
-            # a level with no comparison at all, which answers half the
-            # question and reads as a non-answer to the half that matters.
+            # The model can drop a baseline the utterance names: "…and is
+            # that a change from last month?" comes back as a level with no
+            # comparison at all, which answers half the question and reads
+            # as a non-answer to the half that matters.
             # Honored only where the named period IS the window's own prior
             # one — "last month" against a monthly window — because
             # answering "vs last month" with the quarter before this quarter
@@ -1474,7 +1460,7 @@ class InterpretQuestionService:
             # direction to assert.
             direction_asserted=bool(parsed.direction_asserted and parsed.direction),
             # The SIZE the question asserted, so the premise check can test
-            # it — "doubled" is a claim about magnitude (R3-03).
+            # it — "doubled" is a claim about magnitude.
             asserted_multiple=asserted_multiple(
                 question,
                 parsed.direction_asserted,
@@ -1483,16 +1469,16 @@ class InterpretQuestionService:
             ),
             # …and whether a size was asserted that nothing could read, so
             # an unverified magnitude can never be published as a confirmed
-            # direction (round-5 A-02c).
+            # direction.
             size_asserted_unparsed=(
                 parsed.asserted_multiple is None
                 and size_asserted_unparsed(question, parsed.direction_asserted)
             ),
             # What the analyst called the period, so no later sentence has
-            # to assert that they named none (R3-16).
+            # to assert that they named none.
             period_label=period_label,
             # A count the question names is an instruction, not a
-            # suggestion (R3-04).
+            # suggestion.
             limit=requested_finding_limit(question),
         )
         if spec.direction_asserted and context.comparison is None:
@@ -1511,7 +1497,7 @@ class InterpretQuestionService:
             )
         # An as-of contract applies no start..end predicate at all, so
         # announcing an assumed window over one is a confident statement
-        # about a scoping that did not happen (round-2 FN-2). The turn
+        # about a scoping that did not happen. The turn
         # still carries a window — the cohort and charts are scoped by it
         # — and what the analyst is owed is the fact that the number is not.
         # (Read above, where the "now" rule needs the same fact.)
@@ -1869,14 +1855,14 @@ class InterpretQuestionService:
     ) -> tuple[ClarificationBinding, ...]:
         """The surviving options' ids, carried onto the clarification.
 
-        Round-3 R3-17: the disposal below is deterministic and good, and it
-        was the LAST thing that looked at an option. Nothing downstream
-        could re-check one against the warehouse (which is where the phantom
-        facility lived — an OPEN dimension has no declared ``value_domain``,
-        so ``_option_resolves`` skipped its values entirely), and nothing
-        could dry-run one against the planner. Both of those happen in the
-        turn engine, which has the watermark and the planner; they need the
-        ids, and this is where the ids still exist.
+        The disposal below is deterministic, and it is the last thing in
+        this module that looks at an option. Nothing downstream can re-check
+        one against the warehouse — an OPEN dimension has no declared
+        ``value_domain``, so ``_option_resolves`` skips its values entirely
+        and a nonexistent facility survives — and nothing can dry-run one
+        against the planner. Both of those happen in the turn engine, which
+        has the watermark and the planner; they need the ids, and this is
+        where the ids still exist.
         """
         return tuple(
             ClarificationBinding(
@@ -1900,10 +1886,10 @@ class InterpretQuestionService:
         """Keep only the recovery options this pack and catalog can honor.
 
         A clarification option is a promise: tap it and you get an answer.
-        The platform offered "Compare denial rates across all Medicare
-        Advantage payers" and refused that request on the very next turn —
-        the option was a sentence, and a sentence resolves against nothing.
-        So every option now carries the ids it would use and they go
+        An option that is only a sentence resolves against nothing, so
+        "compare denial rates across all Medicare Advantage payers" can be
+        offered and then refused on the very next turn. Every option
+        therefore carries the ids it would use, and they go
         through the same disposal an interpretation does: metrics and
         playbooks against the pinned pack, dimensions and scope dimensions
         against the catalog, scope values against a declared

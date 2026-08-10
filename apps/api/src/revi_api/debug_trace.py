@@ -147,9 +147,9 @@ def _interpretation(raw: Mapping[str, Any], guard: _Guarded) -> DebugInterpretat
 def _weakest_grade(grades: Mapping[str, Any]) -> str | None:
     """The grade law applied to the recorded node grades (§5.3).
 
-    Stated rather than left to a reader to eyeball out of a dict: this is
-    the ceiling on what the whole answer may claim, and it is the number a
-    debug reader is checking the caveats against.
+    Emitted rather than left for a reader to eyeball out of a dict: it is
+    the ceiling on what the whole answer may claim, and the number a debug
+    reader checks the caveats against.
     """
     values: list[EvidenceGrade] = []
     for raw in grades.values():

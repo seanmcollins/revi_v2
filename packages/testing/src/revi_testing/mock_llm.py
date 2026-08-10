@@ -3,9 +3,9 @@
 Rules map ``(template_id, optional prompt matcher)`` to a canned structured
 response (a plain dict, exactly what the schema-validated adapter would
 return) or ``None`` to simulate the model failing the schema
-(``structured_output=None`` — SDK spike trap #4). Every call is recorded
-for assertions; an unmatched structured call fails the test loudly rather
-than inventing an answer.
+(``structured_output=None``, a real SDK outcome). Every call is recorded for
+assertions; an unmatched structured call fails the test loudly rather than
+inventing an answer.
 """
 
 from __future__ import annotations
@@ -34,10 +34,9 @@ class CannedResponse:
     usage: LlmUsage | None = None
     #: Which kind of empty-handed a ``response=None`` rule simulates.
     #: ``None`` leaves the port's conservative reading ("the adapter did
-    #: not say"), which is a real adapter outcome and worth testing too —
-    #: but a test that means "the model declined" and a test that means
-    #: "the shape never validated" want different recoveries, and until
-    #: this existed neither could be written.
+    #: not say"), itself a real adapter outcome. "The model declined" and
+    #: "the shape never validated" want different recoveries, so they need
+    #: to be distinguishable here.
     failure: LlmFailureKind | None = None
 
     def __post_init__(self) -> None:
@@ -63,8 +62,8 @@ class MockLanguageModel:
     text_chunks: tuple[str, ...] = ()
     #: Stands in for an adapter that applies per-call policy, so wiring
     #: that reads this flag exercises the tier path. Set it False to
-    #: reproduce a deployment whose model cannot honor a tier (the
-    #: scripted demo), where naming one is refused rather than ignored.
+    #: reproduce a deployment whose model cannot honor a tier, where naming
+    #: one is refused rather than silently ignored.
     applies_call_policy: bool = True
 
     def respond(

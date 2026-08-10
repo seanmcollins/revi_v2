@@ -157,15 +157,15 @@ class ApiComponents:
     #: execute and calculate, memoized per (watermark, plan hash) and
     #: reading the warehouse through the ordinary evidence cache. Used to
     #: publish ``reconciled_impact_cents`` beside the detector's own figure
-    #: so the two can never silently diverge (review F1).
+    #: so the two can never silently diverge.
     rederive_impact: ImpactReDeriver
     #: Governed display names for metric ids whose name overclaims what
-    #: they measure (review F9).
+    #: they measure.
     metric_display: MetricDisplayRules
     #: Which governed playbook and concept ids mean "show me the ranked
     #: worklist", so a conversation can reach the portfolio the platform
-    #: already computes without any question string being matched anywhere
-    #: (round-2 deferred P1). See :mod:`revi_api.worklist`.
+    #: already computes without any question string being matched anywhere.
+    #: See :mod:`revi_api.worklist`.
     worklist: WorklistRouting
     #: The governed Monitors content: materiality thresholds per unit kind,
     #: the resolution-confirmation rule, and per-category time-to-impact
@@ -291,7 +291,9 @@ def build_components(
     llm: LanguageModelPort | None = None,
 ) -> ApiComponents:
     """Assemble the engine per the wiring matrix (see module docstring).
-    ``llm`` overrides the environment choice (tests inject mocks here)."""
+
+    ``llm`` overrides the environment choice; tests inject mocks here.
+    """
     env = env if env is not None else dict(os.environ)
 
     warehouse = Path(env.get("REVI_WAREHOUSE_PATH", str(_REPO_ROOT / "data/revi_warehouse.duckdb")))
@@ -325,14 +327,14 @@ def build_components(
     # an adapter that applies per-call policy declares it, and anything
     # that does not is treated as not applying it.
     applies_call_policy = bool(getattr(llm, "applies_call_policy", False))
-    # Every model call the engine makes now passes through a meter, so a
-    # turn that FAILS can still report what it spent (review F19). Pure
-    # decoration: with no ledger bound it is indistinguishable from the
-    # port it wraps, and attribute access falls through to the adapter.
+    # Every model call the engine makes passes through a meter, so a turn
+    # that FAILS can still report what it spent. Pure decoration: with no
+    # ledger bound it is indistinguishable from the port it wraps, and
+    # attribute access falls through to the adapter.
     llm = MeteredLanguageModel(llm)
     event_bus = ContextTurnEventBus()
-    # The pack's own metric declarations reach the operators: a ratio
-    # over a days-unit contract publishes days, not a percentage (R4-06).
+    # The pack's own metric declarations reach the operators: a ratio over a
+    # days-unit contract publishes days, not a percentage.
     transforms = CalculationTransforms(pack_snapshot.metric)
 
     open_session = OpenSessionService(stores.sessions, repository, pack_port)
@@ -367,13 +369,12 @@ def build_components(
     def drillability(spec: TypedInvestigationSpec, watermark: DataWatermark) -> str | None:
         """Plan and validate a drill handle without executing it.
 
-        The honest test for "can the platform investigate this?" is the
-        platform's own pipeline up to the point where it would touch data:
-        interpretation disposes the typed spec against the pack and
-        catalog, the planner builds the probe DAG, and §6.6 validation
+        Runs the platform's own pipeline up to the point where it would
+        touch data: interpretation disposes the typed spec against the pack
+        and catalog, the planner builds the probe DAG, and §6.6 validation
         resolves every dimension, grain, basis and budget. Anything that
-        would have surfaced as an error dialog on a click surfaces here
-        instead, with the same message.
+        would have surfaced as an error on a click surfaces here instead,
+        with the same message.
         """
         probe_session = Session(
             id="portfolio-drillability-probe",
@@ -398,8 +399,8 @@ def build_components(
         validator=validator,
         executor=executor,
         calculator=calculator,
-        # FN-1: the drill metric's DECLARED unit decides whether a dollar
-        # figure exists at all, before any frame is summed.
+        # The drill metric's DECLARED unit decides whether a dollar figure
+        # exists at all, before any frame is summed.
         pack=pack_port,
         pack_snapshot_id=pack_port.snapshot_id,
         pack_id=pack_port.pack_id,

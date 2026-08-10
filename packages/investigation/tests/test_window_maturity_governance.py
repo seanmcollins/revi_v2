@@ -1,26 +1,14 @@
-"""Round-6 E-01: adjudication maturity is a property of the WINDOW.
+"""Adjudication maturity is a property of the WINDOW, not only of panels.
 
-The exec's highest-conviction finding of the round, and the one that costs
-money to be wrong about. Two answers to one question, live, on one load:
-
-* ``sess_a4610c1892f5``: "Silverline Medicare Advantage: $23,749.29 denied
-  dollars", July 2026, **service** basis, ``confidence: high``,
-  ``grade: direct``;
-* ``sess_f363b6c7bf26``: "Silverline Medicare Advantage: $158,122.42 denied
-  dollars", the same July, **remit** basis, also ``confidence: high``.
-
-6.7x apart, nothing on either card reconciling them and nothing saying that
-service-dated July was about a quarter adjudicated. The engine already knew:
-on a denial-rate SERIES it publishes "computed over 1,544 adjudicated
-records against a series median of 6,050 (25.5% of it)" and drops that
-finding to ``qualified``. Wave D bound maturity to panels and series; the
-single-window aggregate over the same immature month — the shape
-``WINDOW_ASSUMED`` steers every undated question into — sailed through.
-
-These tests pin the three things that make the new guard safe to have:
-what it measures the share against, that it is read from GOVERNED content
-rather than from a metric id written into the engine, and that it stays
-silent everywhere another guard has already spoken.
+One load answered the same question two ways at ``confidence: high`` —
+$23,749.29 on a service basis and $158,122.42 on a remit basis for the same
+July, 6.7x apart, with nothing on either card reconciling them and nothing
+saying that service-dated July was about a quarter adjudicated. Maturity was
+bound to panels and series; the single-window aggregate that every undated
+question steers into sailed through. These tests pin what the guard measures
+its share against, that the yardstick is read from GOVERNED content rather
+than from a metric id written into the engine, and that it stays silent
+wherever another guard has already spoken.
 """
 
 from __future__ import annotations
@@ -52,9 +40,8 @@ WATERMARK = DataWatermark(
     newest_data_date=date(2026, 8, 2),
 )
 
-#: The load's real settling curve, read live off the mock warehouse on
-#: 2026-08-09: eleven settled months around 6,000 adjudicated claims and a
-#: July holding 1,544 of them.
+#: The load's real settling curve, read off the mock warehouse: eleven
+#: settled months around 6,000 adjudicated claims and a July holding 1,544.
 CURVE: tuple[tuple[date, int], ...] = (
     (date(2025, 9, 1), 6044),
     (date(2025, 10, 1), 6239),

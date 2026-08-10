@@ -1,28 +1,12 @@
-"""The worklist as a set of referents (round-3 R3-09), as THE answer when it
-routes (R3-10), and the platform's own dimension swap owned rather than
-blamed on the detector (R3-11).
+"""The worklist as a set of referents, as THE answer when it routes, and the
+platform's own dimension swap owned rather than blamed on the detector.
 
-R3-09, five personas. Three consecutive live turns: *"Open the top item and
-show me what is behind the $178,217"* → a clarification claiming "nothing
-shown totals $178,217", while the SAME turn's worklist payload read "First
-is ANM-021 — $178,216.82"; *"Show me ANM-021"* → "I can't open a worklist
-item by its id", offering three options all categorically wrong for a
-``dnfb`` card. Meanwhile ``/v1/portfolio/latest`` reported every card
-drillable with a complete ``drill_spec``, and the rail's click dispatched
-exactly that spec. The list was addressable by mouse and unaddressable by
-name.
-
-R3-10, five personas: *"What should my denial team work first this week"*
-returned three denied-dollars-by-payer findings and ~500 words about them,
-and the narrative's closing instruction named a payer at $33,954.90 as the
-first action while the attached worklist's first item was ANM-021 at
-$178,216.82 — the prose pointed at a fifth of the money.
-
-R3-11, four personas: the drill strip shipped "the detector's window,
-population or valuation basis is not the contract's" on a gap this platform
-had created by repointing the cut, and the portfolio headline "9 ranked
-cards diverge … largest gap 100.0%" was ANM-030, a $256.67 card the
-platform itself zeroed via that same swap.
+Three regressions. A worklist row was addressable by mouse and unaddressable by
+name: "Show me ANM-021" answered "I can't open a worklist item by its id" while
+the same turn's payload named that very card. A "what should we work first"
+turn closed by recommending a payer at a fifth of the money the attached
+worklist's first item carried. And the drill strip blamed the detector's window
+or basis for a gap this platform had created by repointing the cut.
 """
 
 from __future__ import annotations

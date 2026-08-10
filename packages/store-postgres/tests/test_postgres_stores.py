@@ -284,7 +284,7 @@ class TestMigrations:
 
     def test_investigations_carry_their_narrative_column(self, engine: Engine) -> None:
         """Migration 0006. "Copy link" shipped a page with the analysis
-        removed because nothing stored the composed prose (round-10 R10-4).
+        removed because nothing stored the composed prose.
         Nullable and never backfilled: a turn written before the column
         existed did not keep its prose, and an empty string there would
         claim it published none."""

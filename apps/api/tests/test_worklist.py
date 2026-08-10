@@ -1,12 +1,11 @@
-"""The conversation's read path onto the ranked worklist (deferred P1).
+"""The conversation's read path onto the ranked worklist.
 
-"What should my denial team work first this week to recover the most
-cash?" returned a clarification offering four ranking bases, none of which
-was the 33-card worklist the platform had already ranked, reconciled and
-priced. These tests pin the two halves of the fix: the routing is GOVERNED
-CONTENT (a playbook id and a concept id in the pack, never a question
-string), and the cards published are the portfolio's own — same order,
-same decomposition, same reconciliation state, same warnings.
+Regression: "what should my denial team work first this week to recover the
+most cash?" returned a clarification offering four ranking bases, none of which
+was the worklist the platform had already ranked, reconciled and priced. Two
+halves are pinned: the routing is governed content (a playbook id and a concept
+id in the pack, never a question string), and the cards published are the
+portfolio's own — same order, decomposition, reconciliation state and warnings.
 """
 
 from __future__ import annotations

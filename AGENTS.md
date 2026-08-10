@@ -87,8 +87,13 @@ Default to **inflexible**. The flexible list is short and exhaustive.
 
 ## Repository map (read in this order)
 
+Reading the code for review rather than changing it? [`docs/code-tour.md`](docs/code-tour.md)
+is the human reading order: per package, the files that carry the weight, what
+to skim, where its tests live, and the invariants to check while reading.
+
 ```
 rcm-investigation-platform-design-v2.md   the spec — §2 principles, §6 algebra, §11 architecture
+docs/code-tour.md                         reading order for a human reviewer
 docs/architecture.md                      layer boundaries and allowed imports
 packages/kernel/                          calculation kernel (strict-typed, deterministic)
 packages/investigation/                   the engine: interpretation → planning → validation
@@ -105,7 +110,7 @@ packs/base-rcm/                           governed content: 49 metric contracts,
                                           concepts, display names, monitor materiality
 warehouse/                                deterministic generator + catalog + answer key
 apps/api/                                 FastAPI + SSE; assembly.py projects engine output
-                                          to the wire; monitors.py is the Monitors backend
+                                          to the wire; monitors/ is the Monitors backend
 apps/web/                                 Next.js UI; lib/ maps wire → view models
 contracts/openapi.json                    exported API surface (make openapi)
 docs/reviews/adversarial/                 ten rounds of persona review — the "why" behind

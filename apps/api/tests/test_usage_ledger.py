@@ -1,11 +1,11 @@
-"""A failed turn says what it spent (review F19).
+"""A failed turn says what it spent.
 
-"Failures are free" was a claim the envelope made by omission, and it is
-false: a turn refused at §6.6 validation has already paid for
-classification and interpretation. The properties that matter are that
-the meter is invisible when nothing is bound, that it never changes what
-the port returns, and — the reason this is a contextvar and not a counter
-on the adapter — that two concurrent turns cannot read each other's spend.
+"Failures are free" was a claim the envelope made by omission, and it is false:
+a turn refused at §6.6 validation has already paid for classification and
+interpretation. The properties that matter are that the meter is invisible when
+nothing is bound, that it never changes what the port returns, and — the reason
+this is a contextvar and not a counter on the adapter — that two concurrent
+turns cannot read each other's spend.
 """
 
 from __future__ import annotations

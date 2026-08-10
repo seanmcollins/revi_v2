@@ -7,11 +7,10 @@ converts into a clarification — the demo never guesses. The same script
 backs the reference-over-HTTP tests, so demo mode and CI exercise one
 table.
 
-What is scripted here is *only* the probabilistic layer: turn class,
-interpreted ids, refinement operators, and the *shape* of the narrative
-sentence. Every number, grade, chart and header downstream is computed by
-the real engine against the real warehouse, which is what makes demo mode
-a genuine test of the pipeline rather than a puppet show.
+What is scripted is *only* the probabilistic layer: turn class, interpreted
+ids, refinement operators, and the *shape* of the narrative sentence. Every
+number, grade, chart and header downstream is computed by the real engine
+against the real warehouse, so demo mode exercises the whole pipeline.
 
 The narrative is composed per turn from the certified findings the engine
 put in the prompt (:func:`compose_demo_narrative`) — never from a fixed
@@ -45,11 +44,11 @@ def _usage() -> LlmUsage:
     """One scripted call's usage.
 
     The prompt-token split mirrors the real adapter's shape — a mostly
-    cached prefix plus a small uncached remainder — so a test that asserts
-    on the turn envelope exercises the *summing*, which is where the live
-    defect was (the provider's ``input_tokens`` is the uncached remainder
-    alone, and publishing it as the total reported 4 input tokens against
-    953 output). Totals here are deliberately tiny and deliberately unequal
+    cached prefix plus a small uncached remainder — so a test asserting on
+    the turn envelope exercises the *summing*, which is where the defect
+    was: the provider's ``input_tokens`` is the uncached remainder alone,
+    and publishing it as the total reported 4 input tokens against 953
+    output. Totals here are deliberately tiny and deliberately unequal
     across the three buckets, so a fix that dropped one would show.
     """
     return LlmUsage(

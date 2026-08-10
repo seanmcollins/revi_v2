@@ -360,8 +360,8 @@ class TestBudgetsAndWarnings:
     ) -> None:
         """The structural rule: a contract that declares a population caveat
         in its description emits it as a warning whenever it is read. The
-        live API published denial_rate at 49.94% with its own caveat
-        nowhere in the response."""
+        API published denial_rate at 49.94% with its own caveat nowhere in
+        the response."""
         spec = make_spec(measures=("denial_rate",), basis=SERVICE)
         validated = validator.validate(planner.build(spec), spec)
         caveats = [w for w in validated.warnings if w.startswith("population_caveat:")]

@@ -1,19 +1,11 @@
-"""FN-17 — the warehouse-diff harness's own test suite.
+"""The warehouse-diff harness's own test suite.
 
-Four things are proved here, in this order:
-
-1. **Independence.** No module of the audit path imports the product path —
-   statically (every import statement in the package) and at runtime (a cold
-   subprocess import, checked against ``sys.modules``). Independence is the
-   entire premise; if it fails, nothing else in this file means anything.
-2. **The harness can catch a planted error** (the mutation self-test). Eight
-   mutation classes deliberately break the audit path the way a real
-   implementation bug would; each must make the diff fire. A harness that
-   cannot catch a planted error is theater.
-3. **The audit path still agrees with humans** — the goldens, and the
-   generator's own answer key.
-4. **The product path still agrees with the audit path** — the corpus replay
-   (reference-marked; needs Postgres and the generated warehouse).
+Four things are proved, in this order. **Independence**: no module of the audit path imports the
+product path, statically and at runtime — the entire premise, and if it fails nothing else here
+means anything. **The harness can catch a planted error**: eight mutation classes break the audit
+path the way a real implementation bug would, and each must make the diff fire. **The audit path
+still agrees with humans**: the goldens and the generator's own answer key. **The product path
+still agrees with the audit path**: the corpus replay (needs Postgres and the generated warehouse).
 """
 
 from __future__ import annotations
@@ -45,14 +37,14 @@ from revi_warehouse_diff.warehouse import Warehouse
 PACKAGE_DIR = Path(__file__).resolve().parents[1] / "src" / "revi_warehouse_diff"
 REPO_ROOT = Path(__file__).resolve().parents[3]
 
-#: The corpus replay's honest standing today (see the FN-17 report). It is a
+#: The corpus replay's honest standing today. It is a
 #: DEBT LEDGER, not a target: every divergence is a real published value that
 #: does not equal its contract's definition over the context the answer
 #: disclosed. The ratchet exists so the number can only go down — any
 #: regression fails this suite immediately — while the outstanding items are
 #: worked. A rate rather than a count because the corpus grows.
 #:
-#: Ratcheted from 0.06 after wave E2: 5.8% observed (170 of 2,909 derivable
+#: Ratcheted from 0.06: 5.8% observed (170 of 2,909 derivable
 #: values), and every one of those 170 is ARCHAEOLOGY — an answer published
 #: before the disclosure fix that covers it landed. The rate moved against
 #: the same engine because the deriver got sharper (it now reads per-finding
@@ -154,11 +146,11 @@ MUTATIONS = [
 @needs_warehouse
 @pytest.mark.parametrize("mutation", MUTATIONS, ids=lambda m: m.name)
 def test_a_planted_error_in_the_audit_path_makes_the_diff_fire(mutation: Mutation) -> None:
-    """Break the audit path on purpose; the human-verified goldens must catch it.
+    """Break the audit path on purpose; the reference goldens must catch it.
 
-    The goldens are the harness's anchor: 36 numbers a human computed by hand
-    against this warehouse. If a mutation of the audit path leaves every one
-    of them matching, the goldens are not testing anything.
+    The goldens are the harness's anchor: numbers derived outside the product
+    by hand-run SQL against this warehouse. If a mutation of the audit path
+    leaves every one of them matching, the goldens are not testing anything.
     """
     with Warehouse() as warehouse:
         schemas = {k: v.schema_name for k, v in warehouse.watermarks().items()}
@@ -243,7 +235,7 @@ def test_the_audit_path_reproduces_every_human_verified_golden() -> None:
         for r in results
         if r.outcome not in ("matched", "refused_as_expected")
     ]
-    assert bad == [], f"the audit path no longer reproduces human-verified numbers: {bad}"
+    assert bad == [], f"the audit path no longer reproduces the reference numbers: {bad}"
 
 
 @needs_warehouse
@@ -359,9 +351,9 @@ class TestArchaeologyClassification:
 
     def test_every_disclosure_fix_names_a_real_commit(self) -> None:
         """A commit field that says "uncommitted" excuses divergences by a
-        date nobody can check against a tree (round-8 FIX-11). Each hash is
-        resolved through git, so the boundary is falsifiable by anyone with
-        the repository — which is the only sense in which it is evidence.
+        date nobody can check against a tree. Each hash is resolved through
+        git, so the boundary is falsifiable by anyone with the repository —
+        which is the only sense in which it is evidence.
         """
         for fix in DISCLOSURE_FIXES:
             resolved = subprocess.run(

@@ -538,7 +538,7 @@ def test_bare_charges_trend_falls_back_to_the_line_heuristic(snapshot: PackSnaps
                 FrameColumn("charges", MetricRef("charges"), 1, "money_cents"),
             )
         ),
-        # Three buckets, not two: FIX-8 decides chart kind from the frame's
+        # Three buckets, not two: chart kind is decided from the frame's
         # shape last of all, and two points joined by a segment assert a
         # movement and nothing else, so a two-bucket frame now charts as
         # bars whatever was selected. The rebinding this test is about is

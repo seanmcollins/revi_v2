@@ -1,27 +1,13 @@
 """Clarification dialogues that end (design §2.8).
 
-A clarification is a first-class successful outcome and a dialogue move —
-but a dialogue that only ever asks is not a dialogue. Live session
-``sess_a9b6b4fef474`` asked "How did our denial rate in 2025 compare to
-2024?" and received four consecutive clarifications, including one after
-the analyst replied with a VERBATIM option string; the turn that finally
-executed had dropped the original question entirely.
-
-Two independent causes, one per class here:
-
-``TestPendingClarificationReachesTheClassifier`` — nothing told the
-classifier a clarification was outstanding. Every turn was read fresh, so a
-direct answer looked exactly like a new utterance, and ``CLARIFICATION_
-RESPONSE`` — a class that has been in the §7.3 taxonomy since the
-beginning — had no branch in the engine at all: it fell through to *"that
-reads like an answer to a question I haven't asked"*, returned as another
-clarification. A correctly classified answer produced the loop it was
-meant to end.
-
-``TestConvergence`` — nothing bounded the asking. After
-``MAX_CONSECUTIVE_CLARIFICATIONS`` the engine now commits to its best
-reading and answers, stating the assumption where the analyst meets it
-before the numbers.
+A clarification is a first-class successful outcome and a dialogue move — but a
+dialogue that only ever asks is not a dialogue. One question drew four consecutive
+clarifications, one of them after the analyst replied with a VERBATIM option string,
+and the turn that finally executed had dropped the original question. Two causes:
+nothing told the classifier a clarification was outstanding, so ``CLARIFICATION_RESPONSE``
+had no branch and a direct answer fell through to "an answer to a question I haven't
+asked"; and nothing bounded the asking, so past ``MAX_CONSECUTIVE_CLARIFICATIONS`` the
+engine now commits to its best reading and states the assumption before the numbers.
 """
 
 from __future__ import annotations

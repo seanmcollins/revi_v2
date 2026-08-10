@@ -1,26 +1,13 @@
-"""Round-5 E-01 and C-01 (server half): notes that were written and never fired.
+"""Two disclosure notes that were written and never fired.
 
-**E-01.** ``refinement_reused_plan`` is composed at ``submit_turn.py:3246``
-and ``REFINEMENT_NOT_APPLIED`` has been registered in the API's warning
-table since round 4, with a title in the web — and the round-5 exec
-verified that neither string appears on any live session. The reuse note
-lived in the kernel-only branch alone, which returns ``None`` the moment an
-``Expand`` asks for more rows than the parent published, and
-``_presentation_turn`` set ``warnings = parent.warnings`` and appended
-nothing. Live: *"sort them by percent change, largest first"* came back
-``presentation_only`` with a plan hash identical to its parent, the
-findings in the SAME order, ``refinement_operators: []``, a freshly
-composed 2,771-character narrative at $0.0798 — and no note of any kind.
-Turn two of every session read like a new analysis that had honoured a
-request it ignored.
-
-**C-01 (the emission half).** One fact printed six to ten times, naming
-internal probe ids: six ``ALTERNATE_BASIS_USED`` entries differing only by
-``probe 'main'`` / ``'premise'`` / ``'main__window'`` /
-``'main__window__prior'`` / ``'premise__window'`` /
-``'premise__window__prior'``. They are one fact spelled six ways. The
-dedupe keys on ``(code, message)``, so the fix is at the emission: name the
-metric, not the plumbing, and the identical sentences collapse with a count.
+``refinement_reused_plan`` lived in the kernel-only branch alone, and
+``_presentation_turn`` copied the parent's warnings and appended nothing —
+so a re-presentation republished its parent's findings in the parent's
+order, with a freshly composed narrative and no note of any kind, reading
+like a new analysis that had honoured a request it ignored. Separately, one
+fact was printed six to ten times because the message named internal probe
+ids; the dedupe keys on ``(code, message)``, so naming the metric instead
+collapses the identical sentences with a count.
 """
 
 from __future__ import annotations
@@ -65,7 +52,7 @@ class TestARequestThatWasNotAppliedIsNamed:
             assert _unapplied_presentation_request(question) is not None, question
 
     def test_a_plain_re_presentation_is_not_accused_of_dropping_anything(self) -> None:
-        """rcm-exec's neighbouring turn. "Show me that same breakdown
+        """The neighbouring turn: "Show me that same breakdown
         again" asks for no change, so it owes a reuse note and nothing
         else — a not-applied warning there would be its own falsehood."""
         for question in (

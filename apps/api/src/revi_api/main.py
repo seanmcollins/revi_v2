@@ -11,12 +11,11 @@ import this module and therefore never inherit a developer's ``.env``.
 (or set by ``make api``, or injected by a container runtime) wins over the
 file. The file is the default, not the authority.
 
-Without this, ``make api`` on a fresh clone always ran the scripted demo
-model — ``REVI_MODEL_PIN`` lived in ``.env.example`` and nothing read it —
-so the live Claude adapter was unreachable without exporting variables by
-hand. Loading it here makes the live adapter the default local experience;
-``REVI_LLM_MOCK=1`` still forces the scripted path, and the wiring still
-logs loudly which one it chose.
+Without this, ``make api`` on a fresh clone always ran the scripted model:
+``REVI_MODEL_PIN`` lived in ``.env.example`` and nothing read it, so the live
+Claude adapter was unreachable without exporting variables by hand. Loading
+the file here makes the live adapter the default locally; ``REVI_LLM_MOCK=1``
+still forces the scripted path, and the wiring logs which one it chose.
 """
 
 from __future__ import annotations

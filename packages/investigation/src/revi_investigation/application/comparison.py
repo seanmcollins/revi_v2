@@ -1,16 +1,13 @@
 """How a comparison is *described*, and what happens when the two windows
 are not the same length (design §6.1, §7.2).
 
-The context header has always printed the resolved comparison range —
-``vs 2026-01-01..2026-03-31``. Finding text did not: it re-derived a phrase
-from the **current** window's requested unit, special-casing only
-``PRIOR_YEAR``. A ``CUSTOM`` comparison therefore fell through to
-``"vs prior {unit}"`` and a 7-day window differenced against calendar Q1
-was published as *"Atlas Commercial cash posted down $4,199,421 vs prior
-week"*, graded ``direct`` / ``high``, with an ``impact_cents`` of
--419,942,121 and no warning. The header on the same answer said
-``vs 2026-01-01..2026-03-31``. Two surfaces of one turn contradicted each
-other, and the wrong one was the one in the largest type.
+The context header prints the resolved comparison range —
+``vs 2026-01-01..2026-03-31``. Finding text that re-derives a phrase from
+the **current** window's requested unit does not: a ``CUSTOM`` comparison
+falls through to ``"vs prior {unit}"``, so a 7-day window differenced
+against calendar Q1 publishes *"cash posted down $4,199,421 vs prior week"*
+at ``direct`` / ``high`` with an ``impact_cents`` of -419,942,121 and no
+warning, contradicting the header on the same answer.
 
 Two rules, both enforced here so there is one place to read them:
 
@@ -25,10 +22,10 @@ mechanically, which is what
 **Unequal window lengths are annotated, never netted.** Differencing 7 days
 against 90 days is a legal thing to ask for and an illegal thing to call a
 delta: the difference is dominated by the length ratio, not by anything
-that happened. Three options were on the table — refuse the turn,
-normalize both sides to a daily rate, or answer with a hard warning. This
-implementation takes the third **and strips the false precision that made
-the first two attractive**:
+that happened. Three options: refuse the turn, normalize both sides to a
+daily rate, or answer with a hard warning. This implementation takes the
+third **and strips the false precision that makes the first two
+attractive**:
 
 - the phrase carries the mismatch inline (``90d vs 7d, not
   length-normalized``), so no reader sees the number without the caveat;
@@ -74,30 +71,29 @@ from revi_kernel.scope import (
 #: How far two window lengths may differ before the difference is worth
 #: caveating an additive measure for.
 #:
-#: An exact ``!=`` was the original test, and it is too sharp by an order of
-#: magnitude. February against March differ by 10%; a 90-day trailing window
-#: against its prior 90 days can differ by a day when a month boundary
-#: falls badly, and 1 day in 90 is 1.1% — a rounding error the calendar
-#: forced, not a distortion. Both were treated identically to a 7-day
-#: window differenced against a quarter: impact withheld, every finding
-#: qualified, a red warning on the turn. Caveating a 1.1% calendar artifact
-#: in the same words as a 1,186% one teaches analysts to ignore the words.
+#: An exact ``!=`` is too sharp by an order of magnitude. February against
+#: March differ by 10%; a 90-day trailing window against its prior 90 days
+#: can differ by a day when a month boundary falls badly, and 1 day in 90 is
+#: 1.1% — a rounding error the calendar forced, not a distortion. Treating
+#: either identically to a 7-day window differenced against a quarter
+#: (impact withheld, every finding qualified, a warning on the turn) caveats
+#: a 1.1% calendar artifact in the same words as a 1,186% one, which teaches
+#: analysts to ignore the words.
 LENGTH_TOLERANCE = 0.03
 
 
 def same_calendar_kind(current: AbsoluteRange, prior: AbsoluteRange) -> int | None:
     """Whole calendar periods of equal span on both sides, as a month count.
 
-    Round-4 R4-16. A calendar month against the calendar month before it is
-    the standard revenue-cycle comparison unit and is *never* length-
-    normalized in practice: nobody rebases June onto 31 days to compare it
-    with July, and no month-end close would accept a system that refused to
-    publish an impact figure because February is short. The length-mismatch
-    machinery nonetheless fired on every one of them — 30 vs 31 days is a
-    3.2% ratio, above :data:`LENGTH_TOLERANCE` — so every month-over-month
-    turn came back with ``COMPARISON_WINDOW_MISMATCH``, ``impact_cents``
-    null and every finding title carrying "(30d vs 31d, not
-    length-normalized)".
+    A calendar month against the calendar month before it is the standard
+    revenue-cycle comparison unit and is *never* length-normalized in
+    practice: nobody rebases June onto 31 days to compare it with July, and
+    no month-end close would accept a system that refused to publish an
+    impact figure because February is short. The length-mismatch machinery
+    otherwise fires on every one of them — 30 vs 31 days is a 3.2% ratio,
+    above :data:`LENGTH_TOLERANCE` — so every month-over-month turn comes
+    back with ``COMPARISON_WINDOW_MISMATCH``, ``impact_cents`` null and every
+    finding title carrying "(30d vs 31d, not length-normalized)".
 
     The test is structural rather than declared, exactly like
     :func:`~revi_kernel.scope.whole_month_span`: two ranges that each start
@@ -162,8 +158,8 @@ class ComparisonRendering:
         the size test lives here.
 
         A SAME-KIND calendar comparison is exempt outright rather than by
-        tolerance (R4-16): February against January is a 10% day-count
-        ratio and still the comparison every close performs. The day count
+        tolerance: February against January is a 10% day-count ratio and
+        still the comparison every close performs. The day count
         is disclosed as an informational note; nothing is withheld for it.
         """
         if self.same_kind:
@@ -199,7 +195,7 @@ def comparison_range_for(
     declared ``{4, week, full_periods}`` is compared against the four weeks
     before *those* four weeks — not against the range the investigation
     window derives. Describing that pairing with the spec's comparison
-    range is how a "vs prior period (2026-06-01..2026-06-30)" phrase came
+    range is how a "vs prior period (2026-06-01..2026-06-30)" phrase comes
     to sit over a difference taken against 2026-06-08..2026-07-05.
 
     Stated here, once, in exactly the form the planner uses, so the two
@@ -234,7 +230,7 @@ def render_comparison(
     # Same-kind calendar periods carry no mismatch clause: a month against
     # the month before it IS like-for-like, and stamping "(30d vs 31d, not
     # length-normalized)" onto every finding title of every month-end close
-    # taught analysts to read past the words (R4-16). The day count is
+    # teaches analysts to read past the words. The day count is
     # still disclosed, once, as an informational turn note below.
     calendar_span = same_calendar_kind(window.range, cmp_range)
     mismatch = (
@@ -263,13 +259,13 @@ def render_comparison(
 #:
 #: The same 0.6 the trend guard uses for a terminal bucket
 #: (``TERMINAL_BUCKET_MIN_SHARE``), applied to the axis that guard cannot
-#: see. Round-4 R4-07: ``terminal_bucket_censoring`` needs a
-#: :class:`TrendShape` of at least three rows and has one call site, inside
-#: the trend loop, so a two-window comparison never reached it. Live, July
-#: at 23% adjudicated was published against June at 91% as "+73%" at
-#: direct/high, with ``COMPARISON_WINDOW_MISMATCH`` firing loudly about the
-#: 30-vs-31-day calendar difference — a ~3% effect — and nothing at all
-#: about the three-quarters of July that had not settled.
+#: see: ``terminal_bucket_censoring`` needs a :class:`TrendShape` of at
+#: least three rows and runs only inside the trend loop, so a two-window
+#: comparison never reaches it. Without this, a window at 23% adjudicated
+#: published against one at 91% reads "+73%" at direct/high, with
+#: ``COMPARISON_WINDOW_MISMATCH`` firing loudly about a 30-vs-31-day
+#: calendar difference — a ~3% effect — and nothing at all about the
+#: three-quarters of the newer window that has not settled.
 COMPARISON_MIN_PANEL_SHARE = Decimal("0.6")
 
 _DENOMINATOR_SUFFIX = "__den"
@@ -382,8 +378,7 @@ def comparison_maturity(
 #:
 #: Matched on the assertion, not on the metric: ``net_collection_rate`` and
 #: ``first_pass_yield`` carry it today and any pack may add it tomorrow, and
-#: a hard-coded metric list would go stale silently — which is exactly the
-#: failure mode FN-4 is about, one layer up.
+#: a hard-coded metric list would go stale silently.
 _NOT_COMPARABLE_ASSERTION = re.compile(
     r"(?:are|is)\s+not\s+(?:directly\s+)?comparable|"
     r"(?:cannot|can\s*not|may\s+not)\s+be\s+compared",
@@ -395,21 +390,20 @@ _NOT_COMPARABLE_ASSERTION = re.compile(
 class DeclaredNonComparability:
     """A metric whose own contract says these two windows are not a delta.
 
-    Round-7 FN-4, the third leg of the integrity read. ``verify_premise``
-    consulted bounded endpoints and adjudicated PANEL share, and both are
-    *signals measured off the frame*. A pack author can also simply
-    **declare** non-comparability — "two windows of unequal maturity are not
-    comparable as levels", published as a caution on the same payload — and
-    a verdict that reads only the signals is blind to the declaration.
+    The third leg of the integrity read. ``verify_premise`` consults bounded
+    endpoints and adjudicated PANEL share, and both are *signals measured
+    off the frame*. A pack author can also simply **declare**
+    non-comparability — "two windows of unequal maturity are not comparable
+    as levels", published as a caution on the same payload — and a verdict
+    that reads only the signals is blind to the declaration.
 
-    Live, that blindness published "Premise confirmed: net collection rate
+    That blindness publishes "Premise confirmed: net collection rate
     72.5% → 18.5%, fell 53.9 points" at ``grade: direct``,
-    ``confidence: high``, three times on one payload, beside the payload's
-    own ``POPULATION_CAVEAT`` saying those two windows cannot be compared.
-    A 53.9-point collapse in net collection rate is a board-level event that
+    ``confidence: high``, beside the payload's own ``POPULATION_CAVEAT``
+    saying those two windows cannot be compared — a 53.9-point collapse that
     did not happen.
 
-    The signal guards did not fire and were not wrong to stay silent:
+    The signal guards do not fire and are not wrong to stay silent:
     ``net_collection_rate``'s denominator is contract-expected DOLLARS, not
     a count of adjudicated records, so there is no panel asymmetry to see.
     The contract is the only thing on the turn that knows.

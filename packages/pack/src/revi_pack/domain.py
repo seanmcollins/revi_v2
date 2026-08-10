@@ -143,11 +143,10 @@ class ReviewStatus(StrEnum):
 class KnowledgeCard:
     """A governed narrative knowledge card.
 
-    Where a :class:`Concept` carries the one-paragraph governed definition,
-    a card *elaborates*: key points, cautions, and dated provenance
-    (``authored_by`` in ``'machine-researched (KB wave 1, 2026-08-07)'``
-    style). A card may share aliases with a concept — a card elaborates a
-    concept — but never with another card (snapshot integrity).
+    Where a :class:`Concept` carries the one-paragraph governed definition, a
+    card *elaborates*: key points, cautions, and dated provenance in
+    ``authored_by``. A card may share aliases with a concept — a card
+    elaborates a concept — but never with another card (snapshot integrity).
     """
 
     id: str
@@ -897,8 +896,8 @@ class ProposedTestCase:
 
 @dataclass(frozen=True, slots=True)
 class PackDelta:
-    """A small, typed, atomic pack change (design §9.3) — the single most
-    safety-critical object in the system is never stringly typed."""
+    """A small, atomic pack change (design §9.3). Deliberately typed rather
+    than stringly typed: this is the object that mutates governed meaning."""
 
     artifact_type: ArtifactType
     operation: DeltaOperation

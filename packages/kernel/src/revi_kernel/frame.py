@@ -115,8 +115,7 @@ def published_measures(frame: EvidenceFrame) -> tuple[str, ...]:
 
     Anatomy columns are excluded: ``denial_rate__num`` is not a second
     denial rate, and counting a row as "measured" because its numerator
-    survived is how one frame came to be described two ways on one card
-    (round-6 A-02).
+    survived lets one frame be described two ways on one card.
     """
     return tuple(
         col.name
@@ -139,17 +138,14 @@ def withheld_row_indices(
 ) -> frozenset[int]:
     """Rows this frame publishes no value for — the withheld cells.
 
-    **One rule, one home** (round-6 A-02). The narrative counted a
-    null-valued row as *measured* — its census required EVERY metric column
-    including the ``__num``/``__den`` anatomy to be null, and required the
-    frame to admit ``suppressed_cells`` — while the chart annotation over
-    the same frame counted the same row as *withheld* on the value column
-    alone. Live, one payload said "0 were withheld outright" and "1 of 8
-    cells were withheld outright" about one 8-cell frame.
+    One rule, one home: every surface that counts withheld cells (prose
+    census, chart annotation) must ask this function, or the same frame gets
+    two different withheld counts on one card.
 
-    The reader's rule wins, because it is the one a reader can check
-    against the marks in front of them: a drawn row with no value is
-    withheld, never measured. Both surfaces now ask this function.
+    The rule is the one a reader can check against the marks in front of
+    them: a drawn row with no value on the subject measure is withheld,
+    never measured. Null anatomy columns and ``suppressed_cells`` do not
+    enter into it.
     """
     column = measure if measure is not None else primary_measure(frame)
     if column is None or column not in frame.schema.names:

@@ -66,7 +66,7 @@ class PlaybookSpec:
     conclusion_policies: tuple[str, ...] = ()
     ranking_policy: str | None = None
     #: How the pack author says an analyst asks for this playbook. Carried
-    #: through the port (round-10 R10-6) so the OFFER-TIME option validator
+    #: through the port so the OFFER-TIME option validator
     #: can recognise a button that routes to a playbook this engine refuses
     #: at plan time, in the pack's vocabulary rather than in one kept beside
     #: it. Empty is legitimate: a playbook reached only by interpretation.
@@ -241,7 +241,7 @@ class TransformPort(Protocol):
         because the implementation resolves the same contract ``out_ref``
         names and may supply it itself; what is not optional is that the
         output column carries the declaration rather than the shape of the
-        arithmetic (round-4 R4-06: days in A/R published as "15,941.2%").
+        arithmetic — without it, days in A/R publishes as "15,941.2%".
         """
         ...
 

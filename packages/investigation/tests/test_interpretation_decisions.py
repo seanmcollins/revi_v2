@@ -1,19 +1,12 @@
 """What interpretation decided on the analyst's behalf, and whether it said so.
 
-Round-1 live findings F19 (second half), F23 and F10 (capture half). Each
-is the same failure in a different place: a decision the engine made
-silently, published as if it were the analyst's own.
-
-- **F19** — the interpreter scoped ``ar_over_90_pct`` by ``ar_age_bucket``.
-  The metric *is* the 91-120 and 120+ buckets: its numerator pins them. The
-  restated filter narrowed nothing, and because ``ar_age_bucket`` is not a
-  declared scope dimension of the metric it turned an answerable question
-  into a ``GRAIN_INCOMPATIBLE`` refusal.
-- **F23** — the window was resolved against the load's clock rather than
-  the data, and a window nobody asked for was disclosed only in a debug
-  ``intent_summary``.
-- **F10** — the direction a question asked about ("the biggest increase")
-  was read by the model and then dropped on the floor.
+Three regressions, each the same failure in a different place — a decision the
+engine made silently, published as if it were the analyst's own: a filter on
+``ar_over_90_pct`` restating the 91-120 and 120+ buckets its numerator already
+pins, which narrowed nothing and turned an answerable question into a
+``GRAIN_INCOMPATIBLE`` refusal; a window resolved against the load's clock rather
+than the data and disclosed only in a debug ``intent_summary``; and a direction
+("the biggest increase") read by the model and then dropped on the floor.
 """
 
 from __future__ import annotations
@@ -257,7 +250,7 @@ def test_every_range_mode_has_an_anchor(mode: RangeMode) -> None:
 
 
 # ---------------------------------------------------------------------------
-# round 3: named periods, coverage, and the time axis
+# named periods, coverage, and the time axis
 
 
 async def _interpret_outcome(
@@ -268,7 +261,7 @@ async def _interpret_outcome(
 
 
 class TestAnchoredWindows:
-    """Round-3 FN-3: calendar vocabulary was unmappable.
+    """Regression: calendar vocabulary was unmappable.
 
     "June 2026", "Q2 2026", "2025" — the window schema was relative-only, so
     a named period either clarified or was silently answered over the last
@@ -350,7 +343,7 @@ class TestAnchoredWindows:
 
 
 class TestNamedPeriodsOutsideTheData:
-    """Round-3 FN-11: WINDOW_ASSUMED claimed "the question named no period"
+    """Regression: WINDOW_ASSUMED claimed "the question named no period"
     under a bubble containing the words "in January 2019"."""
 
     async def test_a_period_after_the_data_clarifies_and_names_both(
@@ -421,8 +414,8 @@ class TestNamedPeriodsOutsideTheData:
 
 
 class TestTimeGrain:
-    """Round-3 FN-10: the "by month" guide chip returned one six-month
-    scalar, no chart, and no warning that the grain had been dropped."""
+    """Regression: the "by month" guide chip returned one six-month scalar,
+    no chart, and no warning that the grain had been dropped."""
 
     async def test_by_month_sets_a_monthly_time_bucket(
         self, pack_port: PackSnapshotPort, catalog: CatalogSnapshot

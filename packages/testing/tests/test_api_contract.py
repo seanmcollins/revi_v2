@@ -318,7 +318,7 @@ class TestApiContract:
         assert sum(lane.item_count for lane in portfolio.lanes) == len(portfolio.items)
         # Governed priority orders within each half of the list; drillable
         # cards come first, because a worklist that opens with work nobody
-        # can start is not a worklist (round-1 review D5).
+        # can start is not a worklist.
         drillable = [i.priority_score for i in portfolio.items if i.drillable]
         blocked = [i.priority_score for i in portfolio.items if not i.drillable]
         assert drillable == sorted(drillable, reverse=True)
@@ -347,14 +347,14 @@ class TestApiContract:
             abs=1e-6,
         )
         # And every card states its relationship to this platform's own
-        # re-derivation of the same cell — never silence (review F1).
+        # re-derivation of the same cell — never silence.
         for item in portfolio.items:
             assert item.impact_agreement in (
                 "agreed",
                 "diverged",
                 # A snapshot contract against a windowed detector figure:
                 # both honest, not two measurements of one thing, so no
-                # percentage delta is published (round-2 FN-2).
+                # percentage delta is published.
                 "not_comparable",
                 "unavailable",
             )
@@ -371,9 +371,9 @@ class TestApiContract:
         investigation = await client.get_investigation(answer.investigation_id)
         assert investigation.plan_hash == answer.plan_hash
         assert investigation.status == "complete"
-        # A restored turn keeps the facts that say what its figures count
-        # (round-2 deferred P0). The header is REBUILT from the stored spec
-        # and must match the one the live answer published.
+        # A restored turn keeps the facts that say what its figures count.
+        # The header is REBUILT from the stored spec and must match the one
+        # the live answer published.
         assert investigation.context_header is not None
         assert investigation.context_header_restored is True
         assert answer.context_header is not None
@@ -386,10 +386,10 @@ class TestApiContract:
         assert investigation.newest_data_date == session.newest_data_date
         # …and says, in words, exactly what this link carries.
         assert any("Restored context" in note for note in investigation.restoration_notes)
-        # Round-10 R10-4: the analysis IS the artifact a buyer forwards, so
-        # the shared link carries it and the note says so. Every claim in
-        # that inventory is checked against the payload it describes —
-        # claiming charts over `chart_specs: []` is the defect this closes.
+        # The analysis IS the artifact that gets forwarded, so the shared
+        # link carries it and the note says so. Every claim in that
+        # inventory is checked against the payload it describes — claiming
+        # charts over `chart_specs: []` is the defect this closes.
         assert investigation.narrative == answer.narrative
         assert investigation.narrative
         inventory = next(

@@ -242,16 +242,14 @@ class FakeAnomalySource:
 #: reference adapter's own declaration (§6.3).
 #:
 #: The stub serves whatever frame a test canned for a probe, so nothing
-#: about *it* limits which measures are computable — which means an
-#: understated advertisement would silently prune probes that the
-#: deployment being simulated answers perfectly well, and the suite would
-#: be testing a source nobody ships. Read from the DuckDB compiler's own
-#: registry rather than restated, so a derivation added or restricted
-#: there moves the fakes in the same edit.
+#: about *it* limits which measures are computable; understating the
+#: advertisement would silently prune probes a real deployment answers
+#: fine. Derived measures are read from the DuckDB compiler's registry
+#: rather than restated, so adding or restricting a derivation there moves
+#: the fakes in the same edit.
 #:
 #: A test that wants a *less* capable source states that explicitly —
-#: :data:`MINIMAL_CAPABILITIES`, or its own ``RepositoryCapabilities`` —
-#: and the honest refusal is what it then gets.
+#: :data:`MINIMAL_CAPABILITIES`, or its own ``RepositoryCapabilities``.
 REFERENCE_CAPABILITIES = RepositoryCapabilities(
     as_of_reads=True,
     cohort_semijoin=True,
@@ -309,8 +307,8 @@ class StubAnalyticalRepository:
 
 
 class SpyAnalyticalRepository:
-    """Wraps any repository, recording every ``execute`` call — the
-    zero-probe and cache-hit assertions ride on this."""
+    """Wraps any repository, recording every ``execute`` call so tests can
+    assert probe counts and cache hits."""
 
     def __init__(self, inner: AnalyticalRepository) -> None:
         self._inner = inner

@@ -22,22 +22,19 @@ value, so a click compiles to a typed ``DrillInto`` — no natural language
 in the gesture loop. Truncation and suppression are surfaced as
 annotations, never hidden.
 
-FIX-8 — WHAT A CATEGORY AXIS MAY CONTAIN. A frame with no dimension and no
-time bucket (one scalar, or one scalar against its baseline) has no column
-to key marks by, and this module used to fall back to the MEASURE column:
-``x = time_col or (dims[0] if dims else value)``. ``row[index_of(x)]`` is
-then the measured number itself, so the live turn "Why did our denial rate
-go up in July 2026?" published a chart whose entire category axis was the
-single tick ``0.127591`` — the answer's own figure, filed as though it were
-the name of a group. A tenant-wide scan found 18 of 85 stored specs in that
-state ("What is my denial rate?"; "days in A/R for Atlas Commercial", axis
-``179.468320``), and on a two-window comparison it was worse than cosmetic:
-the July value keyed BOTH marks, so June (0.091386) was filed under July's
-value and the two series collided on one bogus key.
+WHAT A CATEGORY AXIS MAY CONTAIN. A frame with no dimension and no time
+bucket (one scalar, or one scalar against its baseline) has no column to
+key marks by. Falling back to the MEASURE column — ``x = time_col or
+(dims[0] if dims else value)`` — makes ``row[index_of(x)]`` the measured
+number itself, so a denial-rate answer publishes a chart whose entire
+category axis is the single tick ``0.127591``: the answer's own figure,
+filed as though it were the name of a group. On a two-window comparison
+that is worse than cosmetic, because the current value keys BOTH marks and
+the two series collide on one bogus key.
 
-The rule that replaces it: when a frame has no dimension, the category axis
-is the WINDOW. One labelled column for a scalar, two period labels ("Jul
-2026" against "Jun 2026") for a comparison — never a formatted value as a
+The rule instead: when a frame has no dimension, the category axis is the
+WINDOW. One labelled column for a scalar, two period labels ("Jul 2026"
+against "Jun 2026") for a comparison — never a formatted value as a
 category key, and never two series sharing a key derived from one of their
 values. See :class:`ChartWindow`, :func:`period_label` and
 ``PERIOD_SERIES_COLUMN``.
@@ -133,13 +130,11 @@ def _cell(value: Scalar) -> str | int | float | None:
 
 
 #: How the two halves of a comparison are labelled on a chart that draws
-#: both. Round-5 D-02: ``build_chart_specs`` skipped the ``__prior`` frame
-#: because "the comparison rides inside the compare output" — and it did
-#: not: ``build_chart_spec`` charted the CURRENT column off the compare
-#: frame and nothing else, so a July-vs-June close question produced
-#: ``chart_main`` and ``chart_main__compare`` with byte-identical rows and
-#: the reader ended up with one chart of July on an answer whose title,
-#: header chip and every warning were about June against July.
+#: both. The comparison does NOT ride inside the compare output: charting
+#: only the current column off a compare frame yields ``chart_main`` and
+#: ``chart_main__compare`` with byte-identical rows, so the reader gets one
+#: chart of July on an answer whose title, header chip and every warning
+#: are about June against July.
 CURRENT_SERIES = "current"
 PRIOR_SERIES = "prior"
 #: The synthetic axis those two labels sit on. Named on the spec so a
@@ -147,11 +142,11 @@ PRIOR_SERIES = "prior"
 #: the distinction it draws is between two WINDOWS rather than between two
 #: values of a dimension.
 #:
-#: FIX-8 gives it a second job: on a frame with no dimension at all it is
-#: the ``x`` as well as the ``series``, and that is not a confusion — the
-#: identity of such a mark IS its window, so the axis it sits on and the
-#: grouping that colours it are the same one concept, published under the
-#: same one name so a client has only that concept to implement.
+#: It has a second job: on a frame with no dimension at all it is the ``x``
+#: as well as the ``series``, and that is not a confusion — the identity of
+#: such a mark IS its window, so the axis it sits on and the grouping that
+#: colours it are the same one concept, published under the same one name
+#: so a client has only that concept to implement.
 PERIOD_SERIES_COLUMN = "period"
 _PRIOR_SUFFIX = "__prior"
 
@@ -300,10 +295,10 @@ def bounded_rows(frame: EvidenceFrame, measure: str, threshold: int | None) -> d
     """``{row index: population}`` for cells whose value is a ceiling.
 
     Structural, from the frame's own ``__num``/``__den`` columns — the same
-    rule the executor applied, read back where the mark is drawn. Round-3
-    R3-01: a bounded cell reached the chart as ``{x, series, value,
-    referent_id}`` with no marker of any kind, so a hatched-vs-solid
-    distinction was impossible for a renderer to make and every reader saw
+    rule the executor applied, read back where the mark is drawn. Without
+    it a bounded cell reaches the chart as ``{x, series, value,
+    referent_id}`` with no marker of any kind: a hatched-vs-solid
+    distinction is impossible for a renderer to make and every reader sees
     a measurement.
     """
     return _bounded_rows(frame, measure, threshold, suffix="")
@@ -343,18 +338,15 @@ def provisional_bucket(frame: EvidenceFrame, measure: str) -> str | None:
 
     Structural, from the frame's own time axis, denominator and watermark —
     the same rule the findings evaluator states in prose, applied where the
-    mark is drawn. Round-4 R4-03: ``provisional_x`` existed as a parameter
-    with no production call site, so ``provisional`` was ``false`` on all
-    1,046 chart rows a review scanned across fifteen turns. The finding
-    title said "the week of 2026-07-20 point (66.7%) is PROVISIONAL and is
-    excluded from that movement" and the SVG drew an unbroken solid line
-    straight up to 66.7% as its terminus — the strongest thing in the build,
-    invisible everywhere except the prose.
+    mark is drawn. Derived here rather than threaded in as a parameter,
+    because a parameter with no production call site leaves ``provisional``
+    ``false`` on every chart row while the finding title says the terminal
+    point is provisional and the line is drawn solid straight through it.
 
-    Deriving it here rather than threading it in also fixes the *restored*
-    turn: a re-opened answer rebuilds its charts from persisted frames with
-    no findings in hand, and a provisional point that disappeared on reload
-    would be a second way for the line and the sentence to disagree.
+    Deriving it here also fixes the *restored* turn: a re-opened answer
+    rebuilds its charts from persisted frames with no findings in hand, and
+    a provisional point that disappeared on reload would be a second way
+    for the line and the sentence to disagree.
     """
     bucket = _time_column(frame)
     if bucket is None:
@@ -383,12 +375,12 @@ def _heuristic_type(frame: EvidenceFrame) -> ChartType:
         return "grouped_bar"
     if len(dims) == 1:
         return "bar"
-    # No dimension: the period axis (FIX-8). One labelled column for a
-    # scalar — a stat figure, which the closed ``ChartType`` set spells
-    # "bar" with a single category — and two paired columns for a window
-    # against its baseline. This used to be ``table``, which was a fair
-    # rendering of one number but told the client nothing about the shape,
-    # so a one-row frame arrived looking like every other table.
+    # No dimension: the period axis. One labelled column for a scalar — a
+    # stat figure, which the closed ``ChartType`` set spells "bar" with a
+    # single category — and two paired columns for a window against its
+    # baseline. Not ``table``: a fair rendering of one number, but it tells
+    # the client nothing about the shape, so a one-row frame arrives looking
+    # like every other table.
     return "bar"
 
 
@@ -400,18 +392,16 @@ def _shape_corrected_type(
     A line asserts a trend: that the marks are in an order, and that the
     segment between two of them is a movement. Both claims are checkable
     here and nowhere else — only at this point are the rows built, so only
-    here is the number of distinct categories known — and both were being
-    made falsely on live turns:
+    here is the number of distinct categories known — and both are easy to
+    make falsely:
 
-    * 16 stored specs declared ``line`` over two categories or fewer,
-      including the one-point denial-rate frame the pack's
-      ``denial_rate_trend`` recipe asks for a line on. The web client
-      quietly drew bars instead, so the wire and the screen disagreed about
-      what the answer was;
-    * lines were drawn across ``payer`` and ``facility`` axes, where the
-      order of the categories is whatever the sort left them in and the
-      slope between Atlas Commercial and State Medicaid is not a rate of
-      change of anything.
+    * a spec declaring ``line`` over two categories or fewer, which the
+      pack's ``denial_rate_trend`` recipe asks for on a one-point frame. A
+      client that quietly draws bars instead makes the wire and the screen
+      disagree about what the answer was;
+    * a line across a ``payer`` or ``facility`` axis, where the order of
+      the categories is whatever the sort left them in and the slope
+      between two of them is not a rate of change of anything.
 
     This runs AFTER the recipe, the LLM suggestion and the heuristic, and
     it overrides all three — a governed pack recipe included. A recipe
@@ -448,18 +438,18 @@ def build_chart_spec(
 
     ``suppression_threshold`` is the §15 threshold the frame was policed
     under. Without it a bounded cell is indistinguishable from a measured
-    one, which is exactly the state R3-01 found: the ceiling existed as
-    structured data on the executed probe and reached the chart as a point
-    value. ``provisional_x`` names a bucket that has not settled (R3-06).
+    one: the ceiling exists as structured data on the executed probe and
+    reaches the chart as a point value. ``provisional_x`` names a bucket
+    that has not settled.
 
-    ``sort`` is ``(column, descending)`` as the PLAN resolved it (R3-13),
-    published on the spec so the renderer orders the marks the way the
-    findings above them were ordered. It is passed through, never derived:
-    a chart with no plan ordering says so rather than implying one.
+    ``sort`` is ``(column, descending)`` as the PLAN resolved it, published
+    on the spec so the renderer orders the marks the way the findings above
+    them were ordered. It is passed through, never derived: a chart with no
+    plan ordering says so rather than implying one.
 
     ``window`` names the period(s) this frame was measured over, and is
-    read only when the frame has no dimension and no time bucket — the
-    case that has no category to key marks by (FIX-8, module docstring).
+    read only when the frame has no dimension and no time bucket — the case
+    that has no category to key marks by (see the module docstring).
     Omitted there, the axis says :data:`UNNAMED_CURRENT_LABEL` rather than
     falling back to anything derived from the numbers themselves.
     """
@@ -488,17 +478,17 @@ def build_chart_spec(
     else:
         chart_type = _heuristic_type(frame)
 
-    # FIX-8: with neither a time bucket nor a dimension there is no column
-    # that names a category, and the fallback used to be ``value`` — the
-    # MEASURE column, whose cells are the numbers being charted. Every mark
-    # was then filed under its own figure. The axis is the window instead;
-    # it is synthetic, so it is never looked up in ``frame.schema``.
+    # With neither a time bucket nor a dimension there is no column that
+    # names a category. Falling back to ``value`` — the MEASURE column,
+    # whose cells are the numbers being charted — files every mark under its
+    # own figure. The axis is the window instead; it is synthetic, so it is
+    # never looked up in ``frame.schema``.
     period_axis = time_col is None and not dims
     x = time_col or (dims[0] if dims else PERIOD_SERIES_COLUMN)
     series = dims[0] if time_col is not None and dims else (dims[1] if len(dims) > 1 else None)
 
-    # A compare frame draws BOTH windows (round-5 D-02). Only when the
-    # frame has no other series to spend: a chart already grouping by a
+    # A compare frame draws BOTH windows — but only when the frame has no
+    # other series to spend: a chart already grouping by a
     # second dimension cannot also group by period without inventing a
     # third axis, and the honest thing there is to keep drawing the current
     # window and let the caveats say the rest.
@@ -556,8 +546,8 @@ def build_chart_spec(
                 # On a dimension axis both marks share the category and are
                 # told apart by their series. On the PERIOD axis the mark's
                 # category IS its window, so the baseline takes its own
-                # tick — the alternative is what FIX-8 found live, both
-                # windows keyed by one of the two values.
+                # tick — the alternative keys both windows by one of the two
+                # values.
                 x=prior_period if period_axis else str(x_value),
                 series=PRIOR_SERIES,
                 value=_cell(row[frame.schema.index_of(prior_column)]),
@@ -581,10 +571,9 @@ def build_chart_spec(
         else:
             rows.append(current_mark)
 
-    # FIX-8, defensively: on the period axis every tick was composed above
-    # from dates. If one ever equals the cell it labels, the measurement has
-    # leaked back onto the category axis and the chart is the exact defect
-    # this rule exists to prevent — better a loud failure here than 18 more
+    # Defensive: on the period axis every tick was composed above from
+    # dates. If one ever equals the cell it labels, the measurement has
+    # leaked back onto the category axis — better a loud failure here than
     # stored specs keyed by their own figures.
     assert not period_axis or all(mark.x != str(mark.value) for mark in rows)
 
@@ -603,8 +592,8 @@ def build_chart_spec(
             f"{PRIOR_SERIES} is the window it is compared against. They are not summed."
         )
     if two_sided and not period_axis:
-        # The mirror case (round-5 D-02): the compare operator outer-joins
-        # and zero-fills additive units, so a key present only on the prior
+        # The mirror case: the compare operator outer-joins and zero-fills
+        # additive units, so a key present only on the prior
         # side arrives with a current value of 0. Drawn as such it reads as
         # a collapse to nothing; counted here it reads as what it is. Only
         # a keyed frame can have this: with no dimension there is no join
@@ -627,21 +616,21 @@ def build_chart_spec(
     if bounds:
         # Counted from the marks actually drawn, so the chart caption, the
         # narrative and the probe metadata cannot state three different
-        # numbers for one control (round-3 R3-18).
+        # numbers for one control.
         annotations.append(
             f"upper bounds: {len(bounds)} of {len(frame.rows)} marks are ceilings, not "
             "measurements — their numerator was suppressed and they cannot be ranked "
             "against the measured marks"
         )
-    # The census rule lives in the kernel and is asked, never re-derived:
-    # this annotation and the engine's own `Of N cell(s) on this answer…`
-    # sentence used to count a null row two different ways (round-6 A-02).
+    # The census rule lives in the kernel and is asked, never re-derived,
+    # so this annotation and the engine's own `Of N cell(s) on this answer…`
+    # sentence cannot count a null row two different ways.
     withheld = len(withheld_row_indices(frame, value))
-    # Round-4 R4-02: the answer refused to rank these cells and the chart
-    # 400px below it sorted them by value anyway — "ordered by denial_rate,
-    # high to low" over a column that is mostly ceilings, which orders by
-    # panel size. The refusal is restated on the figure so a renderer can
-    # suppress the ordering, and a reader who only sees the chart is told.
+    # An answer that refuses to rank these cells sits above a chart that
+    # will sort them by value anyway — "ordered by denial_rate, high to
+    # low" over a column that is mostly ceilings orders by panel size. The
+    # refusal is restated on the figure so a renderer can suppress the
+    # ordering, and a reader who only sees the chart is told.
     drawn = len(frame.rows) - withheld
     if bounds and drawn and len(bounds) / drawn > _MAX_BOUNDED_SHARE_FOR_RANKING:
         annotations.append(
@@ -722,8 +711,8 @@ def build_chart_specs(
     were not ordered by the plan and publish no sort.
 
     ``windows`` names the period(s) the frames were measured over, for the
-    frames that have no dimension to key their marks by (FIX-8). Either
-    form is accepted, and they mean the same thing:
+    frames that have no dimension to key their marks by. Either form is
+    accepted, and they mean the same thing:
 
     * the turn's **context header** — anything carrying the four window
       dates (:class:`WindowFacts`). One turn has one effective window, so
@@ -735,19 +724,18 @@ def build_chart_specs(
 
     Absent, a dimensionless frame still charts — its axis says
     :data:`UNNAMED_CURRENT_LABEL`. What it must never do is fall back to
-    the measured value, which is what it did before FIX-8.
+    the measured value.
 
-    Two rules keep one figure per fact (round-5 D-02):
+    Two rules keep one figure per fact:
 
     * a frame whose comparison was computed is SUPERSEDED by that
-      comparison — ``main`` and ``main__compare`` used to be charted
-      identically, and the reader was left with the current window twice;
+      comparison — charting ``main`` and ``main__compare`` identically
+      leaves the reader with the current window twice;
     * whatever survives that is deduplicated on CONTENT rather than on a
-      suffix list. The client's list read ``["__compare", "__prior"]`` and
-      the server had already invented ``__compare__share``, so two
-      byte-identical 34-row stacked bars rendered under one composed title
-      on the flagship premise answer. A content key cannot be outgrown by
-      the next suffix the planner invents.
+      suffix list. A hard-coded list like ``["__compare", "__prior"]``
+      misses a ``__compare__share`` the planner invented later, and two
+      byte-identical stacked bars render under one composed title. A
+      content key cannot be outgrown by the next suffix.
     """
     # Only frames that will actually be DRAWN can supersede another: a
     # ``main__compare__rank`` is skipped as presentation metadata, and
@@ -824,7 +812,7 @@ def _superseded_by_comparison(frame_id: str, ids: set[str]) -> bool:
 
 
 def _content_key(spec: ChartSpec) -> tuple[object, ...]:
-    """What a chart DRAWS, as a comparable value (round-5 D-02)."""
+    """What a chart DRAWS, as a comparable value."""
     return (
         spec.chart_type,
         spec.x,

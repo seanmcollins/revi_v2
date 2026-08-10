@@ -1,31 +1,28 @@
 """Session lifecycle ports the API owns: archive, and turn receipts.
 
-Two gaps that are invisible in a demo and disqualifying in a deployment.
+**Dismissing a session.** ``GET /v1/sessions`` otherwise grows forever, with
+no way to remove a session from the rail. Archiving is SOFT and stays that
+way: a session owns investigations, traces, frames and cohorts that other
+reads resolve through it, so the row is kept and fetchable by id — the list
+simply stops showing it. A hard delete would turn a tidy-up into dangling
+lineage, and "delete my data" is a different feature with different
+obligations.
 
-**Dismissing a session.** ``GET /v1/sessions`` grew forever: there was no
-way to remove a session from the rail, so the only tidy-up available was
-starting another one. Archiving is SOFT and stays that way: a session owns
-investigations, traces, frames and cohorts that other reads resolve
-through it, so the row is kept and fetchable by id — the list simply stops
-showing it. A hard delete would turn a tidy-up into dangling lineage, and
-"delete my data" is a different feature with different obligations.
+**Idempotency that survives a restart.** Honoring
+``TurnRequest.idempotency_key`` out of a process-local dict is correct for
+exactly one process's lifetime. A restart between a client's POST and its
+retry — or a second worker behind a load balancer — turns "return the stored
+response" into a second EXECUTION of the same turn: fresh model spend, a
+second investigation in the session DAG, and two different answers to one
+request. The receipt therefore lives in the session store beside the
+sessions it belongs to.
 
-**Idempotency that survives a restart.** The API honored
-``TurnRequest.idempotency_key`` out of a process-local dict, which is
-correct for exactly one process's lifetime. A restart between a client's
-POST and its retry — or a second worker behind a load balancer — turned
-"return the stored response" into a second EXECUTION of the same turn:
-fresh model spend, a second investigation in the session DAG, and two
-different answers to one request. The receipt now lives in the session
-store beside the sessions it belongs to.
-
-Both are declared here, as Protocols over the adapters the composition
-root wires, rather than added to
-``revi_investigation.application.ports``: the engine neither archives
-sessions nor knows what an idempotency key is, and a port it does not use
-does not belong in its application layer. Protocols are structural, so the
-memory and Postgres session stores satisfy :class:`ArchivableSessionStore`
-by having the method.
+Both are declared here, as Protocols over the adapters the composition root
+wires, rather than added to ``revi_investigation.application.ports``: the
+engine neither archives sessions nor knows what an idempotency key is, and a
+port it does not use does not belong in its application layer. Protocols are
+structural, so the memory and Postgres session stores satisfy
+:class:`ArchivableSessionStore` by having the method.
 """
 
 from __future__ import annotations

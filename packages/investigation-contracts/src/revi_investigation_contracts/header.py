@@ -25,11 +25,11 @@ class FilterChip(BaseModel):
     dimension: str
     op: str
     #: The predicate the engine ACTUALLY RAN, after §6.6 value resolution.
-    #: Round-2 FN-9: a turn that corrected ``'lakewood medicaid mco'`` to the
-    #: payer ``'Lakewood Medicaid MCO'`` — and queried the corrected value —
-    #: published the user's spelling here, so the one field whose whole job
-    #: is to state which population ran stated a value that does not exist
-    #: in the warehouse, two rows above the caution saying so.
+    #: Publishing the user's spelling instead makes the one field whose job
+    #: is to state which population ran state a value that does not exist in
+    #: the warehouse — a turn that corrects ``'lakewood medicaid mco'`` to
+    #: the payer ``'Lakewood Medicaid MCO'`` queries the corrected value and
+    #: must say so.
     values: list[str]
     #: What the user typed, when the engine corrected it. Empty when nothing
     #: was corrected, so a chip carrying this is exactly a chip whose
@@ -60,7 +60,7 @@ class ContextHeaderPayload(BaseModel):
     cohort_size: int | None = None
     watermark_id: str = ""
     #: Set when every measure on this turn is a ``kind: snapshot`` contract
-    #: — an as-of balance that applies no start..end window (round-2 FN-2).
+    #: — an as-of balance that applies no start..end window.
     #: ``window_start``/``window_end`` stay populated (they are what the
     #: turn's cohort and charts were scoped by), but the DISPLAY says "as
     #: of", because a header that announces a range the metric never
@@ -134,7 +134,7 @@ def build_header_payload(
     ``as_of`` is set for a turn whose measures are all ``kind: snapshot``:
     those contracts read a balance standing at the watermark and apply no
     window at all, so announcing ``2026-07-01..2026-07-31`` beside the
-    number states a scoping that did not happen (round-2 FN-2).
+    number states a scoping that did not happen.
 
     ``window_note`` is set when a probe on this turn read a window other
     than the one this header names — a playbook probe may declare its own,
@@ -144,7 +144,7 @@ def build_header_payload(
     is what the trace, the export and every stored answer carry.
 
     ``corrections`` carries the §6.6 value resolutions so the chips state
-    the predicate that RAN (round-2 FN-9).
+    the predicate that RAN.
     """
     chips = [predicate_chip(p, corrections=corrections) for p in predicates]
     chips.extend(

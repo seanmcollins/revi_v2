@@ -1,21 +1,23 @@
 {
   "_README": [
-    "HUMAN-VERIFIED GOLDENS — the anchor points of the warehouse-diff harness.",
+    "REFERENCE GOLDENS — the anchor points of the warehouse-diff harness.",
     "",
-    "Every number below was computed by a human (or by a persona reviewer",
-    "running SQL by hand) against data/revi_warehouse.duckdb, and every entry",
-    "carries the document and passage it came from in `provenance`. The",
-    "harness re-derives each one through the audit path and fails on any",
-    "difference: if the audit path itself drifts, these fire first.",
+    "Every number below was derived OUTSIDE the product's own calculation",
+    "path: hand-run SQL against data/revi_warehouse.duckdb, some of it by the",
+    "project's reviewer harness rather than by a person. Each entry records the",
+    "document and passage it came from in `provenance`. The harness re-derives",
+    "each one through the audit path and fails on any difference: if the audit",
+    "path itself drifts, these fire first.",
     "",
-    "Entries with \"v1_derivable\": false record a human-verified number the",
-    "v1 deriver deliberately refuses (snapshot-shape contracts). They are kept",
+    "Entries with \"v1_derivable\": false record a reference number the v1",
+    "deriver deliberately refuses (snapshot-shape contracts). They are kept",
     "here, with the refusal the harness must produce, so coverage is recorded",
     "as a known hole rather than quietly dropped — and so the day the deriver",
     "grows snapshot support the numbers are already waiting for it.",
     "",
     "Cent amounts are integers of cents. Ratios/days are checked via their",
-    "numerator and denominator, which is where the human verification lives."
+    "numerator and denominator, which is where the independent derivation",
+    "lives."
   ],
   "goldens": [
     {
@@ -349,7 +351,7 @@
       "provenance": "packs/base-rcm/NOTES.md, 'newly executing' table (77.77%, certified dimension first_pass_paid)."
     },
     {
-      "id": "round2__fedmed_june_denied_dollars",
+      "id": "reviewer_sql__fedmed_june_denied_dollars",
       "metric_id": "denied_dollars",
       "watermark": "wm_003",
       "window": {"start": "2026-06-01", "end": "2026-06-30"},
@@ -357,10 +359,10 @@
       "scope": [{"dimension": "payer", "op": "eq", "values": ["Federal Medicare"]}],
       "expect": {"numerator": 5898354, "denominator": null},
       "v1_derivable": true,
-      "provenance": "docs/reviews/adversarial/round2.json, rcm-analyst: 'Ground truth on the service basis the engine used (snap_003.v_denial joined to v_claim, payer Federal Medicare): June 2026 = 31 denied claims / $58,983.54'."
+      "provenance": "docs/reviews/adversarial/round2.json, reviewer transcript: 'Ground truth on the service basis the engine used (snap_003.v_denial joined to v_claim, payer Federal Medicare): June 2026 = 31 denied claims / $58,983.54'."
     },
     {
-      "id": "round2__fedmed_july_denied_dollars",
+      "id": "reviewer_sql__fedmed_july_denied_dollars",
       "metric_id": "denied_dollars",
       "watermark": "wm_003",
       "window": {"start": "2026-07-01", "end": "2026-07-31"},
@@ -368,10 +370,10 @@
       "scope": [{"dimension": "payer", "op": "eq", "values": ["Federal Medicare"]}],
       "expect": {"numerator": 1091524, "denominator": null},
       "v1_derivable": true,
-      "provenance": "docs/reviews/adversarial/round2.json, rcm-analyst: '... July 2026 = 9 denied claims / $10,915.24. That is a -81% move, not a doubling.'"
+      "provenance": "docs/reviews/adversarial/round2.json, reviewer transcript: '... July 2026 = 9 denied claims / $10,915.24. That is a -81% move, not a doubling.'"
     },
     {
-      "id": "round2__fedmed_june_denied_claims",
+      "id": "reviewer_sql__fedmed_june_denied_claims",
       "metric_id": "denied_claims",
       "watermark": "wm_003",
       "window": {"start": "2026-06-01", "end": "2026-06-30"},
@@ -379,10 +381,10 @@
       "scope": [{"dimension": "payer", "op": "eq", "values": ["Federal Medicare"]}],
       "expect": {"numerator": 31, "denominator": null},
       "v1_derivable": true,
-      "provenance": "docs/reviews/adversarial/round2.json, rcm-analyst: 'June 2026 = 31 denied claims'."
+      "provenance": "docs/reviews/adversarial/round2.json, reviewer transcript: 'June 2026 = 31 denied claims'."
     },
     {
-      "id": "round2__fedmed_july_denied_claims",
+      "id": "reviewer_sql__fedmed_july_denied_claims",
       "metric_id": "denied_claims",
       "watermark": "wm_003",
       "window": {"start": "2026-07-01", "end": "2026-07-31"},
@@ -390,10 +392,10 @@
       "scope": [{"dimension": "payer", "op": "eq", "values": ["Federal Medicare"]}],
       "expect": {"numerator": 9, "denominator": null},
       "v1_derivable": true,
-      "provenance": "docs/reviews/adversarial/round2.json, rcm-analyst: 'July 2026 = 9 denied claims'."
+      "provenance": "docs/reviews/adversarial/round2.json, reviewer transcript: 'July 2026 = 9 denied claims'."
     },
     {
-      "id": "round2__fedmed_july_denial_rate",
+      "id": "reviewer_sql__fedmed_july_denial_rate",
       "metric_id": "denial_rate",
       "watermark": "wm_003",
       "window": {"start": "2026-07-01", "end": "2026-07-31"},
@@ -401,10 +403,10 @@
       "scope": [{"dimension": "payer", "op": "eq", "values": ["Federal Medicare"]}],
       "expect": {"numerator": 9, "denominator": 214},
       "v1_derivable": true,
-      "provenance": "docs/reviews/adversarial/round2.json, rcm-analyst: 'Ground truth for July 2026 (status<>OPEN, service basis): Federal Medicare 9/214 = 4.21%'. Pins denial_rate v2's adjudicated-only population — the exclusion whose absence in v1 published 49.94% where the truth was 5.19%."
+      "provenance": "docs/reviews/adversarial/round2.json, reviewer transcript: 'Ground truth for July 2026 (status<>OPEN, service basis): Federal Medicare 9/214 = 4.21%'. Pins denial_rate v2's adjudicated-only population — the exclusion whose absence in v1 published 49.94% where the truth was 5.19%."
     },
     {
-      "id": "round2__silverline_carc16_denied_claims",
+      "id": "reviewer_sql__silverline_carc16_denied_claims",
       "metric_id": "denied_claims",
       "watermark": "wm_003",
       "window": {"start": "2026-05-05", "end": "2026-08-02"},
@@ -415,7 +417,7 @@
       ],
       "expect": {"numerator": 10, "denominator": null},
       "v1_derivable": true,
-      "provenance": "docs/reviews/adversarial/round2.json, rcm-analyst: 'Ground truth for that cell (Silverline, remit window 2026-05-05..2026-08-02): CARC 16 = 10 distinct claims, 10 denial rows.'"
+      "provenance": "docs/reviews/adversarial/round2.json, reviewer transcript: 'Ground truth for that cell (Silverline, remit window 2026-05-05..2026-08-02): CARC 16 = 10 distinct claims, 10 denial rows.'"
     },
     {
       "id": "appendix_a__denied_ar_dollars__snapshot",

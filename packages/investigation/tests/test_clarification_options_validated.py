@@ -1,29 +1,11 @@
-"""Every option this platform offers is answerable (round-3 R3-17).
+"""Every clarification option this platform offers must be answerable.
 
-Four personas. vc-investor T11 was offered *"Summit Peak is a facility —
-walk through the medical-necessity denial spike in cardiology at that
-facility"*; ``snap_003.dim_facility`` holds exactly six facilities and Summit
-Peak is not one of them, so the option was an $0.1428 invitation to a
-refusal, plus another turn to discover it was empty. rcm-analyst replayed a
-product-offered option verbatim and got ``outcome: answer``, 0 findings, and
-*"8 row(s) were retrieved across 6 frame(s) and no finding could be
-published from them"*.
-
-The review noted the shape of the leak precisely: **the value-validation
-path is excellent** — "There is no payer named UnitedHealthcare in this
-data", all twelve real values enumerated, ``PREDICATE_VALUE_UNMATCHED`` —
-and simply was not applied to model-authored options. Two holes, both
-closed here:
-
-* ``_option_resolves`` checked a scope value against a dimension's
-  DECLARED ``value_domain`` and ``continue``\\ d when there was none, which
-  is every OPEN dimension: ``payer``, ``plan``, ``facility``. Summit Peak
-  walked through that ``continue``.
-* nothing dry-ran an option against the planner, so an option naming a
-  legal metric and an illegal cut for it survived to be tapped.
-
-Both are closed by running the option the way the turn that accepts it will
-run it, against this warehouse, at this watermark.
+Regression: model-authored options skipped the value validation applied to user-supplied
+predicates. ``_option_resolves`` checked a scope value against a dimension's DECLARED
+``value_domain`` and continued when there was none — which is every OPEN dimension
+(``payer``, ``plan``, ``facility``) — and nothing dry-ran an option against the planner, so
+an option naming a legal metric and an illegal cut for it survived to be tapped. Options are
+now resolved the way the turn that accepts them will run them, at this watermark.
 """
 
 from __future__ import annotations
@@ -104,18 +86,10 @@ async def _turn(engine: WiredEngine) -> Any:
 
 class TestPhantomValuesAreDroppedBeforeTheyAreOffered:
     async def test_an_option_naming_a_facility_this_data_lacks_is_dropped(self) -> None:
-        """The exact vc-investor T11 shape: a real metric, a real dimension,
-        and a facility that does not exist. ``facility`` is an OPEN
-        dimension — no declared ``value_domain`` — which is precisely the
-        case the old guard skipped.
-
-        Round-4 R4-12 defect 5 changed what happens NEXT. Dropping the
-        phantom leaves exactly one option, and asking "which facility did
-        you mean?" over a list of one is not a question — it cost $0.146 and
-        a turn to be told the platform's own remaining answer. The survivor
-        is applied and disclosed, so the phantom's removal is still visible
-        (it is named nowhere in the turn) and the analyst gets an answer.
-        """
+        """A real metric, a real dimension, and a facility that does not
+        exist. ``facility`` is an OPEN dimension — no declared
+        ``value_domain`` — which is precisely the case the old guard
+        skipped."""
         outcome = await _turn(
             _engine(
                 _facility_option(
@@ -127,10 +101,9 @@ class TestPhantomValuesAreDroppedBeforeTheyAreOffered:
                 ),
             )
         )
-        # Round-9 R9-02 changed the verdict on the survivor, deliberately.
-        # The drop is unchanged and still the point: the phantom is gone
-        # before anything renders it. What the survivor no longer buys is an
-        # ANSWER — a collapse to one option is a fact about this warehouse,
+        # The drop is the point: the phantom is gone before anything renders
+        # it. The lone survivor is stated, not answered on the analyst's
+        # behalf — a collapse to one option is a fact about this warehouse,
         # not a choice the analyst made, and treating it as one is how "Give
         # me a payer scorecard for July 2026" came back as one payer's A/R
         # with the refusal demoted into a warning.
@@ -162,8 +135,8 @@ class TestPhantomValuesAreDroppedBeforeTheyAreOffered:
         self,
     ) -> None:
         """``ClarificationPrompt`` maps over the options array; an empty one
-        renders as a question above a blank row of buttons, which is what
-        rcm-analyst saw. The question states the impasse instead."""
+        renders as a question above a blank row of buttons. The question
+        states the impasse instead."""
         outcome = await _turn(
             _engine(
                 _facility_option("Try Summit Peak", PHANTOM_FACILITY),
@@ -199,8 +172,8 @@ class TestPhantomValuesAreDroppedBeforeTheyAreOffered:
             )
         )
         # The illegal cut is dropped (the point of this test) and the
-        # survivor is STATED rather than run on the analyst's behalf
-        # (round-9 R9-02 — see the sibling test above).
+        # survivor is STATED rather than run on the analyst's behalf (see the
+        # sibling test above).
         assert outcome.clarification is not None
         assert outcome.clarification.options == (
             f"Walk through the spike at {REAL_FACILITY}",

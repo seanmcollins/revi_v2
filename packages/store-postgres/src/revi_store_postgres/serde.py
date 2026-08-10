@@ -1,10 +1,10 @@
 """Lossless, versioned serialization of frozen domain/kernel dataclasses ↔ JSONB.
 
-This is the same *spirit* as :func:`revi_kernel.probes.canonicalize` (typed,
-tagged, deterministic) but built to be **round-trippable**: every stored value
-decodes back to an object that compares equal to the original. A frame or
-context that does not round-trip exactly is data corruption, so the tag scheme
-is explicit and closed:
+Same spirit as :func:`revi_kernel.probes.canonicalize` (typed, tagged,
+deterministic) but built to be **round-trippable**: every stored value decodes
+back to an object that compares equal to the original. A frame or context that
+does not round-trip exactly is data corruption, so the tag scheme is explicit
+and closed:
 
 ======================  =====================================================
 Python value            JSON encoding
@@ -207,12 +207,10 @@ _ENUMS: tuple[type[Enum], ...] = (
     TurnClass,
     NarrativeDepth,
     EvidenceDepth,
-    # the movement a question asked about, carried on the AnalysisSpec so a
-    # rehydrated turn selects rows the same way the live one did
+    # Carried on the AnalysisSpec so a rehydrated turn selects and ranks
+    # rows exactly the way the live one did.
     AskedDirection,
     AskedMagnitude,
-    # …and the order it asked a ranking to arrive in, for the same reason:
-    # a rehydrated turn must narrate "ranks first" the way the live one did
     AskedOrder,
 )
 
@@ -233,14 +231,11 @@ _TAGS = ("__type__", "__enum__", "__decimal__", "__date__", "__datetime__", "__l
 def encode(value: object) -> Json:
     """Encode a supported value to a JSON-safe structure (no envelope)."""
     # Enums FIRST. A ``StrEnum`` member is a ``str`` and an ``IntEnum``
-    # member is an ``int``, so the scalar branch below used to swallow them
+    # member is an ``int``, so the scalar branch below would swallow them
     # and emit a bare "complete" where the tag scheme promises
-    # ``{"__enum__": "InvestigationStatus", ...}``. In memory that was
-    # invisible (``encode`` returned the member itself); through a JSONB
-    # column it decoded back as a plain string, and every ``is`` comparison
-    # against an enum member silently went False — a Postgres deployment
-    # answered "there is no prior answer to refine" on turns whose parent
-    # was sitting right there, because ``status is COMPLETE`` was False.
+    # ``{"__enum__": "InvestigationStatus", ...}``. Such a value decodes
+    # back from JSONB as a plain string, and every identity comparison
+    # against an enum member (``status is COMPLETE``) then silently fails.
     if isinstance(value, Enum):
         name = type(value).__name__
         if name not in _ENUM_REGISTRY:

@@ -1,24 +1,15 @@
-"""First-five-minutes answer hygiene — the fresh-eyes battery (FIX-12).
+"""First-five-minutes answer hygiene: four defects from an opening sitting.
 
-Four live repros from a revenue-cycle director's first sitting, in demo
-order:
-
-* **(a)** "What is my denial rate?" led with 12.8% — the July figure this
-  product's own trend answer excludes as PROVISIONAL (1,544 adjudicated
-  records against a series median of 6,051) — and paired it with "sits
-  below the benchmark range of 19-20 percent", a favourable verdict on a
-  provisional number, in a clause that omits the benchmark's own cohort
-  caution.
-* **(b)** "Export this" → ``turn_class: presentation_only`` and a freshly
-  written paraphrase of the same finding. No file, no download, no
-  sentence saying where export lives.
-* **(c)** the hero chip "Will my cash increase next month?" never declined
-  the forecast: ``project_lagged_realization`` was recorded not-executable
-  at severity INFO and $6.36M of cash posted over the playbook's own window
-  was handed over instead. (Closed in ``planning.ANSWERING_TRANSFORMS`` —
-  see ``test_round8_playbook_integrity.py``.)
-* **(d)** clarification collisions: a new question read as an answer to the
-  pending one, and an option that is itself a question.
+"What is my denial rate?" led with a PROVISIONAL July figure and paired it
+with "sits below the benchmark range of 19-20 percent" — a favourable
+verdict on a provisional number, in a clause that omits the benchmark's own
+cohort caution. "Export this" produced a paraphrase of the same finding and
+no file, download or sentence saying where export lives. The hero chip "Will
+my cash increase next month?" never declined the forecast and handed over a
+cash-posted total instead (closed in ``planning.ANSWERING_TRANSFORMS`` — see
+``test_playbook_integrity.py``). And clarifications collided: a new question
+read as an answer to the pending one, and an option that is itself a
+question.
 """
 
 from __future__ import annotations

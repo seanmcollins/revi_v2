@@ -20,52 +20,36 @@ the validated text is authoritative):
 - multi-word proper names must come from the closed vocabulary (payer and
   metric names the facts carry) — invented entities are rejected.
 
-**A violating sentence is DROPPED, never marked inline.** The validator
-used to splice ``REDACTION_NOTE`` into the prose where a sentence failed,
-which put ``[redacted: a sentence here failed evidence validation]`` in
-front of paying customers — as often as five times in one answer, and in
-the worst case as the answer's opening words. A redaction is an *internal*
-quality event: the analyst should see the sentences that survived, and the
-operator should see the count and the reasons. So the text keeps only what
-validated, the ``redactions`` list keeps every dropped sentence for the
-trace, and exactly one aggregate note (count + distinct reasons) goes to
-the warnings channel. Nothing is silently kept; nothing is loudly defaced.
+**A violating sentence is DROPPED, never marked inline.** A redaction is an
+*internal* quality event: the reader should see the sentences that survived,
+and the operator should see the count and the reasons. The text keeps only
+what validated, the ``redactions`` list keeps every dropped sentence for the
+trace, and exactly one aggregate note (count + distinct reasons) goes to the
+warnings channel. Nothing is silently kept; nothing is loudly defaced.
 
 The vocabulary is admitted at the same granularity the findings publish it,
-which is what stopped the *other* half of that defect — the validator
-redacting its own certified content:
+so the validator does not redact its own certified content:
 
-- **Entity sub-spans.** Finding F2's title is
-  ``"Summit Peak Medicare Advantage: 12.4%"``, so the closed vocabulary
-  held the whole four-word string and the narrative's perfectly correct
-  ``"Summit Peak"`` matched nothing and was cut. A candidate name is
-  admitted when its tokens are a contiguous run inside some certified
-  name — the part of a certified entity is certified.
+- **Entity sub-spans.** A candidate name is admitted when its tokens are a
+  contiguous run inside some certified name — the part of a certified
+  entity is certified. Otherwise ``"Summit Peak"`` matches nothing against
+  a finding titled ``"Summit Peak Medicare Advantage: 12.4%"``.
 - **Ordinary date phrases.** ``"For July"`` and ``"The July"`` are English,
-  not entities: the proper-name regex simply caught a sentence-initial
-  function word next to a month. Leading/trailing grammar words are
-  stripped before the check, and month and weekday names are date
-  vocabulary rather than entities.
-- **Benchmark material.** The benchmark lines are rendered *into the
-  prompt*, so the model quotes them — and they were absent from the fact
-  set, so quoting them got the sentence cut. ``build_narrative_facts``
-  now takes the same lines and admits their values and labels.
+  not entities. Leading/trailing grammar words are stripped before the
+  check, and month and weekday names are date vocabulary.
+- **Benchmark material.** Benchmark lines are rendered *into the prompt*,
+  so the model quotes them; ``build_narrative_facts`` takes the same lines
+  and admits their values and labels, or quoting them cuts the sentence.
 
 The strictness that matters is unchanged: an uncited figure, a figure
 matching no certified value, an unknown referent, or a genuinely invented
 entity still fails.
 
 **Caveats and display names bound what the prose may claim.** Grounding a
-sentence in a certified number does not make the sentence honest: the
-composer wrote *"the largest timely filing exposure sits with State
-Medicaid HMO at $2,349,692.17"* on an answer whose own mandatory
-population caveat said the metric applies no deadline predicate and is an
-unbilled-inventory upper bound. Every figure in that sentence validated.
-The overclaim was in the *characterization*, inherited from a metric id
-that promises filing exposure over a number that measures inventory.
-
-Two inputs close that gap, both rendered into the prompt as constraints
-rather than as background:
+sentence in a certified number does not make the sentence honest — the
+overclaim can live in the *characterization*, inherited from a metric id
+that promises more than its formula delivers. Two inputs close that gap,
+both rendered into the prompt as constraints rather than as background:
 
 - ``caveats`` — the turn's mandatory population caveats, the same
   sentences the §6.6 validation pass publishes as warnings, shown under a
@@ -153,17 +137,15 @@ Benchmark context (governed):
 #:
 #: Depth is a *composition parameter*, not a post-hoc trim: the two depths
 #: render different templates, so the model is asked for different writing
-#: and the trace records which template hash produced the text. A summary
-#: is not a truncated analyst answer and an analyst answer is not a padded
-#: summary — truncating one into the other is exactly how a narrative ends
-#: up citing a finding whose caveat got cut.
+#: and the trace records which template hash produced the text. Truncating
+#: an analyst answer into a summary is how a narrative ends up citing a
+#: finding whose caveat got cut.
 #:
 #: What the analyst depth adds is *coverage of what is already certified*:
 #: every finding rather than the headline ones, the grade on each, the
 #: reconciliation verdict, and the benchmark ranges with their cohorts.
 #: It cannot add claims — the grounding validator below is identical for
-#: both depths, and a sentence that outruns the evidence is redacted at
-#: either depth.
+#: both depths.
 NARRATIVE_TEMPLATE_ANALYST = """# Compose the answer narrative (full analyst detail)
 
 Write a thorough, plain-language analysis for a revenue-cycle analyst from
@@ -235,11 +217,10 @@ _SENTENCE_SPLIT = re.compile(r"(?<=[.!?])\s+")
 _DATE_LIKE = re.compile(r"^\d{4}-\d{2}-\d{2}$")
 
 #: Abbreviations whose full stop is not a sentence end. Every provider in
-#: this warehouse is named "Dr. <name>", so round-4 R4-15 shipped shredded
-#: prose on every provider answer that triggered a redaction: "…has a
-#: denial rate of at most 90.9% over a population of 11 entities (F1), Dr."
-#: was published as a sentence, and "Casey Quarry (143) …" as the next one,
-#: which then failed grounding on its own and left the orphan behind.
+#: this warehouse is named "Dr. <name>", so without this the naive split
+#: shredded provider prose: "…over a population of 11 entities (F1), Dr."
+#: became one sentence and "Casey Quarry (143) …" the next, which then
+#: failed grounding on its own and left the orphan behind.
 #:
 #: Kept deliberately short and closed: an over-eager list would glue two
 #: real sentences together, which is the same defect pointed the other way.
@@ -264,13 +245,10 @@ _ABBREVIATION_TAIL = re.compile(
 )
 
 
-#: A sentence terminator with no space after it, between two words. Round-9
-#: R9-04: a live narrative's tail repeated four caution sentences verbatim
-#: and the seam where the repeat began carried no space at all —
-#: "…has matured.prior month — the true value…". Two consequences, both
-#: bad: the prose is unreadable at exactly the point it starts repeating
-#: itself, and the naive ``\\s+`` split cannot see a sentence boundary
-#: there, so the dedupe below had nothing to compare.
+#: A sentence terminator with no space after it, between two words —
+#: "…has matured.prior month — the true value…". Such a seam is unreadable,
+#: and the naive ``\\s+`` split cannot see a sentence boundary there, so the
+#: dedupe below would have nothing to compare.
 #:
 #: Three word characters (or a closing bracket) of left context keep it off
 #: "e.g."/"i.e." — the letter before the stop there has a dot in front of it,
@@ -292,7 +270,7 @@ def split_sentences(text: str) -> list[str]:
     Whitespace between rejoined fragments is normalised to a single space —
     the validator emits ``" ".join(kept)`` anyway, so no published text
     changes shape because of it. A terminator with NO whitespace after it
-    is repaired the same way, for the same reason (R9-04).
+    is repaired the same way, for the same reason.
     """
     stripped = _UNSPACED_SEAM.sub(r"\1\2 ", text.strip())
     if not stripped:
@@ -309,19 +287,18 @@ def split_sentences(text: str) -> list[str]:
 def ends_on_abbreviation(sentence: str) -> bool:
     """Does this sentence terminate on a known abbreviation?
 
-    Exported so callers and tests can assert the thing R4-15 is about:
-    no sentence this module emits may end on "Dr." — that is a fragment,
-    and a fragment published as prose is how "…(F1), Dr." reached a buyer.
+    Exported so callers and tests can assert the invariant: no sentence
+    this module emits may end on "Dr." — that is a fragment, not prose.
     """
     return bool(_ABBREVIATION_TAIL.search(sentence.strip()))
 
 
 #: The two shapes a SPLICE leaves behind — a sentence dropped into a slot
-#: that wanted a noun phrase (R10-1).
+#: that wanted a noun phrase.
 #:
 #: * an interior full stop whose continuation is not a new sentence: a
-#:   lower-case word or an opening bracket. "…once the thinner side
-#:   matures. (F2)." is the live one;
+#:   lower-case word or an opening bracket ("…once the thinner side
+#:   matures. (F2).");
 #: * a copula whose complement opens a clause: "the largest movement **is
 #:   Premise cannot** be verified".
 #:
@@ -337,11 +314,10 @@ _ORPHANED_CITATION = re.compile(r"^[(\[]")
 
 
 def spliced_sentence(text: str) -> str | None:
-    """The first sentence of ``text`` that reads as a splice, if any (R10-1).
+    """The first sentence of ``text`` that reads as a splice, if any.
 
-    Wave G's redacted-superlative substitution replaced the OBJECT of a
-    superlative clause with a two-sentence verdict, and the demo's second
-    answer rendered *"Of the 8 payers measurable this window, the largest
+    A splice is what substituting for the OBJECT of a superlative clause
+    produces when the replacement is itself a sentence: *"…the largest
     movement is Premise cannot be verified: You asked about an increase in
     denial rate. Ask again once the thinner side matures. (F2)."*
 
@@ -459,15 +435,11 @@ def _apply_display_names(
 def apply_metric_display(text: str, metric_display: Mapping[str, str] | None) -> str:
     """Rewrite every metric id in ``text`` to its governed display name.
 
-    Round-2 FN-5. This rewrite existed only inside the narrative prompt and
-    inside one TypeScript file at the wire seam
-    (``apps/web/src/lib/contract.ts``), so the *title* — the most-scanned
-    field on the card, the one that gets screenshotted — still read
-    ``timely filing at risk dollars: $22,426,000.28`` about a number the
-    platform's own caveat says is unbilled inventory. A correction applied
-    by one client is not a correction: replay, export and any second client
-    keep the mislabel. So the same substitution runs server-side, on the
-    payload, before anything is published.
+    Runs server-side, on the payload, before anything is published. A
+    correction applied only by one client is not a correction: replay,
+    export and any second client keep the mislabel — a finding title would
+    still read ``timely filing at risk dollars`` over a number the
+    platform's own caveat says is unbilled inventory.
     """
     return _apply_display_names(text, _display_substitutions(metric_display))
 
@@ -486,12 +458,11 @@ def _finding_line(
 def _empty_slot(published_cautions: int) -> str:
     """What an empty prompt slot says, so nothing reads it as "no caveats".
 
-    Round-5 C-01. The slot is empty when nothing on the MANDATORY list is
-    present; the answer may still be carrying a dozen amber banners the
-    composer was never shown. Saying "(none)" and letting a model turn that
-    into a claim about the answer is how "No mandatory caveats were
-    attached to these findings on this turn" got published over seven of
-    them.
+    The slot is empty when nothing on the MANDATORY list is present; the
+    answer may still carry a dozen caution banners the composer was never
+    shown. Saying "(none)" lets a model turn an absence in the PROMPT into
+    a claim about the ANSWER — "No mandatory caveats were attached to these
+    findings on this turn", published over seven of them.
     """
     if published_cautions <= 0:
         return "- (nothing on the mandatory list for this slot)"
@@ -518,25 +489,18 @@ def build_narrative_prompt(
 
     ``caveats`` are the turn's mandatory population caveats — the same
     sentences the §6.6 validation pass publishes as warnings. They are
-    rendered as *constraints on characterization*, not as background: the
-    composer wrote "the largest timely filing exposure sits with State
-    Medicaid HMO at $2,349,692.17" on an answer whose own warning said the
-    metric applies no deadline predicate and is an unbilled-inventory upper
-    bound. The prose reproduced the overclaim the metric id makes because
-    the caveat that corrects it was never in front of the model.
+    rendered as *constraints on characterization*, not as background: prose
+    reproduces the overclaim a metric id makes whenever the caveat that
+    corrects it is not in front of the model.
 
     ``metric_display`` maps metric ids to the governed display names that
     say what each number actually measures, so the prompt shows "unbilled
     open inventory" where the id says "timely filing at risk dollars".
 
     ``published_cautions`` is how many caution-severity warnings the ANSWER
-    carries — which is not the same number as how many of them are handed
-    to this composer, and confusing the two is round-5 C-01's second half.
-    Both empty slots below used to read "(none)", and the model reported
-    that as a fact about the answer: *"No mandatory caveats were attached
-    to these findings on this turn"* was published on two turns rendering
-    amber caution banners from the same ``warnings_v2`` array. An empty
-    slot is a statement about this PROMPT, so it now says so.
+    carries, which is not the same as how many are handed to this composer.
+    An empty slot is a statement about this PROMPT and says so, because a
+    model reads "(none)" as a fact about the answer.
     """
     substitutions = _display_substitutions(metric_display)
     finding_lines = "\n".join(_finding_line(f, substitutions) for f in findings) or "- (none)"
@@ -571,18 +535,16 @@ def build_narrative_facts(
     """The closed fact set the validator trusts.
 
     ``benchmarks`` takes the same rendered lines that
-    :func:`build_narrative_prompt` puts in front of the model. They were
-    omitted here for as long as they have existed in the prompt, so a
-    narrative that quoted a governed range — exactly what the analyst
-    template asks for — had that sentence cut for citing a figure "matching
-    no certified value". A range shown to the composer is certified
-    material; it is admitted as such.
+    :func:`build_narrative_prompt` puts in front of the model. A range shown
+    to the composer is certified material and is admitted as such; omitting
+    it here cuts the very sentence the analyst template asks for, for
+    citing a figure "matching no certified value".
 
     ``caveats`` and ``metric_display`` follow the same rule, and for a
-    sharper reason: the prompt now *instructs* the composer to state the
-    caveat beside the number and to use the display name. Anything this
-    module tells the model to write, it must also be willing to validate —
-    a validator that redacts the correction it demanded would leave the
+    sharper reason: the prompt *instructs* the composer to state the caveat
+    beside the number and to use the display name. Anything this module
+    tells the model to write, it must also be willing to validate — a
+    validator that redacts the correction it demanded would leave the
     overclaiming sentence standing and drop the sentence that qualified it.
     """
     numbers: list[Decimal] = []
@@ -608,14 +570,10 @@ def build_narrative_facts(
             names.add(match.group(1))
     if header.cohort_size is not None:
         numbers.append(Decimal(header.cohort_size))
-    # The turn's own resolved predicate values are certified vocabulary
-    # (round-3 R3-12). They were not, so a turn whose context header reads
-    # ``filters: payer eq [Veritas Comp Fund]`` had two sentences deleted
-    # for "naming 'Veritas Comp Fund', which is outside the certified
-    # vocabulary" — a value the answer prints two rows above the redaction,
-    # and one of the twelve the product's own clarification offers verbatim.
-    # The resulting narrative opened "That bound rests on direct evidence…"
-    # with no antecedent anywhere.
+    # The turn's own resolved predicate values are certified vocabulary.
+    # Without them a header reading ``filters: payer eq [Veritas Comp Fund]``
+    # gets its narrative's sentences deleted for naming a value the answer
+    # prints two rows above the redaction.
     for chip in header.filter_chips:
         names.update(chip.values)
         names.update(chip.requested_values)
@@ -637,24 +595,24 @@ def build_narrative_facts(
         date_tokens=dates,
         # Every integer the mandatory disclosures state about the cell
         # population, so a sentence that counts cells has something to be
-        # checked against instead of a free pass (R3-18).
+        # checked against instead of a free pass.
         population_counts=_population_counts(disclosures),
         # Read off the ANSWER's own census, not off what this composer was
-        # handed (round-5 C-01): a turn carrying WINDOW_ASSUMED and nothing
-        # on the mandatory list is a cautioned turn, and the face-value ban
-        # below was silently off for every one of them.
+        # handed: a turn carrying WINDOW_ASSUMED and nothing on the mandatory
+        # list is still a cautioned turn, and the face-value ban below must
+        # not be silently off for it.
         cautioned=bool(disclosures) or published_cautions > 0,
         published_cautions=published_cautions,
         truncated=any(_TRUNCATION_MARKER in line.lower() for line in disclosures),
         topic_sentence=_topic_sentence(findings, header),
         # What goes in the place of a superlative the guard removes, so the
-        # demo's opening question is answered rather than left with a hole
-        # where its answer was (R9-09).
+        # question is answered rather than left with a hole where its answer
+        # was.
         superlative_substitute=_superlative_substitute(findings, disclosures),
         # The ranked list's first item, when this question routed to the
-        # worklist: no prose instruction may name a different one (R3-10).
+        # worklist: no prose instruction may name a different one.
         worklist_first_action=worklist_first_action,
-        # Size words the premise verdict already ruled out (R4-05).
+        # Size words the premise verdict already ruled out.
         forbidden_magnitude_claims=_forbidden_magnitude_claims(findings),
     )
 
@@ -690,7 +648,7 @@ _TRUNCATION_MARKER = "published as findings"
 #: A number immediately qualified by a population noun — "3 of 15 cells",
 #: "12 payers", "296 entities". These are claims about how much was
 #: measured, and they are checked against certified integers rather than
-#: waved through as small numbers (R3-18).
+#: waved through as small numbers.
 _POPULATION_CLAIM = re.compile(
     r"(\d[\d,]*)\s*(?:of\s+(\d[\d,]*)\s*)?"
     r"(?:small\s+)?(?:cells?|payers?|entities|rows?|providers?|facilities|plans?)",
@@ -711,16 +669,16 @@ def _population_counts(lines: Sequence[str]) -> list[int]:
 
 
 #: The engine's own frame-level count, recognised so this module does not
-#: publish a second one beside it (R3-18). The phrase is
+#: publish a second one beside it. The phrase is
 #: ``revi_investigation.application.execution.TOO_SMALL_TO_MEASURE``, held
 #: as a literal because a presentation package may not import an
 #: investigation one — the pair is pinned by a test on both sides.
 _CENSUS_CLAUSE = "too small to measure exactly"
 
 #: The engine's own census sentence, as it composes it: "4 of 12 groups
-#: here are too small to measure exactly". Matched — rather than recomputed
-#: — for the same reason ``_CENSUS_CLAUSE`` is: this package may not import
-#: the engine, and two derivations of one census is the defect (R3-18).
+#: here are too small to measure exactly". Matched rather than recomputed,
+#: for the same reason ``_CENSUS_CLAUSE`` is a literal: this package may not
+#: import the engine, and two derivations of one census is the defect.
 #: Both sides are pinned by tests.
 _BOUNDED_CENSUS = re.compile(
     r"(\d[\d,]*)\s+of\s+(\d[\d,]*)\s+([A-Za-z ]+?)\s+(?:here\s+)?are\s+"
@@ -741,37 +699,30 @@ def _int(token: str) -> int:
 def _superlative_substitute(
     findings: Sequence[FindingPayload], disclosures: Sequence[str]
 ) -> str | None:
-    """The statement this answer CAN make about its leader (R9-09).
+    """The statement this answer CAN make about its leader.
 
     The superlative guard is right: a "worst" over a truncated or partly
     bounded list is a claim about rows the answer did not publish. Deleting
-    the sentence is the wrong remedy — live, on the demo's opening question
-    ("Who is my worst payer on denial rate right now…"), it removed the only
-    sentence that answered it and left 402 words of movement findings in
-    which the words worst, highest and top never appear.
-
-    So the guard substitutes instead of deleting, and what it substitutes is
-    the relation the evidence certifies: the leading finding is the highest
-    figure this answer MEASURED, which is a different claim from "your
-    worst" precisely because of the ceilings — and saying so out loud is the
-    same honesty, delivered as an answer.
+    the sentence is the wrong remedy — on a question that ASKED for the
+    worst payer, it removes the only sentence that answers it. So the guard
+    substitutes instead of deleting, and what it substitutes is the relation
+    the evidence certifies: the leading finding is the highest figure this
+    answer MEASURED, which is a different claim from "your worst" precisely
+    because of the ceilings.
 
     Every figure comes from material already certified on this turn: the
     leading finding's own title, and the engine's own census sentence (see
     :data:`_BOUNDED_CENSUS`). Where the census cannot be read the sentence
     degrades to words rather than inventing arithmetic.
 
-    Round-10 R10-1 — a substitution that replaces the OBJECT of a
-    superlative clause has to replace the whole clause. This one used to
-    drop the leading finding's title into a noun slot, and on the demo's
-    second question that title was the turn's premise VERDICT: *"Of the 8
-    payers measurable this window, the largest movement is Premise cannot
-    be verified: You asked about an increase in denial rate. Ask again once
-    the thinner side matures. (F2)."* — a subject-verb collision with a
-    nested full stop, read out loud in a room. A verdict is never a row, so
-    it never enters the noun slot; where the verdict is that nothing can be
-    certified, the certifiable statement is emitted as its own complete
-    sentence instead.
+    A substitution that replaces the OBJECT of a superlative clause has to
+    replace the whole clause. Dropping the leading finding's title into the
+    noun slot splices when that title is the turn's premise VERDICT: *"…the
+    largest movement is Premise cannot be verified: You asked about an
+    increase in denial rate. Ask again once the thinner side matures.
+    (F2)."* A verdict is never a row, so it never enters the noun slot;
+    where the verdict is that nothing can be certified, the certifiable
+    statement is emitted as its own complete sentence instead.
     """
     uncertified = _uncertified_premise(findings)
     if uncertified is not None:
@@ -829,10 +780,10 @@ def _superlative_substitute(
         else ", and a ceiling can sit above a measured figure without being a larger number"
     )
     substitute = f"{opening} {qualifier}{tail}."
-    # Last line of defence for R10-1: whatever went into the noun slot, the
-    # sentence that comes out has to read as one. A substitute that splices
-    # is not published at all — the deletion the guard would otherwise have
-    # made is a worse answer but never a broken one.
+    # Last line of defence: whatever went into the noun slot, the sentence
+    # that comes out has to read as one. A substitute that splices is not
+    # published at all — the deletion the guard would otherwise have made is
+    # a worse answer but never a broken one.
     if spliced_sentence(substitute) is not None:  # pragma: no cover - guarded above
         return None
     return substitute
@@ -859,7 +810,7 @@ def _is_premise_verdict(finding: FindingPayload) -> bool:
 
     Its title is a sentence — *"Premise cannot be verified: You asked about
     an increase in denial rate. Ask again once the thinner side matures."* —
-    and a sentence cannot stand where a row label stands (R10-1).
+    and a sentence cannot stand where a row label stands.
     """
     return any(value.name == _PREMISE_HOLDS_VALUE for value in finding.values)
 
@@ -883,14 +834,13 @@ def _uncertified_premise(findings: Sequence[FindingPayload]) -> FindingPayload |
 def _measured_leader(findings: Sequence[FindingPayload]) -> FindingPayload | None:
     """The first published finding whose figure is a MEASUREMENT.
 
-    Live on the demo opener with a comparison, F1 is *"Veritas Comp Fund
-    denial rate at most ≤ 76.9%"* — a ceiling over 13 entities, ranked
-    first by its own delta. Naming it as the highest measured figure would
-    replace a redacted superlative with a false one.
+    A ceiling can rank first by its own delta — *"Veritas Comp Fund denial
+    rate at most ≤ 76.9%"* over 13 entities — and naming it as the highest
+    measured figure would replace a redacted superlative with a false one.
 
-    A premise verdict is skipped for a second reason (R10-1): it is not a
-    row at all, and its title is a two-sentence judgement that cannot be
-    dropped into "the largest movement is ___".
+    A premise verdict is skipped for a second reason: it is not a row at
+    all, and its title is a two-sentence judgement that cannot be dropped
+    into "the largest movement is ___".
     """
     for finding in findings:
         if _is_premise_verdict(finding):
@@ -944,10 +894,10 @@ def _topic_sentence(
     """What this answer is about, said deterministically.
 
     Prepended when grounding validation removes the narrative's opening and
-    the survivor starts with a pronoun (round-3 R3-12): "That bound rests
-    on direct evidence and is carried at high confidence (F10)" shipped as
-    an answer's first words, and the reader never learned what "that bound"
-    was. Composed from the header and the leading finding, both certified.
+    the survivor starts with a pronoun — "That bound rests on direct
+    evidence and is carried at high confidence (F10)" as an answer's first
+    words never tells the reader what "that bound" was. Composed from the
+    header and the leading finding, both certified.
     """
     if not findings:
         return None
@@ -979,59 +929,48 @@ def _topic_sentence(
 #: confirmation of something that did not happen. The correction leads or it
 #: does not work.
 LEAD_DISCLOSURE_CODES: tuple[str, ...] = (
-    # The worklist, when the worklist IS the answer (round-3 R3-10). "What
-    # should my denial team work first" routed to the governed
-    # work_prioritization concept, returned three denied-dollars-by-payer
-    # findings and ~500 words about them, and rendered the ranked list below
-    # the findings, the charts and the prose — an answer whose own worklist
-    # statement said it was "not a measurement of the question asked above".
-    # It leads, because the question asked for it.
+    # The worklist, when the worklist IS the answer: "what should my denial
+    # team work first" routes to a ranked list whose own statement says it
+    # is not a measurement of the question above it. It leads, because the
+    # question asked for it.
     "WORKLIST_LEADS",
     "PREMISE_FALSE",
-    # The third verdict (round-4 R4-05). A movement in the asserted
-    # direction that fell short of the asserted SIZE leads for the same
-    # reason a refutation does: everything below it is the composition of a
-    # movement the question named wrongly.
+    # A movement in the asserted direction that fell short of the asserted
+    # SIZE leads for the same reason a refutation does: everything below it
+    # is the composition of a movement the question named wrongly.
     "PREMISE_PARTIAL",
-    # The fourth verdict (round-5 A-02). A premise over two suppressed
-    # ceilings, an immature comparison panel, or a size nothing could parse
-    # is neither confirmed nor refuted — and it leads for the same reason
-    # the other three do: it governs whether anything below may be read as
-    # evidence for the question's own assumption.
+    # A premise over two suppressed ceilings, an immature comparison panel,
+    # or a size nothing could parse is neither confirmed nor refuted, and it
+    # governs whether anything below may be read as evidence for the
+    # question's own assumption.
     "PREMISE_UNVERIFIABLE",
-    # The other half of the premise family (round-3 R3-03). A verdict that
-    # CONFIRMS the question is still the answer's first claim: publishing it
-    # only on failure is what let "why did denials double?" — a real +4.2%
-    # — open on a 243% sub-cell while the measured aggregate was discarded.
+    # The other half of the premise family. A verdict that CONFIRMS the
+    # question is still the answer's first claim: publishing it only on
+    # failure lets a real +4.2% open on a 243% sub-cell while the measured
+    # aggregate is discarded.
     "PREMISE_VERIFIED",
     # A ranking the platform declined to publish, because too much of its
-    # population carries ceilings rather than measurements (R3-02). A
-    # refusal cannot sit under the rows it refused to order.
+    # population carries ceilings rather than measurements. A refusal cannot
+    # sit under the rows it refused to order.
     "RANKING_REFUSED",
     "DIRECTION_UNMATCHED",
     "EMPTY_RESULT",
-    # A window that has not finished adjudicating (round-8 FIX-12(a)). It
-    # trailed for six rounds, and trailing is what made the first question
-    # of every demo — "what is my denial rate?" — answer "12.8%" in its
-    # opening clause: the July figure this product's own trend answer
-    # excludes as provisional, with the caveat that governs it two
-    # paragraphs down and a favourable benchmark verdict in between. The
-    # caveat is not a footnote on the number; it decides whether the number
-    # may be read as the level at all, which is the same job the premise
-    # verdicts above do. Where the engine could measure the last SETTLED
-    # period, this sentence carries that figure — so the answer leads with
-    # what has settled and names the provisional one as provisional.
+    # A window that has not finished adjudicating. Trailing this makes
+    # "what is my denial rate?" answer with a provisional figure in its
+    # opening clause and the caveat that governs it two paragraphs down.
+    # The caveat is not a footnote on the number; it decides whether the
+    # number may be read as the level at all, which is the same job the
+    # premise verdicts above do. Where the engine could measure the last
+    # SETTLED period, this sentence carries that figure — so the answer
+    # leads with what has settled and names the provisional one as
+    # provisional.
     "ADJUDICATION_INCOMPLETE",
     # A stored clarification answer that was APPLIED rather than asked
-    # about (round-9 R9-02). Where the engine legitimately applies one — a
-    # binding it derived itself from governed content, with genuinely one
-    # answer available — the analyst is being handed the answer to a
-    # slightly different question, and that sentence cannot live only in
-    # ``warnings_v2`` where the client's caution fold can hide it. Live,
-    # "Give me a payer scorecard for July 2026" came back as one payer's
-    # A/R with the refusal demoted into a warning and 8 of 10 narrative
-    # sentences folded away, so the prose never said the scorecard could
-    # not be built.
+    # about. Where the engine legitimately applies one — a binding it
+    # derived itself from governed content, with genuinely one answer
+    # available — the reader is being handed the answer to a slightly
+    # different question, and that sentence cannot live only in
+    # ``warnings_v2`` where a client's caution fold can hide it.
     "CLARIFICATION_ANSWER_APPLIED",
 )
 
@@ -1043,29 +982,26 @@ TRAILING_DISCLOSURE_CODES: tuple[str, ...] = (
     # that silently mixes the two is as misleading as one that drops the
     # bounded rows, so the bound is said, not merely available.
     "SUPPRESSION_BOUNDED",
-    # …and which of them could not be ordered at all (round-3 R3-02).
+    # …and which of them could not be ordered at all.
     "BOUNDED_CELLS_UNRANKED",
     # …and the same fact where the CONTRACT declares it rather than a panel
-    # count revealing it (round-7 FN-4). "Net collection rate 72.5% →
-    # 18.5%, fell 53.9 points" was published at direct/high beside the same
-    # payload's caution that two windows of unequal maturity are not
-    # comparable as levels. A delta the governing contract forbids is not a
+    # count revealing it. A delta the governing contract forbids — two
+    # windows of unequal maturity are not comparable as levels — is not a
     # caveat on a result; it is the reason there is no result.
     "NOT_COMPARABLE_WINDOWS",
-    # The whole this answer is a part of, restated on the part (FN-10). A
-    # breakdown that never says what it broke down leaves a reader who
-    # landed on it believing denial rates run 19-29% when the population
-    # they descend from is at 12.8%.
+    # The whole this answer is a part of, restated on the part. A breakdown
+    # that never says what it broke down leaves a reader who landed on it
+    # believing denial rates run 19-29% when the population they descend
+    # from is at 12.8%.
     "PARENT_LEVEL",
-    # What the answer did NOT publish (R3-04). An omission the reader
-    # cannot see is the one that makes a superlative false.
+    # What the answer did NOT publish. An omission the reader cannot see is
+    # the one that makes a superlative false.
     "FINDINGS_TRUNCATED",
-    # …and specifically the cells a DIRECTION removed (round-5 A-04), which
-    # is the omission that flatters the question that asked for it.
+    # …and specifically the cells a DIRECTION removed, which is the omission
+    # that flatters the question that asked for it.
     "DIRECTION_OMITTED",
     # The window that was actually read, when it is not the window that was
-    # asked for (R3-05), and the period vocabulary that was resolved or
-    # could not be (R3-16).
+    # asked for, and the period vocabulary that was resolved or could not be.
     "WINDOW_OUT_OF_RANGE",
     "WINDOW_HORIZON",
     "WINDOW_RELATIVE",
@@ -1145,12 +1081,11 @@ def reconciliation_disclosure(
 ) -> str:
     """The sentence a card-to-drill reconciliation owes the reader.
 
-    The strip on the wire read ``diverged; card=$178,216.82;
-    answer=$195,873.92; +9.9%`` while the prose directly beneath it read
-    "Reconciliation was not performed on this turn because this is a first
-    turn" — the exact sentence the strip exists to eliminate. The lineage
-    verdict was true and was about something else; the two figures the
-    reader had just compared went unmentioned.
+    Composed from the two figures the strip published, because the lineage
+    verdict is a different statement: a strip reading ``diverged;
+    card=$178,216.82; answer=$195,873.92; +9.9%`` above prose saying
+    "reconciliation was not performed on this turn" leaves the two figures
+    the reader just compared unmentioned.
     """
     card = f"${card_cents / 100:,.2f}" if card_cents is not None else "no figure"
     answer = f"${answer_cents / 100:,.2f}" if answer_cents is not None else "no figure"
@@ -1191,16 +1126,12 @@ def mandatory_disclosures(
 ) -> tuple[list[str], list[str]]:
     """The sentences this answer may not be published without.
 
-    Round-2 FN-3, which five of six review personas hit as four separate
-    symptoms of one defect. ``DIRECTION_UNMATCHED`` fired correctly —
-    "nothing fell; the movements below are the opposite direction, shown as
-    context, not as an answer to what was asked" — and the narrative opened
-    "three payers show denial rates rising" and never said nothing
-    improved. ``SUPPRESSION_APPLIED`` shipped while the narrative wrote
-    "three payers were measured" with nine computable and four censored.
-    ``anomaly_reconciliation`` shipped a divergence strip while the prose
-    beneath it said reconciliation was not performed. In every case the
-    structured fact was ON THE SAME RESPONSE the prose ignored.
+    A composer that is merely *shown* a structured fact will contradict it:
+    prose has opened "three payers show denial rates rising" under a
+    correctly-fired ``DIRECTION_UNMATCHED``, and written "three payers were
+    measured" under a ``SUPPRESSION_APPLIED`` covering four censored cells.
+    In each case the structured fact was ON THE SAME RESPONSE the prose
+    ignored.
 
     These sentences are therefore composed HERE, from the payload, and
     prepended to the validated prose rather than requested from the model:
@@ -1234,11 +1165,11 @@ def mandatory_disclosures(
 
     lead = stated(LEAD_DISCLOSURE_CODES)
     trail: list[str] = []
-    # The engine now counts its own cells and publishes the arithmetic on
-    # the SUPPRESSION_BOUNDED disclosure (round-3 R3-18). When it has, the
-    # count derived here from ``suppressed_cells`` — which counts nulled
-    # VALUES, several per row — is a second, different population for one
-    # control, and two arithmetics in one paragraph is the defect.
+    # The engine counts its own cells and publishes the arithmetic on the
+    # SUPPRESSION_BOUNDED disclosure. When it has, the count derived here
+    # from ``suppressed_cells`` — which counts nulled VALUES, several per
+    # row — is a second, different population for one control, and two
+    # arithmetics in one paragraph is the defect.
     engine_counted = any(
         _CENSUS_CLAUSE in by_code.get(code, "") for code in _CENSUS_CODES
     )
@@ -1281,14 +1212,11 @@ def mandatory_disclosures(
 def empty_narrative(classified_warnings: Sequence[tuple[str, str]]) -> str | None:
     """Prose for a turn that published no finding.
 
-    ``EMPTY_RESULT`` returned ``outcome: "answer"``, ``findings: []`` and
-    ``narrative: null`` on the wire — four personas, three separate
-    questions — and the client then rendered "No findings for this
-    question" over a population where a value exists (9/214 = 4.21% for
-    Federal Medicare). A null narrative is not an absence of prose; it is
-    an absence of the explanation the analyst most needs, on exactly the
-    turn that most needs it. The cause is already structured on the
-    response, so it is stated.
+    ``EMPTY_RESULT`` with ``narrative: null`` on the wire renders as "No
+    findings for this question" over a population where a value exists. A
+    null narrative is not an absence of prose; it is an absence of the
+    explanation the reader most needs, on exactly the turn that most needs
+    it. The cause is already structured on the response, so it is stated.
     """
     sentences = [
         _sentence(_strip_code_prefix(message))
@@ -1390,27 +1318,24 @@ def _name_admitted(name: str, known_token_sequences: list[list[str]]) -> bool:
     return any(_is_contiguous_run(core, known) for known in known_token_sequences)
 
 
-#: Sentences that assert the answer needs no allowance. Round-3 R3-05: the
-#: engine warned "this load only reaches 2026-08-02 — the figures below
-#: cover 2026-07-01..2026-08-02" and the prose on the same turn said the
-#: magnitude and direction "can be taken at face value for the period and
-#: basis stated, without an allowance for derivation error", over a
-#: sign-inverted year-over-year comparison. A caution and a face-value
-#: claim cannot both be published.
+#: Sentences that assert the answer needs no allowance. A caution and a
+#: face-value claim cannot both be published: prose has said a magnitude
+#: "can be taken at face value … without an allowance for derivation error"
+#: on a turn whose own warning said the load reached only part of the
+#: requested window.
 _FACE_VALUE = re.compile(
     r"\b(?:at face value|taken at face value|without (?:an? )?(?:allowance|caveat|qualification)"
     r"|no allowance for)\b",
     re.IGNORECASE,
 )
 
-#: Sentences asserting the ANSWER carries no caveats. Round-5 C-01: the
-#: composer was testing whether ``mandatory_disclosures`` had handed it a
-#: lead or a trail and reporting that as a fact about the answer — "No
+#: Sentences asserting the ANSWER carries no caveats. A composer reads the
+#: emptiness of its own prompt slots as a fact about the answer — "No
 #: mandatory caveats were attached to these findings on this turn", written
-#: on two independent turns that render amber caution banners from the same
-#: ``warnings_v2`` array. The affirmation is derived from the warning
-#: census now (see ``published_cautions``), and a sentence that makes it
-#: anyway is redacted rather than argued with.
+#: on turns that render caution banners from the same ``warnings_v2``
+#: array. The affirmation is derived from the warning census instead (see
+#: ``published_cautions``), and a sentence that makes it anyway is redacted
+#: rather than argued with.
 _NO_CAVEATS = re.compile(
     r"\b(?:no|not any|zero|none of the)\b[^.?!]{0,60}?"
     r"\b(?:caveat|caveats|qualification|qualifications|disclosure|disclosures|"
@@ -1424,8 +1349,8 @@ _NO_CAVEATS = re.compile(
 #: Claims about the SHAPE of a population — its spread, its band, "the
 #: measured group", "all of them". On a truncated answer these describe the
 #: served slice and nothing else, which is how a 4.4% to 15.0% spread (3.4x)
-#: was narrated as "roughly three percentage points … a tight band"
-#: (round-3 R3-04). Never certified over a slice, whatever it cites.
+#: gets narrated as "roughly three percentage points … a tight band". Never
+#: certified over a slice, whatever it cites.
 _SPREAD_CLAIM = re.compile(
     r"\b(?:tight|narrow|wide|broad)\s+(?:band|range|spread)"
     r"|\bthe\s+(?:measured|published|shown)\s+group\b"
@@ -1438,9 +1363,8 @@ _SPREAD_CLAIM = re.compile(
 #: Superlatives. The ordering IS computed over the full population, so the
 #: leading finding may be called the largest — that relation is certified.
 #: A superlative in a sentence that does NOT cite the leading finding is a
-#: claim about rows the answer did not publish: "State Medicaid MCO is
-#: highest of the measured group at 7.5%" was written over a served slice
-#: whose true maximum was 15.0%.
+#: claim about rows the answer did not publish: "highest of the measured
+#: group at 7.5%" over a served slice whose true maximum was 15.0%.
 _SUPERLATIVE = re.compile(
     r"\b(?:largest|biggest|highest|lowest|worst|best|smallest|most|least)\b",
     re.IGNORECASE,
@@ -1500,11 +1424,11 @@ _MAGNITUDE_NEGATION = re.compile(
 def _magnitude_claim(sentence: str, verbs: Sequence[str]) -> str | None:
     """Reason this sentence asserts a size the verdict already refused.
 
-    Round-4 R4-05. The premise finding said "It did not double — denial
-    rate rose 72.6%, short of the 100.0% a doubling assumes", and nothing
-    stopped the composer writing "denials roughly doubled" two sentences
-    later over the same figure. A narrative may report the verdict; it may
-    not restate the claim the verdict declined.
+    A narrative may report the verdict; it may not restate the claim the
+    verdict declined. Otherwise a premise finding reading "It did not
+    double — denial rate rose 72.6%, short of the 100.0% a doubling
+    assumes" is followed two sentences later by "denials roughly doubled"
+    over the same figure.
     """
     for verb in verbs:
         stem = re.escape(verb)
@@ -1523,12 +1447,10 @@ def _magnitude_claim(sentence: str, verbs: Sequence[str]) -> str | None:
 def _first_action_conflict(sentence: str, first_action: str) -> str | None:
     """Does this sentence recommend a first action other than rank 1?
 
-    Round-3 R3-10. The worklist and the narrative are two orderings on one
-    card, and when the question was "what should we work first" only one of
-    them was asked for. A prose instruction that names a different first
-    thing is not a second opinion — the analyst has no way to tell which
-    the platform means, and the one they read first pointed at a fifth of
-    the money.
+    The worklist and the narrative are two orderings on one card, and when
+    the question was "what should we work first" only one of them was asked
+    for. A prose instruction naming a different first thing is not a second
+    opinion — the reader has no way to tell which the platform means.
 
     The rule is one-directional: a sentence may recommend rank 1 by name,
     or recommend nothing, but it may not recommend instead of it.
@@ -1563,13 +1485,11 @@ def _normalized(text: str) -> str:
 def doubled_span(text: str, minimum: int = DOUBLED_SPAN_CHARS) -> str | None:
     """The longest run of ``minimum`` characters this text contains twice.
 
-    The render-time half of R9-04. The deduper below works on sentences,
-    which is the right unit and not the guarantee that matters: what a
-    reader sees is a string, and the invariant the answer owes them is that
-    no paragraph of it appears twice. This is that invariant, checkable
-    from outside, on the final bytes.
-
-    ``None`` — the only acceptable answer for published prose — when
+    The deduper below works on sentences, which is the right unit but not
+    the guarantee that matters: what a reader sees is a string, and the
+    invariant the answer owes them is that no paragraph of it appears
+    twice. This is that invariant, checkable from outside, on the final
+    bytes. ``None`` — the only acceptable answer for published prose — when
     nothing that long repeats.
     """
     flat = _normalized(text)
@@ -1583,22 +1503,17 @@ def doubled_span(text: str, minimum: int = DOUBLED_SPAN_CHARS) -> str | None:
 def dedupe_sentences(text: str) -> tuple[str, list[str]]:
     """``(prose, dropped)`` with every repeated sentence removed.
 
-    Round-9 R9-04, live on the demo's opening question: a 1,436-character
-    narrative whose tail repeated four caution sentences verbatim, glued
-    mid-word at the seam, directly beneath the product's own note saying
-    those sentences "are not printed twice". The note was composed from the
-    match set and the string that shipped was the undeduplicated one, so
-    the answer contradicted itself in the largest body copy on the page.
-    Intermittent, which is worse in a room: a second identical run came
-    back clean.
+    Any note ABOUT repetition may only be composed from the EMITTED text —
+    which is what returning the dropped sentences alongside the prose is
+    for. Composing it from the match set instead lets an answer print a
+    note saying those sentences "are not printed twice" directly above the
+    undeduplicated string; the failure is intermittent, so it survives a
+    clean second run.
 
-    So the note may only ever be composed from the EMITTED text — which is
-    what returning the dropped sentences alongside the prose is for — and
-    the emitted text is deduplicated here rather than described as if it
-    were. A sentence is dropped when its normalized form has already been
-    kept, or when :data:`DOUBLED_SPAN_CHARS` characters of it already
-    appear in what has been kept: the second rule catches a caution
-    restated with a comma moved, which byte equality does not.
+    A sentence is dropped when its normalized form has already been kept,
+    or when :data:`DOUBLED_SPAN_CHARS` characters of it already appear in
+    what has been kept: the second rule catches a caution restated with a
+    comma moved, which byte equality does not.
     """
     kept: list[str] = []
     dropped: list[str] = []
@@ -1628,12 +1543,11 @@ def compose_narrative(
 
     ``(narrative, repeated)`` — the second half being every sentence the
     join would otherwise have printed twice, for whatever note the caller
-    composes ABOUT the emitted text (R9-04: a note derived from anything
-    else can, and did, describe a string that never shipped).
+    composes ABOUT the emitted text. A note derived from anything else
+    describes a string that never shipped.
 
-    The join itself is the other half of that defect. The mandatory
-    disclosures are put in front of the model as constraints, so a
-    conscientious composer restates them — and then they are published
+    The mandatory disclosures are put in front of the model as constraints,
+    so a conscientious composer restates them — and then they are published
     again, around it. Deduplicating the assembled string is what makes the
     refusal lead and the caveats bound without either being said twice.
     """
@@ -1651,9 +1565,9 @@ def validate_narrative(text: str, facts: NarrativeFacts) -> NarrativeValidation:
     never reads a redaction marker — see the module docstring.
 
     A sentence the composer printed twice is dropped the same way and
-    recorded with its own reason (R9-04). It is not a grounding failure —
-    the repeated sentence is usually a mandatory caution the composer was
-    shown and dutifully copied — but publishing it twice is still publishing
+    recorded with its own reason. It is not a grounding failure — the
+    repeated sentence is usually a mandatory caution the composer was shown
+    and dutifully copied — but publishing it twice is still publishing
     something the answer does not mean to say.
     """
     allowed: set[Decimal] = set()
@@ -1664,8 +1578,8 @@ def validate_narrative(text: str, facts: NarrativeFacts) -> NarrativeValidation:
     date_tokens = set(facts.date_tokens)
     # A population count may be quoted from a mandatory disclosure or from
     # a certified finding value; anything else is a count the composer
-    # derived, and deriving the censorship arithmetic is what produced
-    # "3 of 15 cells" over a 12-cell answer with nothing withheld (R3-18).
+    # derived, and deriving the censorship arithmetic is what produces
+    # "3 of 15 cells" over a 12-cell answer with nothing withheld.
     leading_referent = facts.referent_ids[0] if facts.referent_ids else ""
     certified_counts: set[int] = set(facts.population_counts)
     for value in facts.numeric_values:
@@ -1677,7 +1591,7 @@ def validate_narrative(text: str, facts: NarrativeFacts) -> NarrativeValidation:
     redactions: list[NarrativeRedaction] = []
     #: The substitute goes in ONCE, where the first redacted superlative
     #: stood: a composer that reaches for "worst" three times gets one
-    #: certifiable statement in its place, not three (R9-09).
+    #: certifiable statement in its place, not three.
     substitute_owed = False
 
     for sentence in split_sentences(text):
@@ -1746,17 +1660,17 @@ def validate_narrative(text: str, facts: NarrativeFacts) -> NarrativeValidation:
         else:
             redactions.append(NarrativeRedaction(sentence=sentence.strip(), reason=reason))
             if substituted and facts.superlative_substitute and not substitute_owed:
-                # Never a silent hole where the answer was (R9-09): the
-                # certifiable statement goes in, in the redacted sentence's
-                # own place, and says why it is not the superlative.
+                # Never a silent hole where the answer was: the certifiable
+                # statement goes in, in the redacted sentence's own place,
+                # and says why it is not the superlative.
                 substitute_owed = True
                 kept.append(facts.superlative_substitute)
 
     # An analysis whose opening pronoun lost its antecedent is not an
-    # analysis (round-3 R3-12). When redaction took the first sentence and
-    # the survivor opens with a demonstrative, the deterministic topic
-    # sentence goes in front of it rather than the reader being left to
-    # guess what "that bound" was.
+    # analysis. When redaction took the first sentence and the survivor
+    # opens with a demonstrative, the deterministic topic sentence goes in
+    # front of it rather than the reader being left to guess what "that
+    # bound" was.
     if (
         redactions
         and kept
@@ -1767,9 +1681,9 @@ def validate_narrative(text: str, facts: NarrativeFacts) -> NarrativeValidation:
     ):
         kept.insert(0, facts.topic_sentence)
 
-    # …and nothing survives here twice (R9-04). Last, so that a sentence
-    # dropped for grounding is reported as a grounding failure and only a
-    # genuine repetition is reported as one.
+    # …and nothing survives here twice. Last, so that a sentence dropped
+    # for grounding is reported as a grounding failure and only a genuine
+    # repetition is reported as one.
     emitted, repeats = dedupe_sentences(" ".join(kept))
     redactions.extend(
         NarrativeRedaction(sentence=sentence, reason=DUPLICATE_SENTENCE_REASON)

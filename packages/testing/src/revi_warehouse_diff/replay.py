@@ -358,8 +358,8 @@ class CorpusReplay:
         differs only in case or punctuation*. So a value that matches nothing
         exactly and exactly ONE value case-insensitively resolves to that
         value; anything else is left alone and diverges as before. Every
-        resolution is recorded on the audited value — a silent one would make
-        this a way of not seeing the defect the first run found.
+        resolution is recorded on the audited value, so this cannot become a
+        way of hiding a real disclosure defect.
         """
         if self._value_domain is None:
             return predicates

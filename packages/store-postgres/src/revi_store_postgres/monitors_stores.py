@@ -5,15 +5,13 @@ The four stores behind the proactive surface. Same conventions as
 via ``asyncio.to_thread``, JSONB for anything whose shape is a wire
 contract, typed columns for what queries filter and order on.
 
-Two decisions worth stating, because both are places a plausible
-implementation would be quietly wrong:
+Two constraints:
 
 **Ordering is by the watermark's own clock.** ``pin_results`` and ``loads``
 order by ``watermark_loaded_at``, never by ``watermark_id``. That
 ``wm_001`` sorts before ``wm_002`` is a coincidence of this warehouse's
-naming; the first deployment whose loads are identified by hash or by date
-would silently diff the wrong pair of loads, and a load-over-load surface
-that compares the wrong pair is worse than one that compares none.
+naming; a deployment whose loads are identified by hash or by date would
+otherwise diff the wrong pair of loads.
 
 **The spec round-trips through pydantic, not through the serde envelope.**
 A pin's ``spec`` is a ``TypedInvestigationSpec`` — a wire contract, not a
@@ -61,8 +59,7 @@ def _monitor_json(monitor: Monitor | None) -> dict[str, Any] | None:
     return {
         "mode": monitor.mode,
         # Decimals are stored as STRINGS: a threshold that round-trips
-        # through a float is not the threshold the analyst set, and a monitor
-        # is a promise about a specific number.
+        # through a float is not the threshold that was set.
         "value": None if monitor.value is None else str(monitor.value),
         "unit": monitor.unit,
         "direction": monitor.direction,
@@ -174,7 +171,7 @@ class PostgresMonitorsPinStore:
 
     def _archive(self, pin_id: str) -> None:
         # Idempotent, and the FIRST un-pin keeps its timestamp — the same
-        # rule the session archive follows, for the same reason.
+        # rule the session archive follows.
         stmt = (
             sa.update(t.monitors_pins)
             .where(t.monitors_pins.c.id == pin_id, t.monitors_pins.c.archived_at.is_(None))
@@ -234,10 +231,10 @@ class PostgresMonitorsPinResultStore:
         }
         stmt = pg_insert(t.monitors_pin_results).values(values)
         # Last write wins, unlike the evidence cache: re-evaluating a load
-        # is a legitimate operation (a redeployed pack, a repaired warehouse
-        # snapshot), and the newer tile is the one the platform stands
-        # behind. The key still asserts (pin, load), so there is never more
-        # than one tile per pair.
+        # is legitimate (a redeployed pack, a repaired warehouse snapshot)
+        # and the newer tile is the authoritative one. The key still
+        # asserts (pin, load), so there is never more than one tile per
+        # pair.
         stmt = stmt.on_conflict_do_update(
             index_elements=[t.monitors_pin_results.c.pin_id, t.monitors_pin_results.c.watermark_id],
             set_={

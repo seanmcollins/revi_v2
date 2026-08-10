@@ -18,19 +18,13 @@ def _pct(part: int, whole: int) -> str:
 
 
 def headline(replay: ReplayReport) -> str:
-    """THE QUOTABLE SENTENCE — every number in it, in one string.
+    """One summary sentence carrying every number that qualifies it.
 
-    Round-8 FIX-11. The sentence people repeated was "5,059 published values
-    re-derived, zero live divergences", which is two true numbers with the
-    three that qualify them removed: how many of the audited values were
-    derivable at all, how many of THOSE reproduced, and how much of the
-    corpus the zero actually covers. Three reviewers ran the harness
-    independently and all three reconstructed the missing numbers by hand;
-    the instrument was right every time and the sentence about it was not.
-
-    So the quotable sentence and the honest sentence are now the same
-    string, and it is the one the report prints. If a deck wants a line
-    about this harness, this is the line — there is no shorter true one.
+    "N published values re-derived, zero live divergences" is two true
+    numbers with the three that qualify them removed: how many audited
+    values were derivable at all, how many of THOSE reproduced, and how much
+    of the corpus the zero covers. All five go in one string so a quote of
+    the summary cannot drop the qualifiers.
     """
     counts = replay.counts()
     total = len(replay.audited)
@@ -86,9 +80,8 @@ def live_window(replay: ReplayReport) -> str:
 def divergence_class(item: Any) -> str:
     """Group a divergence by what the explainer was able to say about it.
 
-    The classes are the fix queue: each names a distinct way a published
-    number can fail to be its contract's reading of the context the answer
-    disclosed.
+    Each class names a distinct way a published number can fail to be its
+    contract's reading of the context the answer disclosed.
     """
     reason = item.reason or ""
     if "reproduced exactly" in reason:
@@ -114,14 +107,14 @@ def render(
     add = lines.append
 
     add(RULE)
-    add("FN-17 WAREHOUSE-DIFF — structurally independent recomputation of every")
-    add("published finding value, anchored at human-verified points.")
+    add("WAREHOUSE-DIFF — structurally independent recomputation of every")
+    add("published finding value, anchored at independently derived reference points.")
     add(RULE)
 
     # --- goldens ---------------------------------------------------------
     golden_counts = Counter(r.outcome for r in goldens)
     add("")
-    add("1. HUMAN-VERIFIED GOLDENS (audit path vs numbers a human computed)")
+    add("1. REFERENCE GOLDENS (audit path vs numbers derived outside it)")
     add(f"   total {len(goldens)}  " + "  ".join(f"{k}={v}" for k, v in sorted(golden_counts.items())))
     for result in goldens:
         if result.outcome in ("matched", "refused_as_expected"):
@@ -254,9 +247,8 @@ def render(
         if not live and not golden_counts.get("diverged") and not key_counts.get("diverged")
         else "FAIL"
     )
-    # The one sentence anybody is going to repeat, with every number that
-    # qualifies it inside it. Printed beside the verdict so a reader cannot
-    # take the verdict without the scope (round-8 FIX-11).
+    # Printed beside the verdict so the verdict cannot be read without its
+    # scope.
     add(f"IN ONE SENTENCE: {headline(replay)}")
     add(f"SCOPE: {live_window(replay)}")
     add(f"VERDICT: {verdict}")
@@ -268,9 +260,8 @@ def as_json(
     replay: ReplayReport, goldens: list[GoldenResult], key_results: list[KeyResult]
 ) -> dict[str, Any]:
     return {
-        # The same string the human report prints, so a dashboard, a deck
-        # and a terminal cannot quote three different sentences about one
-        # run (round-8 FIX-11).
+        # The same string the human report prints, so no two consumers can
+        # quote different sentences about one run.
         "headline": headline(replay),
         "scope": live_window(replay),
         "goldens": {

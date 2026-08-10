@@ -58,12 +58,11 @@ sessions = sa.Table(
 )
 
 #: One executed turn, keyed by the caller's idempotency key (migration
-#: 0004). The API used to hold these in a process-local dict, so a restart
-#: — or a second worker — turned a retried POST into a second execution of
-#: the same turn: fresh model spend, a second investigation in the DAG, and
-#: two different answers to one request. The response is stored as the
-#: serialized ``TurnResponse`` so a replay returns the ORIGINAL payload
-#: rather than a re-run that could differ.
+#: 0004). Receipts are shared rather than process-local: otherwise a
+#: restart — or a second worker — turns a retried POST into a second
+#: execution of the same turn. The response is stored as the serialized
+#: ``TurnResponse`` so a replay returns the ORIGINAL payload rather than a
+#: re-run that could differ.
 turn_receipts = sa.Table(
     "turn_receipts",
     metadata,
@@ -102,7 +101,7 @@ investigations = sa.Table(
     sa.Column("warnings", JSONB, nullable=False),
     # Nullable and never backfilled: a turn that ran before 0006 did not
     # keep its prose, and writing an empty string there would say it
-    # published none (round-10 R10-4).
+    # published none.
     sa.Column("narrative", sa.Text, nullable=True),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Index("ix_revi_trace_investigations_session_id", "session_id"),
@@ -196,15 +195,15 @@ monitors_pins = sa.Table(
     sa.Column("created_from_referent", sa.Text, nullable=True),
     sa.Column("created_by", sa.Text, nullable=False, server_default=""),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
-    # Soft un-pin, exactly like the session archive: the evaluated history a
-    # brief already published stays readable, and nothing dangles.
+    # Soft un-pin, exactly like the session archive: previously evaluated
+    # history stays readable and nothing dangles.
     sa.Column("archived_at", sa.DateTime(timezone=True), nullable=True),
     # The BASELINE: what this monitor read at the load it was created on,
     # captured once and never rewritten. Stored on the pin rather than
     # derived from the oldest result because it is a fact about the MONITOR
     # and must survive result history being trimmed. ``Text`` for the value
-    # because a threshold or a baseline that round-trips through a float is
-    # not the number that was measured.
+    # because a number that round-trips through a float is not the number
+    # that was measured.
     sa.Column("baseline_watermark_id", sa.Text, nullable=True),
     sa.Column("baseline_value", sa.Text, nullable=True),
     sa.Column("baseline_unit", sa.Text, nullable=True),

@@ -43,23 +43,23 @@ class TurnClassification:
 class ClarificationBinding:
     """What one clarification option MEANS, in governed ids.
 
-    An option used to be a sentence, and a sentence resolves against
-    nothing: tapping it re-entered the reply as free text to be classified
-    and interpreted all over again. Live (round-3 R3-07), a reply sent on
-    the dedicated ``clarification_response`` channel — byte-for-byte an
-    option the platform had just offered — came back classified
-    ``refinement`` at confidence 0.45, as a ROOT investigation, asking a
-    different question; the analyst's original question was gone.
+    An option that is only a sentence resolves against nothing: tapping it
+    re-enters the reply as free text to be classified and interpreted all
+    over again. A reply sent on the dedicated ``clarification_response``
+    channel — byte-for-byte an option the platform just offered — then comes
+    back classified ``refinement`` at confidence 0.45, as a ROOT
+    investigation asking a different question, with the analyst's original
+    question gone.
 
     So an option the platform authored carries the ids it would use. The
     reply is then resolved by *matching*, not by re-reading: an exact match
     is the analyst choosing a thing the platform already named, and the
     engine applies that thing to the question it interrupted.
 
-    The same structure is what makes an option checkable. Round-3 R3-17:
-    the value-existence guard covered dimensions with a DECLARED domain and
-    silently skipped the open ones, so "Summit Peak is a facility" was
-    offered over a warehouse holding six facilities, none of them that.
+    The same structure is what makes an option checkable. A value-existence
+    guard that covers dimensions with a DECLARED domain and silently skips
+    the open ones offers "Summit Peak is a facility" over a warehouse
+    holding six facilities, none of them that.
 
     ``kind`` is the closed set of things an option can bind:
 

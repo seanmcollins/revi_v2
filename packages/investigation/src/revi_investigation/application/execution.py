@@ -32,11 +32,11 @@ small and ALL its measure values are nulled, the count included.
 *Subset counts* — a ratio's numerator (``X__num``) whose ``X__den`` is
 itself a count at or above the threshold. A small numerator over a large
 population is not a small cohort: it is a **well-measured, good** cohort.
-Nulling it censored exactly the cells doing best. Live: Federal Medicare's
-denial rate over 214 adjudicated claims — 9 denials, 4.21% — vanished
-entirely, and "which payer has the lowest denial rate" answered *Atlas
-Commercial at 8.2%*, confidently and wrongly, with four of twelve payers
-censored and all four of them among the best.
+Nulling it censors exactly the cells doing best: a payer's denial rate over
+214 adjudicated claims — 9 denials, 4.21% — vanishes entirely, and "which
+payer has the lowest denial rate" answers with a payer at 8.2%, confidently
+and wrongly, over a population where four of twelve are censored and all
+four are among the best.
 
 So a small numerator over a disclosable population is **bounded, not
 dropped**. The numerator cell is replaced by ``threshold - 1`` — the
@@ -92,14 +92,13 @@ class BoundedCell:
     Carries what a reader needs to judge the answer: which cell, which
     metric, the population the bound is taken over, and the bound itself.
 
-    ``row_index`` is what makes the bound *addressable*. Round-3 R3-01: the
-    bound was computed here and then existed only inside one warning
-    sentence, while the frame published ``(threshold - 1) / population`` as
-    a measured point value — so "Dr. Casey Quarry (143): 45.5% denial rate"
-    reached findings, charts, rankings and CSV at grade ``direct`` and
-    confidence ``high`` over a figure that is 10/22. The row index lets
-    every downstream consumer ask "is THIS cell a measurement?" instead of
-    reading prose.
+    ``row_index`` is what makes the bound *addressable*. A bound that exists
+    only inside a warning sentence leaves the frame publishing
+    ``(threshold - 1) / population`` as a measured point value, so "45.5%
+    denial rate" reaches findings, charts, rankings and CSV at grade
+    ``direct`` and confidence ``high`` over a figure that is 10/22. The row
+    index lets every downstream consumer ask "is THIS cell a measurement?"
+    instead of reading prose.
     """
 
     #: Dimension values identifying the row ("Federal Medicare"), in
@@ -120,11 +119,11 @@ class BoundedCell:
 class SuppressionCensus:
     """How many cells a frame has, and what the policy did to each.
 
-    Computed once, at frame level, because the alternative was letting the
-    narrator derive it — and it derived "the three payers named here are
-    only part of a fifteen-cell set in which several cells were withheld"
-    over 12 payer cells of which zero were withheld (round-3 R3-18). Three
-    surfaces (narrative, chart annotation, probe metadata) published three
+    Computed once, at frame level. The alternative is letting each surface
+    derive it, and a narrator deriving it writes "the three payers named
+    here are only part of a fifteen-cell set in which several cells were
+    withheld" over 12 payer cells of which zero were withheld — three
+    surfaces (narrative, chart annotation, probe metadata) publishing three
     different numbers for one control.
 
     A *cell* here is a row: the unit the reader counts. ``suppressed_cells``
@@ -154,13 +153,13 @@ class SuppressionCensus:
 
 #: The one plain-English phrase for "the group behind this number is under
 #: the publication threshold". Every answer-facing sentence about a ceiling
-#: uses it verbatim — the round-6 answer-surface review could not parse the
-#: most important paragraph on the page because it carried three words
-#: ("upper bound", "ceiling", "measurement") for two ideas, printed
-#: ``cell(s)`` in machine voice, and stated the same census twice. The full
-#: technical census now lives on the trace instead; the page says it once,
-#: in words. :mod:`revi_presentation.narrative` matches this phrase to know
-#: the engine has already counted (it may not import this package).
+#: uses it verbatim. Carrying three words for two ideas ("upper bound",
+#: "ceiling", "measurement"), printing ``cell(s)`` in machine voice and
+#: stating the census twice makes the most important paragraph on the page
+#: unreadable; the full technical census lives on the trace instead and the
+#: page says it once, in words. :mod:`revi_presentation.narrative` matches
+#: this phrase to know the engine has already counted (it may not import
+#: this package).
 TOO_SMALL_TO_MEASURE = "too small to measure exactly"
 
 
@@ -170,7 +169,7 @@ def _distinct_cells(cells: Sequence[BoundedCell]) -> list[BoundedCell]:
     Keyed on ``(metric_id, label)`` — the cell, not the probe that produced
     it. A plan that reads one window through two nodes hands the same cell
     in twice, and the disclosure then names a payer twice as if two
-    different groups of theirs had been suppressed (R9-06).
+    different groups of theirs had been suppressed.
     """
     by_key: dict[tuple[str, str], BoundedCell] = {}
     for cell in sorted(cells, key=lambda c: (c.metric_id, c.label)):
@@ -186,9 +185,10 @@ def _named_bounds(cells: Sequence[BoundedCell]) -> str:
         for cell in cells[:_MAX_NAMED_BOUNDS]
     )
     if len(cells) > _MAX_NAMED_BOUNDS:
-        # Naming every bounded cell put 147 parenthesised figures into one
-        # mandatory disclosure — a sentence nobody finishes is a disclosure
-        # nobody reads. The full set is on the frame and in the chart.
+        # Naming every bounded cell can put >100 parenthesised figures into
+        # one mandatory disclosure — a sentence nobody finishes is a
+        # disclosure nobody reads. The full set is on the frame and in the
+        # chart.
         named += (
             f"; and {len(cells) - _MAX_NAMED_BOUNDS} more, each shown as a bound in the chart"
         )
@@ -207,7 +207,7 @@ def bounded_cells_warning(
     #: What the rows ARE, in the analyst's word ("payers"). The generic
     #: fallback is what a reader gets when the answer has no cut to name.
     #: Two sentences on one card calling the same four rows "groups" and
-    #: "payers" is the same class of contradiction R9-06 is about.
+    #: "payers" contradict each other about one population.
     noun: str = "groups",
 ) -> str | None:
     """The sentence a bounded answer owes its reader, or ``None``.
@@ -218,29 +218,25 @@ def bounded_cells_warning(
     bounded values is exactly as misleading as one that drops the bounded
     rows.
 
-    Two sentences of the previous wording were false and are gone (R3-02).
-    "Every other figure here is measured" was published on a frame where
-    147 of 150 values were bounds and the remaining 3 were zeros; and the
-    count was stated without the withheld cells beside it, so a reader
-    adding the two disclosures got a population that does not exist.
+    Two claims this sentence must not make. "Every other figure here is
+    measured" is false on a frame where 147 of 150 values are bounds and the
+    remaining 3 are zeros; and stating the count without the withheld cells
+    beside it lets a reader add the two disclosures and get a population
+    that does not exist.
 
-    **The sentence must agree with itself** (round-9 R9-06). On the demo
-    opener it did not, three ways at once, and the contradiction was legible
-    to any CFO because the ``SUPPRESSION_APPLIED`` caution two lines below
-    stated the real rule correctly:
+    **The sentence must agree with itself**, three ways:
 
-    * *"4 of 12 groups"* over a list of **five** rows — the count came from
-      the census and the list came from every probe the plan ran. The count
-      is now derived from the list it introduces, so the two cannot drift.
-    * *Veritas Comp Fund twice*, the second row being the same payer's cell
-      in the COMPARISON window (≤9.0% over 111 — the prior-month figure
-      quoted three sentences earlier). Cells are deduplicated by cell key,
-      and a window this turn read as context gets its own labelled clause
-      instead of being folded into the answer's own census.
+    * *"4 of 12 groups"* over a list of **five** rows — the count taken from
+      the census while the list comes from every probe the plan ran. The
+      count is derived from the list it introduces, so the two cannot drift.
+    * *the same payer twice*, the second row being that payer's cell in the
+      COMPARISON window. Cells are deduplicated by cell key, and a window
+      this turn read as context gets its own labelled clause instead of
+      being folded into the answer's own census.
     * *"fewer than 11 things sit behind each of those numbers"* printed over
       a row of **214** entities. The §15 rule suppresses the NUMERATOR — the
       events being counted — over a population that is published in full;
-      the population floor is a different rule, and stating it here refuted
+      the population floor is a different rule, and stating it here refutes
       the very figures beside it.
     """
     current = _distinct_cells(cells)
@@ -380,17 +376,16 @@ def bound_index(frame: EvidenceFrame, threshold: int) -> dict[int, dict[str, Bou
 def suppression_census(frame: EvidenceFrame, threshold: int) -> SuppressionCensus:
     """Count this frame's cells once: total, bounded, withheld.
 
-    Round-6 A-02, the second census to disagree with the first. A withheld
-    row used to be one whose EVERY metric column came back NULL — anatomy
-    columns (``denial_rate__num``, ``denial_rate__den``) included — and only
-    on a frame that admitted ``suppressed_cells``. A trend cell whose rate
-    was nulled while its numerator survived therefore counted as *measured*,
-    and one payload published "0 were withheld outright" beside a chart
+    Defining a withheld row as one whose EVERY metric column came back NULL
+    — anatomy columns (``denial_rate__num``, ``denial_rate__den``) included
+    — and only on a frame that admits ``suppressed_cells`` counts a trend
+    cell whose rate was nulled while its numerator survived as *measured*.
+    One payload then publishes "0 were withheld outright" beside a chart
     annotation reading "1 of 8 cells were withheld outright" about the same
     eight rows.
 
-    The rule now lives in :func:`revi_kernel.frame.withheld_row_indices` and
-    is asked here and by the chart builder alike: a row the answer publishes
+    The rule lives in :func:`revi_kernel.frame.withheld_row_indices` and is
+    asked here and by the chart builder alike: a row the answer publishes
     no value for is withheld, whatever nulled it. That is the count a reader
     can check against the marks in front of them.
     """

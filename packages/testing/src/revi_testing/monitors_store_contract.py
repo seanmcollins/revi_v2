@@ -3,8 +3,7 @@
 The same discipline as :mod:`revi_testing.store_contract`: every
 implementation of the Monitors ports — the API's in-memory fallback and the
 Postgres adapters alike — passes one behavioural suite, so a divergence
-between the backing a demo runs on and the backing a deployment runs on
-fails here rather than in production.
+between the two backings fails here rather than in production.
 
 Three properties this suite exists to hold, each of which a plausible
 implementation gets wrong:

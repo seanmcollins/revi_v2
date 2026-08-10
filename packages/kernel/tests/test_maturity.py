@@ -1,10 +1,10 @@
-"""The shared terminal-bucket rule (round-3 R3-06, round-4 R4-03).
+"""The shared terminal-bucket rule.
 
 One verdict, in the kernel, because the findings evaluator and the chart
 builder must reach the same conclusion about the same frame and may not
-import each other. R4-03 is what happened while each owned its own half of
-the rule: the prose named the week of 2026-07-20 PROVISIONAL and the SVG
-drew an unbroken solid line terminating on it.
+import each other. Regression, from when each owned its own half of the
+rule: the prose named the week of 2026-07-20 PROVISIONAL and the SVG drew
+an unbroken solid line terminating on it.
 """
 
 from __future__ import annotations

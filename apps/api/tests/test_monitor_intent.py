@@ -1,20 +1,11 @@
 """Reading "watch X" — the lead-in only, never the subject.
 
-The parser under test recognises a closed INSTRUCTION vocabulary and hands
-the remainder to the ordinary interpretation path. Everything below is
-about that boundary: what counts as a declaration, what the subject is
-reduced to, and what a stated sensitivity compiles into.
-
-The two failure modes these tests exist to prevent:
-
-* **subject contamination.** "denial rate if it moves more than 2 points"
-  handed to interpretation is a question about a MOVEMENT, and the monitor
-  would be defined by the wrong spec forever. The threshold clause is split
-  off before anything is interpreted.
-* **a guessed threshold.** A clause this grammar does not recognise yields
-  the GOVERNED default, never a number nobody stated. A monitor that fires on
-  a threshold the analyst did not set is worse than one that fires on the
-  pack's.
+The parser recognises a closed instruction vocabulary and hands the remainder to
+the ordinary interpretation path. These tests pin that boundary and the two
+failure modes it prevents: subject contamination, where a threshold clause left
+in the subject makes the monitor a question about a movement forever; and a
+guessed threshold, where an unrecognised clause yields a number nobody stated
+instead of the governed default.
 """
 
 from __future__ import annotations
@@ -181,30 +172,25 @@ class TestStatedSensitivity:
 
 
 class TestAStatedSensitivityIsNeverSilentlyReplaced:
-    """Round-7 FN-6.
+    """Regression: stated sizes were dropped and the governed default stored in
+    their place, with ``value=null`` and no mention of it in the confirmation
+    sentence. "Half a point" gated at the pack's 0.5 by coincidence; "three
+    points" would have gated at 0.5 too, silently and forever.
 
-    Three real utterances from three reviewers each registered the GOVERNED
-    default with ``value=null``, and the confirmation sentence never
-    mentioned the instruction the analyst had typed: "half a point" gated at
-    the pack's 0.5 by coincidence, and "three points" would have gated at
-    0.5 too — silently, forever. The module's own docstring names the
-    failure: "a monitor registered against a spec nobody confirmed briefs the
-    wrong number every morning, silently, forever."
-
-    The fix has two halves, and both are here: read the shapes people
-    actually type, and REFUSE the ones that cannot be read rather than
-    quietly substituting a number nobody stated.
+    The fix has two halves and both are here: read the shapes people actually
+    type, and refuse the ones that cannot be read rather than quietly
+    substituting a number nobody stated.
     """
 
     @pytest.mark.parametrize(
         ("utterance", "value", "unit"),
         [
-            # rcm-exec's own words, verbatim from the live session.
+            # Phrasings taken verbatim from real utterances.
             ("watch denial rate, tell me if it moves more than half a point", "0.5", "points"),
             ("watch denial rate, tell me if it moves more than three points", "3", "points"),
             ("watch denial rate, tell me if it moves more than a point", "1", "points"),
             ("watch denial rate, tell me if it moves more than two percent", "2", "relative_pct"),
-            # vc-investor's: a metric the pack governs with min_absolute_days.
+            # A metric the pack governs with min_absolute_days.
             ("watch days in AR, tell me when it moves more than 2 days", "2", "days"),
         ],
     )
@@ -270,9 +256,8 @@ class TestAStatedSensitivityIsNeverSilentlyReplaced:
         assert not declaration.threshold_unreadable, utterance
 
     def test_no_monitor_registers_the_governed_default_over_a_stated_number(self) -> None:
-        """The reviewer's own test, stated as they wrote it: no monitor may
-        register ``governed_default`` when the utterance contained a numeric
-        threshold clause."""
+        """No monitor may register ``governed_default`` when the utterance
+        contained a numeric threshold clause."""
         for utterance in (
             "watch denial rate, tell me if it moves more than 2 baskets",
             "watch denial rate, tell me if it drops below 10%",

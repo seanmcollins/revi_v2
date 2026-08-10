@@ -1,28 +1,39 @@
-"""Round-4 R4-12: every clarification leaves through one funnel.
+"""Every clarification leaves through one funnel.
 
-Five personas found six defects in this subsystem, and each one lived in a
-path that skipped a step some other path took: empty option arrays reached
-the page twice, an option the platform's own policy had just refused was
-offered and then abandoned the subject entirely, the documented convergence
-rule never fired, a dry-run that left exactly one option asked about it
-anyway ($0.146 and a turn), and a reply spliced the question from one
-pending clarification onto the parent pointer of another.
-
-These are the pure decisions inside that funnel. The dialogue-level
-behaviour is exercised in ``test_clarification_options_validated`` and
-``test_clarification_convergence``.
+Each defect pinned here lived in a path that skipped a step some other path
+took: empty option arrays reached the page, an option the platform's own
+policy had just refused was offered, a dry run that left exactly one option
+asked about the survivor anyway, a reply spliced the question from one
+pending clarification onto the parent pointer of another, a thread filter was
+carried onto the very cut it asked about, and options were offered for cuts
+and playbooks this engine cannot run. These are the pure decisions inside the
+funnel; the dialogue-level behaviour is exercised in
+``test_clarification_options_validated`` and ``test_clarification_convergence``.
 """
 
 from __future__ import annotations
 
+from typing import Any, cast
+
+import pytest
+
+from revi_catalog_contracts.model import CatalogSnapshot
 from revi_investigation.application.interpretation import PendingClarification
 from revi_investigation.application.submit_turn import (
+    _ASKS_WHICH_MEASURE,
+    CLARIFICATION_SOLE_SURVIVOR_REASON,
     NO_OPTIONS_REASON,
     SubmitTurnService,
     _answers_pending,
     _no_options_card,
+    _state_the_survivor,
+    _with_resumed_context,
 )
+from revi_investigation.application.validation import PlanValidationService
 from revi_investigation.domain.turns import ClarificationBinding, ClarificationRequest
+from revi_kernel.filters import Predicate, PredicateOp, iter_predicates
+from revi_kernel.refs import DimensionRef
+from revi_testing.engine_wiring import PackSnapshotPort
 
 
 def _binding(option: str, kind: str = "grounded_option", **kw: object) -> ClarificationBinding:
@@ -30,10 +41,10 @@ def _binding(option: str, kind: str = "grounded_option", **kw: object) -> Clarif
 
 
 class TestAQuestionWithOneAnswerIsNotAQuestion:
-    """Defect 5. ``_lone_binding`` required a binding the PLATFORM derived,
-    so it was reachable only from the validator's refusal path: a model
-    clarification whose options a dry-run had reduced to one still charged
-    a turn to ask about the survivor."""
+    """``_lone_binding`` required a binding the PLATFORM derived, so it was
+    reachable only from the validator's refusal path: a model clarification
+    whose options a dry run had reduced to one still charged a turn to ask
+    about the survivor."""
 
     def test_a_derived_lone_option_still_applies(self) -> None:
         binding = _binding("Read it on the service basis", kind="date_basis", basis="service")
@@ -61,10 +72,9 @@ class TestAQuestionWithOneAnswerIsNotAQuestion:
 
 
 class TestAnOptionlessClarificationSaysSo:
-    """Defect 1. ``ClarificationPrompt`` maps over the options array, so an
-    empty one renders as a question above a blank row of buttons — reached
-    live in two independent sessions, one of them after $0.10 spent to deny
-    a capability."""
+    """``ClarificationPrompt`` maps over the options array, so an empty one
+    renders as a question above a blank row of buttons — reached live in two
+    independent sessions."""
 
     def test_the_card_is_marked_and_the_original_reason_still_leads(self) -> None:
         card = _no_options_card(
@@ -80,8 +90,8 @@ class TestAnOptionlessClarificationSaysSo:
 
 
 class TestAReplyThatAnswersNothingIsNotAnAnswer:
-    """Defect 6b. A genuinely new question was swallowed as a clarification
-    answer, spliced onto the abandoned one, under a false
+    """A genuinely new question was swallowed as a clarification answer,
+    spliced onto the abandoned one, under a false
     ``CLARIFICATION_ANSWER_APPLIED`` disclosure."""
 
     PENDING = PendingClarification(
@@ -108,3 +118,213 @@ class TestAReplyThatAnswersNothingIsNotAnAnswer:
 
     def test_silence_is_not_treated_as_a_new_question(self) -> None:
         assert _answers_pending("   ", self.PENDING) is True
+
+
+# ---------------------------------------------------------------------------
+# What may be offered, and what a collapse to one option means
+
+
+@pytest.fixture(name="validator")
+def validator_fixture(
+    catalog: CatalogSnapshot, pack_port: PackSnapshotPort
+) -> PlanValidationService:
+    """The plan validator, for the checks that read no warehouse.
+
+    ``unexecutable_cut`` is pure catalog + pack — it answers "can this
+    metric be cut that way" from two snapshots — so the repository is never
+    reached and is not wired.
+    """
+    return PlanValidationService(catalog, pack_port, repository=cast(Any, None))
+
+
+#: The option the live session collapsed to and then RAN, unasked.
+SURVIVOR = "Show days in A/R for July 2026"
+
+
+def _scorecard_refusal() -> ClarificationRequest:
+    return ClarificationRequest(
+        question=(
+            "I can't build a payer scorecard: this pack has no playbook that composes "
+            "denials, collections and A/R into one view."
+        ),
+        options=(SURVIVOR,),
+        reason="PLAYBOOK_TRANSFORM_UNAVAILABLE: scorecard",
+        bindings=(
+            ClarificationBinding(
+                option=SURVIVOR, kind="grounded_option", metric_ids=("days_in_ar",)
+            ),
+        ),
+    )
+
+
+class TestACollapseToOneOptionIsStatedNeverSelected:
+    """regression: the same utterance that clarified correctly in a clean
+    session answered outright in a session with prior context — sole finding
+    "Atlas Commercial: 179.5 days in ar", a payer the turn never named, with
+    the refusal demoted into a disclosure saying it "was applied rather than
+    asked about"."""
+
+    def test_the_refusal_keeps_the_lead(self) -> None:
+        clarification = _scorecard_refusal()
+        stated = _state_the_survivor(clarification, clarification.bindings[0])
+        assert stated.question.startswith("I can't build a payer scorecard")
+
+    def test_the_survivor_is_named_and_not_run(self) -> None:
+        clarification = _scorecard_refusal()
+        stated = _state_the_survivor(clarification, clarification.bindings[0])
+        assert SURVIVOR in stated.question
+        assert "I have not run it on your behalf" in stated.question
+        assert stated.options == (SURVIVOR,)
+        assert CLARIFICATION_SOLE_SURVIVOR_REASON in (stated.reason or "")
+
+    def test_the_original_reason_survives_for_every_other_reader(self) -> None:
+        clarification = _scorecard_refusal()
+        stated = _state_the_survivor(clarification, clarification.bindings[0])
+        assert (stated.reason or "").startswith("PLAYBOOK_TRANSFORM_UNAVAILABLE")
+
+
+class TestAThreadFilterIsNeverCarriedOntoTheCutItAsksAbout:
+    """regression: the resumed context carried ``payer eq [Atlas Commercial]``
+    onto a turn that asked for a scorecard ACROSS payers."""
+
+    def test_a_filter_on_the_dimension_being_cut_by_is_not_inherited(
+        self, make_spec
+    ) -> None:  # type: ignore[no-untyped-def]
+        thread = make_spec(
+            measures=("days_in_ar",),
+            scope=Predicate(
+                dimension=DimensionRef("payer"),
+                op=PredicateOp.EQ,
+                values=("Atlas Commercial",),
+            ),
+        )
+        asked = make_spec(measures=("days_in_ar",), dimensions=("payer",))
+
+        resumed, _, notes = _with_resumed_context(asked, thread, True)
+
+        assert not [
+            p for p in iter_predicates(resumed.context.scope) if p.dimension.id == "payer"
+        ]
+        assert any("is NOT carried" in note for note in notes)
+
+    def test_a_filter_on_another_dimension_is_still_inherited(
+        self, make_spec
+    ) -> None:  # type: ignore[no-untyped-def]
+        thread = make_spec(
+            measures=("denial_rate",),
+            scope=Predicate(
+                dimension=DimensionRef("service_line"),
+                op=PredicateOp.EQ,
+                values=("Imaging",),
+            ),
+        )
+        asked = make_spec(measures=("denial_rate",), dimensions=("payer",))
+
+        resumed, _, notes = _with_resumed_context(asked, thread, True)
+
+        assert [p.dimension.id for p in iter_predicates(resumed.context.scope)] == [
+            "service_line"
+        ]
+        assert any("are carried onto" in note for note in notes)
+
+
+class TestEveryOfferedOptionIsOneTheEngineCanRun:
+    """regression: "Why did it go up?" burned three turns and fired the
+    circuit breaker on the product's own suggestion —
+    ``GRAIN_INCOMPATIBLE_RECOVERABLE: denial_category is not a scope dimension
+    of denial_rate``, a breakdown the engine knew it cannot run."""
+
+    def test_a_cut_the_metric_does_not_declare_is_refused_before_offer(
+        self, validator
+    ) -> None:  # type: ignore[no-untyped-def]
+        assert (
+            validator.unexecutable_cut(
+                "Yes — re-group the figure F1 result by denial reason", ("denial_rate",)
+            )
+            is not None
+        )
+
+    def test_a_legal_cut_survives(self, validator) -> None:  # type: ignore[no-untyped-def]
+        assert (
+            validator.unexecutable_cut("Break denial rate down by payer", ("denial_rate",))
+            is None
+        )
+
+    def test_a_platform_recovery_chip_is_not_a_query(self, validator) -> None:  # type: ignore[no-untyped-def]
+        assert (
+            validator.unexecutable_cut("Raise the per-turn cost ceiling", ("denial_rate",))
+            is None
+        )
+
+    def test_an_option_naming_both_a_legal_and_an_illegal_cut_survives(
+        self, validator
+    ) -> None:  # type: ignore[no-untyped-def]
+        """One-sided on purpose: the option is answerable, the composer was
+        imprecise, and dropping it would cost the analyst a real route."""
+        assert (
+            validator.unexecutable_cut(
+                "Break denial rate down by payer and denial category", ("denial_rate",)
+            )
+            is None
+        )
+
+    def test_a_playbook_this_engine_cannot_answer_is_refused_before_offer(
+        self, validator
+    ) -> None:  # type: ignore[no-untyped-def]
+        """The live option verbatim: "Who is my worst payer?" offered "Run a
+        full payer scorecard across all measures", while asking for that
+        elsewhere returns ``PLAYBOOK_TRANSFORM_UNAVAILABLE``."""
+        assert validator.unanswerable_playbook(
+            "Run a full payer scorecard across all measures"
+        ) == ("payer_scorecard", "pivot")
+
+    def test_the_hero_chip_advertising_an_unimplemented_forecast_is_caught(
+        self, validator
+    ) -> None:  # type: ignore[no-untyped-def]
+        """``cash_outlook`` answers by ``project_lagged_realization``, which
+        this engine does not implement, and the chip is on the hero."""
+        assert validator.unanswerable_playbook("Will my cash increase next month?") == (
+            "cash_outlook",
+            "project_lagged_realization",
+        )
+
+    def test_a_playbook_this_engine_CAN_answer_survives(
+        self, validator
+    ) -> None:  # type: ignore[no-untyped-def]
+        assert validator.unanswerable_playbook("Show me AR aging") is None
+        assert validator.unanswerable_playbook("Break denial rate down by payer") is None
+
+    def test_an_option_naming_a_measure_is_a_direct_query_however_it_is_phrased(
+        self, validator
+    ) -> None:  # type: ignore[no-untyped-def]
+        """One-sided, exactly like ``unexecutable_cut``. ``payer_scorecard``
+        declares the trigger "rank payers", and "Rank payers by denial rate"
+        is a question this engine answers in one probe — dropping it would
+        cost the analyst a real route to keep a rule tidy."""
+        for option in (
+            "Rank payers by denial rate",
+            "Score each payer on days_in_ar",
+            "Payer scorecard: just the denial rate column",
+        ):
+            assert validator.unanswerable_playbook(option) is None, option
+
+    def test_an_option_naming_no_playbook_at_all_survives(
+        self, validator
+    ) -> None:  # type: ignore[no-untyped-def]
+        assert validator.unanswerable_playbook("Raise the per-turn cost ceiling") is None
+        assert validator.unanswerable_playbook("") is None
+
+    def test_which_measure_is_recognised_however_it_is_phrased(self) -> None:
+        for question in (
+            "Which metric are you asking about?",
+            "Which measure did you mean — the last figure you charted?",
+            "What metric are you asking about?",
+        ):
+            assert _ASKS_WHICH_MEASURE.search(question), question
+
+    def test_an_ordinary_question_is_not_mistaken_for_it(self) -> None:
+        for question in (
+            "Which payer did you mean?",
+            "This pack defines no metric called 'foo'. Did you mean one of these?",
+        ):
+            assert not _ASKS_WHICH_MEASURE.search(question), question

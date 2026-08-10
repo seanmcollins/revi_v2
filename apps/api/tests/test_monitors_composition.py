@@ -1,30 +1,12 @@
-"""What the Monitors surface SAYS, and what it refuses to say.
+"""What the Monitors surface says, and what it refuses to say.
 
-Round 7 gated on two sentences a buyer read on their own screen against
-their own stored data:
-
-    "Pinnacle Health Plan: 22.9%"  — over State Medicaid MCO's 29.5%
-    "29.5% at wm_003, up 3.6 points from 25.9% at wm_002 … this change is
-     late-arriving data settling — adjudication run-out"
-
-Every clause of the second is false: the payer named in the tile's title
-had FALLEN 6.6 points, and the "movement" was the difference between two
-different payers, gated material, counted, and then explained by a causal
-mechanism. The pieces below are the ones that made that possible and the
-ones that now make it impossible:
-
-* subject identity on a comparison (:func:`_not_comparable_reason`), and
-  the payload-build assertion that a label and a value may not name
-  different subjects;
-* the brief's own vocabulary — human nouns, load DATES, no ``wm_`` ids, no
-  "(s)", each figure said once;
-* the cap, which dropped the platform's verdicts on the team's own work
-  first because it truncated in assembly order;
-* the census, which must reconcile to its parts on a surface whose whole
-  claim is "withheld visibly, never silently".
-
-These are the pure functions. The end-to-end proof over three real loads
-lives in ``packages/testing/tests/test_monitors_loads.py``.
+The regression these pin: a tile reported a movement that was really the
+difference between two different payers, gated it material, counted it, and then
+explained it with a causal mechanism. The pure functions below cover subject
+identity on a comparison, the brief's vocabulary (human nouns, load dates, each
+figure said once), the cap's drop order, and the census reconciling to its parts.
+The end-to-end proof over three real loads lives in
+``packages/testing/tests/test_monitors_loads.py``.
 """
 
 from __future__ import annotations
@@ -127,15 +109,14 @@ def _entry(kind: str, *, title: str = "", impact: int | None = None) -> Monitors
 
 
 # ---------------------------------------------------------------------------
-# FN-1 / FN-2: which cell is this number about?
+# which cell is this number about?
 
 
 class TestSubjectIdentity:
     def test_a_delta_between_two_different_cells_is_refused_with_both_named(self) -> None:
-        """The exec's own repro. wm_002 headlined Pinnacle at 25.9%, wm_003
-        headlines State Medicaid MCO at 29.5%, and the shipped code called
-        that "up 3.6 points" — then explained the phantom as adjudication
-        run-out on a same-window note."""
+        """The regression repro: wm_002 headlined Pinnacle at 25.9%, wm_003
+        headlines State Medicaid MCO at 29.5%, and the shipped code called that
+        "up 3.6 points" — then explained the phantom as adjudication run-out."""
         pin = _pin(_spec())  # a ranked breakdown: the headline is a RANK
         prior = _tile(headline_subject_label="Pinnacle Health Plan")
 
@@ -218,7 +199,7 @@ class TestSubjectIdentity:
 
 
 # ---------------------------------------------------------------------------
-# FN-18: one spec, one monitor
+# one spec, one monitor
 
 
 class TestDuplicateSpecs:
@@ -242,7 +223,7 @@ class TestDuplicateSpecs:
 
 
 # ---------------------------------------------------------------------------
-# FN-11: what the cap drops
+# what the cap drops
 
 
 class TestTheCapDropsByConsequence:
@@ -295,7 +276,7 @@ class TestTheCapDropsByConsequence:
 
 
 # ---------------------------------------------------------------------------
-# FN-8: the sentence a champion screenshots
+# the sentence a reader screenshots
 
 
 class TestBriefCopy:
@@ -420,7 +401,7 @@ class TestBriefCopy:
 
 
 # ---------------------------------------------------------------------------
-# FN-16: the money still catchable
+# the money still catchable
 
 
 class TestCashTimingLanes:
@@ -468,10 +449,10 @@ class TestCashTimingLanes:
         )
 
     def test_the_split_totals_the_money_that_has_not_hit_cash(self) -> None:
-        """The director's question — "how much money has not hit cash yet
-        and when are the deadlines?" — was answered with one
-        undifferentiated total, and the deadline half was dropped with no
-        refusal. Every part of the answer was already on each card."""
+        """"How much money has not hit cash yet, and when are the deadlines?"
+        used to be answered with one undifferentiated total, dropping the
+        deadline half with no refusal — though every part of the answer was
+        already on each card."""
         lanes = _cash_timing_lanes(
             [
                 self._card("A", "pre_cash", recoverable=17_064_300,
@@ -499,11 +480,11 @@ class TestCashTimingLanes:
         assert lanes[0].soonest_deadline_date == date(2026, 9, 1)
 
     def test_a_closed_window_is_counted_rather_than_rendered_as_a_countdown(self) -> None:
-        """On the reference worklist the soonest limit in the already-hit
-        lane closed 94 days ago. Sorting on it makes the header read "closes
-        in -94 days", which is a passed deadline wearing a countdown's
-        clothes — and hiding it would drop the fact that windows have
-        closed. Both are published, each as what it is."""
+        """On the reference worklist the soonest limit in the already-hit lane
+        closed 94 days ago. Sorting on it makes the header read "closes in -94
+        days", a passed deadline wearing a countdown's clothes — and hiding it
+        would drop the fact that windows have closed. Both are published, each
+        as what it is."""
         lanes = _cash_timing_lanes(
             [
                 self._card(
@@ -557,7 +538,7 @@ class TestCashTimingLanes:
 
 
 # ---------------------------------------------------------------------------
-# FN-12: the census closes
+# the census closes
 
 
 def test_a_delta_payload_can_state_a_first_reading() -> None:

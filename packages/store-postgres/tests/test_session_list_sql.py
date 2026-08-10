@@ -1,14 +1,11 @@
 """The session-list SQL, compiled without a database.
 
-The behavioral suite for these stores needs a real Postgres (``-m
-postgres``, docker), which means a machine without docker runs none of it.
-The list query is the newest SQL in this package and the only one using
-LATERAL, so its *shape* is pinned here in the default suite: the predicates
-it filters on, the join it derives titles and activity from, and the
-ordering a client's "most recent first" depends on.
-
-Compile-only. It proves the statement renders the intended Postgres, not
-that Postgres likes the result — that is the contract suite's job.
+The behavioural suite for these stores needs a real Postgres (``-m postgres``, docker), so a machine
+without docker runs none of it. The list query is the newest SQL in this package and the only one
+using LATERAL, so its *shape* is pinned here in the default suite: the predicates it filters on, the
+join it derives titles and activity from, and the ordering a client's "most recent first" depends
+on. Compile-only — it proves the statement renders the intended Postgres, not that Postgres likes
+the result; that is the contract suite's job.
 """
 
 from __future__ import annotations

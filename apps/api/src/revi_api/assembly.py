@@ -184,14 +184,13 @@ def finding_payload(
 ) -> FindingPayload:
     """One finding on the wire, with governed display names applied.
 
-    Round-2 FN-5: the display name reached ``metric_display`` and the
-    narrative body and *not* the title — the field a reader scans and a
-    screenshot carries. The rewrite is done here, at the rendering
-    boundary, because the engine may not read pack-adjacent display
-    content and a client-side rewrite is not a correction (replay, export
-    and any second client keep the mislabel). The metric's governed caveat
-    rides along on the payload so it can be rendered as visible text under
-    the title rather than behind a hover.
+    The title is rewritten here, at the rendering boundary: the display
+    name used to reach ``metric_display`` and the narrative body but not
+    the title — the field a reader scans. The engine may not read
+    pack-adjacent display content, and a client-side rewrite is not a
+    correction (replay, export and any second client keep the mislabel).
+    The metric's governed caveat rides along on the payload so it can be
+    rendered as visible text under the title rather than behind a hover.
     """
     metric_ids = [ref.id for ref in finding.metric_refs]
     names = metric_display.names if metric_display is not None else None
@@ -232,10 +231,10 @@ def restored_context_header(
 ) -> ContextHeaderPayload | None:
     """The §7.2 header of a STORED turn, rebuilt from its own spec.
 
-    Round-2 deferred P0: a re-opened session restored dollar figures with
-    no window, no scope, no cohort and no data date, while the caveats
-    survived — so the restored view was caveats about a number whose
-    meaning had been dropped. Every one of those facts is on the persisted
+    Without it, a re-opened session restored dollar figures with no
+    window, no scope, no cohort and no data date while the caveats
+    survived — caveats about a number whose meaning had been dropped.
+    Every one of those facts is on the persisted
     :class:`~revi_investigation.domain.context.AnalysisSpec`, so nothing
     here is reconstructed by inference:
     :func:`~revi_investigation_contracts.header.build_header_payload` — the
@@ -309,15 +308,10 @@ def _restoration_notes(
 
     Written from facts about the record in hand — never a guess about why
     something is missing, and never a claim about something not in hand.
-
-    Round-10 R10-4 fixed both halves of this note. It used to end *"Its
-    findings, warnings and charts are its own record"* unconditionally, on
-    a response that shipped ``chart_specs: []`` — false on every lineage
-    node, where charts are not looked up at all, and false again whenever
-    the frames behind a turn had been swept. And it opened by asserting the
-    prose was gone, which stopped being true the moment the narrative was
-    persisted. Both sentences are now composed from what this response
-    actually carries.
+    Both sentences are composed from what this response actually carries:
+    a fixed inventory claimed charts on lineage nodes, where charts are not
+    looked up at all, and claimed the prose was gone after the narrative
+    started being persisted.
     """
     notes: list[str] = []
     if header is not None:
@@ -416,7 +410,7 @@ def investigation_response(
     ``chart_specs`` are rebuilt from the turn's persisted frames by
     :func:`restored_chart_specs`, and are what the restoration note counts
     when it says what this link carries — the note used to claim charts
-    while the same response shipped ``[]`` (round-10 R10-4).
+    while the same response shipped ``[]``.
 
     The narrative is the turn's OWN, read off the stored record and never
     reconstructed. A turn that ran before the narrative was persisted, or
@@ -456,7 +450,7 @@ def investigation_response(
         # A monitor declaration this turn refused. Restored beside the
         # warnings that say the same thing in prose, because a refusal
         # renders where the confirmation would have gone and a client that
-        # only had the sentence had nowhere to put it (round-7 FN-3).
+        # only had the sentence had nowhere to put it.
         monitor_refused=monitor_refused,
         investigation_id=investigation.id,
         session_id=investigation.session_id,
@@ -487,9 +481,9 @@ def investigation_response(
         warnings=list(investigation.warnings),
         warnings_v2=structured_warnings(investigation.warnings),
         cohort=cohort,
-        # Round-2 FN-5: the stored turn publishes the same governed display
-        # block the live answer does. Without it a restored or exported
-        # investigation carries titles the reader has no way to correct.
+        # The stored turn publishes the same governed display block the live
+        # answer does. Without it a restored or exported investigation
+        # carries titles the reader has no way to correct.
         metric_display=(
             metric_display.payloads_for(
                 [ref.id for f in investigation.findings for ref in f.metric_refs]
@@ -546,18 +540,18 @@ async def restored_chart_specs(
             suppression_threshold=components.catalog.suppression.threshold,
             # The plan is gone by restore time; the ordering it resolved was
             # recorded with it, so a re-opened turn's charts sort the way the
-            # live ones did instead of falling back to frame order (R3-13).
+            # live ones did instead of falling back to frame order.
             sorts=chart_sorts_from_trace(trace),
             # The window this turn ran over, rebuilt from its own stored spec
             # by the same builder the restored response publishes: a frame
             # with no dimension is charted against its PERIOD, and a restored
-            # turn must name the same one the live answer did (FIX-8).
+            # turn must name the same one the live answer did.
             windows=restored_context_header(investigation),
         )
     )
-    # The same two contract checks the live turn ran (R4-09, R4-14): a
-    # restored chart that keeps a collapsing key or an alphabetised aging
-    # axis is a second, wrong rendering of the answer already published.
+    # The same two contract checks the live turn ran: a restored chart that
+    # keeps a collapsing key or an alphabetised aging axis is a second,
+    # wrong rendering of the answer already published.
     policed, _ = _police_charts(specs, frames, components)
     return policed
 
@@ -675,7 +669,7 @@ def _narrative_disclosures(
 
     Composed from the SAME structured facts the response already carries —
     ``warnings_v2`` and the card/answer reconciliation strip — because the
-    defect was never that the facts were missing (round-2 FN-3).
+    facts were never the thing that was missing.
     """
     classified = [(w.code, w.message) for w in structured_warnings(warnings)]
     suppressed, total = _suppression_counts(outcome)
@@ -722,30 +716,30 @@ async def _compose_narrative(
     disclosures = [*lead, *trail]
     # The ANSWER's own caution census — the same list the banners render
     # from — so nothing downstream has to infer "this turn has no caveats"
-    # from the emptiness of a prompt slot (round-5 C-01). ``disclosures``
-    # is the MANDATORY subset and is routinely empty on turns carrying
-    # WINDOW_ASSUMED, ALTERNATE_BASIS_USED or POPULATION_CAVEAT.
+    # from the emptiness of a prompt slot. ``disclosures`` is the MANDATORY
+    # subset and is routinely empty on turns carrying WINDOW_ASSUMED,
+    # ALTERNATE_BASIS_USED or POPULATION_CAVEAT.
     published_cautions = sum(
         1 for w in structured_warnings(warnings) if w.severity == "caution"
     )
     if not findings and worklist is not None and worklist.items:
         # The worklist IS the answer and its statement is already composed —
         # deterministically, from the build, naming the formula, the lanes,
-        # the top card and the recoverable total (round-3 R3-09/R3-10). A
-        # turn that carries it and no findings used to publish
-        # ``narrative: null`` beside a fully-populated ranked list, so the
-        # client wrote "No findings for this question" over the answer.
-        # Nothing is generated here and no model is called.
+        # the top card and the recoverable total. A turn that carries it and
+        # no findings used to publish ``narrative: null`` beside a
+        # fully-populated ranked list, so the client wrote "No findings for
+        # this question" over the answer. Nothing is generated here and no
+        # model is called.
         stated, _ = compose_narrative(lead, worklist.statement, trail)
         if on_event is not None:
             await on_event("narrative_delta", {"delta": stated})
         return stated
     if header is None or not findings:
         # A turn with nothing to publish is exactly the turn whose reader
-        # most needs a sentence. ``narrative: null`` shipped beside
-        # ``EMPTY_RESULT`` on four personas' turns and the client rendered
-        # "No findings for this question" over a population that has one
-        # (round-2 FN-3). No model call: the cause is already structured.
+        # most needs a sentence. ``narrative: null`` beside ``EMPTY_RESULT``
+        # made the client render "No findings for this question" over a
+        # population that has one. No model call: the cause is already
+        # structured.
         stated = empty_narrative(
             [(w.code, w.message) for w in structured_warnings(warnings)]
         )
@@ -773,9 +767,9 @@ async def _compose_narrative(
     display_names = components.metric_display.names
     # When a card-to-drill strip is on this answer, THAT is the
     # reconciliation the reader compared — the lineage verdict is about
-    # something else and reading it out as "reconciliation was not
+    # something else, and reading it out as "reconciliation was not
     # performed" beside a divergence strip is the sentence the strip exists
-    # to eliminate (round-2 FN-3).
+    # to eliminate.
     reconciliation_line = outcome.reconciliation
     if anomaly_reconciliation is not None:
         reconciliation_line = (
@@ -786,9 +780,8 @@ async def _compose_narrative(
         findings=findings,
         header=header,
         reconciliation=reconciliation_line,
-        # The governed ranges, at last: authored with cohort labels,
-        # cautions and sources since KB wave 1, and passed here as a
-        # literal empty tuple until the round-1 review counted them.
+        # The governed ranges, with their cohort labels, cautions and
+        # sources — the composer cannot cite peer context it was not shown.
         benchmarks=[b.prompt_line for b in outcome.benchmarks],
         caveats=caveats,
         metric_display=display_names,
@@ -800,7 +793,7 @@ async def _compose_narrative(
         # against them — they are published either way.
         disclosures=disclosures,
         # …and how many caveats the ANSWER carries, so an empty slot above
-        # can never be read as "this answer has no caveats" (round-5 C-01).
+        # can never be read as "this answer has no caveats".
         published_cautions=published_cautions,
     )
     assert_safe_payload(prompt)
@@ -841,8 +834,8 @@ async def _compose_narrative(
         # restates one it must validate rather than be cut.
         disclosures=disclosures,
         # On a turn that routed to the worklist, no prose instruction may
-        # name a first action other than the ranked list's own rank 1
-        # (R3-10): two orderings on one card, and only one was asked for.
+        # name a first action other than the ranked list's own rank 1:
+        # two orderings on one card, and only one was asked for.
         worklist_first_action=worklist_first_action(worklist),
         # The census the "no caveats" affirmation is derived from, and the
         # one a sentence claiming otherwise is redacted against.
@@ -989,27 +982,26 @@ async def assemble_turn_response(
             playbook_id=playbook_id,
             row_referents=row_referents,
             suppression_threshold=components.catalog.suppression.threshold,
-            # The ordering the plan resolved (R3-13): the findings obey it
-            # and the chart under them used to be drawn in frame order.
+            # The ordering the plan resolved: the findings obey it, and the
+            # chart under them used to be drawn in frame order.
             sorts={
                 frame_id: (by, descending)
                 for frame_id, by, descending in outcome.chart_sorts
             },
             # The turn's own window, off the header it already published: a
             # frame with no dimension has no category to key marks by, and
-            # its axis is the period rather than — as it was live — the
-            # measured value itself (FIX-8).
+            # its axis is the period rather than the measured value itself.
             windows=outcome.header,
         )
     )
     # …and then the two contract checks a published chart must pass: its
-    # rows must be uniquely addressable by the axes it declares (R4-09),
-    # and an ordinal bucket axis must come off the wire in the order the
-    # catalog declares for it rather than alphabetically (R4-14).
+    # rows must be uniquely addressable by the axes it declares, and an
+    # ordinal bucket axis must come off the wire in the order the catalog
+    # declares for it rather than alphabetically.
     chart_specs, chart_warnings = _police_charts(chart_specs, outcome.frames, components)
     # A chart title names a metric to a human, so it is a surface the
-    # governed display name owns too (round-6 E-04). Copied only where the
-    # rewrite changes something: most titles name no corrected id.
+    # governed display name owns too. Copied only where the rewrite changes
+    # something: most titles name no corrected id.
     display_names = components.metric_display.names
     chart_specs = tuple(
         spec
@@ -1029,9 +1021,9 @@ async def assemble_turn_response(
         # detection feed's work rather than this answer's evidence.
         warnings.append(worklist_warning(worklist))
         # …and when the worklist ROUTED, it does not sit beside the answer,
-        # it IS the answer, and it leads (R3-10). Prepended rather than
-        # appended so it is the first thing in the warning order the lead
-        # disclosures are composed from.
+        # it IS the answer, and it leads. Prepended rather than appended so
+        # it is the first thing in the warning order the lead disclosures
+        # are composed from.
         leads = worklist_lead_warning(worklist)
         if leads is not None:
             warnings.insert(0, leads)
@@ -1056,7 +1048,7 @@ async def assemble_turn_response(
         usage_out=narrative_usage,
         anomaly_reconciliation=anomaly_reconciliation,
         # No prose instruction may name a first action other than the ranked
-        # worklist's own rank 1, on a turn that routed to it (R3-10).
+        # worklist's own rank 1, on a turn that routed to it.
         worklist=worklist,
     )
     # The last model call of the turn, folded in after it ran. Everything
@@ -1082,13 +1074,12 @@ async def assemble_turn_response(
             pack_version=outcome.definitional.pack_version,
             pack_snapshot_id=outcome.definitional.pack_snapshot_id,
         )
-    # Round-6 E-04. ``apply_metric_display`` had exactly one caller — the
-    # finding card — so every OTHER surface that carries a finding's title
-    # to a human carried the raw metric id instead: the referent chip (the
-    # most-clicked control in the refinement loop) read "timely filing at
-    # risk dollars: $22,426,000.28" beside a card reading "Unbilled open
-    # inventory on a running filing clock: $22,426,000.28", and the meta
-    # answer's label said the same thing a third way. One map, every seam.
+    # One display map, every seam. With ``apply_metric_display`` called only
+    # on the finding card, every OTHER surface carrying a finding's title to
+    # a human showed the raw metric id: the referent chip read "timely
+    # filing at risk dollars: $22,426,000.28" beside a card reading
+    # "Unbilled open inventory on a running filing clock: $22,426,000.28",
+    # and the meta answer's label said it a third way.
     meta: MetaAnswerPayload | None = None
     if outcome.meta is not None:
         meta = MetaAnswerPayload(

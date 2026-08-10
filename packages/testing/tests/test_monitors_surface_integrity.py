@@ -1,24 +1,11 @@
-"""Round-8 regressions: what the SURFACE serves, and whose turn it is.
+"""Monitor surface integrity: what the SURFACE serves, and whose turn it is.
 
-Every test here corresponds to a live defect a buyer read off the running
-product, and each one is written against the seam the defect actually
-crossed — which in three of four cases is NOT the seam the round-7 test
-covered:
-
-* the repair pass rewrote the PIN and the surface renders the TILE, so a
-  test that asserted on the pin row passed while two repaired monitors went
-  on publishing their pre-repair tiles for two days (FIX-1);
-* the subject-identity guard failed OPEN when neither side recorded a
-  subject — the state of every tile stored before subjects existed — so
-  the guard was unreachable on exactly the rows it was written for, and a
-  rank flip published as a 3.6-point movement with a causal explanation
-  attached (FIX-2);
-* ``days`` was legal in the engine and missing from the wire's enum, so one
-  stored monitor 500'd the whole tenant's pin list and a days declaration
-  stored its pin and then reported that it had not (FIX-3);
-* a turn envelope carried a concurrent caller's session and investigation
-  ids, which are the ids every client adopts for permalinks and pin
-  provenance (FIX-5).
+Each test is written against the seam its defect actually crossed: a repair pass
+rewrote the PIN while the surface renders the TILE; the subject-identity guard failed
+OPEN when neither side recorded a subject, so a rank flip published as a movement with
+a causal explanation attached; ``days`` was legal in the engine and missing from the
+wire's enum, so one stored monitor 500'd a whole tenant's pin list; and a turn envelope
+carried a concurrent caller's session and investigation ids.
 """
 
 from __future__ import annotations
@@ -69,7 +56,7 @@ pytestmark = [
 ]
 
 TENANT = "demo"
-CALLER = Principal(tenant=TENANT, subject="round8-suite")
+CALLER = Principal(tenant=TENANT, subject="monitors-surface-suite")
 
 
 def _service() -> ApiService:
@@ -83,7 +70,7 @@ async def _watermarks(service: ApiService) -> tuple[DataWatermark, ...]:
 
 def _ranked_spec() -> TypedInvestigationSpec:
     """Denial rate BY PAYER — the ranked breakdown whose leader changes
-    between wm_002 and wm_003, which is the whole subject of FIX-2."""
+    between wm_002 and wm_003, which is the subject of the rank-flip tests."""
     return TypedInvestigationSpec(
         metric_ids=["denial_rate"],
         dimensions=["payer"],
@@ -93,7 +80,7 @@ def _ranked_spec() -> TypedInvestigationSpec:
 
 
 class TestARepairedMonitorChangesWhatTheSurfaceServes:
-    """FIX-1. The repair pass narrowed specs, recomposed labels and cleared
+    """The repair pass narrowed specs, recomposed labels and cleared
     baselines — and ``GET /v1/monitors`` went on serving the tiles those
     monitors had before the repair, because evaluation reuses any stored
     result for the current watermark. A repair that does not change what the
@@ -109,8 +96,8 @@ class TestARepairedMonitorChangesWhatTheSurfaceServes:
             CALLER, session.session_id, TurnRequest(spec=_ranked_spec())
         )
         assert isinstance(answer, TurnAnswer), answer
-        # A monitor in the shape the store held before round 7: the whole
-        # ranking, titled with one cell's finding.
+        # A monitor in the shape the store once held: the whole ranking,
+        # titled with one cell's finding.
         second = answer.findings[1]
         created = await service.monitors.create_pin(
             CALLER,
@@ -157,7 +144,7 @@ class TestARepairedMonitorChangesWhatTheSurfaceServes:
         assert [(f.dimension, list(f.values)) for f in repaired.spec.filters] == [
             ("payer", [cell])
         ]
-        # THE SERVED TILE, not the pin row: the assertion round 7 did not make.
+        # THE SERVED TILE, not the pin row — the assertion that was missing.
         assert tile.label == repaired.label
         assert tile.label != stale_tile.label
         assert tile.headline_subject_label == cell
@@ -212,8 +199,8 @@ class TestARepairedMonitorChangesWhatTheSurfaceServes:
     def test_a_stored_tile_with_no_recorded_subject_is_stale(self) -> None:
         """Named as a unit so the rule reads without a warehouse: a
         breakdown tile that does not say which cell it headlined is exactly
-        what every pre-wave-E row is, and it is what makes the comparability
-        guard downstream unreachable."""
+        what every tile stored before subjects existed is, and it is what
+        makes the comparability guard downstream unreachable."""
         pin = MonitorsPin(
             id="pin_x",
             tenant=TENANT,
@@ -250,8 +237,8 @@ class TestARepairedMonitorChangesWhatTheSurfaceServes:
 
 
 class TestARankFlipIsNeverAMovement:
-    """FIX-2. The one branch of the subject guard that failed open covered
-    the entire installed base, and the live brief published "29.5%, up 3.6
+    """The one branch of the subject guard that failed open covered the
+    entire installed base, and the live brief published "29.5%, up 3.6
     points from 25.9%... adjudication run-out" for two different payers."""
 
     async def test_two_blank_subjects_are_not_comparable(self) -> None:
@@ -352,7 +339,7 @@ class TestARankFlipIsNeverAMovement:
 
 
 class TestDaysIsALegalThresholdEverywhere:
-    """FIX-3. One token of enum skew: a 500 for the whole tenant, a monitor
+    """One token of enum skew: a 500 for the whole tenant, a monitor
     stored twice while reported not stored, and a disabled settings control
     on every tile."""
 
@@ -432,8 +419,8 @@ class TestDaysIsALegalThresholdEverywhere:
         self,
     ) -> None:
         """The declaration path bypassed the spec-hash dedupe the on-screen
-        pin path has run since round 7, so one tenant holds two identical
-        days monitors, both briefing."""
+        pin path runs, so one tenant held two identical days monitors, both
+        briefing."""
         service = _service()
         session = await service.open_session(CALLER, OpenSessionRequest())
         answer = await service.submit_turn(
@@ -455,8 +442,8 @@ class TestDaysIsALegalThresholdEverywhere:
 
 
 class TestAMonitorIsTitledByWhatItResolvedTo:
-    """FIX-10. A monitor clarified off a hallucinated payer kept the wrong
-    name permanently, and "monitor this" produced a monitor labelled ``this``."""
+    """A monitor clarified off a hallucinated payer kept the wrong name
+    permanently, and "monitor this" produced a monitor labelled ``this``."""
 
     async def test_the_label_comes_from_the_spec_and_the_confirmation_says_so(
         self,
@@ -481,7 +468,7 @@ class TestAMonitorIsTitledByWhatItResolvedTo:
 
 
 class TestATurnEnvelopeIsItsOwnCallersEnvelope:
-    """FIX-5. Two turns posted to one session came back naming another
+    """Two turns posted to one session came back naming another
     caller's session and investigations — the ids every client adopts for
     permalinks, "Copy link" and pin provenance."""
 

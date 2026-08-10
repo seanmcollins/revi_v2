@@ -3,11 +3,7 @@
 Every number that decides whether a human is interrupted lives in
 ``packs/base-rcm/monitors.yaml`` with its authoring rationale beside it. This
 module reads that file and applies it; it holds no threshold of its own.
-
-That placement is the point. Alert fatigue is the death mode of a daily
-surface, and the difference between a brief somebody opens every morning
-and one they mute is a handful of constants. Constants in engine code are
-somebody's guess, unversioned, unattributable and un-tunable per
+Constants in engine code are unversioned, unattributable and un-tunable per
 deployment; constants in the pack are governed content with a content hash
 that rides on every brief they gated.
 
@@ -28,9 +24,8 @@ Three policies, three shapes:
 
 A missing file is not an error — a deployment whose pack ships no Monitors
 content gets no gate and no time-to-impact, stated rather than defaulted
-(:attr:`MonitorsPolicy.enabled`). A MALFORMED one is: a gate the platform
-silently failed to load is the failure this file exists to prevent, wearing
-a different mask.
+(:attr:`MonitorsPolicy.enabled`). A MALFORMED one is an error: a gate the
+platform silently failed to load is the failure this file exists to prevent.
 """
 
 from __future__ import annotations
@@ -71,9 +66,11 @@ MONITORS_FILENAME = "monitors.yaml"
 
 @dataclass(frozen=True, slots=True)
 class UnitThreshold:
-    """The gate for one unit kind. Every field is optional because the
-    shapes genuinely differ — a rate has no relative gate and days have no
-    floor-plus-percent pair."""
+    """The gate for one unit kind.
+
+    Every field is optional because the shapes genuinely differ: a rate has
+    no relative gate, and days have no floor-plus-percent pair.
+    """
 
     min_points: Decimal | None = None
     min_relative: Decimal | None = None
@@ -95,8 +92,8 @@ class FatiguePolicy:
     """When the brief tells somebody their own thresholds are too loose.
 
     ``message`` is governed wording with ``{count}`` and ``{ordinal}``
-    substituted. Deliberately not composed per deployment and never by a
-    model: an advisory that reads differently every morning reads as a bug.
+    substituted — never composed per deployment and never by a model, so the
+    advisory reads identically every morning.
     """
 
     consecutive_loads: int = 0
@@ -116,10 +113,9 @@ class MaterialityPolicy:
     max_entries: int = 12
     max_entries_per_kind: int = 5
     #: Which kinds the cap drops LAST, worst-to-lose first. Governed rather
-    #: than implicit in assembly order: the cap used to truncate the tail of
-    #: whatever order the engine happened to build entries in, which put the
-    #: platform's verdicts on the team's own work first in the queue to be
-    #: deleted (round-7 FN-11).
+    #: than implicit in assembly order: truncating the tail of whatever order
+    #: the engine happened to build entries in put the platform's verdicts on
+    #: the team's own work first in the queue to be deleted.
     priority_order: tuple[str, ...] = ()
     #: Kinds the overall cap may never drop.
     never_capped: frozenset[str] = frozenset()
@@ -383,19 +379,18 @@ def assess_movement(
 ) -> MaterialityVerdict:
     """Is this load-over-load movement worth interrupting somebody for?
 
-    Two gates, and the answer says which one decided:
+    Two gates, and the verdict says which one decided:
 
-    * the PACK's, per unit kind, which is what every monitor gets by default;
+    * the PACK's, per unit kind, which every monitor gets by default;
     * the ANALYST's, when the monitor declares its own mode. It may be
-      looser than the pack's — somebody monitoring one cell knows things a
-      blanket threshold does not — and when it briefs a movement the
-      governed gate calls normal, the verdict records that
+      looser than the pack's, and when it briefs a movement the governed
+      gate calls normal the verdict records that
       (:attr:`MaterialityVerdict.below_governed_gate`) so the brief can
       notice the pattern and say so once.
 
-    Every non-material outcome carries the sentence that explains it, so
-    the counted-and-withheld line on the brief can say WHAT was withheld
-    and why rather than reporting a bare number.
+    Every non-material outcome carries the sentence that explains it, so the
+    counted-and-withheld line on the brief can say WHAT was withheld and why
+    rather than reporting a bare number.
     """
     if prior is None or current is None:
         return MaterialityVerdict(
@@ -463,11 +458,13 @@ def _monitor_verdict(
     current: Decimal,
     magnitude_text: str,
 ) -> MaterialityVerdict:
-    """The analyst's own threshold, applied. Never raises on a bad monitor:
-    validation happens at CREATION (:func:`validate_monitor`), so a stored
-    monitor whose unit no longer fits its metric — a pack that re-declared a
-    contract's unit — degrades to "cannot evaluate" and says so, rather
-    than briefing on a comparison that means nothing."""
+    """The analyst's own threshold, applied. Never raises on a bad monitor.
+
+    Validation happens at CREATION (:func:`validate_monitor`), so a stored
+    monitor whose unit no longer fits its metric — a pack re-declared a
+    contract's unit — degrades to "cannot evaluate" and says so, rather than
+    briefing on a comparison that means nothing.
+    """
     if monitor.mode == "any_movement":
         material = delta != 0
         return MaterialityVerdict(
@@ -555,10 +552,8 @@ def _unit_mismatch_note(monitor: Monitor, unit: str | None) -> str:
 def format_threshold(monitor: Monitor, unit: str | None) -> str:
     """The monitor's threshold, said the way its unit should be said.
 
-    Including its number's own grammar: exactly one point is "1 point". The
-    platform read "1 points" on the first screen, which is the kind of seam
-    a reader files under "software wrote this" — on a surface whose whole
-    claim is that a person could have written every sentence on it.
+    Including its number's own grammar: exactly one point renders as
+    "1 point", not "1 points".
     """
     if monitor.value is None:
         return "no threshold"
@@ -580,17 +575,15 @@ def format_threshold(monitor: Monitor, unit: str | None) -> str:
 def validate_monitor(monitor: Monitor, *, units: Sequence[str | None]) -> str | None:
     """Why this monitor cannot be created, or ``None`` when it can.
 
-    Unit honesty is checked HERE, at creation, against the declared units
-    of the pinned spec's own metric contracts — not at fire time. A monitor
-    accepted with a dishonest unit is a monitor that silently never fires (or
-    always does), and the analyst finds out weeks later by not being told
-    about something.
+    Unit honesty is checked HERE, at creation, against the declared units of
+    the pinned spec's own metric contracts — not at fire time. A monitor
+    accepted with a dishonest unit silently never fires (or always does).
 
     A spec measuring several metrics with different units cannot carry a
-    unit-specific threshold at all: "half a point" over a money contract
-    and a rate contract together has no single meaning, and picking one is
-    a guess. ``relative_pct`` stays legal there because a fraction of the
-    reference value means the same thing in any unit.
+    unit-specific threshold at all: "half a point" over a money contract and
+    a rate contract together has no single meaning. ``relative_pct`` stays
+    legal there because a fraction of the reference value means the same
+    thing in any unit.
     """
     if monitor.mode not in MONITOR_MODES:
         return (
@@ -726,8 +719,8 @@ def assess_new_lead(
     A card has no prior value to have moved from, so the gate is its size —
     with one governed exception: the lanes named ``always_material`` are
     briefed regardless, because compliance-mandatory work carries the same
-    obligation at $824 as at $84,000, and lowering the floor for everybody
-    to catch those would brief every duplicate-claim card in the building.
+    obligation at any size, and lowering the floor for everybody to catch
+    those would brief every duplicate-claim card there is.
     """
     if lane in policy.always_material_lanes:
         return MaterialityVerdict(

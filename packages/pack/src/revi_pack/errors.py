@@ -42,16 +42,14 @@ class PackCatalogConformanceError(UnsupportedConceptError):
     """Governed pack content names semantics the semantic catalog does not
     define (see :mod:`revi_pack.conformance`).
 
-    Carries ``UNSUPPORTED_CONCEPT`` — the §12 code that already means "this
-    names something the source cannot express". It is the code the DuckDB
-    compiler raises for exactly this condition at probe time
-    (``_dimension_expr``: *unknown dimension 'status'*); raising the same one
-    at composition time makes the pack layer's judgement and the connector's
-    judgement literally the same verdict, moved earlier. ``POLICY_DENIED``
-    would be wrong: nothing here violates a governance rule about who may
-    change what — the content is simply not expressible. ``BINDING_AMBIGUOUS``
-    would be wrong in the other direction: there is no candidate to choose
-    between, there is none at all.
+    Carries ``UNSUPPORTED_CONCEPT``: the §12 code for "this names something
+    the source cannot express", and the same code the DuckDB compiler raises
+    for this condition at probe time — so composition time and probe time
+    return one verdict rather than two. ``POLICY_DENIED`` would be wrong
+    (nothing here violates a rule about who may change what; the content is
+    simply not expressible); ``BINDING_AMBIGUOUS`` would be wrong in the
+    other direction (there is no candidate to choose between, there is none
+    at all).
 
     ``details`` carries every offending pair, never just the first:
     ``{"pairs": [{"metric": …, "dimension": …}, …]}``.

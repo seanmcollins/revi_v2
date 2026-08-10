@@ -1,20 +1,19 @@
 """Monitors evaluation on watermark advance, inside the API process.
 
-The exact shape of :mod:`revi_api.cohort_sweep`, for the same reason: the
+The same shape as :mod:`revi_api.cohort_sweep`, for the same reason: the
 process that owns the state is the process that maintains it. A proactive
 surface whose evaluation only happens when somebody opens the app is not
-proactive — and the deployment where that matters most is the idle one,
+proactive, and the deployment where that matters most is the idle one,
 where nobody has opened the app since the load landed.
 
-So the API process monitors for a watermark advance and evaluates every
+So the API process watches for a watermark advance and evaluates every
 tenant's Monitors at the new load: every active monitor re-run, every claimed
 resolution verified, the detection-feed census recorded. The brief route
 calls the *same* :meth:`~revi_api.monitors.MonitorsService.evaluate_load`
 primitive, so a brief for a load the sweep has not reached yet is computed
 rather than empty, and the two paths cannot drift.
 
-Four deliberate choices, three of them inherited from the cohort sweep
-because they were right there:
+Four deliberate choices:
 
 * **Watermark-triggered, not clock-triggered.** The interval decides how
   often the process ASKS whether a new load has landed; evaluation happens
@@ -46,10 +45,9 @@ logger = logging.getLogger("revi.api.monitors_sweep")
 
 SWEEP_INTERVAL_ENV = "REVI_MONITORS_SWEEP_INTERVAL_SECONDS"
 
-#: Every fifteen minutes. Loads land nightly in this warehouse, so the tick
-#: exists to notice one promptly rather than to do work: the check is a
-#: single metadata read, and evaluation happens only when the watermark has
-#: actually moved.
+#: Loads land nightly, so the tick exists to notice one promptly rather than
+#: to do work: the check is a single metadata read, and evaluation happens
+#: only when the watermark has actually moved.
 DEFAULT_SWEEP_INTERVAL_SECONDS = 900.0
 
 
@@ -57,9 +55,9 @@ DEFAULT_SWEEP_INTERVAL_SECONDS = 900.0
 class MonitorsEvaluator(Protocol):
     """The slice of the Monitors service this loop needs.
 
-    Structural on purpose, exactly like ``CohortSweeper``: this module
-    names no service class, so a deployment that wires a different Monitors
-    implementation (or none) is a configuration rather than an import.
+    Structural on purpose: this module names no service class, so a
+    deployment that wires a different Monitors implementation (or none) is a
+    configuration rather than an import.
     """
 
     async def evaluate_load(
@@ -81,9 +79,8 @@ def sweep_interval_seconds(env: Mapping[str, str]) -> float:
     """``REVI_MONITORS_SWEEP_INTERVAL_SECONDS``; <= 0 disables the loop.
 
     An unparseable value falls back to the default LOUDLY rather than
-    silently disabling the surface — a typo must not quietly turn the
-    proactive half of the product off, which is exactly the failure this
-    module exists to prevent.
+    silently disabling the surface: a typo must not quietly turn the
+    proactive half of the product off.
     """
     raw = env.get(SWEEP_INTERVAL_ENV, "").strip()
     if not raw:

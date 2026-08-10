@@ -40,9 +40,10 @@ class DrillRepoint:
 
     A card publishes ``impact_cents``; its drill must be able to produce
     that figure. When the record's own metric cannot — a ratio contract
-    reporting dollars, or one whose primary basis is unbound at its
-    grain — this names the contract that can, and the rationale travels
-    with it so the substitution is visible rather than silent."""
+    reporting dollars, or one whose primary basis is unbound at its grain —
+    this names the contract that can, and the rationale travels with it so
+    the substitution is visible rather than silent.
+    """
 
     from_metric_id: str
     to_metric_id: str
@@ -61,7 +62,8 @@ class DimensionRepoint:
     A substitution, never a translation: the detector counted LINES in a
     group and the repointed drill counts CLAIMS whose dominant group is
     that one. The rationale travels onto the card so the difference is
-    stated rather than absorbed."""
+    stated rather than absorbed.
+    """
 
     from_dimension: str
     to_dimension: str
@@ -192,14 +194,13 @@ def assess(
 ) -> ActionabilityAssessment:
     """Deterministic recoverable-fraction assessment from evidence facts.
 
-    ``impact_cents`` overrides the figure the fraction is taken OF, and is
+    ``impact_cents`` overrides the figure the fraction is taken OF, which is
     how ``anomaly_priority@3`` keeps a card's recoverable estimate on the
-    same figure that ranked it: where this platform's re-derivation
-    diverges from the detector's, the portfolio ranks on the reconciled
-    number, and a recoverable estimate still priced off the disputed one
-    would put "this platform: $151" and "~$3,750 recoverable" on the same
-    card. The FRACTION is unaffected — it comes from the rule and the
-    record's evidence facts either way; only its base moves.
+    same figure that ranked it: where this platform's re-derivation diverges
+    from the detector's, the portfolio ranks on the reconciled number, and an
+    estimate still priced off the disputed one would contradict the impact
+    printed beside it. The FRACTION is unaffected — it comes from the rule
+    and the record's evidence facts either way; only its base moves.
     """
     fraction = rule.fraction
     if rule.mode == "open_share":

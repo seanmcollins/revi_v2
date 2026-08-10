@@ -1,25 +1,13 @@
 """§18.1-10 acceptance: "Do I have a COB problem?" end to end.
 
-The point of this test is *not* that COB works — it is that COB works
-through the SAME machinery as every other question. Nothing in the engine
-knows what coordination of benefits is. What makes this answer correct is
-pack content: two metric contracts carrying the governed population, a
-playbook naming probes and transforms, and a binding table declaring how
-good each field is as evidence for the `cob` concept. Swap the pack and
-the same code answers a different domain.
-
-Two properties are asserted together, because either alone would be a lie:
-
-1. The DIRECT branch produces findings whose numbers equal
-   ``data/answer_key.json`` (153 mismatched Silverline claims, a 7.72%
-   mismatch rate over 1,981 claims in the 2026-04-01..2026-07-31 service
-   window at wm_003).
-2. The PROXY branch is *graded* proxy. CARC 22/23/109 concentration is
-   perfectly certified data and still only suggestive — the pack says so
-   (`bindings.yaml`: cob→carc is proxy strength), and the grade law has to
-   carry that through to the frame. A run where both branches came back
-   DIRECT would let a payer's reason code certify a conclusion about
-   coverage, which is exactly the laundering design §5.5 forbids.
+The point is not that COB works — it is that COB works through the SAME
+machinery as every other question. Nothing in the engine knows what
+coordination of benefits is; pack content carries it (two metric contracts, a
+playbook, and a binding table grading each field as evidence for the `cob`
+concept). Two properties are asserted together because either alone would be a
+lie: the DIRECT branch's numbers equal ``data/answer_key.json``, and the
+CARC-concentration branch is *graded* proxy — certified data that is still only
+suggestive must not certify a conclusion about coverage (§5.5).
 """
 
 from __future__ import annotations

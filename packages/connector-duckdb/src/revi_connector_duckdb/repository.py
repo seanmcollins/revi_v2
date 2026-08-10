@@ -14,10 +14,10 @@ row-evidence columns are masked (``revi_catalog_contracts.masking``) before
 the frame is built; ``suppressed_cells`` is always 0 here — small-cell
 suppression is applied by the execution service, not the adapter.
 
-Cohort storage is the one place this adapter *writes* to the warehouse, and
-it is governed by three rules (round-1 review finding D6, which measured 214
-orphan cohort tables / 11.9M rows / 145MB accumulated in a development
-warehouse that nothing could reclaim):
+Cohort storage is the one place this adapter *writes* to the warehouse.
+Without the three rules below, orphan cohort tables accumulate without bound
+and nothing can reclaim them (measured at 214 tables / 11.9M rows / 145MB in
+one development warehouse):
 
 1. **Content-addressed ids.** ``cohort_id`` is a digest of the compiled
    selection (entity, base view, primary key, WHERE clause, bound
@@ -26,10 +26,10 @@ warehouse that nothing could reclaim):
    so a replayed session costs one table rather than one table per replay.
 2. **A durable registry.** ``cohort_store.registry`` records every
    materialization (id, watermark, size, created_at, expires_at) **in the
-   warehouse itself**. The sweep therefore has an authoritative list even
-   when the application-state database is absent, unreachable, or lost —
-   which is exactly the condition under which the previous process-local
-   dict reported "dropped 0" while 214 tables sat on disk.
+   warehouse itself**, so the sweep has an authoritative list even when the
+   application-state database is absent, unreachable, or lost. A
+   process-local record cannot do this: it reports "dropped 0" while another
+   process's tables sit on disk.
 3. **An authoritative sweep.** :meth:`sweep_cohorts` drops every registered
    cohort whose ``expires_at`` has passed *and* every ``cohort_*`` table with
    no registry row at all (an orphan from a crashed process, or from a build
@@ -80,8 +80,8 @@ _COHORT_REGISTRY = f"{_COHORT_SCHEMA}.registry"
 
 #: Cohort table names this adapter is willing to drop. The width range is
 #: deliberate: content-addressed ids are 16 hex characters, but warehouses
-#: written before D6 carry 12-hex random ids, and the sweep must be able to
-#: reclaim those too — they are precisely the orphans it exists to remove.
+#: written before content addressing carry 12-hex random ids, and the sweep
+#: must reclaim those too — they are precisely the orphans it exists to remove.
 _COHORT_ID_RE = re.compile(r"^cohort_[0-9a-f]{12,32}$")
 
 #: Bumped whenever the compiled cohort SQL changes shape, so a stale table
@@ -190,10 +190,10 @@ class DuckDbAnalyticalRepository:
     def capabilities(self) -> RepositoryCapabilities:
         """What this source can do, including what it can *compute* (§6.3).
 
-        The derived-measure list and the cross-entity flag are read from
-        the compiler's own registry, so what the planner validates and
-        what this adapter will actually build SQL for are one statement,
-        not two that have to be kept in step by hand.
+        The derived-measure list and the cross-entity flag are read from the
+        compiler's own registry, so what the planner validates and what this
+        adapter will build SQL for are one statement rather than two kept in
+        step by hand.
         """
         return RepositoryCapabilities(
             as_of_reads=True,

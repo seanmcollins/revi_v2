@@ -104,12 +104,11 @@ def test_internal_detail_keys_are_never_echoed() -> None:
 
 
 class TestBudgetSubcodes:
-    """QUERY_BUDGET_EXCEEDED was two failures wearing one code (review F19).
+    """QUERY_BUDGET_EXCEEDED was two failures wearing one code.
 
-    A plan that would group too many cells and a turn that ran out of
-    model spend both arrived as "narrow your question" — and the analyst
-    who read that after a spend stop went off to rewrite a question that
-    was never too wide.
+    A plan that would group too many cells and a turn that ran out of model
+    spend both arrived as "narrow your question" — sending whoever read it
+    after a spend stop off to rewrite a question that was never too wide.
     """
 
     def test_a_warehouse_read_stop_keeps_the_narrow_your_question_copy(self) -> None:

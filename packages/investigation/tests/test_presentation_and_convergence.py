@@ -1,25 +1,14 @@
-"""Round-6 A-01/A-03/A-04/E-03: the four dialogue defects, as invariants.
+"""Four dialogue defects, as invariants: the engine losing what the analyst
+was looking at.
 
-Four independent live findings, one theme — the engine losing what the
-analyst was looking at:
-
-* **A-03** "sort them by percent change, largest first" — the exact
-  utterance ``refinement_not_applied`` was written for — stopped reaching
-  the re-serve path: the classifier returned ``presentation_only`` at 0.76
-  and 0.68, below its threshold, so the turn ended as a clarification
-  asking whether percent change was already a column. It is, and the engine
-  is holding it.
-* **A-01** answering that clarification with its own first option
-  re-planned the sentence as a FIRST TURN: twelve published rows collapsed
-  to three, the sort was still unapplied, and the reconciliation line read
-  "this is a first turn" on turn four of a thread.
-* **A-04** the value-existence refusal — the best thing this product does —
-  replayed BYTE-IDENTICALLY when answered with anything but a verbatim
-  value: same question, same twelve options, same reason.
-* **E-03** a reply naming the platform's own referent handle ("Yes, F1 —
-  Summit Peak Medicare Advantage") was read as language, and ``F1`` reached
-  the value-existence guard as a facility name: *"There is no facility named
-  'F1' in this data"*.
+A re-presentation request ("sort them by percent change, largest first")
+classified below threshold and ended as a clarification asking whether
+percent change was already a column; answering that clarification with its
+own first option re-planned the sentence as a FIRST TURN, collapsing twelve
+published rows to three; the value-existence refusal replayed
+byte-identically when answered with anything but a verbatim value; and a
+reply naming the platform's own referent handle ("Yes, F1 — Summit Peak
+Medicare Advantage") reached the value-existence guard as a facility name.
 """
 
 from __future__ import annotations
@@ -71,7 +60,7 @@ TWELVE = (
 
 
 class TestThePresentationOpIsRecognisedWithoutAModel:
-    """A-03. The recognizer is closed-vocabulary, like ``display_scope_limit``:
+    """The recognizer is closed-vocabulary, like ``display_scope_limit``:
     an ordering verb plus words that say nothing about WHAT to measure."""
 
     @pytest.mark.parametrize(
@@ -106,7 +95,7 @@ class TestThePresentationOpIsRecognisedWithoutAModel:
 
 
 class TestTheOrderingIsAppliedToTheServedRows:
-    """A-01/A-03. The rows the analyst is looking at, in the order asked for."""
+    """The rows the analyst is looking at, in the order asked for."""
 
     def test_percent_change_resolves_to_the_column_the_rows_carry(self) -> None:
         assert presentation_ordering(
@@ -166,7 +155,7 @@ def _frame(*names: str) -> EvidenceFrame:
 
 class TestTheChartFollowsTheRowsItDrawsFor:
     def test_the_published_measure_wins_over_its_own_numerator(self) -> None:
-        """R3-13, kept honest. A ratio frame carries BOTH
+        """Kept honest: a ratio frame carries BOTH
         ``denial_rate__pct_change`` and ``denial_rate__num__pct_change`` —
         the second is the numerator's movement, a different number, and it
         sorts first alphabetically."""
@@ -182,7 +171,7 @@ class TestTheChartFollowsTheRowsItDrawsFor:
 
 
 class TestTheValueRefusalNeverReplaysItself:
-    """A-04. Live: the twelve-payer refusal, asked twice, byte for byte."""
+    """The twelve-payer refusal, asked twice, byte for byte."""
 
     OPTIONS = (
         "Atlas Commercial",
@@ -208,7 +197,7 @@ class TestTheValueRefusalNeverReplaysItself:
 
 
 class TestAHandleIsNeverADimensionValue:
-    """E-03. ``F1`` is an identifier this platform minted, and the §6.6
+    """``F1`` is an identifier this platform minted, and the §6.6
     value-existence guard has no business refusing it as a facility."""
 
     def _entries(self) -> tuple[RegisteredReferent, ...]:

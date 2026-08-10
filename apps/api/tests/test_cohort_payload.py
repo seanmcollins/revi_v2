@@ -1,9 +1,9 @@
-"""The cohort chip stops being a hash (review F15).
+"""The cohort chip stops being a hash.
 
-The chip used to read ``cohort: coh_9f2a11… (312 claims)``. Everything
-these tests assert already existed on the pinned ``CohortRef``; none of it
-was on the wire, which made the one context chip an analyst could not
-check the one they most needed to.
+The chip used to read ``cohort: coh_9f2a11… (312 claims)``. Everything these
+tests assert already existed on the pinned ``CohortRef``; none of it was on the
+wire, which made the one context chip a reader could not check the one they most
+needed to.
 """
 
 from __future__ import annotations

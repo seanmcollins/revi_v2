@@ -1,31 +1,15 @@
-"""Round-5 A-02: the premise verdict reads what the integrity layer published.
+"""The premise verdict reads what the integrity layer already published.
 
-Three personas, three mechanisms, one architectural fact verified at
-source: ``verify_premise`` read ``row[index_of(measure)]`` and ``__prior``
-straight out of the frame and consulted nothing — not the bounded-cell
-index, not the panel share, not whether the SIZE the question asserted had
-been parsed at all. So it published confident verdicts over three classes
-of quantity the rest of this engine had already marked unmeasurable:
-
-1. **Bounds.** *"You asked about a doubling in denial rate. It happened,
-   and by more than that — denial rate rose 157.1%, past the 100.0% a
-   doubling assumes: 13.9% → 35.7%."* The same answer's ``SUPPRESSION_BOUNDED``
-   warning said both sides were ceilings over one clamped numerator of 10:
-   10/28 = 35.7%, 10/72 = 13.9%. The published 157.1% is exactly 72/28 - 1
-   — the ratio of the two DENOMINATORS, carrying no denial information.
-2. **Panel maturity.** *"It did not happen — denied dollars fell
-   $829,506.94, -72.7%"* on the same payload as *"this window holds 27.0%
-   of the panel the comparison window does"*. Ground truth from the
-   warehouse: denied dollars per adjudicated claim went $199.39 → $201.81,
-   +1.2%.
-3. **Unparsed size.** *"Why did our posted cash collections HALVE in July
-   2026?"* → *"Premise confirmed … It happened: -8.0%"*, with
-   ``premise_magnitude: "unverifiable"`` in the same values array — because
-   ``holds = directional and magnitude is not SHORT``.
-
-The property at the bottom is the one the review asked for: no premise
-finding may publish a non-UNVERIFIABLE magnitude when either endpoint is
-bounded or when either panel is immature.
+``verify_premise`` read the measure and its ``__prior`` straight out of the
+frame and consulted nothing — not the bounded-cell index, not the panel
+share, not whether the SIZE the question asserted had been parsed at all —
+so it published confident verdicts over three classes of quantity the rest
+of the engine had already marked unmeasurable: a "+157.1%" that was the
+ratio of two clamped denominators, a "-72.7%" across panels of unequal
+maturity, and an "It happened" beside ``premise_magnitude: unverifiable``.
+The property at the bottom: no premise finding may publish a
+non-UNVERIFIABLE magnitude when either endpoint is bounded or either panel
+is immature.
 """
 
 from __future__ import annotations
@@ -150,7 +134,8 @@ def _doubling(make_spec):  # type: ignore[no-untyped-def]
 
 
 class TestAMovementBetweenTwoCeilingsIsNotAMovement:
-    """adonis's exact figures: 10/72 → 10/28, published as +157.1%."""
+    """A competitor-exec reviewer's exact figures: 10/72 → 10/28,
+    published as +157.1%."""
 
     BOUNDED: ClassVar[dict[str, int]] = {
         "numerator": 10,
@@ -203,7 +188,7 @@ class TestAMovementBetweenTwoCeilingsIsNotAMovement:
 
 
 class TestTwoUnequallySettledPanelsCannotBeCompared:
-    """The vc-investor's turn, at the panel sizes he measured."""
+    """An investor reviewer's turn, at the panel sizes it measured."""
 
     def test_an_immature_panel_makes_the_verdict_unverifiable(
         self, pack_port: PackSnapshotPort, make_spec

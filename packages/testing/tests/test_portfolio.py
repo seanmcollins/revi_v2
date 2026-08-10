@@ -144,7 +144,7 @@ class TestPriorityFormula:
         assert cb.lane == "compliance" and noise.lane == "value"
         # …to the MEDIAN of the value-ranked work, not past it. Under @1
         # this was the constant 0.6 and a $824 compliance card outranked a
-        # $178K critical finding (round-1 review F17).
+        # $178K critical finding.
         assert portfolio.compliance_floor_basis == "relative_median"
         assert cb.priority_score <= noise.priority_score
         assert portfolio.compliance_floor_value == pytest.approx(
@@ -178,8 +178,8 @@ class TestPriorityFormula:
     def test_a_card_with_no_re_derivation_says_so_rather_than_agreeing(
         self, rules, policy: PriorityPolicy
     ) -> None:
-        """Silence is the defect (round-1 review F1): a card whose figure
-        the platform never re-derived must say that, not imply agreement."""
+        """Silence is the defect: a card whose figure the platform never
+        re-derived must say that, not imply agreement."""
         portfolio = build_portfolio(
             (_record("a", "UNDERPAYMENT", 1_000_000),),
             watermark=WATERMARK,

@@ -1,9 +1,9 @@
-"""Warnings become branchable without becoming less honest (review F14).
+"""Warnings become branchable without becoming less honest.
 
-The properties that matter are not "every family has a code" — that is
-easy and would be worth little. They are: the sentence survives untouched,
-nothing is silently dropped, and identical warnings collapse while
-*different* warnings never do.
+The properties that matter are not "every family has a code" — that is easy and
+would be worth little. They are: the sentence survives untouched, nothing is
+silently dropped, and identical warnings collapse while *different* warnings
+never do.
 """
 
 from __future__ import annotations
@@ -37,11 +37,11 @@ FAMILIES: list[tuple[str, str, str]] = [
     (
         "ALTERNATE_BASIS_USED",
         "caution",
-        # Round-5 C-01: named by METRIC, never by probe. Six probes on one
-        # plan read one contract on one basis and emitted six sentences
-        # differing only by `probe 'main'` / `'premise'` / `'main__window'`
-        # / …, which the (code, message) dedupe below correctly read as six
-        # facts and rendered as six amber banners.
+        # Named by METRIC, never by probe. Six probes on one plan read one
+        # contract on one basis and emitted six sentences differing only by
+        # `probe 'main'` / `'premise'` / `'main__window'` / …, which the
+        # (code, message) dedupe below correctly read as six facts and
+        # rendered as six amber banners.
         "alternate_basis_used: 'denial_rate' is read on the 'service' date basis "
         "(primary is 'remit')",
     ),
@@ -200,7 +200,7 @@ FAMILIES: list[tuple[str, str, str]] = [
         "(portfolio_ar_health, 12 row(s))",
     ),
     (
-        # Round-7 FN-4, from revi_investigation/application/comparison.py.
+        # From revi_investigation/application/comparison.py.
         "NOT_COMPARABLE_WINDOWS",
         "caution",
         "not_comparable_windows: the governed contract for denial_rate declares that these "
@@ -212,7 +212,7 @@ FAMILIES: list[tuple[str, str, str]] = [
         "platform will stand behind.",
     ),
     (
-        # Round-7 FN-10, from revi_investigation/application/submit_turn.py.
+        # From revi_investigation/application/submit_turn/.
         "PARENT_LEVEL",
         "info",
         "parent_level: this answer decomposes a population this session already measured — "
@@ -453,12 +453,11 @@ def test_identical_warnings_collapse_with_a_count() -> None:
 
 
 def test_one_alternate_basis_fact_per_metric_and_basis() -> None:
-    """Round-5 C-01. Six probes reading one contract on one basis is ONE
-    fact, and it used to reach the reader as six amber banners naming
-    ``probe 'main'``, ``'premise'``, ``'main__window'``,
-    ``'main__window__prior'``, ``'premise__window'`` and
-    ``'premise__window__prior'``. Nothing about a probe id is a fact an
-    exec reader has a use for; the metric is.
+    """Six probes reading one contract on one basis is ONE fact, and it used to
+    reach the reader as six amber banners naming ``probe 'main'``,
+    ``'premise'``, ``'main__window'``, ``'main__window__prior'``,
+    ``'premise__window'`` and ``'premise__window__prior'``. A probe id is not a
+    fact a reader has a use for; the metric is.
     """
     one_fact = (
         "alternate_basis_used: 'denial_rate' is read on the 'service' date basis "
@@ -494,13 +493,13 @@ def test_order_is_preserved_and_blanks_dropped() -> None:
 
 
 class TestConservation:
-    """Round-7 FN-3: what reaches ``warnings`` must reach ``warnings_v2``.
+    """What reaches ``warnings`` must reach ``warnings_v2``.
 
-    Every client renders the structured list whenever it is non-empty and
-    never falls back to the prose, so a sentence appended to ``warnings``
-    alone is a sentence nobody sees. The API appended one there — the
-    refusal of a monitor declaration, the single warning whose absence lets
-    somebody walk away believing they are being monitored.
+    Every client renders the structured list whenever it is non-empty and never
+    falls back to the prose, so a sentence appended to ``warnings`` alone is a
+    sentence nobody sees. The API appended one there — the refusal of a monitor
+    declaration, the single warning whose absence lets somebody walk away
+    believing they are being monitored.
     """
 
     def test_a_sentence_with_no_classified_twin_is_named(self) -> None:

@@ -2,14 +2,10 @@
 
 The engine's error messages are written for the engine: they name probes,
 entities, contracts and bases because that is what a §6.6 refusal is about
-and what a trace must record. They were also the text a default-mode user
-read, verbatim — a revenue-cycle director who asked "what was our denial
-rate for 2025 versus 2024?" got
-
-    DATE_BASIS_INVALID: date basis 'remit' is not bound for entity 'claim'
-
-which names three internal concepts, offers no next step, and reads as a
-crash. The precision is not the problem; the audience is.
+and what a trace must record. Published verbatim to a default-mode user
+they read as a crash — ``DATE_BASIS_INVALID: date basis 'remit' is not
+bound for entity 'claim'`` names three internal concepts and offers no
+next step. The precision is not the problem; the audience is.
 
 So this module maps each code to one plain sentence that says what
 happened and what to do about it, and the technical message rides
@@ -22,8 +18,8 @@ underneath rather than being thrown away:
   ``debug`` on — the setting that already means "show me the working".
 
 A code with no entry here falls back to the engine's own message: an
-unmapped code publishing a cheerful generic sentence would be worse than
-the jargon, because it would say less while sounding certain.
+unmapped code publishing a generic sentence would say less while sounding
+more certain.
 """
 
 from __future__ import annotations
@@ -34,11 +30,11 @@ from revi_kernel.errors import ErrorCode
 
 #: One plain sentence per code: what happened, then what to do.
 #:
-#: Written for the analyst, not the operator. Each says which of the two
-#: things is true — "the platform will not" (a governed refusal, and the
-#: recovery is a different question) or "the platform cannot right now" (an
-#: operational failure, and the recovery is to retry or to escalate) —
-#: because those want opposite responses and the code alone does not say.
+#: Each says which of the two things is true — "the platform will not" (a
+#: governed refusal, and the recovery is a different question) or "the
+#: platform cannot right now" (an operational failure, and the recovery is
+#: to retry or escalate) — because those want opposite responses and the
+#: code alone does not distinguish them.
 PLAIN_MESSAGES: dict[ErrorCode, str] = {
     ErrorCode.BINDING_AMBIGUOUS: (
         "That term matches more than one thing in this warehouse, so I can't tell which "
@@ -111,7 +107,7 @@ PLAIN_MESSAGES: dict[ErrorCode, str] = {
 
 
 # ---------------------------------------------------------------------------
-# QUERY_BUDGET_EXCEEDED is two failures wearing one code (review F19)
+# QUERY_BUDGET_EXCEEDED is two different failures wearing one code.
 
 #: The warehouse-read budget: the plan would group too many cells, hold too
 #: many probes, or pin too large a cohort. The recovery is to ask a
@@ -146,16 +142,14 @@ def budget_subcode(
 ) -> str | None:
     """Which budget stopped the turn, or ``None`` for any other code.
 
-    Decided from the error's own structured ``details`` rather than from
-    its sentence: the adapter that hits a dollar ceiling records the
-    ceiling and the cost, and the validator that hits a read budget
-    records cells, probes or cohort size. Reading the numbers a raise site
-    chose to record is stable; grepping its prose is not.
+    Decided from the error's structured ``details`` rather than from its
+    sentence: a dollar ceiling is recorded as a ceiling and a cost, a read
+    budget as cells, probes or cohort size. Reading recorded numbers is
+    stable; grepping prose is not.
 
-    Defaults to the warehouse case when nothing identifies it, because
-    that is what the code has always meant and what most of its raise
-    sites are — a wrong guess toward "your question is too wide" is the
-    guess the analyst can act on and verify.
+    Defaults to the warehouse case when nothing identifies it — that is
+    what the code has always meant and what most of its raise sites are,
+    and it is the guess the analyst can act on and verify.
     """
     if code is not ErrorCode.QUERY_BUDGET_EXCEEDED:
         return None
@@ -196,23 +190,22 @@ def plain_message(
 ) -> str:
     """The message to publish for one error.
 
-    ``technical`` is the engine's own sentence. It is appended when
-    ``debug`` is on — the session setting that already means "show me the
-    working" — and otherwise kept out of the user's way. It is never
-    *dropped*: the caller logs it and the turn's trace records it either
-    way, so nothing published here is the only copy of anything.
+    ``technical`` is the engine's own sentence: appended when ``debug`` is
+    on and otherwise kept out of the user's way. It is never *dropped* —
+    the caller logs it and the turn's trace records it either way, so
+    nothing published here is the only copy of anything.
 
     ``details`` is the error's structured, client-safe mapping. It is read
     only to echo back a term the analyst themselves supplied (see
-    :data:`_ECHO_CODES`) — being told "nothing here is called 'flurb_rate'"
-    is the difference between a refusal you can act on and one you cannot.
+    :data:`_ECHO_CODES`), which is the difference between a refusal you
+    can act on and one you cannot.
     """
     subcode = budget_subcode(code, details)
     plain = _SUBCODE_MESSAGES.get(subcode or "") or PLAIN_MESSAGES.get(code)
     if plain is None:
         # An unmapped code says the engine's own words rather than a
-        # reassuring generic sentence that would carry less information
-        # while sounding more certain.
+        # generic sentence carrying less information while sounding more
+        # certain.
         return technical
     if code in _ECHO_CODES:
         plain = f"{plain}{_named_terms(details)}"

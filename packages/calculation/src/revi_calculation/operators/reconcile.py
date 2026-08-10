@@ -3,8 +3,7 @@
 When a drill-down decomposes an aggregate the analyst was shown, children
 must sum to the parent within suppression tolerance, at the shared
 watermark. Failure is *flagged in the answer* (``RECONCILIATION_FAILED``),
-never silently displayed — this check is the single cheapest trust-building
-mechanism in the conversational layer.
+never silently displayed.
 """
 
 from __future__ import annotations

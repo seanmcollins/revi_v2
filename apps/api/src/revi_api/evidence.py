@@ -1,10 +1,10 @@
 """Trace record → :class:`EvidencePayload`: the answer's own working.
 
 The sibling of :mod:`revi_api.debug_trace`, over the same stored
-:class:`TraceRecord`. That is the whole design: the debug view and the
-evidence drawer are two readings of one record, so the row counts an
+:class:`TraceRecord`. That single source is the design: the debug view and
+the evidence drawer are two readings of one record, so the row counts an
 analyst sees in the drawer and the row counts an engineer sees in the
-trace cannot drift apart — there is nothing to drift.
+trace cannot drift apart.
 
 What separates them is audience, not source. Debug publishes the engine's
 vocabulary (plan hashes, template hashes, token ledgers) and only when
@@ -106,12 +106,12 @@ def parse_reconciliation(summary: str | None) -> EvidenceReconciliation | None:
 
 
 def _answer_grade(raw: Mapping[str, Any]) -> str | None:
-    """The §5.3 grade law over the finding grades this turn recorded.
+    """The §5.3 grade law over the finding grades this turn recorded: the
+    ceiling on what the answer as a whole may claim.
 
-    The ceiling on what the answer as a whole may claim. Read off
-    ``finding_grades`` — the grades the findings were certified with —
-    rather than the per-node grades, because a node the findings never
-    used cannot lower what they say.
+    Read off ``finding_grades`` — the grades the findings were certified
+    with — rather than the per-node grades, because a node the findings
+    never used cannot lower what they say.
     """
     grades: list[EvidenceGrade] = []
     for value in raw.values():

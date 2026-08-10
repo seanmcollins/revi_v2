@@ -220,8 +220,7 @@ class CalculationTransforms:
 
     ``metric`` is the pack's metric-contract resolver (``snapshot.metric``),
     supplied so a ratio's output column can carry the unit the CONTRACT
-    declares. Optional, and ``None`` behaves exactly as this adapter always
-    did — the kernel then falls back to ``ratio``.
+    declares. Optional; with ``None`` the kernel falls back to ``ratio``.
     """
 
     def __init__(self, metric: MetricResolver | None = None) -> None:
@@ -230,11 +229,11 @@ class CalculationTransforms:
     def _declared_unit(self, metric_id: str) -> str | None:
         """The metric contract's declared unit, or ``None`` if unknowable.
 
-        Round-4 R4-06: ``days_in_ar`` declares ``unit: days`` and is
-        numerator/denominator shaped, so it went through ``ratio()`` and
-        came out stamped ``ratio`` — published as "days in ar: 15,941.2%".
-        A ratio is a shape; the unit is a declaration, and the declaration
-        is resolved here, where the contract is in hand.
+        ``days_in_ar`` declares ``unit: days`` and is numerator/denominator
+        shaped, so it goes through ``ratio()``; stamping it ``ratio``
+        published "days in ar: 15,941.2%". A ratio is a shape, the unit is
+        a declaration, and the declaration is resolved here, where the
+        contract is in hand.
         """
         if self._metric is None:
             return None

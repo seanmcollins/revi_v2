@@ -117,10 +117,10 @@ class TestCaveatsAndDisplayNames:
         assert "nothing on the mandatory list for this slot" in prompt
 
     def test_an_empty_slot_never_reads_as_an_answer_with_no_caveats(self) -> None:
-        """Round-5 C-01. The slot is empty when nothing on the MANDATORY
-        list is present; the answer can still be carrying a dozen amber
-        banners — and the composer wrote "No mandatory caveats were
-        attached to these findings on this turn" over seven of them."""
+        """The slot is empty when nothing on the MANDATORY list is present;
+        the answer can still be carrying a dozen amber banners — and the
+        composer wrote "No mandatory caveats were attached to these findings
+        on this turn" over seven of them."""
         prompt = build_narrative_prompt(
             findings=[TF_FINDING],
             header=HEADER,
@@ -213,7 +213,7 @@ class TestValidation:
         )
         assert not validation.clean
         # The offending sentence leaves the prose entirely — a customer
-        # never reads a redaction marker (F6).
+        # never reads a redaction marker.
         assert REDACTION_NOTE not in validation.text
         assert "$777,777" not in validation.text
         assert validation.text == "The rest held steady."  # innocent prose kept
@@ -278,7 +278,8 @@ class TestValidation:
 
 
 class TestCertifiedContentIsAdmitted:
-    """The other half of F6: the validator redacting its own evidence.
+    """The other half of the redaction rule: the validator must not redact
+    its own evidence.
 
     Each case below was observed live, in prose whose every claim came out
     of the finding it cites.
@@ -366,7 +367,7 @@ class TestCertifiedContentIsAdmitted:
 
 
 # ---------------------------------------------------------------------------
-# round-2 FN-3: the narrative consumes the warnings the same answer carries
+# The narrative consumes the warnings the same answer carries
 
 
 def test_the_refusal_leads_and_the_caveats_trail() -> None:
@@ -418,7 +419,7 @@ def test_an_empty_turn_says_why_instead_of_publishing_null() -> None:
 
 
 class TestBoundedSuppressionDisclosure:
-    """Round-3 FN-1: what the §15 policy bounded rather than dropped.
+    """What the suppression policy bounded rather than dropped.
 
     Once a numerator under the threshold is published as an upper bound, the
     old sentence — "every figure here describes only the cells that survived

@@ -1,16 +1,11 @@
 """The Monitors surface over the wire, plus create-by-intent end to end.
 
-Two halves:
-
-* **the routes** — every Monitors endpoint through the real HTTP transport
-  with real bearer auth, so tenant scoping is proved on the door a client
-  actually uses rather than only on the in-process one;
-* **create-by-intent** — "monitor X" as an ordinary turn. The lead-in is
-  read, the remainder is classified and interpreted exactly as a bare
-  question would be, the turn ANSWERS, and that answer is the baseline the
-  monitor starts from. A declaration that cannot be compiled clarifies and
-  registers nothing, because a monitor pinned to a spec nobody confirmed
-  briefs the wrong number every morning, silently, forever.
+Two halves: every Monitors endpoint through the real HTTP transport with real bearer auth, so
+tenant scoping is proved on the door a client actually uses; and "monitor X" as an ordinary turn —
+the lead-in is read, the remainder is classified and interpreted exactly as a bare question would
+be, the turn ANSWERS, and that answer is the baseline. A declaration that cannot be compiled
+clarifies and registers nothing, because a monitor pinned to a spec nobody confirmed briefs the
+wrong number every morning, silently, forever.
 """
 
 from __future__ import annotations
@@ -362,9 +357,7 @@ class TestCreateByIntent:
 
 
 class TestARefusedMonitorReachesTheReader:
-    """Round-7 FN-3. Two reviewers scored the SAME behaviour opposite ways
-    and both were right: the server-side refusal is exemplary, and the
-    client never showed it.
+    """A server-side refusal is only worth anything if the client shows it.
 
     ``_register_declared_monitor`` appended the refusal to ``warnings`` alone,
     after the assembler had already built ``warnings_v2`` — and every client
@@ -385,7 +378,7 @@ class TestARefusedMonitorReachesTheReader:
         answer = await service.submit_turn(
             caller,
             session.session_id,
-            # rcm-exec's own utterance: dollars against a rate contract.
+            # A dollar threshold stated against a rate contract.
             TurnRequest(utterance=f"monitor {MONITOR_SUBJECT}, alert me if it moves more than $5,000"),
         )
 
@@ -422,7 +415,7 @@ class TestARefusedMonitorReachesTheReader:
     async def test_an_unreadable_sensitivity_is_refused_rather_than_defaulted(
         self,
     ) -> None:
-        """Round-7 FN-6. "more than half a point" registered the governed
+        """Regression: "more than half a point" registered the governed
         default with ``value: null`` and a confirmation that never mentioned
         the instruction — so "three points" would silently brief at 0.5."""
         service = _service()
@@ -445,8 +438,8 @@ class TestARefusedMonitorReachesTheReader:
         assert (await service.monitors.list_pins(caller)).pins == []
 
     async def test_the_shapes_people_type_now_reach_the_monitor(self) -> None:
-        """The other half of FN-6: refusing more is only honest if the
-        grammar first reads what people actually type."""
+        """The other half: refusing more is only honest if the grammar first
+        reads what people actually type."""
         service = _service()
         caller = Principal(tenant=TENANT, subject="monitors-suite")
         session = await service.open_session(caller, OpenSessionRequest())
@@ -490,12 +483,13 @@ class TestARefusedMonitorReachesTheReader:
 
 
 class TestAMonitorSurvivesTheQuestionItTriggered:
-    """Round-7 FN-5. ``_resolve_monitor_turn`` returned early on a
-    clarification reply and nothing carried the parsed declaration across
-    the turn boundary, so a declaration that clarified registered nothing
-    and said nothing — in a pack that refuses any imprecise payer name BY
-    DESIGN, which makes clarification the MODAL branch of the flagship
-    acquisition path for the flagship surface."""
+    """A declaration outlives the clarification it triggered.
+
+    Regression: ``_resolve_monitor_turn`` returned early on a clarification
+    reply and nothing carried the parsed declaration across the turn
+    boundary, so a declaration that clarified registered nothing and said
+    nothing — in a pack that refuses any imprecise payer name BY DESIGN,
+    which makes clarification the MODAL branch of this path."""
 
     async def test_the_clarification_says_the_monitor_is_not_created_yet(self) -> None:
         service = _service()
@@ -562,14 +556,13 @@ class TestAMonitorSurvivesTheQuestionItTriggered:
 
 
 class TestARefusalSurvivesTheReload:
-    """Round-7 FN-3, restore half (reported by the web lane mid-fix).
+    """A refusal outlives a permalink or a re-open.
 
     The engine stores the investigation with the warnings IT produced. The
     named-cut disclosure a monitor declaration earns and the refusal that says
     nothing is being monitored are both appended AFTER that, by the API — so a
     permalinked or re-opened turn restored four of six warnings and dropped
-    exactly the two whose entire value is in being read later. The same
-    class of drop, one layer down from the one this finding is about.
+    exactly the two whose entire value is in being read later.
     """
 
     async def test_the_refusal_and_its_disclosure_are_still_there_on_restore(

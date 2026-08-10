@@ -61,10 +61,10 @@ class AskedOrder(StrEnum):
 
     "Rank payers best to worst" and "rank payers worst to best" are the same
     measurement in opposite orders, and the difference is not cosmetic:
-    live, "ranked best to worst" returned the worst payer first and narrated
+    unread, "ranked best to worst" returns the worst payer first and narrates
     it as *"State Medicaid MCO ranks first at a 29.5% denial rate"* — the
-    ordering the analyst asked for, the ordering the rows arrived in, and
-    the sentence describing them all disagreed.
+    ordering the analyst asked for, the ordering the rows arrive in, and the
+    sentence describing them all disagreeing.
 
     Like :class:`AskedDirection` this is polarity-relative: which end is
     "best" depends on the metric contract's
@@ -210,32 +210,30 @@ class AnalysisSpec:
     #: most"). The two want opposite treatments: a query selects the cells
     #: that moved that way, while an assertion is a *premise* that has to be
     #: verified against the aggregate before any cell is offered as its
-    #: explanation. Live, "why did denials at Federal Medicare double in
-    #: July" was answered with the only three rising CARC cells — $3,204 of
-    #: increases — inside a move from $58,983.54 to $10,915.24, a fall of
-    #: 81% that the answer never mentioned.
+    #: explanation. Treated as a query, "why did denials at Federal Medicare
+    #: double in July" is answered with the only three rising CARC cells —
+    #: $3,204 of increases — inside a move from $58,983.54 to $10,915.24, a
+    #: fall of 81% the answer never mentions.
     direction_asserted: bool = False
     #: The SIZE the question asserted, as a multiple of the prior level:
     #: ``2`` for "doubled"/"twice", ``3`` for "tripled", ``0.5`` for "halved"
     #: / "fell by half". ``None`` when the question asserted a direction
     #: without a size ("why are denials up?").
     #:
-    #: Round-3 R3-03: the premise check tested direction alone, so "why did
-    #: denials double?" over a +4.2% move was scored as HOLDING — the
-    #: verdict was then discarded (it was published only on failure) and the
-    #: narrative opened on a 243% sub-cell of a movement that never
-    #: happened. A doubling is a claim about magnitude and is verified as one.
+    #: A premise check that tests direction alone scores "why did denials
+    #: double?" over a +4.2% move as HOLDING, and the narrative then opens
+    #: on a 243% sub-cell of a movement that never happened. A doubling is a
+    #: claim about magnitude and is verified as one.
     asserted_multiple: Decimal | None = None
     #: The question asserted a SIZE and nothing could read it — "quadruple",
-    #: "jump 300%", "halve". Round-5 A-02(c): ``holds`` is
-    #: ``directional and magnitude is not SHORT``, so an unparsed size
-    #: silently became a confirmed direction and the card said "Premise
-    #: confirmed" over a claim nobody had checked. A verdict that cannot
-    #: test the claim says so.
+    #: "jump 300%", "halve". ``holds`` is ``directional and magnitude is not
+    #: SHORT``, so without this flag an unparsed size silently becomes a
+    #: confirmed direction and the card says "Premise confirmed" over a
+    #: claim nobody checked. A verdict that cannot test the claim says so.
     size_asserted_unparsed: bool = False
     #: The period vocabulary the question used, when the analyst named one
     #: ("June 2026", "this week"). Carried so a downstream sentence can
-    #: QUOTE it instead of asserting that no period was named (R3-16).
+    #: QUOTE it instead of asserting that no period was named.
     period_label: str | None = None
 
     def with_context(self, context: InvestigationContext) -> AnalysisSpec:

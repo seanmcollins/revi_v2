@@ -1,30 +1,28 @@
-"""Round-6 A-02/A-05: one census, and a trend that admits its ceilings.
+"""One census of a frame, and disclosures that agree with the rows they print.
 
-**A-02** — two server strings stated different censuses of one frame. On a
-live Veritas trend, one payload carried
-``Of 8 cell(s) on this answer, 6 carry an upper bound, 0 were withheld
-outright and 2 are measured`` and, on the chart over the same eight rows,
-``withheld: 1 of 8 cells were withheld outright per the small-cell policy``.
-(Both sentences have since been rewritten for a reader — see the round-6
-answer-surface review — but the arithmetic they state is the invariant.)
-The rows settled it: 2026-05 was the only measured cell and 2026-08-01
-carried ``value: null``. Two derivations of one count, and the wrong one
-was the one in the prose.
-
-**A-05** — the SHAPE finding was the one family that never asked which of
-its points are ceilings. The chart drew them as bounds; the title above it
-said ``7.5% → 9.0% (up 1.5 points)`` — a measured-looking movement between
-two ceilings — and the export, which prints that title verbatim, inherited
-the claim.
+Two server strings stated different censuses of one eight-cell trend — six
+bounded and none withheld in the prose, one withheld in the chart caption —
+because the numerator survives on a nulled row. The SHAPE finding never asked
+which of its points were ceilings, so a title read "7.5% -> 9.0% (up 1.5
+points)" over two bounds. And the bounded-cell disclosure said "4 of 12
+groups", listed five rows, named one payer twice (the second being the
+comparison window's cell) and claimed "fewer than 11 things sit behind each"
+over a row of 214 entities.
 """
 
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 
 import pytest
 
-from revi_investigation.application.execution import bounded_cells_warning, suppression_census
+from revi_investigation.application.execution import (
+    BoundedCell,
+    SuppressionCensus,
+    bounded_cells_warning,
+    suppression_census,
+)
 from revi_kernel.frame import (
     EvidenceFrame,
     FrameColumn,
@@ -78,7 +76,7 @@ def _trend() -> EvidenceFrame:
 class TestOneCensus:
     def test_the_published_measure_is_the_measure_a_reader_counts(self) -> None:
         """Anatomy columns are not a second metric: counting a row as
-        measured because its numerator survived is the A-02 bug itself."""
+        measured because its numerator survived is the bug itself."""
         frame = _trend()
         assert published_measures(frame) == ("denial_rate",)
         assert primary_measure(frame) == "denial_rate"
@@ -115,14 +113,15 @@ class TestOneCensus:
 
         assert warning is not None
         # One count, in words, and the withheld row named as a second fact
-        # rather than as a second census (round-6 answer-surface review).
+        # rather than as a second census.
         assert "6 of 8 groups here are too small to measure exactly" in warning
         assert "A further 1 could not be published at all." in warning
         assert "cell(s)" not in warning
 
 
 class TestATrendAdmitsItsCeilings:
-    """A-05, over the reference conversation's own shapes."""
+    """A trend point that is a ceiling is marked as one, over the
+    reference conversation's own shapes."""
 
     @pytest.mark.reference
     def test_the_helper_that_marks_a_ceiling_is_the_one_the_trend_uses(self) -> None:
@@ -139,3 +138,117 @@ class TestATrendAdmitsItsCeilings:
         assert values["denial_rate__is_bound"] is True
         assert values["denial_rate__bound_population"] == 13
         assert bound_text(Decimal("0.769"), "ratio", bounded=True).startswith("≤")
+
+
+# ---------------------------------------------------------------------------
+# The bounded-cell disclosure agrees with itself
+#
+# regression: the sentence said "4 of 12 groups", printed five rows, named one
+# payer twice (the second row being the comparison window's cell), and stated
+# "fewer than 11 things sit behind each" over a row of 214 entities — beside a
+# separate caution stating the real rule correctly.
+
+
+class TestTheSuppressionDisclosureAgreesWithItself:
+    CURRENT = (
+        BoundedCell("Veritas Comp Fund", "denial_rate", 214, Decimal("0.0467"), 0),
+        BoundedCell("Harborline Health Plan", "denial_rate", 48, Decimal("0.2083"), 1),
+        BoundedCell("Cascade Select", "denial_rate", 53, Decimal("0.1887"), 2),
+        BoundedCell("Northgate Choice", "denial_rate", 13, Decimal("0.7692"), 3),
+    )
+    #: The same payer, one window earlier: ≤9.0% over 111.
+    PRIOR = (BoundedCell("Veritas Comp Fund", "denial_rate", 111, Decimal("0.0901"), 0),)
+
+    def test_the_stated_count_is_the_length_of_the_list_it_prints(self) -> None:
+        sentence = bounded_cells_warning(
+            self.CURRENT,
+            11,
+            census=SuppressionCensus(total=12, bounded=4, withheld=0),
+            comparison_cells=self.PRIOR,
+        )
+        assert sentence is not None
+        assert "4 of 12 groups" in sentence
+        # One row per named cell, and the count says four because four are
+        # named. The live sentence said four and printed five.
+        answer, _, _ = sentence.partition("In the comparison window")
+        assert answer.count(" entities)") == 4
+
+    def test_the_count_never_disagrees_with_the_list_even_when_the_census_does(self) -> None:
+        """The census counted the widest frame; the list came from every
+        probe the plan ran. Whichever is stale, the sentence stays true to
+        the rows it prints."""
+        sentence = bounded_cells_warning(
+            self.CURRENT, 11, census=SuppressionCensus(total=2, bounded=9, withheld=0)
+        )
+        assert sentence is not None
+        assert "4 of 4 groups" in sentence
+        assert sentence.count(" entities)") == 4
+
+    def test_no_cell_is_named_twice(self) -> None:
+        sentence = bounded_cells_warning(
+            (*self.CURRENT, *self.CURRENT),
+            11,
+            census=SuppressionCensus(total=12, bounded=4, withheld=0),
+        )
+        assert sentence is not None
+        assert sentence.count("Veritas Comp Fund") == 1
+
+    def test_the_comparison_window_gets_its_own_labelled_clause(self) -> None:
+        sentence = bounded_cells_warning(
+            self.CURRENT,
+            11,
+            census=SuppressionCensus(total=12, bounded=4, withheld=0),
+            comparison_cells=self.PRIOR,
+        )
+        assert sentence is not None
+        before, marker, after = sentence.partition("comparison window")
+        assert marker, "the prior window's ceilings must be labelled as such"
+        # …and the current window's list does not carry the prior cell.
+        assert "111 entities" not in before
+        assert "111 entities" in after
+
+    def test_the_rule_stated_is_the_rule_applied(self) -> None:
+        """A ceiling is a suppressed NUMERATOR over a published population.
+        'Fewer than 11 things sit behind each of those numbers' printed over
+        a row of 214 entities is refuted by the row beside it."""
+        sentence = bounded_cells_warning(
+            self.CURRENT, 11, census=SuppressionCensus(total=12, bounded=4, withheld=0)
+        )
+        assert sentence is not None
+        assert "fewer than 11 things sit behind each" not in sentence
+        assert "fewer than 11" in sentence
+        assert "214 entities" in sentence
+
+    def test_a_comparison_only_bound_still_gets_said(self) -> None:
+        sentence = bounded_cells_warning(
+            (), 11, census=SuppressionCensus(total=12, bounded=0, withheld=0),
+            comparison_cells=self.PRIOR,
+        )
+        assert sentence is not None
+        assert "comparison window" in sentence
+        assert "0 of 12" not in sentence
+
+
+class TestOneSetOfRowsGetsOneNoun:
+    """The census sentence said "4 of 12 groups" and the ranking's own
+    sentence said "4 of 12 payers" about the same four rows, on one card."""
+
+    def test_the_disclosure_uses_the_analyst_s_word_for_its_rows(self) -> None:
+        sentence = bounded_cells_warning(
+            TestTheSuppressionDisclosureAgreesWithItself.CURRENT,
+            11,
+            census=SuppressionCensus(total=12, bounded=4, withheld=0),
+            noun="payers",
+        )
+        assert sentence is not None
+        assert "4 of 12 payers here are" in sentence
+
+    def test_a_single_row_is_singular(self) -> None:
+        sentence = bounded_cells_warning(
+            TestTheSuppressionDisclosureAgreesWithItself.CURRENT[:1],
+            11,
+            census=SuppressionCensus(total=1, bounded=1, withheld=0),
+            noun="payers",
+        )
+        assert sentence is not None
+        assert "1 of 1 payer here is" in sentence or "1 of 1 payer here are" in sentence

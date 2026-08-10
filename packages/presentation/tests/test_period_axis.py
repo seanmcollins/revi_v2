@@ -1,33 +1,11 @@
-"""FIX-8: a chart's category axis may not be one of its own numbers.
+"""A chart's category axis may not be one of its own numbers.
 
-Verified live this hour. The paid turn "Why did our denial rate go up in
-July 2026?" published a chart whose entire category axis was the single
-tick ``0.127591`` — the answer's own denial rate, filed as though it were
-the name of a group. A tenant-wide scan found 18 of 85 stored chart_specs
-in that state, including "What is my denial rate?" and "days in A/R for
-Atlas Commercial" (axis ``179.468320``). On the two-window comparison it
-was worse than cosmetic: the PRIOR series (0.091386) was filed under the
-CURRENT value's category key, so both series collided on one bogus key and
-a renderer keying by ``(x, series)``… had two marks claiming to be the same
-category. Root cause, one line: ``x = time_col or (dims[0] if dims else
-value)`` — with no dimension and no time bucket the MEASURE column became
-the x column, so ``row[index_of(x)]`` was the measured number itself.
-
-The work order this file tests, quoted:
-
-    "When a frame has no dimension, the category axis is the WINDOW:
-    period labels ('Jul 2026' / 'Jun 2026') for a comparison, one labelled
-    column for a scalar — never a formatted value as a category key, never
-    two series sharing a key derived from one of their values. Decide chart
-    kind server-side from frame shape (1 category -> stat figure, 2 periods
-    -> paired bars, >=3 ordered -> line). Contract assertion: no chart
-    rows[].x parses as a bare number when the frame has a unit."
-
-The related half is the same surface: 16 stored specs declared chart_type
-``line`` with two categories or fewer (the web client silently drew bars,
-so the wire and the screen disagreed about what the answer was), and lines
-were drawn across ``payer`` and ``facility`` axes, asserting movement
-between categories that are in no order at all.
+With no dimension and no time bucket the MEASURE column became the x column, so an
+axis tick was the measured value itself and a comparison filed both series under one
+key. Pinned here: with no dimension the category axis is the WINDOW (period labels for
+a comparison, one labelled column for a scalar); chart kind follows frame shape (1
+category -> stat figure, 2 periods -> paired bars, >=3 ordered -> line); and no row's
+x parses as a bare number when the frame has a unit.
 """
 
 from __future__ import annotations
@@ -58,13 +36,13 @@ from revi_presentation.charts import (
 )
 
 WATERMARK = DataWatermark(
-    id="wm_fix8", loaded_at=datetime(2026, 8, 3, 4, 10), newest_data_date=date(2026, 8, 2)
+    id="wm_period_axis", loaded_at=datetime(2026, 8, 3, 4, 10), newest_data_date=date(2026, 8, 2)
 )
 
 #: The live turn's own figures, to the digit.
 DENIAL_RATE_JULY = 0.127591
 DENIAL_RATE_JUNE = 0.091386
-#: "days in A/R for Atlas Commercial" — the other axis the scan found.
+#: "days in A/R for Atlas Commercial" — the other axis found in the wild.
 DAYS_IN_AR = 179.468320
 
 JULY = ChartWindow(current_label="Jul 2026", prior_label="Jun 2026")
@@ -131,8 +109,8 @@ def _parses_as_a_number(text: str) -> bool:
 
 
 class TestTheCategoryAxisIsTheWindow:
-    """"When a frame has no dimension, the category axis is the WINDOW …
-    never a formatted value as a category key.\""""
+    """With no dimension the category axis is the WINDOW — never a
+    formatted value as a category key."""
 
     def test_a_scalar_frame_charts_one_row_labelled_with_its_period(self) -> None:
         spec = build_chart_spec("main", _scalar_rate(), window=JULY)
@@ -145,8 +123,8 @@ class TestTheCategoryAxisIsTheWindow:
         assert not _parses_as_a_number(spec.rows[0].x)
 
     def test_a_comparison_charts_two_rows_on_two_different_period_labels(self) -> None:
-        """"never two series sharing a key derived from one of their
-        values" — live, both marks were filed under ``0.127591``."""
+        """Never two series sharing a key derived from one of their values:
+        live, both marks were filed under ``0.127591``."""
         spec = build_chart_spec("main__compare", _compared_rate(), window=JULY)
 
         assert spec is not None
@@ -163,8 +141,8 @@ class TestTheCategoryAxisIsTheWindow:
         assert len({(row.x, row.series) for row in spec.rows}) == len(spec.rows)
 
     def test_the_frame_has_a_unit_and_no_row_x_parses_as_a_bare_number(self) -> None:
-        """The contract assertion from the work order, over both shapes and
-        the second axis the scan named (``179.468320``)."""
+        """The contract assertion, over both shapes and the second axis
+        found in the wild (``179.468320``)."""
         days = _frame(
             (FrameColumn("days_in_ar", MetricRef("days_in_ar"), 1, "days"),),
             ((DAYS_IN_AR,),),
@@ -267,8 +245,8 @@ class TestTheCategoryAxisIsTheWindow:
 
 
 class TestChartKindFollowsTheShape:
-    """"Decide chart kind server-side from frame shape (1 category -> stat
-    figure, 2 periods -> paired bars, >=3 ordered -> line).\""""
+    """Chart kind is decided server-side from frame shape: 1 category -> stat
+    figure, 2 periods -> paired bars, >=3 ordered -> line."""
 
     def test_a_recipe_cannot_force_a_line_onto_a_single_point(self) -> None:
         """The live case exactly: the pack's ``denial_rate_trend`` recipe
@@ -421,7 +399,7 @@ class TestWindowsReachTheBatchBuilder:
 
 
 def test_the_defect_axis_can_no_longer_be_produced() -> None:
-    """The scan's own signature, over every shape this module charts: no
+    """The defect's own signature, over every shape this module charts: no
     published row key is the string form of the value beside it."""
     frames = (
         ("main", _scalar_rate()),

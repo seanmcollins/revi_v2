@@ -1,28 +1,25 @@
-"""The pinned cohort, said in words instead of shown as a hash (F15).
+"""The pinned cohort, said in words instead of shown as a hash.
 
-The context header carried ``cohort: coh_9f2a11…`` beside a size, and that
-was the whole chip. An analyst who had just drilled "the top three payers"
-was handed their own selection back in a vocabulary nobody speaks — and a
-label that cannot be read cannot be checked, which makes it decoration on
-a platform whose entire claim is that the context is inspectable.
+The context header used to carry only ``cohort: coh_9f2a11…`` beside a
+size. A label that cannot be read cannot be checked, which makes it
+decoration on a platform whose claim is that the context is inspectable.
 
 Everything published here already existed on the pinned
 :class:`~revi_kernel.cohort.CohortRef`; none of it was on the wire. This
 module projects it:
 
 * ``entity_grain`` — what one member IS (a claim, a claim line, a remit);
-* ``definition`` — the *intensional* rule (§7.5) rendered as text, which
-  is the thing that would be re-evaluated against fresh data in another
-  session, not a description of the pinned rows;
+* ``definition`` — the *intensional* rule (§7.5) rendered as text: what
+  would be re-evaluated against fresh data in another session, not a
+  description of the pinned rows;
 * the ``origin`` referent and the turn that introduced it, resolved
   through the referent registry, so "where did this population come from?"
   is answerable from the payload rather than by walking the lineage;
 * ``size``, and whether an extensional set was materialized at all.
 
-The rendering is deliberately the same grammar the filter chips use
-(``dimension op [values]``), so a cohort definition and a scope chip read
-alike — they are the same algebra, and an analyst should not have to learn
-it twice.
+The rendering deliberately uses the same grammar as the filter chips
+(``dimension op [values]``): a cohort definition and a scope chip are the
+same algebra and should not have to be learned twice.
 """
 
 from __future__ import annotations
@@ -96,10 +93,10 @@ async def build_cohort_payload(
 
     The origin lookups are best-effort by design: a registry entry that
     has aged out, or an investigation the store no longer holds, leaves
-    those two fields ``None`` and costs the reader nothing else. A cohort
-    chip must not fail to render because its provenance is incomplete —
-    the definition, the grain and the size are the load-bearing parts and
-    they come off the cohort itself.
+    those two fields ``None``. A cohort chip must not fail to render
+    because its provenance is incomplete — the definition, the grain and
+    the size are the load-bearing parts and they come off the cohort
+    itself.
     """
     definition = cohort.definition
     origin_investigation: str | None = None

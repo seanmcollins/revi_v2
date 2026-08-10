@@ -1,11 +1,11 @@
 """Gestures this platform prints and must therefore be able to read back.
 
 Every finding ships ``suggested_refinements`` — "drill into F1" — and every
-unknown-handle clarification offers the same string as an option. Live, one
-of them came back ``clarification_required`` with ``referent_resolutions:
-[]``: the utterance went to the classifier, the classifier returned a
-clarification question at 0.72 confidence, and the deterministic F-handle
-resolver that would have answered it in a dictionary lookup never ran. A
+unknown-handle clarification offers the same string as an option. Sent back
+verbatim and routed through the classifier, those strings come back
+``clarification_required`` with ``referent_resolutions: []`` — a
+clarification question at 0.72 confidence, while the deterministic F-handle
+resolver that would have answered it in a dictionary lookup never runs. A
 product that cannot parse its own suggestion has published a button that
 does not work.
 

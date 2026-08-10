@@ -39,12 +39,8 @@ anchor (month-to-date, quarter-to-date, …).
 ANCHORED (``AnchoredRange``: a calendar period the analyst *named* — "June
 2026", "Q2 2026", "2025"). Resolution is pure calendar arithmetic and uses
 no anchor at all: the period is where it is regardless of when it is asked
-about. Named periods used to be inexpressible — the vocabulary was
-relative-only, so "denial rate for June 2026" either clarified or was
-silently answered over the last full month — while the typed path executed
-absolute windows perfectly. ``resolve_anchored`` is the one place that
-arithmetic happens, so a named period and a typed one land on the same
-dates.
+about. ``resolve_anchored`` is the only place that arithmetic happens, so a
+named period and a typed absolute window land on the same dates.
 
 Comparisons (design §6.1) derive deterministically from the primary window:
 - PRIOR_PERIOD: calendar-unit windows (MONTH/QUARTER/YEAR, FULL_PERIODS or
@@ -348,11 +344,10 @@ def whole_month_span(window: AbsoluteRange) -> int | None:
     """How many whole calendar months this range covers, or ``None``.
 
     Structural, not declared: a range that starts on the 1st and ends on a
-    month's last day IS a run of calendar months, whoever built it. That is
-    what makes a named period ("June 2026") and a card's published absolute
-    window comparable like-for-like — without it, the prior period of June
-    2026 is "the 30 days before 2026-06-01", which starts on 2026-05-02 and
-    is a different month than the one the reader has in mind.
+    month's last day is a run of calendar months, whoever built it. This is
+    what makes a named period ("June 2026") comparable like-for-like against
+    a published absolute window — without it, the prior period of June 2026
+    would be "the 30 days before 2026-06-01", starting 2026-05-02.
     """
     start, end = window.start, window.end
     if start.day != 1:

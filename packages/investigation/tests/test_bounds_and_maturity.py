@@ -1,10 +1,10 @@
-"""Round-3 regressions: a bound that survives delivery, a ranking that
+"""Delivery regressions: a bound that survives delivery, a ranking that
 refuses to order ceilings, a series that will not close on an unsettled
 bucket, and a window that states what was actually read.
 
-Every test here encodes a live defect the round-3 review recomputed
-against the warehouse. The engine already knew each of these facts; the
-artifacts lost them between the frame and the reader.
+Each test encodes a defect recomputed against the warehouse. The engine
+already knew every one of these facts; the artifacts lost them between the
+frame and the reader.
 """
 
 from __future__ import annotations
@@ -70,10 +70,9 @@ def _rate_frame(rows: tuple[tuple[object, ...], ...]) -> EvidenceFrame:
 
 
 class TestBoundsSurviveDelivery:
-    """R3-01. The ceiling existed as structured data and reached the wire
-    as a measured point value: ``Dr. Casey Quarry (143): 45.5% denial
-    rate`` over 10/22, ``metric_caveats: []``, grade direct, confidence
-    high."""
+    """Regression: a ceiling existed as structured data and reached the
+    wire as a measured point value — ``45.5% denial rate`` over 10/22, no
+    metric caveats, grade direct, confidence high."""
 
     def test_a_bound_is_addressable_by_row(self) -> None:
         frame = _rate_frame(
@@ -96,9 +95,9 @@ class TestBoundsSurviveDelivery:
         assert not bound_text(Decimal("0.454545"), "ratio", bounded=False).startswith("≤")
 
     def test_the_census_counts_cells_not_nulled_values(self) -> None:
-        """R3-18. ``suppressed_cells`` counts VALUES, several per row, and
-        quoting it as a population is how "3 of 15 cells" was published
-        over 12 cells of which none were withheld."""
+        """``suppressed_cells`` counts VALUES, several per row, and quoting
+        it as a population is how "3 of 15 cells" was published over 12
+        cells of which none were withheld."""
         frame = _rate_frame((("A", 10, 214), ("B", 40, 300), ("C", 3, 260)))
 
         census = suppression_census(frame, THRESHOLD)
@@ -109,8 +108,8 @@ class TestBoundsSurviveDelivery:
         assert census.measured == 1
 
     def test_the_warning_no_longer_claims_everything_else_is_measured(self) -> None:
-        """R3-02. That sentence shipped on a frame where 147 of 150 values
-        were bounds and the other three were zeros."""
+        """That sentence shipped on a frame where 147 of 150 values were
+        bounds and the other three were zeros."""
         frame = _rate_frame((("A", 10, 214), ("B", 40, 300)))
         cells = bounded_cells_of(frame, THRESHOLD)
 
@@ -121,17 +120,17 @@ class TestBoundsSurviveDelivery:
         assert text is not None
         assert "every other figure here is measured" not in text
         assert "is not a measurement" in text
-        # The count, once, in words — and never in the engine's own voice:
-        # the round-6 answer-surface review could not parse this paragraph
-        # when it stated its census twice and printed "cell(s)".
+        # The count, once, in words — and never in the engine's own voice.
+        # The paragraph was unreadable when it stated its census twice and
+        # printed "cell(s)".
         assert "1 of 2 groups here are too small to measure exactly" in text
         assert "cell(s)" not in text
         assert "publishable" not in text
 
 
 class TestRankingRefusesCeilings:
-    """R3-02. Of 150 published values, 147 were exactly ``10/n`` and the
-    sort key was therefore ascending panel size, narrated "ranks #1 by
+    """Regression: of 150 published values, 147 were exactly ``10/n``, so
+    the sort key was really ascending panel size — narrated as "ranks #1 by
     denial rate (worst first, as asked)"."""
 
     def test_the_governed_share_is_a_majority(self) -> None:
@@ -139,7 +138,7 @@ class TestRankingRefusesCeilings:
 
 
 class TestPremiseMagnitude:
-    """R3-03. ``holds`` tested the sign alone, so "why did denials
+    """Regression: ``holds`` tested the sign alone, so "why did denials
     double?" over +4.2% scored true and published nothing."""
 
     def test_a_doubling_is_read_off_the_utterance(self) -> None:
@@ -151,17 +150,17 @@ class TestPremiseMagnitude:
         assert asserted_multiple("which payer doubled?", False) is None
 
     def test_the_band_is_two_sided(self) -> None:
-        """R4-05c. The predecessor was a one-sided FLOOR at half the
-        asserted change, so +72.6% confirmed a doubling — and so would
-        +900%. A quarter-band around the claim means +75%..+125% is a
-        doubling and nothing else is."""
+        """The predecessor was a one-sided FLOOR at half the asserted
+        change, so +72.6% confirmed a doubling — and so would +900%. A
+        quarter-band around the claim means +75%..+125% is a doubling and
+        nothing else is."""
         assert Decimal("0.25") == PREMISE_MAGNITUDE_BAND
 
 
 class TestTerminalBucketMaturity:
-    """R3-06. ``7.3% → 12.8% (up 5.5 points)``, grade direct, confidence
-    high, benchmarked — over a July point computed on 22.9% of July's
-    claims."""
+    """Regression: ``7.3% → 12.8% (up 5.5 points)`` shipped as direct,
+    high-confidence and benchmarked — over a July point computed on 22.9%
+    of July's claims."""
 
     def _series(self, rows: tuple[tuple[object, ...], ...]) -> TrendShape:
         frame = EvidenceFrame(
@@ -214,7 +213,8 @@ class TestTerminalBucketMaturity:
 
 
 class TestWindowVocabulary:
-    """R3-05 and R3-16."""
+    """Relative period vocabulary is recognized, quoted back, and never
+    mistaken for a forward horizon."""
 
     def test_a_partly_covered_window_is_partial(self) -> None:
         assert (
@@ -242,7 +242,7 @@ class TestWindowVocabulary:
         assert found is not None and found.forward and found.relative is None
 
     def test_a_named_count_lifts_the_finding_limit(self) -> None:
-        """R3-04. "show me all twelve payers, not just three" parsed
+        """Regression: "show me all twelve payers, not just three" parsed
         perfectly and returned the identical three findings."""
         assert requested_finding_limit("show me all twelve payers, not just three") is not None
         assert requested_finding_limit("every one of our 12 payers") == 12

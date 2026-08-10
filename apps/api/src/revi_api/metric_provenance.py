@@ -1,18 +1,16 @@
 """Trace record → :class:`MetricProvenancePayload`: whose definition this is.
 
 The third sibling of :mod:`revi_api.debug_trace` and
-:mod:`revi_api.evidence`, over the same stored :class:`TraceRecord`. Same
-discipline for the same reason: a badge that recomputed its own answer
-could disagree with the trace it claims to certify, and "which contract
-produced this number?" is precisely the question where a plausible-looking
-disagreement is worst.
+:mod:`revi_api.evidence`, over the same stored :class:`TraceRecord`, under
+the same discipline: a badge that recomputed its own answer could disagree
+with the trace it claims to certify.
 
 Nothing here reads the pack. The metric ids come from the interpretation
 the turn recorded and from the probes it ran; the contract versions come
 off the executed frames' schemas as the connector stamped them; the pack
 id, version and snapshot come off the trace's own ``pack`` block. A pack
-promoted since the turn ran therefore cannot relabel it — which is the
-whole point of recording a snapshot id in the first place.
+promoted since the turn ran therefore cannot relabel it — which is why the
+snapshot id is recorded at all.
 
 The one judgement made here is *when a single metric may be named as the
 primary*, and it is deliberately narrow: see :func:`_primary`.
@@ -77,10 +75,9 @@ def _primary(
       exactly ONE metric was read all turn, so naming it is a reading of
       the record rather than a choice among candidates.
 
-    A playbook turn that ran several metrics gets ``None`` — the payload's
+    A playbook turn that ran several metrics gets ``None``: the payload's
     ``metrics`` list is the honest answer there, and picking a headline out
-    of it would be this module inventing the very claim it exists to
-    substantiate.
+    of it would invent the very claim this module exists to substantiate.
     """
     by_id = {metric.id: metric for metric in metrics}
     for metric_id in interpreted_ids:

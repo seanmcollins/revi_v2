@@ -1,19 +1,12 @@
 """The scripted demo narrative, checked against the grounding validator.
 
-Demo mode streams a narrative composed by ``ScriptedLanguageModel``; the
-same validator that polices a real model's prose polices it
-(``validate_narrative`` — every claim-bearing sentence must cite a
-referent, every number must match a certified value, every proper name
-must come from the findings). A fixed sentence cannot pass that check,
-because referent handles are session-monotonic: the reference
-conversation certifies F1..F3 on turn 1 and F4..F6 on turn 2, so a
-fixture citing F1 is redacted from turn 2 onwards. The composer therefore
-reads the handles back out of the rendered prompt.
-
-Two layers here: the composer against synthetic findings (degradation for
-one, two, three and more findings, and grades weaker than direct), and
-the real demo conversation end to end — every turn of the reference five,
-the COB anchor and the definitional anchor — asserting zero redactions.
+Demo mode streams a narrative composed by ``ScriptedLanguageModel``, policed by the same
+``validate_narrative`` that polices a real model's prose: every claim-bearing sentence cites a
+referent, every number matches a certified value, every proper name comes from the findings.
+Referent handles are session-monotonic, so a fixed sentence cannot pass and the composer reads the
+handles back out of the rendered prompt. Two layers: the composer against synthetic findings
+(degradation across finding counts and grades weaker than direct), and the real demo conversation
+end to end, asserting zero redactions.
 """
 
 from __future__ import annotations

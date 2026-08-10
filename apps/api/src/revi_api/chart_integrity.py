@@ -1,35 +1,29 @@
-"""Two invariants every published chart must hold (round-4 R4-09, R4-14).
+"""Two invariants every published chart must hold.
 
-The chart builder picks an x and a series from a frame's dimension columns
-and then writes one wire row per FRAME row. Nothing checked that those two
-axes actually key the rows — and when a frame carries a third grouping
-column, they do not:
+**Rows must be uniquely addressable by the axes the spec declares.** The
+chart builder picks an x and a series from a frame's dimension columns and
+then writes one wire row per FRAME row; when the frame carries a third
+grouping column, those two axes do not key the rows. Two consequences, both
+silent: a renderer keying rows by ``(x, series)`` keeps the last write and
+drops the rest of the money, under a preamble carrying the watermark, the
+pack version, the investigation id and a full CAVEATS block that says
+nothing about it; and because row ``bounded`` flags are sticky across
+colliders while ``referent_id`` is overwritten by the last one, a bar's
+drill-through points at the wrong cell.
 
-* live, ``denial_concentration`` published 30 rows totalling $441,807.98
-  over ``x=month`` (3 values) by ``series=payer`` (1 value): 3 distinct keys.
-  A renderer keying rows by ``(x, series)`` keeps the last write and drops
-  99.2% of the money — $848.50 in the May cell where the true May total is
-  $160,744.15, a 190x understatement, under a preamble carrying the
-  watermark, the pack version, the investigation id and a full CAVEATS
-  block that says nothing about it;
-* ``chart_breach_confirmation``: 492 rows over 34 distinct
-  ``(group_code, carc)`` keys, ``('CO','16')`` appearing 29 times with a
-  different value each. Row ``bounded`` flags are sticky across colliders
-  and ``referent_id`` is overwritten by the last one, so a bar's
-  drill-through points at the wrong cell.
-
-The wire was complicit: the server declared the axes and then sent rows
-indistinguishable under them. So the repair belongs here, before publish,
-and it is stated rather than performed silently — a chart that had to be
+The wire is complicit — the server declares the axes and then sends rows
+indistinguishable under them — so the repair belongs here, before publish,
+and it is stated rather than performed silently: a chart that had to be
 folded says so, and a chart that cannot be folded honestly is dropped with
 its reason and its total named.
 
-The second invariant is the ordinal one. ``InvestigationPlan.bucket_orders``
-has carried the catalog's declared order for every ordinal bucket dimension
-since round 3 and reached only the findings path, so ``ar_age_bucket`` came
-off this API alphabetically — ``120+`` in slot two — while the browser
-repaired it client-side and every CSV export did not. The declared order is
-published on the spec (``axis_order``) and the rows are emitted in it.
+**Ordinal axes must be published in their declared order.**
+``InvestigationPlan.bucket_orders`` carries the catalog's declared order for
+every ordinal bucket dimension but reached only the findings path, so
+``ar_age_bucket`` came off this API alphabetically — ``120+`` in slot two —
+which the browser repaired client-side and every CSV export did not. The
+declared order is published on the spec (``axis_order``) and the rows are
+emitted in it.
 """
 
 from __future__ import annotations
@@ -82,7 +76,7 @@ def _fold(rows: Sequence[ChartRow]) -> ChartRow:
     The sum is the honest cell: those rows are parts of it. Everything
     row-identifying that the colliders disagree about is dropped rather
     than inherited from whichever one came last — a drill handle that
-    points at one of 29 cells is worse than no drill handle.
+    points at one arbitrary collider is worse than no drill handle.
     """
     values = [v for row in rows if (v := _numeric(row.value)) is not None]
     total = sum(values, Decimal(0)) if values else None

@@ -1,31 +1,14 @@
 """Capability negotiation on the product path, against the real warehouse.
 
-The unit tests in ``test_validation.py`` hold the negotiation itself: what
-a source advertises is asked for, what it does not is refused. This module
-holds the thing the negotiation was built to fix — the gap between what
-the DuckDB source can execute and what a *question* can reach.
-
-Nine shipped metric contracts executed correctly at the source and were
-refused on the product path with ``UNSUPPORTED_CONCEPT: no probe in the
-plan is answerable at the source``, because §6.6 decided answerability
-from the catalog plus one hardcoded field name. So these tests take the
-whole route a user takes — typed first turn → interpretation → planning →
-§6.6 validation → execution against ``data/revi_warehouse.duckdb`` — and
-require a number to come back.
-
-Anything a source does not advertise keeps the old refusal text: silence
-is not permission, and no capability declaration may launder a gap.
-
-``denial_rate`` on its primary ``remit`` basis was pinned here as refused
-too — ``remit`` is unbound at the claim entity, a catalog modelling
-decision recorded in ``packs/base-rcm/NOTES.md``. It is no longer a
-refusal but a labeled substitution (§5.3: an allowed alternate is
-permitted, and labeled in output and provenance), because the refusal was
-being raised by the SQL compiler *past* §6.6 and the question — "what was
-our denial rate this year versus last?" — is one this warehouse can
-answer on a basis the contract already declares legal. The catalog gap
-itself is unchanged; what changed is that it is now visible in the answer
-rather than fatal to it. See ``TestBasisFallback``.
+``test_validation.py`` holds the negotiation itself; this module holds the gap it
+was built to fix. Nine shipped metric contracts executed correctly at the source
+yet were refused on the product path with ``UNSUPPORTED_CONCEPT``, because §6.6
+decided answerability from the catalog plus one hardcoded field name. These tests
+take the whole route a user takes — typed turn → interpretation → planning → §6.6
+validation → execution — and require a number to come back; anything a source
+does not advertise keeps the old refusal text. ``denial_rate`` on its unbound
+primary ``remit`` basis is a labeled substitution rather than a refusal (§5.3);
+see ``TestBasisFallback``.
 """
 
 from __future__ import annotations
@@ -71,7 +54,7 @@ DERIVED_MEASURE_CONTRACTS = (
 )
 CROSS_ENTITY_CONTRACTS = ("net_collection_rate", "gross_collection_rate")
 
-#: The three wave-2 playbook probe groups §6.6 pruned, and their playbooks.
+#: The three playbook probe groups §6.6 pruned, and their playbooks.
 PRUNED_PROBE_GROUPS = (
     ("charge_capture_review", "charge_timing"),
     ("clean_claim_review", "bill_timing"),

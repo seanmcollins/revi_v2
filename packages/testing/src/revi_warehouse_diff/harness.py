@@ -32,11 +32,9 @@ class HarnessResult:
 
         A divergence on an answer published before the disclosure contract
         that governs it landed is a record of history, not a bug the engine
-        would commit again (see :mod:`revi_warehouse_diff.archaeology`, and
-        the three unmarked-bound findings re-run verbatim on the live engine
-        that came back correctly marked). Failing on those makes the harness
-        permanently red for a reason nobody can fix, which is how a gate
-        gets muted.
+        would commit again (see :mod:`revi_warehouse_diff.archaeology`).
+        Failing on those makes the harness permanently red for a reason
+        nobody can fix, which is how a gate gets muted.
         """
         return bool(
             self.replay.live_divergences

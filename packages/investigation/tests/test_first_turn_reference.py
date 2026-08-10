@@ -1,4 +1,4 @@
-"""M5 acceptance: "Why did cash decline last week?" end to end against the
+"""Acceptance: "Why did cash decline last week?" end to end against the
 real generated warehouse (wm_003), the real base pack, the real catalog,
 and the real DuckDB repository — with a canned LLM and faked stores.
 
@@ -171,9 +171,9 @@ class TestReferenceFirstTurn:
         trace = await engine.trace_store.get(outcome.trace_id)
         assert trace is not None
         payload = trace.payload
-        # The first utterance of a session is classified by construction
-        # (F11): no model call, and therefore full confidence in a decision
-        # nothing guessed at.
+        # The first utterance of a session is classified by construction:
+        # no model call, and therefore full confidence in a decision nothing
+        # guessed at.
         assert payload["classification"] == {"turn_class": "new_investigation", "confidence": 1.0}
         assert payload["interpretation"]["playbook_id"] == "cash_decline"
         assert payload["plan_hash"] == outcome.investigation.plan_hash
@@ -207,7 +207,7 @@ class TestReferenceFirstTurn:
         assert {entry["template"] for entry in llm_entries} == {"interpret_question"}
         assert all(entry["schema_retries"] == 0 for entry in llm_entries)
         # Transport attempts ride the trace beside cost, so a degrading
-        # provider is visible where the spend is (review finding D10).
+        # provider is visible where the spend is.
         assert all(entry["attempts"] == 1 for entry in llm_entries)
         assert payload["timings_ms"]  # per-stage latencies recorded
 

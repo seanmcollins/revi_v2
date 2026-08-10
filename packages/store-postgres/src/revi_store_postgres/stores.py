@@ -7,11 +7,10 @@ executed off the event loop via ``asyncio.to_thread`` (rationale in
 as :mod:`revi_store_postgres.serde` envelopes in JSONB; typed columns exist
 for what queries filter on.
 
-Datetime convention: typed ``timestamptz`` columns (``created_at``,
-``expires_at``) round-trip aware datetimes exactly (equality is
-instant-based); naive datetimes are interpreted as UTC and come back
-UTC-aware. Datetimes inside JSONB envelopes round-trip losslessly, tzinfo
-included.
+Datetime convention: typed ``timestamptz`` columns round-trip aware
+datetimes exactly (equality is instant-based); naive datetimes are
+interpreted as UTC and come back UTC-aware. Datetimes inside JSONB
+envelopes round-trip losslessly, tzinfo included.
 """
 
 from __future__ import annotations
@@ -99,15 +98,13 @@ def session_page_query(tenant: str, limit: int) -> sa.Select[Any]:
     Reading ``revi_trace.investigations`` from the session store is the same
     cross-schema join :meth:`PostgresInvestigationStore.lineage` already
     makes — both schemas are the investigation capability's own application
-    state (design §15). The alternative, a title and a last-activity column
-    on the session row, would be a second copy of facts the turns already
-    carry, and the copies would drift the first time a turn was written
-    without touching the session.
+    state (design §15). Denormalizing title and last activity onto the
+    session row would be a second copy of facts the turns already carry, and
+    the copies would drift the first time a turn was written without
+    touching the session.
 
     Module-level rather than inline so the SQL shape can be compiled and
-    asserted without a database (``tests/test_session_list_sql.py``); the
-    behavior itself is covered by the shared store contract under
-    ``-m postgres``.
+    asserted without a database (``tests/test_session_list_sql.py``).
     """
     turn_stats = (
         sa.select(
@@ -128,8 +125,8 @@ def session_page_query(tenant: str, limit: int) -> sa.Select[Any]:
         .limit(1)
         .lateral("first_turn")
     )
-    # A session with no turns has no activity but still has a row: it was
-    # opened, and the list is how an analyst finds it again.
+    # A session with no turns has no activity but still has a row, and the
+    # list is the only way back to it.
     activity = sa.func.coalesce(turn_stats.c.last_activity, t.sessions.c.created_at)
     return (
         sa.select(
@@ -142,8 +139,8 @@ def session_page_query(tenant: str, limit: int) -> sa.Select[Any]:
         .select_from(
             t.sessions.join(turn_stats, sa.true()).join(first_turn, sa.true(), isouter=True)
         )
-        # Archived sessions are dismissed, not deleted: they keep their
-        # lineage and stay fetchable by id, and they leave the rail.
+        # Archived sessions are dismissed, not deleted: they leave this
+        # list but keep their lineage and stay fetchable by id.
         .where(t.sessions.c.tenant == tenant, t.sessions.c.archived_at.is_(None))
         .order_by(activity.desc(), t.sessions.c.id)
         .limit(limit)
@@ -183,10 +180,9 @@ class PostgresSessionStore:
         """Dismiss (or restore) a session without deleting anything.
 
         A session owns investigations, traces, frames and cohorts that
-        other reads resolve through it, so the row stays and the list stops
-        showing it. Idempotent: archiving an archived session is a no-op
-        that keeps the ORIGINAL timestamp, because the second call did not
-        dismiss anything.
+        other reads resolve through it, so the row stays and only the list
+        stops showing it. Idempotent, and re-archiving keeps the ORIGINAL
+        timestamp: the second call did not dismiss anything.
         """
         await asyncio.to_thread(self._archive, session_id, archived)
 
@@ -657,12 +653,12 @@ class PostgresEvidenceCache:
 class PostgresTurnReceiptStore:
     """Executed-turn responses, keyed by the caller's idempotency key.
 
-    The API honored idempotency keys from a process-local dict: correct
-    within one process's lifetime and silently wrong outside it. A restart
-    between a client's POST and its retry — or a second worker behind a
-    load balancer — turned "return the stored response" into a second
-    EXECUTION of the same turn: fresh model spend, a second investigation
-    in the session DAG, and two different answers to one request.
+    Receipts must be shared, not process-local: with a process-local map, a
+    restart between a client's POST and its retry — or a second worker
+    behind a load balancer — turns "return the stored response" into a
+    second EXECUTION of the same turn (fresh model spend, a second
+    investigation in the session DAG, two different answers to one
+    request).
 
     The stored value is the serialized ``TurnResponse``, so a replay
     returns the ORIGINAL payload. First write wins

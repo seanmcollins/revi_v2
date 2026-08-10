@@ -1,22 +1,15 @@
-"""Round-4 R4-05 (premise verdict) and R4-10 (zero is a measurement).
+"""The premise verdict binds the metric that was asked about, and zero is a
+measurement.
 
-**R4-05** was the highest-variance claim of the round — four different
-outcomes across six reviewers from one subsystem:
-
-(a) it never fired on an undimensioned plan (0 of 5 live probes), because
-    the verdict only accepted a compare step whose first input started with
-    ``premise`` and the plans produced were ``['main', 'main__prior']``;
-(b) it bound to whichever compared column was MONEY, so a question about
-    denial RATE was answered "You asked about a doubling in denied dollars.
-    It did not happen" — as bolded F1, at high confidence, on a turn whose
-    rate had risen;
-(c) it CONFIRMED a doubling at +72.6%, with ``asserted_multiple: 2.0`` and
-    ``pct_change: 0.726`` sitting in the same values array, because the
-    magnitude test was a one-sided floor at half the asserted change.
-
-**R4-10**: measured 0%-rate cells were dropped as "padding", which drove
-the measured count to zero and manufactured a refusal to rank — beside a
-census that said thirteen cells were measured.
+The verdict never fired on an undimensioned plan, because it only accepted a
+compare step whose first input was named ``premise``. When it did fire, it
+bound to whichever compared column was MONEY, so a question about denial RATE
+was answered "You asked about a doubling in denied dollars. It did not
+happen" at high confidence on a turn whose rate had risen. And its magnitude
+test was a one-sided floor at half the asserted change, so it CONFIRMED a
+doubling at +72.6%. Separately, measured 0%-rate cells were dropped as
+"padding", driving the measured count to zero and manufacturing a refusal to
+rank beside a census that said thirteen cells were measured.
 """
 
 from __future__ import annotations
@@ -82,8 +75,9 @@ def _scalar_rate_compare(
 def _two_metric_scalar_compare() -> EvidenceFrame:
     """One frame, two compared metrics: denied dollars FELL, the rate ROSE.
 
-    The adonis case. Whichever column the verdict binds to decides whether
-    the answer is "it did not happen" or "it happened".
+    The case a competitor-exec reviewer found: whichever column the verdict
+    binds to decides whether the answer is "it did not happen" or "it
+    happened".
     """
     columns = (
         FrameColumn("denied_dollars", MetricRef("denied_dollars"), 1, "money_cents"),
@@ -157,12 +151,12 @@ def _asserted(spec: object, *, multiple: Decimal | None = None) -> object:
     )
 
 
-# ----------------------------------------------------------------- R4-05a
+# ---------------------------------------------------- the plan it fires on
 
 
 class TestPremiseFiresOnAScalarPlan:
-    """(a) 0 of 5 live probes fired. A scalar frame is a scalar frame
-    whatever the step that produced it is called."""
+    """Not one live probe fired. A scalar frame is a scalar frame whatever
+    the step that produced it is called."""
 
     def test_an_undimensioned_compare_is_a_premise_frame(
         self, pack_port: PackSnapshotPort, make_spec: SpecFactory
@@ -211,11 +205,11 @@ class TestPremiseFiresOnAScalarPlan:
         assert premise.prior == Decimal("0.100")
 
 
-# ----------------------------------------------------------------- R4-05b
+# ------------------------------------------------- the metric it binds to
 
 
 class TestPremiseBindsTheNamedMetric:
-    """(b) "You asked about a doubling in denied dollars" — over a question
+    """"You asked about a doubling in denied dollars" — over a question
     about denial RATE, on a turn where the rate rose and the dollars fell."""
 
     def test_the_spec_metric_wins_over_the_money_column(
@@ -259,11 +253,11 @@ class TestPremiseBindsTheNamedMetric:
         assert premise is None
 
 
-# ----------------------------------------------------------------- R4-05c
+# ----------------------------------------------- the magnitude it accepts
 
 
 class TestMagnitudeBandIsTwoSided:
-    """(c) "Premise confirmed … It happened: 7.4% → 12.8%, 72.6%" at high
+    """"Premise confirmed … It happened: 7.4% → 12.8%, 72.6%" at high
     confidence, with asserted_multiple 2.0 in the same values array."""
 
     async def _verdict(
@@ -400,7 +394,7 @@ class TestMagnitudeBandIsTwoSided:
         assert verdict("0.0100", "0.1000") is MagnitudeVerdict.BEYOND
 
 
-# ------------------------------------------------------------------ R4-10
+# ------------------------------------------------- zero is a measurement
 
 
 def _provider_rank_frame(
@@ -444,7 +438,7 @@ def _rank_plan() -> InvestigationPlan:
 
 
 class TestZeroIsAMeasurement:
-    """R4-10. Thirteen providers with a 0% denial rate — the perfect
+    """Thirteen providers with a 0% denial rate — the perfect
     performers — were discarded by a rule written for counts, which drove
     the measured count to 0 and manufactured "leaving 0 measured, so no
     ranking is published" beside a census stating 13 are measured."""
@@ -510,8 +504,8 @@ class TestZeroIsAMeasurement:
         _, warnings = await self._evaluate(frame, pack_port, make_spec)
 
         refusal = next(w for w in warnings if w.startswith("ranking_refused:"))
-        # Round-6 answer-surface review: the meaning leads, the count is
-        # stated ONCE in words, and the full 3 + 1 + 2 == 6 partition is on
+        # The meaning leads, the count is stated ONCE in words, and the
+        # full 3 + 1 + 2 == 6 partition is on
         # the trace rather than in the paragraph a reader has to act on.
         assert refusal.startswith("ranking_refused: most of these providers are too small")
         assert "3 of 6 are too small to measure exactly" in refusal

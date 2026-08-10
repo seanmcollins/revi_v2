@@ -1,46 +1,35 @@
 """Authentication and tenant scoping for the ``/v1`` surface.
 
-Until this module existed there was none of either. The only middleware on
-the app was CORS; the published OpenAPI carried ``securitySchemes: null``
-and ``security: null`` on all seven routes; ``tenant`` was a string the
-client asserted in a request body and nothing ever checked; and both store
-implementations looked sessions and investigations up **by id alone**. The
-review opened a session as one tenant and then, as an unrelated caller with
-no headers at all, read that session's full lineage and findings *and*
-POSTed a new turn into it. Everything about that exploit was structural,
-not a missing check in one handler.
+Before this module, ``tenant`` was a string the client asserted in a request
+body and nothing checked, and both store implementations looked sessions and
+investigations up **by id alone** — so any caller could read and extend
+another tenant's session. The hole was structural, not a missing check in
+one handler.
 
-The shape of the fix
-====================
 Two concerns, deliberately separated, because they fail differently:
 
 **Authentication** is a transport concern and lives at the FastAPI edge.
 A caller presents ``Authorization: Bearer <token>``; the token is an
 HMAC-SHA256-signed compact envelope carrying the tenant, a subject, and an
-expiry. There is no user database yet and pretending otherwise would be
-worse than saying so: the issuer is whatever mints tokens with the shared
-secret. What the token *does* guarantee is that ``tenant`` is no longer
-client-assertable — the only way to name a tenant is to hold the key that
-signs for it.
+expiry. There is no user database, so the issuer is whatever mints tokens
+with the shared secret. What the token *does* guarantee is that ``tenant``
+is no longer client-assertable — the only way to name a tenant is to hold
+the key that signs for it.
 
 **Authorization** is a domain concern and lives in :class:`ApiService`,
 not in the routes. Every ``{session_id}`` and ``{investigation_id}``
 lookup resolves the owning session and compares its tenant to the
 principal's before returning anything, so the in-process client is bound
-by the same rule as the HTTP one. Putting this in middleware would have
-protected exactly one of the two transports.
+by the same rule as the HTTP one. Middleware would have protected exactly
+one of the two transports.
 
-Why a hand-rolled token instead of a JWT library
-================================================
-The workspace has no JWT dependency and this needs no JWT features: no
-asymmetric keys, no JWKS rotation, no third-party issuers. Sixty lines of
+The token is hand-rolled rather than a JWT because none of the JWT features
+are needed: no asymmetric keys, no JWKS rotation, no third-party issuers.
 ``hmac.compare_digest`` over a canonical JSON payload is auditable in one
-sitting, has no CVE surface of its own, and is trivially replaceable by a
-real IdP integration behind the same :class:`Principal` seam. The one
-thing it must not do is invent security properties it does not have, so:
+sitting and is replaceable by a real IdP integration behind the same
+:class:`Principal` seam. Its limits are real and must not be papered over:
 tokens are bearer credentials, they are not revocable before expiry, and
-the secret is symmetric. Those are stated in the walkthrough's security
-section rather than left for a security review to discover.
+the secret is symmetric.
 
 Operating modes
 ===============
@@ -49,13 +38,12 @@ except ``/v1/health``.
 
 ``REVI_AUTH_DEV_TENANT`` set (and no secret) → an explicit, loudly logged
 development bypass that treats every unauthenticated request as that
-tenant. It exists so the local demo and the test suite do not each have to
-mint credentials, and it is reported in ``/v1/health`` and
-``/v1/capabilities`` so no environment can be in it without saying so.
+tenant, so local runs and the test suite need not mint credentials. It is
+reported in ``/v1/health`` and ``/v1/capabilities`` so no environment can be
+in it without saying so.
 
 Neither set → the app refuses every ``/v1`` request with 401. "Unconfigured"
-resolving to "open" is how the original hole stayed invisible; here it
-resolves to closed.
+resolves to closed, never to open.
 """
 
 from __future__ import annotations

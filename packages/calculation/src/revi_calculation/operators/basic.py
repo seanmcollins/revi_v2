@@ -50,21 +50,16 @@ def ratio(
     """Per-cell ratio-of-sums. Denominator 0 (or NULL) yields NULL, never ∞.
 
     ``unit`` is the metric CONTRACT's declared unit, threaded in by the
-    caller that resolved the contract. Round-4 R4-06: this operator used to
-    hardcode ``unit="ratio"`` on its output column for every ratio-shaped
-    contract, so the pack's own declaration never left the pack. Days in
-    A/R — ``unit: days`` in ``days_in_ar.yaml``, numerator/denominator
-    shaped like every other ratio — was published as **"15,941.2%"**: the
-    single most-quoted KPI in revenue cycle, rendered by the percentage
-    path because the only thing the frame knew about it was the shape of
-    its arithmetic. All four days-unit metrics (``days_in_ar``,
-    ``avg_days_to_pay``, ``charge_lag_days``, ``bill_lag_days``) are
-    numerator/denominator shaped and were all affected.
+    caller that resolved the contract. A ratio is a shape, not a unit: the
+    days-unit metrics (``days_in_ar``, ``avg_days_to_pay``,
+    ``charge_lag_days``, ``bill_lag_days``) are numerator/denominator shaped
+    like every percentage, and hardcoding ``unit="ratio"`` here renders them
+    down the percentage path ("15,941.2%" for days in A/R).
 
-    A ratio is a shape, not a unit. What the quotient MEANS is a contract
-    declaration, and it is carried here so every downstream operator,
-    finding, chart and export reads it off the frame column instead of
-    re-deriving it — the same rule the additive path has always followed.
+    What the quotient means is a contract declaration, carried on the output
+    column so every downstream operator, finding, chart and export reads it
+    off the frame instead of re-deriving it from the arithmetic — the same
+    rule the additive path follows.
     """
     n_idx = frame.schema.index_of(numerator)
     d_idx = frame.schema.index_of(denominator)

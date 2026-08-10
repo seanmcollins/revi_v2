@@ -1,32 +1,12 @@
 """A finding says the period its own number was computed over.
 
-Wave E2, the largest single class in the FN-17 corpus audit: 104 of 156
-divergences, plus 44 more on their prior-window components.
-
-A playbook probe TEMPLATE may declare its own window — ``daily_portfolio``
-measures denial rate over ``{quantity: 4, unit: week, mode: full_periods}``
-— and the planner applies it instead of the investigation window whenever
-the analyst named no window of their own. That resolution was correct and
-completely undisclosed: the findings layer titled every cell with
-``spec.context.window``, so
-
-    denial rate: 14.3% (2026-07-01..2026-07-31)
-
-sat over a figure computed across 2026-07-06..2026-08-02. Both numbers in
-that sentence were right and the sentence was false.
-
-Nothing is re-scoped to fix it. The window the probe read is the window the
-pack authored, and it stays. What changed is what the answer SAYS:
-
-* the finding's title and statement name the probe's own period;
-* the finding publishes that period as named values, the same shape
-  ``__is_bound`` uses, so a card, an export, a restored header and an
-  independent re-derivation all get the same answer without parsing prose;
-* the comparison phrase names the prior range the probe was actually paired
-  against — the planner derives it from the PROBE's window, so a six-month
-  probe under a one-month question is differenced against the six months
-  before it, not against last month;
-* the context header says some checks ran their own periods.
+A playbook probe template may declare its own window, which the planner applies
+when the analyst named none. That resolution was correct and wholly undisclosed:
+findings were titled with ``spec.context.window``, so "denial rate: 14.3%
+(2026-07-01..2026-07-31)" sat over a figure computed across 2026-07-06..2026-08-02
+— both numbers right, the sentence false. Nothing is re-scoped; the title, the
+published values, the comparison phrase and the context header now name the
+period actually read.
 """
 
 from __future__ import annotations
@@ -230,8 +210,8 @@ class TestTheFindingStatesItsOwnPeriod:
     async def test_a_scalar_titles_the_probes_window_not_the_questions(
         self, pack_port: PackSnapshotPort
     ) -> None:
-        """The exact live defect: 'denial rate: 14.3% (2026-07-01..2026-07-31)'
-        over a figure derived across 2026-07-06..2026-08-02."""
+        """The defect: 'denial rate: 14.3% (2026-07-01..2026-07-31)' over a
+        figure derived across 2026-07-06..2026-08-02."""
         [finding] = await _evaluate(
             _plan(FOUR_WEEKS),
             (("portfolio_denial_trend", _scalar_frame()),),
@@ -289,7 +269,7 @@ class TestTheFindingStatesItsOwnPeriod:
 class TestTheComparisonMovesWithIt:
     """The prior twin is derived from the PROBE's window (planning's
     ``_comparison_range``), so the phrase beside the movement has to name
-    THAT range — 44 of the audit's divergences were its components."""
+    THAT range."""
 
     async def test_the_phrase_names_the_range_the_probe_was_paired_against(
         self, pack_port: PackSnapshotPort

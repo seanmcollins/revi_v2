@@ -117,8 +117,8 @@ class TestReferenceOverHttp:
 
 
 class TestGovernedBenchmarksReachTheWire:
-    """Round-1 review D9: 19 sourced, cohort-labelled, caution-annotated
-    benchmark figures were authored and reached nobody.
+    """Regression: 19 sourced, cohort-labelled, caution-annotated benchmark
+    figures were authored and reached nobody.
 
     `assembly.py` passed `benchmarks=()` as a literal; `TurnOutcome` had no
     field to carry them; `FindingPayload` and `TurnAnswer` had none either;
@@ -179,8 +179,8 @@ class TestPortfolioDrillDown:
     The portfolio is generic machinery: an external detection feed read
     as-of a watermark, ranked by the versioned ``anomaly_priority``
     formula, every card declaring its provenance rather than borrowing an
-    evidence grade it did not earn. What M13 could not do was *land* on a
-    card. Its drill handle was a set of sound refinement operators with
+    evidence grade it did not earn. What it could not originally do was
+    *land* on a card: the drill handle was a set of refinement operators with
     nowhere to go: a refinement refines a parent investigation, and a
     portfolio card is not one, so a cold-start drill returned
     CLARIFICATION_REQUIRED — honest, but not an answer.
@@ -301,12 +301,12 @@ class TestPortfolioDrillDown:
         """The property, across the whole population — not one cherry-picked
         card.
 
-        Round-1 review D5: 33 cards, 6 drillable, the first that opened was
-        rank 17, and ~90% of the ranked dollars sat behind an error dialog.
-        The repo's own test at the time opened a single known-good card,
-        which is exactly the shape of test that lets that happen. This one
-        posts **every** card's own unmodified handle and holds the wire
-        flag to it in both directions."""
+        Regression: 33 cards, 6 drillable, the first that opened was rank 17,
+        and ~90% of the ranked dollars sat behind an error dialog. The test
+        at the time opened a single known-good card, which is exactly the
+        shape of test that lets that happen. This one posts **every** card's
+        own unmodified handle and holds the wire flag to it in both
+        directions."""
         transport = httpx.ASGITransport(app=_app(_service()))
         async with httpx.AsyncClient(transport=transport, base_url="http://test") as raw:
             client = HttpInvestigationClient(raw, _token())

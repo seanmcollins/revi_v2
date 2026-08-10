@@ -348,8 +348,8 @@ def create_app(
         """Open a session pinned to the newest watermark and active pack.
 
         The tenant comes from the token. A body naming a different one is
-        refused rather than honored — that field used to be the only thing
-        deciding which tenant a session belonged to."""
+        refused rather than honored: no request can choose the tenant its
+        session belongs to."""
         return await _service().open_session(caller, request)
 
     @app.get("/v1/sessions", response_model=SessionListResponse, responses=ERROR_RESPONSES)
@@ -597,8 +597,8 @@ def create_app(
         four a person may set. `resolved_confirmed` and `regressed` are
         verdicts the PLATFORM reaches by re-running the lead's own drill
         across consecutive loads — asking for either is refused with the
-        reason. That asymmetry is the point: "mark as resolved" everywhere
-        else in this category is a checkbox, and a checkbox is an opinion."""
+        reason. The asymmetry is deliberate: a claim that something is
+        resolved is an opinion until the data agrees with it."""
         return await _service().monitors.patch_lead(caller, anomaly_id, request)
 
     @app.get(

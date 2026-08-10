@@ -1,11 +1,10 @@
-"""Card and drill can no longer disagree in silence (review F1).
+"""Card and drill can no longer disagree in silence.
 
-ANM-021 published $178,216.82 and its own drill answered $195,873.92 — a
-9.9% gap on consecutive screens, with the only reconciliation on the
-answer reading "not_applicable, first turn". These tests pin the two
-halves of the fix: summing the platform's own figure off the drill's
-frame, and describing the relationship between the two figures in words
-that name both.
+Regression: a card published $178,216.82 and its own drill answered
+$195,873.92 — a 9.9% gap on consecutive screens, with the only reconciliation
+reading "not_applicable, first turn". Two halves are pinned here: summing the
+platform's own figure off the drill's frame, and describing the relationship
+between the two figures in words that name both.
 """
 
 from __future__ import annotations
@@ -150,7 +149,7 @@ class TestComparison:
 
 
 # ---------------------------------------------------------------------------
-# round-2 FN-1: a non-money contract has no dollar figure to reconcile
+# a non-money contract has no dollar figure to reconcile
 
 
 class _FakeContract:
@@ -199,10 +198,9 @@ def test_a_refused_rederivation_is_unavailable_never_zero() -> None:
 
 
 def test_a_snapshot_gap_is_not_attributed_to_the_detector() -> None:
-    """FN-2: an as-of balance against a windowed flow is a difference of
-    KIND. Both figures publish; the percentage does not, because a
-    percentage there reads as a disagreement between two measurements of
-    one thing."""
+    """An as-of balance against a windowed flow is a difference of KIND. Both
+    figures publish; the percentage does not, because a percentage there reads
+    as a disagreement between two measurements of one thing."""
     comparison = compare_impact(
         detector_cents=17_821_682,
         window_start=date(2026, 7, 3),

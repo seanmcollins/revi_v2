@@ -1,9 +1,9 @@
-"""The governed display names, and the promise they make (review F9).
+"""The governed display names, and the promise they make.
 
-The load-bearing assertion is not that a display name exists. It is that
-the display name and the CONTRACT'S OWN mandatory caveat say the same
-thing — two files, one claim. If they can drift, the surface a reader
-happens to look at decides what they are told.
+The load-bearing assertion is not that a display name exists. It is that the
+display name and the contract's own mandatory caveat say the same thing — two
+files, one claim. If they can drift, the surface a reader happens to look at
+decides what they are told.
 """
 
 from __future__ import annotations
@@ -114,12 +114,10 @@ def test_the_ruleset_is_content_hashed(rules) -> None:
 
 
 class TestEverySurfaceThatNamesAMetricUsesTheGovernedName:
-    """Round-6 E-04. ``apply_metric_display`` had exactly one caller — the
-    finding card — so the referent CHIP built from that same title, the meta
-    answer's label and the chart title all carried the raw id. Live, the
-    chip read "timely filing at risk dollars: $22,426,000.28" beside a card
-    reading "Unbilled open inventory on a running filing clock:
-    $22,426,000.28", about one finding.
+    """Regression: ``apply_metric_display`` had exactly one caller — the finding
+    card — so the referent chip built from that same title, the meta answer's
+    label and the chart title all carried the raw id. One finding could render
+    under the raw id and the governed name side by side.
     """
 
     def test_the_rules_expose_the_substitution_map_they_all_share(self, rules) -> None:

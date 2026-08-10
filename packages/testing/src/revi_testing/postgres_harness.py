@@ -1,18 +1,16 @@
 """Throwaway-database plumbing for ``-m postgres`` suites.
 
-Strategy (unchanged from where it was first written, only relocated so two
-suites can share it rather than keep two copies that drift): use the
-docker-compose Postgres if reachable; otherwise start it and wait for
-healthy; if the docker daemon is unavailable, skip with a clear reason.
-Each session creates a **throwaway database** through the admin connection,
-migrates it to head with Alembic, and drops it at teardown — so reruns
-never see stale state and the default ``revi`` database is left untouched.
+Strategy: use the docker-compose Postgres if reachable; otherwise start it
+and wait for healthy; if the docker daemon is unavailable, skip with a clear
+reason. Each session creates a **throwaway database** through the admin
+connection, migrates it to head with Alembic, and drops it at teardown — so
+reruns never see stale state and the default ``revi`` database is left
+untouched.
 
-Lives in ``revi_testing`` because more than one package now needs a real
-Postgres: the store adapters are held to the shared contract suite, and the
-Monitors service is exercised end-to-end across loads against a real
-database, which is where a JSONB round-trip or an ordering assumption would
-actually break.
+Shared from ``revi_testing`` because several packages need a real Postgres
+(store adapters under the shared contract suite; Monitors end-to-end across
+loads), and that is where a JSONB round-trip or an ordering assumption
+actually breaks.
 """
 
 from __future__ import annotations

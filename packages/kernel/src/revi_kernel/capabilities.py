@@ -7,24 +7,21 @@ cross this boundary.
 
 What a source *computes*, not only what it *supports*
 ====================================================
-The original descriptor answered five yes/no questions about retrieval
-mechanics (as-of reads, cohort semi-joins, HAVING pushdown, server-side
-top-N, cohort size). That was the whole variation between adapters when
-it was written, and it stopped being true the moment an adapter learned
-to compute a measure at probe time rather than read it from a column.
+The descriptor covers both retrieval mechanics (as-of reads, cohort
+semi-joins, HAVING pushdown, server-side top-N, cohort size) and what an
+adapter can compute at probe time.
 
 An adapter that derives ``payment_lag_days`` from two governed date
 columns, or aggregates a ratio whose numerator and denominator live at
-different entity grains, can answer contracts the catalog alone says are
-unanswerable — and a validator consulting only the catalog refuses them
-with a sentence about the source the source disproves. The fix is not a
-second hardcoded list inside the validator (that is what produced the
-gap); it is the adapter declaring what it can do and the validator
-reading the declaration.
+different entity grains, can answer contracts the catalog alone calls
+unanswerable. A validator consulting only the catalog would refuse those
+with a claim about the source that the source disproves, so the adapter
+declares what it can do and the validator reads the declaration — rather
+than the validator carrying a second hardcoded list.
 
-Both additions default to "nothing extra", so an adapter that never
-learned the new tricks keeps the old, honest refusal. Silence advertises
-no capability — it is never read as permission.
+Both computation fields default to "nothing extra", so an adapter that
+does not implement them keeps the conservative refusal. Silence
+advertises no capability; it is never read as permission.
 """
 
 from __future__ import annotations
@@ -47,12 +44,11 @@ class DerivedMeasure:
     defined at (the same name the adapter checks the probe entity
     against); ``shapes`` are the probe shapes that can compute it.
 
-    The shapes are load-bearing rather than decorative. A snapshot-time
-    age (billed dollars weighted by days outstanding *as of* a date) has
-    no meaning inside a flow aggregation, and an adapter that refuses it
-    at execute time must be refusable at plan time for the same reason —
-    otherwise the two layers disagree about the same probe and the
-    analyst learns which one was right by clicking.
+    The shapes are load-bearing. A snapshot-time age (billed dollars
+    weighted by days outstanding *as of* a date) has no meaning inside a
+    flow aggregation, so anything the adapter refuses at execute time must
+    be refusable at plan time too; otherwise the two layers disagree about
+    the same probe.
     """
 
     field: str
@@ -71,9 +67,8 @@ class RepositoryCapabilities:
     having_pushdown: bool
     server_side_top_n: bool
     #: Probe-time derived measures this source computes (design §6.3).
-    #: Empty means "everything must already be a catalog measure or a
-    #: declared column", which is what every adapter advertised before
-    #: any of them learned otherwise.
+    #: Empty means every measure must already be a catalog measure or a
+    #: declared column.
     derived_measures: tuple[DerivedMeasure, ...] = ()
     #: Whether one **aggregation** probe may sum components declared at
     #: different entity grains — the ratio-of-sums construction where each

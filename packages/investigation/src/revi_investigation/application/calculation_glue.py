@@ -136,17 +136,17 @@ def _key_set(frame: EvidenceFrame, columns: tuple[str, ...]) -> set[tuple[Scalar
 def _mark_unmatched_unknown(
     step_id: str, current: EvidenceFrame, prior: EvidenceFrame, out: EvidenceFrame
 ) -> tuple[EvidenceFrame, str | None]:
-    """A cell missing from a TRUNCATED side is UNKNOWN, never zero (R4-08).
+    """A cell missing from a TRUNCATED side is UNKNOWN, never zero.
 
     ``compare`` fills a missing side with 0 for additive units, which is
     correct when the side was read whole: a denial code with no denied
     dollars last quarter really did have none. It is a fabrication when the
     side was top-N limited, because the cell was not absent — it was not
-    retrieved. Live, that published "CO / 16 — Missing or invalid
-    information: denied dollars moved from $0.00 to $41,918.23" at
-    direct/high with an impact figure, against a warehouse in which CO/16
-    had FALLEN $15,780 over the same window: the sign inverted, the
-    movement invented, and the number ranked.
+    retrieved. That publishes "CO / 16 — Missing or invalid information:
+    denied dollars moved from $0.00 to $41,918.23" at direct/high with an
+    impact figure over a cell that had FALLEN $15,780 across the same
+    window: the sign inverted, the movement invented, and the number
+    ranked.
 
     The planner now reads the prior side whole wherever the catalog says it
     can (see ``_pair_comparisons``), so this is the backstop for the cuts it

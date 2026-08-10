@@ -1,25 +1,16 @@
 """denial_rate v2: the population is adjudicated claims, and it says so.
 
-v1 counted every un-adjudicated claim as a denial. The numerator reads
-``clean_claim = false``; ``clean_claim`` is ``paid AND NOT denied``, so a
-claim that has never been remitted reads false for want of evidence rather
-than because a payer decided anything. All 11,319 OPEN claims in this
-warehouse carry **zero** denial records, and the live API published State
-Medicaid at 49.94% — nearly ten times the true incidence — graded
-``direct``/``high``, with the contract's own population caveat sitting
-unread in a description.
-
-Two things had to change together, and this file pins both:
-
-1. ``status`` is a certified catalog dimension, so
-   ``exclusions: {status eq OPEN}`` resolves and removes OPEN from
-   **both** sides of the ratio.
-2. Any contract whose description declares a ``Population caveat:``
-   publishes it as a warning on every answer that reads the metric —
-   structural, not a per-metric patch.
-
-The expected numbers are the engine's, cross-checked against direct SQL
-over ``snap_003.v_claim`` (recorded in the assertions below).
+v1 counted every un-adjudicated claim as a denial: the numerator reads
+``clean_claim = false`` and ``clean_claim`` is ``paid AND NOT denied``, so a
+never-remitted claim reads false for want of evidence. All 11,319 OPEN claims
+here carry **zero** denial records, yet State Medicaid published at 49.94% —
+nearly ten times the true incidence — graded ``direct``/``high``, with the
+contract's own population caveat unread in a description. Both halves are pinned
+here: ``status`` is a certified dimension, so ``exclusions: {status eq OPEN}``
+removes OPEN from both sides of the ratio, and any contract declaring a
+``Population caveat:`` publishes it as a warning on every answer that reads the
+metric. Expected numbers are cross-checked against direct SQL over
+``snap_003.v_claim``.
 """
 
 from __future__ import annotations
@@ -130,7 +121,7 @@ class TestAdjudicatedPopulation:
 class TestPopulationCaveatIsPublished:
     async def test_the_contracts_caveat_reaches_the_answer(self, outcome: TurnOutcome) -> None:
         """The structural rule. v1's caveat existed, was correct, and never
-        left the pack — the live response's warnings carried only basis and
+        left the pack — the response's warnings carried only basis and
         suppression notes."""
         caveats = [w for w in outcome.warnings if w.startswith("population_caveat: denial_rate")]
         assert len(caveats) == 1, outcome.warnings

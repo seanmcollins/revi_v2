@@ -2,20 +2,16 @@
 
 The corpus is a HISTORICAL record. Every stored investigation was published
 by whatever engine was running the day it was written, and the disclosure
-contract this audit holds answers to has changed since — twice, in ways that
-account for most of the first run's fix queue:
+contract this audit holds answers to has changed since, twice:
 
 * published ceilings gained their ``__is_bound`` marker and stopped being
-  ranked against measured cells (M19 wave B / M20 wave C);
+  ranked against measured cells;
 * findings whose probe declared its own window started stating THAT window
-  rather than the investigation window (wave E2).
+  rather than the investigation window.
 
 An audit that cannot tell "the engine publishes this today" from "the engine
-published this in August" hands over a fix queue nobody can work: three of
-the four unmarked-bound divergences in the first run were re-run verbatim on
-the live engine and came back correctly marked, unranked and captioned. They
-were not bugs. They were fossils, and the harness said nothing about the
-difference.
+published this in August" hands over a fix queue nobody can work: divergences
+that re-run correctly on the live engine are fossils, not bugs.
 
 So every divergence is dated. ``created_at`` on the stored investigation is
 compared against :data:`DISCLOSURE_CONTRACT_SINCE`, and the verdict FAILS on
@@ -63,25 +59,22 @@ DISCLOSURE_FIXES: tuple[DisclosureFix, ...] = (
         commit="f51d511",
         what=(
             "a suppressed numerator publishes __is_bound / __bound / "
-            "__bound_population and a '≤' in its own title (M19 wave B); M20 "
+            "__bound_population and a '≤' in its own title; a later change "
             "(6a42ad7) then pulled bounded cells out of the ranking entirely"
         ),
     ),
     DisclosureFix(
         code="probe_windows",
-        # Bracketed by live evidence, not by a guess: the last corpus answer
+        # Bracketed by corpus evidence, not by a guess: the last answer
         # WITHOUT the disclosure is 2026-08-10T05:10:10Z, the first WITH it
         # is 2026-08-10T05:34:42Z (inv_d4cb71aa91fb, whose header carries the
         # own-period note and whose findings state 2026-07-06..2026-08-02).
         # 05:30 sits inside that gap.
         landed=dt.datetime(2026, 8, 10, 5, 30, 0, tzinfo=dt.UTC),
-        # Backfilled in round 8. This read "wave-E2 (uncommitted when this
-        # boundary was written)" — a boundary that excused 170 divergences
-        # by DATE while naming no commit anybody could check it against,
-        # which is the one thing this field exists to prevent. 5ad1774 is
-        # the commit wave E2 landed in; ``test_every_disclosure_fix_names_a
-        # _real_commit`` resolves every hash here through ``git cat-file``
-        # so the field cannot go back to being prose.
+        # A boundary that excuses divergences by DATE while naming no commit
+        # anybody can check is the one thing this field exists to prevent.
+        # ``test_every_disclosure_fix_names_a_real_commit`` resolves every
+        # hash here through ``git cat-file``, so it cannot go back to prose.
         commit="5ad1774",
         what=(
             "a finding whose probe declared its own window states THAT window "

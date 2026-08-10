@@ -66,21 +66,18 @@
 
 Answerability is negotiated, not assumed
 ========================================
-Step 1 used to decide answerability from the catalog alone, plus one
-hardcoded exception — a module constant naming ``open_balance_cents``,
-the single field the DuckDB adapter computed at probe time on the day the
-predicate was written. It was true then. It stopped being true when the
-adapter grew seven probe-time derivations and cross-entity ratio-of-sums,
-and the consequence was not a warning but a refusal: nine metric
-contracts that the source executes correctly were pruned to an empty plan
-and answered ``UNSUPPORTED_CONCEPT: no probe in the plan is answerable at
-the source`` — a sentence about the source that the source disproves.
+Deciding answerability from the catalog alone plus a hardcoded list of
+probe-time derivations goes stale the moment an adapter grows a new one,
+and the consequence is not a warning but a refusal: contracts the source
+executes correctly are pruned to an empty plan and answered
+``UNSUPPORTED_CONCEPT: no probe in the plan is answerable at the source``
+— a sentence about the source that the source disproves.
 
-The fix is not a longer constant. It is §6.3's capability negotiation:
-the repository advertises what it computes (``derived_measures``, each
-with its entity and the probe shapes that can compute it, and
-``cross_entity_ratio_of_sums``), and this pass reads the advertisement.
-Three properties follow, and each is pinned by a test:
+So this is §6.3's capability negotiation: the repository advertises what
+it computes (``derived_measures``, each with its entity and the probe
+shapes that can compute it, and ``cross_entity_ratio_of_sums``), and this
+pass reads the advertisement. Three properties follow, and each is pinned
+by a test:
 
 - **Silence is not permission.** A repository that advertises nothing
   extra gets exactly the old behaviour, refusal text included. Adapters
@@ -101,10 +98,11 @@ Population caveats are structural, not per-metric
 Several contracts volunteer, in prose, that their population is not the one
 a reader would assume — ``denial_rate`` excludes un-adjudicated claims,
 ``ar_balance`` values A/R at gross billed charges, ``days_in_ar`` is the
-aging form rather than MAP FM-1. That honesty was authored and then never
-left the pack: the live API published ``denial_rate`` at 49.94% with a
-``warnings`` array carrying only basis and suppression notes, while the
-contract's own caveat sat in a description nothing rendered.
+aging form rather than MAP FM-1. Authored honesty that never leaves the
+pack is not honesty on the wire: without this step the API publishes
+``denial_rate`` at 49.94% with a ``warnings`` array carrying only basis and
+suppression notes, while the contract's own caveat sits in a description
+nothing renders.
 
 So the convention is mechanical: a contract description may carry exactly
 one sentence group introduced by ``Population caveat:``, and every answer
@@ -190,8 +188,8 @@ _CAVEAT_TERMINATORS = re.compile(
 #: grain than the refused one can still be cut by the requested dimension
 #: and still rolls up to the population that was asked about; a coarser one
 #: cannot, because the rows it counts span several of the asked-for
-#: entities. Equality was the old test and it filtered out the only metric
-#: that answered the question (round-2 FN-7).
+#: entities. Testing for EQUAL grain instead filters out metrics that
+#: answer the question.
 _GRAIN_ORDER: tuple[EntityGrain, ...] = (
     EntityGrain.ENCOUNTER,
     EntityGrain.CLAIM,
@@ -263,12 +261,11 @@ class ValidatedPlan:
     grades: tuple[tuple[str, EvidenceGrade], ...]
     warnings: tuple[str, ...]
     #: §6.6 step 4b value resolutions, as ``dimension -> {as typed: as
-    #: queried}``. Round-2 FN-9: the corrected value was applied to the
-    #: PLAN and nowhere else, so the context header — the one field whose
-    #: job is to state which population ran — kept publishing the user's
-    #: spelling, contradicting the ``value_corrected`` caution beside it.
-    #: Carried out of validation so the header can state the predicate the
-    #: engine actually executed.
+    #: queried}``. Applying the correction to the PLAN alone leaves the
+    #: context header — the one field whose job is to state which population
+    #: ran — publishing the user's spelling, contradicting the
+    #: ``value_corrected`` caution beside it. Carried out of validation so
+    #: the header can state the predicate the engine actually executed.
     value_corrections: tuple[tuple[str, tuple[tuple[str, str], ...]], ...] = ()
 
     @property
@@ -335,8 +332,8 @@ def map_predicates(
     """Rewrite every predicate in a filter tree, structure preserved.
 
     Exported: the turn engine applies a clarification's chosen value the
-    same way (round-3 R3-07), and two tree-rewriters would be two chances
-    to forget a node type.
+    same way, and two tree-rewriters would be two chances to forget a node
+    type.
     """
     if isinstance(expr, Predicate):
         return fn(expr)
@@ -361,12 +358,12 @@ def _corrected(predicate: Predicate, corrections: dict[str, dict[str, Scalar]]) 
 class PlanClarificationNeeded(Exception):
     """A §6.6 finding the analyst can act on, raised as a clarification.
 
-    Plan validation used to have exactly two outcomes: a validated plan, or
-    a §12 error code that reached the analyst as a dead end ("this metric
-    cannot be cut by that dimension" — and then nothing). Some of what this
-    pass discovers is not a failure of the platform but a question for the
-    analyst: a filter value that exists nowhere in the data, a breakdown
-    another metric *can* do. Those cross the boundary as a
+    Two outcomes — a validated plan or a §12 error code — leave the analyst
+    at a dead end ("this metric cannot be cut by that dimension", and then
+    nothing). Some of what this pass discovers is not a failure of the
+    platform but a question for the analyst: a filter value that exists
+    nowhere in the data, a breakdown another metric *can* do. Those cross
+    the boundary as a
     :class:`ClarificationRequest`, which the engine already treats as a
     successful outcome, rather than as an exception the API renders as an
     error banner.
@@ -385,10 +382,10 @@ MAX_SUGGESTED_VALUES = 4
 
 #: A domain no larger than this is offered IN FULL rather than sampled. The
 #: payer domain here is twelve; offering four of them under the heading
-#: "Closest:" — when they were the first four alphabetically — left eight
-#: values the analyst had no way to reach and no way to know existed
-#: (round-2 FN-6). Above this, a list stops being a choice and becomes a
-#: wall of text, and the sample is labelled a sample.
+#: "Closest:" — when they are the first four alphabetically — leaves eight
+#: values the analyst has no way to reach and no way to know exist. Above
+#: this, a list stops being a choice and becomes a wall of text, and the
+#: sample is labelled a sample.
 MAX_ENUMERATED_VALUES = 16
 #: Values below this similarity are not near misses, they are different
 #: words; suggesting them teaches the analyst the matcher is guessing.
@@ -446,14 +443,13 @@ class PlanValidationService:
     ) -> tuple[str, str] | None:
         """``(dimension id, metric id)`` this sentence asks for and cannot have.
 
-        Round-9 R9-07. "Why did it go up?" was answered with a clarification
-        whose own option read *"Yes — re-group the figure F1 result by denial
-        reason"*; tapping it produced ``outcome: error``,
-        ``GRAIN_INCOMPATIBLE: denial_category is not a scope dimension of
-        denial_rate``, a bracketed internal predicate and a correlation id on
-        screen — the product offering a breakdown it already knew it could
-        not run, and the circuit breaker firing on its own suggestion three
-        turns later.
+        Without this check a clarification can offer *"Yes — re-group the
+        figure F1 result by denial reason"* and the tap produces ``outcome:
+        error``, ``GRAIN_INCOMPATIBLE: denial_category is not a scope
+        dimension of denial_rate``, a bracketed internal predicate and a
+        correlation id on screen — a breakdown the platform already knew it
+        could not run, with the circuit breaker eventually firing on its own
+        suggestion.
 
         The predicate that refuses it is ``MetricContract.allows_dimension``,
         the same one :meth:`_check_grain` applies, so the check the OPTION
@@ -492,16 +488,15 @@ class PlanValidationService:
     def unanswerable_playbook(self, text: str) -> tuple[str, str] | None:
         """``(playbook id, transform)`` this sentence asks for and cannot have.
 
-        Round-10 R10-6, the same defect class as R9-07 one question to the
-        left. "Who is my worst payer?" — the first basics question anyone
-        asks — offered clarification option 4 verbatim *"Run a full payer
-        scorecard across all measures"*, and asking for that elsewhere
-        produced ``PLAYBOOK_TRANSFORM_UNAVAILABLE: payer_scorecard answers
-        by 'pivot'``. Wave G's offer-time validator dry-runs an option
-        against the plan grammar (:meth:`unexecutable_cut`), which is the
+        The same defect class as :meth:`unexecutable_cut`, one question to
+        the left: "who is my worst payer?" can be answered with the
+        clarification option *"Run a full payer scorecard across all
+        measures"*, which produces ``PLAYBOOK_TRANSFORM_UNAVAILABLE:
+        payer_scorecard answers by 'pivot'`` when taken. The offer-time
+        validator dry-runs an option against the plan grammar, which is the
         DIMENSION half of answerability; this is the other half, and the
-        knowledge it needs has been sitting in
-        :meth:`_playbook_transform_alternative` since round 8.
+        knowledge it needs already lives in
+        :meth:`_playbook_transform_alternative`.
 
         ``ANSWERING_TRANSFORMS`` are the transforms a playbook answers WITH
         rather than decorates with — ``pivot`` makes a scorecard a
@@ -597,19 +592,19 @@ class PlanValidationService:
         """Turn a §6.6 refusal into a question the analyst can answer.
 
         ``GRAIN_INCOMPATIBLE`` and ``UNSUPPORTED_CONCEPT`` are honest: this
-        metric cannot be cut that way, that dimension is not in the
-        catalog. They were also *dead ends* — the analyst got a red banner
-        naming an error code and no route onward, while the pack sitting
-        right there could often answer the same question with a different
-        metric. The near miss is derivable, so it is derived: metrics whose
+        metric cannot be cut that way, that dimension is not in the catalog.
+        They are also *dead ends* on their own — an error code and no route
+        onward, while the pack can often answer the same question with a
+        different metric. The near miss is derivable, so it is derived:
+        metrics whose
         ``scope_dimensions`` include the dimension that was refused, at the
         same kind and at a grain no coarser than the refused metric's,
         become clarification options. Nothing is invented — an option that
         appears is a metric that exists and a cut it declares.
 
         ``spec`` is the ask itself, when the caller has it: it carries the
-        other dimensions the analyst named, which every generated option
-        used to drop (round-2 FN-7).
+        other dimensions the analyst named, which a generated option must
+        not drop.
 
         Returns ``None`` when the pack offers nothing, in which case the
         refusal stands as it was: a clarification with no way forward is
@@ -636,8 +631,8 @@ class PlanValidationService:
     ) -> ClarificationRequest | None:
         """What this pack CAN answer when a playbook's answer is missing.
 
-        Round-8 FIX-9(2) and FIX-12(c). ``pivot`` and
-        ``project_lagged_realization`` are the two transforms this engine
+        ``pivot`` and ``project_lagged_realization`` are the two transforms
+        this engine
         does not implement and that a playbook answers WITH, so the plan
         refuses rather than publishing the probes underneath as if they
         were the card or the forecast (see
@@ -709,15 +704,15 @@ class PlanValidationService:
     ) -> ClarificationRequest | None:
         """Date bases this metric CAN be read on, as recovery options.
 
-        ``DATE_BASIS_INVALID`` was the last dead end in the §12 set, and it
-        managed to be a self-contradicting one: the refusal copy read
-        "Asking on a different date basis — service, submission or posting
-        date — will answer it" directly above "(allowed: ['service',
-        'submission'])", with no options array behind either sentence. So
-        the alternatives are derived from the same two facts the refusal
-        was computed from — what the contract allows, and what this
-        warehouse binds at the contract's grain — and an option that
-        appears is a basis that will actually answer.
+        A bare ``DATE_BASIS_INVALID`` is a dead end, and a
+        self-contradicting one: static refusal copy reads "Asking on a
+        different date basis — service, submission or posting date — will
+        answer it" directly above "(allowed: ['service', 'submission'])",
+        with no options array behind either sentence. So the alternatives
+        are derived from the same two facts the refusal was computed from —
+        what the contract allows, and what this warehouse binds at the
+        contract's grain — and an option that appears is a basis that will
+        actually answer.
 
         ``None`` when the contract is unknown or nothing survives both
         checks: the refusal then stands, exactly as ``GRAIN_INCOMPATIBLE``
@@ -756,7 +751,7 @@ class PlanValidationService:
             # Each option carries the basis it stands for, so a reply that
             # names one resumes the question that was interrupted instead of
             # being re-read as a fresh utterance — and so a lone survivor can
-            # simply be applied rather than asked about (round-3 R3-07).
+            # simply be applied rather than asked about.
             bindings=tuple(
                 ClarificationBinding(
                     option=option,
@@ -773,31 +768,30 @@ class PlanValidationService:
     ) -> ClarificationRequest | None:
         """Metrics that declare ``dimension_id`` as a legal cut.
 
-        Three round-2 fixes (FN-7), all of which this loop got wrong at
-        once on the canonical CARC demo — "how much revenue did we lose to
-        prior authorization denials, broken out by payer?":
+        Three rules, each of which this loop is easy to get wrong on a
+        question like "how much revenue did we lose to prior authorization
+        denials, broken out by payer?":
 
-        * **The count was the sample size.** The loop broke at
-          ``MAX_SUGGESTED_VALUES`` and the reason string then interpolated
-          ``len(options)``, so a pack where ten metrics declare
-          ``denial_category`` reported "4 pack metrics declare it". The
-          candidates are counted in full first and the offered set is
-          labelled a sample, matching the copy ``PREDICATE_VALUE_UNMATCHED``
-          already gets right.
-        * **Equal-grain was too strict.** ``denied_dollars`` is (flow,
-          denial) and ``initial_denial_rate`` is (flow, claim), so the one
-          metric that answers the money half of the question was filtered
-          out and ``options`` came back empty — which turns a recoverable
-          refusal back into a hard ``GRAIN_INCOMPATIBLE`` with no way
-          onward. A candidate at a FINER grain can still be cut by the
-          dimension and still aggregates to the population that was asked
-          about; a coarser one cannot.
-        * **Alphabetical order buried the answer.** ``metric_summaries()``
-          is alphabetical, so the two money metrics sorted last and were
+        * **The count is not the sample size.** Breaking at
+          ``MAX_SUGGESTED_VALUES`` and then interpolating ``len(options)``
+          makes a pack where ten metrics declare ``denial_category`` report
+          "4 pack metrics declare it". The candidates are counted in full
+          first and the offered set is labelled a sample, matching the copy
+          ``PREDICATE_VALUE_UNMATCHED`` uses.
+        * **Equal-grain is too strict.** ``denied_dollars`` is (flow,
+          denial) and ``initial_denial_rate`` is (flow, claim), so an
+          equal-grain test filters out the metric that answers the money
+          half of the question and returns no options at all — turning a
+          recoverable refusal back into a hard ``GRAIN_INCOMPATIBLE`` with
+          no way onward. A candidate at a FINER grain can still be cut by
+          the dimension and still aggregates to the population that was
+          asked about; a coarser one cannot.
+        * **Alphabetical order buries the answer.** ``metric_summaries()``
+          is alphabetical, so money metrics can sort last and sit
           unreachable behind the cap on a question that asked "how much
-          revenue". Money-unit candidates lead now, and the other
-          dimensions the analyst asked for are preserved in the option text
-          instead of being silently dropped from every one.
+          revenue". Money-unit candidates lead, and the other dimensions the
+          analyst asked for are preserved in the option text instead of
+          being silently dropped from every one.
         """
         refused = self._pack.metric(metric_id) if isinstance(metric_id, str) else None
         dim = self._catalog.dimension(dimension_id)
@@ -910,17 +904,17 @@ class PlanValidationService:
     ) -> ValidatedPlan:
         """Resolve every filter value against the values that exist (§6.6).
 
-        The pass that was missing. Every id a question produces was checked
-        against governed content — metric, playbook, dimension, date basis,
-        concept — and then the *values* those dimensions were filtered to
-        were sent to the warehouse unexamined. Live: "denial rate for
-        UnitedHealthcare and Aetna" compiled ``payer in
-        ['UnitedHealthcare', 'Aetna']`` against a warehouse holding neither
-        name, executed correctly, matched nothing, and published an empty
-        answer whose only caveat was about small-cell suppression. A
-        wrong-case enum value did the same; so did a referent handle that
-        leaked into a filter. Querying the void is not an answer, and an
-        empty result is the one shape that cannot tell the analyst why.
+        Every id a question produces is checked against governed content —
+        metric, playbook, dimension, date basis, concept — and without this
+        step the *values* those dimensions are filtered to reach the
+        warehouse unexamined. "Denial rate for UnitedHealthcare and Aetna"
+        then compiles ``payer in ['UnitedHealthcare', 'Aetna']`` against a
+        warehouse holding neither name, executes correctly, matches nothing,
+        and publishes an empty answer whose only caveat is about small-cell
+        suppression. A wrong-case enum value does the same; so does a
+        referent handle that leaks into a filter. Querying the void is not
+        an answer, and an empty result is the one shape that cannot tell the
+        analyst why.
 
         Two sources of truth, in order:
 
@@ -1024,16 +1018,15 @@ class PlanValidationService:
     ) -> ClarificationRequest:
         """Name what did not match, what exists, and how to get there.
 
-        Three round-2 copy fixes (FN-6), all six personas flagged them:
+        Three failure modes this copy has to avoid:
 
-        * the plural agreed with the count of UNMATCHED values, so a domain
-          of twelve payers read "12 payer value exist here";
-        * four of twelve were offered under the heading "Closest:" when
-          they were simply the first four alphabetically — a false claim of
+        * agreeing the plural with the count of UNMATCHED values, so a
+          domain of twelve payers reads "12 payer value exist here";
+        * offering four of twelve under the heading "Closest:" when they are
+          simply the first four alphabetically — a false claim of
           similarity, and no route to the other eight;
-        * a domain small enough to state in full was never stated in full,
-          which is the difference between a dead end and an answerable
-          question.
+        * not stating a domain small enough to state in full, which is the
+          difference between a dead end and an answerable question.
 
         So: when the whole domain fits, the whole domain is offered and
         nothing is called "closest". When it does not, the near matches are
@@ -1212,10 +1205,10 @@ class PlanValidationService:
                 # define is exactly as fatal as an unresolvable measure
                 # field — the adapter raises UNSUPPORTED_CONCEPT when it
                 # compiles the predicate — but until now nothing checked it
-                # here, so the failure surfaced as an error dialog after a
-                # click rather than as an unanswerable probe before one.
-                # (Round-1 review D4/D5: this is the ``filtered:`` half of
-                # the conformance gap ``packs/base-rcm/NOTES.md`` names.)
+                # here, so the failure would surface as an error dialog
+                # after a click rather than as an unanswerable probe before
+                # one. This is the ``filtered:`` half of the conformance gap
+                # ``packs/base-rcm/NOTES.md`` names.
                 for dimension_id in sorted(_internal_filter_dimensions(contract)):
                     if self._catalog.dimension(dimension_id) is None:
                         unresolved.append(
@@ -1246,11 +1239,10 @@ class PlanValidationService:
         kept_nodes = tuple(node for node in plan.nodes if node.id not in dropped)
         if not any(not node.id.endswith(_PRIOR_SUFFIX) for node in kept_nodes):
             # The refusal carries the per-field reasons, not only the probe
-            # ids: "no probe is answerable" was true and useless for as long
-            # as the reason was a hardcoded predicate nobody could read from
-            # the outside. What is missing — a catalog measure, a source
-            # that computes it, a probe shape that can — belongs in the
-            # error the caller renders.
+            # ids: "no probe is answerable" is true and useless on its own.
+            # What is missing — a catalog measure, a source that computes it,
+            # a probe shape that can — belongs in the error the caller
+            # renders.
             raise UnsupportedConceptError(
                 "no probe in the plan is answerable at the source",
                 details={
@@ -1540,13 +1532,13 @@ class PlanValidationService:
     def _check_basis(self, node: ProbeNode, warnings: list[str]) -> None:
         """Contract legality *and* warehouse bindability, then the label.
 
-        Legality was always checked here; bindability was not, and the gap
-        was a live P0: ``denial_rate`` declares ``remit`` primary at the
-        CLAIM grain, this warehouse binds ``remit`` only on the
-        remit/transaction/denial views, and the year-over-year denial-rate
-        question passed this pass and then died inside the SQL compiler
-        with ``DATE_BASIS_INVALID``. A §12 code raised past the pass that
-        exists to raise it is a §6.6 bypass, whatever the message says.
+        Legality alone is not enough: ``denial_rate`` declares ``remit``
+        primary at the CLAIM grain while this warehouse binds ``remit`` only
+        on the remit/transaction/denial views, so a year-over-year
+        denial-rate question passes a legality-only check and then dies
+        inside the SQL compiler with ``DATE_BASIS_INVALID``. A §12 code
+        raised past the pass that exists to raise it is a §6.6 bypass,
+        whatever the message says.
 
         The planner now reduces every basis to one the catalog binds
         (:mod:`revi_investigation.application.date_basis`); this step is the
@@ -1592,15 +1584,12 @@ class PlanValidationService:
                 entity is not None
                 and entity.date_basis_column(contract.primary_date_basis) is None
             )
-            # Named by METRIC, never by probe (round-5 C-01). Six probes on
-            # one plan read one contract on one basis and each emitted its
-            # own sentence, so the dedupe below — keyed on (code, message) —
-            # saw six facts and published six amber banners differing only
-            # by `probe 'main'` / `'premise'` / `'main__window'` /
-            # `'main__window__prior'` / `'premise__window'` /
-            # `'premise__window__prior'`. One card carried six, another ten.
-            # They are one fact spelled six ways, and the probe id is
-            # plumbing no exec reader has a use for: it lives on the trace.
+            # Named by METRIC, never by probe. Six probes on one plan can
+            # read one contract on one basis, and naming the probe makes the
+            # (code, message) dedupe see six facts — six banners differing
+            # only by `probe 'main'` / `'premise'` / `'main__window'` and so
+            # on. They are one fact spelled six ways, and the probe id is
+            # plumbing that belongs on the trace.
             if primary_unbound:
                 assert entity is not None
                 warnings.append(
@@ -1712,16 +1701,15 @@ class PlanValidationService:
     # ------------------------------------------------- step 6: suppression
 
     def _note_suppression(self, plan: InvestigationPlan, warnings: list[str]) -> None:
-        """State the §15 policy as it actually is (round-3 FN-1).
+        """State the §15 policy as it actually is.
 
-        The old sentence — "cells counting fewer than 11 entities are
-        suppressed" — was published over a frame containing a 10-entity
-        cell, because the thing being counted was a ratio's numerator and
-        not the population the cell describes. Two rules, so two clauses:
-        a small POPULATION is withheld entirely, and a small numerator over
-        a publishable population is shown as an upper bound rather than
-        dropped (which is what used to remove the best-performing payers
-        from a ranking and say nothing about it).
+        "Cells counting fewer than 11 entities are suppressed" is false over
+        a frame containing a 10-entity cell, because the thing counted is a
+        ratio's numerator and not the population the cell describes. Two
+        rules, so two clauses: a small POPULATION is withheld entirely, and
+        a small numerator over a publishable population is shown as an upper
+        bound rather than dropped — dropping it removes the best-performing
+        cells from a ranking and says nothing about it.
         """
         if any(self._probe_dimensions(node) for node in plan.nodes):
             threshold = self._catalog.suppression.threshold

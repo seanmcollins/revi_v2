@@ -1,10 +1,9 @@
-"""The operational envelope around every LLM call (review finding D10).
+"""The operational envelope around every LLM call.
 
-The review found the adapter had no wall-clock bound, no retry, and no bound
-on how many CLI subprocesses a burst of turns could spawn — against a provider
-independently measured at 5-15s and $0.008-0.021 per call, with one trial at
-20.5s. A hung subprocess held a turn open indefinitely; a transient spawn
-failure lost the turn outright; and N concurrent turns meant N subprocesses.
+Without a wall-clock bound, a retry and a subprocess cap, a hung subprocess
+holds a turn open indefinitely, a transient spawn failure loses the turn
+outright, and N concurrent turns mean N live CLI subprocesses — against a
+provider measured at 5-15s per call, with outliers past 20s.
 
 This module is the policy, kept apart from the adapter that applies it so the
 classification can be read and tested on its own. Four decisions carry the

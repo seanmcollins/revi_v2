@@ -1,14 +1,12 @@
 """Filter values are resolved against values that exist (§6.6 step 4b),
 and refusals that a pack can answer become questions instead of dead ends.
 
-Round-1 live findings F3 and F19. F3: *"denial rate for UnitedHealthcare
-and Aetna"* compiled ``payer in ['UnitedHealthcare', 'Aetna']`` against a
-warehouse holding neither name, executed correctly, matched nothing, and
-published an empty answer whose only caveat was about small-cell
-suppression. Every **id** in that turn had been validated against governed
-content; nothing had ever validated a **value**. F19: a
-``GRAIN_INCOMPATIBLE`` refusal named an error code and offered nothing,
-while the pack held metrics that declare exactly the cut that was refused.
+Two regressions. "denial rate for UnitedHealthcare and Aetna" compiled against
+a warehouse holding neither name, matched nothing, and published an empty
+answer caveated only about small-cell suppression — every **id** had been
+validated against governed content, and nothing had ever validated a **value**.
+Separately, a ``GRAIN_INCOMPATIBLE`` refusal named an error code and offered
+nothing while the pack held metrics declaring exactly the refused cut.
 """
 
 from __future__ import annotations

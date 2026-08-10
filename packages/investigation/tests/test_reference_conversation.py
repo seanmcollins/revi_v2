@@ -1,5 +1,5 @@
-"""M7 acceptance: the §10.3 five-turn reference conversation on the real
-generated warehouse (wm_003), real base pack, real catalog, canned LLM.
+"""The §10.3 five-turn reference conversation on the real generated warehouse
+(wm_003), real base pack, real catalog, canned LLM.
 
 T1 cash decline → T2 payer breakdown (reconciled) → T3 drill into the top
 three payers (ONE pinned cohort, CARC mix at the denial grain) → T4 custom
@@ -311,9 +311,9 @@ class TestTurnByTurn:
     async def test_every_turn_says_whether_it_reconciled(
         self, conversation: Conversation
     ) -> None:
-        """Round-1 review D8: `null` meant both "checked and agreed" and
-        "never checked", and the five-turn run produced `null` on T1, T3 and
-        T4 while T2 — the no-op turn with the same plan hash as T1 — was the
+        """Regression: `null` meant both "checked and agreed" and "never
+        checked", and the five-turn run produced `null` on T1, T3 and T4
+        while T2 — the no-op turn with the same plan hash as T1 — was the
         one that said `passed`.
 
         Every analytical turn now states a verdict, and the ones that did
@@ -457,8 +457,8 @@ class TestReplayDeterminism:
         assert llm.calls_for("resolve_referents") == ()
         assert llm.calls_for("emit_refinements") == ()
         # T1 is the session's first utterance and is classified by
-        # construction (F11) — the only classification left is T5's, and
-        # T1 is still the only interpretation.
+        # construction — the only classification left is T5's, and T1 is
+        # still the only interpretation.
         assert len(llm.calls_for("classify_turn")) == 1
         assert len(llm.calls_for("interpret_question")) == 1
 

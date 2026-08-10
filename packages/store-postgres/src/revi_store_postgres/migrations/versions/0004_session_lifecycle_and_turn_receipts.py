@@ -1,21 +1,19 @@
 """Soft-archive sessions, and persist turn idempotency receipts.
 
-Two lifecycle gaps a deployment cannot be sold with, closed together
-because both are session-schema state and both are additive.
+Two session-lifecycle gaps, closed together because both are
+session-schema state and both are additive.
 
 ``sessions.archived_at`` — the session list had no way to dismiss a
-session, so an analyst's rail grew forever and "start a new chat" was the
-only tidy-up available. NULL is an active session and a timestamp is a
-dismissed one; nothing is deleted, because a session owns investigations,
-traces, frames and cohorts that other reads still resolve through it, and
-a hard delete would turn a tidy-up into dangling lineage.
+session, so it grew forever. NULL is an active session and a timestamp is
+a dismissed one; nothing is deleted, because a session owns
+investigations, traces, frames and cohorts that other reads still resolve
+through it, and a hard delete would turn a tidy-up into dangling lineage.
 
 ``turn_receipts`` — the idempotency key was honored from a process-local
-dict. A restart, or a second worker, turned a retried POST into a second
-EXECUTION of the same turn: fresh model spend, a second investigation in
-the session DAG, and two different answers to one request. The stored
-row carries the serialized ``TurnResponse``, so a replay returns the
-original payload rather than a re-run that could differ from it.
+dict, so a restart or a second worker turned a retried POST into a second
+EXECUTION of the same turn. The stored row carries the serialized
+``TurnResponse``, so a replay returns the original payload rather than a
+re-run that could differ from it.
 
 Both are reversible and neither backfills: existing sessions read as
 active (NULL), and a deployment with no receipts simply executes every

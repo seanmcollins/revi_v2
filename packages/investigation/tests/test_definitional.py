@@ -177,7 +177,7 @@ class TestClarificationOutcomes:
         assert engine.repository.execute_count == 0
 
     async def test_the_first_utterance_is_never_classified_by_a_model(self) -> None:
-        """F11: a session with nothing behind it can only be starting one.
+        """A session with nothing behind it can only be starting one.
 
         Zero classification calls, and the taxonomy branch it would have
         picked cannot be wrong, because nothing picked it."""
@@ -206,7 +206,7 @@ class TestInterpretationValidation:
             await engine.submit.submit(SubmitTurnRequest(tenant="demo", question="run it"))
 
     async def test_illegal_basis_clarifies_with_bases_that_do_work(self) -> None:
-        """Round-3 FN-8: ``DATE_BASIS_INVALID`` was the last dead end.
+        """``DATE_BASIS_INVALID`` was the last dead end.
 
         It used to reach the analyst as a §12 banner whose copy recommended
         "service, submission or posting date" beside "(allowed: ['service',

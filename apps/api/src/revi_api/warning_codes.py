@@ -1,10 +1,10 @@
-"""Prose warnings → structured, branchable warning objects (review F14).
+"""Prose warnings → structured, branchable warning objects.
 
-Every warning this platform publishes was a sentence. The engine writes
-them for a reader, which is right, but a *client* that wants to render
-"3 caveats, 1 of them about suppression" had no option but to match on
-substrings — and a client matching on substrings is a client that breaks
-silently the day somebody improves the wording.
+Every warning this platform publishes is a sentence written for a reader,
+which is right, but a *client* that wants to render "3 caveats, 1 of them
+about suppression" would otherwise have to match on substrings — and a
+client matching on substrings breaks silently the day somebody improves
+the wording.
 
 So each warning is classified here, at the API boundary, into
 
@@ -18,8 +18,7 @@ Three rules this module keeps:
 
 * **The engine's sentence is never lost.** ``message`` is the warning
   verbatim. Classification adds a handle; it does not replace the text
-  with a shorter, vaguer one (the mistake the plain-error-copy module was
-  written to avoid making twice).
+  with a shorter, vaguer one.
 * **Nothing is dropped.** A sentence matching no known family is published
   under :data:`UNCLASSIFIED` rather than swallowed — an unrecognized
   warning is still a warning, and the code says "we don't have a handle
@@ -73,16 +72,16 @@ _RULES: tuple[_Rule, ...] = (
     # -- how the number was scoped or qualified (changes the reading) -----
     _rule("EMPTY_RESULT", CAUTION, r"^empty_result:"),
     _rule("PREMISE_FALSE", CAUTION, r"^premise_false:"),
-    # Round-4 R4-05: the third verdict. A movement in the direction the
-    # question asserts but short of the SIZE it asserts is neither
-    # confirmed nor refuted — "denials did not rise" would be as false as
-    # "denials doubled" over a real +72.6%.
+    # The third verdict. A movement in the direction the question asserts
+    # but short of the SIZE it asserts is neither confirmed nor refuted —
+    # "denials did not rise" would be as false as "denials doubled" over a
+    # real +72.6%.
     _rule("PREMISE_PARTIAL", CAUTION, r"^premise_partial:"),
-    # Round-5 A-02: the fourth verdict. A movement between two suppressed
-    # ceilings, a comparison whose two panels are not equally settled, and
-    # a SIZE this platform could not parse are each unverifiable — neither
-    # confirmed nor refuted, and rendering any of them as either is the
-    # defect ("Premise confirmed" over 157.1% that was the ratio of two
+    # The fourth verdict. A movement between two suppressed ceilings, a
+    # comparison whose two panels are not equally settled, and a SIZE this
+    # platform could not parse are each unverifiable — neither confirmed
+    # nor refuted, and rendering any of them as either is the defect
+    # ("Premise confirmed" over 157.1% that was the ratio of two
     # denominators).
     _rule("PREMISE_UNVERIFIABLE", CAUTION, r"^premise_unverifiable:"),
     _rule("PREMISE_VERIFIED", INFO, r"^premise_verified:"),
@@ -96,34 +95,34 @@ _RULES: tuple[_Rule, ...] = (
     _rule("SUPPRESSION_BOUNDED", CAUTION, r"^suppression_bounded:"),
     _rule("WINDOW_OUT_OF_RANGE", CAUTION, r"^window_out_of_range:"),
     _rule("COMPARISON_ASSUMED", INFO, r"^comparison_assumed:"),
-    # Round-7 FN-4: two windows the governed contract itself declares may
-    # not be differenced as levels. The engine refuses the difference and
-    # says why in the pack author's own words; without a rule the sentence
-    # that carries the refusal landed UNCLASSIFIED, which is the code for
-    # "we have no handle for this" on the one warning that changes whether a
-    # number on the turn may be read as a comparison at all.
+    # Two windows the governed contract itself declares may not be
+    # differenced as levels. The engine refuses the difference and says why
+    # in the pack author's own words; without a rule the sentence carrying
+    # the refusal lands UNCLASSIFIED — the code for "we have no handle for
+    # this" — on the one warning that changes whether a number on the turn
+    # may be read as a comparison at all.
     _rule("NOT_COMPARABLE_WINDOWS", CAUTION, r"^not_comparable_windows:"),
-    # Round-4 R4-08: a comparison cell whose prior side was never retrieved
-    # (it fell outside a top-N). UNKNOWN is published; $0.00 never is.
+    # A comparison cell whose prior side was never retrieved (it fell
+    # outside a top-N). UNKNOWN is published; $0.00 never is.
     _rule("COMPARISON_PRIOR_UNKNOWN", CAUTION, r"^comparison_prior_unknown:"),
-    # Round-4 R4-04: a refinement that re-served an existing plan, and the
-    # governed caveats that plan carried, verbatim.
+    # A refinement that re-served an existing plan, and the governed caveats
+    # that plan carried, verbatim.
     _rule("REFINEMENT_REUSED_PLAN", INFO, r"^refinement_reused_plan:"),
-    # Round-4 R4-04: the operators the analyst asked for that the served
-    # answer does not reflect, named rather than silently dropped.
+    # The operators the analyst asked for that the served answer does not
+    # reflect, named rather than silently dropped.
     _rule("REFINEMENT_NOT_APPLIED", CAUTION, r"^refinement_not_applied:"),
-    # Round-4 R4-09: a chart whose rows were not uniquely keyed by the axes
-    # it declared, and what the server did about it.
+    # A chart whose rows were not uniquely keyed by the axes it declared,
+    # and what the server did about it.
     _rule("CHART_ROWS_COLLAPSED", CAUTION, r"^chart_rows_collapsed:"),
     _rule("VALUE_CORRECTED", CAUTION, r"^value_corrected:"),
     _rule("DIRECTION_UNMATCHED", CAUTION, r"^direction_unmatched:"),
-    # Round-5 A-04: the cells a directional selection removed, named. "Show
-    # me all twelve" returned ten and the two missing were the only two
-    # that had improved — a systematically premise-flattering omission that
-    # no census on the card counted.
+    # The cells a directional selection removed, named. "Show me all
+    # twelve" returned ten and the two missing were the only two that had
+    # improved — a systematically premise-flattering omission that no
+    # census on the card counted.
     _rule("DIRECTION_OMITTED", CAUTION, r"^direction_omitted:"),
-    # Round-5 A-01: context carried onto a clarification resume from the
-    # thread it interrupted, rather than defaulted.
+    # Context carried onto a clarification resume from the thread it
+    # interrupted, rather than defaulted.
     _rule("RESUMED_CONTEXT", INFO, r"^resumed_context:"),
     _rule("WINDOW_ASSUMED", CAUTION, r"^window_assumed:"),
     _rule("SNAPSHOT_AS_OF", CAUTION, r"^snapshot_as_of:"),
@@ -146,16 +145,16 @@ _RULES: tuple[_Rule, ...] = (
         # the engine applying a one-option clarification without asking.
         r"^(Read as an answer to the question above:|clarification_answer_applied:)",
     ),
-    # This platform's own dimension swap, disclosed on the turn that made it
-    # (round-3 R3-11). The card carried it and the drill answer did not, so
-    # the strip blamed the detector for a population change the platform
-    # chose. Emitted by :func:`revi_api.portfolio.dimension_repointed_warning`.
+    # This platform's own dimension swap, disclosed on the turn that made
+    # it. The card carried it and the drill answer did not, so the strip
+    # blamed the detector for a population change the platform chose.
+    # Emitted by :func:`revi_api.portfolio.dimension_repointed_warning`.
     _rule("DIMENSION_REPOINTED", CAUTION, r"^dimension_repointed:"),
     # -- what the platform did with the answer (does not change it) -------
-    # Round-7 FN-10: a breakdown or drill naming the parent figure its cells
-    # are parts of. Information rather than a caution — the cells are right
-    # either way; this says what they add up to, so nobody reads one of them
-    # as a measurement of the whole.
+    # A breakdown or drill naming the parent figure its cells are parts of.
+    # Information rather than a caution — the cells are right either way;
+    # this says what they add up to, so nobody reads one of them as a
+    # measurement of the whole.
     _rule("PARENT_LEVEL", INFO, r"^parent_level:"),
     _rule("SUPPRESSION_APPLIED", INFO, r"^suppression: cells counting fewer than"),
     _rule("NARRATIVE_REDACTED", INFO, r"^narrative sentence redacted:"),
@@ -164,17 +163,17 @@ _RULES: tuple[_Rule, ...] = (
     _rule("TRANSFORM_NOT_EXECUTABLE", INFO, r"^transform '?.+'? is not executable"),
     _rule("TRANSFORM_SKIPPED", INFO, r"^transform '?.+'? skipped:"),
     # -- the monitor a turn declared, and what became of it ------------------
-    # Round-7 FN-3. A refused monitor declaration was appended to `warnings`
-    # AFTER `warnings_v2` had been built, so the one sentence that mattered
-    # — "nothing is being monitored" — was classified nowhere, counted by no
-    # integrity line, and rendered on no screen. It was also mis-coded as a
-    # `population_caveat`, which is a statement about who is in a number and
-    # not about whether a monitor exists.
+    # A refused monitor declaration reaches `warnings` after `warnings_v2`
+    # has been built unless it is classified here, and the one sentence that
+    # matters — "nothing is being monitored" — is then counted by no
+    # integrity line and rendered on no screen. It is also not a
+    # `population_caveat`: that is a statement about who is in a number, not
+    # about whether a monitor exists.
     _rule("MONITOR_NOT_CREATED", CAUTION, r"^monitor_not_created:"),
-    # Round-7 FN-5. The declaration is held across the clarification it
-    # triggered and registered from the resolved answer; while the question
-    # is on screen, this says so. Silence here is the same defect wearing a
-    # different mask.
+    # The declaration is held across the clarification it triggered and
+    # registered from the resolved answer; while the question is on screen,
+    # this says so. Silence here is the same defect wearing a different
+    # mask.
     _rule("MONITOR_PENDING_CLARIFICATION", CAUTION, r"^monitor_pending_clarification:"),
     # -- worklist-level facts about the portfolio -------------------------
     _rule("PORTFOLIO_CARDS_NOT_INVESTIGABLE", CAUTION, r"detected anomalies .* are not investigable"),
@@ -199,7 +198,7 @@ _RULES: tuple[_Rule, ...] = (
     # -- the worklist, read into a conversation ---------------------------
     # The worklist is the ANSWER, not a companion to it: emitted only when
     # the question routed to the governed work-prioritization playbook or
-    # concept, and led with (round-3 R3-10).
+    # concept, and led with.
     _rule("WORKLIST_LEADS", CAUTION, r"^worklist_leads:"),
     _rule("WORKLIST_ATTACHED", INFO, r"^worklist_attached:"),
     _rule("WORKLIST_UNAVAILABLE", CAUTION, r"^the ranked anomaly worklist was requested"),
@@ -208,7 +207,7 @@ _RULES: tuple[_Rule, ...] = (
 )
 
 #: Every code this module can emit, for the client that wants to enumerate
-#: them (and for the report that tells the web lane what to expect).
+#: them.
 WARNING_CODES: tuple[str, ...] = (*(rule.code for rule in _RULES), UNCLASSIFIED)
 
 
@@ -230,9 +229,9 @@ def unconserved(
     structured list whenever it is non-empty and never falls back to the
     prose. So a sentence that reaches ``warnings`` alone is a sentence
     nobody sees, and the API has appended to ``warnings`` alone at least
-    once for every field it added after the assembler ran (round-7 FN-3: the
-    refusal of a monitor declaration, which is the one warning whose absence
-    lets somebody walk away believing they are being monitored).
+    once for every field it added after the assembler ran — including the
+    refusal of a monitor declaration, the one warning whose absence lets
+    somebody walk away believing they are being monitored.
 
     The check is by MESSAGE and not by count. ``structured_warnings``
     deduplicates identical sentences into one entry with a ``count``, so

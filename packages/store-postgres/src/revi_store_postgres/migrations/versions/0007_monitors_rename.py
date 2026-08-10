@@ -1,25 +1,22 @@
-"""Rounds becomes Monitors, in the schema as well as in the product.
+"""Rename the ``revi_rounds`` schema and its "watch" vocabulary to Monitors.
 
-The proactive surface shipped under the working name "Rounds" and its
-storage took that name with it: a capability schema ``revi_rounds``, three
-indexes prefixed ``ix_revi_rounds_*``, and a ``pins.watch`` column holding
-the analyst's own sensitivity. The product noun is now **monitor** — one
-word for the thing users create, the affordance that creates it, and the
-surface that lists them — and a schema that still says "rounds" would make
-every future reader translate between two vocabularies to answer a
-question about one table.
+The proactive surface shipped under the working name "Rounds": a
+capability schema ``revi_rounds``, three indexes prefixed
+``ix_revi_rounds_*``, and a ``pins.watch`` column. The product noun is now
+**monitor**, and a schema that still says "rounds" would make every future
+reader translate between two vocabularies to answer a question about one
+table.
 
 Renames only. No data moves, nothing is copied, and no column changes
 type: ``ALTER SCHEMA … RENAME`` carries its tables, indexes and rows with
-it, so a deployment holding a tenant's pins keeps every one of them. This
-is pre-publish with no external consumer of the wire or the database, so
-there is no compatibility view and no dual-read window — the rename is the
-whole migration, and ``downgrade`` puts every name back.
+it, so a deployment holding a tenant's pins keeps every one of them. There
+is no external consumer of the wire or the database yet, so there is no
+compatibility view and no dual-read window; ``downgrade`` puts every name
+back.
 
 ``ix_*`` names are renamed explicitly because ``ALTER SCHEMA`` moves an
 index without renaming it: left alone, ``revi_monitors`` would contain
-three indexes still called ``ix_revi_rounds_*``, which is exactly the
-half-renamed state this migration exists to avoid.
+three indexes still called ``ix_revi_rounds_*``.
 
 **The stored JSON moves too, and it has to.** ``pin_results.payload`` and
 ``loads.payload`` are evaluated tiles and load censuses serialised by the
@@ -27,12 +24,11 @@ very models this rename touched, so a row written before it holds
 ``"threshold_source": "watch"`` and a key called
 ``watches_below_governed_gate``. Both are CLOSED contracts: the first is a
 ``Literal`` that now reads ``"monitor"``, the second a field that no longer
-exists under that name — so a deployment that renamed only the schema
-would 500 on the first brief that reached back to a prior load, which is
-exactly what it did on the demo tenant before this half was written. The
-same token rewrite the source tree took is applied to the payload text
-(``watch`` → ``monitor``, and its inflections), which leaves the database
-saying precisely what the renamed code would now write. ``watermark`` is
+exists under that name — so renaming only the schema makes the first read
+that reaches back to a prior load fail validation. The same token rewrite
+the source tree took is applied to the payload text (``watch`` →
+``monitor``, and its inflections), which leaves the database saying
+precisely what the renamed code would now write. ``watermark`` is
 untouched: it shares no prefix with ``watch`` and it is a data-load
 concept, not a monitor.
 

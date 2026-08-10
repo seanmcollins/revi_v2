@@ -1,10 +1,10 @@
-"""FN-17 — the warehouse-diff harness: a structurally independent audit path.
+"""The warehouse-diff harness: a structurally independent audit path.
 
 THE GUARANTEE THIS PACKAGE EXISTS TO ENFORCE
 ============================================
 Every published finding value equals its governed contract's definition,
-recomputed by a **structurally independent** path, anchored at
-human-verified points.
+recomputed by a **structurally independent** path, anchored at reference
+points derived outside the product entirely.
 
 Two paths meet here and must agree:
 
@@ -39,9 +39,8 @@ enforced two ways by ``packages/testing/tests/test_warehouse_diff.py``:
 The package deliberately lives as its own top-level module (rather than under
 ``revi_testing``) so that not even a parent package initialiser can drag a
 product module into the audit process. It sits in ``packages/testing/src/``
-because that directory is already on ``sys.path`` for the workspace, which
-keeps the harness runnable with **zero** edits to root config owned by other
-lanes (``pyproject.toml``, ``uv.lock``).
+because that directory is already on ``sys.path`` for the workspace, so the
+harness runs with no edits to ``pyproject.toml`` or ``uv.lock``.
 
 WHAT v1 DERIVES, AND WHAT IT REFUSES
 ====================================
@@ -81,20 +80,18 @@ every divergence is classified ``live`` or ``archaeology`` against the
 investigation's own ``created_at``, and **the verdict fails on live
 divergences only**.
 
-Two changes account for nearly the whole of the first run's fix queue:
+Two disclosure changes account for most historical divergences:
 
-* **Unmarked bounds (pre-M19/M20).** Findings stored before 2026-08-09
-  17:25 UTC publish the k=10 suppression floor as a measured value with no
-  ``__is_bound`` marker, ranked first — "Veritas Comp Fund: 76.9% denial
-  rate" over a truth of 15.4%. All three of the first run's examples were
-  re-run **verbatim on the live engine** and came back as marked ceilings
-  ("≤ 76.9% denial rate (upper bound)"), published unranked, with
-  ``__is_bound`` / ``__bound`` / ``__bound_population`` on the values and an
-  explicit "this is a ceiling and not a measurement" statement. They are
-  fossils. Anything published under the current contract with an unmarked
-  bound is a live divergence and fails the run.
-* **Undisclosed probe windows (pre-wave-E2).** A playbook probe template may
-  declare its own window; findings stored before that was disclosed carry the
+* **Unmarked bounds.** Findings stored before 2026-08-09 17:25 UTC publish
+  the k=10 suppression floor as a measured value with no ``__is_bound``
+  marker, ranked first (e.g. a 76.9% denial rate over a truth of 15.4%).
+  Since then a suppressed cell is published as a marked ceiling, unranked,
+  with ``__is_bound`` / ``__bound`` / ``__bound_population`` on the values
+  and a statement saying it is a ceiling, not a measurement. Anything
+  published under the current contract with an unmarked bound is a live
+  divergence and fails the run.
+* **Undisclosed probe windows.** A playbook probe template may declare its
+  own window; findings stored before that was disclosed carry the
   INVESTIGATION window in their titles over numbers computed across the
   probe's. Findings published since state their own window in the title and
   the statement, publish it as ``<metric>__window_start`` /

@@ -1,21 +1,12 @@
 """Monitors across real loads against a REAL Postgres (``-m postgres``).
 
-The memory-backed suite (``test_monitors_loads.py``) proves the behaviour.
-This proves it survives the wire to a database — which is where a
-load-over-load surface actually breaks:
-
-* the tile payload is JSONB, so a value that does not round-trip comes back
-  as a different tile and every delta computed from it is wrong;
-* "the prior load" is an ORDER BY on the watermark's own ``loaded_at``, and
-  an index or a sort that disagreed with the in-memory store would diff the
-  wrong pair of loads silently;
-* the lead lifecycle spans loads by definition, so a status that did not
-  persist would make every confirmation a first confirmation, forever.
-
-One test, driven end to end across wm_001 → wm_002 → wm_003 with the same
-service the API serves — deliberately not a re-run of the whole memory
-suite, which would pay a database round-trip to re-assert logic that has
-nothing to do with the database.
+The memory-backed suite (``test_monitors_loads.py``) proves the behaviour; this proves it survives
+the wire to a database, which is where a load-over-load surface actually breaks. The tile payload is
+JSONB, so a value that does not round-trip comes back as a different tile and every delta computed
+from it is wrong; "the prior load" is an ORDER BY on the watermark's own ``loaded_at``, and a sort
+that disagreed with the in-memory store would diff the wrong pair of loads silently; and the lead
+lifecycle spans loads by definition. One test, end to end across wm_001 → wm_002 → wm_003 with the
+same service the API serves.
 """
 
 from __future__ import annotations

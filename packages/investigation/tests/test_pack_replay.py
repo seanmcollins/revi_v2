@@ -1,33 +1,17 @@
 """§18.1-8 and §18.1-9: candidate pack changes are reviewable before they
 are believed, and meaning changes are versioned rather than edited in place.
 
-The scenario is the realistic one. Somebody proposes narrowing
-``cash_posted`` to exclude traditional Medicaid, because it remits on a
-state cycle that distorts the weekly trend — a few lines of YAML that
-silently move every dollar figure the metric has ever produced. What has
-to be true before that ships:
+The scenario: a proposal to narrow ``cash_posted`` to exclude traditional
+Medicaid — a few lines of YAML that silently move every dollar figure the metric
+has ever produced. It cannot be applied as a tenant overlay at all; published as
+a new base version it mints a new content hash rather than mutating one, so
+rollback is a pin rather than a restore; and a recorded investigation replays
+against the candidate so the delta is quantified before promotion.
 
-1. It cannot be applied as a tenant overlay at all. Meaning is base-layer
-   content; overlays may tune bounded parameters and add aliases, never
-   redefine a contract (``test_overlay_cannot_redefine_meaning``, and the
-   merge rules in ``packages/pack/tests/test_pack_merge.py``).
-2. Published as a new base version, it produces a *different content hash*
-   — a new snapshot id, not a mutated one. The old snapshot still composes
-   from its own layer, which is what makes rollback a pin rather than a
-   restore (``test_meaning_change_mints_a_new_snapshot_id``).
-3. A recorded historical investigation can be re-run against the candidate
-   with its stored operators, and the difference is *quantified* before
-   promotion — same question, same watermark, two pack snapshots, two
-   answers, both attributable (``test_candidate_replay_quantifies_the_delta``).
-
-That third one is the whole point of §18.1-8: the reviewer sees "this
-proposal moves last week's cash finding by $X" instead of arguing about
-YAML.
-
-Honest scope: this is the *mechanism*, exercised end to end. The offline
-promotion harness that would run it over a corpus of historical
-investigations and gate a workflow is design §20 / Phase 4 and is not
-built. See docs/acceptance-walkthrough.md.
+Scope: this is the *mechanism*, exercised end to end. The offline promotion
+harness that would run it over a corpus of historical investigations and gate a
+workflow is design §20 / Phase 4 and is not built. See
+docs/acceptance-walkthrough.md.
 """
 
 from __future__ import annotations

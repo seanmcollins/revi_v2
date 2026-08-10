@@ -175,12 +175,11 @@ def unit_word(unit: str | None) -> str | None:
 def measure_phrase(amount: str, label: str, unit: str | None) -> str:
     """``<amount> <metric label>`` with the unit token said exactly once.
 
-    Round-5 P2, unfixed through two waves and promoted by M23 onto a tile a
-    user reads every morning: ``"Atlas Commercial: 179.5 days days in ar"``.
-    The amount already renders its unit (:func:`days` appends "days") and
-    the measure's own display name *is* "days in ar", so juxtaposing them
-    states the unit twice. The ungrouped scalar path escaped it only because
-    it happens to put the label first and the value after a colon.
+    Without it: ``"Atlas Commercial: 179.5 days days in ar"``. The amount
+    already renders its unit (:func:`days` appends "days") and the measure's
+    own display name *is* "days in ar", so juxtaposing them states the unit
+    twice. The ungrouped scalar path escapes it only because it happens to
+    put the label first and the value after a colon.
 
     So the juxtaposition itself is the seam, and every published title that
     puts a figure next to a measure name goes through here rather than

@@ -150,17 +150,13 @@ class DimensionDef:
     #: Dimensions this one is only fully meaningful ALONGSIDE.
     #:
     #: Some codes are half an identity. A CARC is meaningless without its
-    #: adjustment group: CO-50 is a contractual write-off and PI-50 is a
-    #: disputable payer-initiated reduction, and a breakdown "by CARC" that
-    #: cuts by ``carc`` alone merges $21,234 of the first into one row with
-    #: $5,752 of the second. Pack playbooks knew this and conjoined the
-    #: pair by hand in every template; a free-form question did not, so the
-    #: same product answered the same question two different ways.
+    #: adjustment group: CO-50 is a contractual write-off, PI-50 a disputable
+    #: payer-initiated reduction, and a breakdown that cuts by ``carc`` alone
+    #: merges the two into one row.
     #:
     #: Declared here rather than hardcoded in the planner because which
-    #: dimensions travel together is a fact about a vocabulary, not about
-    #: an engine — a tenant whose remit data carries no group code declares
-    #: none and nothing changes.
+    #: dimensions travel together is a fact about a vocabulary, not about an
+    #: engine — a tenant whose remit data carries no group code declares none.
     companion_dimensions: tuple[str, ...] = ()
     description: str = ""
     uncertified_reason: str = ""

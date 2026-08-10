@@ -1,24 +1,11 @@
 """Monitors across real loads: wm_001 → wm_002 → wm_003, end to end.
 
-Monitors is a load-over-load product, so the only test that proves it is one
-that drives real loads. The generated warehouse holds three
-(``wm_001``/``wm_002``/``wm_003``) with genuinely different detection
-feeds — ANM-034 appears at the second, ANM-031/032/033 leave at the third,
-and several cards' figures move — so every behaviour below is measured
-against data rather than a fixture that agrees with the code.
-
-What the suite holds, and why each one is the difference between a
-proactive surface and a notification feed:
-
-* a monitor is a SPEC re-run per load, not a snapshot, and its tile carries
-  the same grade, caveats and bounds a live answer would;
-* the FIRST load is a first load, and says so, rather than briefing
-  thirty-three "new" leads that are only new to the platform;
-* "nothing material changed" is a real, proud answer with the counts that
-  back it;
-* a claimed resolution is CONFIRMED by re-measurement across consecutive
-  loads, or it is not confirmed at all;
-* everything the gate holds back is counted on the payload.
+Monitors is a load-over-load product, so the suite drives the generated warehouse's three loads,
+whose detection feeds genuinely differ, rather than a fixture that agrees with the code. Invariants
+pinned here: a monitor is a SPEC re-run per load, and its tile carries the same grade, caveats and
+bounds a live answer would; a first load says it is a first load; "nothing material changed" is a
+real answer with the counts that back it; a claimed resolution is confirmed only by re-measurement
+across consecutive loads; and everything the gate holds back is counted on the payload.
 """
 
 from __future__ import annotations
@@ -306,8 +293,8 @@ class TestSimulatedLoads:
         assert brief.pins_evaluated == 1
 
     async def test_a_tile_carries_the_integrity_line_and_a_permalink(self) -> None:
-        """A tile that renders the number and drops the marks undoes six
-        adversarial monitors on the one surface a person looks at every
+        """A tile that renders the number and drops the integrity marks undoes
+        every guard behind it, on the one surface a person looks at every
         morning without reading."""
         service = _service()
         first, _, _ = await _watermarks(service)
@@ -727,20 +714,18 @@ class TestTimeToImpact:
 
 
 class TestAMonitorMeasuresTheCellThatWasPinned:
-    """Round-7 FN-1 and FN-2 — the two P0s the buyers gated on.
+    """A monitor pinned from one cell of a ranking measures that cell.
 
-    Both are the same mistake seen from two ends. A pin taken from one
-    finding of a ranked breakdown stored the WHOLE ranking, and the tile
-    then headlined whatever ranked first at each load under the pinned
-    cell's title. Live, on the buyer's own screen, against these very
-    loads: a tile reading "Pinnacle Health Plan: 22.9% denial rate" over
-    State Medicaid MCO's 29.5%, certified ``grade: direct``; and a brief
-    entry reporting Pinnacle "up 3.6 points" on a load where Pinnacle had
-    FALLEN, with the fabricated rise explained as adjudication run-out.
+    Regression: a pin taken from one finding of a ranked breakdown stored
+    the WHOLE ranking, so the tile headlined whatever ranked first at each
+    load under the pinned cell's title — a tile reading "Pinnacle Health
+    Plan: 22.9% denial rate" over State Medicaid MCO's 29.5%, certified
+    ``grade: direct``, and a brief entry reporting Pinnacle "up 3.6 points"
+    on a load where Pinnacle had FALLEN, with the fabricated rise explained
+    as adjudication run-out.
 
-    The suite below is deliberately the exec's own repro: pin the
-    SECOND-ranked payer, walk all three loads, and check that the label and
-    the number never name different subjects.
+    The suite pins the SECOND-ranked payer, walks all three loads, and
+    checks that the label and the number never name different subjects.
     """
 
     @staticmethod
@@ -787,15 +772,15 @@ class TestAMonitorMeasuresTheCellThatWasPinned:
         assert pin.label.startswith(second.title.split(":")[0])
         assert "%" not in pin.label
         # The panel headed "What this monitor measures" now has something to
-        # render (FN-18).
+        # render.
         assert "denial rate" in pin.spec_summary.lower()
         assert "filtered to" in pin.spec_summary
         assert any("narrowed at creation" in note for note in pin.notes)
 
     async def test_the_tile_names_the_pinned_payer_at_every_load(self) -> None:
-        """The gate, stated as the exec stated it: the tile must read
-        Pinnacle's own number, on every load, including the one where
-        somebody else took the top of the ranking."""
+        """The tile must read the pinned payer's own number on every load,
+        including the one where somebody else took the top of the
+        ranking."""
         service = _service()
         answer = await self._ranked_answer(service)
         second = answer.findings[1]
@@ -818,9 +803,9 @@ class TestAMonitorMeasuresTheCellThatWasPinned:
     async def test_a_narrowed_monitor_keeps_reporting_movement_across_a_rank_flip(
         self,
     ) -> None:
-        """The other half of the exec's gate: the fix must not make the
-        monitor go quiet. A monitor narrowed to its own cell is unaffected by
-        what happens to the ranking above it."""
+        """The other half of the fix: narrowing must not make the monitor go
+        quiet. A monitor narrowed to its own cell is unaffected by what
+        happens to the ranking above it."""
         service = _service()
         answer = await self._ranked_answer(service)
         pin = await service.monitors.create_pin(
@@ -884,9 +869,8 @@ class TestAMonitorMeasuresTheCellThatWasPinned:
 
     async def test_the_flip_is_briefed_as_a_flip(self) -> None:
         """"State Medicaid MCO overtook Pinnacle as your worst payer" is the
-        headline the fabricated movement was standing in for — two reviewers
-        said so independently. It is its own entry kind, it names both
-        subjects, and it carries no delta."""
+        headline the fabricated movement was standing in for. It is its own
+        entry kind, it names both subjects, and it carries no delta."""
         service = _service()
         answer = await self._ranked_answer(service)
         await service.monitors.create_pin(
@@ -912,10 +896,12 @@ class TestAMonitorMeasuresTheCellThatWasPinned:
 
 
 class TestOneReferenceFrame:
-    """Round-7 FN-9. ``since=`` governed the lead census and not the monitor
-    movements, so a week-long brief carried overnight deltas inside it — and
-    "I was away for a week" is the highest-value read of a proactive
-    surface. The route's own docstring states the invariant it broke."""
+    """One brief, one reference load.
+
+    Regression: ``since=`` governed the lead census and not the monitor
+    movements, so a week-long brief carried overnight deltas inside it —
+    and "I was away for a week" is the highest-value read of a proactive
+    surface."""
 
     async def test_every_entry_diffs_against_the_load_the_brief_names(self) -> None:
         service = _service()
@@ -935,9 +921,9 @@ class TestOneReferenceFrame:
                 assert entry.delta.prior_watermark_id == first.id, entry.statement
 
     async def test_the_census_reconciles_to_its_parts(self) -> None:
-        """Round-7 FN-12. Eighteen monitors were evaluated, one was briefed,
-        two were counted as held back, and the other sixteen were neither —
-        on a surface whose stated discipline is "withheld visibly, never
+        """Regression: eighteen monitors were evaluated, one was briefed, two
+        were counted as held back, and the other sixteen were neither — on a
+        surface whose stated discipline is "withheld visibly, never
         silently"."""
         service = _service()
         first, _second, third = await _watermarks(service)
@@ -993,18 +979,18 @@ class TestOneReferenceFrame:
 
 
 class TestTheTileAndTheBriefTellOneStory:
-    """Round-10 R10-2. ``pin_b616b7b89bde`` — the JOC account the demo is
-    built around — was briefed "down 3.0 points from 25.9%" while its own
-    tile, one screen below on the same load, said "first reading — nothing
-    to compare against". The brief back-walked ``wm_002`` live; the tile
-    served a cached evaluation written before that history existed, and
-    nothing re-derived it, because staleness was judged on the MONITOR and
-    never on the PAIR OF LOADS.
+    """The tile and the brief say one thing about one monitor.
 
-    Fresh-eyes has now filed five defects of this one shape — a read path
-    and a write path drifting apart — so the contract is asserted rather
-    than the symptom: for one pin at one load, the two surfaces say the
-    same thing or the suite fails.
+    Regression: a monitor was briefed "down 3.0 points from 25.9%" while
+    its own tile, one screen below on the same load, said "first reading —
+    nothing to compare against". The brief back-walked ``wm_002`` live; the
+    tile served a cached evaluation written before that history existed,
+    and nothing re-derived it, because staleness was judged on the MONITOR
+    and never on the PAIR OF LOADS.
+
+    A read path and a write path drifting apart is a recurring shape here,
+    so the contract is asserted rather than the symptom: for one pin at one
+    load, the two surfaces say the same thing or the suite fails.
     """
 
     @staticmethod
@@ -1106,11 +1092,11 @@ class TestTheTileAndTheBriefTellOneStory:
 
 
 class TestTheBriefSpeaksHumanWords:
-    """Round-7 FN-8. The first sentence on the surface read "4 thing(s)
+    """Regression: the first sentence on the surface read "4 thing(s)
     changed between wm_002 and wm_003: 2 new lead, 1 pin movement, 1 self
     resolved" — raw enum ids, no pluralisation, warehouse handles, and
     "pin", a word this product's own naming rule bans. Nothing in it is
-    wrong and a VP does not read past it."""
+    wrong and nobody reads past it."""
 
     async def test_no_warehouse_handle_or_machine_plural_reaches_the_surface(
         self,
@@ -1149,11 +1135,11 @@ class TestTheBriefSpeaksHumanWords:
 
 
 class TestOneMonitorPerSpec:
-    """Round-7 FN-18. Nothing anywhere checked for a duplicate spec, and the
+    """Regression: nothing anywhere checked for a duplicate spec, and the
     client asserted the opposite as the reason its affordance could fail
-    open. Live: nine to eleven tiles rendering the identical figure, four to
-    six on the byte-identical spec — every one re-evaluated every load, and
-    able to brief one movement six times."""
+    open — nine to eleven tiles rendering the identical figure, four to six
+    on the byte-identical spec, every one re-evaluated every load and able
+    to brief one movement six times."""
 
     async def test_the_same_spec_returns_the_monitor_that_exists(self) -> None:
         service = _service()
@@ -1267,8 +1253,8 @@ class TestOneMonitorPerSpec:
 
 class TestRepairingMonitorsPinnedBeforeTheCellRule:
     """A fix to the create path does not fix the rows already in the store,
-    and leaving them is leaving the defect in production under a fix's name
-    (round-7 FN-1, the re-migration half)."""
+    and leaving them is leaving the defect in production under a fix's
+    name — so the stored monitors are re-migrated too."""
 
     async def test_a_repairable_monitor_is_narrowed_and_its_baseline_reset(self) -> None:
         service = _service()

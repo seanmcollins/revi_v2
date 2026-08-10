@@ -1,16 +1,15 @@
 """Rounds: pinned specs, per-load tile results, load census, lead lifecycle.
 
-Rounds is the proactive surface — Revi walks it every data load and briefs
-what changed — and it is a new capability, so it gets its own
-capability-named schema (``revi_rounds``) exactly as the design's §15
-structure asks. Four tables, and each one exists because a specific
-question is otherwise unanswerable:
+Rounds is the proactive surface — re-evaluated on every data load — and a
+new capability, so it gets its own capability-named schema
+(``revi_rounds``) per the design's §15 structure. Four tables, each because
+a specific question is otherwise unanswerable:
 
 ``pins``        — the TYPED SPEC of a watched artifact, never a snapshot of
-                  it. This is what makes a tile a watch: every load re-runs
-                  the stored spec at the new watermark, so the tile shows a
-                  current value with a current grade instead of a number
-                  frozen the day somebody pinned it.
+                  it. Every load re-runs the stored spec at the new
+                  watermark, so the tile shows a current value with a
+                  current grade instead of a number frozen the day somebody
+                  pinned it.
 ``pin_results`` — one evaluated tile per (pin, load). A load-over-load delta
                   needs something to diff against, and recomputing the prior
                   load on demand would re-read a warehouse snapshot to

@@ -1,9 +1,9 @@
 """Authentication and tenant isolation on the ``/v1`` surface.
 
-Written against the exploit the round-1 review reproduced end to end: open
-a session as one tenant, then — as an unrelated caller presenting no
-credential at all — read that session's full lineage and findings and POST
-a new turn into it. Every step of that returned 200.
+Written against an exploit reproduced end to end: open a session as one
+tenant, then — as an unrelated caller presenting no credential at all —
+read that session's full lineage and findings and POST a new turn into it.
+Every step of that returned 200.
 
 The tests are ordered the way the exploit ran, so a regression fails at the
 step it reintroduces.

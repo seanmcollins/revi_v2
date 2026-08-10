@@ -9,8 +9,7 @@ from the database regardless. Reading the two trace tables directly with
 ``psycopg`` is therefore both simpler *and* stricter on independence: the
 audit path touches no product code at all, not even the store's ORM models.
 The trade is that this module has to decode the store's serde envelope by
-hand — which it does below, in about forty lines, and which the mutation
-self-test exercises.
+hand; the mutation self-test exercises that decoding.
 
 What is read, and what it is used for
 -------------------------------------
@@ -169,11 +168,8 @@ class StoredInvestigation:
     findings: tuple[PublishedFinding, ...]
     cells: tuple[FrameCell, ...]
     #: When the product published this answer. Read so a divergence can be
-    #: dated against the disclosure contract that was in force when it was
-    #: written — see :mod:`revi_warehouse_diff.archaeology`. A corpus is a
-    #: historical record, and an audit that cannot tell "the engine is wrong
-    #: today" from "the engine was wrong in August" produces a fix queue
-    #: nobody can work.
+    #: dated against the disclosure contract in force when it was written —
+    #: see :mod:`revi_warehouse_diff.archaeology`.
     created_at: dt.datetime | None = None
 
 

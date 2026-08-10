@@ -376,7 +376,7 @@ class TestProjection:
 
 
 # ---------------------------------------------------------------------------
-# unit propagation (round-4 R4-06)
+# unit propagation
 
 
 def _days_components(rows: list[tuple[str, int, int]]) -> EvidenceFrame:
@@ -397,7 +397,7 @@ def _unit_of(frame: EvidenceFrame, name: str) -> str | None:
 
 
 class TestUnitPropagation:
-    """The CONTRACT's declared unit survives every operator (R4-06).
+    """The CONTRACT's declared unit survives every operator.
 
     ``ratio()`` hardcoded ``unit="ratio"`` on its output, so ``days_in_ar``
     — ``unit: days`` in the pack, numerator/denominator shaped like every

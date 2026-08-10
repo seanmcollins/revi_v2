@@ -1,6 +1,6 @@
-"""Round-4 R4-15 (shredded prose), R4-03 (provisional marks), R4-02
-(charts of a refused ranking), R4-05 (no "roughly doubled" after a
-short-of verdict).
+"""Prose and chart marks: sentence splitting over abbreviations, provisional
+marks, charts of a refused ranking, and magnitude claims a premise verdict
+forbids.
 
 All four are the same class of defect: a fact the engine already computed
 that never reached the surface a reader looks at.
@@ -45,7 +45,7 @@ HEADER = ContextHeaderPayload(
 )
 
 
-# ------------------------------------------------------------------ R4-15
+# ------------------------------------------------- sentence splitting
 
 
 class TestSentenceSplittingKeepsAbbreviations:
@@ -113,7 +113,7 @@ class TestSentenceSplittingKeepsAbbreviations:
         assert not validation.text.endswith("Dr.")
 
 
-# ------------------------------------------------------------------ R4-05
+# --------------------------------------------------- premise verdicts
 
 
 def _premise_finding(magnitude: str) -> FindingPayload:
@@ -132,8 +132,8 @@ def _premise_finding(magnitude: str) -> FindingPayload:
 
 
 class TestShortOfVerdictForbidsTheClaim:
-    """R4-05. The verdict says "it did not double"; nothing stopped the
-    composer writing "denials roughly doubled" in the next paragraph."""
+    """The verdict says "it did not double"; nothing stopped the composer
+    writing "denials roughly doubled" in the next paragraph."""
 
     def test_the_forbidden_word_is_read_off_the_finding(self) -> None:
         facts = build_narrative_facts(findings=[_premise_finding("short")], header=HEADER)
@@ -164,7 +164,7 @@ class TestShortOfVerdictForbidsTheClaim:
         assert "did not double" in validation.text
 
 
-# ------------------------------------------------------------------ R4-03
+# -------------------------------------------------- provisional marks
 
 
 def _series(rows: tuple[tuple[object, ...], ...]) -> EvidenceFrame:
@@ -193,10 +193,10 @@ CENSORED_SERIES = (
 
 
 class TestProvisionalReachesTheWire:
-    """R4-03. Across 15 turns and 1,046 chart rows, ``provisional`` was
-    true zero times — while a finding title said "the week of 2026-07-20
-    point (66.7%) is PROVISIONAL and is excluded from that movement" and
-    the SVG drew a solid line straight up to it."""
+    """Over a full run of charts, ``provisional`` was never once true —
+    while a finding title said "the week of 2026-07-20 point (66.7%) is
+    PROVISIONAL and is excluded from that movement" and the SVG drew a
+    solid line straight up to it."""
 
     def test_the_censored_bucket_is_derived_from_the_frame(self) -> None:
         assert provisional_bucket(_series(CENSORED_SERIES), "denial_rate") == "2026-07-20"
@@ -226,12 +226,12 @@ class TestProvisionalReachesTheWire:
         assert [row.x for row in spec.rows if row.provisional] == ["2026-07-13"]
 
 
-# ------------------------------------------------------------------ R4-02
+# --------------------------------------------------- refused rankings
 
 
 class TestRefusedRankingsAreAnnotated:
-    """R4-02. The answer refused to rank and the chart 400px below it was
-    captioned "ordered by denial_rate, high to low" over 52 ceilings."""
+    """The answer refused to rank and the chart just below it was captioned
+    "ordered by denial_rate, high to low" over 52 ceilings."""
 
     def _providers(self, rows: tuple[tuple[object, ...], ...]) -> EvidenceFrame:
         return EvidenceFrame(

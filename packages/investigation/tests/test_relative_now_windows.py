@@ -1,34 +1,30 @@
-""""Right now" on a metric that only exists over a period (round-8 FIX-6).
+""""Right now" on a metric that only exists over a period.
 
-The demo-room opener, live and verbatim: *"Who is my worst payer on denial
-rate right now, and is that a change from last month?"* → ``outcome:
-answer``, ``findings: []``, narrative "This turn published no finding…",
-``context_header.display: "2026-08-01..2026-08-02 (service) · vs
-2026-07-01..2026-07-02"``. "Right now" had resolved to the two days since
-the month boundary and "last month" to a two-day slice of July, with no
-window warning saying so. The identical question with the months named
-returns three findings and good prose.
-
-Two rules close it, both here in interpretation and both deterministic:
-
-* a "now" phrase on a periodic metric anchors to the last FULL period —
-  never to the days since a boundary — and says so in the ``window_assumed``
-  shape the product already uses for a period nobody named;
-* a baseline the utterance NAMES ("from last month") is honored as the
-  comparison, and is not mistaken for the window.
+Live opener: *"Who is my worst payer on denial rate right now, and is that a
+change from last month?"* answered over 2026-08-01..2026-08-02 with no
+findings and no window warning — "right now" had resolved to the two days
+since the month boundary and "last month" to a two-day slice of July. Two
+deterministic rules close it: a "now" phrase on a periodic metric anchors to
+the last FULL period and says so, and a baseline the utterance NAMES is
+honoured as the comparison rather than mistaken for the window. The
+open-period clause that reports how much of a literal window is still
+unsettled is pinned here too.
 """
 
 from __future__ import annotations
 
 from collections.abc import AsyncIterator
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from typing import Any
 
 import pytest
 
 from revi_catalog_contracts.model import CatalogSnapshot
-from revi_investigation.application.interpretation import InterpretQuestionService
+from revi_investigation.application.interpretation import (
+    InterpretQuestionService,
+    _open_period_clause,
+)
 from revi_investigation.application.ports import (
     LlmUsage,
     StructuredLlmRequest,
@@ -37,6 +33,7 @@ from revi_investigation.application.ports import (
 )
 from revi_investigation.domain.context import PackVersionRef
 from revi_investigation.domain.records import Session
+from revi_kernel.scope import AbsoluteRange
 from revi_kernel.watermark import DataWatermark, WatermarkEpoch
 from revi_testing.engine_wiring import PackSnapshotPort
 from revi_testing.fakes import make_usage
@@ -306,3 +303,79 @@ class TestWhatTheRuleMustNotTouch:
         )
 
         assert _window(interpreted) == (date(2026, 5, 1), date(2026, 5, 31))
+
+
+# ---------------------------------------------------------------------------
+# How much of a literal window is still open
+#
+# regression: the clause used the literal window's LENGTH as its operand, so
+# a trailing-31-day reading spanning 2026-07-03..2026-08-02 reported "31
+# day(s) of the period that is still open" — of which exactly two, Aug 1-2,
+# are in the open month. The operand is the INTERSECTION.
+
+
+class TestTheLiteralWindowClauseCountsTheOpenDaysOnly:
+    JULY = AbsoluteRange(start=date(2026, 7, 1), end=date(2026, 7, 31))
+
+    def test_a_trailing_window_straddling_a_month_boundary(self) -> None:
+        literal = AbsoluteRange(start=date(2026, 7, 3), end=date(2026, 8, 2))
+        clause = _open_period_clause(literal, self.JULY, WATERMARK)
+        assert clause == "2 of its 31 day(s) inside the period that is still open"
+        assert "31 day(s) of the period" not in clause
+
+    def test_a_window_entirely_inside_the_open_period_says_all_of_it(self) -> None:
+        """A literal window of 2026-08-01..2026-08-02, where the length and
+        the intersection happen to coincide."""
+        literal = AbsoluteRange(start=date(2026, 8, 1), end=date(2026, 8, 2))
+        clause = _open_period_clause(literal, self.JULY, WATERMARK)
+        assert clause == "all 2 day(s) of it inside the period that is still open"
+
+    def test_the_count_is_never_just_the_window_length(self) -> None:
+        for days in (7, 14, 30, 31, 60, 90):
+            literal = AbsoluteRange(
+                start=date(2026, 8, 2) - timedelta(days=days - 1), end=date(2026, 8, 2)
+            )
+            clause = _open_period_clause(literal, self.JULY, WATERMARK)
+            assert f"all {days} day(s)" not in clause or days <= 2
+            assert "2 " in clause
+
+    async def test_the_note_the_analyst_reads_says_two(
+        self, pack_port: PackSnapshotPort, catalog: CatalogSnapshot
+    ) -> None:
+        """End to end, on the phrasing that produced the live defect: a
+        trailing 31 days resolves to 2026-07-03..2026-08-02 and the
+        assumption note must not call all 31 of them unsettled."""
+        service = InterpretQuestionService(
+            _FixedLlm(
+                {
+                    "intent_summary": "worst payer on denial rate",
+                    "metric_ids": ["denial_rate"],
+                    "dimension_ids": ["payer"],
+                    "concept_ids": [],
+                    "playbook_id": None,
+                    "window": {"quantity": "31", "unit": "day", "mode": "trailing"},
+                    "basis": None,
+                    "comparison": None,
+                    "scope": [],
+                    "direction": None,
+                    "magnitude": None,
+                    "clarification": None,
+                    "clarification_options": [],
+                    "definitional_terms": [],
+                }
+            ),
+            pack_port,
+            catalog,
+        )
+        outcome = await service.interpret(
+            "Who is my worst payer on denial rate right now?",
+            session=SESSION,
+            turn_id="t1",
+        )
+        assert outcome.investigation is not None, outcome.clarification
+        note = next(
+            n for n in outcome.investigation.notes if n.startswith("window_assumed")
+        )
+        assert "2026-07-03..2026-08-02" in note
+        assert "2 of its 31 day(s) inside the period that is still open" in note
+        assert "31 day(s) of the period that is still open" not in note

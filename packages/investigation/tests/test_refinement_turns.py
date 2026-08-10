@@ -153,10 +153,9 @@ class TestGestureAndKernelOnly:
     async def test_the_same_plan_serves_the_same_warnings(
         self, small_warehouse_path: Path
     ) -> None:
-        """Round-4 R4-04, the round's most dangerous defect: a re-served plan
-        published ``warnings=()``.
+        """Regression: a re-served plan published ``warnings=()``.
 
-        Three sessions saw 11 warnings become 0 and 7 become 1 across an
+        Sessions saw 11 warnings become 0 and 7 become 1 across an
         IDENTICAL ``plan_hash`` and byte-identical finding titles, and the
         CSV export then printed "The platform attached no caveats to this
         answer" over the same numbers. The invariant: equal plan_hash ⇒ the
@@ -197,7 +196,7 @@ class TestGestureAndKernelOnly:
     async def test_expanding_past_the_published_count_re_runs_the_builder(
         self, small_warehouse_path: Path
     ) -> None:
-        """Round-4 R4-11. The Expand branch bailed only on ``frame.truncated``
+        """Regression: the Expand branch bailed only on ``frame.truncated``
         and then handed back ``parent.findings``, so "show me all twelve" was
         a no-op that cost a model call and changed nothing."""
         llm = MockLanguageModel()
@@ -371,13 +370,11 @@ class TestZeroProbeTurns:
     async def test_a_re_presentation_that_produces_nothing_refuses(
         self, small_warehouse_path: Path
     ) -> None:
-        """Round-10 R10-5, third round running. "Export this" came back
-        ``outcome: answer``, ``turn_class: presentation_only``, narrative and
-        findings byte-identical to the turn above it — and by round 10 the
-        same payload carried ``REFINEMENT_NOT_APPLIED``, the engine recording
-        that the instruction changed nothing while shipping it as though it
-        had. It is the last sentence of every demo before "can you send me
-        that?", and it was the battery's only outright fail.
+        """Regression: "Export this" came back ``outcome: answer``,
+        ``turn_class: presentation_only``, narrative and findings
+        byte-identical to the turn above it — while the same payload carried
+        ``REFINEMENT_NOT_APPLIED``, the engine recording that the instruction
+        changed nothing and shipping it as though it had.
 
         A re-presentation that produces no new artifact is a refusal.
         """
@@ -412,7 +409,7 @@ class TestZeroProbeTurns:
     ) -> None:
         """The refusal is scoped to turns that produce nothing. An ordering
         the served rows can actually be put in is applied, and applying it is
-        the whole of what a presentation turn is for (round-6 A-01)."""
+        the whole of what a presentation turn is for."""
         llm = MockLanguageModel()
         _canned_t1(llm)
         llm.respond(
@@ -438,16 +435,14 @@ class TestZeroProbeTurns:
     async def test_an_option_dead_ending_in_a_playbook_refusal_is_never_offered(
         self, small_warehouse_path: Path
     ) -> None:
-        """Round-10 R10-6, the live option verbatim on the live question.
-        "Who is my worst payer?" — the first basics question anyone asks —
-        offered "Run a full payer scorecard across all measures", and asking
-        for that elsewhere returned ``PLAYBOOK_TRANSFORM_UNAVAILABLE:
-        payer_scorecard answers by 'pivot'``.
+        """Regression: "Who is my worst payer?" offered "Run a full payer
+        scorecard across all measures", and asking for that elsewhere returned
+        ``PLAYBOOK_TRANSFORM_UNAVAILABLE: payer_scorecard answers by 'pivot'``.
 
         The options are free TEXT, which is the whole difficulty: an option
-        carrying a binding has been dry-run against the planner since round
-        9, and an option that is only a sentence was published unchecked
-        against everything except the cut it names.
+        carrying a binding is dry-run against the planner, while an option
+        that is only a sentence was published unchecked against everything
+        except the cut it names.
         """
         llm = MockLanguageModel()
         _canned_t1(llm)
@@ -678,8 +673,8 @@ class TestWatermarkEpochs:
 class TestDeterministicReferents:
     """A handle the platform minted is resolved by lookup, not by a model.
 
-    Round-1 live finding F11: "drill into F2" was sent to a language model
-    on every follow-up turn. F2 is an identifier this platform printed and
+    Regression: "drill into F2" was sent to a language model on every
+    follow-up turn. F2 is an identifier this platform printed and
     stored — matching it is a dictionary lookup, and routing it through a
     model buys a call, a latency, and a probability that the turn asking to
     drill into F2 comes back asking which F2 was meant.
@@ -790,11 +785,11 @@ class TestDeterministicReferents:
 
 
 class TestPlatformGesturesRoundTrip:
-    """Round-3 FN-7: the product could not parse its own suggestion.
+    """Regression: the product could not parse its own suggestion.
 
     Every finding publishes ``suggested_refinements`` and the unknown-handle
-    clarification offers the same strings as options. Live, "drill into F1"
-    — a string this platform printed — came back
+    clarification offers the same strings as options. "drill into F1" — a
+    string this platform printed — came back
     ``clarification_required`` with ``referent_resolutions: []``, because the
     utterance went to the classifier first and the classifier asked a
     question. A button the product prints and cannot press is worse than no
@@ -874,9 +869,9 @@ class TestPlatformGesturesRoundTrip:
 
 
 class TestNamedEntityBackReference:
-    """Round-3 FN-7 (second half): one turn after publishing "Summit Peak
-    Medicare Advantage … " as F1, the session asked whether "Summit Peak"
-    was a facility, a payer or a provider."""
+    """Regression: one turn after publishing "Summit Peak Medicare Advantage
+    … " as F1, the session asked whether "Summit Peak" was a facility, a
+    payer or a provider."""
 
     async def test_a_payer_this_session_named_resolves_without_a_model(
         self, small_warehouse_path: Path

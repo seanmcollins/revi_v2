@@ -11,11 +11,10 @@ Three rules shape everything here:
   requested budget, or silently substituting an allowed model for a
   disallowed one, produces a session whose trace says one thing and whose
   behavior is another — and the analyst is the last to know.
-- **Refuse a control that would change nothing.** Choosing a model tier
-  against the scripted demo model is not a cheaper answer, it is a lie
-  with a slider. If the wired language model does not apply per-call
-  policy, naming a tier is refused and ``/v1/capabilities`` says so before
-  a client ever offers the control.
+- **Refuse a control that would change nothing.** If the wired language
+  model does not apply per-call policy (the scripted model does not),
+  naming a tier would change nothing about the answer, so it is refused
+  and ``/v1/capabilities`` says so before a client offers the control.
 - **No bound may weaken a check.** There is no setting here that skips
   validation, suppression, or grading, and there is no env variable that
   could add one. Cost and speed are traded through model tier, evidence
@@ -187,7 +186,7 @@ class SettingsPolicy:
     # -- publication -------------------------------------------------------
 
     def bounds_payload(self) -> SettingsBoundsPayload:
-        """What ``/v1/capabilities`` publishes, so a client renders only
+        """What ``/v1/capabilities`` publishes, so a client renders only the
         controls that exist here and would change something."""
         return SettingsBoundsPayload(
             model_tiers=list(self.model_tiers) if self.model_tier_effective else [],

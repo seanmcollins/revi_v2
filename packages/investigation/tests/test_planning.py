@@ -199,7 +199,7 @@ class TestPlanHashAndDiff:
 
 
 class TestCompanionDimensions:
-    """A CARC is half an identity (round-3 addendum).
+    """A CARC is half an identity.
 
     CO-50 is a contractual write-off nobody can appeal; PI-50 is a
     payer-initiated reduction that is disputable money. A free-form

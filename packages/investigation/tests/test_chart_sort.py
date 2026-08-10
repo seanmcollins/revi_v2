@@ -1,17 +1,11 @@
-"""The plan's resolved ordering, published on the chart (round-3 R3-13).
+"""The plan's resolved ordering, published on the chart.
 
-Four personas: the findings obey "best to worst" and the chart directly
-beneath them is drawn alphabetically — Atlas, Bluestone, Federal Medicare,
-Lakewood — because the ordering existed only inside the plan and nothing
-carried it to the renderer. It exists in three places there (an ``Ordering``
-on the probe, ``by``/``descending`` args on a rank step, and the
-``{by}__rank`` column the rank operator appends) and the frame the chart
-builder actually draws has none of them: the rank operator appends a rank
-column rather than reordering rows, and the frame it outputs is skipped by
-the chart builder as presentation metadata.
-
-``resolved_orderings`` is the one function that reads all three, keyed by
-the frame id a chart is built for.
+Regression: findings obeyed "best to worst" while the chart directly beneath
+them was drawn alphabetically, because the ordering lived only inside the plan
+— on the probe's ``Ordering``, on a rank step's ``by``/``descending`` args, and
+in the ``{by}__rank`` column the rank operator appends — and none of the three
+reached the frame the chart builder draws. ``resolved_orderings`` reads all
+three, keyed by the frame id a chart is built for.
 """
 
 from __future__ import annotations

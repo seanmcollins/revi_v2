@@ -1,15 +1,13 @@
-"""Cohort reclamation inside the API process (review finding D6).
+"""Cohort reclamation inside the API process.
 
-Pinning a cohort writes a TABLE into the analytical warehouse. Until now the
-only thing that could reclaim one was ``python -m revi_scheduler.sweep``, a
-short-lived CLI that somebody had to remember to run — and the long-lived API
-process, the only thing that ever *creates* cohort tables in a deployment,
-never called the sweep at all. The measured consequence in a development
-warehouse was 214 cohort tables holding 11.9M rows, with the garbage
-collector structurally unable to reach any of it.
+Pinning a cohort writes a TABLE into the analytical warehouse. Reclamation
+used to live only in ``python -m revi_scheduler.sweep``, a short-lived CLI
+somebody had to remember to run, while the long-lived API process — the only
+thing that ever *creates* cohort tables in a deployment — never swept at all,
+so expired tables accumulated with nothing able to reach them.
 
-So the process that makes the garbage now also collects it: one sweep at
-startup (which is what reclaims whatever the last run leaked) and one every
+The process that makes the garbage now also collects it: one sweep at startup
+(which reclaims whatever the last run leaked) and one every
 ``REVI_COHORT_SWEEP_INTERVAL_SECONDS`` thereafter. The CLI remains — for
 one-off reclamation, for dry-run inspection, and for warehouses no API
 process owns — and both paths call the identical connector primitive, so they
@@ -62,8 +60,8 @@ def sweep_interval_seconds(env: Mapping[str, str]) -> float:
     """``REVI_COHORT_SWEEP_INTERVAL_SECONDS``; <= 0 disables the loop.
 
     An unparseable value falls back to the default *loudly* rather than
-    silently disabling reclamation — a typo must not quietly turn the garbage
-    collector off, which is the failure mode this whole module exists for.
+    silently disabling reclamation: a typo must not quietly turn the garbage
+    collector off.
     """
     raw = env.get(SWEEP_INTERVAL_ENV, "").strip()
     if not raw:
@@ -123,8 +121,10 @@ class CohortSweepScheduler:
         return self._interval > 0
 
     async def start(self) -> tuple[str, ...]:
-        """Sweep once now, then start the periodic task. Returns the startup
-        sweep's dropped ids — the number an operator reads a restart by."""
+        """Sweep once now, then start the periodic task.
+
+        Returns the startup sweep's dropped ids.
+        """
         if not self.enabled:
             logger.warning(
                 "%s=%s — periodic cohort reclamation is DISABLED in this process; "

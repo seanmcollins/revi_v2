@@ -1,27 +1,15 @@
-"""Playbook path integrity — the analyst's round-8 gate G3 (FIX-9).
+"""Playbook path integrity: what the playbook route drops that the direct
+route does not.
 
-Three live repros, one surface:
-
-* **(1) silent family drops.** "Build me a payer scorecard for Pinnacle
-  Health Plan for the last full quarter, I have a JOC with them next week"
-  ran six probe families, got ``grade: direct`` rows from every one, and
-  published ZERO findings. The whole narrative: "This turn published no
-  finding, and here is why. 1 ranked row(s) on 'denied_dollars', and every
-  one was zero or suppressed." Five families were read and never mentioned,
-  because ``probe_families_empty`` returned early on a turn with no
-  findings — the one warning whose entire job is to stop exactly this.
-* **(2) the pivot dependency.** The same turn recorded
-  ``TRANSFORM_NOT_EXECUTABLE: transform 'pivot' is not executable on this
-  milestone's engine; recorded and skipped`` at severity INFO, and rendered
-  four one-row charts beside "no finding". The pivot is what makes a
-  scorecard a scorecard.
-* **(3) the maturity guard does not travel.** "We have a denial spike.
-  Investigate it." → ``PREMISE_FALSE``: "denied dollars fell $770,151.59
-  (39.5%)", computed over 2026-06-08..2026-08-02 — the least settled window
-  in the load. Minutes earlier, on the direct path, the same engine refused
-  the equivalent comparison with "the two windows are not equally settled
-  (1,544 adjudicated record(s) against 5,723, 27.0%) … Ask again once the
-  thinner side matures."
+A payer-scorecard turn ran six probe families, got ``grade: direct`` rows
+from every one and published ZERO findings, because ``probe_families_empty``
+returned early on a turn with no findings — the one warning whose entire job
+is to stop exactly this. The same turn recorded ``TRANSFORM_NOT_EXECUTABLE``
+for ``pivot`` at severity INFO and rendered four one-row charts beside "no
+finding"; the pivot is what makes a scorecard a scorecard. And a spike
+investigation published ``PREMISE_FALSE`` over the least settled window in
+the load, minutes after the direct path refused the equivalent comparison
+for being unequally settled.
 """
 
 from __future__ import annotations
@@ -91,7 +79,7 @@ class TestAnAnsweringTransformThisEngineCannotRun:
     ) -> None:
         """"Will my cash increase next month?" handed over $6,355,211.10 of
         cash posted over the playbook's own window, with the words
-        "forecast" and "cannot" nowhere in the response (FIX-12(c))."""
+        "forecast" and "cannot" nowhere in the response."""
         spec = make_spec(watermark=WATERMARK)
 
         with pytest.raises(UnsupportedConceptError) as raised:

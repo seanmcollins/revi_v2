@@ -1,21 +1,16 @@
 """What a finding *says* — the surface a user actually reads.
 
-Before this file existed, no test anywhere asserted on ``Finding.title`` or
-``Finding.statement``. Everything was pinned in cents, and the review found
-three separate defects living in the gap between a correct number and its
-rendering:
-
-- a custom comparison window labelled "vs prior week" while the header on
-  the same answer said ``vs 2026-01-01..2026-03-31`` (D1);
-- ``Decimal('1.000000')`` and floor-divided dollars printed beside raw
-  cents (D7);
-- bare CARC integers with the group code and title stripped, merging CO-16
-  with PI-16 and publishing PR-2 as a "denial driver" (D7).
-
-The comparison test is the property the review asked for: for **every**
-``ComparisonKind``, the context header and the finding text must describe
-the same comparison. It is written over the header builder that the API
-actually serves, so it cannot pass by agreeing with itself.
+Before this file existed nothing asserted on ``Finding.title`` or
+``Finding.statement``: everything was pinned in cents, and three defects
+lived in the gap between a correct number and its rendering — a custom
+comparison window labelled "vs prior week" while the header on the same
+answer said ``vs 2026-01-01..2026-03-31``; ``Decimal('1.000000')`` and
+floor-divided dollars printed beside raw cents; and bare CARC integers with
+the group code and title stripped, merging CO-16 with PI-16 and publishing
+PR-2 as a "denial driver". The comparison test is stated as a property: for
+every ``ComparisonKind`` the context header and the finding text must
+describe the same comparison, checked over the header builder the API
+actually serves so it cannot pass by agreeing with itself.
 """
 
 from __future__ import annotations
@@ -209,7 +204,7 @@ class TestComparisonPhrase:
     async def test_header_and_finding_agree_for_every_comparison_kind(
         self, kind: ComparisonKind, pack_port: PackSnapshotPort
     ) -> None:
-        """The property the review asked for.
+        """Stated as a property.
 
         Whatever range the context header prints, the published finding
         text names that same range. This is the check that would have
@@ -587,8 +582,8 @@ class TestScalarComparison:
     ) -> None:
         """A rate that moved 0.010083 rose by one percentage POINT, not by
         1.0%. Rendering that delta in the metric's own unit would publish an
-        ambiguity, so the title states both levels — and since round 6 the
-        statement states BOTH readings of the size, each named: "16.7%"
+        ambiguity, so the title states both levels, and the statement
+        states BOTH readings of the size, each named: "16.7%"
         printed alone under "7.0%, up from 6.0%" is read as 16.7 points."""
         frame = _scalar_frame(value=Decimal("0.070418"), prior=Decimal("0.060335"))
         spec = _spec(_comparison_of(ComparisonKind.PRIOR_YEAR), dimensions=())

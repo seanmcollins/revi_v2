@@ -270,11 +270,11 @@ class FindingPayload(ClosedModel):
     #: from "benchmarks were not plumbed".
     benchmarks: list[BenchmarkPayload] = Field(default_factory=list)
     #: The governed caveats attached to this finding's metric ids, in the
-    #: pack's own words (round-2 FN-5). Published ON the finding so a card
-    #: can render the correction as visible text under the title instead of
-    #: behind a hover — a screenshotted card that ships the label and
-    #: leaves the correction behind is the defect this closes. Empty when
-    #: every metric on the finding says what it measures.
+    #: pack's own words. Published ON the finding so a card can render the
+    #: correction as visible text under the title rather than behind a
+    #: hover: a card that travels with its label and without its correction
+    #: overclaims. Empty when every metric on the finding says what it
+    #: measures.
     metric_caveats: list[str] = Field(default_factory=list)
 
 
@@ -288,32 +288,30 @@ class ChartRow(ClosedModel):
     referent_id: str | None = None
     #: True when ``value`` is an UPPER BOUND rather than a measurement —
     #: a cell whose numerator was withheld by small-cell suppression and
-    #: replaced by the largest value it could have held (round-3 R3-01).
-    #: The engine computed this and published nothing, so 147 of 150 marks
-    #: on one chart were ceilings drawn identically to measurements, and
-    #: the ranking they implied was inverse panel size. A renderer must not
-    #: draw a bounded mark the way it draws a measured one.
+    #: replaced by the largest value it could have held. A renderer must not
+    #: draw a bounded mark the way it draws a measured one: a chart where
+    #: most marks are ceilings drawn identically to measurements ranks by
+    #: inverse panel size.
     is_bound: bool = False
     #: The population the bound was taken over, so a reader can judge how
     #: tight it is. ``None`` on a measured row.
     bound_population: int | None = None
     #: True when the point is not yet a settled measurement — a terminal
-    #: trend bucket that is calendar-partial or still adjudicating
-    #: (round-3 R3-06). "Up 5.5 points" on a month that was 23% adjudicated
-    #: is the claims run-out, plotted as deterioration.
+    #: trend bucket that is calendar-partial or still adjudicating.
+    #: "Up 5.5 points" on a month that was 23% adjudicated is the claims
+    #: run-out, plotted as deterioration.
     provisional: bool = False
 
 
 class ChartSort(ClosedModel):
-    """The ordering the PLAN resolved for the rows below (round-3 R3-13).
+    """The ordering the PLAN resolved for the rows below.
 
-    The findings obey "best to worst" and the chart directly beneath them
-    was drawn alphabetically, because the ordering existed only inside the
-    plan — as an ``Ordering`` on the probe, as ``by``/``descending`` args
-    on a rank step, and as a ``{by}__rank`` column on a frame nothing
-    charts — and never reached the renderer. It is published here so the
-    chart and the sentence above it cannot disagree about which cell is
-    first.
+    Without it the ordering lives only inside the plan — as an ``Ordering``
+    on the probe, as ``by``/``descending`` args on a rank step, and as a
+    ``{by}__rank`` column on a frame nothing charts — and never reaches the
+    renderer, so findings ordered "best to worst" sit above a chart drawn
+    alphabetically. It is published here so the chart and the sentence above
+    it cannot disagree about which cell is first.
 
     ``by`` is a column name on the charted frame (a measure id, or a
     dimension id when the ranking is over labels). ``direction`` is the
@@ -347,17 +345,17 @@ class ChartSpec(ClosedModel):
     #: frame's own — which a renderer must not silently re-sort.
     sort: ChartSort | None = None
     #: The catalog's DECLARED order for the x axis's values, when x is an
-    #: ordinal bucket dimension (round-4 R4-14). Present ⇒ ``rows`` are
-    #: already in this order and it OUTRANKS ``sort`` for the axis: an
-    #: aging chart reads 0-30, 31-60, 61-90, 91-120, 120+ regardless of
-    #: which bucket holds the most money.
+    #: ordinal bucket dimension. Present ⇒ ``rows`` are already in this
+    #: order and it OUTRANKS ``sort`` for the axis: an aging chart reads
+    #: 0-30, 31-60, 61-90, 91-120, 120+ regardless of which bucket holds
+    #: the most money.
     #:
-    #: ``ar_age_bucket`` came off this API alphabetically — ``['0-30',
-    #: '120+', '31-60', '61-90', '91-120']``, ``sort: null`` — while its
-    #: sibling ``filing_runway_bucket`` on the same answer was ordinal,
-    #: because the order the catalog declares reached the findings path and
-    #: stopped there. The browser repaired it client-side, so every CSV
-    #: export and every non-browser consumer got 120+ in slot two.
+    #: Published rather than left to the client. When the catalog's declared
+    #: order reaches the findings path and stops there, ``ar_age_bucket``
+    #: leaves this API alphabetically (``['0-30', '120+', '31-60', ...]``,
+    #: ``sort: null``) and only a browser that repairs it client-side reads
+    #: correctly — every CSV export and non-browser consumer gets 120+ in
+    #: slot two.
     axis_order: list[str] | None = None
 
 
@@ -419,11 +417,11 @@ class UsageSummary(ClosedModel):
 
 
 class WarningPayload(ClosedModel):
-    """One warning, with a handle a client can branch on (review F14).
+    """One warning, with a handle a client can branch on.
 
-    Warnings used to travel as prose alone, so a client that wanted to
-    group, count, filter or icon them had to match substrings — and a
-    client matching substrings breaks the day the wording improves.
+    Warnings as prose alone force a client that wants to group, count,
+    filter or icon them to match substrings, which breaks the day the
+    wording improves.
 
     ``message`` is the platform's own sentence VERBATIM: the code is a
     handle added beside the text, never a replacement for it. ``count``
@@ -494,21 +492,16 @@ class ErrorEnvelope(ClosedModel):
 
 
 class CohortPayload(ClosedModel):
-    """The pinned population behind an answer, said in words (review F15).
+    """The pinned population behind an answer, said in words.
 
-    The context header carried ``cohort: coh_9f2a11…`` and a size. A hash
-    is a correct identifier and a useless label: the analyst who drilled
-    "the top three payers" was shown a string that names their own
-    selection back to them in a vocabulary nobody speaks, and a chip that
-    cannot be read cannot be checked.
-
-    So the same object the platform pinned is published as its parts: what
-    the members ARE (``entity_grain``), which rule selected them
-    (``definition``, the pinned predicate rendered as text), where the
-    selection came from (``origin_referent`` and the turn that introduced
-    it), and how many there are. ``id`` stays — it is the handle a later
-    turn re-addresses the population by — it is simply no longer the only
-    thing on the wire.
+    A hash (``cohort: coh_9f2a11…``) is a correct identifier and a useless
+    label: a chip that cannot be read cannot be checked. So the pinned
+    object is published as its parts: what the members ARE
+    (``entity_grain``), which rule selected them (``definition``, the pinned
+    predicate rendered as text), where the selection came from
+    (``origin_referent`` and the turn that introduced it), and how many
+    there are. ``id`` stays — it is the handle a later turn re-addresses the
+    population by — it is simply no longer the only thing on the wire.
     """
 
     id: str
@@ -540,14 +533,12 @@ class CohortPayload(ClosedModel):
 
 
 class AnomalyReconciliationPayload(ClosedModel):
-    """Card figure vs re-derived figure, stated (review F1).
+    """Card figure vs re-derived figure, stated.
 
-    An anomaly card published ``$178,217``; drilling it answered
-    ``$195,873.92``; the turn's own reconciliation verdict said
-    ``not_applicable — this is a first turn``, which is true about the
-    investigation lineage and silent about the two numbers the reader had
-    just compared. 9.9% of disagreement, on consecutive screens, with no
-    reconciliation anywhere.
+    A card can publish ``$178,217`` while drilling it answers
+    ``$195,873.92`` — 9.9% of disagreement on consecutive screens. The §7.8
+    refinement verdict is silent about it, because that verdict is about
+    investigation lineage and this is about two numbers.
 
     The figures are two different claims and both are honest:
 
@@ -622,12 +613,12 @@ class TurnAnswer(ClosedModel):
     definitional: DefinitionalPayload | None = None
     referents: list[ReferentPayload] = Field(default_factory=list)
     #: The pinned population this answer was computed over, said in words
-    #: rather than as a hash (review F15). ``None`` when the turn pinned
-    #: none — the ordinary case for a first turn.
+    #: rather than as a hash. ``None`` when the turn pinned none — the
+    #: ordinary case for a first turn.
     cohort: CohortPayload | None = None
     #: Governed display names for the metric ids this answer cites, for
-    #: the ids whose name overclaims what they measure (review F9).
-    #: Empty when every metric on this answer says what it is.
+    #: the ids whose name overclaims what they measure. Empty when every
+    #: metric on this answer says what it is.
     metric_display: list[MetricDisplayPayload] = Field(default_factory=list)
     #: Card-vs-answer reconciliation, present only when the turn was
     #: launched from an anomaly card (``TurnRequest.anomaly_ref``). See
@@ -648,9 +639,9 @@ class TurnAnswer(ClosedModel):
     #: created — the threshold was illegal against the metric's contract,
     #: the sensitivity clause could not be read, or the store refused it.
     #: Published here, beside :attr:`monitor`, so the refusal lands exactly
-    #: where the confirmation would have: a refusal that only reached
-    #: :attr:`warnings` was rendered nowhere, and the analyst walked away
-    #: believing they were being monitored (round-7 FN-3, FN-6).
+    #: where the confirmation would have. A refusal that only reaches
+    #: :attr:`warnings` is rendered nowhere, and the analyst walks away
+    #: believing they are being monitored.
     monitor_refused: MonitorRefusedPayload | None = None
     reconciliation: str | None = None
     plan_hash: str | None = None
@@ -696,15 +687,14 @@ class TurnClarification(ClosedModel):
     watermark_stale: bool = False
     #: What the platform has to say about the turn it could not answer.
     #:
-    #: A clarification used to carry no warnings channel at all, which made
-    #: it the one outcome where a fact about the turn had nowhere to go —
-    #: and the fact that fell through the gap was "I read this as a monitor".
-    #: In a pack that refuses any imprecise payer name BY DESIGN, a
-    #: clarification is the MODAL branch of the monitor-declaration path, so a
-    #: declaration that clarified was destroyed by the question it triggered
-    #: (round-7 FN-5). The declaration is now carried across the boundary
-    #: and registered from the resolved answer; this says so while the
-    #: question is on screen.
+    #: Without a warnings channel a clarification is the one outcome where a
+    #: fact about the turn has nowhere to go — notably "I read this as a
+    #: monitor". In a pack that refuses any imprecise payer name BY DESIGN,
+    #: a clarification is the MODAL branch of the monitor-declaration path,
+    #: so a declaration that clarified would be destroyed by the question it
+    #: triggered. The declaration is carried across the boundary and
+    #: registered from the resolved answer; this says so while the question
+    #: is on screen.
     warnings: list[str] = Field(default_factory=list)
     warnings_v2: list[WarningPayload] = Field(default_factory=list)
     usage: UsageSummary = Field(default_factory=UsageSummary)
@@ -717,12 +707,11 @@ class TurnError(ClosedModel):
     outcome: Literal["error"]
     session_id: str | None = None
     error: ErrorEnvelope
-    #: What the failed turn spent before it failed (review F19).
+    #: What the failed turn spent before it failed.
     #:
-    #: A failure used to carry no usage at all, which made the cost ledger
-    #: quietly wrong in the one direction that matters: a turn that
-    #: classified, interpreted, planned and *then* refused had spent real
-    #: model tokens, and the envelope reported nothing. Zeroes here are a
+    #: A turn that classified, interpreted, planned and *then* refused has
+    #: spent real model tokens; omitting usage here makes the cost ledger
+    #: quietly wrong in the one direction that matters. Zeroes are a
     #: measured zero — a turn that failed before any model call — not a
     #: missing field.
     usage: UsageSummary = Field(default_factory=UsageSummary)
@@ -741,10 +730,10 @@ TurnResponse = Annotated[
 class InvestigationResponse(ClosedModel):
     #: A monitor declaration this turn refused, restored with it.
     #:
-    #: A refusal that only lives on the live response is a refusal that
-    #: disappears the moment somebody re-opens the session or follows the
-    #: permalink — and "nothing is being monitored" is the one statement whose
-    #: value is entirely in being read later (round-7 FN-3).
+    #: A refusal that only lives on the live response disappears the moment
+    #: somebody re-opens the session or follows the permalink — and
+    #: "nothing is being monitored" is the one statement whose value is
+    #: entirely in being read later.
     monitor_refused: MonitorRefusedPayload | None = None
     investigation_id: str
     session_id: str
@@ -755,14 +744,15 @@ class InvestigationResponse(ClosedModel):
     question: str | None = None
     plan_hash: str | None = None
     #: The §7.2 effective context this turn ran under, REBUILT from the
-    #: investigation's own stored spec (round-2 deferred P0).
+    #: investigation's own stored spec.
     #:
-    #: A re-opened session used to restore dollar figures with no window,
-    #: no scope chips, no cohort and no data date — every fact that says
-    #: what the number counts — while the caveats survived, so a restored
-    #: answer read as caveats attached to nothing. The spec persists all of
-    #: it, so nothing here is inferred: the same canonical builder the live
-    #: turn used (:func:`~revi_investigation_contracts.header.build_header_payload`)
+    #: Without it a re-opened session restores dollar figures with no
+    #: window, no scope chips, no cohort and no data date — every fact that
+    #: says what the number counts — while the caveats survive, so the
+    #: restored answer reads as caveats attached to nothing. The spec
+    #: persists all of it, so nothing here is inferred: the same canonical
+    #: builder the live turn used
+    #: (:func:`~revi_investigation_contracts.header.build_header_payload`)
     #: is run over the stored window, comparison, scope, pins and cohort,
     #: at the watermark the turn itself ran on rather than whatever the
     #: session has re-anchored to since.
@@ -781,11 +771,10 @@ class InvestigationResponse(ClosedModel):
     watermark_id: str = ""
     newest_data_date: date | None = None
     #: What restoring this turn could and could not recover, in the
-    #: platform's own words — the composed narrative is not stored anywhere,
-    #: a trace may have been dropped, and §6.6 value corrections are not
-    #: persisted on the spec. Stated rather than left as silence, because a
-    #: restored view whose gaps are invisible is the defect this closes.
-    #: Empty when the record restored complete.
+    #: platform's own words — a trace may have been dropped, and §6.6 value
+    #: corrections are not persisted on the spec. Stated rather than left as
+    #: silence: a restored view whose gaps are invisible reads as a complete
+    #: one. Empty when the record restored complete.
     restoration_notes: list[str] = Field(default_factory=list)
     findings: list[FindingPayload] = Field(default_factory=list)
     warnings: list[str] = Field(default_factory=list)
@@ -793,9 +782,9 @@ class InvestigationResponse(ClosedModel):
     #: :attr:`TurnAnswer.warnings_v2` — a restored turn must not lose the
     #: handles the live answer had.
     warnings_v2: list[WarningPayload] = Field(default_factory=list)
-    #: The pinned population this turn was computed over, said in words
-    #: (review F15) — the same payload the live answer carried, rebuilt
-    #: from the cohort the turn recorded. ``None`` when it pinned none.
+    #: The pinned population this turn was computed over, said in words —
+    #: the same payload the live answer carried, rebuilt from the cohort the
+    #: turn recorded. ``None`` when it pinned none.
     cohort: CohortPayload | None = None
     #: The same bundle :attr:`TurnAnswer.evidence` carries, from the same
     #: recorded trace, so a turn restored when a session is re-opened can
@@ -812,17 +801,17 @@ class InvestigationResponse(ClosedModel):
     #: renders its charts rather than findings alone. Empty when the
     #: frames are gone or the turn charted nothing.
     chart_specs: list[ChartSpec] = Field(default_factory=list)
-    #: The prose this turn PUBLISHED, when the record kept it (round-10
-    #: R10-4). ``None`` says the analysis was not stored for this turn —
-    #: every turn written before the narrative column existed, and every
-    #: turn that composed no prose. Nothing is ever reconstructed into it:
-    #: a restored turn shows the sentences that were published or says it
-    #: does not have them, and :attr:`restoration_notes` says which.
+    #: The prose this turn PUBLISHED, when the record kept it. ``None``
+    #: says the analysis was not stored for this turn — every turn written
+    #: before the narrative column existed, and every turn that composed no
+    #: prose. Nothing is ever reconstructed into it: a restored turn shows
+    #: the sentences that were published or says it does not have them, and
+    #: :attr:`restoration_notes` says which.
     narrative: str | None = None
-    #: Governed display names for the metric ids this turn's findings cite
-    #: (round-2 FN-5). Published here as well as on :class:`TurnAnswer`:
-    #: without it, replay and export carried a title the reader had no way
-    #: to correct, and the correction lived only in one client.
+    #: Governed display names for the metric ids this turn's findings cite.
+    #: Published here as well as on :class:`TurnAnswer`: without it, replay
+    #: and export carry a title the reader has no way to correct, and the
+    #: correction lives only in one client.
     metric_display: list[MetricDisplayPayload] = Field(default_factory=list)
     created_at: datetime
 
@@ -846,14 +835,14 @@ class AnomalyDimension(ClosedModel):
 
 
 class PriorityDecompositionPayload(ClosedModel):
-    """Every term of ``anomaly_priority``, published (review F17).
+    """Every term of ``anomaly_priority``, published.
 
-    The formula was documented and its inputs were on the card, but the
-    arithmetic was not: a reader could see ``priority_score: 0.6`` beside
-    ``impact_cents: 82437`` and had no way to tell that the score was a
-    floor rather than a computation. Publishing the three normalized
-    components, the three weighted terms and the normalizer costs nothing
-    at build time and makes the ranking checkable with a calculator.
+    Documenting the formula and putting its inputs on the card is not
+    enough: a reader seeing ``priority_score: 0.6`` beside
+    ``impact_cents: 82437`` cannot tell whether the score was a floor or a
+    computation. Publishing the three normalized components, the three
+    weighted terms and the normalizer costs nothing at build time and makes
+    the ranking checkable with a calculator.
 
     ``score = (impact_term + recency_term + actionability_term) /
     weight_sum``, then raised to ``floor_value`` when
@@ -911,8 +900,7 @@ class PortfolioLanePayload(ClosedModel):
     ``items`` stays one ranked array — clients that already read it are
     untouched — and each card names its lane, so a UI can render
     "must-do regardless of size" as its own section instead of letting a
-    $824 compliance item sit at rank 1 above a $178K critical finding
-    and look like the most important thing in the building.
+    $824 compliance item sit at rank 1 above a $178K critical finding.
     """
 
     id: str
@@ -923,7 +911,7 @@ class PortfolioLanePayload(ClosedModel):
     #: must-do/by-value split that decides render order; ``cash_timing`` is
     #: the orthogonal one a director asks for — "how much can we still
     #: catch?" — and the two must never be concatenated into one list, or a
-    #: card is counted twice under two headers (round-7 FN-16).
+    #: card is counted twice under two headers.
     kind: Literal["governance", "cash_timing"] = "governance"
     anomaly_ids: list[str] = Field(default_factory=list)
     item_count: int = 0
@@ -996,13 +984,13 @@ MonitorMode = Literal["governed_default", "any_movement", "delta_gte", "crosses"
 #:
 #: MUST equal ``revi_investigation.application.ports.MONITOR_THRESHOLD_UNITS``,
 #: which is the engine's own list and the one the parser, the pack and the
-#: materiality policy all read. It did not: ``days`` was legal everywhere
-#: inside the engine and absent from this literal, so a stored ``days``
-#: monitor could not be serialized — one such row 500'd
-#: ``GET /v1/monitors/pins`` for the WHOLE tenant, and a days declaration
-#: stored its pin and then reported ``not_stored`` when the confirmation
-#: failed to validate. ``tests/test_monitor_unit_contract.py`` asserts the two
-#: lists are the same set on every CI run so the skew cannot return.
+#: materiality policy all read. Skew here is not cosmetic: a unit legal
+#: inside the engine and absent from this literal makes a stored monitor
+#: unserializable, which 500s ``GET /v1/monitors/pins`` for the WHOLE tenant
+#: and makes a declaration store its pin and then report ``not_stored`` when
+#: the confirmation fails to validate.
+#: ``tests/test_monitor_unit_contract.py`` asserts the two lists are the same
+#: set on every CI run so the skew cannot return.
 MonitorUnit = Literal["points", "relative_pct", "cents", "days"]
 
 
@@ -1094,7 +1082,7 @@ class MonitorDeclarationPayload(ClosedModel):
     #: percentage points or two percent of the current value; the platform
     #: commits to the reading that is legal against every contract and says
     #: what the other one would have been, rather than leaving a monitor
-    #: gated four times tighter than anybody asked for (round-7 FN-6).
+    #: gated four times tighter than anybody asked for.
     threshold_alternative: str = ""
 
 
@@ -1233,16 +1221,16 @@ class AnomalyCard(ClosedModel):
     #: published beside it precisely so the two can never silently differ.
     impact_cents: int = 0
     #: The SAME cell, re-derived by this platform's governed metric
-    #: contract at the source watermark, at portfolio build time (review
-    #: F1). ``None`` when the drill does not plan at this catalog version
-    #: or produces no money column — with the reason stated below rather
-    #: than a zero standing in for "unknown".
+    #: contract at the source watermark, at portfolio build time. ``None``
+    #: when the drill does not plan at this catalog version or produces no
+    #: money column — with the reason stated below rather than a zero
+    #: standing in for "unknown".
     #:
-    #: These two figures legitimately differ: the detector used its own
+    #: These two figures legitimately differ: the detector uses its own
     #: window, population and valuation basis, and the contract uses the
-    #: pack's. A 9.9% gap on the largest card is the kind of thing a
-    #: reader must be able to see without opening the drill, so it is
-    #: computed once at build time and published on the card.
+    #: pack's. Gaps of ~10% on the largest cards are ordinary, and a reader
+    #: must be able to see one without opening the drill, so it is computed
+    #: once at build time and published on the card.
     reconciled_impact_cents: int | None = None
     #: Which governed contract produced it (not always ``metric_id`` —
     #: see ``drill_repointed_from``).
@@ -1265,12 +1253,12 @@ class AnomalyCard(ClosedModel):
     #: ``anomaly_priority@3``.
     #:
     #: Until ``@2`` the answer was always the detector's, including on the
-    #: cards whose re-derivation the same payload disputes — so the Monday
-    #: worklist was ORDERED by the side of the disagreement the platform
-    #: does not stand behind. A card the platform re-derives 39% higher
-    #: sorted on the lower number; one it re-derives lower sorted on the
-    #: higher. The reconciled figure now ranks a ``diverged`` card, and this
-    #: field says so on every card either way:
+    #: cards whose re-derivation the same payload disputes — so the worklist
+    #: was ORDERED by the side of the disagreement the platform does not
+    #: stand behind: a card re-derived 39% higher sorted on the lower
+    #: number, one re-derived lower sorted on the higher. The reconciled
+    #: figure now ranks a ``diverged`` card, and this field says so on every
+    #: card either way:
     #:
     #: * ``platform`` — ``impact_agreement == "diverged"`` and the
     #:   re-derivation is available, so :attr:`reconciled_impact_cents`
@@ -1295,14 +1283,15 @@ class AnomalyCard(ClosedModel):
     #: The governed recoverable estimate: a fraction (from the actionability
     #: rules, over this record's evidence facts) of the figure that ranked
     #: the card — :attr:`ranked_impact_cents`, NOT always the detector's.
-    #: A card reading "this platform: $151" beside "~$3,750 recoverable"
-    #: was pricing the work off a figure its own payload disputes.
+    #: Taking the detector's figure instead prices the work off a number the
+    #: card's own payload disputes ("this platform: $151" beside "~$3,750
+    #: recoverable").
     recoverable_cents_estimate: int = 0
     actionability_label: str = ""
     actionability_rationale: str = ""
     priority_score: float = 0.0
     compliance_floor_applied: bool = False
-    #: The full arithmetic behind :attr:`priority_score` (review F17).
+    #: The full arithmetic behind :attr:`priority_score`.
     priority: PriorityDecompositionPayload = Field(
         default_factory=PriorityDecompositionPayload
     )
@@ -1312,7 +1301,7 @@ class AnomalyCard(ClosedModel):
     #: :class:`PortfolioLanePayload`.
     lane: Literal["compliance", "value"] = "value"
     #: The honest display name for :attr:`metric_id` when the id
-    #: overclaims what it measures (review F9); ``None`` when it does not.
+    #: overclaims what it measures; ``None`` when it does not.
     metric_display_name: str | None = None
     #: Required, never defaulted: a card whose drill handle could be
     #: absent is a card the UI would have to invent a question for.
@@ -1321,14 +1310,12 @@ class AnomalyCard(ClosedModel):
     #: pack version — decided by running the real planning + §6.6
     #: validation pass over it, without touching the warehouse.
     #:
-    #: The worklist used to rank 33 cards of which 6 could be opened, and
-    #: the first one that opened was rank 17: ranks 1-16 all returned an
-    #: error dialog, and ~90% of the ranked dollars were un-investigable.
     #: A worklist that leads with work nobody can start is worse than a
-    #: shorter one, so an undrillable card now says so on the wire and
-    #: sorts below every card that can be opened. Its detected evidence
-    #: still shows — the detection is real; only the investigation is
-    #: unavailable.
+    #: shorter one — un-investigable cards can otherwise occupy most of the
+    #: top ranks and most of the ranked dollars — so an undrillable card
+    #: says so on the wire and sorts below every card that can be opened.
+    #: Its detected evidence still shows: the detection is real; only the
+    #: investigation is unavailable.
     drillable: bool = True
     #: Why not, in the platform's own error vocabulary
     #: (``UNSUPPORTED_CONCEPT: ...``), or ``None`` when drillable.
@@ -1352,9 +1339,9 @@ class AnomalyCard(ClosedModel):
     #:
     #: ``resolved_confirmed`` and ``regressed`` are verdicts the PLATFORM
     #: reached by re-running the lead's own drill across loads — a person
-    #: can claim resolution and cannot assert it. That asymmetry is the
-    #: product: "mark as resolved" everywhere else in this category is a
-    #: checkbox, and a checkbox is an opinion.
+    #: can claim resolution and cannot assert it. That asymmetry is
+    #: deliberate: a status settable by hand is an opinion, not a
+    #: measurement.
     lead_status: Literal[
         "open", "acknowledged", "working", "resolved_claimed", "resolved_confirmed", "regressed"
     ] = "open"
@@ -1393,10 +1380,10 @@ class PortfolioResponse(ClosedModel):
     #:
     #: A second partition rather than more entries in :attr:`lanes`,
     #: because every card is in exactly one of each and concatenating them
-    #: would double-count the worklist. The derivation already existed
-    #: per card (:class:`TimeToImpactPayload.lane`) and no surface totalled
-    #: it, so "how much money has not hit cash yet?" could not be answered
-    #: from a payload that contained the answer (round-7 FN-16).
+    #: would double-count the worklist. The per-card derivation
+    #: (:class:`TimeToImpactPayload.lane`) is not enough on its own: without
+    #: a total, "how much money has not hit cash yet?" cannot be answered
+    #: from a payload that contains the answer.
     cash_timing_lanes: list[PortfolioLanePayload] = Field(default_factory=list)
     #: The compliance floor actually applied in this build, and where it
     #: came from (``relative_median`` | ``governed_absolute``). Since
@@ -1414,12 +1401,11 @@ class PortfolioResponse(ClosedModel):
 class WorklistPayload(ClosedModel):
     """The ranked anomaly worklist, answered into a conversation.
 
-    The platform computed a prioritised, reconciled worklist and the
-    conversation could not reach it: "what should my denial team work first
-    this week to recover the most cash?" returned a clarification offering
-    four ranking bases, none of which was the 33-card list with its lanes,
-    recoverable estimates and reconciliation state. The portfolio was never
-    mentioned — two products in one shell.
+    Without it the prioritised, reconciled worklist is unreachable from the
+    conversation: "what should my denial team work first this week to
+    recover the most cash?" clarifies over ranking bases rather than
+    returning the ranked list with its lanes, recoverable estimates and
+    reconciliation state.
 
     A turn carries this when it resolved the pack's governed worklist
     routing (``packs/base-rcm/worklist.yaml`` names the playbook and
@@ -1545,7 +1531,7 @@ class CapabilitiesResponse(ClosedModel):
     newest_watermark_id: str = ""
     llm: str = "mock"
     #: The deployment's governed display names for metric ids whose name
-    #: overclaims what they measure (review F9). Fetched once, so any
+    #: overclaims what they measure. Fetched once, so any
     #: surface that shows a metric id can show what it actually is.
     metric_display: list[MetricDisplayPayload] = Field(default_factory=list)
     #: What this deployment will accept in ``SessionSettingsModel``, so a

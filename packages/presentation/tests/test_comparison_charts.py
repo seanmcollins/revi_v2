@@ -1,23 +1,11 @@
-"""Round-5 D-02: a month-over-month answer draws a month-over-month chart.
+"""Comparison charts: a month-over-month answer draws a month-over-month chart.
 
-Three personas, verified at source. ``build_chart_specs`` skipped the
-``__prior`` frame with the comment *"the comparison rides inside the
-compare output"* — and it did not: ``build_chart_spec`` charted the CURRENT
-column off the compare frame and nothing else. Live, a July-vs-June close
-question yielded ``chart_main`` and ``chart_main__compare`` with
-byte-identical rows (Lakewood 10240987 in both, while the finding reported
-``prior_cents`` 1978647), the client recognised the identical twin and
-dropped it, and the reader ended up with ONE chart of July only on an
-answer whose title, header chip and every warning were about June against
-July. rcm-analyst: *"not a chart I can use at close at all."*
-
-The client's dedupe was also enumerated against a suffix list the server
-had already outgrown — ``["__compare", "__prior"]`` against a server
-emitting ``denial_code_mix__compare__share`` — so two byte-identical 34-row
-stacked bars rendered under one composed title on the flagship premise
-answer. Both halves are fixed at the emitter: the comparison is DRAWN, the
-superseded frame is not emitted, and whatever survives is deduplicated on
-content rather than on a suffix nobody can keep up to date.
+``build_chart_specs`` skipped the ``__prior`` frame while ``build_chart_spec``
+charted only the CURRENT column off the compare frame, so a June-vs-July answer
+shipped one chart of July; separately, a dedupe enumerated against a fixed suffix
+list let two byte-identical figures render under one title. Both are fixed at the
+emitter: the comparison is DRAWN, the superseded frame is not emitted, and whatever
+survives is deduplicated on CONTENT rather than on a suffix list.
 """
 
 from __future__ import annotations
@@ -36,7 +24,7 @@ WATERMARK = DataWatermark(
 )
 THRESHOLD = 11
 
-#: rcm-analyst's own row, at his own figures.
+#: The row the defect was reported against, at its own figures.
 LAKEWOOD = ("Lakewood Medicaid MCO", 10_240_987, 1_978_647)
 
 
@@ -122,7 +110,7 @@ class TestTheComparisonIsDrawn:
     def test_a_prior_only_category_is_counted_rather_than_drawn_as_a_collapse(
         self,
     ) -> None:
-        """product-designer's mirror case: ``chart_main`` had 31 rows and
+        """The mirror case: ``chart_main`` had 31 rows and
         ``chart_main__compare`` 33, the two extras carrying ``value: 0``
         and appearing nowhere on the current side, with nothing on the
         answer explaining the gap."""

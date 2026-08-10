@@ -1,23 +1,12 @@
 """What the answer is *about*: the direction a question asked for, the
 shapes an answer can take, and what "nothing" means.
 
-Four round-1 live findings, all of them a confident answer to a question
-nobody asked:
-
-- **F10** — *"which payers had the biggest INCREASE in denials"* was
-  answered with the three biggest **decreases**, narrated as improvements.
-  Nothing in the pipeline carried the word "increase" past the model, so
-  selection ranked by delta ascending, which is the default for "what
-  moved" and the exact inverse of what was asked.
-- **F5** — a grouped comparison of a **rate** published zero findings and a
-  null narrative: the movement shape required a *money* measure, so a
-  correct compare frame full of denial-rate movement was invisible.
-- **F12b** — a one-day calendar difference between two 90-day windows
-  qualified every finding and withheld every impact, in the same words a
-  7-day-against-a-quarter comparison gets. A rate is length-invariant and
-  should carry no such caveat at all.
-- **F2** — an empty answer and a quiet one rendered identically (as
-  silence), while their recoveries are opposite.
+Four regressions, each a confident answer to a question nobody asked:
+"biggest INCREASE in denials" answered with the three biggest decreases;
+a grouped comparison of a rate publishing nothing because the movement shape
+required money; a one-day calendar difference between two 90-day windows
+qualifying every finding on a length-invariant rate; and an empty answer
+rendering identically to a quiet one though their recoveries are opposite.
 """
 
 from __future__ import annotations
@@ -186,7 +175,7 @@ class TestDirectionAwareSelection:
     async def test_biggest_increase_returns_increases(
         self, pack_port: PackSnapshotPort, make_spec: SpecFactory
     ) -> None:
-        """The live repro. Ranked by delta ascending, the top three rows are
+        """The regression. Ranked by delta ascending, the top three rows are
         the two falls and the smaller rise — three answers, none of them to
         the question that was asked."""
         spec = make_spec(measures=("denied_dollars",), dimensions=("payer",), watermark=WATERMARK)
@@ -198,8 +187,8 @@ class TestDirectionAwareSelection:
 
         assert titles[0].startswith("Meridian Health")  # +400k, the biggest rise
         assert all("down" not in title for title in titles), titles
-        # Round-5 A-04: the two cells the filter removed are NAMED. They
-        # were silent, and "show me all twelve" then returned ten — the two
+        # The two cells the filter removed are NAMED. They used to be
+        # dropped silently, so "show me all twelve" returned ten — the two
         # missing being the only two that had improved.
         assert [w for w in warnings if w.startswith("direction_omitted:")], warnings
         assert not [w for w in warnings if w.startswith("direction_unmatched:")]
@@ -244,9 +233,8 @@ class TestDirectionAwareSelection:
         # the biggest RISE in denied dollars.
         assert titles[0].startswith("Meridian Health")
         # Nothing is claimed about the *selection* — but a frame with more
-        # rows than findings says so now (round-3 R3-04): silence over a
-        # served slice is what let "a tight band" be narrated over a 3.4x
-        # spread.
+        # rows than findings says so now: silence over a served slice is
+        # what let "a tight band" be narrated over a 3.4x spread.
         assert [w for w in warnings if w.startswith("findings_truncated:")]
         assert not [w for w in warnings if not w.startswith("findings_truncated:")]
 
@@ -291,7 +279,7 @@ class TestRateMovementIsAnAnswer:
     async def test_a_grouped_rate_comparison_publishes_findings(
         self, pack_port: PackSnapshotPort, make_spec: SpecFactory
     ) -> None:
-        """The live repro: "denial rate by payer, last 90 days vs the prior
+        """The regression: "denial rate by payer, last 90 days vs the prior
         90" produced zero findings and a null narrative."""
         spec = make_spec(measures=("denial_rate",), dimensions=("payer",), watermark=WATERMARK)
 
@@ -449,7 +437,7 @@ class TestEmptinessIsAFact:
 
 
 class TestRankByImpactWithoutAComparison:
-    """F4: the daily portfolio answered two scalars from 97 ranked rows.
+    """Regression: the daily portfolio answered two scalars from 97 ranked rows.
 
     Its ``rank`` transform asks for ``impact_cents``, which resolves to a
     money measure's ``__delta`` on a compare output. The playbook's own
@@ -490,7 +478,7 @@ class TestRankByImpactWithoutAComparison:
 
 
 # ---------------------------------------------------------------------------
-# round 3: premises, ordering, and series
+# premises, ordering, and series
 
 
 def _scalar_compare_frame(
@@ -548,12 +536,12 @@ async def _findings_with_premise(
 
 
 class TestAssertedPremises:
-    """Round-3 FN-2: "why did denials double" inside an 81% decline.
+    """Regression: "why did denials double" answered inside an 81% decline.
 
-    The live answer was three CARC cells totalling $3,204 of increases,
-    framed as the explanation, over a move from $58,983.54 to $10,915.24.
-    Every cell was real. The answer was false, because the movement the
-    question took for granted was never measured.
+    The answer was three CARC cells totalling $3,204 of increases, framed as
+    the explanation, over a move from $58,983.54 to $10,915.24. Every cell
+    was real. The answer was false, because the movement the question took
+    for granted was never measured.
     """
 
     async def test_a_refuted_premise_leads_the_answer(
@@ -580,12 +568,12 @@ class TestAssertedPremises:
     async def test_a_premise_that_holds_is_published_as_the_verdict(
         self, pack_port: PackSnapshotPort, make_spec: SpecFactory
     ) -> None:
-        """Round-3 R3-03: a verdict is a verdict either way.
+        """A verdict is a verdict either way.
 
         This used to assert that a confirmed premise "says nothing extra",
-        which is exactly the defect six personas hit: the premise probe ran,
-        the aggregate was measured, the verdict was discarded because it
-        agreed with the question, and the narrative opened on a sub-cell.
+        which was the defect: the premise probe ran, the aggregate was
+        measured, the verdict was discarded because it agreed with the
+        question, and the narrative opened on a sub-cell.
         """
         spec = make_spec(measures=("denied_dollars",), dimensions=("payer",), watermark=WATERMARK)
         spec = replace(spec, direction=AskedDirection.INCREASE, direction_asserted=True)
@@ -606,8 +594,8 @@ class TestAssertedPremises:
     async def test_a_directionally_true_premise_that_falls_short_is_partial(
         self, pack_port: PackSnapshotPort, make_spec: SpecFactory
     ) -> None:
-        """Round-3 R3-03 plus round-4 R4-05c: "double" is a claim about SIZE,
-        and falling short of it is its own verdict.
+        """"double" is a claim about SIZE, and falling short of it is its own
+        verdict.
 
         ``holds`` tested the sign alone, so "why did denials double?" over
         +4.2% was scored true, published nothing, and let the narrative lead
@@ -685,8 +673,8 @@ class TestAssertedPremises:
 
 
 class TestAskedOrder:
-    """Round-3 FN-4: "ranked best to worst" returned worst-first and
-    narrated the worst payer as "ranks first"."""
+    """Regression: "ranked best to worst" returned worst-first and narrated
+    the worst payer as "ranks first"."""
 
     @pytest.mark.parametrize(
         ("order", "sign", "expected"),

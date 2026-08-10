@@ -1,16 +1,13 @@
-"""Round-4 lane E2: comparison integrity and display-scope recovery.
+"""Comparison integrity and display-scope recovery.
 
-Four invariants the review found broken, pinned as unit facts so a
-regression cannot hide behind a live session:
-
-* **R4-16** a whole calendar period against the whole one before it is a
-  SAME-KIND comparison and is exempt from the length-mismatch machinery;
-* **R4-08** a comparison cell missing from a TRUNCATED side is UNKNOWN,
-  never zero, and the turn says how many;
-* **R4-07** two windows settled to different degrees are not comparable at
-  high confidence, and the warning names both panels;
-* **R4-11** a request that changes only how many rows are shown is
-  decidable without a model.
+Four invariants, pinned as unit facts so a regression cannot hide behind a
+live session: a whole calendar period against the whole one before it is a
+SAME-KIND comparison and is exempt from the length-mismatch machinery; a
+comparison cell missing from a TRUNCATED side is UNKNOWN rather than zero,
+and the turn says how many; two windows settled to different degrees are not
+comparable at high confidence, and the warning names both panels; and a
+request that changes only how many rows are shown is decidable without a
+model.
 """
 
 from __future__ import annotations
@@ -48,7 +45,7 @@ WATERMARK = DataWatermark(
 
 
 class TestCalendarPeriodsAreLikeForLike:
-    """R4-16. Every month-over-month turn came back with impact withheld and
+    """Every month-over-month turn came back with impact withheld and
     every finding title stamped "(30d vs 31d, not length-normalized)". A
     close is read month against month; as shipped, no month-end comparison
     could publish an impact figure at all."""
@@ -167,7 +164,7 @@ def _calculate(
 
 
 class TestATruncatedPriorIsUnknownNotZero:
-    """R4-08, verbatim the reviewer's round-1 F2 alive after three fix waves:
+    """A defect that survived three fix waves:
     "CO / 16 — denied dollars moved from $0.00 to $41,918.23" at direct/high
     with an impact figure, over a warehouse in which CO/16 had FALLEN
     $15,780. The prior was never retrieved; it was not zero."""
@@ -217,7 +214,7 @@ def _panel_compare_frame(current_panel: int, prior_panel: int) -> EvidenceFrame:
 
 
 class TestComparisonsAreTestedForDataMaturity:
-    """R4-07. ``terminal_bucket_censoring`` needs a three-point trend and has
+    """``terminal_bucket_censoring`` needs a three-point trend and has
     one call site inside the trend loop, so a July at 23% adjudicated was
     published against a June at 91% as "+73%" at direct/high."""
 
@@ -244,8 +241,8 @@ class TestComparisonsAreTestedForDataMaturity:
 
 
 class TestDisplayScopeIsDecidedWithoutAModel:
-    """R4-11, 6 of 6 personas and zero successes: "show me all twelve" went to
-    the classifier, came back at 0.45-0.50 confidence, and ended in a
+    """No reviewer got this through: "show me all twelve" went to the
+    classifier, came back at 0.45-0.50 confidence, and ended in a
     clarification asking whether the twelve had already been computed."""
 
     def test_a_pure_count_request_is_recognised(self) -> None:

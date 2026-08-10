@@ -1,15 +1,11 @@
 """The conversation's read path onto the ranked anomaly worklist.
 
-Round-2 deferred P1. The platform computes a prioritised, reconciled
-worklist — 33 detected cards, two lanes, a published priority
-decomposition and a governed recoverable estimate per card — and serves it
-at ``GET /v1/portfolio/latest``. The conversation could not reach it:
-*"What should my denial team work first this week to recover the most
-cash?"* returned a clarification offering four ranking bases, none of
-which was that list, and the portfolio was never mentioned. *"Of our
-denied dollars, how much is realistically recoverable"* returned three
-denied-dollar rankings and a narrative that never used the word
-recoverable. To a buyer that reads as two products in one shell.
+The platform computes a prioritised, reconciled worklist — detected cards
+across two lanes, a published priority decomposition and a governed
+recoverable estimate per card — and serves it at
+``GET /v1/portfolio/latest``. This module is how a conversational turn
+reaches that same list, so that asking which work to pick up first and
+opening the rail cannot answer differently.
 
 Two seams, no new pipeline:
 
@@ -107,9 +103,10 @@ def load_worklist_routing(path: str | Path) -> WorklistRouting:
     """Read the governed routing, or an empty one when the pack has none.
 
     A missing file is not an error — a pack that declares no worklist
-    routing is a pack whose answers carry no worklist. A malformed one IS:
-    routing the platform silently failed to load is the defect this file
-    exists to close, wearing a different mask.
+    routing is a pack whose answers carry no worklist. A malformed one IS
+    an error: routing that silently fails to load leaves the conversation
+    unable to reach the list, which is the failure this module exists to
+    prevent.
     """
     file = Path(path)
     if not file.is_file():
@@ -157,7 +154,7 @@ def _statement(
     reader who checks finds the same numbers. Deliberately not composed by
     a model: this is a read of a computation, and a generated sentence
     could not be validated against it any more cheaply than writing it
-    from it.
+    from the computation in the first place.
     """
     if total == 0:
         return (
@@ -198,8 +195,8 @@ def _statement(
         f"{_dollars(recoverable_cents)}."
     )
     # Counted over the whole ranked population, and said to be: a count
-    # taken over 33 cards under a sentence about the 8 published would be a
-    # different claim from the one the number supports.
+    # taken over every ranked card, stated under a sentence about the
+    # published page, is a different claim from the one the number supports.
     on_platform = sum(1 for card in portfolio.items if card.ranked_on == "platform")
     if on_platform:
         parts.append(
@@ -221,7 +218,7 @@ def _statement(
 
 
 # ---------------------------------------------------------------------------
-# addressing the list (round-3 R3-09)
+# addressing the list
 
 
 #: A card's own published id. The one unambiguous handle: the platform mints
@@ -285,15 +282,11 @@ def resolve_worklist_reference(
 ) -> WorklistReference | None:
     """The worklist row an utterance addresses, resolved deterministically.
 
-    Round-3 R3-09, five personas. Three consecutive live turns: *"Open the
-    top item and show me what is behind the $178,217"* → a clarification
-    claiming "nothing shown totals $178,217", while the SAME turn's
-    worklist payload read "First is ANM-021 — $178,216.82"; *"Show me
-    ANM-021"* → "I can't open a worklist item by its id", offering three
-    options all categorically wrong for a ``dnfb`` card. Meanwhile
-    ``/v1/portfolio/latest`` reported every card drillable with a complete
-    ``drill_spec``, and the rail's own click dispatched exactly that spec.
-    The list was addressable by mouse and unaddressable by name.
+    Without this the list is addressable by mouse and unaddressable by
+    name: "open the top item" and "show me ANM-021" draw clarifications
+    denying figures the same turn's own worklist payload had just printed,
+    while ``/v1/portfolio/latest`` reports the card drillable and the rail's
+    click dispatches its spec.
 
     So the ids and the positions this platform PRINTED are resolved the way
     every other handle it prints is resolved: by lookup, before any model
@@ -373,22 +366,20 @@ WORKLIST_LEADS_PREFIX = "worklist_leads:"
 
 
 def worklist_lead_warning(payload: WorklistPayload) -> str | None:
-    """The sentence a work-prioritization answer must open with (R3-10).
+    """The sentence a work-prioritization answer must open with.
 
-    "What should my denial team work first this week" came back as three
-    denied-dollars-by-payer findings and ~500 words about them, with the
-    ranked list rendered below the findings, the charts and the prose. The
-    narrative's closing instruction named Atlas at $33,954.90 as the first
-    action while the attached worklist's first item was ANM-021 at
-    $178,216.82 — the prose pointed at a fifth of the money — and the
-    answer's own worklist statement labelled itself "not a measurement of
-    the question asked above".
+    When the worklist routed, it leads. Otherwise the ranked list renders
+    below the findings, the charts and the prose, and the narrative's
+    closing instruction can name a first action that is not the list's
+    first row — two different answers to one question, in one response,
+    under a worklist statement that labels itself "not a measurement of the
+    question asked above".
 
-    So when the worklist routed, it leads. This is that lead, composed from
-    the payload the answer already carries (never from a model, and never a
-    figure the payload does not hold), published verbatim ahead of the prose
-    by the mandatory-disclosure machinery, and shown to the composer so the
-    metric probes are written as what they are: also-measured context.
+    Composed from the payload the answer already carries (never from a
+    model, and never a figure the payload does not hold), published verbatim
+    ahead of the prose by the mandatory-disclosure machinery, and shown to
+    the composer so the metric probes are written as what they are:
+    also-measured context.
 
     ``None`` when the worklist was asked for explicitly (``typed_query``) or
     carries no cards — an attached list the analyst requested beside a

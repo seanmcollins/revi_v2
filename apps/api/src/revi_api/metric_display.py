@@ -1,16 +1,15 @@
-"""Governed display names for metric ids that overclaim (review F9).
+"""Governed display names for metric ids that overclaim.
 
 Loads ``packs/base-rcm/metric_display.yaml`` — pack-adjacent governed
 content, content-hashed for the trace, exactly like
 :mod:`revi_api.actionability`.
 
-``timely_filing_at_risk_dollars`` sums billed charges on open,
-never-submitted claims and applies no deadline predicate whatsoever. It
-served $22.4M with high confidence next to a filing-anomaly population
-worth about $62K. The id is a reference anchor across the pack, the
-answer key and the review record, so it is not renamed; instead every
-surface that shows the id also shows what the number is and the
-qualification that makes it honest.
+``timely_filing_at_risk_dollars`` is the motivating case: it sums billed
+charges on open, never-submitted claims and applies no deadline predicate
+whatsoever, so its id claims far more than it measures. The id is a
+reference anchor across the pack and the answer key, so it is not renamed;
+instead every surface that shows the id also shows what the number is and
+the qualification that makes it honest.
 
 Two doors, deliberately:
 
@@ -21,8 +20,7 @@ Two doors, deliberately:
 * this file, which carries the same correction to surfaces that have no
   answer to hang a warning on: a portfolio card, a chip, a picker.
 
-The two must agree in substance. They are authored side by side and the
-pack test pins that they do.
+The two must agree in substance; a pack test pins that they do.
 """
 
 from __future__ import annotations
@@ -68,9 +66,9 @@ class MetricDisplayRules:
         """``{metric id: display name}`` — the substitution map itself.
 
         One accessor, because every surface that renders a metric id to a
-        human needs the same map and three of them were building it inline
-        (round-6 E-04): the finding card had it, the referent chip beside
-        it did not, and the two disagreed about the same finding's title.
+        human needs the same map. Building it inline let surfaces drift:
+        the finding card substituted display names, the referent chip
+        beside it did not, and the two disagreed about the same title.
         """
         return {mid: entry.display_name for mid, entry in self.by_metric.items()}
 

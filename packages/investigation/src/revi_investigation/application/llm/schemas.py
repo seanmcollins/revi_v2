@@ -187,10 +187,9 @@ class GroundedOptionModel(_Closed):
 
     A clarification option is the one piece of free text that becomes a
     *button*: an analyst who taps it is promised the platform can answer it.
-    Live, the platform offered "Compare denial rates across all Medicare
-    Advantage payers" and refused the same request one turn later — the
-    option named a capability nobody had checked, because the option was a
-    sentence and sentences do not resolve against a pack.
+    A bare sentence does not resolve against a pack, so "compare denial
+    rates across all Medicare Advantage payers" can be offered and then
+    refused one turn later, having named a capability nobody checked.
 
     So an option carries the ids it would use alongside the label it shows,
     and every one of them goes through the same disposal an interpretation
@@ -219,10 +218,10 @@ class InterpretationResponse(_Closed):
     #: :class:`~revi_investigation_contracts.refinements.AnchoredWindowModel`.
     window: WindowSpecModel | AnchoredWindowModel | AbsoluteWindowModel | None = None
     #: The time bucket a "by month/week/day" breakdown asks for. It is a
-    #: *grain*, not a dimension: "denial rate by month for the last 6
-    #: months" used to resolve to one six-month scalar with no series and no
-    #: warning, because nothing in this schema could carry the bucketing
-    #: axis (design §6.1: entity grain and time bucket are orthogonal).
+    #: *grain*, not a dimension. Without a field to carry the bucketing
+    #: axis, "denial rate by month for the last 6 months" resolves to one
+    #: six-month scalar with no series and no warning (design §6.1: entity
+    #: grain and time bucket are orthogonal).
     time_grain: TimeBucketLiteral | None = None
     basis: str | None = None
     comparison: ComparisonLiteral | None = None
@@ -241,11 +240,11 @@ class InterpretationResponse(_Closed):
     direction_asserted: bool = False
     #: The SIZE that movement asserts, as a multiple of the prior level: 2
     #: for "doubled", 0.5 for "halved", 4 for "quadruple", 3 for "jumped
-    #: 200%". Round-5 A-02(3): a closed 11-entry table was the sole source
-    #: and held "halved" but not "halve", so "why did cash collections
-    #: HALVE in July?" published "Premise confirmed … -8.0%". The table is
-    #: still the deterministic override for every word it holds; this field
-    #: covers the phrasings a table cannot. Null when no size was asserted.
+    #: 200%". A closed word table alone leaves gaps — holding "halved" but
+    #: not "halve" publishes "Premise confirmed … -8.0%" for "why did cash
+    #: collections HALVE in July?". The table is still the deterministic
+    #: override for every word it holds; this field covers the phrasings a
+    #: table cannot. Null when no size was asserted.
     asserted_multiple: float | None = Field(default=None, gt=0)
     #: The order a ranking was asked to arrive in ("best to worst" →
     #: ``best_first``). Closed set; never inferred — an unstated order stays

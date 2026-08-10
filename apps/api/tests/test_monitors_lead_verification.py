@@ -1,25 +1,14 @@
 """A confirmation is evidence FROM AFTER THE CLAIM, and it expires.
 
-Round 9 gated on one card, filed P0 by three reviewers independently, live
-on the demo tenant:
+Regression: a card could render "new lead, already confirmed fixed" in one
+eyebrow. The loads that "verified" the fix ran BEFORE anybody claimed it — the
+walk banked them when older loads were re-evaluated after the claim — and a lead
+that reached ``resolved_confirmed`` was never looked at again, so the detector
+firing on it at a later load could not take the badge back.
 
-    eyebrow: "NEW LEAD, ALREADY CONFIRMED FIXED — detected this load"
-    body:    "New at this load: ANM-029 — Non-covered denial burst:
-              Bluestone PPO Imaging, $17,677.33"
-    check:   "Fix confirmed in the data"
-    note:    "Confirmed: ANM-029 is no longer in the detection feed at
-              wm_002 … for 2 consecutive loads, wm_001-wm_002."
-
-``GET /v1/monitors/leads/ANM-029`` explained it: ``claimed_at_watermark
-wm_003`` with ``confirming_watermarks ["wm_001", "wm_002"]``. Both loads
-that "verified" the fix ran BEFORE anybody claimed it — the walk banked
-them when older loads were re-evaluated after the claim — and a lead that
-had reached ``resolved_confirmed`` was never looked at again, so the
-detector firing on it at wm_003 could not take the badge back.
-
-Three rules close it, and each one is proved twice below: as the pure
-function that decides it, and over the three real loads of the generated
-warehouse, which is the only place the claim → load → load walk exists.
+Three rules close it, each proved twice below: as the pure function that decides
+it, and over the three real loads of the generated warehouse, the only place the
+claim → load → load walk exists.
 """
 
 from __future__ import annotations
@@ -53,7 +42,7 @@ REPO_ROOT = Path(__file__).resolve().parents[3]
 WAREHOUSE = REPO_ROOT / "data" / "revi_warehouse.duckdb"
 
 TENANT = "demo"
-CALLER = Principal(tenant=TENANT, subject="r9-01-suite")
+CALLER = Principal(tenant=TENANT, subject="lead-verification-suite")
 
 _T0 = datetime(2026, 8, 1, 3, 0, tzinfo=UTC)
 #: Ids that sort the WRONG way as strings, so a lexicographic comparison
@@ -186,9 +175,8 @@ class TestPreClaimRepair:
         assert "not evidence the fix worked" in repaired.verification_note
 
     def test_a_verdict_reached_at_a_pre_claim_load_is_withdrawn(self) -> None:
-        """The companion symptom on the same screen: ANM-001 rendered
-        "still detected at wm_002" — a verdict from the load BEFORE the
-        claim — on a page walking wm_010."""
+        """The companion symptom: ANM-001 rendered "still detected at wm_002" —
+        a verdict from the load BEFORE the claim — on a page walking wm_010."""
         lead = _lead(
             anomaly_id="ANM-001",
             verification_note=(
@@ -369,7 +357,7 @@ def _warehouse_with_a_fourth_load(tmp_path: Path) -> Path:
 class TestOverRealLoads:
     """wm_001 → wm_002 → wm_003, through the shipped code path.
 
-    ANM-029 is the reviewers' own lead: it is absent from the feed at
+    ANM-029 is the lead this rule was written for: absent from the feed at
     wm_001 and wm_002 and first detected at wm_003, which is what made the
     shipped defect possible and what makes it the proof here.
     """
@@ -381,9 +369,9 @@ class TestOverRealLoads:
         return ApiService(build_components(env, llm=demo_language_model()))
 
     async def test_loads_before_the_claim_never_verify_it(self) -> None:
-        """The exec's repro, end to end: claim at the newest load, then let
-        the two older ones be walked. They used to be banked and confirm the
-        fix; the lead's own claim load is the floor now."""
+        """The repro, end to end: claim at the newest load, then let the two
+        older ones be walked. They used to be banked and confirm the fix; the
+        lead's own claim load is the floor now."""
         service = self._service()
         first, second, third = await service.components.repository.list_watermarks()
 
@@ -404,8 +392,8 @@ class TestOverRealLoads:
         assert lead.confirming_watermarks == []
 
     async def test_the_card_in_this_load_is_never_published_as_fixed(self) -> None:
-        """The screen the exec read: the brief's own census and the leads
-        panel, at the load whose feed holds the card."""
+        """The screen that shipped the contradiction: the brief's own census and
+        the leads panel, at the load whose feed holds the card."""
         service = self._service()
         *_, third = await service.components.repository.list_watermarks()
 
@@ -499,7 +487,7 @@ class TestOverRealLoads:
         [entry] = [e for e in brief.entries if e.kind == "resolution_regressed"]
         assert entry.anomaly_id == "ANM-031"
         assert entry.statement == lead.verification_note
-        # The room refreshes the page. The verdict this load reached is
+        # A reader refreshes the page. The verdict this load reached is
         # stated once and does not vanish on the second read.
         again = await service.monitors.brief_at(CALLER, fourth)
         assert [e.anomaly_id for e in again.entries if e.kind == "resolution_regressed"] == [

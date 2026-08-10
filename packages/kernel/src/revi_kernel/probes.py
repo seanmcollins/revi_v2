@@ -120,12 +120,11 @@ EvidenceProbe = Union[AggregationProbe, SnapshotProbe, RowEvidenceProbe]  # noqa
 class ProbeShape(StrEnum):
     """Which member of the probe union a retrieval is.
 
-    Named as a value because *shape* is a thing sources have opinions
-    about: a snapshot-time age has no meaning inside a flow aggregation,
-    and a source that can compute one may be unable to compute the other.
-    Capability negotiation (§6.3) trades in these values, so plan-time and
-    execute-time can speak about probe shapes in one vocabulary instead of
-    two ad-hoc string constants.
+    A value rather than an ad-hoc string because sources have opinions about
+    shape — a snapshot-time age has no meaning inside a flow aggregation, and
+    a source that computes one may not compute the other. Capability
+    negotiation (§6.3) trades in these values, so plan-time and execute-time
+    speak about probe shapes in one vocabulary.
     """
 
     AGGREGATION = "aggregation"

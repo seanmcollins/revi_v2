@@ -1,22 +1,13 @@
-"""Round-6 A-01: clarifying a re-presentation must resume a re-presentation.
+"""Clarifying a re-presentation must resume a re-presentation.
 
-The regression the round-5 close chain found in one move, live in
-``sess_509079e76d73``:
-
-* T2 "show me all twelve" published **twelve** payer rows, F4..F15;
-* T3 "sort them by percent change, largest first" came back
-  ``clarification_required``;
-* T4 answered it with **the clarification's own first option** — and the
-  engine ran ``_new_investigation_turn``, which re-planned the sentence from
-  scratch. **Three** findings, the engine's own order, ``reconciliation:
-  status=not_applicable; reason=this is a first turn``, and a lineage
-  reading ``presentation_only | parent None`` → ``new_investigation |
-  parent <the clarification>``. $0.309 for one turn, four model calls, and
-  the twelve rows the analyst was looking at were gone.
-
-A clarification is an interruption, and what it interrupts decides what
-resumes. These tests state that over the real DuckDB pipeline, with the
-classifier scripted to the confidences it actually returned.
+A twelve-row payer answer, then "sort them by percent change, largest
+first", then the clarification's OWN first option — and the engine ran
+``_new_investigation_turn``, re-planning the sentence from scratch: three
+findings in the engine's order, a reconciliation reading "this is a first
+turn", and a lineage jumping from ``presentation_only`` to
+``new_investigation``. A clarification is an interruption, and what it
+interrupts decides what resumes. Stated here over the real DuckDB pipeline,
+with the classifier scripted to the confidences it actually returned.
 """
 
 from __future__ import annotations
@@ -51,7 +42,7 @@ FIRST = "Which payers had the biggest change in denial rate in July 2026 versus 
 #: Deliberately NOT a phrase the zero-LLM recognizer claims ("mover" is
 #: outside its closed vocabulary): this test is about what happens when the
 #: classifier does get the turn and comes back unsure, which is the state
-#: A-01 was found in.
+#: this defect was found in.
 SORT = "please sort them by percent change, biggest mover first"
 OPTION = "Just re-sort the rows already shown by percent change, descending"
 
@@ -171,9 +162,9 @@ class TestClarifyingAPresentationResumesThePresentation:
     async def test_the_sort_the_analyst_asked_for_is_applied_to_those_rows(
         self, seed_prior_turn: SeedPriorTurn
     ) -> None:
-        """Round-5 E-01 finally closed: the request is applied, and the note
-        says it was. ``refinement_not_applied`` is what is owed when it
-        CANNOT be applied, and only then."""
+        """The request is applied and the note says it was.
+        ``refinement_not_applied`` is what is owed when it CANNOT be
+        applied, and only then."""
         engine = _engine()
         _first, _asked, resumed = await _chain(engine, seed_prior_turn)
 
@@ -191,8 +182,8 @@ class TestClarifyingAPresentationResumesThePresentation:
         self, seed_prior_turn: SeedPriorTurn
     ) -> None:
         """The resume rule is narrow on purpose: a self-contained question
-        that matches no option we offered is not an answer to it (R4-12
-        defect 6b), whichever kind of turn asked."""
+        that matches no option we offered is not an answer to it, whichever
+        kind of turn asked."""
         engine = _engine()
         engine.llm.respond(
             "classify_turn",

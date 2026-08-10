@@ -1,6 +1,6 @@
-"""Adjudication maturity of a WINDOW (design §2.8; round-6 E-01).
+"""Adjudication maturity of a WINDOW (design §2.8).
 
-Two guards already existed and both are *relative to a sibling*:
+The other two guards are *relative to a sibling*:
 :func:`revi_kernel.maturity.terminal_bucket_verdict` compares a series'
 last bucket against the median of the buckets before it, and
 :func:`revi_investigation.application.comparison.comparison_maturity`
@@ -8,12 +8,12 @@ compares the two panels of a comparison. Neither can see a **single-window
 aggregate**, because it has no sibling bucket and no prior panel — and that
 is the shape most questions actually take.
 
-Live, that hole published two answers to one question 6.7x apart. "Silverline
-Medicare Advantage: $23,749.29 denied dollars" over July on the *service*
-basis, and "$158,122.42" over the same July on the *remit* basis, both at
-``confidence: high``, ``grade: direct``, with nothing on either card saying
-that service-dated July was about a quarter adjudicated. ``WINDOW_ASSUMED``
-steers every undated question straight into that month.
+That hole publishes two answers to one question 6.7x apart: "$23,749.29
+denied dollars" over a month on the *service* basis and "$158,122.42" over
+the same month on the *remit* basis, both at ``confidence: high``,
+``grade: direct``, with nothing on either card saying that the service-dated
+month was about a quarter adjudicated. ``WINDOW_ASSUMED`` steers every
+undated question straight into that month.
 
 So maturity is asked of the window itself, against the load's own settling
 curve:
@@ -154,9 +154,8 @@ def adjudication_yardstick(
     Searched across the whole PACK, never across the turn's own measures:
     settling is a property of the load, and a question that reads one
     additive money contract — "how many dollars did we lose to denials in
-    July", the exact shape E-01 was raised about — carries no ratio of its
-    own to be judged by. A yardstick drawn from the turn would decline
-    exactly there.
+    July" — carries no ratio of its own to be judged by, and a yardstick
+    drawn from the turn would decline exactly there.
 
     ``None`` when the pack declares no such contract, which is the honest
     outcome: a load whose completeness cannot be measured is not one this
@@ -195,7 +194,7 @@ def covered_months(window: AbsoluteRange) -> tuple[AbsoluteRange, ...]:
     settled June, a July that is a quarter adjudicated and two days of
     August, and judged as one span it passes. Judged month by month, the
     July inside it is what makes a delta across that window a settlement
-    artifact (round-8 FIX-9(3)).
+    artifact.
     """
     out: list[AbsoluteRange] = []
     cursor = _month_start(window.start)
@@ -255,14 +254,13 @@ class WindowMaturityService:
     ) -> WindowMaturity | None:
         """…asked of ANY window, not only the one the header announced.
 
-        Round-8 FIX-9(3). A playbook probe declares its own window, and the
-        premise verdict on the playbook path was therefore checked over
-        2026-06-08..2026-08-02 while the turn announced July against June —
-        so the guard, which read the spec, judged a window nothing was
-        computed over and stayed silent on the one that was. The caller
-        collects the windows a plan actually reads and asks about each; the
-        settling curve behind them is read once per (watermark, basis,
-        entity, yardstick) whatever they are.
+        A playbook probe declares its own window, so a guard that reads only
+        the spec judges a window nothing was computed over and stays silent
+        on the one that was — the premise verdict checked over
+        2026-06-08..2026-08-02 while the turn announces July against June.
+        The caller collects the windows a plan actually reads and asks about
+        each; the settling curve behind them is read once per (watermark,
+        basis, entity, yardstick) whatever they are.
         """
         yardstick = adjudication_yardstick(self._pack, grain=grain, basis=window.basis)
         if yardstick is None:
@@ -320,12 +318,11 @@ class WindowMaturityService:
     ) -> SettledReading | None:
         """The same measure over the most recent period that HAS settled.
 
-        Round-8 FIX-12(a). "What is my denial rate?" — the first question of
-        any demo — assumed July and answered "12.8%", the one figure this
-        product's own trend answer excludes as provisional (1,544 records
-        against a series median of 6,051). The caveats were all present and
-        all underneath. A director carries "our denial rate is 12.8%" out of
-        the room, and the settled book runs 7.2-9.1%.
+        An undated "what is my denial rate?" assumes the newest month and
+        answers "12.8%" — the one figure this product's own trend answer
+        excludes as provisional (1,544 records against a series median of
+        6,051) — with every caveat underneath it, while the settled book
+        runs 7.2-9.1%.
 
         Naming the caveat is not enough when the number itself is the
         wrong one to lead with, so the settled reading is MEASURED and put
