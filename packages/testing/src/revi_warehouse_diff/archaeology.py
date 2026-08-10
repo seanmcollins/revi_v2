@@ -56,7 +56,7 @@ DISCLOSURE_FIXES: tuple[DisclosureFix, ...] = (
     DisclosureFix(
         code="bound_markers",
         landed=dt.datetime(2026, 8, 9, 17, 25, 3, tzinfo=dt.UTC),
-        commit="f51d511",
+        commit="4fbe660",
         what=(
             "a suppressed numerator publishes __is_bound / __bound / "
             "__bound_population and a '≤' in its own title; a later change "
@@ -75,7 +75,7 @@ DISCLOSURE_FIXES: tuple[DisclosureFix, ...] = (
         # anybody can check is the one thing this field exists to prevent.
         # ``test_every_disclosure_fix_names_a_real_commit`` resolves every
         # hash here through ``git cat-file``, so it cannot go back to prose.
-        commit="5ad1774",
+        commit="084261e",
         what=(
             "a finding whose probe declared its own window states THAT window "
             "in its title and statement, publishes it as "
