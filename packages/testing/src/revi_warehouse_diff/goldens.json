@@ -359,7 +359,7 @@
       "scope": [{"dimension": "payer", "op": "eq", "values": ["Federal Medicare"]}],
       "expect": {"numerator": 5898354, "denominator": null},
       "v1_derivable": true,
-      "provenance": "docs/reviews/adversarial/round2.json, reviewer transcript: 'Ground truth on the service basis the engine used (snap_003.v_denial joined to v_claim, payer Federal Medicare): June 2026 = 31 denied claims / $58,983.54'."
+      "provenance": "reviewer transcript, review round 2 (transcripts summarized in docs/reviews/adversarial/README.md): 'Ground truth on the service basis the engine used (snap_003.v_denial joined to v_claim, payer Federal Medicare): June 2026 = 31 denied claims / $58,983.54'."
     },
     {
       "id": "reviewer_sql__fedmed_july_denied_dollars",
@@ -370,7 +370,7 @@
       "scope": [{"dimension": "payer", "op": "eq", "values": ["Federal Medicare"]}],
       "expect": {"numerator": 1091524, "denominator": null},
       "v1_derivable": true,
-      "provenance": "docs/reviews/adversarial/round2.json, reviewer transcript: '... July 2026 = 9 denied claims / $10,915.24. That is a -81% move, not a doubling.'"
+      "provenance": "reviewer transcript, review round 2 (transcripts summarized in docs/reviews/adversarial/README.md): '... July 2026 = 9 denied claims / $10,915.24. That is a -81% move, not a doubling.'"
     },
     {
       "id": "reviewer_sql__fedmed_june_denied_claims",
@@ -381,7 +381,7 @@
       "scope": [{"dimension": "payer", "op": "eq", "values": ["Federal Medicare"]}],
       "expect": {"numerator": 31, "denominator": null},
       "v1_derivable": true,
-      "provenance": "docs/reviews/adversarial/round2.json, reviewer transcript: 'June 2026 = 31 denied claims'."
+      "provenance": "reviewer transcript, review round 2 (transcripts summarized in docs/reviews/adversarial/README.md): 'June 2026 = 31 denied claims'."
     },
     {
       "id": "reviewer_sql__fedmed_july_denied_claims",
@@ -392,7 +392,7 @@
       "scope": [{"dimension": "payer", "op": "eq", "values": ["Federal Medicare"]}],
       "expect": {"numerator": 9, "denominator": null},
       "v1_derivable": true,
-      "provenance": "docs/reviews/adversarial/round2.json, reviewer transcript: 'July 2026 = 9 denied claims'."
+      "provenance": "reviewer transcript, review round 2 (transcripts summarized in docs/reviews/adversarial/README.md): 'July 2026 = 9 denied claims'."
     },
     {
       "id": "reviewer_sql__fedmed_july_denial_rate",
@@ -403,7 +403,7 @@
       "scope": [{"dimension": "payer", "op": "eq", "values": ["Federal Medicare"]}],
       "expect": {"numerator": 9, "denominator": 214},
       "v1_derivable": true,
-      "provenance": "docs/reviews/adversarial/round2.json, reviewer transcript: 'Ground truth for July 2026 (status<>OPEN, service basis): Federal Medicare 9/214 = 4.21%'. Pins denial_rate v2's adjudicated-only population — the exclusion whose absence in v1 published 49.94% where the truth was 5.19%."
+      "provenance": "reviewer transcript, review round 2 (transcripts summarized in docs/reviews/adversarial/README.md): 'Ground truth for July 2026 (status<>OPEN, service basis): Federal Medicare 9/214 = 4.21%'. Pins denial_rate v2's adjudicated-only population — the exclusion whose absence in v1 published 49.94% where the truth was 5.19%."
     },
     {
       "id": "reviewer_sql__silverline_carc16_denied_claims",
@@ -417,7 +417,7 @@
       ],
       "expect": {"numerator": 10, "denominator": null},
       "v1_derivable": true,
-      "provenance": "docs/reviews/adversarial/round2.json, reviewer transcript: 'Ground truth for that cell (Silverline, remit window 2026-05-05..2026-08-02): CARC 16 = 10 distinct claims, 10 denial rows.'"
+      "provenance": "reviewer transcript, review round 2 (transcripts summarized in docs/reviews/adversarial/README.md): 'Ground truth for that cell (Silverline, remit window 2026-05-05..2026-08-02): CARC 16 = 10 distinct claims, 10 denial rows.'"
     },
     {
       "id": "appendix_a__denied_ar_dollars__snapshot",
