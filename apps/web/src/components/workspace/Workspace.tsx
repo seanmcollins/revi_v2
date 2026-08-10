@@ -1,6 +1,7 @@
 "use client";
 
 import { Command, Settings2 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
 import { CopyTextButton } from "@/components/answer/AnswerActions";
@@ -19,6 +20,7 @@ import { displaySessionTitle, mediumDate, untitledTurnLabel } from "@/lib/format
 import { sessionLinkFor } from "@/lib/links";
 import { REFERENCE_QUESTIONS } from "@/lib/mock/reference";
 import { MockDriver } from "@/lib/mockDriver";
+import { hasUnseenLoad } from "@/lib/roundsVisit";
 import { useSessionStore } from "@/lib/store";
 
 /**
@@ -174,6 +176,54 @@ export default function Workspace({
   useEffect(() => {
     hydrateSettings();
   }, [hydrateSettings]);
+
+  /**
+   * BRIEF-FIRST COLD START.
+   *
+   * When a data load has landed that this browser has not been briefed on,
+   * the app opens on Rounds. That is the whole product claim made
+   * structural: Revi walks your Rounds every load and tells you what
+   * changed, so the first thing on screen is what changed — not an empty
+   * composer waiting to be asked.
+   *
+   * Three things it will not do, and each of them is a way this pattern
+   * usually goes wrong:
+   *
+   *   IT NEVER OVERRIDES A LINK. A permalink is somebody being sent
+   *     somewhere specific — `initialSessionId` and `initialInvestigationId`
+   *     are exactly that — and redirecting past it would break the one
+   *     promise the archive dialog makes in writing. Only the bare `/`
+   *     route redirects.
+   *   IT NEVER INTERRUPTS WORK. A thread already on screen (a resumed
+   *     session, a turn just asked) is not swapped out from under the
+   *     analyst; the rail's Rounds link carries the dot instead.
+   *   IT HAPPENS ONCE. `redirected` latches, so hitting Back from Rounds
+   *     returns here and stays here.
+   */
+  const newestWatermarkId = useSessionStore((s) => s.connection.newestWatermarkId);
+  const router = useRouter();
+  const redirected = useRef(false);
+  useEffect(() => {
+    if (redirected.current) return;
+    if (connectionMode !== "api") return;
+    if (initialSessionId || initialInvestigationId) return;
+    if (turns.length > 0 || sessionLive) return;
+    if (window.location.pathname !== "/") return;
+    if (!hasUnseenLoad(newestWatermarkId)) return;
+    redirected.current = true;
+    // `router.push`, not `location.assign`: a client-side navigation keeps
+    // the store, the driver and the health poll this component just set
+    // up, so Rounds opens without re-bootstrapping everything it needs.
+    router.push("/rounds");
+  }, [
+    router,
+    connectionMode,
+    initialSessionId,
+    initialInvestigationId,
+    turns.length,
+    sessionLive,
+    newestWatermarkId,
+  ]);
 
   // Connection state machine (api mode): connecting → online ⇄ offline,
   // driven by a health heartbeat — fast retries while offline, slow while

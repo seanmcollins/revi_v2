@@ -271,6 +271,36 @@
             "title": "Lane",
             "type": "string"
           },
+          "lead_status": {
+            "default": "open",
+            "enum": [
+              "open",
+              "acknowledged",
+              "working",
+              "resolved_claimed",
+              "resolved_confirmed",
+              "regressed"
+            ],
+            "title": "Lead Status",
+            "type": "string"
+          },
+          "lead_status_note": {
+            "default": "",
+            "title": "Lead Status Note",
+            "type": "string"
+          },
+          "lead_updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Updated At"
+          },
           "metric_display_name": {
             "anyOf": [
               {
@@ -361,6 +391,16 @@
           "status": {
             "title": "Status",
             "type": "string"
+          },
+          "time_to_impact": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimeToImpactPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "title": {
             "title": "Title",
@@ -1090,6 +1130,72 @@
           "basis"
         ],
         "title": "ContextHeaderPayload",
+        "type": "object"
+      },
+      "CreateRoundsPinRequest": {
+        "additionalProperties": false,
+        "description": "Add a watch to Rounds.\n\nThree ways in, all producing the same row \u2014 a pin created from an\nartifact and a watch created by intent differ only in provenance:\n\n* ``investigation_id`` (+ optional ``referent``) \u2014 watch what is on\n  screen. The platform resolves that investigation's STORED spec\n  server-side and pins it. No text is re-interpreted and no model is\n  called: the spec already exists, and re-deriving it from the\n  question would be a second, worse answer to a question already\n  answered.\n* ``spec`` \u2014 a caller that already holds a typed spec (a portfolio\n  card's ``drill_spec``, a saved view) watches it directly.\n* an utterance \u2014 \"watch Silverline's denial rate\" \u2014 which is not this\n  request at all: it is an ordinary turn that compiles through\n  interpretation and registers the watch from the answer it produced.\n  See ``revi_api.watch_intent``.\n\nExactly one of ``investigation_id`` / ``spec``. A body carrying both is\nrefused rather than resolved, because either resolution order would be\na guess about which the caller meant.",
+        "properties": {
+          "investigation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Investigation Id"
+          },
+          "label": {
+            "default": "",
+            "title": "Label",
+            "type": "string"
+          },
+          "presentation": {
+            "default": "finding",
+            "enum": [
+              "chart",
+              "finding",
+              "worklist_slice",
+              "scalar"
+            ],
+            "title": "Presentation",
+            "type": "string"
+          },
+          "referent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Referent"
+          },
+          "spec": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TypedInvestigationSpec"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "watch": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoundsWatchModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "title": "CreateRoundsPinRequest",
         "type": "object"
       },
       "DebugInterpretation": {
@@ -2861,6 +2967,1297 @@
         "title": "ResetContextModel",
         "type": "object"
       },
+      "RoundsBriefEntry": {
+        "additionalProperties": false,
+        "description": "One line of the brief.\n\n``kind`` is the closed set of things a load can change, and each one is\na different reading:\n\n* ``new_lead`` \u2014 the detection feed fired something that was not there\n  at the prior load;\n* ``pin_movement`` \u2014 a watched spec moved materially;\n* ``self_resolved`` \u2014 a lead the feed no longer reports, nobody\n  claimed. Published because a problem that fixed itself is\n  information, and because the alternative is an analyst chasing a\n  card that is gone;\n* ``resolution_confirmed`` / ``resolution_regressed`` \u2014 the platform's\n  verdict on a claimed resolution.",
+        "properties": {
+          "anomaly_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Anomaly Id"
+          },
+          "baseline_delta": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoundsDeltaPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "delta": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoundsDeltaPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "impact_cents": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Impact Cents"
+          },
+          "integrity": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoundsTileIntegrity"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "investigation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Investigation Id"
+          },
+          "kind": {
+            "enum": [
+              "new_lead",
+              "pin_movement",
+              "self_resolved",
+              "resolution_confirmed",
+              "resolution_regressed"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "lane": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lane"
+          },
+          "lead_status": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Lead Status"
+          },
+          "pin_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pin Id"
+          },
+          "provenance": {
+            "$ref": "#/components/schemas/RoundsProvenancePayload"
+          },
+          "statement": {
+            "title": "Statement",
+            "type": "string"
+          },
+          "time_to_impact": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimeToImpactPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "title",
+          "statement",
+          "provenance"
+        ],
+        "title": "RoundsBriefEntry",
+        "type": "object"
+      },
+      "RoundsBriefResponse": {
+        "additionalProperties": false,
+        "description": "What changed at this load, gated, capped and provenanced.\n\n``status`` has three values and the middle one is the point:\n\n* ``first_load`` \u2014 nothing to diff against yet, said plainly;\n* ``nothing_material`` \u2014 the loud, proud outcome. Revi walked the\n  Rounds, measured everything, and there is nothing you need to do.\n  That is the answer, with the counts that back it, and it is not an\n  empty page;\n* ``material_changes`` \u2014 entries follow.",
+        "properties": {
+          "entries": {
+            "items": {
+              "$ref": "#/components/schemas/RoundsBriefEntry"
+            },
+            "title": "Entries",
+            "type": "array"
+          },
+          "entries_total": {
+            "default": 0,
+            "title": "Entries Total",
+            "type": "integer"
+          },
+          "fatigue": {
+            "$ref": "#/components/schemas/RoundsFatigueAdvisory"
+          },
+          "generated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Generated At"
+          },
+          "headline": {
+            "default": "",
+            "title": "Headline",
+            "type": "string"
+          },
+          "immaterial": {
+            "$ref": "#/components/schemas/RoundsImmaterialSummary"
+          },
+          "leads_verified": {
+            "default": 0,
+            "title": "Leads Verified",
+            "type": "integer"
+          },
+          "materiality": {
+            "$ref": "#/components/schemas/RoundsMaterialityPayload"
+          },
+          "newest_data_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Newest Data Date"
+          },
+          "pins_evaluated": {
+            "default": 0,
+            "title": "Pins Evaluated",
+            "type": "integer"
+          },
+          "prior_watermark_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Watermark Id"
+          },
+          "status": {
+            "default": "nothing_material",
+            "enum": [
+              "first_load",
+              "nothing_material",
+              "material_changes"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant": {
+            "default": "",
+            "title": "Tenant",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "warnings_v2": {
+            "items": {
+              "$ref": "#/components/schemas/WarningPayload"
+            },
+            "title": "Warnings V2",
+            "type": "array"
+          },
+          "watermark_id": {
+            "default": "",
+            "title": "Watermark Id",
+            "type": "string"
+          }
+        },
+        "title": "RoundsBriefResponse",
+        "type": "object"
+      },
+      "RoundsDeltaPayload": {
+        "additionalProperties": false,
+        "description": "This tile's movement since the prior load, in the metric's own unit.\n\nUnit honesty is the whole point of the shape. A rate's movement is\nstated in POINTS (``1.3 points``), never as a percentage that a reader\ncannot tell from a relative change; money keeps dollars; counts stay\ncounts. ``delta_text`` is the rendered form and ``delta`` the raw\nnumber, so a client can format its own without re-deriving the unit.\n\n``comparable`` is false \u2014 with a reason \u2014 whenever the two loads are\nnot two measurements of one thing: a first evaluation, a pin whose\nmetric or unit changed, a prior value that was suppressed. A percentage\nis withheld in that case rather than computed from mismatched sides.",
+        "properties": {
+          "below_governed_gate": {
+            "default": false,
+            "title": "Below Governed Gate",
+            "type": "boolean"
+          },
+          "comparable": {
+            "default": true,
+            "title": "Comparable",
+            "type": "boolean"
+          },
+          "delta": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta"
+          },
+          "delta_fraction": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Delta Fraction"
+          },
+          "delta_text": {
+            "default": "",
+            "title": "Delta Text",
+            "type": "string"
+          },
+          "direction": {
+            "default": "unknown",
+            "enum": [
+              "up",
+              "down",
+              "flat",
+              "unknown"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "material": {
+            "default": false,
+            "title": "Material",
+            "type": "boolean"
+          },
+          "materiality_note": {
+            "default": "",
+            "title": "Materiality Note",
+            "type": "string"
+          },
+          "materiality_rule": {
+            "default": "",
+            "title": "Materiality Rule",
+            "type": "string"
+          },
+          "not_comparable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Not Comparable Reason"
+          },
+          "prior_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Value"
+          },
+          "prior_value_text": {
+            "default": "",
+            "title": "Prior Value Text",
+            "type": "string"
+          },
+          "prior_watermark_id": {
+            "default": "",
+            "title": "Prior Watermark Id",
+            "type": "string"
+          },
+          "reference": {
+            "default": "prior_load",
+            "enum": [
+              "prior_load",
+              "baseline"
+            ],
+            "title": "Reference",
+            "type": "string"
+          },
+          "same_window": {
+            "default": false,
+            "title": "Same Window",
+            "type": "boolean"
+          },
+          "threshold_source": {
+            "default": "governed",
+            "enum": [
+              "governed",
+              "watch"
+            ],
+            "title": "Threshold Source",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "value_text": {
+            "default": "",
+            "title": "Value Text",
+            "type": "string"
+          }
+        },
+        "title": "RoundsDeltaPayload",
+        "type": "object"
+      },
+      "RoundsFatigueAdvisory": {
+        "additionalProperties": false,
+        "description": "The brief noticing that somebody's own thresholds are too loose.\n\nA watch may set a threshold looser than the pack's governed gate, which\nis a real need and a real risk. When those settings brief movements the\ngoverned gate calls normal variation, on several consecutive loads, the\nsurface says so \u2014 ONCE per load, in governed wording, with the counts\nthat back it:\n\n    3 of your watches moved within normal variation for the third load\n    running \u2014 consider tightening them.\n\nNever more than once per load and never for a single load's worth of\nnoise: an advisory that nagged would be the fatigue it is warning\nabout. ``active`` false means the condition has not been met, and the\ncounts are still published so the state is readable rather than\ninferred from an absent field.",
+        "properties": {
+          "active": {
+            "default": false,
+            "title": "Active",
+            "type": "boolean"
+          },
+          "consecutive_loads": {
+            "default": 0,
+            "title": "Consecutive Loads",
+            "type": "integer"
+          },
+          "loads_required": {
+            "default": 0,
+            "title": "Loads Required",
+            "type": "integer"
+          },
+          "message": {
+            "default": "",
+            "title": "Message",
+            "type": "string"
+          },
+          "watches_below_governed_gate": {
+            "default": 0,
+            "title": "Watches Below Governed Gate",
+            "type": "integer"
+          }
+        },
+        "title": "RoundsFatigueAdvisory",
+        "type": "object"
+      },
+      "RoundsImmaterialSummary": {
+        "additionalProperties": false,
+        "description": "Everything the gate held back, counted rather than hidden.\n\nThe line a brief owes its reader: \"4 watched items moved immaterially\".\nSuppressing a movement silently and suppressing it visibly are\ndifferent products \u2014 the first is a filter the analyst cannot audit.",
+        "properties": {
+          "entries_withheld_by_cap": {
+            "default": 0,
+            "title": "Entries Withheld By Cap",
+            "type": "integer"
+          },
+          "new_leads": {
+            "default": 0,
+            "title": "New Leads",
+            "type": "integer"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "pin_movements": {
+            "default": 0,
+            "title": "Pin Movements",
+            "type": "integer"
+          },
+          "self_resolved": {
+            "default": 0,
+            "title": "Self Resolved",
+            "type": "integer"
+          }
+        },
+        "title": "RoundsImmaterialSummary",
+        "type": "object"
+      },
+      "RoundsLeadPatchRequest": {
+        "additionalProperties": false,
+        "description": "Move one lead along its lifecycle.\n\nOnly the four human-settable statuses are accepted. Asking for\n``resolved_confirmed`` is refused with the reason: confirmation is a\nmeasurement across two loads, and a lead that could be confirmed by\nassertion would make the whole verification path decorative.",
+        "properties": {
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "open",
+              "acknowledged",
+              "working",
+              "resolved_claimed"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "status"
+        ],
+        "title": "RoundsLeadPatchRequest",
+        "type": "object"
+      },
+      "RoundsLeadPayload": {
+        "additionalProperties": false,
+        "description": "One lead's lifecycle state.\n\n``resolved_confirmed`` and ``regressed`` are verdicts the PLATFORM\nreaches from data across loads; a human can claim resolution and\ncannot assert it. That asymmetry is the feature: \"mark as resolved\" on\nevery other tool in this category is a checkbox, and a checkbox is an\nopinion.",
+        "properties": {
+          "anomaly_id": {
+            "title": "Anomaly Id",
+            "type": "string"
+          },
+          "baseline_basis": {
+            "default": "",
+            "title": "Baseline Basis",
+            "type": "string"
+          },
+          "baseline_cents": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Cents"
+          },
+          "claimed_at_watermark": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Claimed At Watermark"
+          },
+          "confirmations_required": {
+            "default": 0,
+            "title": "Confirmations Required",
+            "type": "integer"
+          },
+          "confirming_watermarks": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Confirming Watermarks",
+            "type": "array"
+          },
+          "history": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "title": "History",
+            "type": "array"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "status": {
+            "default": "open",
+            "enum": [
+              "open",
+              "acknowledged",
+              "working",
+              "resolved_claimed",
+              "resolved_confirmed",
+              "regressed"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "tenant": {
+            "default": "",
+            "title": "Tenant",
+            "type": "string"
+          },
+          "updated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Updated At"
+          },
+          "verification_note": {
+            "default": "",
+            "title": "Verification Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "anomaly_id"
+        ],
+        "title": "RoundsLeadPayload",
+        "type": "object"
+      },
+      "RoundsMaterialityPayload": {
+        "additionalProperties": false,
+        "description": "The governed gate that was actually applied, published.\n\nThresholds live in ``packs/base-rcm/rounds.yaml`` \u2014 pack content, with\nan authoring rationale beside every number \u2014 never in engine code. They\nride on the response so a reader can check the gate that produced a\nbrief (or the absence of one) rather than take it on faith, and so two\ndeployments running different packs can be told apart from the payload.",
+        "properties": {
+          "always_material_lanes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Always Material Lanes",
+            "type": "array"
+          },
+          "content_hash": {
+            "default": "",
+            "title": "Content Hash",
+            "type": "string"
+          },
+          "max_entries": {
+            "default": 0,
+            "title": "Max Entries",
+            "type": "integer"
+          },
+          "new_lead_min_impact_cents": {
+            "default": 0,
+            "title": "New Lead Min Impact Cents",
+            "type": "integer"
+          },
+          "source": {
+            "default": "",
+            "title": "Source",
+            "type": "string"
+          },
+          "unit_kinds": {
+            "additionalProperties": {
+              "additionalProperties": {
+                "type": "number"
+              },
+              "type": "object"
+            },
+            "title": "Unit Kinds",
+            "type": "object"
+          }
+        },
+        "title": "RoundsMaterialityPayload",
+        "type": "object"
+      },
+      "RoundsPinListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "pins": {
+            "items": {
+              "$ref": "#/components/schemas/RoundsPinPayload"
+            },
+            "title": "Pins",
+            "type": "array"
+          },
+          "tenant": {
+            "default": "",
+            "title": "Tenant",
+            "type": "string"
+          },
+          "total": {
+            "default": 0,
+            "title": "Total",
+            "type": "integer"
+          }
+        },
+        "title": "RoundsPinListResponse",
+        "type": "object"
+      },
+      "RoundsPinPayload": {
+        "additionalProperties": false,
+        "description": "One pinned spec, as stored.\n\n``spec`` is published, not hidden: a watch whose definition a reader\ncannot see is a watch they cannot check, and this is the object that\ndecides what the tile measures every morning.",
+        "properties": {
+          "archived_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Archived At"
+          },
+          "baseline_unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Unit"
+          },
+          "baseline_value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Value"
+          },
+          "baseline_value_text": {
+            "default": "",
+            "title": "Baseline Value Text",
+            "type": "string"
+          },
+          "baseline_watermark_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Baseline Watermark Id"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "created_from_investigation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created From Investigation Id"
+          },
+          "created_from_kind": {
+            "default": "spec",
+            "enum": [
+              "artifact",
+              "intent",
+              "spec"
+            ],
+            "title": "Created From Kind",
+            "type": "string"
+          },
+          "created_from_referent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created From Referent"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "pin_id": {
+            "title": "Pin Id",
+            "type": "string"
+          },
+          "presentation": {
+            "enum": [
+              "chart",
+              "finding",
+              "worklist_slice",
+              "scalar"
+            ],
+            "title": "Presentation",
+            "type": "string"
+          },
+          "scope": {
+            "const": "tenant",
+            "default": "tenant",
+            "title": "Scope",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/TypedInvestigationSpec"
+          },
+          "tenant": {
+            "title": "Tenant",
+            "type": "string"
+          },
+          "watch": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoundsWatchModel"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "window_mode": {
+            "enum": [
+              "relative",
+              "absolute",
+              "anchored"
+            ],
+            "title": "Window Mode",
+            "type": "string"
+          },
+          "window_note": {
+            "default": "",
+            "title": "Window Note",
+            "type": "string"
+          }
+        },
+        "required": [
+          "pin_id",
+          "tenant",
+          "label",
+          "presentation",
+          "spec",
+          "window_mode",
+          "created_at"
+        ],
+        "title": "RoundsPinPayload",
+        "type": "object"
+      },
+      "RoundsProvenancePayload": {
+        "additionalProperties": false,
+        "description": "Where one brief entry came from. On every entry, no exceptions.\n\nA brief is the surface furthest from the evidence \u2014 somebody reads it\nover coffee \u2014 so each line has to be able to say which system asserted\nit, at which load, and by what method.",
+        "properties": {
+          "evaluated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluated At"
+          },
+          "formula_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Formula Version"
+          },
+          "method": {
+            "default": "",
+            "title": "Method",
+            "type": "string"
+          },
+          "prior_watermark_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Watermark Id"
+          },
+          "source": {
+            "enum": [
+              "detection_feed",
+              "pinned_spec"
+            ],
+            "title": "Source",
+            "type": "string"
+          },
+          "watermark_id": {
+            "default": "",
+            "title": "Watermark Id",
+            "type": "string"
+          }
+        },
+        "required": [
+          "source"
+        ],
+        "title": "RoundsProvenancePayload",
+        "type": "object"
+      },
+      "RoundsResponse": {
+        "additionalProperties": false,
+        "description": "The Rounds surface at one load: every active pin, evaluated.",
+        "properties": {
+          "newest_data_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Newest Data Date"
+          },
+          "prior_watermark_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Watermark Id"
+          },
+          "tenant": {
+            "default": "",
+            "title": "Tenant",
+            "type": "string"
+          },
+          "tiles": {
+            "items": {
+              "$ref": "#/components/schemas/RoundsTilePayload"
+            },
+            "title": "Tiles",
+            "type": "array"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "warnings_v2": {
+            "items": {
+              "$ref": "#/components/schemas/WarningPayload"
+            },
+            "title": "Warnings V2",
+            "type": "array"
+          },
+          "watermark_id": {
+            "default": "",
+            "title": "Watermark Id",
+            "type": "string"
+          }
+        },
+        "title": "RoundsResponse",
+        "type": "object"
+      },
+      "RoundsTileIntegrity": {
+        "additionalProperties": false,
+        "description": "The M22 integrity line, as a payload (the tile's honesty contract).\n\nEvery field here is a count of something the tile also carries, so a\nrenderer states facts rather than inventing a score:\n\n    \u25cf Verified against your data \u00b7 3 things to know, 2 change how a\n      number here should be read \u00b7 12 checks\n\n``grade`` is the answer-level evidence grade, ``things_to_know`` is\nexactly ``len(caveat_codes_expanded)`` \u2014 the caveats the tile publishes\n\u2014 and ``checks`` is the probes the evaluation ran. A tile that dropped\nany of them would present a bounded, provisional, proxy-graded figure\nwith the same weight as a measured one.",
+        "properties": {
+          "caveat_codes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Caveat Codes",
+            "type": "array"
+          },
+          "checks": {
+            "default": 0,
+            "title": "Checks",
+            "type": "integer"
+          },
+          "grade": {
+            "default": "direct",
+            "title": "Grade",
+            "type": "string"
+          },
+          "is_bound": {
+            "default": false,
+            "title": "Is Bound",
+            "type": "boolean"
+          },
+          "provisional": {
+            "default": false,
+            "title": "Provisional",
+            "type": "boolean"
+          },
+          "things_to_know": {
+            "default": 0,
+            "title": "Things To Know",
+            "type": "integer"
+          },
+          "things_to_know_caution": {
+            "default": 0,
+            "title": "Things To Know Caution",
+            "type": "integer"
+          }
+        },
+        "title": "RoundsTileIntegrity",
+        "type": "object"
+      },
+      "RoundsTilePayload": {
+        "additionalProperties": false,
+        "description": "One pin, evaluated at one load.\n\n``status`` is honest about the three things that can happen when a\nstored spec meets a new load: it answered (``ok``), the platform\nrefused it (``unavailable`` \u2014 a catalog or pack change can make\nyesterday's spec unanswerable today, and a tile that went blank\nwithout saying so would look like a zero), or it came back asking a\nquestion (``clarification``, which a typed spec should never do and\nwhich is reported rather than swallowed if it does).",
+        "properties": {
+          "baseline_delta": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoundsDeltaPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "delta": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoundsDeltaPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "evaluated_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evaluated At"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/FindingPayload"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "headline_referent": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Headline Referent"
+          },
+          "headline_statement": {
+            "default": "",
+            "title": "Headline Statement",
+            "type": "string"
+          },
+          "headline_title": {
+            "default": "",
+            "title": "Headline Title",
+            "type": "string"
+          },
+          "integrity": {
+            "$ref": "#/components/schemas/RoundsTileIntegrity"
+          },
+          "investigation_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Investigation Id"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "metric_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Metric Id"
+          },
+          "newest_data_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Newest Data Date"
+          },
+          "pin_id": {
+            "title": "Pin Id",
+            "type": "string"
+          },
+          "presentation": {
+            "enum": [
+              "chart",
+              "finding",
+              "worklist_slice",
+              "scalar"
+            ],
+            "title": "Presentation",
+            "type": "string"
+          },
+          "status": {
+            "default": "ok",
+            "enum": [
+              "ok",
+              "unavailable",
+              "clarification"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "unavailable_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unavailable Reason"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "value_text": {
+            "default": "",
+            "title": "Value Text",
+            "type": "string"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "warnings_v2": {
+            "items": {
+              "$ref": "#/components/schemas/WarningPayload"
+            },
+            "title": "Warnings V2",
+            "type": "array"
+          },
+          "watermark_id": {
+            "default": "",
+            "title": "Watermark Id",
+            "type": "string"
+          },
+          "window_end": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window End"
+          },
+          "window_start": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Start"
+          }
+        },
+        "required": [
+          "pin_id",
+          "label",
+          "presentation"
+        ],
+        "title": "RoundsTilePayload",
+        "type": "object"
+      },
+      "RoundsWatchModel": {
+        "additionalProperties": false,
+        "description": "One watch's own sensitivity, overriding the pack's default gate.\n\n(Lives here rather than in ``rounds.py`` because a turn answer carries\nit \u2014 see :class:`WatchDeclarationPayload` \u2014 and one definition beats\ntwo that have to agree.)\n\nUnit honesty is enforced at creation, not at fire time: a ``points``\nthreshold on a money contract, or ``cents`` on a rate, is REFUSED with\nthe reason rather than coerced into the nearest legal unit. A threshold\nin the wrong unit produces a watch that never fires \u2014 or always does \u2014\nfor a reason nobody can see on the screen, which is the worst of the\navailable failures.\n\nA threshold may LOOSEN the governed gate as well as tighten it.\nSomebody watching one specific cell knows things the pack's blanket\nthreshold does not, and refusing that pushes them back to a\nspreadsheet. It is paid for rather than refused: every brief entry says\nwhich threshold briefed it, and a watch whose own threshold keeps\nfiring on movements the governed gate calls normal variation is counted\nand named once per load.\n\nBASELINE SEMANTICS: a watch's reference point is its CREATION-LOAD\nvalue for every mode except ``crosses``, whose reference is the\ncrossing level. Deltas are stated against the PRIOR load always, and\nagainst the baseline additionally whenever the two differ materially \u2014\na tile that drifted four points since it was created while moving 0.2\novernight is telling two true stories, and showing only the second\nwould hide the reason the watch exists.",
+        "properties": {
+          "direction": {
+            "default": "any",
+            "enum": [
+              "any",
+              "up",
+              "down"
+            ],
+            "title": "Direction",
+            "type": "string"
+          },
+          "mode": {
+            "default": "governed_default",
+            "enum": [
+              "governed_default",
+              "any_movement",
+              "delta_gte",
+              "crosses"
+            ],
+            "title": "Mode",
+            "type": "string"
+          },
+          "note": {
+            "default": "",
+            "title": "Note",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "enum": [
+                  "points",
+                  "relative_pct",
+                  "cents"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "title": "RoundsWatchModel",
+        "type": "object"
+      },
       "SessionLineageResponse": {
         "additionalProperties": false,
         "properties": {
@@ -3294,6 +4691,112 @@
         "title": "TermPayload",
         "type": "object"
       },
+      "TimeToImpactPayload": {
+        "additionalProperties": false,
+        "description": "When this lead's dollars hit cash \u2014 or whether they already have.\n\nPublished CONTEXT, never a re-ranking. ``anomaly_priority@3`` orders\nthe worklist and this does not touch it: a rank change needs its own\nversioned formula decision, and smuggling urgency into an existing\nversion would make two builds of the same data disagree with no version\nstring to explain it. The split a reader wants \u2014 \"already hit cash\" vs\n\"hits cash in ~N days, still catchable\" \u2014 is :attr:`lane`.\n\nFour honest outcomes, and the fourth is the important one:\n\n* ``already_hit`` \u2014 the cash effect is in the past (a denial has\n  already failed to pay). A recovery deadline may still be open, and\n  rides here when the detector published one;\n* ``deadline`` \u2014 a real, dated limit from the detector's own evidence\n  (timely filing). :attr:`deadline_date` is a date, not an estimate;\n* ``projected`` \u2014 an aging projection with the method STATED and\n  :attr:`provisional` set. An estimate presented as a date would be a\n  forecast this platform has not earned;\n* ``unknown`` \u2014 no honest basis exists for this category, and\n  :attr:`reason` says so. A guess here would be indistinguishable from\n  the real dates beside it, which is exactly why there is no guess.",
+        "properties": {
+          "days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Days"
+          },
+          "deadline_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deadline Date"
+          },
+          "kind": {
+            "default": "unknown",
+            "enum": [
+              "already_hit",
+              "deadline",
+              "projected",
+              "unknown"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "lane": {
+            "default": "unknown",
+            "enum": [
+              "already_hit",
+              "pre_cash",
+              "unknown"
+            ],
+            "title": "Lane",
+            "type": "string"
+          },
+          "method": {
+            "default": "",
+            "title": "Method",
+            "type": "string"
+          },
+          "method_id": {
+            "default": "",
+            "title": "Method Id",
+            "type": "string"
+          },
+          "provisional": {
+            "default": false,
+            "title": "Provisional",
+            "type": "boolean"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "recovery_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recovery Days"
+          },
+          "recovery_deadline_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Recovery Deadline Date"
+          },
+          "recovery_label": {
+            "default": "",
+            "title": "Recovery Label",
+            "type": "string"
+          }
+        },
+        "title": "TimeToImpactPayload",
+        "type": "object"
+      },
       "TurnAnswer": {
         "additionalProperties": false,
         "properties": {
@@ -3471,6 +4974,16 @@
             },
             "title": "Warnings V2",
             "type": "array"
+          },
+          "watch": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WatchDeclarationPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "watermark_stale": {
             "default": false,
@@ -3993,6 +5506,59 @@
           "message"
         ],
         "title": "WarningPayload",
+        "type": "object"
+      },
+      "WatchDeclarationPayload": {
+        "additionalProperties": false,
+        "description": "The one-time confirmation a \"watch X\" turn answers with.\n\nA watch declaration is not a question and it is not a silent\nregistration. It is an ordinary turn \u2014 the same interpretation, the\nsame planning, the same \u00a76.6 validation, the same findings \u2014 whose\nanswer doubles as the BASELINE: what the thing being watched reads\nright now, so the analyst can see they are watching the right cell\nbefore they walk away from it.\n\n    Watching: Silverline MA denial rate, monthly \u2014 currently 12.4%.\n    I'll brief you when it moves more than half a point.\n\nEverything in that sentence is a fact from the answer beside it: the\nspec the platform compiled, the value it measured, and the threshold it\nwill gate on. A declaration that could not be compiled clarifies\nexactly as a question would \u2014 a watch registered against a spec nobody\nconfirmed is a watch that briefs the wrong number every morning.",
+        "properties": {
+          "baseline_value_text": {
+            "default": "",
+            "title": "Baseline Value Text",
+            "type": "string"
+          },
+          "baseline_watermark_id": {
+            "default": "",
+            "title": "Baseline Watermark Id",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "matched_phrase": {
+            "default": "",
+            "title": "Matched Phrase",
+            "type": "string"
+          },
+          "pin_id": {
+            "title": "Pin Id",
+            "type": "string"
+          },
+          "spec": {
+            "$ref": "#/components/schemas/TypedInvestigationSpec"
+          },
+          "statement": {
+            "title": "Statement",
+            "type": "string"
+          },
+          "threshold_statement": {
+            "title": "Threshold Statement",
+            "type": "string"
+          },
+          "watch": {
+            "$ref": "#/components/schemas/RoundsWatchModel"
+          }
+        },
+        "required": [
+          "pin_id",
+          "label",
+          "statement",
+          "spec",
+          "watch",
+          "threshold_statement"
+        ],
+        "title": "WatchDeclarationPayload",
         "type": "object"
       },
       "WindowSpecModel": {
@@ -4633,6 +6199,706 @@
           }
         ],
         "summary": "Get Portfolio"
+      }
+    },
+    "/v1/rounds": {
+      "get": {
+        "description": "Every active watch, evaluated at the newest load.\n\nEach tile carries the integrity line as a payload \u2014 grade, things to\nknow, the caveat codes behind that count, and the checks that were\nrun \u2014 plus its load-over-load delta and the investigation permalink\nthe tile taps through to.",
+        "operationId": "get_rounds_v1_rounds_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoundsResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable \u00a712 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, \u2026)."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unknown session, investigation, or referent (REFERENT_NOT_FOUND)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "WATERMARK_STALE or CONTEXT_CONFLICT \u2014 the pinned context cannot absorb the request without an explicit decision."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "SOURCE_UNAVAILABLE or DATA_LOADING \u2014 the analytical source cannot serve this watermark right now."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Rounds"
+      }
+    },
+    "/v1/rounds/brief": {
+      "get": {
+        "description": "What changed at this load: gated, capped, counted, provenanced.\n\nNew leads, material movements on watches, self-resolved leads and\nresolution verdicts. Every entry passes a materiality threshold that\nlives in the pack, not in engine code, and the thresholds that were\napplied ride on the response so the gate is checkable rather than\ntrusted.\n\n\"Nothing material changed\" is a first-class outcome (`status:\nnothing_material`) with the counts that back the claim \u2014 not an\nempty page.",
+        "operationId": "get_rounds_brief_v1_rounds_brief_get",
+        "parameters": [
+          {
+            "description": "Diff against THIS evaluated load rather than the previous one (a watermark id). A load this tenant never evaluated is a 404 rather than a silent fall-back: a brief that quietly diffed against a different load than the one it was asked for would misreport every entry on it.",
+            "in": "query",
+            "name": "since",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Diff against THIS evaluated load rather than the previous one (a watermark id). A load this tenant never evaluated is a 404 rather than a silent fall-back: a brief that quietly diffed against a different load than the one it was asked for would misreport every entry on it.",
+              "title": "Since"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoundsBriefResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable \u00a712 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, \u2026)."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unknown session, investigation, or referent (REFERENT_NOT_FOUND)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "WATERMARK_STALE or CONTEXT_CONFLICT \u2014 the pinned context cannot absorb the request without an explicit decision."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "SOURCE_UNAVAILABLE or DATA_LOADING \u2014 the analytical source cannot serve this watermark right now."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Rounds Brief"
+      }
+    },
+    "/v1/rounds/leads/{anomaly_id}": {
+      "get": {
+        "description": "One lead's lifecycle state, its verification streak and its history.",
+        "operationId": "get_rounds_lead_v1_rounds_leads__anomaly_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "anomaly_id",
+            "required": true,
+            "schema": {
+              "title": "Anomaly Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoundsLeadPayload"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable \u00a712 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, \u2026)."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unknown session, investigation, or referent (REFERENT_NOT_FOUND)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "WATERMARK_STALE or CONTEXT_CONFLICT \u2014 the pinned context cannot absorb the request without an explicit decision."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "SOURCE_UNAVAILABLE or DATA_LOADING \u2014 the analytical source cannot serve this watermark right now."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Rounds Lead"
+      },
+      "patch": {
+        "description": "Move one lead along its lifecycle.\n\n`open` \u2192 `acknowledged` \u2192 `working` \u2192 `resolved_claimed` are the\nfour a person may set. `resolved_confirmed` and `regressed` are\nverdicts the PLATFORM reaches by re-running the lead's own drill\nacross consecutive loads \u2014 asking for either is refused with the\nreason. That asymmetry is the point: \"mark as resolved\" everywhere\nelse in this category is a checkbox, and a checkbox is an opinion.",
+        "operationId": "patch_rounds_lead_v1_rounds_leads__anomaly_id__patch",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "anomaly_id",
+            "required": true,
+            "schema": {
+              "title": "Anomaly Id",
+              "type": "string"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RoundsLeadPatchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoundsLeadPayload"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable \u00a712 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, \u2026)."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unknown session, investigation, or referent (REFERENT_NOT_FOUND)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "WATERMARK_STALE or CONTEXT_CONFLICT \u2014 the pinned context cannot absorb the request without an explicit decision."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "SOURCE_UNAVAILABLE or DATA_LOADING \u2014 the analytical source cannot serve this watermark right now."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Patch Rounds Lead"
+      }
+    },
+    "/v1/rounds/pins": {
+      "get": {
+        "description": "The caller tenant's watches, oldest first, with their specs.\n\nThe spec is published on purpose: a watch whose definition a reader\ncannot see is a watch they cannot check, and it is the object that\ndecides what the tile measures every morning.",
+        "operationId": "list_rounds_pins_v1_rounds_pins_get",
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoundsPinListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable \u00a712 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, \u2026)."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unknown session, investigation, or referent (REFERENT_NOT_FOUND)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "WATERMARK_STALE or CONTEXT_CONFLICT \u2014 the pinned context cannot absorb the request without an explicit decision."
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "SOURCE_UNAVAILABLE or DATA_LOADING \u2014 the analytical source cannot serve this watermark right now."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Rounds Pins"
+      },
+      "post": {
+        "description": "Add a watch to Rounds \u2014 from an investigation, or from a spec.\n\nA pin stores the TYPED SPEC behind an artifact, never the artifact:\nevery load re-runs it at the new watermark, so the tile is a current\nanswer with a current grade rather than a number frozen the day\nsomebody pinned it.\n\nNaming an `investigation_id` resolves that investigation's STORED\nspec server-side. No text is re-interpreted and no model is called \u2014\nthe spec already exists, and re-deriving it from the question would\nbe a second, worse answer to a question already answered.",
+        "operationId": "create_rounds_pin_v1_rounds_pins_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CreateRoundsPinRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RoundsPinPayload"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable \u00a712 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, \u2026)."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unknown session, investigation, or referent (REFERENT_NOT_FOUND)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "WATERMARK_STALE or CONTEXT_CONFLICT \u2014 the pinned context cannot absorb the request without an explicit decision."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "SOURCE_UNAVAILABLE or DATA_LOADING \u2014 the analytical source cannot serve this watermark right now."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Create Rounds Pin"
+      }
+    },
+    "/v1/rounds/pins/{pin_id}": {
+      "delete": {
+        "description": "Un-pin \u2014 a SOFT archive, like dismissing a session.\n\nNothing is deleted: the evaluated history a brief already published\nstays readable and a permalink into a tile's investigation does not\n404 because somebody tidied their Rounds. Idempotent.",
+        "operationId": "delete_rounds_pin_v1_rounds_pins__pin_id__delete",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "pin_id",
+            "required": true,
+            "schema": {
+              "title": "Pin Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable \u00a712 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, \u2026)."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unknown session, investigation, or referent (REFERENT_NOT_FOUND)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "WATERMARK_STALE or CONTEXT_CONFLICT \u2014 the pinned context cannot absorb the request without an explicit decision."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "SOURCE_UNAVAILABLE or DATA_LOADING \u2014 the analytical source cannot serve this watermark right now."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Delete Rounds Pin"
       }
     },
     "/v1/sessions": {

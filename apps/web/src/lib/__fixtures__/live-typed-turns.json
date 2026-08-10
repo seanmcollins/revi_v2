@@ -1,0 +1,2127 @@
+{
+  "_meta": {
+    "captured_from": "http://localhost:8000 — POST /v1/sessions/{sid}/turns with a typed spec, then GET /v1/investigations/{iid}",
+    "captured_by": "scripts/capture-fixtures.mjs warnings",
+    "watermark_id": "wm_003",
+    "note": "Typed first turns: no model call, identical warning prose to the NL path."
+  },
+  "bounded_ranking": {
+    "investigation_id": "inv_5e8118edcb6a",
+    "session_id": "sess_1f3cfccb77bd",
+    "parent_id": null,
+    "turn_id": "turn_9ec804d67dfb",
+    "turn_class": "new_investigation",
+    "status": "complete",
+    "question": "(typed investigation)",
+    "plan_hash": "00916567d334b6fa0a07d8be30fcc204f2ff4b5ddd9822d26b7d944eb2ee8cd9",
+    "context_header": {
+      "window_start": "2026-07-01",
+      "window_end": "2026-07-31",
+      "basis": "service",
+      "comparison_kind": null,
+      "comparison_start": null,
+      "comparison_end": null,
+      "filters": [],
+      "filter_chips": [],
+      "cohort": null,
+      "cohort_size": null,
+      "watermark_id": "wm_003",
+      "as_of": null,
+      "display": "2026-07-01..2026-07-31 (service) · watermark wm_003"
+    },
+    "context_header_restored": true,
+    "watermark_id": "wm_003",
+    "newest_data_date": "2026-08-02",
+    "restoration_notes": [
+      "Restored context: the window, scope, cohort and watermark below are rebuilt from this turn's stored investigation spec at watermark wm_003, not re-computed — the figures are the ones this turn published when it ran.",
+      "The composed narrative is not stored anywhere — the narrative trace keeps its template, redactions and length, not its sentences — so this turn restores without prose. Its findings, warnings and charts are its own record."
+    ],
+    "findings": [
+      {
+        "referent": "F1",
+        "title": "Dr. Blake Umberland (079): 0.0% denial rate",
+        "statement": "Dr. Blake Umberland (079): 0.0% denial rate over 2026-07-01..2026-07-31. No position is claimed for it — too much of this population carries suppressed numerators for an order to mean anything.",
+        "metric_ids": [
+          "denial_rate"
+        ],
+        "values": [
+          {
+            "name": "denial_rate",
+            "value": 0
+          },
+          {
+            "name": "rank",
+            "value": 53
+          }
+        ],
+        "grade": "direct",
+        "impact_cents": null,
+        "confidence": "qualified",
+        "suggested_refinements": [
+          "drill into F1"
+        ],
+        "benchmarks": [
+          {
+            "id": "benchmark.denial_rate.marketplace_kff",
+            "metric_id": "denial_rate",
+            "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
+            "value_low": "19",
+            "value_high": "20",
+            "unit": "percent of in-network claims denied",
+            "period": "2023-2024",
+            "authority": "independent analysis of CMS transparency data",
+            "review_status": "machine_researched",
+            "cautions": [
+              "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
+              "Plan-reported data with no initial/final distinction"
+            ],
+            "sources": [
+              "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
+            ]
+          }
+        ],
+        "metric_caveats": []
+      },
+      {
+        "referent": "F2",
+        "title": "Dr. Devon Ravenscroft (035): 0.0% denial rate",
+        "statement": "Dr. Devon Ravenscroft (035): 0.0% denial rate over 2026-07-01..2026-07-31. No position is claimed for it — too much of this population carries suppressed numerators for an order to mean anything.",
+        "metric_ids": [
+          "denial_rate"
+        ],
+        "values": [
+          {
+            "name": "denial_rate",
+            "value": 0
+          },
+          {
+            "name": "rank",
+            "value": 54
+          }
+        ],
+        "grade": "direct",
+        "impact_cents": null,
+        "confidence": "qualified",
+        "suggested_refinements": [
+          "drill into F2"
+        ],
+        "benchmarks": [
+          {
+            "id": "benchmark.denial_rate.marketplace_kff",
+            "metric_id": "denial_rate",
+            "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
+            "value_low": "19",
+            "value_high": "20",
+            "unit": "percent of in-network claims denied",
+            "period": "2023-2024",
+            "authority": "independent analysis of CMS transparency data",
+            "review_status": "machine_researched",
+            "cautions": [
+              "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
+              "Plan-reported data with no initial/final distinction"
+            ],
+            "sources": [
+              "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
+            ]
+          }
+        ],
+        "metric_caveats": []
+      },
+      {
+        "referent": "F3",
+        "title": "Dr. Indigo Silverton (117): 0.0% denial rate",
+        "statement": "Dr. Indigo Silverton (117): 0.0% denial rate over 2026-07-01..2026-07-31. No position is claimed for it — too much of this population carries suppressed numerators for an order to mean anything.",
+        "metric_ids": [
+          "denial_rate"
+        ],
+        "values": [
+          {
+            "name": "denial_rate",
+            "value": 0
+          },
+          {
+            "name": "rank",
+            "value": 55
+          }
+        ],
+        "grade": "direct",
+        "impact_cents": null,
+        "confidence": "qualified",
+        "suggested_refinements": [
+          "drill into F3"
+        ],
+        "benchmarks": [
+          {
+            "id": "benchmark.denial_rate.marketplace_kff",
+            "metric_id": "denial_rate",
+            "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
+            "value_low": "19",
+            "value_high": "20",
+            "unit": "percent of in-network claims denied",
+            "period": "2023-2024",
+            "authority": "independent analysis of CMS transparency data",
+            "review_status": "machine_researched",
+            "cautions": [
+              "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
+              "Plan-reported data with no initial/final distinction"
+            ],
+            "sources": [
+              "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
+            ]
+          }
+        ],
+        "metric_caveats": []
+      },
+      {
+        "referent": "F4",
+        "title": "Dr. Ira Overbrook (131): ≤ 52.6% denial rate (upper bound)",
+        "statement": "Dr. Ira Overbrook (131): denial rate is AT MOST 52.6% over 2026-07-01..2026-07-31 — the numerator was suppressed over a population of 19, so this is a ceiling and not a measurement. It is published unranked: a bound cannot be ordered against measured cells.",
+        "metric_ids": [
+          "denial_rate"
+        ],
+        "values": [
+          {
+            "name": "denial_rate",
+            "value": 0.526316
+          },
+          {
+            "name": "denial_rate__is_bound",
+            "value": true
+          },
+          {
+            "name": "denial_rate__bound",
+            "value": 0.5263157894736842
+          },
+          {
+            "name": "denial_rate__bound_population",
+            "value": 19
+          }
+        ],
+        "grade": "direct",
+        "impact_cents": null,
+        "confidence": "qualified",
+        "suggested_refinements": [
+          "drill into F4"
+        ],
+        "benchmarks": [
+          {
+            "id": "benchmark.denial_rate.marketplace_kff",
+            "metric_id": "denial_rate",
+            "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
+            "value_low": "19",
+            "value_high": "20",
+            "unit": "percent of in-network claims denied",
+            "period": "2023-2024",
+            "authority": "independent analysis of CMS transparency data",
+            "review_status": "machine_researched",
+            "cautions": [
+              "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
+              "Plan-reported data with no initial/final distinction"
+            ],
+            "sources": [
+              "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
+            ]
+          }
+        ],
+        "metric_caveats": []
+      },
+      {
+        "referent": "F5",
+        "title": "Dr. Arden Pinehurst (081): ≤ 55.6% denial rate (upper bound)",
+        "statement": "Dr. Arden Pinehurst (081): denial rate is AT MOST 55.6% over 2026-07-01..2026-07-31 — the numerator was suppressed over a population of 18, so this is a ceiling and not a measurement. It is published unranked: a bound cannot be ordered against measured cells.",
+        "metric_ids": [
+          "denial_rate"
+        ],
+        "values": [
+          {
+            "name": "denial_rate",
+            "value": 0.555556
+          },
+          {
+            "name": "denial_rate__is_bound",
+            "value": true
+          },
+          {
+            "name": "denial_rate__bound",
+            "value": 0.5555555555555556
+          },
+          {
+            "name": "denial_rate__bound_population",
+            "value": 18
+          }
+        ],
+        "grade": "direct",
+        "impact_cents": null,
+        "confidence": "qualified",
+        "suggested_refinements": [
+          "drill into F5"
+        ],
+        "benchmarks": [
+          {
+            "id": "benchmark.denial_rate.marketplace_kff",
+            "metric_id": "denial_rate",
+            "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
+            "value_low": "19",
+            "value_high": "20",
+            "unit": "percent of in-network claims denied",
+            "period": "2023-2024",
+            "authority": "independent analysis of CMS transparency data",
+            "review_status": "machine_researched",
+            "cautions": [
+              "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
+              "Plan-reported data with no initial/final distinction"
+            ],
+            "sources": [
+              "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
+            ]
+          }
+        ],
+        "metric_caveats": []
+      },
+      {
+        "referent": "F6",
+        "title": "Dr. Briar Juniper (008): ≤ 55.6% denial rate (upper bound)",
+        "statement": "Dr. Briar Juniper (008): denial rate is AT MOST 55.6% over 2026-07-01..2026-07-31 — the numerator was suppressed over a population of 18, so this is a ceiling and not a measurement. It is published unranked: a bound cannot be ordered against measured cells.",
+        "metric_ids": [
+          "denial_rate"
+        ],
+        "values": [
+          {
+            "name": "denial_rate",
+            "value": 0.555556
+          },
+          {
+            "name": "denial_rate__is_bound",
+            "value": true
+          },
+          {
+            "name": "denial_rate__bound",
+            "value": 0.5555555555555556
+          },
+          {
+            "name": "denial_rate__bound_population",
+            "value": 18
+          }
+        ],
+        "grade": "direct",
+        "impact_cents": null,
+        "confidence": "qualified",
+        "suggested_refinements": [
+          "drill into F6"
+        ],
+        "benchmarks": [
+          {
+            "id": "benchmark.denial_rate.marketplace_kff",
+            "metric_id": "denial_rate",
+            "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
+            "value_low": "19",
+            "value_high": "20",
+            "unit": "percent of in-network claims denied",
+            "period": "2023-2024",
+            "authority": "independent analysis of CMS transparency data",
+            "review_status": "machine_researched",
+            "cautions": [
+              "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
+              "Plan-reported data with no initial/final distinction"
+            ],
+            "sources": [
+              "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
+            ]
+          }
+        ],
+        "metric_caveats": []
+      }
+    ],
+    "warnings": [
+      "ranking_refused: most of these providers are too small to measure exactly, so no ranking is published. 52 of 150 are too small to measure exactly — for those only a ceiling is known, and putting ceilings in order beside measured figures sorts by how big each group is rather than by denial rate. The 13 that could be measured are published above; the rest are listed separately, each with the size of the group its ceiling was taken over.",
+      "findings_truncated: 6 of 65 computed cells are published as findings; the remaining 59 are in the chart and the evidence frame but carry no finding. Superlatives and spread statements on this answer describe the published slice, not the full population.",
+      "alternate_basis_used: 'denial_rate' is computed on the 'service' basis — its primary 'remit' basis is not available at the 'claim' grain in this warehouse",
+      "population_caveat: denial_rate — claims still awaiting their first remittance (status OPEN) are excluded from both sides — an unadjudicated claim carries a false clean flag for want of evidence, not because a payer denied it, so including it would report the data edge as a denial.",
+      "suppression: cells counting fewer than 11 entities in their POPULATION are withheld entirely before results leave the engine; a cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped",
+      "suppression_bounded: 52 of 150 groups here are too small to measure exactly — fewer than 11 things sit behind each of those numbers — so each shows a ceiling instead of a figure: Dr. Arden Pinehurst (081) (denial rate ≤ 55.6% over 18 entities); Dr. Avery Foxglove (137) (denial rate ≤ 90.9% over 11 entities); Dr. Avery Oakhurst (009) (denial rate ≤ 71.4% over 14 entities); Dr. Blake Delacroix (050) (denial rate ≤ 71.4% over 14 entities); Dr. Briar Juniper (008) (denial rate ≤ 55.6% over 18 entities); Dr. Cameron Everhart (049) (denial rate ≤ 83.3% over 12 entities); Dr. Cameron Pinehurst (138) (denial rate ≤ 71.4% over 14 entities); Dr. Dana Amberline (066) (denial rate ≤ 76.9% over 13 entities); and 44 more, each shown as a bound in the chart. The true value is at or below the ceiling and is not a measurement. A further 85 could not be published at all.",
+      "adjudication_incomplete: this answer's window (2026-07-01..2026-07-31, service basis) has not finished settling. Across this whole load it holds 1,544 settled record(s) where a window of this length normally holds about 5,878 — 26.3% of it. What HAS settled is not a random sample of what has not: the fastest cases reach a decision first, so a total measured here is understated and a rate measured here is skewed. The count is the one 'clean_claim_rate' declares, and the norm is the median month of this load. Ask again over the last settled period, or on a basis whose events are already recorded, to read this without the caveat."
+    ],
+    "warnings_v2": [
+      {
+        "code": "RANKING_REFUSED",
+        "severity": "caution",
+        "message": "ranking_refused: most of these providers are too small to measure exactly, so no ranking is published. 52 of 150 are too small to measure exactly — for those only a ceiling is known, and putting ceilings in order beside measured figures sorts by how big each group is rather than by denial rate. The 13 that could be measured are published above; the rest are listed separately, each with the size of the group its ceiling was taken over.",
+        "count": 1
+      },
+      {
+        "code": "FINDINGS_TRUNCATED",
+        "severity": "caution",
+        "message": "findings_truncated: 6 of 65 computed cells are published as findings; the remaining 59 are in the chart and the evidence frame but carry no finding. Superlatives and spread statements on this answer describe the published slice, not the full population.",
+        "count": 1
+      },
+      {
+        "code": "ALTERNATE_BASIS_USED",
+        "severity": "caution",
+        "message": "alternate_basis_used: 'denial_rate' is computed on the 'service' basis — its primary 'remit' basis is not available at the 'claim' grain in this warehouse",
+        "count": 1
+      },
+      {
+        "code": "POPULATION_CAVEAT",
+        "severity": "caution",
+        "message": "population_caveat: denial_rate — claims still awaiting their first remittance (status OPEN) are excluded from both sides — an unadjudicated claim carries a false clean flag for want of evidence, not because a payer denied it, so including it would report the data edge as a denial.",
+        "count": 1
+      },
+      {
+        "code": "SUPPRESSION_APPLIED",
+        "severity": "info",
+        "message": "suppression: cells counting fewer than 11 entities in their POPULATION are withheld entirely before results leave the engine; a cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped",
+        "count": 1
+      },
+      {
+        "code": "SUPPRESSION_BOUNDED",
+        "severity": "caution",
+        "message": "suppression_bounded: 52 of 150 groups here are too small to measure exactly — fewer than 11 things sit behind each of those numbers — so each shows a ceiling instead of a figure: Dr. Arden Pinehurst (081) (denial rate ≤ 55.6% over 18 entities); Dr. Avery Foxglove (137) (denial rate ≤ 90.9% over 11 entities); Dr. Avery Oakhurst (009) (denial rate ≤ 71.4% over 14 entities); Dr. Blake Delacroix (050) (denial rate ≤ 71.4% over 14 entities); Dr. Briar Juniper (008) (denial rate ≤ 55.6% over 18 entities); Dr. Cameron Everhart (049) (denial rate ≤ 83.3% over 12 entities); Dr. Cameron Pinehurst (138) (denial rate ≤ 71.4% over 14 entities); Dr. Dana Amberline (066) (denial rate ≤ 76.9% over 13 entities); and 44 more, each shown as a bound in the chart. The true value is at or below the ceiling and is not a measurement. A further 85 could not be published at all.",
+        "count": 1
+      },
+      {
+        "code": "ADJUDICATION_INCOMPLETE",
+        "severity": "caution",
+        "message": "adjudication_incomplete: this answer's window (2026-07-01..2026-07-31, service basis) has not finished settling. Across this whole load it holds 1,544 settled record(s) where a window of this length normally holds about 5,878 — 26.3% of it. What HAS settled is not a random sample of what has not: the fastest cases reach a decision first, so a total measured here is understated and a rate measured here is skewed. The count is the one 'clean_claim_rate' declares, and the norm is the median month of this load. Ask again over the last settled period, or on a basis whose events are already recorded, to read this without the caveat.",
+        "count": 1
+      }
+    ],
+    "cohort": null,
+    "evidence": {
+      "probes": [
+        {
+          "id": "main",
+          "hash": "9393b06238e70b53ae3bf1d82cb841876b186dc7d2b3de7c795582348ab356ad",
+          "purpose": "direct metric query",
+          "kind": "aggregation",
+          "metrics": [
+            {
+              "id": "denial_rate",
+              "contract_version": 2
+            }
+          ],
+          "cache_hit": true,
+          "rows": 150,
+          "limit": null,
+          "truncated": false,
+          "suppressed_cells": 222,
+          "grade": "direct",
+          "duration_ms": 4
+        }
+      ],
+      "reconciliation": {
+        "status": "not_applicable",
+        "detail": "this is a first turn; there is no parent answer to reconcile to",
+        "summary": "status=not_applicable; reason=this is a first turn; there is no parent answer to reconcile to"
+      },
+      "warehouse_queries": 0,
+      "cache_hits": 1,
+      "zero_probe_turn": true,
+      "answer_grade": "direct"
+    },
+    "metric": {
+      "primary": {
+        "id": "denial_rate",
+        "contract_version": 2
+      },
+      "metrics": [
+        {
+          "id": "denial_rate",
+          "contract_version": 2
+        }
+      ],
+      "playbook_id": null,
+      "pack_id": "base-rcm",
+      "pack_version": "1.0.0",
+      "pack_snapshot_id": "8e5f979b791b1d69a0084d7f962469469f414785666fda0f6ae4e5bfb6994a85"
+    },
+    "chart_specs": [
+      {
+        "id": "chart_main",
+        "chart_type": "line",
+        "title": "denial rate — main",
+        "frame_id": "main",
+        "x": "provider",
+        "series": null,
+        "value": "denial_rate",
+        "unit": "ratio",
+        "grade": "direct",
+        "rows": [
+          {
+            "x": "Dr. Arden Pinehurst (081)",
+            "series": null,
+            "value": 0.555556,
+            "referent_id": "F5",
+            "is_bound": true,
+            "bound_population": 18,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Arden Riverstone (033)",
+            "series": null,
+            "value": null,
+            "referent_id": "D2",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Arden Umberland (028)",
+            "series": null,
+            "value": null,
+            "referent_id": "D3",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Avery Foxglove (137)",
+            "series": null,
+            "value": 0.909091,
+            "referent_id": "D4",
+            "is_bound": true,
+            "bound_population": 11,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Avery Oakhurst (009)",
+            "series": null,
+            "value": 0.714286,
+            "referent_id": "D5",
+            "is_bound": true,
+            "bound_population": 14,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Avery Stonebrook (103)",
+            "series": null,
+            "value": null,
+            "referent_id": "D6",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Avery Underhill (109)",
+            "series": null,
+            "value": null,
+            "referent_id": "D7",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Blake Delacroix (050)",
+            "series": null,
+            "value": 0.714286,
+            "referent_id": "D8",
+            "is_bound": true,
+            "bound_population": 14,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Blake Kestrel (021)",
+            "series": null,
+            "value": null,
+            "referent_id": "D9",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Blake Umberland (079)",
+            "series": null,
+            "value": 0,
+            "referent_id": "F1",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Briar Juniper (008)",
+            "series": null,
+            "value": 0.555556,
+            "referent_id": "F6",
+            "is_bound": true,
+            "bound_population": 18,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Cameron Delacroix (119)",
+            "series": null,
+            "value": null,
+            "referent_id": "D12",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Cameron Eastvale (057)",
+            "series": null,
+            "value": null,
+            "referent_id": "D13",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Cameron Everhart (049)",
+            "series": null,
+            "value": 0.833333,
+            "referent_id": "D14",
+            "is_bound": true,
+            "bound_population": 12,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Cameron Pinehurst (138)",
+            "series": null,
+            "value": 0.714286,
+            "referent_id": "D15",
+            "is_bound": true,
+            "bound_population": 14,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Casey Quarry (143)",
+            "series": null,
+            "value": null,
+            "referent_id": "D16",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Dana Amberline (066)",
+            "series": null,
+            "value": 0.769231,
+            "referent_id": "D17",
+            "is_bound": true,
+            "bound_population": 13,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Dana Pinehurst (051)",
+            "series": null,
+            "value": null,
+            "referent_id": "D18",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Devon Ravenscroft (035)",
+            "series": null,
+            "value": 0,
+            "referent_id": "F2",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Devon Thistledown (043)",
+            "series": null,
+            "value": null,
+            "referent_id": "D20",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Ellis Amberline (115)",
+            "series": null,
+            "value": null,
+            "referent_id": "D21",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Ellis Amberline (141)",
+            "series": null,
+            "value": null,
+            "referent_id": "D22",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Ellis Jettison (005)",
+            "series": null,
+            "value": 0.666667,
+            "referent_id": "D23",
+            "is_bound": true,
+            "bound_population": 15,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Ellis Underhill (024)",
+            "series": null,
+            "value": null,
+            "referent_id": "D24",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Emerson Corwin (142)",
+            "series": null,
+            "value": null,
+            "referent_id": "D25",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Emerson Quarry (029)",
+            "series": null,
+            "value": null,
+            "referent_id": "D26",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Emerson Winterbourne (074)",
+            "series": null,
+            "value": null,
+            "referent_id": "D27",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Finley Juniper (061)",
+            "series": null,
+            "value": null,
+            "referent_id": "D28",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Finley Pemberly (087)",
+            "series": null,
+            "value": null,
+            "referent_id": "D29",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Finley Stonebrook (038)",
+            "series": null,
+            "value": 0.909091,
+            "referent_id": "D30",
+            "is_bound": true,
+            "bound_population": 11,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Finley Stonebrook (144)",
+            "series": null,
+            "value": 0.769231,
+            "referent_id": "D31",
+            "is_bound": true,
+            "bound_population": 13,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Finley Willowmere (068)",
+            "series": null,
+            "value": null,
+            "referent_id": "D32",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Finley Winterbourne (076)",
+            "series": null,
+            "value": null,
+            "referent_id": "D33",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Finley Yarrow (086)",
+            "series": null,
+            "value": null,
+            "referent_id": "D34",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Frankie Hartwell (111)",
+            "series": null,
+            "value": 0.714286,
+            "referent_id": "D35",
+            "is_bound": true,
+            "bound_population": 14,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Frankie Kingsworth (080)",
+            "series": null,
+            "value": 0.714286,
+            "referent_id": "D36",
+            "is_bound": true,
+            "bound_population": 14,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Frankie Pemberly (018)",
+            "series": null,
+            "value": 0.588235,
+            "referent_id": "D37",
+            "is_bound": true,
+            "bound_population": 17,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Frankie Willowmere (136)",
+            "series": null,
+            "value": 0.833333,
+            "referent_id": "D38",
+            "is_bound": true,
+            "bound_population": 12,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Gray Dunmore (114)",
+            "series": null,
+            "value": null,
+            "referent_id": "D39",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Gray Fenwick (148)",
+            "series": null,
+            "value": 0.555556,
+            "referent_id": "D40",
+            "is_bound": true,
+            "bound_population": 18,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Gray Kingsworth (062)",
+            "series": null,
+            "value": null,
+            "referent_id": "D41",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Greer Fairweather (125)",
+            "series": null,
+            "value": null,
+            "referent_id": "D42",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Greer Jettison (001)",
+            "series": null,
+            "value": 0.666667,
+            "referent_id": "D43",
+            "is_bound": true,
+            "bound_population": 15,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Harper Lockridge (108)",
+            "series": null,
+            "value": null,
+            "referent_id": "D44",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Harper Yarrow (146)",
+            "series": null,
+            "value": null,
+            "referent_id": "D45",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Hollis Delacroix (056)",
+            "series": null,
+            "value": null,
+            "referent_id": "D46",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Hollis Gablewood (112)",
+            "series": null,
+            "value": null,
+            "referent_id": "D47",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Hollis Hartwell (047)",
+            "series": null,
+            "value": null,
+            "referent_id": "D48",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Hollis Kingsworth (102)",
+            "series": null,
+            "value": 0.833333,
+            "referent_id": "D49",
+            "is_bound": true,
+            "bound_population": 12,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Hollis Mossberg (073)",
+            "series": null,
+            "value": null,
+            "referent_id": "D50",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Hollis Overbrook (110)",
+            "series": null,
+            "value": null,
+            "referent_id": "D51",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Indigo Foxglove (101)",
+            "series": null,
+            "value": 0.833333,
+            "referent_id": "D52",
+            "is_bound": true,
+            "bound_population": 12,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Indigo Mossberg (019)",
+            "series": null,
+            "value": 0.909091,
+            "referent_id": "D53",
+            "is_bound": true,
+            "bound_population": 11,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Indigo Northwind (118)",
+            "series": null,
+            "value": null,
+            "referent_id": "D54",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Indigo Silverton (117)",
+            "series": null,
+            "value": 0,
+            "referent_id": "F3",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Indigo Thornfield (140)",
+            "series": null,
+            "value": null,
+            "referent_id": "D56",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Ira Everhart (065)",
+            "series": null,
+            "value": 0.909091,
+            "referent_id": "D57",
+            "is_bound": true,
+            "bound_population": 11,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Ira Juniper (135)",
+            "series": null,
+            "value": 0.769231,
+            "referent_id": "D58",
+            "is_bound": true,
+            "bound_population": 13,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Ira Overbrook (131)",
+            "series": null,
+            "value": 0.526316,
+            "referent_id": "F4",
+            "is_bound": true,
+            "bound_population": 19,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Jamie Birchall (052)",
+            "series": null,
+            "value": 0.909091,
+            "referent_id": "D60",
+            "is_bound": true,
+            "bound_population": 11,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Jamie Foxglove (139)",
+            "series": null,
+            "value": null,
+            "referent_id": "D61",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Jamie Overbrook (149)",
+            "series": null,
+            "value": 0,
+            "referent_id": "D62",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Jamie Silverton (082)",
+            "series": null,
+            "value": null,
+            "referent_id": "D63",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Jamie Vandermeer (071)",
+            "series": null,
+            "value": null,
+            "referent_id": "D64",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Jamie Zellwood (098)",
+            "series": null,
+            "value": 0,
+            "referent_id": "D65",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Jules Greenhollow (006)",
+            "series": null,
+            "value": 0.714286,
+            "referent_id": "D66",
+            "is_bound": true,
+            "bound_population": 14,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Jules Hartwell (015)",
+            "series": null,
+            "value": 0.714286,
+            "referent_id": "D67",
+            "is_bound": true,
+            "bound_population": 14,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Jules Lockridge (004)",
+            "series": null,
+            "value": null,
+            "referent_id": "D68",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Jules Riverstone (106)",
+            "series": null,
+            "value": 0,
+            "referent_id": "D69",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Kai Kestrel (092)",
+            "series": null,
+            "value": null,
+            "referent_id": "D70",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Kai Larkspur (078)",
+            "series": null,
+            "value": null,
+            "referent_id": "D71",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Kai Northwind (039)",
+            "series": null,
+            "value": null,
+            "referent_id": "D72",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Kendall Ravenscroft (124)",
+            "series": null,
+            "value": 0.769231,
+            "referent_id": "D73",
+            "is_bound": true,
+            "bound_population": 13,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Kendall Riverstone (002)",
+            "series": null,
+            "value": 0.769231,
+            "referent_id": "D74",
+            "is_bound": true,
+            "bound_population": 13,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Lane Ashgrove (091)",
+            "series": null,
+            "value": 0.714286,
+            "referent_id": "D75",
+            "is_bound": true,
+            "bound_population": 14,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Lane Birchall (123)",
+            "series": null,
+            "value": 0,
+            "referent_id": "D76",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Lane Foxglove (147)",
+            "series": null,
+            "value": null,
+            "referent_id": "D77",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Lane Maplestone (120)",
+            "series": null,
+            "value": 0.588235,
+            "referent_id": "D78",
+            "is_bound": true,
+            "bound_population": 17,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Lane Umberland (041)",
+            "series": null,
+            "value": 0,
+            "referent_id": "D79",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Lane Willowmere (116)",
+            "series": null,
+            "value": 0.833333,
+            "referent_id": "D80",
+            "is_bound": true,
+            "bound_population": 12,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Lennon Birchall (093)",
+            "series": null,
+            "value": null,
+            "referent_id": "D81",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Lennon Ironwood (017)",
+            "series": null,
+            "value": null,
+            "referent_id": "D82",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Lennon Overbrook (014)",
+            "series": null,
+            "value": 0.833333,
+            "referent_id": "D83",
+            "is_bound": true,
+            "bound_population": 12,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Lennon Thornfield (145)",
+            "series": null,
+            "value": null,
+            "referent_id": "D84",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Lennon Willowmere (044)",
+            "series": null,
+            "value": null,
+            "referent_id": "D85",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Marlow Gablewood (097)",
+            "series": null,
+            "value": 0.588235,
+            "referent_id": "D86",
+            "is_bound": true,
+            "bound_population": 17,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Marlow Lockridge (085)",
+            "series": null,
+            "value": 0.833333,
+            "referent_id": "D87",
+            "is_bound": true,
+            "bound_population": 12,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Marlow Maplestone (060)",
+            "series": null,
+            "value": null,
+            "referent_id": "D88",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Morgan Cresswell (128)",
+            "series": null,
+            "value": null,
+            "referent_id": "D89",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Morgan Cresswell (132)",
+            "series": null,
+            "value": 0.769231,
+            "referent_id": "D90",
+            "is_bound": true,
+            "bound_population": 13,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Morgan Hartwell (064)",
+            "series": null,
+            "value": null,
+            "referent_id": "D91",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Morgan Willowmere (025)",
+            "series": null,
+            "value": null,
+            "referent_id": "D92",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Nico Everhart (113)",
+            "series": null,
+            "value": null,
+            "referent_id": "D93",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Nico Juniper (094)",
+            "series": null,
+            "value": null,
+            "referent_id": "D94",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Nico Winterbourne (126)",
+            "series": null,
+            "value": 0.909091,
+            "referent_id": "D95",
+            "is_bound": true,
+            "bound_population": 11,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Noel Corwin (026)",
+            "series": null,
+            "value": null,
+            "referent_id": "D96",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Noel Eastvale (095)",
+            "series": null,
+            "value": 0,
+            "referent_id": "D97",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Noel Overbrook (072)",
+            "series": null,
+            "value": null,
+            "referent_id": "D98",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Noel Umberland (134)",
+            "series": null,
+            "value": null,
+            "referent_id": "D99",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Oakley Underhill (030)",
+            "series": null,
+            "value": null,
+            "referent_id": "D100",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Parker Everhart (054)",
+            "series": null,
+            "value": null,
+            "referent_id": "D101",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Parker Jettison (077)",
+            "series": null,
+            "value": null,
+            "referent_id": "D102",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Parker Jettison (090)",
+            "series": null,
+            "value": null,
+            "referent_id": "D103",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Parker Larkspur (129)",
+            "series": null,
+            "value": 0.769231,
+            "referent_id": "D104",
+            "is_bound": true,
+            "bound_population": 13,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Parker Northwind (096)",
+            "series": null,
+            "value": null,
+            "referent_id": "D105",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Parker Silverton (121)",
+            "series": null,
+            "value": null,
+            "referent_id": "D106",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Parker Zellwood (104)",
+            "series": null,
+            "value": null,
+            "referent_id": "D107",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Quinn Delacroix (032)",
+            "series": null,
+            "value": null,
+            "referent_id": "D108",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Quinn Eastvale (100)",
+            "series": null,
+            "value": 0.714286,
+            "referent_id": "D109",
+            "is_bound": true,
+            "bound_population": 14,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Quinn Ravenscroft (046)",
+            "series": null,
+            "value": null,
+            "referent_id": "D110",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Quinn Thornfield (107)",
+            "series": null,
+            "value": null,
+            "referent_id": "D111",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Quinn Westbrook (013)",
+            "series": null,
+            "value": null,
+            "referent_id": "D112",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Reese Everhart (088)",
+            "series": null,
+            "value": null,
+            "referent_id": "D113",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Reese Greenhollow (007)",
+            "series": null,
+            "value": 0.909091,
+            "referent_id": "D114",
+            "is_bound": true,
+            "bound_population": 11,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Reese Hartwell (150)",
+            "series": null,
+            "value": 0.714286,
+            "referent_id": "D115",
+            "is_bound": true,
+            "bound_population": 14,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Reese Nightingale (012)",
+            "series": null,
+            "value": null,
+            "referent_id": "D116",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Reese Zellwood (127)",
+            "series": null,
+            "value": null,
+            "referent_id": "D117",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Sage Lockridge (058)",
+            "series": null,
+            "value": null,
+            "referent_id": "D118",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Sage Oakhurst (037)",
+            "series": null,
+            "value": null,
+            "referent_id": "D119",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Sage Overbrook (084)",
+            "series": null,
+            "value": null,
+            "referent_id": "D120",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Sage Pinehurst (031)",
+            "series": null,
+            "value": 0.769231,
+            "referent_id": "D121",
+            "is_bound": true,
+            "bound_population": 13,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Sage Vandermeer (070)",
+            "series": null,
+            "value": null,
+            "referent_id": "D122",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Sage Zellwood (048)",
+            "series": null,
+            "value": null,
+            "referent_id": "D123",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Tatum Dunmore (083)",
+            "series": null,
+            "value": 0.588235,
+            "referent_id": "D124",
+            "is_bound": true,
+            "bound_population": 17,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Tatum Fenwick (055)",
+            "series": null,
+            "value": 0,
+            "referent_id": "D125",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Tatum Juniper (130)",
+            "series": null,
+            "value": null,
+            "referent_id": "D126",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Tatum Northwind (022)",
+            "series": null,
+            "value": null,
+            "referent_id": "D127",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Tatum Silverton (099)",
+            "series": null,
+            "value": 0.625,
+            "referent_id": "D128",
+            "is_bound": true,
+            "bound_population": 16,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Uma Mossberg (122)",
+            "series": null,
+            "value": null,
+            "referent_id": "D129",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Uma Nightingale (075)",
+            "series": null,
+            "value": null,
+            "referent_id": "D130",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Vale Birchall (063)",
+            "series": null,
+            "value": null,
+            "referent_id": "D131",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Vale Cresswell (133)",
+            "series": null,
+            "value": 0.769231,
+            "referent_id": "D132",
+            "is_bound": true,
+            "bound_population": 13,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Vale Oakhurst (010)",
+            "series": null,
+            "value": null,
+            "referent_id": "D133",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Vale Vandermeer (003)",
+            "series": null,
+            "value": 0.666667,
+            "referent_id": "D134",
+            "is_bound": true,
+            "bound_population": 15,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Vale Vandermeer (011)",
+            "series": null,
+            "value": null,
+            "referent_id": "D135",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Winter Fairweather (023)",
+            "series": null,
+            "value": null,
+            "referent_id": "D136",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Winter Vandermeer (059)",
+            "series": null,
+            "value": null,
+            "referent_id": "D137",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Xen Everhart (016)",
+            "series": null,
+            "value": 0,
+            "referent_id": "D138",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Xen Juniper (045)",
+            "series": null,
+            "value": 0.769231,
+            "referent_id": "D139",
+            "is_bound": true,
+            "bound_population": 13,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Xen Silverton (067)",
+            "series": null,
+            "value": 0,
+            "referent_id": "D140",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Xen Summerfield (089)",
+            "series": null,
+            "value": 0.666667,
+            "referent_id": "D141",
+            "is_bound": true,
+            "bound_population": 15,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Yael Dunmore (040)",
+            "series": null,
+            "value": 0.833333,
+            "referent_id": "D142",
+            "is_bound": true,
+            "bound_population": 12,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Yael Northwind (020)",
+            "series": null,
+            "value": 0.909091,
+            "referent_id": "D143",
+            "is_bound": true,
+            "bound_population": 11,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Yael Umberland (034)",
+            "series": null,
+            "value": null,
+            "referent_id": "D144",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Yael Westbrook (027)",
+            "series": null,
+            "value": 0.909091,
+            "referent_id": "D145",
+            "is_bound": true,
+            "bound_population": 11,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Zion Foxglove (042)",
+            "series": null,
+            "value": null,
+            "referent_id": "D146",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Zion Hollowell (053)",
+            "series": null,
+            "value": 0.909091,
+            "referent_id": "D147",
+            "is_bound": true,
+            "bound_population": 11,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Zion Ironwood (105)",
+            "series": null,
+            "value": null,
+            "referent_id": "D148",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Zion Quarry (036)",
+            "series": null,
+            "value": 0,
+            "referent_id": "D149",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Dr. Zion Quarry (069)",
+            "series": null,
+            "value": 0.909091,
+            "referent_id": "D150",
+            "is_bound": true,
+            "bound_population": 11,
+            "provisional": false
+          }
+        ],
+        "annotations": [
+          "upper bounds: 52 of 150 marks are ceilings, not measurements — their numerator was suppressed and they cannot be ranked against the measured marks",
+          "ranking_refused: 52 of the 65 marks with a figure are ceilings, leaving 13 measured — too few for an order to mean anything. These marks are NOT ranked, whatever order they are drawn in; putting ceilings in order beside measured figures sorts by how big each group is.",
+          "withheld: 85 of 150 groups are too small to publish at all and are drawn with no value"
+        ],
+        "recipe_id": "denial_rate_trend",
+        "sort": {
+          "by": "denial_rate",
+          "direction": "desc"
+        },
+        "axis_order": null
+      }
+    ],
+    "metric_display": [],
+    "created_at": "2026-08-10T02:45:32.292418Z"
+  },
+  "denied_by_payer": {
+    "investigation_id": "inv_8922b24f832f",
+    "session_id": "sess_1f3cfccb77bd",
+    "parent_id": null,
+    "turn_id": "turn_97d92d33c108",
+    "turn_class": "new_investigation",
+    "status": "complete",
+    "question": "(typed investigation)",
+    "plan_hash": "3b6ec6f797776e81b53dd1fd58c7d83b688eca2b4c3cfc5555e9c20a40791e58",
+    "context_header": {
+      "window_start": "2026-07-01",
+      "window_end": "2026-07-31",
+      "basis": "remit",
+      "comparison_kind": null,
+      "comparison_start": null,
+      "comparison_end": null,
+      "filters": [],
+      "filter_chips": [],
+      "cohort": null,
+      "cohort_size": null,
+      "watermark_id": "wm_003",
+      "as_of": null,
+      "display": "2026-07-01..2026-07-31 (remit) · watermark wm_003"
+    },
+    "context_header_restored": true,
+    "watermark_id": "wm_003",
+    "newest_data_date": "2026-08-02",
+    "restoration_notes": [
+      "Restored context: the window, scope, cohort and watermark below are rebuilt from this turn's stored investigation spec at watermark wm_003, not re-computed — the figures are the ones this turn published when it ran.",
+      "The composed narrative is not stored anywhere — the narrative trace keeps its template, redactions and length, not its sentences — so this turn restores without prose. Its findings, warnings and charts are its own record."
+    ],
+    "findings": [
+      {
+        "referent": "F7",
+        "title": "Summit Peak Medicare Advantage: $176,112.25 denied dollars",
+        "statement": "Summit Peak Medicare Advantage ranks #1 of 12 measured by denied dollars over 2026-07-01..2026-07-31: $176,112.25.",
+        "metric_ids": [
+          "denied_dollars"
+        ],
+        "values": [
+          {
+            "name": "denied_dollars",
+            "value": 17611225
+          },
+          {
+            "name": "rank",
+            "value": 1
+          }
+        ],
+        "grade": "direct",
+        "impact_cents": 17611225,
+        "confidence": "high",
+        "suggested_refinements": [
+          "drill into F7"
+        ],
+        "benchmarks": [],
+        "metric_caveats": []
+      },
+      {
+        "referent": "F8",
+        "title": "State Medicaid: $168,575.44 denied dollars",
+        "statement": "State Medicaid ranks #2 of 12 measured by denied dollars over 2026-07-01..2026-07-31: $168,575.44.",
+        "metric_ids": [
+          "denied_dollars"
+        ],
+        "values": [
+          {
+            "name": "denied_dollars",
+            "value": 16857544
+          },
+          {
+            "name": "rank",
+            "value": 2
+          }
+        ],
+        "grade": "direct",
+        "impact_cents": 16857544,
+        "confidence": "high",
+        "suggested_refinements": [
+          "drill into F8"
+        ],
+        "benchmarks": [],
+        "metric_caveats": []
+      },
+      {
+        "referent": "F9",
+        "title": "Silverline Medicare Advantage: $158,122.42 denied dollars",
+        "statement": "Silverline Medicare Advantage ranks #3 of 12 measured by denied dollars over 2026-07-01..2026-07-31: $158,122.42.",
+        "metric_ids": [
+          "denied_dollars"
+        ],
+        "values": [
+          {
+            "name": "denied_dollars",
+            "value": 15812242
+          },
+          {
+            "name": "rank",
+            "value": 3
+          }
+        ],
+        "grade": "direct",
+        "impact_cents": 15812242,
+        "confidence": "high",
+        "suggested_refinements": [
+          "drill into F9"
+        ],
+        "benchmarks": [],
+        "metric_caveats": []
+      }
+    ],
+    "warnings": [
+      "findings_truncated: 3 of 12 computed cells are published as findings; the remaining 9 are in the chart and the evidence frame but carry no finding. Superlatives and spread statements on this answer describe the published slice, not the full population.",
+      "suppression: cells counting fewer than 11 entities in their POPULATION are withheld entirely before results leave the engine; a cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped"
+    ],
+    "warnings_v2": [
+      {
+        "code": "FINDINGS_TRUNCATED",
+        "severity": "caution",
+        "message": "findings_truncated: 3 of 12 computed cells are published as findings; the remaining 9 are in the chart and the evidence frame but carry no finding. Superlatives and spread statements on this answer describe the published slice, not the full population.",
+        "count": 1
+      },
+      {
+        "code": "SUPPRESSION_APPLIED",
+        "severity": "info",
+        "message": "suppression: cells counting fewer than 11 entities in their POPULATION are withheld entirely before results leave the engine; a cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped",
+        "count": 1
+      }
+    ],
+    "cohort": null,
+    "evidence": {
+      "probes": [
+        {
+          "id": "main",
+          "hash": "d7b4bbda3ead5cced7160e9369aaefcb285cdb114bd284081a27043a8ecc3bde",
+          "purpose": "direct metric query",
+          "kind": "aggregation",
+          "metrics": [
+            {
+              "id": "denied_dollars",
+              "contract_version": 2
+            }
+          ],
+          "cache_hit": true,
+          "rows": 12,
+          "limit": null,
+          "truncated": false,
+          "suppressed_cells": 0,
+          "grade": "direct",
+          "duration_ms": 3
+        }
+      ],
+      "reconciliation": {
+        "status": "not_applicable",
+        "detail": "this is a first turn; there is no parent answer to reconcile to",
+        "summary": "status=not_applicable; reason=this is a first turn; there is no parent answer to reconcile to"
+      },
+      "warehouse_queries": 0,
+      "cache_hits": 1,
+      "zero_probe_turn": true,
+      "answer_grade": "direct"
+    },
+    "metric": {
+      "primary": {
+        "id": "denied_dollars",
+        "contract_version": 2
+      },
+      "metrics": [
+        {
+          "id": "denied_dollars",
+          "contract_version": 2
+        }
+      ],
+      "playbook_id": null,
+      "pack_id": "base-rcm",
+      "pack_version": "1.0.0",
+      "pack_snapshot_id": "8e5f979b791b1d69a0084d7f962469469f414785666fda0f6ae4e5bfb6994a85"
+    },
+    "chart_specs": [
+      {
+        "id": "chart_main",
+        "chart_type": "stacked_bar",
+        "title": "denied dollars — main",
+        "frame_id": "main",
+        "x": "payer",
+        "series": null,
+        "value": "denied_dollars",
+        "unit": "money_cents",
+        "grade": "direct",
+        "rows": [
+          {
+            "x": "Atlas Commercial",
+            "series": null,
+            "value": 13680438,
+            "referent_id": "D151",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Bluestone Mutual",
+            "series": null,
+            "value": 5587063,
+            "referent_id": "D152",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Federal Medicare",
+            "series": null,
+            "value": 6821646,
+            "referent_id": "D153",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Lakewood Medicaid MCO",
+            "series": null,
+            "value": 10240987,
+            "referent_id": "D154",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Meridian Health",
+            "series": null,
+            "value": 10488172,
+            "referent_id": "D155",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Northbridge Commercial",
+            "series": null,
+            "value": 9502298,
+            "referent_id": "D156",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Pinnacle Health Plan",
+            "series": null,
+            "value": 7121841,
+            "referent_id": "D157",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Silverline Medicare Advantage",
+            "series": null,
+            "value": 15812242,
+            "referent_id": "F9",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "State Medicaid",
+            "series": null,
+            "value": 16857544,
+            "referent_id": "F8",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "State Medicaid MCO",
+            "series": null,
+            "value": 4447888,
+            "referent_id": "D160",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Summit Peak Medicare Advantage",
+            "series": null,
+            "value": 17611225,
+            "referent_id": "F7",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          },
+          {
+            "x": "Veritas Comp Fund",
+            "series": null,
+            "value": 1141348,
+            "referent_id": "D162",
+            "is_bound": false,
+            "bound_population": null,
+            "provisional": false
+          }
+        ],
+        "annotations": [],
+        "recipe_id": "denial_code_mix",
+        "sort": {
+          "by": "denied_dollars",
+          "direction": "desc"
+        },
+        "axis_order": null
+      }
+    ],
+    "metric_display": [],
+    "created_at": "2026-08-10T02:45:43.214811Z"
+  }
+}

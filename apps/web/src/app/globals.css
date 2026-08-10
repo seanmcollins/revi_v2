@@ -89,9 +89,30 @@
   --grade-discovery: #7c3aed;
   --grade-unavailable: #6f6c64;
 
-  --chart-current: #0d9488;
+  /* THE WARMTH PASS (owner: "a bit more friendly while still sleek").
+     The single-series default was `#0d9488` — teal-600, hue ~177°, the
+     coldest thing on the page and the colour most of the product's
+     figures are drawn in. It moves to a green-teal at ~163°: warmer to
+     read, same family, still unmistakably the governed accent rather
+     than a status colour.
+
+     Re-validated rather than eyeballed (dataviz six checks, light
+     surface, against `--chart-baseline` which it pairs with on every
+     comparison):
+       lightness band PASS · chroma floor PASS · contrast PASS
+       CVD separation  #2a78d6 ↔ #0f9878  ΔE 18.5 protan (was 15.7)
+       normal vision   ΔE 19.4 (was 16.4)
+     Contrast vs the surfaces it is actually drawn on:
+       card #ffffff 3.63:1 (was 3.74) · page #f6f5f0 3.33:1 (was 3.43)
+     Both stay above the 3:1 non-text floor, and the colour-vision
+     separation from the baseline blue IMPROVES — which is the check
+     that decides whether a comparison is readable at all. */
+  --chart-current: #0f9878;
   --chart-baseline: #2a78d6;
-  --chart-grid: rgba(26, 25, 22, 0.07);
+  /* A hairline, not a rule. The grid is scaffolding for the eye and it
+     was competing with the marks at 0.07; 0.05 keeps it findable and
+     stops it from drawing a cage around the data. */
+  --chart-grid: rgba(26, 25, 22, 0.05);
   --chart-axis: #6f6c64;
 
   /* The CATEGORICAL palette: eight fixed slots, assigned in order and
@@ -175,9 +196,16 @@
   --grade-discovery: #a78bfa;
   --grade-unavailable: #a09d97;
 
-  --chart-current: #0d9488;
+  /* The dark step is CHOSEN, not an automatic lightening of the light
+     one — the dark surface has its own lightness band. Re-validated
+     against `--chart-baseline` on #131211:
+       lightness band PASS · chroma floor PASS · contrast PASS
+       CVD separation  #3987e5 ↔ #19ad8b  ΔE 18.7 deutan (was 15.1)
+       normal vision   ΔE 19.8 (was 16.1)
+     Contrast: card #131211 6.59:1 (was 5.00) · page #0b0a09 6.96:1. */
+  --chart-current: #19ad8b;
   --chart-baseline: #3987e5;
-  --chart-grid: rgba(255, 255, 255, 0.07);
+  --chart-grid: rgba(255, 255, 255, 0.05);
   --chart-axis: #a09d97;
 
   /* The same eight hues, re-stepped for the dark surface and validated as
@@ -414,6 +442,28 @@ body {
    box says "caution, aside"; a rule says "this is the first thing". */
 .verdict-rule {
   box-shadow: inset 2px 0 0 0 var(--warning);
+}
+
+/* ---------------------------------------------------------------------------
+   THE BRIEF SPINE — Rounds' one structural device.
+
+   A hairline down the left of this load's brief, with one mark per entry
+   sitting on it. It is the same left-rule grammar the verdict lead-in
+   uses, extended to a list: the brief IS a column of verdicts about the
+   data, walked in order, at one load.
+
+   It fades out at the bottom rather than stopping square, so the column
+   reads as a walk that ends rather than as a box that contains — and so
+   the last entry is not visually enclosed by a border it does not own.
+--------------------------------------------------------------------------- */
+.brief-spine {
+  border-image: linear-gradient(
+      to bottom,
+      var(--border) 0%,
+      var(--border) 78%,
+      transparent 100%
+    )
+    1;
 }
 
 /* Thin, quiet scrollbars */

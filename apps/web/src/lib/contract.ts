@@ -84,9 +84,19 @@ export type ParseResult<T> = { ok: true; value: T } | { ok: false; missing: stri
 /* Path helpers                                                        */
 /* ------------------------------------------------------------------ */
 
-type UnknownRecord = Record<string, unknown>;
+export type UnknownRecord = Record<string, unknown>;
 
-function isRecord(value: unknown): value is UnknownRecord {
+/**
+ * The four wire-reading primitives, exported for `lib/rounds.ts`.
+ *
+ * Rounds parses its own payloads in its own module — the Rounds shapes are
+ * a surface of their own and this file is already four thousand lines —
+ * but it reads them with THESE functions rather than four near-identical
+ * ones beside them. A second `asNumber` that treated `NaN` differently is
+ * exactly how a tile and an answer would come to disagree about whether a
+ * value exists.
+ */
+export function isRecord(value: unknown): value is UnknownRecord {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
@@ -683,15 +693,15 @@ function alias(record: UnknownRecord, camel: string, snake: string): unknown {
   return record[camel] ?? record[snake];
 }
 
-function asString(value: unknown, fallback = ""): string {
+export function asString(value: unknown, fallback = ""): string {
   return typeof value === "string" ? value : fallback;
 }
 
-function asNumber(value: unknown): number | undefined {
+export function asNumber(value: unknown): number | undefined {
   return typeof value === "number" && Number.isFinite(value) ? value : undefined;
 }
 
-function asArray(value: unknown): unknown[] {
+export function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
 }
 
@@ -2879,6 +2889,17 @@ export type TurnResponseData =
        * Rides alongside the findings and never replaces them.
        */
       worklist?: WorklistData;
+      /**
+       * `TurnAnswer.watch` — this turn was a WATCH DECLARATION ("watch
+       * Silverline's denial rate"), and the answer below it is also the
+       * baseline the watch starts from.
+       *
+       * Present on ordinary turns never, which is what makes it safe to
+       * render as a state change: a card carrying this has registered a
+       * real pin server-side, and the confirmation sentence beside it is
+       * the server's, composed from the same answer.
+       */
+      watch?: WatchDeclaration;
       /** Published only when the settings in force had debug on. */
       debug?: DebugTrace;
     }
@@ -3050,6 +3071,13 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
       ...(anomalyReconciliation !== undefined ? { anomalyReconciliation } : {}),
       ...(metricDisplay.length > 0 ? { metricDisplay } : {}),
       ...(worklist !== undefined ? { worklist } : {}),
+      // A watch declaration answered. Read here rather than in a Rounds
+      // component because the pin already exists by the time this frame
+      // arrives: the turn registered it, and the card is reporting a
+      // change that has happened, not offering to make one.
+      ...(mapWatchDeclaration(raw.watch) !== undefined
+        ? { watch: mapWatchDeclaration(raw.watch) }
+        : {}),
       ...(trace !== null ? { debug: trace } : {}),
     },
     drift,
@@ -3548,6 +3576,10 @@ export function turnResponseToEvents(
     // it is only whole once the turn is, and the server publishes no
     // `worklist` SSE frame.
     ...(response.worklist ? { worklist: response.worklist } : {}),
+    // The watch this turn registered, on the terminal frame with the rest:
+    // the declaration's baseline IS the answer, so it is not settled until
+    // the answer is.
+    ...(response.watch ? { watch: response.watch } : {}),
     ...(response.debug ? { debug: response.debug } : {}),
   });
   return events;
@@ -3892,6 +3924,241 @@ export function mapWorklist(raw: unknown, drift: string[] = []): WorklistData | 
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* Rounds shapes that ride on TurnAnswer and AnomalyCard                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * `AnomalyCard.lead_status` — where a lead stands with the humans working
+ * it.
+ *
+ * The asymmetry in this list is the product. Four of the six are statuses
+ * a PERSON may set; `resolved_confirmed` and `regressed` are verdicts the
+ * PLATFORM reached by re-running the lead's own drill across consecutive
+ * loads. "Mark as resolved" everywhere else in this category is a
+ * checkbox, and a checkbox is an opinion.
+ */
+export type LeadStatus =
+  | "open"
+  | "acknowledged"
+  | "working"
+  | "resolved_claimed"
+  | "resolved_confirmed"
+  | "regressed";
+
+/** The four a person may set — exactly what a status menu may offer. */
+export const HUMAN_LEAD_STATUSES: readonly LeadStatus[] = [
+  "open",
+  "acknowledged",
+  "working",
+  "resolved_claimed",
+] as const;
+
+/**
+ * `TimeToImpactPayload` — when this lead's dollars hit cash, or whether
+ * they already have.
+ *
+ * Published CONTEXT, never a re-ranking. `anomaly_priority@3` orders the
+ * worklist and this does not touch it, so no surface may sort on it: a
+ * rank change needs its own versioned formula decision, and smuggling
+ * urgency into an existing version would make two builds of the same data
+ * disagree with no version string to explain it.
+ *
+ * Four honest outcomes, and the fourth is the important one — `unknown`
+ * carries a `reason`, because a guess here would be indistinguishable from
+ * the real filing dates beside it.
+ */
+export interface TimeToImpact {
+  kind: "already_hit" | "deadline" | "projected" | "unknown";
+  /** The lane a "still catchable" split renders from. */
+  lane: "already_hit" | "pre_cash" | "unknown";
+  days?: number;
+  /**
+   * A real, dated limit — `deadline` only. A projection never sets one:
+   * an estimate rendered as a date is indistinguishable from a filing
+   * limit on the screen beside it.
+   */
+  deadlineDate?: string;
+  /** How this was derived, in one sentence. Present on every outcome. */
+  method: string;
+  methodId: string;
+  /** True for every projection. The mark that keeps it off a filing limit. */
+  provisional: boolean;
+  /** Why `kind` is `unknown`. Never empty when it is. */
+  reason?: string;
+  /** A recovery window still open even though the cash already moved. */
+  recoveryDays?: number;
+  recoveryDeadlineDate?: string;
+  recoveryLabel: string;
+}
+
+const TTI_KINDS: ReadonlySet<string> = new Set<TimeToImpact["kind"]>([
+  "already_hit",
+  "deadline",
+  "projected",
+  "unknown",
+]);
+const TTI_LANES: ReadonlySet<string> = new Set<TimeToImpact["lane"]>([
+  "already_hit",
+  "pre_cash",
+  "unknown",
+]);
+
+export function mapTimeToImpact(raw: unknown): TimeToImpact | undefined {
+  if (!isRecord(raw)) return undefined;
+  const kindRaw = raw.kind;
+  const laneRaw = raw.lane;
+  const str = (key: string): string | undefined => {
+    const value = raw[key];
+    return typeof value === "string" && value !== "" ? value : undefined;
+  };
+  return {
+    kind:
+      typeof kindRaw === "string" && TTI_KINDS.has(kindRaw as TimeToImpact["kind"])
+        ? (kindRaw as TimeToImpact["kind"])
+        : "unknown",
+    lane:
+      typeof laneRaw === "string" && TTI_LANES.has(laneRaw as TimeToImpact["lane"])
+        ? (laneRaw as TimeToImpact["lane"])
+        : "unknown",
+    ...(asNumber(raw.days) !== undefined ? { days: asNumber(raw.days) } : {}),
+    ...(str("deadline_date") !== undefined ? { deadlineDate: str("deadline_date") } : {}),
+    method: asString(raw.method),
+    methodId: asString(raw.method_id),
+    provisional: raw.provisional === true,
+    ...(str("reason") !== undefined ? { reason: str("reason") } : {}),
+    ...(asNumber(raw.recovery_days) !== undefined
+      ? { recoveryDays: asNumber(raw.recovery_days) }
+      : {}),
+    ...(str("recovery_deadline_date") !== undefined
+      ? { recoveryDeadlineDate: str("recovery_deadline_date") }
+      : {}),
+    recoveryLabel: asString(raw.recovery_label),
+  };
+}
+
+/* ------------------------------------------------------------------ */
+/* The watch shapes that ride on TurnAnswer                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * `RoundsWatchMode` — how a watch decides a movement deserves a brief
+ * entry. `crosses` is the odd one out: its reference is a LEVEL, not a
+ * prior value.
+ */
+export type WatchMode = "governed_default" | "any_movement" | "delta_gte" | "crosses";
+
+/**
+ * `RoundsWatchUnit` — how a threshold is STATED, which is not the metric's
+ * own unit. `points` for a rate (0.5 = half a percentage point), `cents`
+ * for money, `relative_pct` for a fraction of the reference value.
+ *
+ * The server refuses a threshold in an illegal unit AT CREATION and names
+ * the legal alternatives; the client sends what was chosen and prints the
+ * refusal. Pre-empting it here by hiding the option would replace a
+ * sentence that teaches with a control that quietly cannot be wrong.
+ */
+export type WatchUnit = "points" | "relative_pct" | "cents";
+
+/** `RoundsWatchModel` — one watch's own sensitivity, overriding the pack. */
+export interface WatchModel {
+  mode: WatchMode;
+  /** Required for `delta_gte` and `crosses`; refused for the other two. */
+  value?: number;
+  unit?: WatchUnit;
+  direction: "any" | "up" | "down";
+  /** Why this watch is set the way it is, in the analyst's own words. */
+  note: string;
+}
+
+const WATCH_MODES: ReadonlySet<string> = new Set<WatchMode>([
+  "governed_default",
+  "any_movement",
+  "delta_gte",
+  "crosses",
+]);
+const WATCH_UNITS: ReadonlySet<string> = new Set<WatchUnit>([
+  "points",
+  "relative_pct",
+  "cents",
+]);
+
+export function mapWatchModel(raw: unknown): WatchModel | undefined {
+  if (!isRecord(raw)) return undefined;
+  const mode =
+    typeof raw.mode === "string" && WATCH_MODES.has(raw.mode as WatchMode)
+      ? (raw.mode as WatchMode)
+      : "governed_default";
+  const unit =
+    typeof raw.unit === "string" && WATCH_UNITS.has(raw.unit as WatchUnit)
+      ? (raw.unit as WatchUnit)
+      : undefined;
+  return {
+    mode,
+    ...(asNumber(raw.value) !== undefined ? { value: asNumber(raw.value) } : {}),
+    ...(unit !== undefined ? { unit } : {}),
+    direction: raw.direction === "up" || raw.direction === "down" ? raw.direction : "any",
+    note: asString(raw.note),
+  };
+}
+
+/** The watch as a request body — the inverse of `mapWatchModel`. */
+export function watchToWire(watch: WatchModel): UnknownRecord {
+  return {
+    mode: watch.mode,
+    ...(watch.value !== undefined ? { value: watch.value } : {}),
+    ...(watch.unit !== undefined ? { unit: watch.unit } : {}),
+    direction: watch.direction,
+    ...(watch.note !== "" ? { note: watch.note } : {}),
+  };
+}
+
+/**
+ * `WatchDeclarationPayload` — the one-time confirmation a "watch X" turn
+ * answers with.
+ *
+ * A watch declaration is not a question and it is not a silent
+ * registration: it is an ordinary turn whose answer doubles as the
+ * BASELINE, so the analyst can see they are watching the right cell before
+ * they walk away from it. Every figure in `statement` is a fact from the
+ * answer beside it, which is why the sentence is rendered and never
+ * recomposed — a confirmation written client-side would put a number on
+ * screen that the turn did not measure.
+ */
+export interface WatchDeclaration {
+  pinId: string;
+  label: string;
+  statement: string;
+  watch: WatchModel;
+  /** The gate in words: "more than half a point", "any movement at all". */
+  thresholdStatement: string;
+  baselineValueText: string;
+  baselineWatermarkId: string;
+  /** The lead-in the analyst used, verbatim ("keep an eye on"). */
+  matchedPhrase: string;
+}
+
+export function mapWatchDeclaration(raw: unknown): WatchDeclaration | undefined {
+  if (!isRecord(raw)) return undefined;
+  const pinId = asString(raw.pin_id);
+  const statement = asString(raw.statement);
+  // Both are required, and both for the same reason: the pin id is what
+  // makes this a state change the analyst can find again, and the
+  // statement is the only sentence on screen that says what was
+  // registered. Half of that pair is not a declaration.
+  if (pinId === "" || statement === "") return undefined;
+  return {
+    pinId,
+    label: asString(raw.label),
+    statement,
+    watch: mapWatchModel(raw.watch) ?? { mode: "governed_default", direction: "any", note: "" },
+    thresholdStatement: asString(raw.threshold_statement),
+    baselineValueText: asString(raw.baseline_value_text),
+    baselineWatermarkId: asString(raw.baseline_watermark_id),
+    matchedPhrase: asString(raw.matched_phrase),
+  };
+}
+
 /**
  * `AnomalyCard.priority` — the formula's terms, or `undefined` when the
  * server published none. Read tolerantly: the decomposition annotates the
@@ -4161,9 +4428,43 @@ function mapAnomalyCard(
       ...(isRecord(record.drill)
         ? { drill: record.drill as unknown as PortfolioItem["drill"] }
         : {}),
+
+      // Rounds. Both are additive and both default to the behaviour a
+      // client had before they existed: no status shown on an untouched
+      // lead, no timing lane on a deployment that ships no governed
+      // time-to-impact content.
+      //
+      // `open` is dropped deliberately rather than carried: it is the
+      // default AND the honest reading of a lead nobody has touched, so a
+      // chip saying "open" on 33 of 33 cards would be a column of noise
+      // that makes the four cards somebody IS working harder to find.
+      ...(typeof record.lead_status === "string" &&
+      record.lead_status !== "open" &&
+      LEAD_STATUS_VALUES.has(record.lead_status)
+        ? { leadStatus: record.lead_status as LeadStatus }
+        : {}),
+      ...(str("lead_status_note") !== undefined
+        ? { leadStatusNote: str("lead_status_note") }
+        : {}),
+      ...(str("lead_updated_at") !== undefined
+        ? { leadUpdatedAt: str("lead_updated_at") }
+        : {}),
+      ...(mapTimeToImpact(record.time_to_impact) !== undefined
+        ? { timeToImpact: mapTimeToImpact(record.time_to_impact) }
+        : {}),
     };
   }
 }
+
+/** The six `AnomalyCard.lead_status` values, as the wire publishes them. */
+const LEAD_STATUS_VALUES: ReadonlySet<string> = new Set<LeadStatus>([
+  "open",
+  "acknowledged",
+  "working",
+  "resolved_claimed",
+  "resolved_confirmed",
+  "regressed",
+]);
 
 export function parsePortfolioSnapshot(raw: unknown): PortfolioParse {
   const drift: string[] = [];

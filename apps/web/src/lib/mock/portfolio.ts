@@ -15,6 +15,7 @@
  * live worklist as well as the fixture.
  */
 
+import type { LeadStatus, TimeToImpact } from "@/lib/rounds";
 import type { Refinement } from "@/lib/types";
 
 /**
@@ -295,6 +296,41 @@ export interface PortfolioItem {
    * published no `drill_spec` is a gesture the engine never offered.
    */
   drill?: { label: string; refinement: Refinement };
+
+  /* --- Rounds: where this lead stands, and when it hits cash -------- */
+
+  /**
+   * `AnomalyCard.lead_status` — where this lead stands with the humans
+   * working it.
+   *
+   * `open` is the default and also the honest reading of a lead nobody has
+   * touched, which is why the card says nothing at all in that state.
+   * `resolved_confirmed` and `regressed` are verdicts the PLATFORM reached
+   * by re-running the lead's own drill across loads; a person can claim a
+   * resolution and cannot assert one, and the card's menu offers exactly
+   * the four a person may set.
+   */
+  leadStatus?: LeadStatus;
+  /**
+   * What the last verification measured, in the platform's own words — the
+   * confirmation sentence, or why it could not verify. Rendered VERBATIM:
+   * it is the difference between "somebody ticked a box" and "this
+   * platform re-measured the cell and agrees", and a paraphrase would
+   * quietly turn the second back into the first.
+   */
+  leadStatusNote?: string;
+  leadUpdatedAt?: string;
+  /**
+   * `AnomalyCard.time_to_impact` — when this card's dollars hit cash, or
+   * whether they already have.
+   *
+   * Published CONTEXT. The list is ordered by `anomaly_priority@3` and
+   * nothing here re-sorts it: a rank change needs its own versioned
+   * formula decision, and smuggling urgency into an existing version would
+   * make two builds of the same data disagree with no version string to
+   * explain it.
+   */
+  timeToImpact?: TimeToImpact;
 }
 
 export const PORTFOLIO_ITEMS: PortfolioItem[] = [

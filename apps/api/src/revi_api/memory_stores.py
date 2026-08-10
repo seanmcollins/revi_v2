@@ -9,12 +9,17 @@ this package for its adapters).
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from revi_investigation.application.ports import (
     EMPTY_SESSION_TITLE,
     RegisteredReferent,
+    RoundsLead,
+    RoundsLoad,
+    RoundsPin,
+    RoundsPinResult,
     SessionPage,
     SessionSummary,
     TraceRecord,
@@ -238,3 +243,103 @@ class MemoryTurnReceiptStore:
     ) -> None:
         # First write wins, like the Postgres ON CONFLICT DO NOTHING.
         self.receipts.setdefault((tenant, session_id, key), response)
+
+
+# --- Rounds (the proactive surface) -----------------------------------------
+#
+# Ordering is the thing these four have to get exactly right, because the
+# whole surface is load-over-load: "the prior load" is decided by the
+# WATERMARK'S OWN ``loaded_at``, never by id order. ``wm_001`` sorting
+# before ``wm_002`` is a coincidence of this warehouse's naming, and a store
+# that relied on it would silently diff the wrong pair the first time a
+# deployment used hashes or dates for watermark ids.
+
+
+class MemoryRoundsPinStore:
+    """``RoundsPinStore``: pinned typed specs, tenant-scoped."""
+
+    def __init__(self) -> None:
+        self.pins: dict[str, RoundsPin] = {}
+
+    async def save(self, pin: RoundsPin) -> None:
+        self.pins[pin.id] = pin
+
+    async def get(self, pin_id: str) -> RoundsPin | None:
+        return self.pins.get(pin_id)
+
+    async def list_for_tenant(
+        self, tenant: str, *, include_archived: bool = False
+    ) -> tuple[RoundsPin, ...]:
+        rows = [
+            pin
+            for pin in self.pins.values()
+            if pin.tenant == tenant and (include_archived or pin.archived_at is None)
+        ]
+        rows.sort(key=lambda pin: (pin.created_at, pin.id))
+        return tuple(rows)
+
+    async def archive(self, pin_id: str) -> None:
+        pin = self.pins.get(pin_id)
+        # Idempotent, and the FIRST un-pin keeps its timestamp — the same
+        # rule the session archive follows.
+        if pin is not None and pin.archived_at is None:
+            self.pins[pin_id] = replace(pin, archived_at=datetime.now(UTC))
+
+    async def tenants_with_pins(self) -> tuple[str, ...]:
+        return tuple(
+            sorted({pin.tenant for pin in self.pins.values() if pin.archived_at is None})
+        )
+
+
+class MemoryRoundsPinResultStore:
+    """``RoundsPinResultStore``: one evaluated tile per (pin, load)."""
+
+    def __init__(self) -> None:
+        self.results: dict[tuple[str, str], RoundsPinResult] = {}
+
+    async def put(self, result: RoundsPinResult) -> None:
+        self.results[(result.pin_id, result.watermark_id)] = result
+
+    async def get(self, pin_id: str, watermark_id: str) -> RoundsPinResult | None:
+        return self.results.get((pin_id, watermark_id))
+
+    async def history(self, pin_id: str, *, limit: int = 12) -> tuple[RoundsPinResult, ...]:
+        rows = [r for (pid, _), r in self.results.items() if pid == pin_id]
+        rows.sort(key=lambda r: (r.watermark_loaded_at, r.watermark_id), reverse=True)
+        return tuple(rows[:limit])
+
+
+class MemoryRoundsLoadStore:
+    """``RoundsLoadStore``: the detection-feed census per (tenant, load)."""
+
+    def __init__(self) -> None:
+        self.loads: dict[tuple[str, str], RoundsLoad] = {}
+
+    async def put(self, load: RoundsLoad) -> None:
+        self.loads[(load.tenant, load.watermark_id)] = load
+
+    async def get(self, tenant: str, watermark_id: str) -> RoundsLoad | None:
+        return self.loads.get((tenant, watermark_id))
+
+    async def list_for_tenant(self, tenant: str, *, limit: int = 12) -> tuple[RoundsLoad, ...]:
+        rows = [load for (t, _), load in self.loads.items() if t == tenant]
+        rows.sort(key=lambda load: (load.watermark_loaded_at, load.watermark_id), reverse=True)
+        return tuple(rows[:limit])
+
+
+class MemoryRoundsLeadStore:
+    """``RoundsLeadStore``: lead lifecycle, keyed by the detector's own id."""
+
+    def __init__(self) -> None:
+        self.leads: dict[tuple[str, str], RoundsLead] = {}
+
+    async def put(self, lead: RoundsLead) -> None:
+        self.leads[(lead.tenant, lead.anomaly_id)] = lead
+
+    async def get(self, tenant: str, anomaly_id: str) -> RoundsLead | None:
+        return self.leads.get((tenant, anomaly_id))
+
+    async def list_for_tenant(self, tenant: str) -> tuple[RoundsLead, ...]:
+        rows = [lead for (t, _), lead in self.leads.items() if t == tenant]
+        rows.sort(key=lambda lead: lead.anomaly_id)
+        return tuple(rows)

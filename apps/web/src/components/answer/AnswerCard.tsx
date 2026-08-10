@@ -9,6 +9,7 @@ import { useAnswerModel } from "@/components/answer/useAnswerModel";
 import { ClarificationPrompt } from "@/components/clarification/ClarificationPrompt";
 import { DebugTracePanel } from "@/components/debug/DebugTracePanel";
 import { FeedbackTriage } from "@/components/feedback/FeedbackTriage";
+import { WatchDeclarationNote } from "@/components/rounds/WatchDeclarationNote";
 import { StageRail } from "@/components/chat/StageRail";
 import { AnswerWorklist } from "@/components/worklist/AnswerWorklist";
 import { Button } from "@/components/ui/button";
@@ -70,6 +71,11 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
       <AnswerWorklist
         worklist={a.worklist}
         {...(model.worklistIntro ? { intro: model.worklistIntro } : {})}
+        // The turn this list arrived on, so the block can offer to watch
+        // the slice it is showing. A worklist is a ranked population that
+        // moves every load, which makes it the artifact on this page most
+        // worth being told about.
+        {...(a.investigationId ? { investigationId: a.investigationId } : {})}
       />
     </div>
   ) : null;
@@ -128,6 +134,13 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
           debug={debug}
         />
       )}
+
+      {/* A WATCH WAS STARTED BY THIS TURN. Above the answer rather than
+          below it, and in all three layouts: the answer is what was asked
+          for, but a state now exists on the server that will interrupt
+          this person tomorrow morning, and that belongs where they will
+          see it before they scroll. */}
+      {a.watch && <WatchDeclarationNote watch={a.watch} />}
 
       {variant === "b" ? (
         <AnswerBodyCalm

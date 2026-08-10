@@ -7,7 +7,9 @@
 
 import { create } from "zustand";
 
-import type { WorklistData } from "@/lib/contract";
+import type { CreatePinRequest } from "@/lib/apiDriver";
+import type { LeadStatus, WatchDeclaration, WorklistData } from "@/lib/contract";
+import type { LeadState, RoundsPin } from "@/lib/rounds";
 import { envDriverKind } from "@/lib/driver";
 import type {
   ConnectionState,
@@ -104,6 +106,14 @@ export interface AnswerState {
    * see `AnswerWorklist`. Present on clarifications as well as answers.
    */
   worklist?: WorklistData;
+  /**
+   * `TurnAnswer.watch` — this turn declared a watch in words and the
+   * platform registered it, so the answer below is also the baseline the
+   * watch starts from. Present on that one turn class and no other; the
+   * card renders the server's confirmation sentence rather than composing
+   * one, because every figure in it is a fact from the answer beside it.
+   */
+  watch?: WatchDeclaration;
   /**
    * The governed display-name corrections this turn's measures carry.
    * Already applied to finding titles and chart titles at the seam; kept
@@ -224,6 +234,7 @@ export function applyEventToAnswer(answer: AnswerState, event: TurnEvent): Answe
         metric: event.metric ?? answer.metric,
         anomalyReconciliation: event.anomalyReconciliation ?? answer.anomalyReconciliation,
         worklist: event.worklist ?? answer.worklist,
+        watch: event.watch ?? answer.watch,
         metricDisplay: event.metricDisplay ?? answer.metricDisplay,
         status:
           event.status === "clarification_required"
@@ -352,6 +363,67 @@ interface SessionState {
   /** The server's own words when a switch failed. */
   switchError: string | null;
 
+  /* -- Rounds (the proactive surface) ------------------------------ */
+  /**
+   * Watches registered from THIS browser session, keyed by the artifact
+   * they were started from (`turnId:referent`, `turnId:chart:id`,
+   * `turnId:worklist`).
+   *
+   * Local, and deliberately so: the affordance has to switch to "Watching ·
+   * baseline 12.4%" the instant the server confirms, and re-reading the
+   * whole pin list to discover a pin this client just created would show a
+   * button that still says "Watch this" over a watch that exists. It is
+   * keyed by artifact rather than by pin id because the affordance is on
+   * the artifact and that is the question it asks: is THIS thing watched.
+   *
+   * It is not a cache of the tenant's watches. Rounds itself reads
+   * `GET /v1/rounds` and this map has nothing to say about it.
+   */
+  watches: Record<string, RoundsPin>;
+  /**
+   * Every watch this TENANT has, as the server lists them.
+   *
+   * The store above remembers what this browser registered; this is what
+   * already existed. Both are needed and neither replaces the other: the
+   * first is what makes a click feel immediate, and the second is what
+   * stops an analyst who opens a permalink the next morning from being
+   * offered "Watch this" over a watch that has been running all week —
+   * which would put two tiles over one measure.
+   *
+   * On the STORE rather than behind a query hook because the component
+   * that needs it is a leaf on the answer path (`WatchThis`, in a chart's
+   * action row and on every finding), and a `useQuery` there would drag a
+   * `QueryClientProvider` into every surface and every test that mounts an
+   * answer.
+   */
+  knownWatches: RoundsPin[];
+  watchesLoaded: boolean;
+  /** A `loadWatches` read is in flight — the single-flight latch. */
+  watchesLoading: boolean;
+  /** The artifact key a watch is being created for, while the POST is in flight. */
+  watchPendingKey: string | null;
+  /**
+   * The server's refusal, verbatim, and the artifact it was about.
+   *
+   * Kept together because the sentence names a threshold unit that is
+   * illegal for a particular contract, and a refusal shown next to the
+   * wrong artifact would name a unit the reader's metric does have.
+   */
+  watchError: { key: string; message: string } | null;
+  /**
+   * Lead lifecycle states this browser has changed, keyed by anomaly id.
+   *
+   * The portfolio snapshot carries `lead_status` as of the load it was
+   * built at; a status changed thirty seconds ago is newer than that, so a
+   * card prefers this. It holds the SERVER's answer — never the status
+   * that was asked for — because `resolved_claimed` may come back with a
+   * verification note that says the claim could not be verified, and the
+   * card must show what happened rather than what was clicked.
+   */
+  leadStates: Record<string, LeadState>;
+  leadPendingId: string | null;
+  leadError: { anomalyId: string; message: string } | null;
+
   /* -- internal settings (see lib/settings.ts) --------------------- */
   /** What the NEXT turn will be submitted under. Persisted in localStorage. */
   settings: SessionSettings;
@@ -403,6 +475,46 @@ interface SessionState {
    * cannot have. Never rejects: the server's own sentence is surfaced.
    */
   archiveSession: (sessionId: string) => Promise<void>;
+  /**
+   * Start watching an artifact (`POST /v1/rounds/pins`).
+   *
+   * `key` identifies the artifact on screen, so the affordance beside it
+   * can switch to its watching state and no other affordance does. Never
+   * rejects: a driver with no deployment says so, and the server's own
+   * refusal — "a `points` threshold cannot be applied to a money
+   * contract; the legal units here are …" — is kept verbatim and shown
+   * next to the control that caused it.
+   */
+  createWatch: (key: string, request: CreatePinRequest) => Promise<void>;
+  /**
+   * Read this tenant's watches (`GET /v1/rounds/pins`) so an affordance
+   * can tell "not watched" from "watched, by somebody, last Tuesday".
+   *
+   * Single-flight and idempotent: every `WatchThis` on a page asks for it
+   * on mount, and one read answers all of them. Never rejects — a failed
+   * read leaves `watchesLoaded` false and the affordance offers the watch,
+   * which is the harmless direction to fail in (the server refuses a
+   * duplicate spec on its own terms; a hidden control cannot be recovered
+   * from at all).
+   */
+  loadWatches: () => Promise<void>;
+  /**
+   * Stop watching (`DELETE /v1/rounds/pins/{pin_id}`) — a soft archive
+   * server-side. `key` is the artifact whose affordance goes back to
+   * offering the watch.
+   */
+  removeWatch: (key: string, pinId: string) => Promise<void>;
+  /**
+   * Move a lead along its lifecycle (`PATCH /v1/rounds/leads/{id}`).
+   *
+   * NOT optimistic, unlike `archiveSession`. What comes back is not the
+   * status that was sent: claiming a resolution makes the platform
+   * re-derive the lead's exposure and answer with a verification note that
+   * may say it could not verify. Showing the requested status first and
+   * correcting it a moment later would flash a confirmation the platform
+   * never gave.
+   */
+  setLeadStatus: (anomalyId: string, status: LeadStatus, note: string) => Promise<void>;
   /**
    * Fetch a turn's decision trace after the fact (`GET .../trace`) — how
    * debug mode explains a turn answered before the toggle was flipped.
@@ -538,6 +650,16 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   sessionsError: null,
   switchingSessionId: null,
   switchError: null,
+
+  watches: {},
+  knownWatches: [],
+  watchesLoaded: false,
+  watchesLoading: false,
+  watchPendingKey: null,
+  watchError: null,
+  leadStates: {},
+  leadPendingId: null,
+  leadError: null,
 
   settings: DEFAULT_SETTINGS,
   settingsOpen: false,
@@ -777,6 +899,137 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     // fetchable by id — archiving hides a row, it does not retract an
     // investigation. What is no longer true is that the rail has a
     // selectable row for it, so nothing here re-selects one.
+  },
+
+  loadWatches: async () => {
+    const { driver, watchesLoaded, watchesLoading } = get();
+    if (watchesLoaded || watchesLoading || !driver?.listRoundsPins) return;
+    // Single-flight across every affordance on the page. The latch is set
+    // before the await, so twelve fact rows mounting at once make one GET.
+    set({ watchesLoading: true });
+    try {
+      const pins = await driver.listRoundsPins();
+      set({ knownWatches: pins, watchesLoaded: true });
+    } catch {
+      // Left unloaded on purpose. The affordance then offers the watch,
+      // and the server is the authority on whether that is a duplicate —
+      // a control hidden because a list could not be read is a control
+      // nobody can recover from.
+    } finally {
+      set({ watchesLoading: false });
+    }
+  },
+
+  createWatch: async (key, request) => {
+    const { driver, watchPendingKey } = get();
+    if (watchPendingKey !== null) return;
+    if (!driver?.createRoundsPin) {
+      set({
+        watchError: {
+          key,
+          message: "This driver has no deployment to register a watch with — Rounds is the live API's.",
+        },
+      });
+      return;
+    }
+    set({ watchPendingKey: key, watchError: null });
+    try {
+      const pin = await driver.createRoundsPin(request);
+      set((state) => ({
+        watches: { ...state.watches, [key]: pin },
+        // Into the tenant's list too, so a second surface showing the same
+        // artifact (the Evidence rail's copy of a finding) does not offer
+        // to watch what was just watched.
+        knownWatches: [...state.knownWatches, pin],
+        watchError: null,
+      }));
+    } catch (error) {
+      // The server's own sentence. An illegal threshold unit is refused
+      // with the legal alternatives named, and that naming is the entire
+      // value of the refusal — "could not create watch" would throw away
+      // the one thing that tells the analyst what to type instead.
+      set({
+        watchError: {
+          key,
+          message:
+            error instanceof Error
+              ? error.message
+              : "Could not start this watch. Nothing was registered.",
+        },
+      });
+    } finally {
+      set({ watchPendingKey: null });
+    }
+  },
+
+  removeWatch: async (key, pinId) => {
+    const { driver, watchPendingKey } = get();
+    if (watchPendingKey !== null) return;
+    if (!driver?.deleteRoundsPin) {
+      set({
+        watchError: { key, message: "This driver cannot remove a watch — the live API can." },
+      });
+      return;
+    }
+    set({ watchPendingKey: key, watchError: null });
+    try {
+      await driver.deleteRoundsPin(pinId);
+      set((state) => {
+        const watches = { ...state.watches };
+        delete watches[key];
+        return {
+          watches,
+          knownWatches: state.knownWatches.filter((pin) => pin.pinId !== pinId),
+          watchError: null,
+        };
+      });
+    } catch (error) {
+      set({
+        watchError: {
+          key,
+          message:
+            error instanceof Error
+              ? error.message
+              : "Could not stop this watch — it is still in your Rounds.",
+        },
+      });
+    } finally {
+      set({ watchPendingKey: null });
+    }
+  },
+
+  setLeadStatus: async (anomalyId, status, note) => {
+    const { driver, leadPendingId } = get();
+    if (leadPendingId !== null) return;
+    if (!driver?.setLeadStatus) {
+      set({
+        leadError: {
+          anomalyId,
+          message: "This driver has no deployment to record a status on — Rounds is the live API's.",
+        },
+      });
+      return;
+    }
+    set({ leadPendingId: anomalyId, leadError: null });
+    try {
+      const lead = await driver.setLeadStatus(anomalyId, status, note);
+      // The SERVER's answer, not the requested status. Claiming a
+      // resolution makes the platform re-derive this lead's exposure and
+      // answer with what it measured, including "could not verify".
+      set((state) => ({ leadStates: { ...state.leadStates, [anomalyId]: lead }, leadError: null }));
+    } catch (error) {
+      set({
+        leadError: {
+          anomalyId,
+          message:
+            error instanceof Error
+              ? error.message
+              : `Could not change ${anomalyId}'s status. It is unchanged on the server.`,
+        },
+      });
+    } finally {
+      set({ leadPendingId: null });
+    }
   },
 
   loadTrace: async (turnId) => {

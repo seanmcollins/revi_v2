@@ -23,6 +23,10 @@ from revi_api.memory_stores import (
     MemoryFrameStore,
     MemoryInvestigationStore,
     MemoryReferentRegistryStore,
+    MemoryRoundsLeadStore,
+    MemoryRoundsLoadStore,
+    MemoryRoundsPinResultStore,
+    MemoryRoundsPinStore,
     MemorySessionStore,
     MemoryTraceStore,
 )
@@ -30,6 +34,7 @@ from revi_investigation.application.ports import EMPTY_SESSION_TITLE
 from revi_investigation.domain.context import PackVersionRef
 from revi_investigation.domain.records import Session
 from revi_kernel.watermark import DataWatermark, WatermarkEpoch
+from revi_testing.rounds_store_contract import RoundsStoreContract, RoundsStores
 from revi_testing.store_contract import ApplicationStateStoreContract, ApplicationStores
 
 
@@ -81,3 +86,22 @@ class TestMemorySessionListJoin:
             ("sess_solo", 0)
         ]
         assert page.sessions[0].title == EMPTY_SESSION_TITLE
+
+
+class TestMemoryRoundsStores(RoundsStoreContract):
+    """The API's fallback Rounds stores against the shared port contract.
+
+    Same reason the application-state stores are held to theirs: these are
+    what every local demo and every CI run of the API suite actually uses,
+    and a divergence from the Postgres adapters (ordering, tenant scoping,
+    spec fidelity, soft archive) has to fail here first.
+    """
+
+    @pytest.fixture
+    def rounds(self) -> RoundsStores:
+        return RoundsStores(
+            pins=MemoryRoundsPinStore(),
+            results=MemoryRoundsPinResultStore(),
+            loads=MemoryRoundsLoadStore(),
+            leads=MemoryRoundsLeadStore(),
+        )

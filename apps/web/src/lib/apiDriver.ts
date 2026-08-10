@@ -40,13 +40,26 @@ import {
   refinementsToWire,
   trackReceived,
   turnResponseToEvents,
+  watchToWire,
   type ErrorEnvelopeData,
+  type LeadStatus,
   type PortfolioSnapshotData,
   type ReceivedTurnState,
   type SessionBootstrap,
   type TurnResponseParse,
+  type WatchModel,
   type WirePin,
 } from "@/lib/contract";
+import {
+  mapLeadState,
+  mapRoundsPin,
+  parseBrief,
+  parseRounds,
+  type BriefData,
+  type LeadState,
+  type RoundsData,
+  type RoundsPin,
+} from "@/lib/rounds";
 import type {
   ConnectionState,
   DriverKind,
@@ -345,6 +358,161 @@ export async function fetchInvestigation(
   return parse;
 }
 
+/* ------------------------------------------------------------------ */
+/* Rounds — the proactive surface's reads and writes                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * `GET /v1/rounds` — every active watch, evaluated at the newest load.
+ *
+ * The route EVALUATES on request: a deployment whose sweep interval is 0,
+ * or one nobody has opened since the load landed, walks the Rounds here.
+ * That is why this read is slower than the other GETs and why the surface
+ * says it is walking rather than showing a spinner with no account of
+ * itself.
+ */
+export async function fetchRounds(options: RequestOptions = {}): Promise<RoundsData> {
+  const base = options.baseUrl ?? apiBaseUrl();
+  const raw = await requestJson(`${base}/v1/rounds`, { method: "GET" }, options);
+  const { value, drift } = parseRounds(raw);
+  if (drift.length > 0) reportDriftToConsole(drift, "GET /v1/rounds", options.onDrift);
+  if (!value) throw new Error("rounds response failed contract validation");
+  return value;
+}
+
+/** `GET /v1/rounds/brief` — what changed at this load, gated and counted. */
+export async function fetchRoundsBrief(options: RequestOptions = {}): Promise<BriefData> {
+  const base = options.baseUrl ?? apiBaseUrl();
+  const raw = await requestJson(`${base}/v1/rounds/brief`, { method: "GET" }, options);
+  const { value, drift } = parseBrief(raw);
+  if (drift.length > 0) reportDriftToConsole(drift, "GET /v1/rounds/brief", options.onDrift);
+  if (!value) throw new Error("brief response failed contract validation");
+  return value;
+}
+
+/** `GET /v1/rounds/pins` — the stored watches, with their specs and thresholds. */
+export async function fetchRoundsPins(options: RequestOptions = {}): Promise<RoundsPin[]> {
+  const base = options.baseUrl ?? apiBaseUrl();
+  const raw = await requestJson(`${base}/v1/rounds/pins`, { method: "GET" }, options);
+  const pins: RoundsPin[] = [];
+  const list = typeof raw === "object" && raw !== null ? (raw as { pins?: unknown }).pins : undefined;
+  for (const entry of Array.isArray(list) ? list : []) {
+    const pin = mapRoundsPin(entry);
+    if (pin !== null) pins.push(pin);
+  }
+  return pins;
+}
+
+/**
+ * What a "Watch this" click sends. Exactly one of `investigationId` or
+ * `spec` — a body carrying both is refused server-side rather than
+ * resolved, because either resolution order would be a guess about which
+ * the caller meant.
+ */
+export interface CreatePinRequest {
+  investigationId?: string;
+  /** The artifact within that investigation — a finding referent or chart id. */
+  referent?: string;
+  spec?: Record<string, unknown>;
+  presentation?: "chart" | "finding" | "worklist_slice" | "scalar";
+  label?: string;
+  watch?: WatchModel;
+}
+
+/**
+ * `POST /v1/rounds/pins` — add a watch.
+ *
+ * Errors propagate untouched. The server refuses an illegal threshold unit
+ * with a sentence naming the legal alternatives, and that sentence is the
+ * whole value of the refusal — a client that caught it and said "could not
+ * create watch" would replace the one thing that teaches with the one
+ * thing that does not.
+ */
+export async function createRoundsPin(
+  request: CreatePinRequest,
+  options: RequestOptions = {},
+): Promise<RoundsPin> {
+  const base = options.baseUrl ?? apiBaseUrl();
+  const raw = await requestJson(
+    `${base}/v1/rounds/pins`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ...(request.investigationId !== undefined
+          ? { investigation_id: request.investigationId }
+          : {}),
+        ...(request.referent !== undefined ? { referent: request.referent } : {}),
+        ...(request.spec !== undefined ? { spec: request.spec } : {}),
+        ...(request.presentation !== undefined ? { presentation: request.presentation } : {}),
+        ...(request.label !== undefined ? { label: request.label } : {}),
+        ...(request.watch !== undefined ? { watch: watchToWire(request.watch) } : {}),
+      }),
+    },
+    options,
+  );
+  const pin = mapRoundsPin(raw);
+  if (pin === null) {
+    reportDriftToConsole(["pin_id"], "POST /v1/rounds/pins", options.onDrift);
+    throw new Error("the watch was created but the response does not name it");
+  }
+  return pin;
+}
+
+/**
+ * `DELETE /v1/rounds/pins/{pin_id}` — un-watch.
+ *
+ * A SOFT archive server-side, like every other dismissal on this platform:
+ * the evaluated history a brief already published stays readable and a
+ * permalink into a tile's investigation does not 404 because somebody
+ * tidied their Rounds.
+ */
+export async function deleteRoundsPin(
+  pinId: string,
+  options: RequestOptions = {},
+): Promise<void> {
+  const base = options.baseUrl ?? apiBaseUrl();
+  await requestOk(
+    `${base}/v1/rounds/pins/${encodeURIComponent(pinId)}`,
+    { method: "DELETE" },
+    options,
+  );
+}
+
+/**
+ * `PATCH /v1/rounds/leads/{anomaly_id}` — move one lead along its
+ * lifecycle.
+ *
+ * Only the four human-settable statuses are accepted. Asking for
+ * `resolved_confirmed` is refused with the reason, and the refusal is
+ * shown: confirmation is a measurement across two loads, and a lead that
+ * could be confirmed by assertion would make the whole verification path
+ * decorative.
+ */
+export async function patchLeadStatus(
+  anomalyId: string,
+  status: LeadStatus,
+  note: string,
+  options: RequestOptions = {},
+): Promise<LeadState> {
+  const base = options.baseUrl ?? apiBaseUrl();
+  const raw = await requestJson(
+    `${base}/v1/rounds/leads/${encodeURIComponent(anomalyId)}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ status, note }),
+    },
+    options,
+  );
+  const lead = mapLeadState(raw);
+  if (lead === null) {
+    reportDriftToConsole(["anomaly_id"], `PATCH /v1/rounds/leads/${anomalyId}`, options.onDrift);
+    throw new Error("the status changed but the response does not name the lead");
+  }
+  return lead;
+}
+
 function reportDriftToConsole(
   paths: string[],
   context: string,
@@ -450,6 +618,29 @@ export class ApiDriver implements TurnDriver {
   /** `GET /v1/sessions` — this tenant's sessions, newest activity first. */
   async listSessions(limit = 50): Promise<SessionListData> {
     return fetchSessionList(limit, this.requestOptions());
+  }
+
+  /**
+   * `POST /v1/rounds/pins` — start watching. Errors propagate so the
+   * server's own refusal reaches the analyst verbatim.
+   */
+  async createRoundsPin(request: CreatePinRequest): Promise<RoundsPin> {
+    return createRoundsPin(request, this.requestOptions());
+  }
+
+  /** `GET /v1/rounds/pins` — the stored watches and what each one IS. */
+  async listRoundsPins(): Promise<RoundsPin[]> {
+    return fetchRoundsPins(this.requestOptions());
+  }
+
+  /** `DELETE /v1/rounds/pins/{pin_id}` — stop watching (a soft archive). */
+  async deleteRoundsPin(pinId: string): Promise<void> {
+    return deleteRoundsPin(pinId, this.requestOptions());
+  }
+
+  /** `PATCH /v1/rounds/leads/{anomaly_id}` — move a lead along its lifecycle. */
+  async setLeadStatus(anomalyId: string, status: LeadStatus, note: string): Promise<LeadState> {
+    return patchLeadStatus(anomalyId, status, note, this.requestOptions());
   }
 
   /**

@@ -358,7 +358,11 @@ export function answerToText(input: AnswerCopyInput): string {
     }
     if (chart.rows.some((row) => row.bounded)) {
       out.push(
-        "    ≤ marks an upper bound, not a measurement: the engine withheld a small numerator and published a ceiling over the population instead.",
+        // The same plain voice the figure's own legend uses. One idea, in
+        // the reader's nouns: three surfaces of one answer describing one
+        // control in three vocabularies is how a reader learns to skip all
+        // three. See `boundedLegend`.
+        "    ≤ means at most: too few things sit behind that mark to measure it exactly, so the real figure is at or below it.",
       );
     }
     out.push("");
@@ -662,7 +666,7 @@ export function chartToCsv(spec: ChartSpec, meta?: ChartCsvMeta): string {
   if (meta?.renderNote) say(`On screen: ${meta.renderNote}. This file has every series.`);
   if (bounded || hasBound) {
     say(
-      "Some rows are UPPER BOUNDS, not measurements: the engine withheld a small numerator and published a ceiling over the population instead. The `bounded` column marks them. A ceiling cannot be ranked against a measurement — ordering the two together sorts by population size.",
+      "Some rows are LIMITS, not measurements: too few things sit behind them to measure exactly, so the real figure is at or below what is shown. The `bounded` column marks them. A limit cannot be ranked against a measurement — ordering the two together sorts by how big each group is.",
     );
   }
   if (hasProvisional) {

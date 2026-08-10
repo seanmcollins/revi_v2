@@ -14,6 +14,8 @@ import { useId, useState } from "react";
 import { DownloadCsvButton } from "@/components/answer/AnswerActions";
 import { WarningList } from "@/components/banners/WarningBanner";
 import { DetectionBadge } from "@/components/portfolio/DetectionBadge";
+import { LeadStatusControl } from "@/components/rounds/LeadStatus";
+import { TimeToImpactLine } from "@/components/rounds/TimeToImpactLine";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { portfolioToCsv } from "@/lib/export";
@@ -412,9 +414,27 @@ function PortfolioCard({ item, onDrill }: { item: PortfolioItem; onDrill: () => 
             </p>
           )}
 
+          {/* WHEN this card's dollars hit cash. Published context beside
+              the money, never a re-ranking: the list is ordered by
+              `anomaly_priority@3` and nothing on this panel sorts on the
+              timing lane. A projection wears "provisional" in words, so a
+              32-day estimate never reads like the filing deadline two
+              cards below it. */}
+          {item.timeToImpact && (
+            <TimeToImpactLine timeToImpact={item.timeToImpact} className="mt-0.5 flex" />
+          )}
+
           <p className="mt-1 line-clamp-2 text-micro leading-snug text-muted-foreground">
             {item.detail}
           </p>
+
+          {/* Where this lead stands with the humans working it, and the
+              platform's own verdict when it has reached one. */}
+          <LeadStatusControl
+            anomalyId={item.referent}
+            {...(item.leadStatus ? { cardStatus: item.leadStatus } : {})}
+            {...(item.leadStatusNote ? { cardNote: item.leadStatusNote } : {})}
+          />
 
           {/* What the number MEASURES, in the pack's governed words. A
               worklist has no answer to hang a §6.6 population caveat on,

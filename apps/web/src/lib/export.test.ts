@@ -261,7 +261,7 @@ describe("answerToText — complete AND caveated, or it is neither", () => {
   it("keeps a withheld cell withheld and a bound a bound", () => {
     expect(text).toContain("Federal Medicare: (withheld)");
     expect(text).toContain("Cascade MA: ≤ 45.5%");
-    expect(text).toContain("≤ marks an upper bound, not a measurement");
+    expect(text).toContain("≤ means at most: too few things sit behind that mark to measure it exactly");
   });
 
   it("carries the worklist the caveats promise", () => {
@@ -541,7 +541,7 @@ describe("chartToCsv", () => {
     );
     expect(lines[1]).toBe("Atlas Commercial,D1,8.169,,,");
     expect(lines[2]).toBe("Cascade Medicare Advantage,D7,45.4545,TRUE,45.4545,22");
-    expect(chartToCsv(bounded)).toContain("UPPER BOUNDS, not measurements");
+    expect(chartToCsv(bounded)).toContain("LIMITS, not measurements");
   });
 
   it("keeps the bound columns off a chart that carries no bounds", () => {

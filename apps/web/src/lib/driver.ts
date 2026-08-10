@@ -25,6 +25,9 @@ export function envDriverKind(): DriverKind {
   return process.env.NEXT_PUBLIC_REVI_DRIVER === "mock" ? "mock" : "api";
 }
 
+import type { CreatePinRequest } from "@/lib/apiDriver";
+import type { LeadStatus } from "@/lib/contract";
+import type { LeadState, RoundsPin } from "@/lib/rounds";
 import type {
   DataWatermark,
   DebugTrace,
@@ -201,4 +204,40 @@ export interface TurnDriver {
    * implementing this.
    */
   sessionForInvestigation?(investigationId: string): Promise<string>;
+
+  /* -- Rounds: the writes behind the proactive surface --------------- */
+
+  /**
+   * `POST /v1/rounds/pins` — start watching an artifact, or a typed spec.
+   *
+   * On the seam rather than called directly for the reason `archiveSession`
+   * is: a driver with no deployment behind it has nowhere to register a
+   * watch, and the honest way to say that is to not implement the method.
+   * The affordance then explains that Rounds is the live API's, instead of
+   * offering a control whose click would do nothing.
+   *
+   * Rejections propagate. The server refuses an illegal threshold unit
+   * with a sentence naming the legal alternatives, and that sentence is
+   * the point of the refusal.
+   */
+  createRoundsPin?(request: CreatePinRequest): Promise<RoundsPin>;
+  /**
+   * `GET /v1/rounds/pins` — the stored watches, with their typed specs,
+   * their window modes, their thresholds and their provenance.
+   *
+   * A different question from `GET /v1/rounds`: that says what each watch
+   * READ at this load, this says what each watch IS. Two surfaces need the
+   * second — the sensitivity editor, which re-registers a watch over its
+   * own stored spec, and the "Watch this" affordance, which has to know
+   * whether the artifact in front of the analyst is already watched.
+   */
+  listRoundsPins?(): Promise<RoundsPin[]>;
+  /** `DELETE /v1/rounds/pins/{pin_id}` — stop watching. A soft archive. */
+  deleteRoundsPin?(pinId: string): Promise<void>;
+  /**
+   * `PATCH /v1/rounds/leads/{anomaly_id}` — move a lead along its
+   * lifecycle. Only the four a person may set; the platform's two verdicts
+   * are refused with the reason, which the caller shows.
+   */
+  setLeadStatus?(anomalyId: string, status: LeadStatus, note: string): Promise<LeadState>;
 }

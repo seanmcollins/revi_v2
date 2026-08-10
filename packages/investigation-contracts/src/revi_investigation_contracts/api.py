@@ -639,6 +639,11 @@ class TurnAnswer(ClosedModel):
     #: The ranked anomaly worklist, when this turn asked for it or resolved
     #: the pack's governed worklist routing. See :class:`WorklistPayload`.
     worklist: WorklistPayload | None = None
+    #: Present only when this turn was a WATCH DECLARATION — "watch
+    #: Silverline's denial rate" — in which case the answer below is also
+    #: the baseline the watch starts from. See
+    #: :class:`WatchDeclarationPayload`. ``None`` on every ordinary turn.
+    watch: WatchDeclarationPayload | None = None
     reconciliation: str | None = None
     plan_hash: str | None = None
     watermark_stale: bool = False
@@ -920,6 +925,154 @@ class DrillDimensionRepoint(ClosedModel):
     rationale: str
 
 
+#: How a watch decides a movement deserves a brief entry. ``crosses`` is
+#: the odd one out: its reference is a LEVEL, not a prior value.
+RoundsWatchMode = Literal["governed_default", "any_movement", "delta_gte", "crosses"]
+
+#: How a threshold is STATED — not the metric's own unit. ``points`` for a
+#: rate (0.5 = half a percentage point), ``cents`` for money,
+#: ``relative_pct`` for a fraction of the reference value (legal anywhere).
+RoundsWatchUnit = Literal["points", "relative_pct", "cents"]
+
+
+class RoundsWatchModel(ClosedModel):
+    """One watch's own sensitivity, overriding the pack's default gate.
+
+    (Lives here rather than in ``rounds.py`` because a turn answer carries
+    it — see :class:`WatchDeclarationPayload` — and one definition beats
+    two that have to agree.)
+
+    Unit honesty is enforced at creation, not at fire time: a ``points``
+    threshold on a money contract, or ``cents`` on a rate, is REFUSED with
+    the reason rather than coerced into the nearest legal unit. A threshold
+    in the wrong unit produces a watch that never fires — or always does —
+    for a reason nobody can see on the screen, which is the worst of the
+    available failures.
+
+    A threshold may LOOSEN the governed gate as well as tighten it.
+    Somebody watching one specific cell knows things the pack's blanket
+    threshold does not, and refusing that pushes them back to a
+    spreadsheet. It is paid for rather than refused: every brief entry says
+    which threshold briefed it, and a watch whose own threshold keeps
+    firing on movements the governed gate calls normal variation is counted
+    and named once per load.
+
+    BASELINE SEMANTICS: a watch's reference point is its CREATION-LOAD
+    value for every mode except ``crosses``, whose reference is the
+    crossing level. Deltas are stated against the PRIOR load always, and
+    against the baseline additionally whenever the two differ materially —
+    a tile that drifted four points since it was created while moving 0.2
+    overnight is telling two true stories, and showing only the second
+    would hide the reason the watch exists.
+    """
+
+    mode: RoundsWatchMode = "governed_default"
+    #: The threshold, in ``unit``. Required for ``delta_gte`` and
+    #: ``crosses``; refused for the other two, where it would be a number
+    #: with nothing to compare against.
+    value: float | None = None
+    unit: RoundsWatchUnit | None = None
+    #: Restrict to one direction of movement. Applies to every mode.
+    direction: Literal["any", "up", "down"] = "any"
+    #: Why this watch is set the way it is, in the analyst's words.
+    #: Recorded so a threshold is a decision somebody made rather than a
+    #: setting nobody remembers.
+    note: str = ""
+
+
+class WatchDeclarationPayload(ClosedModel):
+    """The one-time confirmation a "watch X" turn answers with.
+
+    A watch declaration is not a question and it is not a silent
+    registration. It is an ordinary turn — the same interpretation, the
+    same planning, the same §6.6 validation, the same findings — whose
+    answer doubles as the BASELINE: what the thing being watched reads
+    right now, so the analyst can see they are watching the right cell
+    before they walk away from it.
+
+        Watching: Silverline MA denial rate, monthly — currently 12.4%.
+        I'll brief you when it moves more than half a point.
+
+    Everything in that sentence is a fact from the answer beside it: the
+    spec the platform compiled, the value it measured, and the threshold it
+    will gate on. A declaration that could not be compiled clarifies
+    exactly as a question would — a watch registered against a spec nobody
+    confirmed is a watch that briefs the wrong number every morning.
+    """
+
+    pin_id: str
+    label: str
+    #: The confirmation sentence, composed from the payload — never by a
+    #: model, and never containing a figure the answer does not carry.
+    statement: str
+    #: What the platform compiled the declaration into. Published because a
+    #: watch whose definition the analyst cannot check is a watch they
+    #: cannot trust.
+    spec: TypedInvestigationSpec
+    watch: RoundsWatchModel
+    #: The gate in words: "more than half a point", "any movement at all".
+    threshold_statement: str
+    #: The baseline this watch starts from, and the load it was taken at.
+    baseline_value_text: str = ""
+    baseline_watermark_id: str = ""
+    #: The lead-in the analyst used, verbatim ("keep an eye on"), so the
+    #: platform can show what it read rather than asserting it read intent.
+    matched_phrase: str = ""
+
+
+class TimeToImpactPayload(ClosedModel):
+    """When this lead's dollars hit cash — or whether they already have.
+
+    Published CONTEXT, never a re-ranking. ``anomaly_priority@3`` orders
+    the worklist and this does not touch it: a rank change needs its own
+    versioned formula decision, and smuggling urgency into an existing
+    version would make two builds of the same data disagree with no version
+    string to explain it. The split a reader wants — "already hit cash" vs
+    "hits cash in ~N days, still catchable" — is :attr:`lane`.
+
+    Four honest outcomes, and the fourth is the important one:
+
+    * ``already_hit`` — the cash effect is in the past (a denial has
+      already failed to pay). A recovery deadline may still be open, and
+      rides here when the detector published one;
+    * ``deadline`` — a real, dated limit from the detector's own evidence
+      (timely filing). :attr:`deadline_date` is a date, not an estimate;
+    * ``projected`` — an aging projection with the method STATED and
+      :attr:`provisional` set. An estimate presented as a date would be a
+      forecast this platform has not earned;
+    * ``unknown`` — no honest basis exists for this category, and
+      :attr:`reason` says so. A guess here would be indistinguishable from
+      the real dates beside it, which is exactly why there is no guess.
+    """
+
+    kind: Literal["already_hit", "deadline", "projected", "unknown"] = "unknown"
+    #: The lane a "still catchable" split renders from.
+    lane: Literal["already_hit", "pre_cash", "unknown"] = "unknown"
+    #: Days until the cash effect, for ``deadline`` and ``projected``.
+    days: int | None = None
+    #: The date itself, when there is a real one (``deadline`` only). A
+    #: projection never sets it: an estimate rendered as a date is
+    #: indistinguishable from a filing limit on the screen beside it.
+    deadline_date: date | None = None
+    #: How this was derived, in one sentence, naming the evidence facts it
+    #: read. Required on every outcome including ``unknown``.
+    method: str = ""
+    #: The governed method id from the pack, so two cards derived the same
+    #: way say so with one token rather than two paraphrases.
+    method_id: str = ""
+    #: True for every projection. A projected figure rendered like a
+    #: deadline is the defect this flag exists to prevent.
+    provisional: bool = False
+    #: Why ``kind`` is ``unknown``. Never empty when it is.
+    reason: str | None = None
+    #: A recovery window still open even though the cash already moved — an
+    #: appeal deadline on a denial, from the detector's own
+    #: ``days_to_appeal_deadline``. Absent when the feed published none.
+    recovery_days: int | None = None
+    recovery_deadline_date: date | None = None
+    recovery_label: str = ""
+
+
 class AnomalyCard(ClosedModel):
     """One detected anomaly, ranked by the governed priority formula.
 
@@ -1082,6 +1235,29 @@ class AnomalyCard(ClosedModel):
     #: ordinary card, and never silent on the ones that use it: the
     #: repointed drill measures a related population, not the same rows.
     drill_dimension_repoints: list[DrillDimensionRepoint] = Field(default_factory=list)
+    # --- Rounds: lifecycle and timing (additive; both default to the
+    # behaviour a client had before they existed) -------------------------
+    #: Where this lead stands with the humans working it. ``open`` is the
+    #: default and also the honest reading of a lead nobody has touched.
+    #:
+    #: ``resolved_confirmed`` and ``regressed`` are verdicts the PLATFORM
+    #: reached by re-running the lead's own drill across loads — a person
+    #: can claim resolution and cannot assert it. That asymmetry is the
+    #: product: "mark as resolved" everywhere else in this category is a
+    #: checkbox, and a checkbox is an opinion.
+    lead_status: Literal[
+        "open", "acknowledged", "working", "resolved_claimed", "resolved_confirmed", "regressed"
+    ] = "open"
+    #: What the last verification measured, in the platform's own words —
+    #: the confirmation sentence, or why it could not verify. Empty on a
+    #: lead nobody has claimed.
+    lead_status_note: str = ""
+    lead_updated_at: datetime | None = None
+    #: When the cash effect of this card lands, or whether it already has.
+    #: ``None`` only when the deployment ships no governed time-to-impact
+    #: content at all; otherwise every card carries one, including the
+    #: ``unknown`` verdict with its reason.
+    time_to_impact: TimeToImpactPayload | None = None
 
 
 class PortfolioResponse(ClosedModel):

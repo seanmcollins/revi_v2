@@ -25,6 +25,12 @@ from sqlalchemy.engine import Engine
 from sqlalchemy.pool import NullPool
 
 from revi_store_postgres.engine import ENV_VAR, create_engine, database_url
+from revi_store_postgres.rounds_stores import (
+    PostgresRoundsLeadStore,
+    PostgresRoundsLoadStore,
+    PostgresRoundsPinResultStore,
+    PostgresRoundsPinStore,
+)
 from revi_store_postgres.stores import (
     PostgresCohortStore,
     PostgresEvidenceCache,
@@ -35,6 +41,7 @@ from revi_store_postgres.stores import (
     PostgresTraceStore,
 )
 from revi_store_postgres.tables import ALL_SCHEMAS
+from revi_testing.rounds_store_contract import RoundsStoreContract, RoundsStores
 from revi_testing.store_contract import ApplicationStateStoreContract, ApplicationStores
 
 pytestmark = pytest.mark.postgres
@@ -155,6 +162,25 @@ class TestPostgresApplicationStores(ApplicationStateStoreContract):
         )
 
 
+class TestPostgresRoundsStores(RoundsStoreContract):
+    """The Rounds adapters against the same suite the memory ones pass.
+
+    Migration 0005's schema, exercised by behaviour rather than by reading
+    the DDL back: ordering by the load's own clock, tenant scoping, soft
+    archive, and exact round-tripping of the typed spec a watch re-runs
+    every load.
+    """
+
+    @pytest.fixture
+    def rounds(self, engine: Engine) -> RoundsStores:
+        return RoundsStores(
+            pins=PostgresRoundsPinStore(engine),
+            results=PostgresRoundsPinResultStore(engine),
+            loads=PostgresRoundsLoadStore(engine),
+            leads=PostgresRoundsLeadStore(engine),
+        )
+
+
 # --- migration + engine specifics -------------------------------------------
 
 
@@ -169,7 +195,46 @@ class TestMigrations:
     def test_migrated_to_head(self, engine: Engine) -> None:
         with engine.connect() as conn:
             version = conn.execute(sa.text("SELECT version_num FROM alembic_version")).scalar_one()
-        assert version == "0004"
+        assert version == "0005"
+
+    def test_rounds_tables_exist(self, engine: Engine) -> None:
+        """Migration 0005. Rounds is a capability, so it gets a
+        capability-named schema; the four tables are the four questions a
+        load-over-load surface cannot answer without stored state — what is
+        watched, what each watch read at each load, what the detection feed
+        said at each load, and where each lead stands."""
+        with engine.connect() as conn:
+            tables = set(
+                conn.execute(
+                    sa.text(
+                        "SELECT table_name FROM information_schema.tables "
+                        "WHERE table_schema = 'revi_rounds'"
+                    )
+                ).scalars()
+            )
+        assert {"pins", "pin_results", "loads", "leads"} == tables
+
+    def test_the_prior_load_lookup_is_indexed_on_the_loads_own_clock(
+        self, engine: Engine
+    ) -> None:
+        """Migration 0005. Every brief and every tile delta asks "what did
+        this read at the PREVIOUS load", ordered by the watermark's own
+        ``loaded_at`` — never by its id, which is an opaque string whose
+        lexical order is a coincidence of one warehouse's naming."""
+        with engine.connect() as conn:
+            indexes = {
+                row[0]: row[1]
+                for row in conn.execute(
+                    sa.text(
+                        "SELECT indexname, indexdef FROM pg_indexes "
+                        "WHERE schemaname = 'revi_rounds'"
+                    )
+                )
+            }
+        assert "ix_revi_rounds_pin_results_pin_loaded" in indexes
+        assert "watermark_loaded_at" in indexes["ix_revi_rounds_pin_results_pin_loaded"]
+        assert "ix_revi_rounds_loads_tenant_loaded" in indexes
+        assert "watermark_loaded_at" in indexes["ix_revi_rounds_loads_tenant_loaded"]
 
     def test_sessions_can_be_soft_archived(self, engine: Engine) -> None:
         """Migration 0004. The rail had no way to dismiss a session, and a

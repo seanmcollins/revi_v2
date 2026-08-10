@@ -4,6 +4,7 @@ import { ChevronRight } from "lucide-react";
 
 import { GradeDot } from "@/components/answer/GradeBadge";
 import { ReferentChip } from "@/components/answer/ReferentChip";
+import { WatchThis } from "@/components/rounds/WatchThis";
 import { Button } from "@/components/ui/button";
 import {
   formatCents,
@@ -65,6 +66,21 @@ export function FactRow({
 }) {
   const emitRefinement = useSessionStore((s) => s.emitRefinement);
   const focused = useSessionStore((s) => s.focusedReferent === finding.referent.value);
+  /**
+   * The server id of the turn this fact belongs to — what a watch is
+   * registered against.
+   *
+   * Read from the store rather than threaded through `FactList`, which is
+   * mounted by three layouts and the Evidence rail: the id is a property
+   * of the turn, every one of those callers already names the turn, and a
+   * fourth prop on all of them would be the same lookup written four
+   * times. Absent while a turn is still streaming, and the affordance
+   * simply is not there yet — a watch registered against a turn with no id
+   * is a watch over nothing.
+   */
+  const investigationId = useSessionStore(
+    (s) => s.turns.find((t) => t.id === turnId)?.answer.investigationId,
+  );
 
   const bound = finding.measured?.isBound === true ? finding.measured : undefined;
   const movement = finding.boundedMovement;
@@ -109,7 +125,7 @@ export function FactRow({
       // hears about. See `ReferentChip`.
       tabIndex={-1}
       className={cn(
-        "focus-ring scroll-mt-4 rounded-md border border-transparent px-2 py-2 transition-colors duration-150",
+        "group focus-ring scroll-mt-4 rounded-md border border-transparent px-2 py-2 transition-colors duration-150",
         focused && "border-ring/60 bg-accent/60",
       )}
     >
@@ -175,19 +191,39 @@ export function FactRow({
         </p>
       )}
 
-      {drill && (
-        <div className="mt-1 pl-8">
-          <Button
-            variant="ghost"
-            size="xs"
-            className="h-5 gap-0.5 rounded px-1.5 text-micro font-normal text-muted-foreground hover:text-foreground"
-            onClick={() =>
-              emitRefinement(drill.refinement, { turnId, referent: finding.referent.value })
-            }
-          >
-            {drill.label}
-            <ChevronRight aria-hidden className="size-3" />
-          </Button>
+      {/* The row's two forward gestures, on one line: go deeper into this
+          fact, or ask to be told when it changes. Both are quiet and both
+          appear on hover and on keyboard focus — a fact row is a scanning
+          surface, and a permanently visible pair of controls on every one
+          of thirty rows is the density this layout exists to remove. */}
+      {(drill || investigationId) && (
+        <div className="mt-1 flex flex-wrap items-center gap-1 pl-8">
+          {drill && (
+            <Button
+              variant="ghost"
+              size="xs"
+              className="h-5 gap-0.5 rounded px-1.5 text-micro font-normal text-muted-foreground hover:text-foreground"
+              onClick={() =>
+                emitRefinement(drill.refinement, { turnId, referent: finding.referent.value })
+              }
+            >
+              {drill.label}
+              <ChevronRight aria-hidden className="size-3" />
+            </Button>
+          )}
+          {investigationId && (
+            <WatchThis
+              // Keyed by the artifact, not by the turn: the same finding
+              // reached from the answer and from the Evidence rail is one
+              // thing to watch, and watching it twice would put two tiles
+              // over one measure.
+              artifactKey={`${investigationId}:${finding.referent.value}`}
+              investigationId={investigationId}
+              referent={finding.referent.value}
+              presentation="finding"
+              label={finding.title}
+            />
+          )}
         </div>
       )}
     </li>

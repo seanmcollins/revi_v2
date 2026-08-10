@@ -114,6 +114,154 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/rounds": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Rounds
+         * @description Every active watch, evaluated at the newest load.
+         *
+         *     Each tile carries the integrity line as a payload — grade, things to
+         *     know, the caveat codes behind that count, and the checks that were
+         *     run — plus its load-over-load delta and the investigation permalink
+         *     the tile taps through to.
+         */
+        get: operations["get_rounds_v1_rounds_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/rounds/brief": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Rounds Brief
+         * @description What changed at this load: gated, capped, counted, provenanced.
+         *
+         *     New leads, material movements on watches, self-resolved leads and
+         *     resolution verdicts. Every entry passes a materiality threshold that
+         *     lives in the pack, not in engine code, and the thresholds that were
+         *     applied ride on the response so the gate is checkable rather than
+         *     trusted.
+         *
+         *     "Nothing material changed" is a first-class outcome (`status:
+         *     nothing_material`) with the counts that back the claim — not an
+         *     empty page.
+         */
+        get: operations["get_rounds_brief_v1_rounds_brief_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/rounds/leads/{anomaly_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Rounds Lead
+         * @description One lead's lifecycle state, its verification streak and its history.
+         */
+        get: operations["get_rounds_lead_v1_rounds_leads__anomaly_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        /**
+         * Patch Rounds Lead
+         * @description Move one lead along its lifecycle.
+         *
+         *     `open` → `acknowledged` → `working` → `resolved_claimed` are the
+         *     four a person may set. `resolved_confirmed` and `regressed` are
+         *     verdicts the PLATFORM reaches by re-running the lead's own drill
+         *     across consecutive loads — asking for either is refused with the
+         *     reason. That asymmetry is the point: "mark as resolved" everywhere
+         *     else in this category is a checkbox, and a checkbox is an opinion.
+         */
+        patch: operations["patch_rounds_lead_v1_rounds_leads__anomaly_id__patch"];
+        trace?: never;
+    };
+    "/v1/rounds/pins": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Rounds Pins
+         * @description The caller tenant's watches, oldest first, with their specs.
+         *
+         *     The spec is published on purpose: a watch whose definition a reader
+         *     cannot see is a watch they cannot check, and it is the object that
+         *     decides what the tile measures every morning.
+         */
+        get: operations["list_rounds_pins_v1_rounds_pins_get"];
+        put?: never;
+        /**
+         * Create Rounds Pin
+         * @description Add a watch to Rounds — from an investigation, or from a spec.
+         *
+         *     A pin stores the TYPED SPEC behind an artifact, never the artifact:
+         *     every load re-runs it at the new watermark, so the tile is a current
+         *     answer with a current grade rather than a number frozen the day
+         *     somebody pinned it.
+         *
+         *     Naming an `investigation_id` resolves that investigation's STORED
+         *     spec server-side. No text is re-interpreted and no model is called —
+         *     the spec already exists, and re-deriving it from the question would
+         *     be a second, worse answer to a question already answered.
+         */
+        post: operations["create_rounds_pin_v1_rounds_pins_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/rounds/pins/{pin_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        post?: never;
+        /**
+         * Delete Rounds Pin
+         * @description Un-pin — a SOFT archive, like dismissing a session.
+         *
+         *     Nothing is deleted: the evaluated history a brief already published
+         *     stays readable and a permalink into a tile's investigation does not
+         *     404 because somebody tidied their Rounds. Idempotent.
+         */
+        delete: operations["delete_rounds_pin_v1_rounds_pins__pin_id__delete"];
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/sessions": {
         parameters: {
             query?: never;
@@ -400,6 +548,19 @@ export interface components {
              * @enum {string}
              */
             lane: "compliance" | "value";
+            /**
+             * Lead Status
+             * @default open
+             * @enum {string}
+             */
+            lead_status: "open" | "acknowledged" | "working" | "resolved_claimed" | "resolved_confirmed" | "regressed";
+            /**
+             * Lead Status Note
+             * @default
+             */
+            lead_status_note: string;
+            /** Lead Updated At */
+            lead_updated_at?: string | null;
             /** Metric Display Name */
             metric_display_name?: string | null;
             /** Metric Id */
@@ -448,6 +609,7 @@ export interface components {
             source_watermark_id: string;
             /** Status */
             status: string;
+            time_to_impact?: components["schemas"]["TimeToImpactPayload"] | null;
             /** Title */
             title: string;
             /**
@@ -786,6 +948,49 @@ export interface components {
              * Format: date
              */
             window_start: string;
+        };
+        /**
+         * CreateRoundsPinRequest
+         * @description Add a watch to Rounds.
+         *
+         *     Three ways in, all producing the same row — a pin created from an
+         *     artifact and a watch created by intent differ only in provenance:
+         *
+         *     * ``investigation_id`` (+ optional ``referent``) — watch what is on
+         *       screen. The platform resolves that investigation's STORED spec
+         *       server-side and pins it. No text is re-interpreted and no model is
+         *       called: the spec already exists, and re-deriving it from the
+         *       question would be a second, worse answer to a question already
+         *       answered.
+         *     * ``spec`` — a caller that already holds a typed spec (a portfolio
+         *       card's ``drill_spec``, a saved view) watches it directly.
+         *     * an utterance — "watch Silverline's denial rate" — which is not this
+         *       request at all: it is an ordinary turn that compiles through
+         *       interpretation and registers the watch from the answer it produced.
+         *       See ``revi_api.watch_intent``.
+         *
+         *     Exactly one of ``investigation_id`` / ``spec``. A body carrying both is
+         *     refused rather than resolved, because either resolution order would be
+         *     a guess about which the caller meant.
+         */
+        CreateRoundsPinRequest: {
+            /** Investigation Id */
+            investigation_id?: string | null;
+            /**
+             * Label
+             * @default
+             */
+            label: string;
+            /**
+             * Presentation
+             * @default finding
+             * @enum {string}
+             */
+            presentation: "chart" | "finding" | "worklist_slice" | "scalar";
+            /** Referent */
+            referent?: string | null;
+            spec?: components["schemas"]["TypedInvestigationSpec"] | null;
+            watch?: components["schemas"]["RoundsWatchModel"] | null;
         };
         /**
          * DebugInterpretation
@@ -1695,6 +1900,736 @@ export interface components {
              */
             op: "reset_context";
         };
+        /**
+         * RoundsBriefEntry
+         * @description One line of the brief.
+         *
+         *     ``kind`` is the closed set of things a load can change, and each one is
+         *     a different reading:
+         *
+         *     * ``new_lead`` — the detection feed fired something that was not there
+         *       at the prior load;
+         *     * ``pin_movement`` — a watched spec moved materially;
+         *     * ``self_resolved`` — a lead the feed no longer reports, nobody
+         *       claimed. Published because a problem that fixed itself is
+         *       information, and because the alternative is an analyst chasing a
+         *       card that is gone;
+         *     * ``resolution_confirmed`` / ``resolution_regressed`` — the platform's
+         *       verdict on a claimed resolution.
+         */
+        RoundsBriefEntry: {
+            /** Anomaly Id */
+            anomaly_id?: string | null;
+            baseline_delta?: components["schemas"]["RoundsDeltaPayload"] | null;
+            /** Category */
+            category?: string | null;
+            delta?: components["schemas"]["RoundsDeltaPayload"] | null;
+            /** Impact Cents */
+            impact_cents?: number | null;
+            integrity?: components["schemas"]["RoundsTileIntegrity"] | null;
+            /** Investigation Id */
+            investigation_id?: string | null;
+            /**
+             * Kind
+             * @enum {string}
+             */
+            kind: "new_lead" | "pin_movement" | "self_resolved" | "resolution_confirmed" | "resolution_regressed";
+            /** Lane */
+            lane?: string | null;
+            /** Lead Status */
+            lead_status?: string | null;
+            /** Pin Id */
+            pin_id?: string | null;
+            provenance: components["schemas"]["RoundsProvenancePayload"];
+            /** Statement */
+            statement: string;
+            time_to_impact?: components["schemas"]["TimeToImpactPayload"] | null;
+            /** Title */
+            title: string;
+        };
+        /**
+         * RoundsBriefResponse
+         * @description What changed at this load, gated, capped and provenanced.
+         *
+         *     ``status`` has three values and the middle one is the point:
+         *
+         *     * ``first_load`` — nothing to diff against yet, said plainly;
+         *     * ``nothing_material`` — the loud, proud outcome. Revi walked the
+         *       Rounds, measured everything, and there is nothing you need to do.
+         *       That is the answer, with the counts that back it, and it is not an
+         *       empty page;
+         *     * ``material_changes`` — entries follow.
+         */
+        RoundsBriefResponse: {
+            /** Entries */
+            entries?: components["schemas"]["RoundsBriefEntry"][];
+            /**
+             * Entries Total
+             * @default 0
+             */
+            entries_total: number;
+            fatigue?: components["schemas"]["RoundsFatigueAdvisory"];
+            /** Generated At */
+            generated_at?: string | null;
+            /**
+             * Headline
+             * @default
+             */
+            headline: string;
+            immaterial?: components["schemas"]["RoundsImmaterialSummary"];
+            /**
+             * Leads Verified
+             * @default 0
+             */
+            leads_verified: number;
+            materiality?: components["schemas"]["RoundsMaterialityPayload"];
+            /** Newest Data Date */
+            newest_data_date?: string | null;
+            /**
+             * Pins Evaluated
+             * @default 0
+             */
+            pins_evaluated: number;
+            /** Prior Watermark Id */
+            prior_watermark_id?: string | null;
+            /**
+             * Status
+             * @default nothing_material
+             * @enum {string}
+             */
+            status: "first_load" | "nothing_material" | "material_changes";
+            /**
+             * Tenant
+             * @default
+             */
+            tenant: string;
+            /** Warnings */
+            warnings?: string[];
+            /** Warnings V2 */
+            warnings_v2?: components["schemas"]["WarningPayload"][];
+            /**
+             * Watermark Id
+             * @default
+             */
+            watermark_id: string;
+        };
+        /**
+         * RoundsDeltaPayload
+         * @description This tile's movement since the prior load, in the metric's own unit.
+         *
+         *     Unit honesty is the whole point of the shape. A rate's movement is
+         *     stated in POINTS (``1.3 points``), never as a percentage that a reader
+         *     cannot tell from a relative change; money keeps dollars; counts stay
+         *     counts. ``delta_text`` is the rendered form and ``delta`` the raw
+         *     number, so a client can format its own without re-deriving the unit.
+         *
+         *     ``comparable`` is false — with a reason — whenever the two loads are
+         *     not two measurements of one thing: a first evaluation, a pin whose
+         *     metric or unit changed, a prior value that was suppressed. A percentage
+         *     is withheld in that case rather than computed from mismatched sides.
+         */
+        RoundsDeltaPayload: {
+            /**
+             * Below Governed Gate
+             * @default false
+             */
+            below_governed_gate: boolean;
+            /**
+             * Comparable
+             * @default true
+             */
+            comparable: boolean;
+            /** Delta */
+            delta?: number | null;
+            /** Delta Fraction */
+            delta_fraction?: number | null;
+            /**
+             * Delta Text
+             * @default
+             */
+            delta_text: string;
+            /**
+             * Direction
+             * @default unknown
+             * @enum {string}
+             */
+            direction: "up" | "down" | "flat" | "unknown";
+            /**
+             * Material
+             * @default false
+             */
+            material: boolean;
+            /**
+             * Materiality Note
+             * @default
+             */
+            materiality_note: string;
+            /**
+             * Materiality Rule
+             * @default
+             */
+            materiality_rule: string;
+            /** Not Comparable Reason */
+            not_comparable_reason?: string | null;
+            /** Prior Value */
+            prior_value?: number | null;
+            /**
+             * Prior Value Text
+             * @default
+             */
+            prior_value_text: string;
+            /**
+             * Prior Watermark Id
+             * @default
+             */
+            prior_watermark_id: string;
+            /**
+             * Reference
+             * @default prior_load
+             * @enum {string}
+             */
+            reference: "prior_load" | "baseline";
+            /**
+             * Same Window
+             * @default false
+             */
+            same_window: boolean;
+            /**
+             * Threshold Source
+             * @default governed
+             * @enum {string}
+             */
+            threshold_source: "governed" | "watch";
+            /** Unit */
+            unit?: string | null;
+            /** Value */
+            value?: number | null;
+            /**
+             * Value Text
+             * @default
+             */
+            value_text: string;
+        };
+        /**
+         * RoundsFatigueAdvisory
+         * @description The brief noticing that somebody's own thresholds are too loose.
+         *
+         *     A watch may set a threshold looser than the pack's governed gate, which
+         *     is a real need and a real risk. When those settings brief movements the
+         *     governed gate calls normal variation, on several consecutive loads, the
+         *     surface says so — ONCE per load, in governed wording, with the counts
+         *     that back it:
+         *
+         *         3 of your watches moved within normal variation for the third load
+         *         running — consider tightening them.
+         *
+         *     Never more than once per load and never for a single load's worth of
+         *     noise: an advisory that nagged would be the fatigue it is warning
+         *     about. ``active`` false means the condition has not been met, and the
+         *     counts are still published so the state is readable rather than
+         *     inferred from an absent field.
+         */
+        RoundsFatigueAdvisory: {
+            /**
+             * Active
+             * @default false
+             */
+            active: boolean;
+            /**
+             * Consecutive Loads
+             * @default 0
+             */
+            consecutive_loads: number;
+            /**
+             * Loads Required
+             * @default 0
+             */
+            loads_required: number;
+            /**
+             * Message
+             * @default
+             */
+            message: string;
+            /**
+             * Watches Below Governed Gate
+             * @default 0
+             */
+            watches_below_governed_gate: number;
+        };
+        /**
+         * RoundsImmaterialSummary
+         * @description Everything the gate held back, counted rather than hidden.
+         *
+         *     The line a brief owes its reader: "4 watched items moved immaterially".
+         *     Suppressing a movement silently and suppressing it visibly are
+         *     different products — the first is a filter the analyst cannot audit.
+         */
+        RoundsImmaterialSummary: {
+            /**
+             * Entries Withheld By Cap
+             * @default 0
+             */
+            entries_withheld_by_cap: number;
+            /**
+             * New Leads
+             * @default 0
+             */
+            new_leads: number;
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /**
+             * Pin Movements
+             * @default 0
+             */
+            pin_movements: number;
+            /**
+             * Self Resolved
+             * @default 0
+             */
+            self_resolved: number;
+        };
+        /**
+         * RoundsLeadPatchRequest
+         * @description Move one lead along its lifecycle.
+         *
+         *     Only the four human-settable statuses are accepted. Asking for
+         *     ``resolved_confirmed`` is refused with the reason: confirmation is a
+         *     measurement across two loads, and a lead that could be confirmed by
+         *     assertion would make the whole verification path decorative.
+         */
+        RoundsLeadPatchRequest: {
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "open" | "acknowledged" | "working" | "resolved_claimed";
+        };
+        /**
+         * RoundsLeadPayload
+         * @description One lead's lifecycle state.
+         *
+         *     ``resolved_confirmed`` and ``regressed`` are verdicts the PLATFORM
+         *     reaches from data across loads; a human can claim resolution and
+         *     cannot assert it. That asymmetry is the feature: "mark as resolved" on
+         *     every other tool in this category is a checkbox, and a checkbox is an
+         *     opinion.
+         */
+        RoundsLeadPayload: {
+            /** Anomaly Id */
+            anomaly_id: string;
+            /**
+             * Baseline Basis
+             * @default
+             */
+            baseline_basis: string;
+            /** Baseline Cents */
+            baseline_cents?: number | null;
+            /** Claimed At Watermark */
+            claimed_at_watermark?: string | null;
+            /**
+             * Confirmations Required
+             * @default 0
+             */
+            confirmations_required: number;
+            /** Confirming Watermarks */
+            confirming_watermarks?: string[];
+            /** History */
+            history?: {
+                [key: string]: unknown;
+            }[];
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /**
+             * Status
+             * @default open
+             * @enum {string}
+             */
+            status: "open" | "acknowledged" | "working" | "resolved_claimed" | "resolved_confirmed" | "regressed";
+            /**
+             * Tenant
+             * @default
+             */
+            tenant: string;
+            /** Updated At */
+            updated_at?: string | null;
+            /**
+             * Verification Note
+             * @default
+             */
+            verification_note: string;
+        };
+        /**
+         * RoundsMaterialityPayload
+         * @description The governed gate that was actually applied, published.
+         *
+         *     Thresholds live in ``packs/base-rcm/rounds.yaml`` — pack content, with
+         *     an authoring rationale beside every number — never in engine code. They
+         *     ride on the response so a reader can check the gate that produced a
+         *     brief (or the absence of one) rather than take it on faith, and so two
+         *     deployments running different packs can be told apart from the payload.
+         */
+        RoundsMaterialityPayload: {
+            /** Always Material Lanes */
+            always_material_lanes?: string[];
+            /**
+             * Content Hash
+             * @default
+             */
+            content_hash: string;
+            /**
+             * Max Entries
+             * @default 0
+             */
+            max_entries: number;
+            /**
+             * New Lead Min Impact Cents
+             * @default 0
+             */
+            new_lead_min_impact_cents: number;
+            /**
+             * Source
+             * @default
+             */
+            source: string;
+            /** Unit Kinds */
+            unit_kinds?: {
+                [key: string]: {
+                    [key: string]: number;
+                };
+            };
+        };
+        /** RoundsPinListResponse */
+        RoundsPinListResponse: {
+            /** Pins */
+            pins?: components["schemas"]["RoundsPinPayload"][];
+            /**
+             * Tenant
+             * @default
+             */
+            tenant: string;
+            /**
+             * Total
+             * @default 0
+             */
+            total: number;
+        };
+        /**
+         * RoundsPinPayload
+         * @description One pinned spec, as stored.
+         *
+         *     ``spec`` is published, not hidden: a watch whose definition a reader
+         *     cannot see is a watch they cannot check, and this is the object that
+         *     decides what the tile measures every morning.
+         */
+        RoundsPinPayload: {
+            /** Archived At */
+            archived_at?: string | null;
+            /** Baseline Unit */
+            baseline_unit?: string | null;
+            /** Baseline Value */
+            baseline_value?: number | null;
+            /**
+             * Baseline Value Text
+             * @default
+             */
+            baseline_value_text: string;
+            /** Baseline Watermark Id */
+            baseline_watermark_id?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Created From Investigation Id */
+            created_from_investigation_id?: string | null;
+            /**
+             * Created From Kind
+             * @default spec
+             * @enum {string}
+             */
+            created_from_kind: "artifact" | "intent" | "spec";
+            /** Created From Referent */
+            created_from_referent?: string | null;
+            /** Label */
+            label: string;
+            /** Pin Id */
+            pin_id: string;
+            /**
+             * Presentation
+             * @enum {string}
+             */
+            presentation: "chart" | "finding" | "worklist_slice" | "scalar";
+            /**
+             * Scope
+             * @default tenant
+             * @constant
+             */
+            scope: "tenant";
+            spec: components["schemas"]["TypedInvestigationSpec"];
+            /** Tenant */
+            tenant: string;
+            watch?: components["schemas"]["RoundsWatchModel"] | null;
+            /**
+             * Window Mode
+             * @enum {string}
+             */
+            window_mode: "relative" | "absolute" | "anchored";
+            /**
+             * Window Note
+             * @default
+             */
+            window_note: string;
+        };
+        /**
+         * RoundsProvenancePayload
+         * @description Where one brief entry came from. On every entry, no exceptions.
+         *
+         *     A brief is the surface furthest from the evidence — somebody reads it
+         *     over coffee — so each line has to be able to say which system asserted
+         *     it, at which load, and by what method.
+         */
+        RoundsProvenancePayload: {
+            /** Evaluated At */
+            evaluated_at?: string | null;
+            /** Formula Version */
+            formula_version?: string | null;
+            /**
+             * Method
+             * @default
+             */
+            method: string;
+            /** Prior Watermark Id */
+            prior_watermark_id?: string | null;
+            /**
+             * Source
+             * @enum {string}
+             */
+            source: "detection_feed" | "pinned_spec";
+            /**
+             * Watermark Id
+             * @default
+             */
+            watermark_id: string;
+        };
+        /**
+         * RoundsResponse
+         * @description The Rounds surface at one load: every active pin, evaluated.
+         */
+        RoundsResponse: {
+            /** Newest Data Date */
+            newest_data_date?: string | null;
+            /** Prior Watermark Id */
+            prior_watermark_id?: string | null;
+            /**
+             * Tenant
+             * @default
+             */
+            tenant: string;
+            /** Tiles */
+            tiles?: components["schemas"]["RoundsTilePayload"][];
+            /** Warnings */
+            warnings?: string[];
+            /** Warnings V2 */
+            warnings_v2?: components["schemas"]["WarningPayload"][];
+            /**
+             * Watermark Id
+             * @default
+             */
+            watermark_id: string;
+        };
+        /**
+         * RoundsTileIntegrity
+         * @description The M22 integrity line, as a payload (the tile's honesty contract).
+         *
+         *     Every field here is a count of something the tile also carries, so a
+         *     renderer states facts rather than inventing a score:
+         *
+         *         ● Verified against your data · 3 things to know, 2 change how a
+         *           number here should be read · 12 checks
+         *
+         *     ``grade`` is the answer-level evidence grade, ``things_to_know`` is
+         *     exactly ``len(caveat_codes_expanded)`` — the caveats the tile publishes
+         *     — and ``checks`` is the probes the evaluation ran. A tile that dropped
+         *     any of them would present a bounded, provisional, proxy-graded figure
+         *     with the same weight as a measured one.
+         */
+        RoundsTileIntegrity: {
+            /** Caveat Codes */
+            caveat_codes?: string[];
+            /**
+             * Checks
+             * @default 0
+             */
+            checks: number;
+            /**
+             * Grade
+             * @default direct
+             */
+            grade: string;
+            /**
+             * Is Bound
+             * @default false
+             */
+            is_bound: boolean;
+            /**
+             * Provisional
+             * @default false
+             */
+            provisional: boolean;
+            /**
+             * Things To Know
+             * @default 0
+             */
+            things_to_know: number;
+            /**
+             * Things To Know Caution
+             * @default 0
+             */
+            things_to_know_caution: number;
+        };
+        /**
+         * RoundsTilePayload
+         * @description One pin, evaluated at one load.
+         *
+         *     ``status`` is honest about the three things that can happen when a
+         *     stored spec meets a new load: it answered (``ok``), the platform
+         *     refused it (``unavailable`` — a catalog or pack change can make
+         *     yesterday's spec unanswerable today, and a tile that went blank
+         *     without saying so would look like a zero), or it came back asking a
+         *     question (``clarification``, which a typed spec should never do and
+         *     which is reported rather than swallowed if it does).
+         */
+        RoundsTilePayload: {
+            baseline_delta?: components["schemas"]["RoundsDeltaPayload"] | null;
+            delta?: components["schemas"]["RoundsDeltaPayload"] | null;
+            /** Evaluated At */
+            evaluated_at?: string | null;
+            /** Findings */
+            findings?: components["schemas"]["FindingPayload"][];
+            /** Headline Referent */
+            headline_referent?: string | null;
+            /**
+             * Headline Statement
+             * @default
+             */
+            headline_statement: string;
+            /**
+             * Headline Title
+             * @default
+             */
+            headline_title: string;
+            integrity?: components["schemas"]["RoundsTileIntegrity"];
+            /** Investigation Id */
+            investigation_id?: string | null;
+            /** Label */
+            label: string;
+            /** Metric Id */
+            metric_id?: string | null;
+            /** Newest Data Date */
+            newest_data_date?: string | null;
+            /** Pin Id */
+            pin_id: string;
+            /**
+             * Presentation
+             * @enum {string}
+             */
+            presentation: "chart" | "finding" | "worklist_slice" | "scalar";
+            /**
+             * Status
+             * @default ok
+             * @enum {string}
+             */
+            status: "ok" | "unavailable" | "clarification";
+            /** Unavailable Reason */
+            unavailable_reason?: string | null;
+            /** Unit */
+            unit?: string | null;
+            /** Value */
+            value?: number | null;
+            /**
+             * Value Text
+             * @default
+             */
+            value_text: string;
+            /** Warnings */
+            warnings?: string[];
+            /** Warnings V2 */
+            warnings_v2?: components["schemas"]["WarningPayload"][];
+            /**
+             * Watermark Id
+             * @default
+             */
+            watermark_id: string;
+            /** Window End */
+            window_end?: string | null;
+            /** Window Start */
+            window_start?: string | null;
+        };
+        /**
+         * RoundsWatchModel
+         * @description One watch's own sensitivity, overriding the pack's default gate.
+         *
+         *     (Lives here rather than in ``rounds.py`` because a turn answer carries
+         *     it — see :class:`WatchDeclarationPayload` — and one definition beats
+         *     two that have to agree.)
+         *
+         *     Unit honesty is enforced at creation, not at fire time: a ``points``
+         *     threshold on a money contract, or ``cents`` on a rate, is REFUSED with
+         *     the reason rather than coerced into the nearest legal unit. A threshold
+         *     in the wrong unit produces a watch that never fires — or always does —
+         *     for a reason nobody can see on the screen, which is the worst of the
+         *     available failures.
+         *
+         *     A threshold may LOOSEN the governed gate as well as tighten it.
+         *     Somebody watching one specific cell knows things the pack's blanket
+         *     threshold does not, and refusing that pushes them back to a
+         *     spreadsheet. It is paid for rather than refused: every brief entry says
+         *     which threshold briefed it, and a watch whose own threshold keeps
+         *     firing on movements the governed gate calls normal variation is counted
+         *     and named once per load.
+         *
+         *     BASELINE SEMANTICS: a watch's reference point is its CREATION-LOAD
+         *     value for every mode except ``crosses``, whose reference is the
+         *     crossing level. Deltas are stated against the PRIOR load always, and
+         *     against the baseline additionally whenever the two differ materially —
+         *     a tile that drifted four points since it was created while moving 0.2
+         *     overnight is telling two true stories, and showing only the second
+         *     would hide the reason the watch exists.
+         */
+        RoundsWatchModel: {
+            /**
+             * Direction
+             * @default any
+             * @enum {string}
+             */
+            direction: "any" | "up" | "down";
+            /**
+             * Mode
+             * @default governed_default
+             * @enum {string}
+             */
+            mode: "governed_default" | "any_movement" | "delta_gte" | "crosses";
+            /**
+             * Note
+             * @default
+             */
+            note: string;
+            /** Unit */
+            unit?: ("points" | "relative_pct" | "cents") | null;
+            /** Value */
+            value?: number | null;
+        };
         /** SessionLineageResponse */
         SessionLineageResponse: {
             /** Edges */
@@ -1909,6 +2844,75 @@ export interface components {
             /** Title */
             title: string;
         };
+        /**
+         * TimeToImpactPayload
+         * @description When this lead's dollars hit cash — or whether they already have.
+         *
+         *     Published CONTEXT, never a re-ranking. ``anomaly_priority@3`` orders
+         *     the worklist and this does not touch it: a rank change needs its own
+         *     versioned formula decision, and smuggling urgency into an existing
+         *     version would make two builds of the same data disagree with no version
+         *     string to explain it. The split a reader wants — "already hit cash" vs
+         *     "hits cash in ~N days, still catchable" — is :attr:`lane`.
+         *
+         *     Four honest outcomes, and the fourth is the important one:
+         *
+         *     * ``already_hit`` — the cash effect is in the past (a denial has
+         *       already failed to pay). A recovery deadline may still be open, and
+         *       rides here when the detector published one;
+         *     * ``deadline`` — a real, dated limit from the detector's own evidence
+         *       (timely filing). :attr:`deadline_date` is a date, not an estimate;
+         *     * ``projected`` — an aging projection with the method STATED and
+         *       :attr:`provisional` set. An estimate presented as a date would be a
+         *       forecast this platform has not earned;
+         *     * ``unknown`` — no honest basis exists for this category, and
+         *       :attr:`reason` says so. A guess here would be indistinguishable from
+         *       the real dates beside it, which is exactly why there is no guess.
+         */
+        TimeToImpactPayload: {
+            /** Days */
+            days?: number | null;
+            /** Deadline Date */
+            deadline_date?: string | null;
+            /**
+             * Kind
+             * @default unknown
+             * @enum {string}
+             */
+            kind: "already_hit" | "deadline" | "projected" | "unknown";
+            /**
+             * Lane
+             * @default unknown
+             * @enum {string}
+             */
+            lane: "already_hit" | "pre_cash" | "unknown";
+            /**
+             * Method
+             * @default
+             */
+            method: string;
+            /**
+             * Method Id
+             * @default
+             */
+            method_id: string;
+            /**
+             * Provisional
+             * @default false
+             */
+            provisional: boolean;
+            /** Reason */
+            reason?: string | null;
+            /** Recovery Days */
+            recovery_days?: number | null;
+            /** Recovery Deadline Date */
+            recovery_deadline_date?: string | null;
+            /**
+             * Recovery Label
+             * @default
+             */
+            recovery_label: string;
+        };
         /** TurnAnswer */
         TurnAnswer: {
             anomaly_reconciliation?: components["schemas"]["AnomalyReconciliationPayload"] | null;
@@ -1951,6 +2955,7 @@ export interface components {
             warnings?: string[];
             /** Warnings V2 */
             warnings_v2?: components["schemas"]["WarningPayload"][];
+            watch?: components["schemas"]["WatchDeclarationPayload"] | null;
             /**
              * Watermark Stale
              * @default false
@@ -2173,6 +3178,53 @@ export interface components {
              * @enum {string}
              */
             severity: "caution" | "info";
+        };
+        /**
+         * WatchDeclarationPayload
+         * @description The one-time confirmation a "watch X" turn answers with.
+         *
+         *     A watch declaration is not a question and it is not a silent
+         *     registration. It is an ordinary turn — the same interpretation, the
+         *     same planning, the same §6.6 validation, the same findings — whose
+         *     answer doubles as the BASELINE: what the thing being watched reads
+         *     right now, so the analyst can see they are watching the right cell
+         *     before they walk away from it.
+         *
+         *         Watching: Silverline MA denial rate, monthly — currently 12.4%.
+         *         I'll brief you when it moves more than half a point.
+         *
+         *     Everything in that sentence is a fact from the answer beside it: the
+         *     spec the platform compiled, the value it measured, and the threshold it
+         *     will gate on. A declaration that could not be compiled clarifies
+         *     exactly as a question would — a watch registered against a spec nobody
+         *     confirmed is a watch that briefs the wrong number every morning.
+         */
+        WatchDeclarationPayload: {
+            /**
+             * Baseline Value Text
+             * @default
+             */
+            baseline_value_text: string;
+            /**
+             * Baseline Watermark Id
+             * @default
+             */
+            baseline_watermark_id: string;
+            /** Label */
+            label: string;
+            /**
+             * Matched Phrase
+             * @default
+             */
+            matched_phrase: string;
+            /** Pin Id */
+            pin_id: string;
+            spec: components["schemas"]["TypedInvestigationSpec"];
+            /** Statement */
+            statement: string;
+            /** Threshold Statement */
+            threshold_statement: string;
+            watch: components["schemas"]["RoundsWatchModel"];
         };
         /**
          * WindowSpecModel
@@ -2691,6 +3743,584 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description SOURCE_UNAVAILABLE or DATA_LOADING — the analytical source cannot serve this watermark right now. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_rounds_v1_rounds_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoundsResponse"];
+                };
+            };
+            /** @description Stable §12 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, …). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unknown session, investigation, or referent (REFERENT_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description WATERMARK_STALE or CONTEXT_CONFLICT — the pinned context cannot absorb the request without an explicit decision. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description SOURCE_UNAVAILABLE or DATA_LOADING — the analytical source cannot serve this watermark right now. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_rounds_brief_v1_rounds_brief_get: {
+        parameters: {
+            query?: {
+                /** @description Diff against THIS evaluated load rather than the previous one (a watermark id). A load this tenant never evaluated is a 404 rather than a silent fall-back: a brief that quietly diffed against a different load than the one it was asked for would misreport every entry on it. */
+                since?: string | null;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoundsBriefResponse"];
+                };
+            };
+            /** @description Stable §12 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, …). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unknown session, investigation, or referent (REFERENT_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description WATERMARK_STALE or CONTEXT_CONFLICT — the pinned context cannot absorb the request without an explicit decision. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description SOURCE_UNAVAILABLE or DATA_LOADING — the analytical source cannot serve this watermark right now. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_rounds_lead_v1_rounds_leads__anomaly_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                anomaly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoundsLeadPayload"];
+                };
+            };
+            /** @description Stable §12 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, …). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unknown session, investigation, or referent (REFERENT_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description WATERMARK_STALE or CONTEXT_CONFLICT — the pinned context cannot absorb the request without an explicit decision. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description SOURCE_UNAVAILABLE or DATA_LOADING — the analytical source cannot serve this watermark right now. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    patch_rounds_lead_v1_rounds_leads__anomaly_id__patch: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                anomaly_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["RoundsLeadPatchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoundsLeadPayload"];
+                };
+            };
+            /** @description Stable §12 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, …). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unknown session, investigation, or referent (REFERENT_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description WATERMARK_STALE or CONTEXT_CONFLICT — the pinned context cannot absorb the request without an explicit decision. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description SOURCE_UNAVAILABLE or DATA_LOADING — the analytical source cannot serve this watermark right now. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    list_rounds_pins_v1_rounds_pins_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoundsPinListResponse"];
+                };
+            };
+            /** @description Stable §12 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, …). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unknown session, investigation, or referent (REFERENT_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description WATERMARK_STALE or CONTEXT_CONFLICT — the pinned context cannot absorb the request without an explicit decision. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description SOURCE_UNAVAILABLE or DATA_LOADING — the analytical source cannot serve this watermark right now. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    create_rounds_pin_v1_rounds_pins_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["CreateRoundsPinRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            201: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["RoundsPinPayload"];
+                };
+            };
+            /** @description Stable §12 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, …). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unknown session, investigation, or referent (REFERENT_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description WATERMARK_STALE or CONTEXT_CONFLICT — the pinned context cannot absorb the request without an explicit decision. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description SOURCE_UNAVAILABLE or DATA_LOADING — the analytical source cannot serve this watermark right now. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    delete_rounds_pin_v1_rounds_pins__pin_id__delete: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                pin_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            204: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content?: never;
+            };
+            /** @description Stable §12 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, …). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unknown session, investigation, or referent (REFERENT_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description WATERMARK_STALE or CONTEXT_CONFLICT — the pinned context cannot absorb the request without an explicit decision. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
             /** @description SOURCE_UNAVAILABLE or DATA_LOADING — the analytical source cannot serve this watermark right now. */

@@ -17,6 +17,7 @@ import {
 } from "recharts";
 
 import { DownloadCsvButton } from "@/components/answer/AnswerActions";
+import { WatchThis } from "@/components/rounds/WatchThis";
 import { Button } from "@/components/ui/button";
 import { capChartSeries, humanizeColumn, OTHERS_SERIES_KEY } from "@/lib/contract";
 import { humanizeInline } from "@/lib/humanize";
@@ -26,6 +27,7 @@ import {
   formatMeasureDelta,
   formatMeasureTick,
   formatSignedPct,
+  humanizeIsoDates,
 } from "@/lib/format";
 import { useSessionStore } from "@/lib/store";
 import type { ChartCell, ChartSeries, ChartSpec } from "@/lib/types";
@@ -618,7 +620,11 @@ export function InvestigationChart({
           <p className="mt-1">{spec.keying.note}</p>
         </div>
       ) : (
-      <div className={cn("w-full", rotateTicks ? "h-72" : "h-52")}>
+      // A little more room than the marks strictly need. 13rem was the
+      // height at which a twelve-bar ranking became a picket fence; 14
+      // gives the plot the same air the wider category gap gives it
+      // across.
+      <div className={cn("w-full", rotateTicks ? "h-72" : "h-56")}>
         <ResponsiveContainer width="100%" height="100%">
           {spec.kind === "line" ? (
             // BUG 2 — the figure keeps its own padding. `preserveStartEnd`
@@ -693,9 +699,15 @@ export function InvestigationChart({
               // the leftmost label needs a gutter the plot area does not
               // otherwise give it — and the rightmost needs one for its
               // ascender. See BUG 2.
-              margin={rotateTicks ? { top: 8, right: 16, bottom: 0, left: 10 } : { top: 8, right: 12, bottom: 0, left: 0 }}
-              barGap={2}
-              barCategoryGap="26%"
+              // THE WARMTH PASS, in geometry. A denser plot is not a more
+              // informative one: at 26% category gap the bars were a
+              // palisade, and the eye read the fence rather than the
+              // heights. 34% lets each category breathe and makes the
+              // 2-3px gap between a comparison's two bars legible as a
+              // pair rather than as one thick mark.
+              margin={rotateTicks ? { top: 12, right: 16, bottom: 0, left: 10 } : { top: 12, right: 14, bottom: 0, left: 0 }}
+              barGap={3}
+              barCategoryGap="34%"
             >
               <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
               {/* `interval={0}` forced every one of 150 provider ticks to
@@ -717,7 +729,13 @@ export function InvestigationChart({
                   : {})}
               />
               <YAxis {...axisProps} tickFormatter={formatTick} width={48} />
-              <Tooltip content={tooltipContent} cursor={{ fill: "var(--chart-grid)" }} />
+              {/* A softer hover band. The cursor is a "you are here", not
+                  a selection: at the grid's own opacity it read as a
+                  second, darker gridline sliding across the plot. */}
+              <Tooltip
+                content={tooltipContent}
+                cursor={{ fill: "var(--chart-grid)", fillOpacity: 0.6, radius: 4 }}
+              />
               {spec.highlightLabel && (
                 <ReferenceLine
                   x={spec.highlightLabel}
@@ -736,7 +754,13 @@ export function InvestigationChart({
                   // A stack's segments are one column: only the top one
                   // gets the rounded cap, and a 2px surface gap keeps
                   // adjacent fills from reading as a single mass.
-                  radius={stackId && i < spec.series.length - 1 ? 0 : [3, 3, 0, 0]}
+                  // 4px, the data-end radius the mark spec calls for —
+                  // enough to take the hard corner off a column without
+                  // rounding the mark into a lozenge. Anchored at the
+                  // baseline end, which stays square: a bar that curved
+                  // where it meets zero would read as starting somewhere
+                  // other than zero.
+                  radius={stackId && i < spec.series.length - 1 ? 0 : [4, 4, 0, 0]}
                   {...(stackId ? { stroke: "var(--card)", strokeWidth: 2 } : {})}
                   // A MEASURED ZERO gets a baseline tick. Without one it
                   // draws as nothing at all, which is exactly what a
@@ -855,6 +879,21 @@ export function InvestigationChart({
           )}
         </span>
         <span className="flex items-center gap-1">
+          {/* WATCH THIS, at the figure's own pin point — beside the export,
+              which is the other "take this away with you" gesture on the
+              chart. What it registers is the SPEC behind the figure, so
+              tomorrow's tile re-runs this question at the new load rather
+              than remembering today's bars. */}
+          {investigationId && (
+            <WatchThis
+              artifactKey={`${investigationId}:chart:${published.id}`}
+              investigationId={investigationId}
+              referent={published.id}
+              presentation="chart"
+              label={published.title || published.id}
+              size="row"
+            />
+          )}
           {spec.truncation && spec.truncation.total > spec.truncation.shown && (
             <Button
               variant="ghost"
@@ -901,11 +940,36 @@ export function InvestigationChart({
 }
 
 /**
- * What "≤" means on this figure, as one sentence with the census in it.
+ * What "≤" MEANS on this figure — one idea, in the reader's nouns.
  *
- * Exported so the wording is pinned in one place: the same census reaches
- * the CSV preamble and the copied text, and three surfaces of one answer
- * counting its ceilings differently is how this class of defect starts.
+ * Rewritten, and both halves of the rewrite are the point.
+ *
+ * IT SAYS ONE THING. The old sentence carried three words for two ideas —
+ * "upper bound", "ceiling", "measurement" — plus a clause about a
+ * "suppressed numerator", which is the machine's account of WHY and not
+ * the reader's account of what they are looking at. The engine itself
+ * stopped writing like this in round 6: its own vocabulary is now "too
+ * small to measure exactly", stated once, with the full partition sent to
+ * the trace where an auditor can check it and a reader is not asked to.
+ * This line follows it, because two surfaces of one product describing one
+ * control in two vocabularies is how a reader learns to skip both.
+ *
+ * IT STOPS COMPETING WITH THE ENGINE'S CENSUS. The old single-series form
+ * printed its own count of the ceilings — and counted a different thing:
+ * the engine counts the marks it EMITTED and this counts the rows still
+ * DRAWN after selection and capping, so a live figure showed "1 of 1 mark
+ * is a ceiling" directly under the engine's "4 of 12 marks are ceilings".
+ * Two numbers about one control, three lines apart, is exactly the defect
+ * that six rounds of honesty work exists to prevent. The engine's sentence
+ * is the census; this one is the legend.
+ *
+ * The COMPARISON form keeps a count, and only there, because the engine's
+ * census is silent about the prior side — one current ceiling reported and
+ * three prior ones not, live. Per side, this adds the half nobody counted
+ * rather than restating the half that was.
+ *
+ * Exported so the wording is pinned in one place: the same sentence
+ * reaches the CSV preamble and the copied text.
  */
 export function boundedLegend(spec: ChartSpec): string {
   /*
@@ -927,24 +991,17 @@ export function boundedLegend(spec: ChartSpec): string {
     const total = spec.rows.length;
     const current = onSide(pair.currentKey);
     const prior = onSide(pair.priorKey);
-    const together = current + prior;
-    const single = together === 1;
+    const marks = total === 1 ? "mark" : "marks";
     return (
-      `≤ marks an upper bound — ${current} of ${total} ${total === 1 ? "mark" : "marks"} in ` +
-      `this window and ${prior} of ${total} in the window it is compared against ` +
-      `${single ? "is a ceiling" : "are ceilings"} over a suppressed numerator, ` +
-      `not ${single ? "a measurement" : "measurements"}, and ${single ? "it is" : "they are"} ` +
-      "not ranked against the measured ones."
+      `≤ means at most: too few things sit behind that mark to measure it exactly, ` +
+      `so the real figure is at or below it. ${current} of ${total} ${marks} in this window ` +
+      `and ${prior} of ${total} in the window it is compared against are limits, ` +
+      "and a limit is not ranked against a measured mark."
     );
   }
-  const bounded = spec.boundedRows ?? spec.rows.filter((row) => row.bounded === true).length;
-  const one = bounded === 1;
-  const total = spec.rows.length;
   return (
-    `≤ marks an upper bound — ${bounded} of ${total} ${total === 1 ? "mark" : "marks"} ` +
-    `${one ? "is a ceiling" : "are ceilings"} over a suppressed numerator, ` +
-    `not ${one ? "a measurement" : "measurements"}, and ${one ? "it is" : "they are"} ` +
-    "not ranked against the measured ones."
+    "≤ means at most: too few things sit behind that mark to measure it exactly, " +
+    "so the real figure is at or below it. A limit is not ranked against a measured mark."
   );
 }
 
@@ -1065,9 +1122,9 @@ export function ChartTooltipContent({
       { key: comparison.priorKey, value: prior, absent: priorAbsent },
     ];
     return (
-      <div className="max-w-72 rounded-md border bg-popover px-3 py-2 text-xs shadow-md">
+      <div className="max-w-72 rounded-lg border border-border/70 bg-popover/95 px-3 py-2.5 text-xs shadow-lg backdrop-blur-sm">
         <p className="mb-1 flex items-center gap-1.5 font-medium">
-          {String(label)}
+          {humanizeIsoDates(humanizeCategory(String(label)))}
           {referent && (
             <span className="rounded border border-verified/40 bg-verified/10 px-1 font-mono text-micro text-verified">
               {referent}
@@ -1155,9 +1212,9 @@ export function ChartTooltipContent({
     // inside the cap instead of being truncated — a half-read identity on
     // the one surface an analyst goes to for an exact number is worse than
     // two lines — and the number itself never wraps away from its label.
-    <div className="max-w-72 rounded-md border bg-popover px-3 py-2 text-xs shadow-md">
+    <div className="max-w-72 rounded-lg border border-border/70 bg-popover/95 px-3 py-2.5 text-xs shadow-lg backdrop-blur-sm">
       <p className="mb-1 flex items-center gap-1.5 font-medium">
-        {String(label)}
+        {humanizeIsoDates(humanizeCategory(String(label)))}
         {referent && (
           <span className="rounded border border-verified/40 bg-verified/10 px-1 font-mono text-micro text-verified">
             {referent}

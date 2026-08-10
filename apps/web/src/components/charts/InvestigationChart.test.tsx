@@ -223,13 +223,32 @@ describe("InvestigationChart — marks that are not measurements", () => {
     ],
   });
 
-  it("states the ceiling census under the figure, in words", () => {
+  it("says what ≤ MEANS, and leaves the census to the engine", () => {
+    // One idea, in the reader's nouns, with no count in it. The old
+    // sentence carried its own census — of the rows still DRAWN after
+    // selection and capping — directly under the engine's census of the
+    // marks it EMITTED, and live the two printed different numbers about
+    // one control three lines apart.
     render(<InvestigationChart spec={bounded} turnId="turn_1" />);
     expect(
       screen.getByText(
-        "≤ marks an upper bound — 1 of 2 marks is a ceiling over a suppressed numerator, not a measurement, and it is not ranked against the measured ones.",
+        "≤ means at most: too few things sit behind that mark to measure it exactly, so the real figure is at or below it. A limit is not ranked against a measured mark.",
       ),
     ).toBeInTheDocument();
+  });
+
+  it("does not print a second ceiling count beside the engine's", () => {
+    // The regression this rewrite closes: a figure whose drawn rows and
+    // whose emitted marks are different populations must not state both
+    // as though they were one.
+    render(
+      <InvestigationChart
+        spec={{ ...bounded, note: "upper bounds: 4 of 12 marks are ceilings, not measurements" }}
+        turnId="turn_1"
+      />,
+    );
+    expect(screen.getByText(/upper bounds: 4 of 12 marks/)).toBeInTheDocument();
+    expect(screen.queryByText(/1 of 2 marks is a ceiling/)).not.toBeInTheDocument();
   });
 
   it("prints the refusal above the picture, not 400px below it", () => {
@@ -446,8 +465,20 @@ describe("InvestigationChart — a trend drawn through ceilings", () => {
         "Segments touching a ceiling are drawn dashed with a hollow point — the line between two ceilings is not a measured movement.",
       ),
     ).toBeInTheDocument();
-    // The census the bar chart already stated, on the line too.
-    expect(screen.getByText(/≤ marks an upper bound — 6 of 5 marks/)).toBeInTheDocument();
+    // And what ≤ MEANS, on the line too — with no count in it.
+    //
+    // This assertion used to read "6 of 5 marks", which is what the old
+    // caption actually printed on this fixture: `boundedRows` is the
+    // engine's count of the marks it EMITTED (6) and `rows.length` is what
+    // survived selection to be DRAWN (5). An impossible fraction, on the
+    // one line whose job is to say a number cannot be trusted. The caption
+    // states the meaning and leaves every census to the engine.
+    expect(
+      screen.getByText(
+        /≤ means at most: too few things sit behind that mark to measure it exactly/,
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/6 of 5 marks/)).not.toBeInTheDocument();
   });
 
   it("names a withheld cell as a refusal rather than leaving it a gap", () => {
@@ -545,9 +576,9 @@ describe("a comparison chart says which two windows it is drawing", () => {
     // combined figure here would print a different number a paragraph
     // below it and read as two surfaces disagreeing about one control.
     expect(boundedLegend(COMPARISON)).toBe(
-      "≤ marks an upper bound — 1 of 2 marks in this window and 2 of 2 in the window it is " +
-        "compared against are ceilings over a suppressed numerator, not measurements, and they " +
-        "are not ranked against the measured ones.",
+      "≤ means at most: too few things sit behind that mark to measure it exactly, so the " +
+        "real figure is at or below it. 1 of 2 marks in this window and 2 of 2 in the window " +
+        "it is compared against are limits, and a limit is not ranked against a measured mark.",
     );
   });
 

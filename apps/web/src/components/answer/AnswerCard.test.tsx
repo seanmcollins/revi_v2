@@ -15,6 +15,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import { AnswerCard } from "@/components/answer/AnswerCard";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import typedTurns from "@/lib/__fixtures__/live-typed-turns.json";
 import { resetAnswerVariantCache, setAnswerVariant } from "@/lib/answerVariant";
 import { DEFAULT_SETTINGS } from "@/lib/settings";
 import { emptyAnswer, useSessionStore, type TurnRecord } from "@/lib/store";
@@ -922,8 +923,35 @@ describe("AnswerCard — what a screen reader is told", () => {
  * fourteen times on one page.
  */
 describe("AnswerCard — a caution is printed once, not twice", () => {
-  const CENSUS =
-    "Of 150 cells on this answer, 96 carry an upper bound, 0 were withheld outright and 54 are measured.";
+  /**
+   * A sentence the engine ACTUALLY emits, read from a captured turn.
+   *
+   * This constant used to be "Of 150 cells on this answer, 96 carry an
+   * upper bound, 0 were withheld outright and 54 are measured." — a
+   * sentence the engine stopped writing in round 6, when the arithmetic
+   * census moved to the trace (`SelectionCensus.as_payload`) and the page
+   * kept only the count in words. The behaviour under test here is
+   * de-duplication between prose and banner, which needs a real sentence
+   * and does not care which one; pinning a retired one made the test read
+   * as a claim about an engine that no longer exists.
+   *
+   * `live-typed-turns.json` is captured by `scripts/capture-fixtures.mjs`
+   * from a TYPED turn — no model call — so this stays in step by being
+   * re-captured rather than by somebody remembering.
+   */
+  const RAW: string =
+    (typedTurns.bounded_ranking.warnings_v2 as Array<{ code: string; message: string }>).find(
+      (w) => w.code === "ALTERNATE_BASIS_USED",
+    )?.message ?? "";
+  /**
+   * The BODY of that warning, terminated — which is what the composer
+   * builds into the prose and what `foldComposedDisclosures` matches on.
+   * The engine's messages carry no trailing stop; the composer's sentences
+   * do.
+   */
+  const CENSUS = `${RAW.replace(/^alternate_basis_used: /, "")}.`;
+  /** A distinctive fragment of it, for the "printed once" count below. */
+  const CENSUS_FRAGMENT = "is not available at the 'claim' grain";
 
   function doubled() {
     return bareTurn({
@@ -931,9 +959,9 @@ describe("AnswerCard — a caution is printed once, not twice", () => {
       warnings: [
         {
           type: "warning",
-          code: "SUPPRESSION_BOUNDED",
+          code: "ALTERNATE_BASIS_USED",
           severity: "caution",
-          message: CENSUS,
+          message: `alternate_basis_used: ${CENSUS}`,
           structured: true,
         },
       ],
@@ -943,7 +971,7 @@ describe("AnswerCard — a caution is printed once, not twice", () => {
   it("prints the sentence once — on the banner, which survives a reload", () => {
     const { container } = renderCard(doubled());
     const printed = [...container.querySelectorAll("p")].filter((p) =>
-      (p.textContent ?? "").includes("96 carry an upper bound"),
+      (p.textContent ?? "").includes(CENSUS_FRAGMENT),
     );
     expect(printed).toHaveLength(1);
     // And it is the BANNER that kept it: warnings survive a restore and
@@ -975,7 +1003,7 @@ describe("AnswerCard — a caution is printed once, not twice", () => {
         warnings: [
           {
             type: "warning",
-            code: "SUPPRESSION_BOUNDED",
+            code: "ALTERNATE_BASIS_USED",
             severity: "caution",
             message: CENSUS,
             structured: true,

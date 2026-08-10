@@ -15,7 +15,7 @@
 // hand-mirrored domain record like the rest of this file. Importing the
 // type here (instead of re-declaring it) is what keeps the event union and
 // the parser from drifting apart.
-import type { WorklistData } from "@/lib/contract";
+import type { WatchDeclaration, WorklistData } from "@/lib/contract";
 
 /* ------------------------------------------------------------------ */
 /* Grades (revi_kernel.grades)                                         */
@@ -1235,6 +1235,17 @@ export interface TurnCompleteEvent {
    * never mentioned.
    */
   worklist?: WorklistData;
+  /**
+   * `TurnAnswer.watch` — this turn was a WATCH DECLARATION ("watch
+   * Silverline's denial rate"), the platform compiled it, answered it, and
+   * registered the watch. The payload carries the confirmation sentence,
+   * the compiled threshold and the baseline the watch starts from.
+   *
+   * Absent on every ordinary turn, which is what makes it safe for a card
+   * to render as a state change: a turn carrying this has a real pin
+   * server-side.
+   */
+  watch?: WatchDeclaration;
   /** Present only when the settings in force for the turn had debug on. */
   debug?: DebugTrace;
 }

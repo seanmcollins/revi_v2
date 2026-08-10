@@ -42,6 +42,10 @@ from revi_api.memory_stores import (
     MemoryFrameStore,
     MemoryInvestigationStore,
     MemoryReferentRegistryStore,
+    MemoryRoundsLeadStore,
+    MemoryRoundsLoadStore,
+    MemoryRoundsPinResultStore,
+    MemoryRoundsPinStore,
     MemorySessionStore,
     MemoryTraceStore,
     MemoryTurnReceiptStore,
@@ -49,6 +53,7 @@ from revi_api.memory_stores import (
 from revi_api.metric_display import MetricDisplayRules, load_metric_display
 from revi_api.portfolio import DrillabilityProbe, PriorityPolicy, priority_policy_from_pack
 from revi_api.rederive import ImpactReDeriver, build_rederiver
+from revi_api.rounds_policy import ROUNDS_FILENAME, RoundsPolicy, load_rounds_policy
 from revi_api.scripted_llm import demo_language_model
 from revi_api.session_lifecycle import ArchivableSessionStore, TurnReceiptStore
 from revi_api.settings_policy import SettingsPolicy
@@ -77,6 +82,10 @@ from revi_investigation.application.ports import (
     InvestigationStore,
     LanguageModelPort,
     ReferentRegistryStore,
+    RoundsLeadStore,
+    RoundsLoadStore,
+    RoundsPinResultStore,
+    RoundsPinStore,
     TraceStore,
 )
 from revi_investigation.application.refinement_llm import (
@@ -128,6 +137,13 @@ class ApiComponents:
     #: Executed turns by idempotency key, so a retry after a restart
     #: returns the original answer instead of executing a second turn.
     receipts: TurnReceiptStore
+    #: Rounds (the proactive surface): watched typed specs, one evaluated
+    #: tile per (watch, load), the detection-feed census per load, and the
+    #: lead lifecycle. See :mod:`revi_api.rounds`.
+    rounds_pins: RoundsPinStore
+    rounds_results: RoundsPinResultStore
+    rounds_loads: RoundsLoadStore
+    rounds_leads: RoundsLeadStore
     event_bus: ContextTurnEventBus
     recipes: tuple[RecipeSpec, ...]
     priority_policy: PriorityPolicy
@@ -151,6 +167,12 @@ class ApiComponents:
     #: already computes without any question string being matched anywhere
     #: (round-2 deferred P1). See :mod:`revi_api.worklist`.
     worklist: WorklistRouting
+    #: The governed Rounds content: materiality thresholds per unit kind,
+    #: the resolution-confirmation rule, and per-category time-to-impact
+    #: derivation. Empty (``enabled`` false) when the pack ships none, in
+    #: which case the brief says so rather than applying a threshold nobody
+    #: agreed to. See :mod:`revi_api.rounds_policy`.
+    rounds_policy: RoundsPolicy
     store_mode: str
     llm_mode: str
     #: Whether the wired language model applies ``LlmCallPolicy`` — the
@@ -173,6 +195,10 @@ class _Stores:
     cohorts: CohortStore
     cache: EvidenceCache
     receipts: TurnReceiptStore
+    rounds_pins: RoundsPinStore
+    rounds_results: RoundsPinResultStore
+    rounds_loads: RoundsLoadStore
+    rounds_leads: RoundsLeadStore
     mode: str
 
 
@@ -187,6 +213,10 @@ def _memory_stores() -> _Stores:
         cohorts=MemoryCohortStore(),
         cache=MemoryEvidenceCache(),
         receipts=MemoryTurnReceiptStore(),
+        rounds_pins=MemoryRoundsPinStore(),
+        rounds_results=MemoryRoundsPinResultStore(),
+        rounds_loads=MemoryRoundsLoadStore(),
+        rounds_leads=MemoryRoundsLeadStore(),
         mode="memory",
     )
 
@@ -205,6 +235,10 @@ def _build_stores(env: Mapping[str, str]) -> _Stores:
             PostgresFrameStore,
             PostgresInvestigationStore,
             PostgresReferentRegistryStore,
+            PostgresRoundsLeadStore,
+            PostgresRoundsLoadStore,
+            PostgresRoundsPinResultStore,
+            PostgresRoundsPinStore,
             PostgresSessionStore,
             PostgresTraceStore,
             PostgresTurnReceiptStore,
@@ -224,6 +258,10 @@ def _build_stores(env: Mapping[str, str]) -> _Stores:
             cohorts=PostgresCohortStore(engine),
             cache=PostgresEvidenceCache(engine),
             receipts=PostgresTurnReceiptStore(engine),
+            rounds_pins=PostgresRoundsPinStore(engine),
+            rounds_results=PostgresRoundsPinResultStore(engine),
+            rounds_loads=PostgresRoundsLoadStore(engine),
+            rounds_leads=PostgresRoundsLeadStore(engine),
             mode="postgres",
         )
     except Exception as exc:
@@ -372,6 +410,24 @@ def build_components(
     actionability: ActionabilityRules = load_actionability_rules(actionability_path)
     metric_display: MetricDisplayRules = load_metric_display(pack_dir / "metric_display.yaml")
     worklist: WorklistRouting = load_worklist_routing(pack_dir / WORKLIST_FILENAME)
+    rounds_policy: RoundsPolicy = load_rounds_policy(pack_dir / ROUNDS_FILENAME)
+    if rounds_policy.enabled:
+        logger.info(
+            "governed Rounds content loaded: materiality thresholds for %s; brief cap %d; "
+            "resolution confirmed after %d consecutive load(s); time-to-impact rules for %d "
+            "categor(ies) [%s]",
+            ", ".join(sorted(rounds_policy.materiality.unit_kinds)) or "-",
+            rounds_policy.materiality.max_entries,
+            rounds_policy.resolution.consecutive_loads_required,
+            len(rounds_policy.time_to_impact.categories),
+            rounds_policy.content_hash[:12],
+        )
+    else:
+        logger.warning(
+            "no governed Rounds content in this pack (%s) — watches still evaluate, but NO "
+            "materiality gate is applied and no time-to-impact is derived; briefs say so",
+            pack_dir / ROUNDS_FILENAME,
+        )
     if worklist.enabled:
         logger.info(
             "worklist routing loaded: playbooks=%s concepts=%s (limit %d, max %d)",
@@ -410,6 +466,10 @@ def build_components(
         cohorts=stores.cohorts,
         cache=stores.cache,
         receipts=stores.receipts,
+        rounds_pins=stores.rounds_pins,
+        rounds_results=stores.rounds_results,
+        rounds_loads=stores.rounds_loads,
+        rounds_leads=stores.rounds_leads,
         event_bus=event_bus,
         recipes=recipes,
         priority_policy=priority_policy_from_pack(pack_snapshot),
@@ -418,6 +478,7 @@ def build_components(
         rederive_impact=rederive_impact,
         metric_display=metric_display,
         worklist=worklist,
+        rounds_policy=rounds_policy,
         store_mode=stores.mode,
         llm_mode=llm_mode,
         llm_applies_call_policy=applies_call_policy,

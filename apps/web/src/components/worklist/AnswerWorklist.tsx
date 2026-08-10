@@ -2,6 +2,7 @@
 
 import { ArrowUpRight, Ban, GitCompareArrows, ListOrdered } from "lucide-react";
 
+import { WatchThis } from "@/components/rounds/WatchThis";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { WorklistData } from "@/lib/contract";
@@ -46,6 +47,7 @@ import { warningBody } from "@/lib/warnings";
 export function AnswerWorklist({
   worklist,
   intro,
+  investigationId,
 }: {
   worklist: WorklistData;
   /**
@@ -54,6 +56,12 @@ export function AnswerWorklist({
    * heading then stands alone rather than inventing a disclaimer.
    */
   intro?: Omit<WarningEvent, "type">;
+  /**
+   * The turn this list arrived on — what a watch over it is registered
+   * against. Absent while the turn is still streaming, and the affordance
+   * is simply not there yet.
+   */
+  investigationId?: string;
 }) {
   const submit = useSessionStore((s) => s.submit);
   const streaming = useSessionStore((s) => s.streamingTurnId !== null);
@@ -75,8 +83,24 @@ export function AnswerWorklist({
           <ListOrdered className="size-3.5 text-muted-foreground" aria-hidden />
           {worklist.label || "What to work first"}
         </h3>
-        <span className="num shrink-0 font-mono text-micro text-muted-foreground">
-          {worklist.formulaVersion}
+        <span className="flex shrink-0 items-baseline gap-1.5">
+          {/* WATCH THIS, at the list's own pin point. A worklist is the
+              artifact on this page that changes most between loads —
+              cards arrive, cards leave, figures move — so a watch over it
+              is a watch over the whole ranked population rather than over
+              one number in it. */}
+          {investigationId && (
+            <WatchThis
+              artifactKey={`${investigationId}:worklist`}
+              investigationId={investigationId}
+              presentation="worklist_slice"
+              label={worklist.label || "this worklist"}
+              size="row"
+            />
+          )}
+          <span className="num font-mono text-micro text-muted-foreground">
+            {worklist.formulaVersion}
+          </span>
         </span>
       </header>
 

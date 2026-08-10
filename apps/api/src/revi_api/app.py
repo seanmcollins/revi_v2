@@ -58,6 +58,8 @@ from revi_api.auth import (
 )
 from revi_api.cohort_sweep import CohortSweepScheduler, sweep_interval_seconds
 from revi_api.error_copy import plain_message
+from revi_api.rounds_sweep import RoundsSweepScheduler
+from revi_api.rounds_sweep import sweep_interval_seconds as rounds_sweep_interval_seconds
 from revi_api.service import (
     DEFAULT_SESSION_LIST_LIMIT,
     MAX_SESSION_LIST_LIMIT,
@@ -81,6 +83,15 @@ from revi_investigation_contracts.api import (
     TurnRequest,
     TurnResponse,
     TurnStreamEvent,
+)
+from revi_investigation_contracts.rounds import (
+    CreateRoundsPinRequest,
+    RoundsBriefResponse,
+    RoundsLeadPatchRequest,
+    RoundsLeadPayload,
+    RoundsPinListResponse,
+    RoundsPinPayload,
+    RoundsResponse,
 )
 from revi_kernel.errors import ErrorCode, ReviError
 
@@ -229,14 +240,18 @@ def create_app(
 
     @asynccontextmanager
     async def lifespan(_: FastAPI) -> AsyncIterator[None]:
-        """Cohort reclamation runs in the process that creates cohorts.
+        """Background maintenance runs in the process that owns the state.
 
-        Components are wired here rather than left to the first request,
-        because a sweep that only happens on a request is a sweep that never
-        happens on an idle deployment — and the idle deployment is exactly the
-        one whose cohort tables nobody is watching. A wiring failure is logged
-        and the app still starts: reclaiming storage must not be able to keep
-        the surface that answers questions from coming up.
+        Two loops, same rule and same rationale: a sweep that only happens
+        on a request is a sweep that never happens on an idle deployment,
+        and the idle deployment is exactly the one nobody is watching.
+        Cohort reclamation collects the garbage this process makes; the
+        Rounds walk evaluates every watch when a new load lands, so the
+        brief is ready before anybody opens the app.
+
+        Components are wired here rather than left to the first request. A
+        wiring failure is logged and the app still starts: neither loop may
+        keep the surface that answers questions from coming up.
         """
         interval = sweep_interval_seconds(settings)
         # Wiring is skipped outright when reclamation is off, so switching
@@ -245,10 +260,17 @@ def create_app(
         scheduler = CohortSweepScheduler(
             _repository_or_none() if interval > 0 else None, interval_seconds=interval
         )
+        rounds_interval = rounds_sweep_interval_seconds(settings)
+        rounds_scheduler = RoundsSweepScheduler(
+            *(_rounds_parts() if rounds_interval > 0 else (None, None, None)),
+            interval_seconds=rounds_interval,
+        )
         await scheduler.start()
+        await rounds_scheduler.start()
         try:
             yield
         finally:
+            await rounds_scheduler.stop()
             await scheduler.stop()
 
     app = FastAPI(title="Revi Investigation API", version="1.0.0", lifespan=lifespan)
@@ -283,6 +305,19 @@ def create_app(
         except Exception:
             logger.exception("could not wire components at startup — cohort reclamation is off")
             return None
+
+    def _rounds_parts() -> tuple[object, object, object]:
+        """The three collaborators the Rounds walk needs, or ``None``s.
+
+        Same posture as the cohort repository above: a deployment whose
+        warehouse is momentarily missing comes up and answers questions;
+        the walk simply does not run, and says so in the log."""
+        try:
+            service = _service()
+            return (service.rounds, service.components.rounds_pins, service.components.open_session)
+        except Exception:
+            logger.exception("could not wire components at startup — the Rounds walk is off")
+            return (None, None, None)
 
     @app.exception_handler(ReviError)
     async def _revi_error(request: Request, exc: ReviError) -> JSONResponse:
@@ -464,6 +499,116 @@ def create_app(
         """Detected anomalies at the pinned watermark, governed-priority
         ranked. Cards carry `provenance` rather than an evidence grade."""
         return await _service().get_portfolio(caller)
+
+    # ---------------------------------------------------------------- Rounds
+    #
+    # The proactive surface. Every route below is tenant-scoped by the same
+    # rule the rest of the API follows: the token decides whose Rounds these
+    # are, and no request can ask for another tenant's.
+
+    @app.post(
+        "/v1/rounds/pins",
+        response_model=RoundsPinPayload,
+        status_code=201,
+        responses=ERROR_RESPONSES,
+    )
+    async def create_rounds_pin(
+        request: CreateRoundsPinRequest, caller: CallerPrincipal
+    ) -> RoundsPinPayload:
+        """Add a watch to Rounds — from an investigation, or from a spec.
+
+        A pin stores the TYPED SPEC behind an artifact, never the artifact:
+        every load re-runs it at the new watermark, so the tile is a current
+        answer with a current grade rather than a number frozen the day
+        somebody pinned it.
+
+        Naming an `investigation_id` resolves that investigation's STORED
+        spec server-side. No text is re-interpreted and no model is called —
+        the spec already exists, and re-deriving it from the question would
+        be a second, worse answer to a question already answered."""
+        return await _service().rounds.create_pin(caller, request)
+
+    @app.get("/v1/rounds/pins", response_model=RoundsPinListResponse, responses=ERROR_RESPONSES)
+    async def list_rounds_pins(caller: CallerPrincipal) -> RoundsPinListResponse:
+        """The caller tenant's watches, oldest first, with their specs.
+
+        The spec is published on purpose: a watch whose definition a reader
+        cannot see is a watch they cannot check, and it is the object that
+        decides what the tile measures every morning."""
+        return await _service().rounds.list_pins(caller)
+
+    @app.delete("/v1/rounds/pins/{pin_id}", status_code=204, responses=ERROR_RESPONSES)
+    async def delete_rounds_pin(pin_id: str, caller: CallerPrincipal) -> Response:
+        """Un-pin — a SOFT archive, like dismissing a session.
+
+        Nothing is deleted: the evaluated history a brief already published
+        stays readable and a permalink into a tile's investigation does not
+        404 because somebody tidied their Rounds. Idempotent."""
+        await _service().rounds.archive_pin(caller, pin_id)
+        return Response(status_code=204)
+
+    @app.get("/v1/rounds", response_model=RoundsResponse, responses=ERROR_RESPONSES)
+    async def get_rounds(caller: CallerPrincipal) -> RoundsResponse:
+        """Every active watch, evaluated at the newest load.
+
+        Each tile carries the integrity line as a payload — grade, things to
+        know, the caveat codes behind that count, and the checks that were
+        run — plus its load-over-load delta and the investigation permalink
+        the tile taps through to."""
+        return await _service().rounds.rounds(caller)
+
+    @app.get("/v1/rounds/brief", response_model=RoundsBriefResponse, responses=ERROR_RESPONSES)
+    async def get_rounds_brief(
+        caller: CallerPrincipal,
+        since: Annotated[
+            str | None,
+            Query(
+                description="Diff against THIS evaluated load rather than the previous one "
+                "(a watermark id). A load this tenant never evaluated is a 404 rather than a "
+                "silent fall-back: a brief that quietly diffed against a different load than "
+                "the one it was asked for would misreport every entry on it.",
+            ),
+        ] = None,
+    ) -> RoundsBriefResponse:
+        """What changed at this load: gated, capped, counted, provenanced.
+
+        New leads, material movements on watches, self-resolved leads and
+        resolution verdicts. Every entry passes a materiality threshold that
+        lives in the pack, not in engine code, and the thresholds that were
+        applied ride on the response so the gate is checkable rather than
+        trusted.
+
+        "Nothing material changed" is a first-class outcome (`status:
+        nothing_material`) with the counts that back the claim — not an
+        empty page."""
+        return await _service().rounds.brief(caller, since=since)
+
+    @app.patch(
+        "/v1/rounds/leads/{anomaly_id}",
+        response_model=RoundsLeadPayload,
+        responses=ERROR_RESPONSES,
+    )
+    async def patch_rounds_lead(
+        anomaly_id: str, request: RoundsLeadPatchRequest, caller: CallerPrincipal
+    ) -> RoundsLeadPayload:
+        """Move one lead along its lifecycle.
+
+        `open` → `acknowledged` → `working` → `resolved_claimed` are the
+        four a person may set. `resolved_confirmed` and `regressed` are
+        verdicts the PLATFORM reaches by re-running the lead's own drill
+        across consecutive loads — asking for either is refused with the
+        reason. That asymmetry is the point: "mark as resolved" everywhere
+        else in this category is a checkbox, and a checkbox is an opinion."""
+        return await _service().rounds.patch_lead(caller, anomaly_id, request)
+
+    @app.get(
+        "/v1/rounds/leads/{anomaly_id}",
+        response_model=RoundsLeadPayload,
+        responses=ERROR_RESPONSES,
+    )
+    async def get_rounds_lead(anomaly_id: str, caller: CallerPrincipal) -> RoundsLeadPayload:
+        """One lead's lifecycle state, its verification streak and its history."""
+        return await _service().rounds.get_lead(caller, anomaly_id)
 
     @app.get("/v1/capabilities", response_model=CapabilitiesResponse, responses=ERROR_RESPONSES)
     async def get_capabilities(

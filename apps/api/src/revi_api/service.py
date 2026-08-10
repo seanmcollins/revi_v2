@@ -55,8 +55,10 @@ from revi_api.rederive import (
     money_total,
     non_money_reason,
 )
+from revi_api.rounds import RoundsService, annotate_time_to_impact
 from revi_api.settings_policy import DEBUG_TRACE_ENV
 from revi_api.usage_ledger import bind_ledger, unbind_ledger
+from revi_api.watch_intent import WatchDeclaration, parse_watch_declaration
 from revi_api.wiring import ApiComponents
 from revi_api.worklist import (
     WorklistReference,
@@ -154,6 +156,54 @@ def _playbook_of(trace: TraceRecord | None) -> str | None:
     return raw if isinstance(raw, str) else None
 
 
+def _resolve_watch_turn(request: TurnRequest) -> tuple[TurnRequest, WatchDeclaration | None]:
+    """Strip a watch lead-in and run the remainder as an ordinary turn.
+
+    "Watch Silverline's denial rate" is one instruction and one question.
+    The instruction is read here — from a closed lead-in vocabulary, see
+    :mod:`revi_api.watch_intent` — and the question is handed to the
+    ordinary pipeline unchanged, so a declaration earns the same
+    interpretation, the same §6.6 validation and the same clarification a
+    bare question would.
+
+    Left alone on every complete request (a typed spec, typed refinements,
+    a clarification reply): none of those is language, and none of them is
+    a place a lead-in could appear.
+    """
+    if (
+        not request.utterance
+        or request.spec is not None
+        or request.refinements is not None
+        or request.clarification_response
+    ):
+        return request, None
+    declaration = parse_watch_declaration(request.utterance)
+    if declaration is None:
+        return request, None
+    return request.model_copy(update={"utterance": declaration.subject}), declaration
+
+
+def watch_declaration_warning(declaration: WatchDeclaration) -> str:
+    """What the platform read, said on the answer that acted on it.
+
+    The analyst's own words are not thrown away by the rewrite: this states
+    the lead-in that was matched and the question it was reduced to, so a
+    reader can see the platform's reading rather than infer it from a watch
+    appearing.
+    """
+    threshold = (
+        f" Sensitivity read from {declaration.threshold_phrase.strip()!r}."
+        if declaration.threshold_phrase
+        else " No sensitivity was stated, so the governed threshold for the measure applies."
+    )
+    return (
+        f"named_cut_applied: read {declaration.matched_phrase!r} as a watch declaration and "
+        f"investigated the rest of the sentence — {declaration.subject!r} — as an ordinary "
+        f"question, so this watch is defined by a spec that was planned, validated and "
+        f"answered rather than by the phrasing.{threshold}"
+    )
+
+
 def _with_warning(outcome: TurnOutcome, warning: str) -> TurnOutcome:
     """The same outcome with one more warning on it.
 
@@ -209,10 +259,20 @@ class ApiService:
 
     def __init__(self, components: ApiComponents) -> None:
         self._components = components
+        # Rounds is handed THIS service's portfolio builder rather than
+        # building its own: a brief's "new lead" and the rail's card have to
+        # be the same object from the same build, which is the rule the
+        # conversational worklist already follows.
+        self._rounds = RoundsService(components, portfolio_for=self._portfolio_for)
 
     @property
     def components(self) -> ApiComponents:
         return self._components
+
+    @property
+    def rounds(self) -> RoundsService:
+        """The Rounds surface: watches, per-load evaluation, brief, leads."""
+        return self._rounds
 
     # ------------------------------------------------------------ authorization
 
@@ -341,6 +401,11 @@ class ApiService:
         # this platform printed, becomes the card's own stored drill —
         # before anything is classified or interpreted (round-3 R3-09).
         request, worklist_reference = await self._resolve_worklist_turn(session_id, request)
+        # "Watch X" is an INSTRUCTION about the question that follows it, so
+        # the lead-in is stripped here and the remainder runs as an ordinary
+        # turn: same classification, same interpretation, same §6.6 pass.
+        # The watch is registered from the answer, not from the words.
+        request, declaration = _resolve_watch_turn(request)
         default_question = (
             "(typed investigation)" if request.spec is not None else "(typed gesture)"
         )
@@ -391,6 +456,8 @@ class ApiService:
                 outcome = _with_warning(
                     outcome, worklist_reference_warning(worklist_reference)
                 )
+            if declaration is not None:
+                outcome = _with_warning(outcome, watch_declaration_warning(declaration))
             outcome, strip = await self._anomaly_reconciliation(request, outcome)
             # Read once here and handed to the assembler: the worklist
             # routing reads the plan context off it and the assembler needs
@@ -426,6 +493,15 @@ class ApiService:
                     await self._record_worklist_context(outcome, worklist)
                 except Exception:  # pragma: no cover - defensive
                     logger.warning("worklist context not recorded", exc_info=True)
+            if declaration is not None and isinstance(response, TurnAnswer):
+                # The watch is registered from the ANSWER: the spec that was
+                # just planned, validated and measured, with the measured
+                # value as its baseline. A watch registered from a spec
+                # nobody confirmed would brief the wrong number every
+                # morning, silently, forever.
+                response = await self._register_declared_watch(
+                    principal, declaration, outcome, response
+                )
         except ReviError as exc:
             # The engine's own sentence, always, in the log: the plain
             # message below is for the analyst, and this is the copy an
@@ -467,6 +543,57 @@ class ApiService:
                 response.model_dump(mode="json"),
             )
         return response
+
+    async def _register_declared_watch(
+        self,
+        principal: Principal,
+        declaration: WatchDeclaration,
+        outcome: TurnOutcome,
+        response: TurnAnswer,
+    ) -> TurnAnswer:
+        """Register the watch this turn declared, and confirm it on the answer.
+
+        Best-effort by design: a Rounds store hiccup must not cost the
+        analyst the answer they were shown. When registration fails the
+        answer stands and says the watch was NOT created, because a
+        declaration that silently registered nothing is the worst outcome
+        available — the analyst walks away believing they are being watched.
+        """
+        label = declaration.subject.strip() or (response.findings[0].title
+                                                if response.findings else "Watched spec")
+        try:
+            payload = await self._rounds.register_intent_pin(
+                principal,
+                outcome,
+                label=label,
+                watch=declaration.watch,
+                matched_phrase=declaration.matched_phrase,
+            )
+        except ReviError as exc:
+            logger.warning("watch declaration refused: %s", exc.message)
+            return response.model_copy(
+                update={
+                    "warnings": [
+                        *response.warnings,
+                        f"population_caveat: this turn read as a watch declaration, and the "
+                        f"watch was NOT created: {exc.message}. The answer above stands on "
+                        "its own; nothing is being watched.",
+                    ]
+                }
+            )
+        except Exception:  # pragma: no cover - defensive
+            logger.exception("watch declaration could not be registered")
+            return response.model_copy(
+                update={
+                    "warnings": [
+                        *response.warnings,
+                        "population_caveat: this turn read as a watch declaration and the "
+                        "watch could not be stored (the attempt is recorded in the API log), "
+                        "so nothing is being watched. The answer above stands on its own.",
+                    ]
+                }
+            )
+        return response.model_copy(update={"watch": payload})
 
     async def _anomaly_reconciliation(
         self, request: TurnRequest, outcome: TurnOutcome
@@ -810,7 +937,7 @@ class ApiService:
         disagree about the order, the figures or the warnings."""
         components = self._components
         records = await components.anomaly_source.list_anomalies(watermark)
-        return build_portfolio(
+        portfolio = build_portfolio(
             records,
             watermark=watermark,
             policy=components.priority_policy,
@@ -829,6 +956,21 @@ class ApiService:
             # and only where the pack actually allows it.
             scope_dimensions=self._scope_dimensions,
         )
+        # Two ADDITIVE passes, both of which leave the ranking exactly as
+        # ``anomaly_priority@3`` computed it. Time-to-impact is published
+        # context, not a silent re-rank: a rank change needs its own
+        # versioned formula decision, and smuggling urgency into an existing
+        # version would make two builds of one dataset disagree with no
+        # version string to explain it. Lead status is what the humans have
+        # done about each card, read from the Rounds lifecycle store so a
+        # card and a brief entry cannot disagree about who is working what.
+        portfolio = annotate_time_to_impact(
+            portfolio,
+            {record.anomaly_id: record for record in records},
+            newest_data_date=watermark.newest_data_date,
+            policy=components.rounds_policy,
+        )
+        return await self._rounds.decorate_cards(tenant, portfolio)
 
     def _scope_dimensions(self, metric_id: str) -> frozenset[str]:
         """The dimensions the pack's contract for ``metric_id`` may be cut by."""

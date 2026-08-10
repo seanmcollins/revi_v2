@@ -19,6 +19,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import { AnswerCard } from "@/components/answer/AnswerCard";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import typedTurns from "@/lib/__fixtures__/live-typed-turns.json";
 import { resetAnswerVariantCache, setAnswerVariant } from "@/lib/answerVariant";
 import { mapWorklist } from "@/lib/contract";
 import { DEFAULT_SETTINGS } from "@/lib/settings";
@@ -53,13 +54,35 @@ beforeAll(() => {
   });
 });
 
+/**
+ * THE REFUSAL, IN THE ENGINE'S CURRENT WORDS — read from a fixture, not
+ * retyped into this file.
+ *
+ * It used to be a literal: "52 of the 52 publishable denial rate cells
+ * carry a suppressed numerator, so no order was published." The engine
+ * rewrote that sentence in round 6 for the reader who has to act on it —
+ * meaning first, the count stated once in words, "too small to measure
+ * exactly" in place of three words for two ideas — and this file went on
+ * asserting the old one for months, which is the failure mode of every
+ * hardcoded engine string: the test keeps passing and stops describing
+ * the product.
+ *
+ * `live-typed-turns.json` is captured by `scripts/capture-fixtures.mjs`
+ * from a TYPED turn, so re-capturing it costs no model call. Reading the
+ * sentence from there means the next rewrite updates this test by being
+ * captured, rather than by somebody noticing.
+ */
+const RANKING_REFUSED_SENTENCE: string =
+  (typedTurns.bounded_ranking.warnings_v2 as Array<{ code: string; message: string }>).find(
+    (w) => w.code === "RANKING_REFUSED",
+  )?.message ?? "";
+
 const WARNINGS: WarningEvent[] = [
   {
     type: "warning",
     code: "RANKING_REFUSED",
     severity: "caution",
-    message:
-      "ranking_refused: 52 of the 52 publishable denial rate cells carry a suppressed numerator, so no order was published.",
+    message: RANKING_REFUSED_SENTENCE,
     structured: true,
   },
   {
@@ -373,8 +396,11 @@ describe("verdict-class codes lead, in every layout", () => {
   it("says the refusal in the engine's own words, not in a summary", () => {
     setAnswerVariant("b");
     renderCard();
+    // The engine's CURRENT sentence, captured rather than retyped — the
+    // whole clause, so a layout that truncated or paraphrased it fails.
+    expect(RANKING_REFUSED_SENTENCE).toMatch(/^ranking_refused: /);
     expect(
-      screen.getByText(/52 of the 52 publishable denial rate cells/),
+      screen.getByText(RANKING_REFUSED_SENTENCE.replace(/^ranking_refused: /, "")),
     ).toBeInTheDocument();
     expect(screen.getByText(/No ranking was published/)).toBeInTheDocument();
   });

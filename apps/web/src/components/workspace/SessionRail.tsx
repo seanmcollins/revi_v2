@@ -10,8 +10,11 @@ import {
   Play,
   RefreshCw,
   Search,
+  Stethoscope,
 } from "lucide-react";
-import { useEffect, useState } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useEffect, useState, useSyncExternalStore } from "react";
 
 import { CopyTextButton } from "@/components/answer/AnswerActions";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
@@ -23,6 +26,7 @@ import { apiBaseUrl } from "@/lib/apiDriver";
 import { displaySessionTitle, relativeTime } from "@/lib/format";
 import { sessionLinkFor } from "@/lib/links";
 import { REFERENCE_QUESTIONS } from "@/lib/mock/reference";
+import { hasUnseenLoad } from "@/lib/roundsVisit";
 import { useSessionStore } from "@/lib/store";
 import { cn } from "@/lib/utils";
 
@@ -84,6 +88,7 @@ export function SessionRail() {
           <MessageSquarePlus className="size-3" />
           New chat
         </Button>
+        <RoundsLink />
       </div>
 
       <ScrollArea className="min-h-0 flex-1">
@@ -168,6 +173,61 @@ export function SessionRail() {
     </aside>
   );
 }
+
+/**
+ * The way into Rounds, and the one honest thing it can say about it.
+ *
+ * It carries a dot when this browser has not been briefed on the newest
+ * load — a fact this client already holds from the health poll, so no
+ * request is made to draw it. Deliberately NOT a count: a number here
+ * would be a promise about how many lines the brief has, and the brief has
+ * not been walked yet. "There is a load you have not been briefed on" is
+ * exactly as much as is known.
+ *
+ * It is quiet on the mock fixture, which has no deployment to walk, rather
+ * than offering a link to a page that will explain it cannot help.
+ */
+function RoundsLink() {
+  const mode = useSessionStore((s) => s.connection.mode);
+  const newest = useSessionStore((s) => s.connection.newestWatermarkId);
+  /**
+   * Read on the CLIENT only, through the same `useSyncExternalStore` pair
+   * the workspace uses for driver selection: `localStorage` does not exist
+   * during the server render, and a dot that appeared on hydration and
+   * vanished a paint later is worse than one that arrives a frame late.
+   * An effect that called `setState` would be exactly that flash.
+   */
+  const stored = useSyncExternalStore(
+    noopSubscribe,
+    () => hasUnseenLoad(newest),
+    () => false,
+  );
+  // Never on the page the dot is pointing AT. Sitting on Rounds reading
+  // the new load under a badge announcing a new load is the app arguing
+  // with itself, and "you are here" is the one thing the rail always knows.
+  const here = usePathname() === "/rounds";
+  const unseen = stored && !here;
+
+  if (mode !== "api") return null;
+  return (
+    <Link
+      href="/rounds"
+      className="focus-ring flex w-full items-center gap-1.5 rounded-md border px-2 py-1.5 text-meta font-medium text-muted-foreground transition-colors duration-200 hover:border-ring/40 hover:text-foreground"
+    >
+      <Stethoscope aria-hidden className="size-3" />
+      Rounds
+      {unseen && (
+        <span className="ml-auto inline-flex items-center gap-1 text-micro font-normal text-verified">
+          <span aria-hidden className="integrity-dot inline-block size-1.5 rounded-full bg-verified" />
+          new load
+        </span>
+      )}
+    </Link>
+  );
+}
+
+/** No subscription: the value changes only with the watermark prop. */
+const noopSubscribe = () => () => {};
 
 /**
  * The reference-demo replay, with its two real costs stated before the

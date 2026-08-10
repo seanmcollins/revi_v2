@@ -1,0 +1,326 @@
+# Governed Rounds content: what counts as material, when a claimed fix is
+# confirmed, and when a card's dollars hit cash.
+#
+# Rounds is the proactive surface — Revi walks it every data load and
+# briefs what changed — and its death mode is alert fatigue. A brief that
+# cries wolf twice is a brief nobody opens again, and the second time is
+# cheaper than the first. So every number that decides whether a reader is
+# interrupted lives HERE, in pack content with its rationale beside it, and
+# not in engine code where it would be a constant somebody picked.
+#
+# The engine reads these thresholds and publishes the ones it applied on
+# every brief (`materiality` on RoundsBriefResponse, with this file's
+# content hash), so a reader can check the gate that produced a brief — or
+# the absence of one — rather than trust it.
+#
+# This is pack-adjacent governed content, read and content-hashed by the API
+# composition root, in the pattern already used by anomaly_actionability.yaml,
+# metric_display.yaml and worklist.yaml: the strict pack loader has no
+# `rounds` artifact type yet, and inventing one to ship this would be an
+# architecture change in service of a file format.
+version: 1
+
+# ---------------------------------------------------------------------------
+# MATERIALITY — does this movement deserve a human's attention?
+#
+# Thresholds are stated PER UNIT KIND, because the question "is this a big
+# move?" has a different shape in each unit and a single percentage would be
+# wrong in three of the four:
+#
+#   * a RATE moves in percentage POINTS. A relative gate on a rate is
+#     meaningless at both ends — 0.1% -> 0.2% is +100% and nobody cares;
+#     40% -> 44% is +10% and it is the whole quarter. The platform already
+#     refuses to publish a rate movement as a percentage (revi_investigation
+#     .application.rendering.points); the gate obeys the same rule.
+#   * MONEY needs both a relative gate and an absolute FLOOR. Relative
+#     alone briefs a $40 credit balance that doubled; absolute alone briefs
+#     a rounding error on a $12M receivable. Both, conjoined, is the only
+#     combination that is right at both ends of a portfolio whose cards
+#     span four orders of magnitude ($824 to $493,266 in this warehouse).
+#   * COUNTS behave like money and take the same shape with a smaller floor.
+#   * DAYS are already a small integer scale, so an absolute gate is the
+#     honest one — a lag that stretched by half a day is noise, and
+#     expressing that as a percentage of 2.5 days would say +20%.
+materiality:
+  unit_kinds:
+    ratio:
+      # 0.5 percentage points. Rationale: the detector's own denial-rate
+      # spike threshold is a 25% RELATIVE rise on a book whose baseline
+      # denial rate sits near 8% — about 2 points. Half a point is a
+      # quarter of what the detection system considers an event, which is
+      # the right place for a WATCH gate: a watched tile should move before
+      # the detector fires, not after, or the brief is telling an analyst
+      # something the worklist already told them.
+      min_points: 0.5
+    money_cents:
+      # 5% AND $1,000, conjoined.
+      #
+      # 5%: the platform calls two figures "agreed" within half a percent
+      # (AGREEMENT_TOLERANCE_FRACTION); ten times that tolerance is
+      # comfortably outside measurement noise and re-derivation drift.
+      #
+      # $1,000: below the smallest card this pack treats as worth a lane of
+      # its own. The compliance lane exists precisely because some work is
+      # done regardless of size, and that lane bypasses this floor (see
+      # new_lead.always_material_lanes) rather than the floor being lowered
+      # for everybody.
+      min_relative: 0.05
+      min_absolute_cents: 100000
+    count:
+      # 10% AND 25 items. A worklist slice that gained three claims out of
+      # 400 has not changed; one that gained 40 has. The absolute floor is
+      # set at 25 because below that a count move is within the range a
+      # single day of late-arriving data produces in this warehouse.
+      min_relative: 0.10
+      min_absolute: 25
+    days:
+      # One full day. Posting lag and bill lag are reported to one decimal
+      # and their baselines sit near 2.5 days; a move smaller than a day is
+      # not something an analyst can act on and is inside the noise of which
+      # calendar days a load happens to span.
+      min_absolute_days: 1.0
+
+  # A NEW lead from the detection feed. The card has no prior value to move
+  # from, so the gate is its size — with one deliberate exception.
+  new_lead:
+    # $1,000, the same floor money movements clear. A brief that lists every
+    # new card is the worklist with extra steps.
+    min_impact_cents: 100000
+    # Compliance-mandatory work is briefed regardless of size: an $824
+    # credit balance carries the same refund obligation as an $84,000 one,
+    # which is the whole reason the compliance lane exists. Bypassing the
+    # floor for a named lane is honest; lowering the floor for everybody to
+    # catch these would brief every duplicate-claim card in the building.
+    always_material_lanes: [compliance]
+
+  # A lead that LEFT the feed with nobody claiming it. Same floor: a
+  # problem that fixed itself is information, and a $12 one is not.
+  self_resolved:
+    min_impact_cents: 100000
+
+  brief:
+    # A hard cap on the brief, independent of the gate. Twelve is about one
+    # screen; past that a reader is scrolling a list rather than reading a
+    # briefing, and the thirteenth entry is the one that trains them to
+    # close it. Everything gated or capped is COUNTED on the response
+    # (`immaterial`) — withheld visibly, never silently.
+    max_entries: 12
+    # Per kind, so one noisy category cannot fill the brief and push every
+    # other kind of change off the end of it.
+    max_entries_per_kind: 5
+
+  # A watch may set its OWN threshold, and it may set one LOOSER than the
+  # gates above. That is deliberate: somebody watching one specific cell
+  # knows things a blanket threshold does not, and refusing them the
+  # setting sends them back to a spreadsheet. The cost is paid here rather
+  # than by refusing: when an analyst's own thresholds keep briefing
+  # movements the governed gate calls normal variation, the brief says so.
+  #
+  # Once per load, and only after it has been true for `consecutive_loads`
+  # loads running — an advisory that fired on the first quiet morning would
+  # be the fatigue it is warning about, and one that repeated every day
+  # would be worse than the entries it is complaining about.
+  fatigue:
+    # Three loads. One is noise, two is a coincidence, three is a setting.
+    consecutive_loads: 3
+    # Governed wording. The counts are substituted; the sentence is not
+    # composed by a model and not rephrased per deployment, because an
+    # advisory that reads differently every morning reads as a bug.
+    message: >-
+      {count} of your watches moved within normal variation for the
+      {ordinal} load running — consider tightening them.
+
+# ---------------------------------------------------------------------------
+# RESOLUTION — when is a claimed fix confirmed?
+#
+# A human can claim a lead is resolved. The platform confirms it against
+# data or refuses honestly; it never takes the claim as fact. Two bases,
+# either of which counts as a load verifying the claim:
+#
+#   * detector_cleared — the lead is no longer in the detection feed at this
+#     load. The detector's own rule stopped firing, which is a real,
+#     checkable statement about the data and not an opinion.
+#   * measured_reduction — this platform re-derived the lead's OWN drill
+#     spec at this load and the exposure has fallen by at least
+#     `measured_reduction_fraction` from the level at the claim load.
+#
+# Where neither can be evaluated — an undrillable card whose figure this
+# platform cannot re-derive, still present in the feed — the lead is NOT
+# confirmed and NOT regressed. It stays claimed with a stated reason, which
+# is the honest outcome and the one a verification path exists to make
+# possible.
+resolution:
+  # Two consecutive loads. One load is a coincidence: a card can drop out of
+  # a single snapshot because a window moved, and confirming on it would
+  # publish "confirmed" for a problem that returns tomorrow. Two is the
+  # smallest number that distinguishes a fix from a flicker, and waiting for
+  # three would put a real confirmation three days behind the work.
+  consecutive_loads_required: 2
+  # 80% of the claim-load exposure gone. Not 100%: a denial cohort that has
+  # been worked still shows residual dollars for the claims already
+  # adjudicated, and demanding zero would mean no lead was ever confirmed.
+  measured_reduction_fraction: 0.80
+  # Back UP by 10% of the claim-load level: the fix did not hold, and the
+  # lead resurfaces in the brief as `regressed`. Deliberately tighter than
+  # the reduction gate — the cost of missing a regression (an analyst
+  # believes something is fixed) is higher than the cost of one extra line.
+  regression_increase_fraction: 0.10
+
+# ---------------------------------------------------------------------------
+# TIME TO IMPACT — when do these dollars hit cash?
+#
+# Per category, and only where it is honestly derivable. Three methods and
+# an explicit refusal:
+#
+#   filing_deadline   a REAL date from the detector's own evidence facts.
+#                     Not an estimate and not marked provisional.
+#   appeal_window     the cash already moved (a denial did not pay), but a
+#                     recovery window is still open and dated.
+#   aging_projection  an ESTIMATE: the inventory's own age against a stated
+#                     expected bill-to-cash path. Always provisional, and
+#                     the method is published with the number.
+#   unknown           no honest basis. Published as null WITH the reason,
+#                     never as a guess — a guessed "14 days" is
+#                     indistinguishable on screen from the filing dates
+#                     beside it, and that is exactly the confusion this
+#                     refuses to create.
+#
+# `days_to_cash` on a projection is `bill_days + payment_lag_days`, both
+# stated below, minus nothing: the age already spent is not subtracted
+# because DNFB inventory that is 30 days old is not 30 days closer to being
+# billed. Where the inventory's age exceeds the expected bill window the
+# projection says so rather than returning a negative.
+time_to_impact:
+  # Governed defaults for the projection arm, in days.
+  projection:
+    # Days from "ready to bill" to a dropped claim, for inventory that is
+    # already discharged/charged. Sourced from this pack's own bill_lag_days
+    # contract behaviour on the reference warehouse (median near 3 days for
+    # claims that do drop), rounded up to allow for a work queue.
+    bill_days: 4
+    # Days from submission to posted cash. The pack's avg_days_to_pay
+    # baselines sit near 25-30 days across payers; 28 is the round number
+    # inside that band. This is a PLANNING default, not a payer contract,
+    # which is why every projection using it is marked provisional.
+    payment_lag_days: 28
+  categories:
+    timely_filing:
+      method: filing_deadline
+      lane: pre_cash
+      # The soonest deadline in the cell: the first day this card starts
+      # losing dollars, which is the date a worklist should sort on.
+      deadline_fact: days_to_deadline
+      deadline_aggregate: min
+      note: >-
+        The plan's own timely-filing limit, from the detector's evidence: the
+        soonest deadline across the claims in this cell. This is a date, not
+        an estimate — after it, the dollars are not late, they are gone.
+    dnfb:
+      method: aging_projection
+      lane: pre_cash
+      age_fact: days_since_discharge
+      age_aggregate: median
+      note: >-
+        Discharged-not-final-billed inventory: the account exists and the
+        charges exist, so the cash arrives once the bill drops and the payer
+        pays. Projected as the governed bill window plus the governed
+        payment lag, from the median age of this cell's accounts.
+    submission_gap:
+      method: aging_projection
+      lane: pre_cash
+      age_fact: days_since_service
+      age_aggregate: median
+      note: >-
+        Claims past their intended drop date: the cash arrives once they are
+        submitted and paid. Projected as the governed bill window plus the
+        governed payment lag.
+    charge_entry_lag:
+      method: aging_projection
+      lane: pre_cash
+      age_fact: charge_lag_days
+      age_aggregate: median
+      note: >-
+        Charges entered late: the value is captured but the bill has not
+        dropped, so the cash is delayed rather than lost. Projected as the
+        governed bill window plus the governed payment lag from the observed
+        entry lag.
+    charge_hold:
+      method: unknown
+      lane: unknown
+      reason: >-
+        The detector cannot value charges that were never entered — it
+        publishes a claim count and a zero known billed amount — so there is
+        no dollar figure whose arrival could be timed. A projection here
+        would be a date attached to an amount nobody has measured.
+    denial_spike:
+      method: appeal_window
+      lane: already_hit
+      recovery_fact: days_to_appeal_deadline
+      recovery_aggregate: min
+      recovery_label: appeal window closes
+      note: >-
+        The cash effect has already landed: these claims were adjudicated and
+        did not pay. What is still open is the appeal window, which the
+        detector dates directly.
+    eligibility_cluster:
+      method: appeal_window
+      lane: already_hit
+      recovery_fact: days_to_appeal_deadline
+      recovery_aggregate: min
+      recovery_label: appeal window closes
+      note: >-
+        Already denied, so the cash effect is in the past. Eligibility
+        denials mostly resolve by coverage correction and rebill rather than
+        appeal, but the appeal window is the dated limit the detector
+        publishes and is the conservative one to work against.
+    unworked_denials:
+      method: appeal_window
+      lane: already_hit
+      recovery_fact: days_to_appeal_deadline
+      recovery_aggregate: min
+      recovery_label: appeal window closes
+      note: >-
+        Already denied and never worked. Where the window has already closed
+        the recovery days are negative, which is the fact the card should
+        show rather than a suppressed null.
+    duplicate:
+      method: appeal_window
+      lane: already_hit
+      recovery_fact: days_to_appeal_deadline
+      recovery_aggregate: min
+      recovery_label: rebill/void window closes
+      note: >-
+        The duplicate was denied, so the cash already moved; the dated limit
+        is the same adjudication window the detector publishes.
+    underpayment:
+      method: unknown
+      lane: already_hit
+      reason: >-
+        The claims are adjudicated and paid short, so the shortfall has
+        already hit cash. When the dispute RECOVERS it depends on the payer's
+        own reconsideration cycle, which this warehouse does not carry — so
+        the recovery date is unknown rather than estimated from a national
+        average nobody agreed to.
+    contractual:
+      method: unknown
+      lane: already_hit
+      reason: >-
+        Contractual allowance is the negotiated discount working as designed.
+        It has already hit cash and there is nothing to recover, so there is
+        no future cash event to date.
+    posting_lag:
+      method: unknown
+      lane: pre_cash
+      reason: >-
+        Remitted-but-unpaid cash usually arrives without anyone doing
+        anything, and the detector publishes days-since-remit but no expected
+        conversion date. Projecting one would put a date on a payer's
+        internal timing that this platform has not measured.
+    credit_balance:
+      method: unknown
+      lane: unknown
+      reason: >-
+        A credit balance is money OWED OUT, not cash coming in, so a
+        time-to-cash figure would have the sign backwards. The obligation is
+        compliance-mandatory and dated by regulation rather than by this
+        data, which the compliance lane already says.
