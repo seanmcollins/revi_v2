@@ -16,7 +16,7 @@ export function ConnectionPill() {
     return (
       <span className="inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border bg-surface-sunken px-2 py-0.5 text-micro font-medium text-muted-foreground">
         <span className="size-1.5 rounded-full bg-muted-foreground/50" />
-        Mock driver
+        Mock fixture
       </span>
     );
   }
@@ -80,9 +80,12 @@ export function DegradedModeBadge() {
 
   if (connection.llmMode === "scripted-demo") {
     return (
+      // The badge face names the CONDITION; the environment variable that
+      // fixes it is an operator's instruction and belongs in the
+      // explanation, not on a chip in the header of an analyst's screen.
       <DegradedBadge
-        label="Scripted LLM — set REVI_MODEL_PIN"
-        explanation="The API is running the scripted stub LLM, not a live model — free-form questions off the reference script get a clarification. Set REVI_MODEL_PIN and restart the API."
+        label="Scripted answers"
+        explanation="The API is running the scripted stub model, not a live one — free-form questions off the reference script get a clarification instead of an answer. Set REVI_MODEL_PIN and restart the API."
       />
     );
   }

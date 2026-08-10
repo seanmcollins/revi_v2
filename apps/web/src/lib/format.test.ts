@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 
 import {
   comparisonChipLabel,
+  dataLoadDate,
   deltaTone,
   formatCents,
   formatCompactCents,
@@ -15,6 +16,7 @@ import {
   MINUS,
   mediumDate,
   parseIsoDate,
+  rankingVersionLabel,
   relativeTime,
   shortDate,
   windowChipLabel,
@@ -222,5 +224,35 @@ describe("formatMeasureDelta — a movement in the measure's own unit", () => {
     expect(formatMeasureDelta(35.2564, "percent")).toBe("+35.3pp");
     expect(formatMeasureDelta(0, "percent")).toBe("0.0pp");
     expect(formatMeasureDelta(-1.5, "days")).toBe(`${MINUS}1.5 d`);
+  });
+});
+
+describe("dataLoadDate — a data load named as a date, or not named at all", () => {
+  it("spells the calendar date and drops the loader's minute", () => {
+    // "2026-08-03 04:10" is the instant a loader finished. Nobody acts on
+    // the minute, and it truncated to "loaded 2026-…" on a 1280px header.
+    expect(dataLoadDate("2026-08-03 04:10")).toBe("Aug 3, 2026");
+    expect(dataLoadDate("2026-08-03")).toBe("Aug 3, 2026");
+    expect(dataLoadDate("2026-08-03T04:10:00Z")).toBe("Aug 3, 2026");
+  });
+
+  it("returns nothing for a bare id, so the caller can drop the clause", () => {
+    // `wm_003` is a log token. A caller that cannot get a date prints no
+    // date rather than printing the token in a sentence.
+    expect(dataLoadDate("wm_003")).toBeUndefined();
+    expect(dataLoadDate("")).toBeUndefined();
+    expect(dataLoadDate(undefined)).toBeUndefined();
+  });
+});
+
+describe("rankingVersionLabel", () => {
+  it("spells the ranking formula without the payload's underscores", () => {
+    expect(rankingVersionLabel("anomaly_priority@3")).toBe("Anomaly priority v3");
+    expect(rankingVersionLabel("dollar_impact@1")).toBe("Dollar impact v1");
+  });
+
+  it("returns anything it cannot parse unchanged rather than guessing", () => {
+    expect(rankingVersionLabel("v3")).toBe("v3");
+    expect(rankingVersionLabel("")).toBe("");
   });
 });

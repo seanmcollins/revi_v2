@@ -3,7 +3,7 @@
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { tidyProse } from "@/lib/prose";
+import { readableStatement } from "@/lib/prose";
 import type { MonitorsDelta } from "@/lib/monitors";
 import { cn } from "@/lib/utils";
 
@@ -54,7 +54,7 @@ export function DeltaLine({
         data-delta-mark="none"
         className={cn("text-micro leading-snug text-muted-foreground", className)}
       >
-        {tidyProse(
+        {readableStatement(
           delta.notComparableReason ??
             "No movement is published for this monitor — the two loads are not two measurements of one thing.",
         )}
@@ -89,19 +89,29 @@ export function DeltaLine({
         )}
         {flat ? "no change" : word === "" ? delta.deltaText : `${word} ${delta.deltaText}`}
       </span>
+      {/* WHAT IT MOVED FROM. The figure when the payload carries one; the
+          bare clause when it does not — never the data load's own handle,
+          which is what "since you started monitoring (wm_002)" was putting
+          in front of an analyst on the tile they read first. The handle is
+          still on the tile's provenance, where an auditor looks. */}
       <span className="text-muted-foreground">
         {delta.reference === "baseline"
-          ? `since you started monitoring (${delta.priorValueText || delta.priorWatermarkId})`
+          ? delta.priorValueText
+            ? `since you started monitoring (${delta.priorValueText})`
+            : "since you started monitoring"
           : `from ${delta.priorValueText || "the prior load"}`}
       </span>
       {delta.sameWindow && !flat && (
         <Tooltip>
           <TooltipTrigger asChild>
+            {/* A note about the data catching up, not a warning about it.
+                The dotted underline is the mark that says "there is more
+                here"; the sentence lives in the hover. */}
             <button
               type="button"
-              className="focus-ring rounded text-left text-micro text-warning underline decoration-dotted underline-offset-2"
+              className="focus-ring rounded text-left text-micro text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground"
             >
-              same period, re-measured
+              Same period, re-measured
             </button>
           </TooltipTrigger>
           <TooltipContent side="bottom" className="max-w-72 text-meta leading-snug">
@@ -163,16 +173,13 @@ export function ThresholdNote({ delta }: { delta: MonitorsDelta }) {
         <button
           type="button"
           data-threshold-source={delta.thresholdSource}
-          className={cn(
-            "focus-ring rounded text-left text-micro leading-snug underline decoration-dotted underline-offset-2",
-            delta.belowGovernedGate ? "text-warning" : "text-muted-foreground",
-          )}
+          className="focus-ring rounded text-left text-micro leading-snug text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground"
         >
           {delta.thresholdSource === "monitor"
             ? delta.belowGovernedGate
-              ? "your threshold, below the governed one"
-              : "your threshold"
-            : "the governed threshold"}
+              ? "Your threshold, below the governed one"
+              : "Your threshold"
+            : "The governed threshold"}
         </button>
       </TooltipTrigger>
       <TooltipContent side="bottom" className="max-w-80 text-meta leading-snug">
@@ -181,7 +188,7 @@ export function ThresholdNote({ delta }: { delta: MonitorsDelta }) {
             trusted. Its stacked stop is repaired and nothing else — the
             note quotes the analyst's own reason, which arrives with its
             own full stop inside a sentence that already has one. */}
-        {tidyProse(delta.materialityNote)}
+        {readableStatement(delta.materialityNote)}
       </TooltipContent>
     </Tooltip>
   );

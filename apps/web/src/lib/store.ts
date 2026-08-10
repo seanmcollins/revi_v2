@@ -223,8 +223,16 @@ export function applyEventToAnswer(answer: AnswerState, event: TurnEvent): Answe
       charts[index] = event.spec;
       return { ...answer, charts };
     }
+    // Append while the prose streams; REPLACE when the terminal frame
+    // supersedes it. The composer may rewrite what it streamed, and the
+    // two texts are not required to share a prefix — appending the
+    // difference in that case welds a rewrite onto a draft (see
+    // `turnResponseToEvents`).
     case "narrative_delta":
-      return { ...answer, narrative: answer.narrative + event.text };
+      return {
+        ...answer,
+        narrative: event.replace ? event.text : answer.narrative + event.text,
+      };
     case "clarification":
       return { ...answer, clarification: event.clarification, status: "clarification" };
     case "warning":
@@ -1210,9 +1218,11 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       void get().submit({ refinements: [refinement] });
       return;
     }
-    // Mock mode (logged + queued, visibly) or mid-stream (queued, flushed
-    // as one refinement turn when the current stream finishes).
-    console.info("[revi] typed refinement emitted", refinement, source ?? {});
+    // Mock mode (queued) or mid-stream (queued, flushed as one refinement
+    // turn when the current stream finishes). The queue is visible in the
+    // UI, so this path does not also narrate itself to the console — the
+    // only console contract this app keeps is the contract-drift report in
+    // `apiDriver`, which a reader is meant to act on.
     set((state) => ({
       pendingRefinements: [
         ...state.pendingRefinements,

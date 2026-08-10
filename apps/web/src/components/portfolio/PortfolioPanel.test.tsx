@@ -207,7 +207,7 @@ describe("PortfolioPanel — reading every published field", () => {
   it("shows the detector's severity and the card's age", () => {
     renderPanel();
     expect(screen.getAllByText("critical").length).toBeGreaterThan(0);
-    expect(screen.getByText("detected 31d ago")).toBeInTheDocument();
+    expect(screen.getByText("Detected 31d ago")).toBeInTheDocument();
   });
 
   it("notes a card whose drill probes a different measure than it reports", () => {
@@ -216,7 +216,7 @@ describe("PortfolioPanel — reading every published field", () => {
     // reported metric here renders "drills denial_rate, not denial_rate";
     // the drilled measure is `drill_spec.metric_ids[0]`.
     renderPanel();
-    expect(screen.getByText(/Drills denied_dollars, not denial_rate/)).toBeInTheDocument();
+    expect(screen.getByText(/Drills denied dollars, not denial rate/)).toBeInTheDocument();
   });
 
   it("says nothing when the repoint names the measure the drill already probes", () => {
@@ -279,7 +279,7 @@ describe("PortfolioPanel — lanes and impact agreement", () => {
     // The detector's assertion (also quoted in its own description) …
     expect(screen.getAllByText(/\$178,217/).length).toBeGreaterThan(0);
     // … and this platform's re-derivation of the same cell, with the gap.
-    expect(screen.getByText(/this platform: \$195,874/)).toBeInTheDocument();
+    expect(screen.getByText(/This platform: \$195,874/)).toBeInTheDocument();
     expect(screen.getByText(/\+9\.9%/)).toBeInTheDocument();
   });
 
@@ -291,7 +291,7 @@ describe("PortfolioPanel — lanes and impact agreement", () => {
   it("says when the detector's figure stands alone", () => {
     renderPanel();
     expect(
-      screen.getByText("not re-derived here — the detector's figure alone"),
+      screen.getByText("Not re-derived here — the detector's figure alone"),
     ).toBeInTheDocument();
   });
 
@@ -393,7 +393,7 @@ describe("PortfolioPanel — the still-catchable total", () => {
     // limit is indistinguishable from one. And a horizon computed from
     // three of twelve cards is a fact about three cards.
     renderPanel();
-    expect(screen.getByText(/soonest deadline Aug 19, 2026 — 17 days, on 3 of 12 of them/)).toBeInTheDocument();
+    expect(screen.getByText(/Soonest deadline Aug 19, 2026 — 17 days, on 3 of 12 of them/)).toBeInTheDocument();
   });
 
   it("says a deadline that has already gone has gone, rather than '-47 days'", () => {
@@ -429,17 +429,17 @@ describe("PortfolioPanel — the still-catchable total", () => {
 /**
  * One focus ring, in one place.
  *
- * The round-1 fix pass hand-rolled `focus-visible:outline-none
- * focus-visible:ring-2 focus-visible:ring-ring/60` onto six bare buttons
- * — five of them in this panel. `--ring` at 60% measures 2.15:1 over card
- * and 2.06:1 over page in light, under the 3:1 SC 1.4.11 floor, and every
- * one of those elements had a COMPLIANT user-agent outline before
- * `outline-none` removed it: the fix made them worse than the bug.
+ * A hand-rolled `focus-visible:outline-none focus-visible:ring-2
+ * focus-visible:ring-ring/60` once landed on six bare buttons — five of
+ * them in this panel. `--ring` at 60% measures 2.15:1 over card and 2.06:1
+ * over page, under the 3:1 SC 1.4.11 floor, and every one of those
+ * elements had a COMPLIANT user-agent outline before `outline-none`
+ * removed it: the fix was worse than the bug.
  *
  * `.focus-ring` in globals.css is the one implementation (solid `--ring`,
- * 3.74:1 / 3.43:1 / 3.61:1 / 3.26:1 light against card, page, the
- * translucent rail and sunken; 10.05:1 dark). This sweep is what stops a
- * seventh hand-rolled ring from landing next to it.
+ * 3.74:1 / 3.43:1 / 3.61:1 / 3.26:1 against card, page, the translucent
+ * rail and sunken). This sweep is what stops a seventh hand-rolled ring
+ * from landing next to it.
  */
 describe("focus rings do not drift back into components", () => {
   const SRC = path.resolve(import.meta.dirname, "../..");
@@ -551,6 +551,46 @@ describe("PortfolioPanel — a data load with nothing detected in it", () => {
 });
 
 /**
+ * What a reader is asked to read.
+ *
+ * The rail's own sentences are the panel's, not the payload's, and the
+ * payload's spellings are not sentences: `wm_003` is a log token, and
+ * `dollar_impact@1` is a catalog key. Both are facts worth keeping — they
+ * just do not belong in the prose. They move to a title.
+ */
+describe("PortfolioPanel — the payload's spellings stay out of the prose", () => {
+  it("names the ranking as a version, with the identifier on the title", () => {
+    renderPanel();
+    const chip = screen.getByTitle("anomaly_priority@1");
+    expect(chip).toHaveTextContent("Anomaly priority v1");
+  });
+
+  it("prints no data-load id in the footer sentence", () => {
+    renderPanel();
+    // The live snapshot names its load by id alone, so the clause is
+    // dropped rather than printed: an id inside a sentence is the same
+    // class of leak as a snake_case column name.
+    const text = document.body.textContent ?? "";
+    expect(text).not.toMatch(/wm_\d/);
+    expect(text).toMatch(/the same data this list was built on/);
+  });
+
+  it("spells a warehouse date the detector wrote into its own sentence", () => {
+    served = parse({
+      ...LIVE_SNAPSHOT,
+      items: [
+        {
+          ...LIVE_SNAPSHOT.items[0],
+          description: "Paying ~92% of contract-expected since 2026-05.",
+        },
+      ],
+    });
+    renderPanel();
+    expect(screen.getByText(/since May 2026\./)).toBeInTheDocument();
+  });
+});
+
+/**
  * The fourth agreement state.
  *
  * `not_comparable` was added when the reconciler learned to refuse a
@@ -614,7 +654,7 @@ describe("PortfolioPanel — which figure ranked the card", () => {
     served = parse(RANKED_ON_PLATFORM);
     renderPanel();
     const text = document.body.textContent ?? "";
-    expect(text).toContain("ranked on this platform's figure");
+    expect(text).toContain("Ranked on this platform's figure");
     // The figure that actually ordered it, not the one printed above.
     expect(text).toContain("$177,203");
   });
@@ -686,13 +726,13 @@ describe("PortfolioPanel — a card whose cut was repointed", () => {
   it("discloses the substitution on the card", () => {
     served = parse(REPOINTED);
     renderPanel();
-    expect(screen.getByText(/Cuts by primary_proc_group, not proc_group/)).toBeInTheDocument();
+    expect(screen.getByText(/Cuts by primary proc group, not proc group/)).toBeInTheDocument();
   });
 
   it("carries the server's reasoning verbatim rather than summarizing it", async () => {
     served = parse(REPOINTED);
     renderPanel();
-    await userEvent.hover(screen.getByText(/Cuts by primary_proc_group/));
+    await userEvent.hover(screen.getByText(/Cuts by primary proc group/));
     expect(
       await screen.findByText(/the detector counted lines in this group/),
     ).toBeInTheDocument();
@@ -741,7 +781,7 @@ describe("PortfolioPanel — a card the platform re-derived but declines to comp
     // `formatWholeDollars` rounds to the dollar — the detector's figures
     // are dollar-rounded by construction and printing ".92" on one would
     // imply a precision the detection never had.
-    expect(text).toContain("this platform: $195,874");
+    expect(text).toContain("This platform: $195,874");
     expect(text).toContain("measured differently, not a disagreement");
   });
 

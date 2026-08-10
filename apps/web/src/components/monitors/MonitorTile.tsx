@@ -10,7 +10,7 @@ import { MonitorSensitivityForm } from "@/components/monitors/MonitorSensitivity
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { investigationLinkFor } from "@/lib/links";
-import { readableStatement, tidyProse } from "@/lib/prose";
+import { readableStatement } from "@/lib/prose";
 import type { MonitorsPin, MonitorsTile, MonitorModel } from "@/lib/monitors";
 import { useSessionStore } from "@/lib/store";
 import { isoRangeLabel } from "@/lib/format";
@@ -126,8 +126,8 @@ export function MonitorTile({ tile, pin }: { tile: MonitorsTile; pin?: MonitorsP
       // (`xl`, the radius scale's top step, matching the answer card), a
       // raised surface with a MEASURED elevation token (the hardcoded
       // `shadow-[0_1px_2px_rgba(0,0,0,0.03)]` it replaces computed to
-      // 1.002:1 over the dark page — no shadow at all — and 1.068:1 in
-      // light), and a 180ms border transition: long enough to feel like a
+      // 1.068:1 against the page, which is no shadow at all), and a 180ms
+      // border transition: long enough to feel like a
       // response, short enough not to be an effect.
       className={cn(
         "group relative flex flex-col gap-2 rounded-xl border bg-surface-raised p-3.5",
@@ -164,7 +164,7 @@ export function MonitorTile({ tile, pin }: { tile: MonitorsTile; pin?: MonitorsP
           {tile.headlineSubjectLabel !== "" &&
             !tile.label.includes(tile.headlineSubjectLabel) && (
               <p className="text-micro leading-snug text-muted-foreground">
-                measuring {tile.headlineSubjectLabel}
+                Measuring {tile.headlineSubjectLabel}
               </p>
             )}
         </div>
@@ -179,8 +179,8 @@ export function MonitorTile({ tile, pin }: { tile: MonitorsTile; pin?: MonitorsP
               redeploy — and a tile that went blank without saying so would
               look like a zero. */}
           {tile.unavailableReason && (
-            <p className="text-micro leading-snug text-warning">
-              {tidyProse(tile.unavailableReason)}
+            <p className="text-micro leading-snug text-muted-foreground">
+              {readableStatement(tile.unavailableReason)}
             </p>
           )}
         </>

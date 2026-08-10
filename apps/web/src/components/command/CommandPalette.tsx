@@ -14,10 +14,8 @@ import {
   Search,
   Settings2,
   Sparkles,
-  SunMoon,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useTheme } from "next-themes";
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 
@@ -49,7 +47,7 @@ interface PaletteAction {
 /**
  * ⌘K command palette — keyboard-first control surface (Linear DNA).
  * Investigate (ask / replay), navigate (turns, findings, evidence),
- * workspace (theme, driver, reset). Opens with ⌘K / Ctrl+K.
+ * workspace (settings, layout, reset). Opens with ⌘K / Ctrl+K.
  */
 export function CommandPalette({
   open,
@@ -58,7 +56,6 @@ export function CommandPalette({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { resolvedTheme, setTheme } = useTheme();
   const router = useRouter();
   const submit = useSessionStore((s) => s.submit);
   const streaming = useSessionStore((s) => s.streamingTurnId !== null);
@@ -85,13 +82,13 @@ export function CommandPalette({
   // of whichever condition is actually holding them. Rendered as hint text
   // on the disabled rows: dimming says "not now" and nothing says why.
   const busyReason = streaming
-    ? "wait — a turn is running"
+    ? "Wait — a turn is running"
     : replaying
-      ? "wait — the demo is replaying"
+      ? "Wait — the demo is replaying"
       : switchingSessionId !== null
-        ? "wait — a session is opening"
+        ? "Wait — a session is opening"
         : newChatPending
-          ? "wait — a new chat is opening"
+          ? "Wait — a new chat is opening"
           : undefined;
 
   const [query, setQuery] = useState("");
@@ -152,7 +149,7 @@ export function CommandPalette({
         id: "ask-next",
         group: "Investigate",
         label: `Ask: ${nextQuestion}`,
-        hint: "next in the reference drill-down",
+        hint: "Next in the reference drill-down",
         icon: <MessageSquareText className="size-3.5" />,
         disabled: newChatBusy,
         run: () => void submit({ utterance: nextQuestion }),
@@ -163,7 +160,7 @@ export function CommandPalette({
         id: "ask-pr3",
         group: "Investigate",
         label: "Ask: What is PR3?",
-        hint: "definitional",
+        hint: "Definition",
         icon: <CircleHelp className="size-3.5" />,
         disabled: newChatBusy,
         run: () => void submit({ utterance: "What is PR3?" }),
@@ -174,7 +171,7 @@ export function CommandPalette({
         label: replayProgress
           ? `Replaying reference demo (${replayProgress.index}/${replayProgress.total})`
           : "Replay reference demo",
-        hint: "five turns",
+        hint: "Five turns",
         icon: <Play className="size-3.5" />,
         disabled: newChatBusy,
         run: () => void replayReference(),
@@ -183,7 +180,7 @@ export function CommandPalette({
         id: "focus-composer",
         group: "Investigate",
         label: "New investigation",
-        hint: "focus the composer",
+        hint: "Focus the composer",
         icon: <ArrowUpRight className="size-3.5" />,
         run: () => document.getElementById("turn-composer")?.focus(),
       },
@@ -237,7 +234,7 @@ export function CommandPalette({
         id: "evidence",
         group: "Navigate",
         label: "Open evidence drawer",
-        hint: "latest answer",
+        hint: "Latest answer",
         icon: <FileSearch className="size-3.5" />,
         run: () => openDrawer(evidenced.id),
       });
@@ -250,7 +247,7 @@ export function CommandPalette({
       id: "monitors",
       group: "Navigate",
       label: "Open Monitors",
-      hint: "what changed at this data load",
+      hint: "What changed in this data load",
       icon: <Eye className="size-3.5" />,
       run: () => router.push("/monitors"),
     });
@@ -269,7 +266,7 @@ export function CommandPalette({
         // What it will actually monitor, named — a monitor registered on
         // something the analyst did not mean is a tile that interrupts
         // them tomorrow about a cell they never asked about.
-        hint: referent ? `re-runs ${label} every load` : "re-runs this question every load",
+        hint: referent ? `Re-runs ${label} every load` : "Re-runs this question every load",
         icon: <Eye className="size-3.5" />,
         disabled: streaming,
         run: () =>
@@ -285,7 +282,7 @@ export function CommandPalette({
         id: "new-chat",
         group: "Workspace",
         label: "New chat",
-        hint: driverKind === "api" ? "opens a fresh backend session" : "restarts the demo script",
+        hint: driverKind === "api" ? "Starts a new session" : "Restarts the demo script",
         icon: <MessageSquarePlus className="size-3.5" />,
         disabled: newChatBusy,
         run: () => void newChat(),
@@ -294,16 +291,9 @@ export function CommandPalette({
         id: "settings",
         group: "Workspace",
         label: "Settings",
-        hint: debug ? "internal · debug on" : "internal",
+        hint: debug ? "Internal · debug on" : "Internal",
         icon: <Settings2 className="size-3.5" />,
         run: openSettings,
-      },
-      {
-        id: "theme",
-        group: "Workspace",
-        label: `Switch to ${resolvedTheme === "dark" ? "light" : "dark"} theme`,
-        icon: <SunMoon className="size-3.5" />,
-        run: () => setTheme(resolvedTheme === "dark" ? "light" : "dark"),
       },
       {
         // Under judgement, so the row says which layout is on screen and
@@ -322,7 +312,7 @@ export function CommandPalette({
         id: "reset",
         group: "Workspace",
         label: "Reset session",
-        hint: "same as New chat",
+        hint: "Same as New chat",
         icon: <RotateCcw className="size-3.5" />,
         disabled: newChatBusy,
         run: () => void newChat(),
@@ -336,8 +326,8 @@ export function CommandPalette({
       list.push({
         id: "driver",
         group: "Workspace",
-        label: `Switch to ${driverKind === "api" ? "mock" : "live API"} driver`,
-        hint: "reloads the page",
+        label: driverKind === "api" ? "Use the mock fixture" : "Use the live API",
+        hint: "Reloads the page",
         icon: <Repeat className="size-3.5" />,
         run: () => {
           window.localStorage.setItem("revi-driver", driverKind === "api" ? "mock" : "api");
@@ -355,8 +345,6 @@ export function CommandPalette({
     turns,
     referents,
     openDrawer,
-    resolvedTheme,
-    setTheme,
     newChat,
     openSettings,
     debug,
@@ -481,15 +469,14 @@ export function CommandPalette({
                     onClick={() => runAction(action)}
                     className={cn(
                       // The row Enter will fire needs a real indicator, not
-                      // a tint: `bg-accent` measures 1.05:1 against the
-                      // overlay in dark and 1.19:1 in light, and the hover
-                      // variant 1.06:1 — so "selected" and "hovered" were
-                      // the same pixel on a menu holding "Reset session"
-                      // and "New chat", both of which discard an open
-                      // investigation with no undo. The 2px `--ring` rail
-                      // is 9.34:1 dark / 3.74:1 light against that same
-                      // overlay. Every row reserves the 2px so arrowing
-                      // never shifts the labels.
+                      // a tint: `bg-accent` measures 1.19:1 against the
+                      // overlay and the hover variant 1.06:1 — so
+                      // "selected" and "hovered" were the same pixel on a
+                      // menu holding "Reset session" and "New chat", both
+                      // of which discard an open investigation with no
+                      // undo. The 2px `--ring` rail is 3.74:1 against that
+                      // same overlay. Every row reserves the 2px so
+                      // arrowing never shifts the labels.
                       "flex w-full items-center gap-2.5 rounded-md border-l-2 border-l-transparent px-2.5 py-2 text-left text-body transition-colors duration-150",
                       i === clampedSelected && !action.disabled
                         ? "border-l-ring bg-accent font-medium text-foreground"
@@ -498,9 +485,9 @@ export function CommandPalette({
                       // floor, and these rows earn no benefit from the
                       // exemption: they are the ones a user reads to find
                       // out why the palette went inert mid-turn. At 40%
-                      // `--secondary-foreground` measured 2.36:1 light /
-                      // 2.96:1 dark on the overlay; at 65% it is 4.76:1 /
-                      // 5.66:1 and still visibly a step down.
+                      // `--secondary-foreground` measured 2.36:1 on the
+                      // overlay; at 65% it is 4.76:1 and still visibly a
+                      // step down.
                       action.disabled && "opacity-65",
                     )}
                   >

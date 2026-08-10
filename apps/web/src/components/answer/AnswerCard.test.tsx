@@ -282,7 +282,17 @@ describe("AnswerCard — structured warnings (F14)", () => {
     expect(screen.queryByText(/population_caveat:/)).not.toBeInTheDocument();
   });
 
-  it("styles a caution and a note differently, from the server's severity", () => {
+  /**
+   * MARKS ON THE DATA, NOTES BELOW IT, WARNINGS ONLY FOR VERDICTS.
+   *
+   * The split used to be severity's: every `caution` wore the amber box,
+   * which put "no window was named, so the last 30 days were used" in the
+   * same ink as a false premise. Register is decided by the CODE now
+   * (`isLoudCode`) — a verdict, a refusal or a corrected figure is loud,
+   * and everything else is a quiet note whatever its severity. Severity
+   * still orders the list; it no longer sets the ink.
+   */
+  it("keeps the amber for a refusal and renders an ordinary caution quiet", () => {
     const { container } = renderCard(
       bareTurn({
         warnings: [
@@ -300,15 +310,30 @@ describe("AnswerCard — structured warnings (F14)", () => {
             message: "suppression: cells counting fewer than 11 entities are suppressed",
             structured: true,
           },
+          {
+            type: "warning",
+            code: "RANKING_REFUSED",
+            severity: "caution",
+            message: "ranking_refused: no order was published for these cells",
+            structured: true,
+          },
         ],
       }),
     );
     const caution = container.querySelector('[data-warning-code="WINDOW_ASSUMED"]');
     const note = container.querySelector('[data-warning-code="SUPPRESSION_APPLIED"]');
-    expect(caution?.className).toContain("border-warning/40");
+    const refusal = container.querySelector('[data-warning-code="RANKING_REFUSED"]');
+    expect(refusal?.className).toContain("border-warning/40");
+    expect(refusal).toHaveAttribute("data-register", "loud");
+    expect(caution?.className).not.toContain("border-warning/40");
+    expect(caution).toHaveAttribute("data-register", "quiet");
     expect(note?.className).not.toContain("border-warning/40");
+    expect(note).toHaveAttribute("data-register", "quiet");
+    // Every sentence is still on screen — a note that stops being amber
+    // becomes a caption, not a deletion.
     expect(screen.getByText("Window assumed")).toBeInTheDocument();
     expect(screen.getByText("Small cells were suppressed")).toBeInTheDocument();
+    expect(screen.getByText("No ranking was published")).toBeInTheDocument();
   });
 
   it("puts cautions above notes — the ones that change the reading come first", () => {
@@ -440,7 +465,9 @@ describe("AnswerCard — anomaly drill reconciliation (F1)", () => {
       }),
     );
     expect(screen.getByText("The card's figure could not be re-derived here")).toBeInTheDocument();
-    expect(screen.getByText("not re-derived")).toBeInTheDocument();
+    // Sentence case: it is the value in the "This answer" slot, and a
+    // figure slot that opens lowercase reads as an unfinished string.
+    expect(screen.getByText("Not re-derived")).toBeInTheDocument();
   });
 
   it("renders nothing on a turn that drilled no card", () => {
@@ -818,7 +845,14 @@ describe("AnswerCard — a turn carrying the ranked worklist", () => {
 
     const matches = screen.getAllByText(/they are not findings this turn computed/);
     expect(matches).toHaveLength(1);
-    expect(screen.getByText(/8 of 33 ranked cards at watermark wm_003/)).toBeInTheDocument();
+    // The server names the load by its handle; the surface says "this
+    // data load" and keeps the engine's exact sentence on the element.
+    const summary = screen.getByText(/8 of 33 ranked cards at this data load/);
+    expect(summary).toBeInTheDocument();
+    expect(summary).toHaveAttribute(
+      "title",
+      "8 of 33 ranked cards at watermark wm_003, highest governed priority first.",
+    );
   });
 
   it("leaves the turn's other warnings in the warning list", () => {
@@ -989,9 +1023,12 @@ describe("AnswerCard — a caution is printed once, not twice", () => {
     // Deliberately positionless: the cautions sit above the writing in
     // two layouts and behind the integrity line in the third, so a note
     // that named a position would be wrong on one of them.
+    // One sentence doing one job: the note used to say "not printed
+    // twice" and then "every caveat is stated in full", which is the same
+    // reassurance twice under the prose it annotates.
     expect(
       screen.getByText(
-        /repeated a caution this answer already carries, word for word, and is not printed twice/,
+        /repeated a caution this answer already carries, so it is not printed twice/,
       ),
     ).toBeInTheDocument();
   });
@@ -1056,7 +1093,7 @@ describe("AnswerCard — a caution is printed once, not twice", () => {
     ).toBeNull();
   });
 
-  it("says how many probes a collapsed caution came from, without naming them on screen", () => {
+  it("says how many checks a collapsed caution came from, without naming them on screen", () => {
     const { container } = renderCard(
       bareTurn({
         warnings: [
@@ -1073,10 +1110,11 @@ describe("AnswerCard — a caution is printed once, not twice", () => {
       }),
     );
     expect(screen.getByText("×6")).toBeInTheDocument();
+    // "Probe" is platform vocabulary and the plan handles are operator
+    // material — neither reaches a default surface, not even a `title`.
     expect(screen.getByText("×6").getAttribute("title")).toBe(
-      "One fact, raised on 6 probes: main, premise, main__window, main__window__prior. It is stated once.",
+      "One fact, raised on 6 checks. It is stated once.",
     );
-    // The plan node names are operator material and are not on the answer.
-    expect(container.textContent).not.toContain("main__window__prior");
+    expect(container.innerHTML).not.toContain("main__window__prior");
   });
 });

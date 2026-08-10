@@ -488,7 +488,7 @@ const T1_EVENTS: TurnEvent[] = [
       series: [{ key: "cents", label: "Payer cash", role: "current" }],
       rows: WEEKLY_PAYER_CASH.map((w) => ({ label: w.week, values: { cents: w.cents } })),
       highlightLabel: "Jul 27",
-      xLabel: "week beginning (post date)",
+      xLabel: "Week beginning (post date)",
     },
   },
   {
@@ -554,7 +554,7 @@ const T1_EVENTS: TurnEvent[] = [
       ],
       reconciliation: {
         status: "not_applicable",
-        detail: "this is a first turn; there is no parent answer to reconcile to",
+        detail: "This is a first turn; there is no parent answer to reconcile to",
         summary:
           "status=not_applicable; reason=this is a first turn; there is no parent answer to reconcile to",
       },
@@ -588,9 +588,9 @@ const T2_EVENTS: TurnEvent[] = [
         { from: "that", to: "cash_posted@3", note: "resolves to the investigation's primary measure" },
       ],
       planDiff: [
-        "kept window Jul 27 – Aug 2 (post date)",
-        "kept comparison vs Jul 20 – 26",
-        "added dimension: payer — from this turn",
+        "Kept window Jul 27 – Aug 2 (post date)",
+        "Kept comparison vs Jul 20 – 26",
+        "Added dimension: payer — from this turn",
       ],
       appliedOperators: ["SetDimensions(payer)"],
     },
@@ -704,10 +704,10 @@ const T3_EVENTS: TurnEvent[] = [
         { from: "top three payers", to: "DrillInto F6, F7, F8 → pinned cohort c1" },
       ],
       planDiff: [
-        "kept window dates Jul 27 – Aug 2; basis → remit (contract primary)",
-        "pinned cohort c1: 3 payers (from turn 3)",
-        "pivoted measures → denied_dollars@2",
-        "set dimension: group code + CARC",
+        "Kept window dates Jul 27 – Aug 2; basis → remit (contract primary)",
+        "Pinned cohort c1: 3 payers (from turn 3)",
+        "Pivoted measures → denied dollars",
+        "Set dimension: group code + CARC",
       ],
       appliedOperators: ["DrillInto(F6,F7,F8)", "Pivot(denied_dollars)", "SetDimensions(carc)"],
     },
@@ -818,9 +818,9 @@ const T4_EVENTS: TurnEvent[] = [
       filterDescriptions: ["cohort: top-3 payers (pinned, carried)"],
       synonymMappings: [{ from: "that", to: "the CARC mix from turn 3" }],
       planDiff: [
-        "kept window, cohort, dimensions",
-        "set comparison: CUSTOM → Q1 2026 (Jan 1 – Mar 31)",
-        "primary-side frames unchanged → evidence cache",
+        "Kept window, cohort, dimensions",
+        "Set comparison: custom → Q1 2026 (Jan 1 – Mar 31)",
+        "Primary-side figures unchanged — reused from this session",
       ],
       appliedOperators: ["SetComparison(CUSTOM, Q1 2026)"],
     },
@@ -916,7 +916,7 @@ const T4_EVENTS: TurnEvent[] = [
       ],
       reconciliation: {
         status: "not_applicable",
-        detail: "this turn neither split nor drilled the parent's population",
+        detail: "This turn neither split nor drilled the parent's population",
         summary:
           "status=not_applicable; reason=this turn neither split nor drilled the parent's population",
       },
@@ -946,7 +946,7 @@ const T5_EVENTS: TurnEvent[] = [
       windowDescription: "context of F2 (turn 1): Jul 27 – Aug 2, 2026 (post date)",
       filterDescriptions: [],
       synonymMappings: [{ from: "F2", to: "finding F2 — Atlas Commercial WoW decline (turn 1)" }],
-      planDiff: ["zero-probe path: answered from the session trace"],
+      planDiff: ["No data check ran — answered from this session's own record"],
       appliedOperators: ["Explain(F2)"],
     },
   },

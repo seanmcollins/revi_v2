@@ -15,7 +15,15 @@
 
 import { describe, expect, it } from "vitest";
 
-import { foldComposedDisclosures, partitionWarnings, publicWarningBody } from "@/lib/warnings";
+import {
+  foldComposedDisclosures,
+  isLoudCode,
+  isVerdictCode,
+  LOUD_CODES,
+  partitionWarnings,
+  publicWarningBody,
+  WARNING_TITLES,
+} from "@/lib/warnings";
 
 const PROBE_FAMILIES_EMPTY =
   "probe_families_empty: 8 metric famil(ies) on this plan were read and produced no " +
@@ -130,8 +138,165 @@ describe("partitionWarnings — the verdict is never one of the others", () => {
   });
 });
 
+/* ------------------------------------------------------------------ */
+/* Marks on the data, notes below it, warnings only for verdicts       */
+/* ------------------------------------------------------------------ */
+
 /**
- * ROUND-9 P0 — the fold deleted the answer.
+ * THE REGISTER LIST, pinned.
+ *
+ * The whole point of `isLoudCode` is that the split is ONE reviewable list
+ * rather than a ternary in each of eleven components, so the list itself is
+ * what this asserts — a code added to it is a deliberate decision somebody
+ * made, and a code that drifts onto it fails here.
+ */
+describe("isLoudCode — which codes may wear the warning register", () => {
+  it("is exactly the verdicts, the refusals and a corrected figure", () => {
+    expect([...LOUD_CODES].sort()).toEqual([
+      "BOUNDED_CELLS_UNRANKED",
+      "DIRECTION_UNMATCHED",
+      "PREMISE_FALSE",
+      "PREMISE_PARTIAL",
+      "PREMISE_UNVERIFIABLE",
+      "RANKING_REFUSED",
+      "VALUE_CORRECTED",
+    ]);
+  });
+
+  it("renders every ordinary caveat quiet, whatever its severity", () => {
+    // Each of these is a `caution` on the wire — the severity that used to
+    // decide the ink. None of them is a finding against the answer.
+    for (const code of [
+      "WINDOW_ASSUMED",
+      "ALTERNATE_BASIS_USED",
+      "POPULATION_CAVEAT",
+      "ADJUDICATION_INCOMPLETE",
+      "SUPPRESSION_APPLIED",
+      "SUPPRESSION_BOUNDED",
+      "COMPARISON_ASSUMED",
+      "COMPARISON_PRIOR_UNKNOWN",
+      "CHART_ROWS_COLLAPSED",
+      "RESULT_TRUNCATED",
+      "FINDINGS_TRUNCATED",
+      "COHORT_WINDOW_DROPPED",
+      "PROBE_FAMILIES_EMPTY",
+    ]) {
+      expect(isLoudCode(code), `${code} must render quiet`).toBe(false);
+    }
+  });
+
+  it("keeps a VERIFIED premise seated with the verdicts and out of the amber", () => {
+    // The one premise outcome that is good news. It leads the answer like
+    // any other verdict and does not shout, because "the premise you
+    // assumed is correct" in the same ink as "your premise is false"
+    // teaches a reader that the colour means nothing.
+    expect(isVerdictCode("PREMISE_VERIFIED")).toBe(true);
+    expect(isLoudCode("PREMISE_VERIFIED")).toBe(false);
+  });
+
+  it("makes a refusal loud even where it is not seated as a verdict", () => {
+    // Ceilings presented in axis order read as a league table unless the
+    // refusal is loud enough to stop the reader.
+    expect(isLoudCode("BOUNDED_CELLS_UNRANKED")).toBe(true);
+    expect(isVerdictCode("BOUNDED_CELLS_UNRANKED")).toBe(false);
+  });
+
+  it("names a code the reader can actually read", () => {
+    // A loud row is the one row on the surface a reader must not skim, so
+    // every one of them has a plain-language title over the engine's
+    // sentence rather than the code prettified.
+    for (const code of LOUD_CODES) {
+      expect(WARNING_TITLES[code], `${code} needs a title`).toBeTruthy();
+    }
+  });
+
+  it("says nothing about an unknown code", () => {
+    expect(isLoudCode("UNCLASSIFIED")).toBe(false);
+    expect(isLoudCode("SOMETHING_THE_SERVER_ADDED_TODAY")).toBe(false);
+  });
+});
+
+/**
+ * THE FOLD NEVER LEAVES A FRAGMENT.
+ *
+ * Live, on the flagship answer, the end of the write-up read
+ *
+ *   "…govern how far these figures can be generalized.spread statements on
+ *    this answer describe the published slice, not the full population."
+ *
+ * — a welded stop and a sentence starting mid-phrase, at the bottom of the
+ * main prose. The composer appends the `FINDINGS_TRUNCATED` disclosure to
+ * the clause before it with no space, and `sentencesOf` splits on a stop
+ * FOLLOWED BY SPACE, so the disclosure was never a sentence this function
+ * could see: it matched no banner, was printed a second time, and printed
+ * welded.
+ */
+describe("foldComposedDisclosures — whole sentences, and a repaired join", () => {
+  const TRUNCATED =
+    "findings_truncated: 6 of 65 computed cells are published as findings; the remaining 59 " +
+    "are in the chart and the evidence frame but carry no finding. Superlatives and spread " +
+    "statements on this answer describe the published slice, not the full population.";
+  const warnings = [{ code: "FINDINGS_TRUNCATED", message: TRUNCATED }];
+
+  it("folds a disclosure the composer welded onto the clause before it", () => {
+    const narrative =
+      "Cash posted fell $193,525.79 last week. The caution-severity notes published above " +
+      "this text govern how far these figures can be generalized.Superlatives and spread " +
+      "statements on this answer describe the published slice, not the full population.";
+    const { text, folded } = foldComposedDisclosures(narrative, warnings);
+    expect(folded).toBe(1);
+    expect(text.endsWith("can be generalized.")).toBe(true);
+    expect(text).not.toContain("Superlatives");
+  });
+
+  it("leaves no sentence welded onto a terminal stop", () => {
+    const narrative =
+      "Cash posted fell $193,525.79 last week.The three payers below account for most of it.";
+    const { text } = foldComposedDisclosures(narrative, warnings);
+    expect(/[.!?][A-Za-z]/.test(text)).toBe(false);
+    expect(text).toContain("last week. The three payers");
+  });
+
+  it("drops NOTHING when a sentence only partially matches a warning", () => {
+    // The rule the mangled line was mistaken for: a fold removes whole
+    // sentences or nothing. It never cuts a sentence in half and splices
+    // the tail back onto the previous one.
+    const narrative =
+      "Cash posted fell $193,525.79 last week. Superlatives and spread statements on this " +
+      "answer describe the published slice, not the full population, so the three payers " +
+      "named here are not necessarily the largest three.";
+    const { text, folded } = foldComposedDisclosures(narrative, warnings);
+    expect(folded).toBe(0);
+    expect(text).toContain("not necessarily the largest three");
+    // No fragment welded onto a stop, and no sentence left starting
+    // mid-phrase.
+    expect(/[.!?][a-z]/.test(text)).toBe(false);
+    expect(/[.!?]\s+[a-z]/.test(text)).toBe(false);
+  });
+
+  it("counts exactly what it removed", () => {
+    const narrative =
+      "Cash posted fell $193,525.79 last week. Superlatives and spread statements on this " +
+      "answer describe the published slice, not the full population. The three payers below " +
+      "account for most of the move.";
+    const before = narrative.split(/(?<=[.!?])\s+/).length;
+    const { text, folded } = foldComposedDisclosures(narrative, warnings);
+    expect(folded).toBe(1);
+    expect(text.split(/(?<=[.!?])\s+/).length).toBe(before - folded);
+  });
+
+  it("does not separate a dot that is not a sentence boundary", () => {
+    // "export.csv" is not two sentences and a rule that split it would be
+    // inventing a defect. Neither is an ISO range or a decimal.
+    const narrative =
+      "Cash posted fell 3.5% over 2026-07-01..2026-07-31, and the rows are in export.csv.";
+    const { text } = foldComposedDisclosures(narrative, warnings);
+    expect(text).toBe(narrative);
+  });
+});
+
+/**
+ * The fold deleted the answer.
  *
  * On a provisional window the composer opens the write-up with the SETTLED
  * reading, and the engine publishes the same paragraph as the body of

@@ -34,7 +34,7 @@ import { MonitorTile } from "@/components/monitors/MonitorTile";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import live from "@/lib/__fixtures__/live-monitors.json";
 import { mapTimeToImpact, parsePortfolioSnapshot } from "@/lib/contract";
-import { readableStatement } from "@/lib/prose";
+import { capitalizeOpening, readableStatement } from "@/lib/prose";
 import {
   mapLeadState,
   mapMonitorsPin,
@@ -153,7 +153,11 @@ describe("a movement is stated in the metric's own unit", () => {
   it("says a same-window change is the data catching up, not a movement", () => {
     const tile = rateTile();
     const { container } = draw(<MonitorTile tile={tile} />);
-    expect(screen.getAllByText("same period, re-measured").length).toBeGreaterThan(0);
+    // Sentence case, and in the line's own ink: the data catching up is
+    // context about the reading, not an alarm about it.
+    const marks = screen.getAllByText("Same period, re-measured");
+    expect(marks.length).toBeGreaterThan(0);
+    expect(marks[0].className).not.toContain("text-warning");
     // And it is not drawn with a direction arrow: an arrow is a claim
     // about the world, and this is a claim about adjudication run-out.
     const line = container.querySelector('[data-same-window="true"]');
@@ -399,7 +403,11 @@ describe("the brief is a list of sentences, not of metrics", () => {
     const movement = (BRIEF.value?.entries ?? []).find((e) => e.delta?.thresholdSource === "monitor");
     expect(movement).toBeDefined();
     draw(<BriefEntryRow entry={movement!} />);
-    expect(screen.getByText("your threshold")).toBeInTheDocument();
+    // Sentence case, quiet ink: which gate briefed this is a note, and
+    // the words carry the distinction the colour used to.
+    const note = screen.getByText("Your threshold");
+    expect(note).toBeInTheDocument();
+    expect(note.className).not.toContain("text-warning");
   });
 });
 
@@ -414,10 +422,12 @@ describe("the cash lane is context, and says which kind it is", () => {
     const projected = cards.find((c) => c.timeToImpact?.kind === "projected");
     expect(projected, "the live capture must contain a projected card").toBeDefined();
     draw(<TimeToImpactLine timeToImpact={projected!.timeToImpact!} />);
-    expect(screen.getByText(/hits cash in ~\d+ days/)).toBeInTheDocument();
+    expect(screen.getByText(/Hits cash in ~\d+ days/)).toBeInTheDocument();
     // An estimate rendered like a filing limit is indistinguishable from
-    // one on the screen beside it.
-    expect(screen.getByText("provisional")).toBeInTheDocument();
+    // one on the screen beside it. The WORD is the mark; the ink is quiet.
+    const provisional = screen.getByText("Provisional");
+    expect(provisional).toBeInTheDocument();
+    expect(provisional.className).not.toContain("text-warning");
   });
 
   it("says an already-landed card has landed, and names the window still open", () => {
@@ -426,8 +436,8 @@ describe("the cash lane is context, and says which kind it is", () => {
     );
     expect(hit).toBeDefined();
     draw(<TimeToImpactLine timeToImpact={hit!.timeToImpact!} />);
-    expect(screen.getByText(/already hit cash — appeal window closes in \d+ days/)).toBeInTheDocument();
-    expect(screen.queryByText("provisional")).not.toBeInTheDocument();
+    expect(screen.getByText(/Already hit cash — appeal window closes in \d+ days/)).toBeInTheDocument();
+    expect(screen.queryByText("Provisional")).not.toBeInTheDocument();
   });
 
   it("renders an unknown lane with its reason rather than a blank", () => {
@@ -441,7 +451,7 @@ describe("the cash lane is context, and says which kind it is", () => {
       recovery_label: "",
     });
     draw(<TimeToImpactLine timeToImpact={unknown!} />);
-    expect(screen.getByText("no cash date for this kind of card")).toBeInTheDocument();
+    expect(screen.getByText("No cash date for this kind of card")).toBeInTheDocument();
   });
 });
 
@@ -569,7 +579,12 @@ describe("a monitor with nothing to compare says so", () => {
         }}
       />,
     );
-    expect(screen.getByText(reason)).toBeInTheDocument();
+    // Rendered verbatim apart from the opening capital: the composer
+    // hands over a bare clause ("first reading at this load: …") and a
+    // tile of lower-case sentences reads as unfinished. Only the first
+    // character moves — see `capitalizeOpening`.
+    expect(screen.getByText(capitalizeOpening(reason))).toBeInTheDocument();
+    expect(screen.getByText(new RegExp("there is nothing to compare against yet"))).toBeInTheDocument();
     expect(container.querySelector("[data-delta-absent]")).toBeNull();
   });
 });

@@ -21,8 +21,8 @@
  * banned: it measures 8.50–9.29 light and 10.34–10.74 dark, and the 20%
  * there is doing real work separating a lead from a body.
  *
- * Round 8 banned `text-muted-foreground/80` on the Monitors surface by
- * rendering it (`Monitors.test.tsx`). That caught the tiles and missed the
+ * The Monitors surface bans `text-muted-foreground/80` by rendering it
+ * (`Monitors.test.tsx`). That caught the tiles and missed the
  * two stragglers — the answer card's Restored mark and the session rail's
  * row age — because a render test only sees what it renders. This one
  * reads the source, so a class added to a component nobody has written a

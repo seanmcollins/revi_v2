@@ -1177,6 +1177,19 @@ export interface ChartSpecEvent {
 export interface NarrativeDeltaEvent {
   type: "narrative_delta";
   text: string;
+  /**
+   * Replace the write-up rather than extend it.
+   *
+   * The live stream publishes a DRAFT of the prose and the terminal frame
+   * publishes the composed one, and the two are not required to share a
+   * prefix — the composer may rewrite what it streamed. The recovery path
+   * used to append `narrative.slice(receivedLength)` unconditionally,
+   * which is only a continuation when the stream really is a prefix; when
+   * it is not, it welds the tail of one text onto the whole of another and
+   * the reader gets a sentence restarting mid-word. Set when the terminal
+   * narrative supersedes what was streamed.
+   */
+  replace?: boolean;
 }
 
 export interface ClarificationEvent {
@@ -1366,9 +1379,31 @@ export interface LineageNode {
   question: string;
 }
 
+/**
+ * One refinement edge: the operators that turned a parent investigation
+ * into a child one.
+ *
+ * THREE IDS, TWO NAMESPACES — and the reason this interface names them so
+ * explicitly. `parent_id` and `child_id` on the wire are INVESTIGATION
+ * ids; `turn_id` is the TURN the edge belongs to. These were read as
+ * `parentTurnId` / `childTurnId` and then joined against a node's
+ * `turnId`, which is an id from the other namespace: the join never
+ * matched, so no lineage edge in the live product ever showed the
+ * operators that produced it. `turnId` is the join key.
+ */
 export interface LineageEdge {
-  parentTurnId: string;
-  childTurnId: string;
+  /** The investigation this refinement came FROM. */
+  parentInvestigationId: string;
+  /** The investigation this refinement PRODUCED. */
+  childInvestigationId: string;
+  /** The turn the edge belongs to — joins to `LineageNode.turnId`. */
+  turnId: string;
+  /**
+   * The typed operators, already in display form ("SetDimensions(payer)").
+   * The wire publishes them as objects; `describeWireOperator` renders
+   * them in the same vocabulary `describeRefinement` uses for the ones
+   * this client builds itself.
+   */
   operators: string[];
 }
 

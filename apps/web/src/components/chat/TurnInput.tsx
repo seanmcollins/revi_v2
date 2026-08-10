@@ -111,20 +111,18 @@ export function TurnInput({ suggestions }: { suggestions: string[] }) {
           )}
         </Button>
       </form>
-      {/* BUG 5 — the composer says something only when it has something
-          to say. The standing disclaimer ("every number is computed from
-          your data…") was printed under every keystroke of every session
-          forever, which is how a true and important sentence becomes
-          furniture nobody reads. It is said once, where a first-time
-          reader actually meets the product — the empty state — and the
-          integrity line under every answer is where the same promise is
-          kept per answer. This line is now only for what is happening
-          right now: queued gestures waiting on the pipeline. */}
+      {/* The composer says something only when it has something to say.
+          The standing disclaimer ("every number is computed from your
+          data…") belongs on the empty state, where a first-time reader
+          meets the product, and the integrity line under every answer is
+          where the same promise is kept per answer. This line is only for
+          what is happening right now: queued clicks waiting on the
+          pipeline. */}
       {pending > 0 && (
         <p className="num text-micro text-muted-foreground">
           {mode === "api"
-            ? `${pending} typed refinement${pending === 1 ? "" : "s"} queued — submitting when this turn completes`
-            : `${pending} typed refinement${pending === 1 ? "" : "s"} queued (logged to console — mock driver)`}
+            ? `${pending} refinement${pending === 1 ? "" : "s"} queued — submitting when this turn completes`
+            : `${pending} refinement${pending === 1 ? "" : "s"} queued — the mock fixture has nowhere to send them`}
         </p>
       )}
     </div>

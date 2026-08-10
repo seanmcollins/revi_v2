@@ -6,8 +6,10 @@ import { MonitorThis } from "@/components/monitors/MonitorThis";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import type { WorklistData } from "@/lib/contract";
-import { formatWholeDollars } from "@/lib/format";
+import { dataLoadDate, formatWholeDollars, rankingVersionLabel } from "@/lib/format";
+import { humanizeColumn } from "@/lib/humanize";
 import type { PortfolioItem } from "@/lib/mock/portfolio";
+import { humanizeLoadHandles } from "@/lib/prose";
 import { useSessionStore } from "@/lib/store";
 import type { WarningEvent } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -75,6 +77,7 @@ export function AnswerWorklist({
   // stated on the chip's tooltip.
   const laneIds = new Set(worklist.items.map((item) => item.lane).filter(Boolean));
   const lanes = worklist.lanes.filter((lane) => laneIds.has(lane.id as "compliance" | "value"));
+  const loadDate = dataLoadDate(worklist.watermarkId);
 
   return (
     <section className="rounded-lg border bg-card/60 p-3">
@@ -98,9 +101,18 @@ export function AnswerWorklist({
               size="row"
             />
           )}
-          <span className="num font-mono text-micro text-muted-foreground">
-            {worklist.formulaVersion}
-          </span>
+          {/* Which version of the ranking ordered these cards. A real
+              fact — two lists ranked by different versions are not
+              comparable — spelled as a version rather than as the
+              payload's `anomaly_priority@3`, which stays on the title. */}
+          {worklist.formulaVersion && (
+            <span
+              className="num text-micro text-muted-foreground"
+              title={worklist.formulaVersion}
+            >
+              {rankingVersionLabel(worklist.formulaVersion)}
+            </span>
+          )}
         </span>
       </header>
 
@@ -118,8 +130,16 @@ export function AnswerWorklist({
           words, never re-derived here. It carries the totals, the lane
           split and the ranking basis in one sentence. */}
       {worklist.statement && (
-        <p className="mt-1.5 text-meta leading-snug text-muted-foreground">
-          {worklist.statement}
+        /* The sentence is the server's and is not re-derived — but it
+           names the data load by its internal handle ("at watermark
+           wm_003"), which is a database id in front of an analyst. The
+           phrase is humanized; the engine's exact sentence stays on the
+           element, one hover away, and every export reads the raw field. */
+        <p
+          className="mt-1.5 text-meta leading-snug text-muted-foreground"
+          title={worklist.statement}
+        >
+          {humanizeLoadHandles(worklist.statement)}
         </p>
       )}
 
@@ -189,9 +209,17 @@ export function AnswerWorklist({
           population and `items` is a slice of it, and a block that showed
           eight rows over a list of 33 without saying so would read as the
           whole worklist. */}
-      <p className="num mt-2 text-micro leading-snug text-muted-foreground">
+      {/* The data load is named by its DATE when the payload carries one.
+          `wm_003` is a log token, and a token inside a sentence a director
+          reads is the same leak as a snake_case column id — it stays on
+          the title, where the person reproducing the query can find it. */}
+      <p
+        className="num mt-2 text-micro leading-snug text-muted-foreground"
+        title={worklist.watermarkId ? `Data load ${worklist.watermarkId}` : undefined}
+      >
         {shown} of {worklist.totalItems} ranked card
-        {worklist.totalItems === 1 ? "" : "s"} at data load {worklist.watermarkId}
+        {worklist.totalItems === 1 ? "" : "s"}
+        {loadDate !== undefined && ` at the ${loadDate} data load`}
         {worklist.totalRecoverableCentsEstimate > 0 && (
           <>
             {" · "}
@@ -247,7 +275,8 @@ function WorklistRow({ item }: { item: PortfolioItem }) {
             {formatWholeDollars(figure)}
           </span>
           {recoverable !== undefined && <span>~{formatWholeDollars(recoverable)} recoverable</span>}
-          {item.lane && <span className="opacity-70">{item.lane}</span>}
+          {/* The lane in words. `compliance` is the payload's key for it. */}
+          {item.lane && <span className="opacity-70">{humanizeColumn(item.lane)}</span>}
         </p>
         <RowBasis item={item} />
       </div>
@@ -323,14 +352,14 @@ function RowBasis({ item }: { item: PortfolioItem }) {
 
   const label =
     rankedOn === "platform"
-      ? "ranked on this platform's figure"
+      ? "Ranked on this platform's figure"
       : rankedOn === "not_comparable"
-        ? "ranked on the detector's figure — not comparable"
+        ? "Ranked on the detector's figure — not comparable"
         : agreement === "diverged"
-          ? "this platform re-derived a different figure"
+          ? "This platform re-derived a different figure"
           : agreement === "not_comparable"
-            ? "measured differently, not a disagreement"
-            : "not re-derived here — the detector's figure alone";
+            ? "Measured differently, not a disagreement"
+            : "Not re-derived here — the detector's figure alone";
 
   // The server's sentence, whichever of the two is the reason. Never
   // composed here: "we used ours because they diverge" and "we used theirs

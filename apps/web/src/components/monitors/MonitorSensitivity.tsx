@@ -197,8 +197,12 @@ export function MonitorSensitivityForm({
         </span>
       </label>
 
+      {/* What saving this will cost — the baseline restarts. A cost stated
+          before the click, in the reader's ink: it is context for a
+          decision they are about to make, not an alarm about one they
+          already made. */}
       {restartNote && (
-        <p className="rounded-md border border-warning/40 bg-warning/10 px-2 py-1.5 text-micro leading-snug">
+        <p className="rounded-md border bg-surface-sunken/60 px-2 py-1.5 text-micro leading-snug text-muted-foreground">
           {restartNote}
         </p>
       )}

@@ -36,10 +36,19 @@ export function MonitorDeclarationNote({ monitor }: { monitor: MonitorDeclaratio
       <div className="min-w-0 space-y-1">
         <p className="text-meta leading-snug text-foreground">{monitor.statement}</p>
         <p className="num flex flex-wrap items-baseline gap-x-2 text-micro text-muted-foreground">
+          {/* WHICH LOAD the baseline was taken at, without its handle.
+              "Baseline 22.2% at wm_003" put a warehouse id in the one
+              sentence that tells an analyst their monitor started; the
+              handle stays reachable on the hover, where an operator looks
+              and a reader does not. */}
           {monitor.baselineValueText !== "" && (
-            <span>
+            <span
+              {...(monitor.baselineWatermarkId !== ""
+                ? { title: `Baseline taken at data load ${monitor.baselineWatermarkId}.` }
+                : {})}
+            >
               Baseline {monitor.baselineValueText}
-              {monitor.baselineWatermarkId !== "" && ` at ${monitor.baselineWatermarkId}`}
+              {monitor.baselineWatermarkId !== "" && " at this data load"}
             </span>
           )}
           {monitor.thresholdStatement !== "" && <span>{monitor.thresholdStatement}</span>}

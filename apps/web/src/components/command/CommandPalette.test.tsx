@@ -61,7 +61,7 @@ describe("CommandPalette — driver-switch affordance is a dev/test-only action"
     setEnvDriver("mock");
     render(<CommandPalette open onOpenChange={() => {}} />);
 
-    expect(screen.getByText(/Switch to (mock|live API) driver/)).toBeInTheDocument();
+    expect(screen.getByText(/Use the (mock fixture|live API)/)).toBeInTheDocument();
   });
 
   it("always offers Replay reference demo, regardless of env", () => {
@@ -96,7 +96,7 @@ describe("CommandPalette — the internal settings panel is ⌘K-reachable", () 
 
     render(<CommandPalette open onOpenChange={() => {}} />);
 
-    expect(screen.getByText("internal · debug on")).toBeInTheDocument();
+    expect(screen.getByText("Internal · debug on")).toBeInTheDocument();
   });
 });
 
@@ -129,12 +129,12 @@ describe("CommandPalette — replay action reflects live progress", () => {
 /**
  * The row Enter will fire has to be visible AND announced.
  *
- * The only selection signal used to be `bg-accent`, which measures 1.05:1
- * against the overlay in dark and 1.19:1 in light — and `hover:bg-accent/50`
- * measures 1.06:1, so hover and selected were the same pixel on a menu
- * containing "Reset session" and "New chat", both of which discard an open
- * investigation with no undo. SC 1.4.11 wants 3:1 for a state indicator;
- * the 2px `--ring` rail measures 9.34:1 dark / 3.74:1 light there.
+ * The only selection signal used to be `bg-accent`, which measures 1.19:1
+ * against the overlay — and `hover:bg-accent/50` measures 1.06:1, so hover
+ * and selected were the same pixel on a menu containing "Reset session"
+ * and "New chat", both of which discard an open investigation with no
+ * undo. SC 1.4.11 wants 3:1 for a state indicator; the 2px `--ring` rail
+ * measures 3.74:1 there.
  */
 describe("CommandPalette — the selected row is drawn and announced", () => {
   beforeEach(() => {

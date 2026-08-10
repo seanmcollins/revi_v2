@@ -805,7 +805,24 @@ describe("SessionLineage contract (parseSessionLineage)", () => {
         question: "Break that down by payer",
       },
     ],
-    edges: [{ parentTurnId: "t1", childTurnId: "t2", operators: ["SetDimensions(payer)"] }],
+    /*
+     * THE REAL EDGE SHAPE. This fixture used to read
+     * `{parentTurnId, childTurnId, operators: ["SetDimensions(payer)"]}`,
+     * which the server has never sent: `parent_id` and `child_id` are
+     * INVESTIGATION ids, the turn the edge belongs to is `turn_id`, and
+     * the operators are DTO objects, not display strings. Because the
+     * fixture agreed with the parser rather than with the wire, a join
+     * that could not match anything and a cast of objects to `string[]`
+     * both passed for a release.
+     */
+    edges: [
+      {
+        parent_id: "inv_001",
+        child_id: "inv_002",
+        turn_id: "t2",
+        operators: [{ op: "set_dimensions", dimensions: ["payer"] }],
+      },
+    ],
   };
 
   it("parses a valid DAG", () => {
@@ -813,6 +830,23 @@ describe("SessionLineage contract (parseSessionLineage)", () => {
     expect(drift).toEqual([]);
     expect(value?.nodes).toHaveLength(2);
     expect(value?.edges[0]?.operators).toEqual(["SetDimensions(payer)"]);
+  });
+
+  it("joins the edge to a NODE's turn, not to an investigation id", () => {
+    const { value } = parseSessionLineage(LINEAGE);
+    const edge = value?.edges[0];
+    expect(edge?.turnId).toBe("t2");
+    expect(value?.nodes.map((n) => n.turnId)).toContain(edge?.turnId);
+    // The investigation ids are carried, and are deliberately NOT the
+    // join key — they belong to a different namespace from `turnId`.
+    expect(edge?.parentInvestigationId).toBe("inv_001");
+    expect(edge?.childInvestigationId).toBe("inv_002");
+  });
+
+  it("drops an edge with no turn id, because it can join to nothing", () => {
+    const { value, drift } = parseSessionLineage(withoutPath(LINEAGE, "edges.0.turn_id"));
+    expect(value?.edges).toHaveLength(0);
+    expect(drift).toContain("edges[0].turnId");
   });
 
   it("drops a broken node with an indexed drift path", () => {
@@ -853,14 +887,15 @@ describe("SessionLineage contract (parseSessionLineage)", () => {
           question: "Why did cash decline last week?",
         },
       ],
-      edges: [{ parent_id: "t1", child_id: "t2" }],
+      edges: [{ parent_id: "inv_001", child_id: "inv_002", turn_id: "t1" }],
     });
     expect(drift).toEqual([]);
     expect(value?.nodes[0]?.turnId).toBe("t1");
     expect(value?.nodes[0]?.label).toBe("Why did cash decline last week?");
     expect(value?.edges[0]).toEqual({
-      parentTurnId: "t1",
-      childTurnId: "t2",
+      parentInvestigationId: "inv_001",
+      childInvestigationId: "inv_002",
+      turnId: "t1",
       operators: [],
     });
   });

@@ -7,9 +7,16 @@ import { mediumDate } from "@/lib/format";
 import { useSessionStore } from "@/lib/store";
 
 /**
- * WATERMARK_STALE UX: data refreshed since this session began. The analyst
- * chooses — stay pinned (results stay reproducible at the old watermark)
- * or re-anchor (new epoch; numbers may change).
+ * A newer data load arrived while this session was open. The analyst
+ * chooses — stay pinned (results stay reproducible at the load this
+ * session has been reading) or move (new load; numbers may change).
+ *
+ * A NOTE WITH A CHOICE ATTACHED, not a warning. Nothing here says anything
+ * is wrong with the figures on screen: they are correct at the load they
+ * were measured on, and a fresher one exists. The two buttons are the call
+ * to action, so the panel does not need amber to be answered — and a fresh
+ * load announced in alarm ink is how a reader learns to distrust numbers
+ * that were never in doubt.
  */
 export function WatermarkBanner() {
   const banner = useSessionStore((s) => s.watermarkBanner);
@@ -21,15 +28,18 @@ export function WatermarkBanner() {
   return (
     <div
       role="status"
-      className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border border-warning/40 bg-warning/10 px-3.5 py-2.5"
+      className="flex flex-wrap items-center gap-x-3 gap-y-2 rounded-lg border bg-surface-sunken/60 px-3.5 py-2.5"
     >
-      <RefreshCw className="size-4 shrink-0 text-warning" />
+      <RefreshCw className="size-4 shrink-0 text-muted-foreground" />
       <div className="min-w-0 flex-1">
-        <p className="text-body font-medium">Data refreshed since this session began</p>
+        <p className="text-body font-medium">Newer data has arrived since this session began</p>
+        {/* Both loads, named the way a reader says a date rather than as
+            the stamps the wire carries. */}
         <p className="num text-meta text-muted-foreground">
-          This session is using {current.loadedAt} (data through{" "}
-          {mediumDate(current.newestDataDate)}) · newer load {banner.newWatermark.loadedAt} (through{" "}
-          {mediumDate(banner.newWatermark.newestDataDate)})
+          This session reads the load of {loadLabel(current.loadedAt)}, through{" "}
+          {mediumDate(current.newestDataDate)}. The newer load,{" "}
+          {loadLabel(banner.newWatermark.loadedAt)}, reads through{" "}
+          {mediumDate(banner.newWatermark.newestDataDate)}.
         </p>
       </div>
       {/* Same decision, same consequences — the analyst chooses between
@@ -44,4 +54,20 @@ export function WatermarkBanner() {
       </div>
     </div>
   );
+}
+
+/**
+ * "2026-08-03 04:10" → "Aug 3, 2026 at 04:10".
+ *
+ * The stamp is what tells two loads on one day apart, so it is kept; what
+ * changes is that it is spelled the way a reader says a date. Anything
+ * this cannot parse is printed exactly as the wire wrote it.
+ */
+function loadLabel(stamp: string): string {
+  const [day, time] = stamp.split(" ");
+  try {
+    return time ? `${mediumDate(day)} at ${time}` : mediumDate(day);
+  } catch {
+    return stamp;
+  }
 }

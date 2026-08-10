@@ -166,14 +166,20 @@ export function AnswerBodyCurrent({
  * cautions are above the writing in two layouts and behind the integrity
  * line in the third, and a note that names a position would be wrong on
  * whichever layout it was not written for.
+ *
+ * ONE SENTENCE, doing one job. It said the same thing twice — "not
+ * printed twice" and then "every caveat is stated in full" — directly
+ * under the prose it is annotating, which is two lines of apparatus for a
+ * fact worth one. What the reader needs is that nothing was lost and
+ * where the full text is.
  */
 export function FoldNote({ folded }: { folded: number }) {
   return (
     <p className="text-micro leading-snug text-muted-foreground">
       {folded === 1 ? "One sentence" : `${folded} sentences`} of this write-up repeated{" "}
-      {folded === 1 ? "a caution" : "cautions"} this answer already carries, word for word, and{" "}
-      {folded === 1 ? "is" : "are"} not printed twice. Every caveat is stated in full, and travels
-      with the copied answer and the CSV.
+      {folded === 1 ? "a caution" : "cautions"} this answer already carries, so{" "}
+      {folded === 1 ? "it is" : "they are"} not printed twice — every caveat is stated in full
+      here, in the copied answer and in the CSV.
     </p>
   );
 }

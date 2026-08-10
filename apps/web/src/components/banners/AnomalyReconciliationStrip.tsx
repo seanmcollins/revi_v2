@@ -4,6 +4,7 @@ import { Check, GitCompareArrows, HelpCircle } from "lucide-react";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { formatCents, formatSignedPct } from "@/lib/format";
+import { humanizeInline } from "@/lib/humanize";
 import type { AnomalyReconciliation } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
@@ -25,10 +26,18 @@ import { cn } from "@/lib/utils";
  *     real evidence grade.
  *
  * So the strip states both and names the verdict. It deliberately reuses
- * the shape of the §7.8 reconciliation banner — an analyst who has learned
- * to read one reconciliation should not have to learn a second — while
+ * the shape of the reconciliation banner — an analyst who has learned to
+ * read one reconciliation should not have to learn a second — while
  * keeping the tones apart: a divergence here is expected and explained,
  * not the failure a `RECONCILIATION_FAILED` banner reports.
+ *
+ * A DIVERGENCE KEEPS THE WARNING REGISTER, and it is the only thing on
+ * this strip that does. It is the same class of fact as a corrected
+ * published value: the reader clicked in on $178,217 and this answer says
+ * $195,873, and a reader who skims past that walks away quoting a number
+ * this screen does not support. Everything else here — the two figures,
+ * their bases, the platform's own account of why — is context, and reads
+ * in the strip's own ink.
  */
 const TONE = {
   agreed: {
@@ -90,7 +99,7 @@ export function AnomalyReconciliationStrip({
               label="This answer"
               hint="Re-derived from this platform's governed metric contract at the pinned data load, over the population the card names."
               value={
-                answerImpactCents !== undefined ? formatCents(answerImpactCents) : "not re-derived"
+                answerImpactCents !== undefined ? formatCents(answerImpactCents) : "Not re-derived"
               }
               muted={answerImpactCents === undefined}
               metricId={reconciliation.answerMetricId}
@@ -172,9 +181,13 @@ function Figure({
       >
         {value}
       </dd>
+      {/* WHICH measure each figure is — named the way the rest of the
+          product names it. `dnfb_dollars` in a monospace face is the
+          warehouse's handle for it; "DNFB dollars" is the same fact in the
+          words the finding titles and the chart axes already use. */}
       {metricId && (
-        <dd className="font-mono text-micro leading-tight text-muted-foreground">
-          {metricId}
+        <dd className="text-micro leading-tight text-muted-foreground">
+          {humanizeInline(metricId)}
         </dd>
       )}
     </div>

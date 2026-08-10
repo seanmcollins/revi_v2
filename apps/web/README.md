@@ -1,36 +1,79 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# `apps/web` — the Revi frontend
 
-## Getting Started
+The analyst-facing surface of Revi: a conversational workspace for RCM
+investigations. An analyst asks a question, the answer arrives as a streamed
+turn carrying its own context (window, date basis, filters, cohort, data
+load) and its full evidence, and every follow-up refines the same
+investigation rather than starting a new one.
 
-First, run the development server:
+Three routes and a rail:
+
+| Route | What it is |
+|---|---|
+| `/` | The workspace — question composer, answer thread, evidence and lineage panel |
+| `/s/{session_id}` | Permalink to a session; the thread is rebuilt server-side from its lineage |
+| `/i/{investigation_id}` | Permalink to a single answer |
+| `/monitors` | What changed on this data load — the brief, the monitor tiles, and their leads |
+
+Next.js (App Router) + Tailwind + shadcn/ui + Zustand for turn state +
+TanStack Query for the GET side. Light theme only — there is no dark
+palette and no theme toggle.
+
+## Commands
+
+pnpm only. Run them from this directory.
 
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+pnpm dev        # dev server on :3000
+pnpm test       # vitest run
+pnpm test:watch # vitest, watching
+pnpm lint       # eslint
+pnpm build      # production build
+pnpm gen:types  # regenerate src/lib/types.gen.ts from ../../contracts/openapi.json
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+`src/lib/types.gen.ts` is generated — never hand-edit it. Regenerate it with
+`pnpm gen:types` after the API contract moves.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+From the repo root, `make dev` brings up the API on `:8000` and this app on
+`:3000` together.
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+## Driver modes
 
-## Learn More
+The app talks to the platform through a `Driver` interface (`src/lib/driver.ts`)
+with two implementations, so the UI can be developed and tested without the
+backend running.
 
-To learn more about Next.js, take a look at the following resources:
+| Mode | Implementation | What it does |
+|---|---|---|
+| `api` (default) | `src/lib/apiDriver.ts` | The real product: `POST /v1/sessions`, SSE turn streaming, lineage, monitors, portfolio |
+| `mock` | `src/lib/mockDriver.ts` | A dev/test fixture — it answers the reference-demo questions and returns a scripted clarification for anything else |
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+Configured by environment, with a per-browser override stored in
+`localStorage` under `revi-driver` (the command palette can flip it):
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+| Variable | Default | Meaning |
+|---|---|---|
+| `NEXT_PUBLIC_REVI_DRIVER` | `api` | `api` or `mock` |
+| `NEXT_PUBLIC_REVI_API_URL` | `http://localhost:8000` | Where the API lives |
+| `NEXT_PUBLIC_REVI_TENANT` | `demo` | Tenant sent on session open |
 
-## Deploy on Vercel
+Mock mode is a fixture, not a demo of the product — every number it shows is
+canned. The connection pill says which mode is live at all times.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+## Fixtures
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+`src/lib/mock/` holds the mock driver's content: the reference conversation,
+the definitional answers, and the portfolio. `src/lib/__fixtures__/` holds
+recorded LIVE payloads — real responses captured from the API — which the
+contract tests replay so a server-side contract change fails here rather
+than in a demo.
+
+Contract tests (`src/lib/contract-*.test.ts`) reconcile the client's parsers
+against `../../contracts/openapi.json` directly; they are the reason a
+renamed wire field is caught at `pnpm test` time.
+
+## Also read
+
+- [`../../README.md`](../../README.md) — the platform: stack, quickstart, repository map
+- [`./AGENTS.md`](./AGENTS.md) — required reading before writing Next.js code in this repo

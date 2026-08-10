@@ -2,21 +2,19 @@
  * The client half of the honesty seam: bounds, refusals, provisional
  * points, and rows the declared axes cannot tell apart.
  *
- * Round 4's verdict on this lane was that "the web lane consumed roughly
- * zero of ten engine-side wave-B claims" — the wire had been carrying
- * `is_bound`, `bound_population` and `provisional` for a release, and the
- * client dropped every one of them at the first mapper. What is pinned
- * here is the consumption, not the publication:
+ * The wire carried `is_bound`, `bound_population` and `provisional` for a
+ * release while the client dropped every one of them at the first mapper.
+ * What is pinned here is the CONSUMPTION, not the publication:
  *
- *   R4-01  a finding's `<metric>__is_bound` reaches the finding model, and
- *          the hero stat renders "≤ 76.9%" rather than "76.9%".
- *   R4-02  a chart does not rank what the answer refused to rank, and
- *          bounded cells are held out of any order it does claim.
- *   R4-03  a provisional point does not terminate a solid line.
- *   R4-09  rows that collide under `(x, series)` are added or refused,
- *          never silently overwritten.
- *   R4-14  a bucketed axis keeps its own scale, and a sort naming no drawn
- *          column orders nothing.
+ *   - a finding's `<metric>__is_bound` reaches the finding model, and
+ *     the hero stat renders "≤ 76.9%" rather than "76.9%".
+ *   - a chart does not rank what the answer refused to rank, and
+ *     bounded cells are held out of any order it does claim.
+ *   - a provisional point does not terminate a solid line.
+ *   - rows that collide under `(x, series)` are added or refused,
+ *     never silently overwritten.
+ *   - a bucketed axis keeps its own scale, and a sort naming no drawn
+ *     column orders nothing.
  *
  * `bounded_investigation` is CAPTURED, not composed: it is the body of
  * `GET /v1/investigations/inv_d2d5e9d7e858` at wm_003, the live
@@ -33,7 +31,7 @@ import { chartToCsv } from "@/lib/export";
 const SAMPLES = RAW_SAMPLES as any;
 
 /* ------------------------------------------------------------------ */
-/* R4-01 — the bound reaches the finding, and the stat says so         */
+/* The bound reaches the finding, and the stat says so                 */
 /* ------------------------------------------------------------------ */
 
 describe("a bounded finding, off the live wire", () => {
@@ -99,7 +97,7 @@ describe("a bounded finding, off the live wire", () => {
 });
 
 /* ------------------------------------------------------------------ */
-/* R4-02 — the chart does not rank what the answer refused to rank     */
+/* The chart does not rank what the answer refused to rank             */
 /* ------------------------------------------------------------------ */
 
 const RANKING = {
@@ -159,7 +157,7 @@ describe("a refused ranking is not re-created by the figure", () => {
 });
 
 /* ------------------------------------------------------------------ */
-/* R4-03 — a provisional point is not a settled terminus               */
+/* A provisional point is not a settled terminus                       */
 /* ------------------------------------------------------------------ */
 
 describe("the provisional flag, read defensively", () => {

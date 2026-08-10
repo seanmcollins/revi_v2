@@ -19,7 +19,15 @@ import { TimeToImpactLine } from "@/components/monitors/TimeToImpactLine";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { portfolioToCsv } from "@/lib/export";
-import { formatSignedPct, formatWholeDollars, mediumDate } from "@/lib/format";
+import {
+  dataLoadDate,
+  formatSignedPct,
+  formatWholeDollars,
+  humanizeIsoDates,
+  mediumDate,
+  rankingVersionLabel,
+} from "@/lib/format";
+import { humanizeInline } from "@/lib/humanize";
 import {
   PORTFOLIO_ITEMS,
   PORTFOLIO_META,
@@ -84,8 +92,13 @@ export function PortfolioPanel() {
   let lanes: PortfolioLane[] = [];
   let cashTimingLanes: PortfolioLane[] = [];
   // "Watermark" is the engine's word for the pinned data load; the panel
-  // says "data as of", which is the same fact in the analyst's words.
-  let footer = `Computed on the data as of ${PORTFOLIO_META.watermark} · drilling in asks an ordinary question against that same data`;
+  // says "data as of", which is the same fact in the analyst's words. The
+  // load is named by its DATE — the payload spells it as a loader instant
+  // ("2026-08-03 04:10") or, on some deployments, as a bare id, and
+  // neither is a thing to print inside a sentence. `dataLoadDate` returns
+  // nothing for an id, and the clause drops rather than leaking it.
+  let footerLoad: string | undefined = dataLoadDate(PORTFOLIO_META.watermark);
+  let footerExact: string | undefined = PORTFOLIO_META.watermark;
   let emptyNote: string | null = null;
 
   if (mode === "api") {
@@ -94,10 +107,8 @@ export function PortfolioPanel() {
       warnings = query.data.warnings;
       lanes = query.data.lanes;
       cashTimingLanes = query.data.cashTimingLanes;
-      const at = query.data.watermark;
-      footer = at
-        ? `Computed on the data as of ${at} · drilling in asks an ordinary question against that same data`
-        : "Drilling in asks an ordinary question against the same data this list was built on";
+      footerExact = query.data.watermark;
+      footerLoad = dataLoadDate(query.data.watermark);
       // A quiet data load, in the SNAPSHOT's own words. `status: "empty"`
       // is the server saying the detection feed found nothing at this
       // watermark — a fact about the data, not about the deployment and
@@ -113,9 +124,20 @@ export function PortfolioPanel() {
     } else {
       items = [];
       emptyNote = query.isPending ? "Loading portfolio…" : "Portfolio unreachable — will retry.";
-      footer = "";
+      footerLoad = undefined;
+      footerExact = undefined;
     }
   }
+
+  const rankingPolicy =
+    mode === "api" ? (query.data?.rankingPolicy ?? "") : PORTFOLIO_META.rankingPolicy;
+
+  const footer =
+    footerExact === undefined
+      ? ""
+      : footerLoad
+        ? `Computed on the data as of ${footerLoad} · drilling in asks an ordinary question against that same data`
+        : "Drilling in asks an ordinary question against the same data this list was built on";
 
   // The lane split as the SERVER decided it, in its order. Cards named by
   // no lane are not dropped — they land in a trailing ungrouped section,
@@ -176,11 +198,16 @@ export function PortfolioPanel() {
               }
             />
           )}
-          <span className="num font-mono text-micro text-muted-foreground">
-            {mode === "api"
-              ? (query.data?.rankingPolicy ?? "")
-              : PORTFOLIO_META.rankingPolicy}
-          </span>
+          {/* Which version of the ranking put these cards in this order —
+              a real fact, because two lists ranked by different versions
+              are not comparable. Spelled as a version rather than as the
+              payload's `anomaly_priority@3`, with the exact identifier on
+              the title for whoever needs to quote it. */}
+          {rankingPolicy && (
+            <span className="num text-micro text-muted-foreground" title={rankingPolicy}>
+              {rankingVersionLabel(rankingPolicy)}
+            </span>
+          )}
         </span>
       </header>
 
@@ -256,7 +283,13 @@ export function PortfolioPanel() {
         </div>
       )}
 
-      {footer && <p className="num text-micro leading-snug text-muted-foreground">{footer}</p>}
+      {footer && (
+        // The load's exact identifier stays one hover away — the sentence
+        // carries the date, the title carries what the payload said.
+        <p className="num text-micro leading-snug text-muted-foreground" title={footerExact}>
+          {footer}
+        </p>
+      )}
     </section>
   );
 }
@@ -342,7 +375,7 @@ function CashTimingSummary({ lanes }: { lanes: PortfolioLane[] }) {
                   (lane.soonestDeadlineDays ?? 0) < 0 ? "text-warning" : "text-muted-foreground",
                 )}
               >
-                soonest deadline {safeMediumDate(lane.soonestDeadlineDate)}
+                Soonest deadline {safeMediumDate(lane.soonestDeadlineDate)}
                 {lane.soonestDeadlineDays !== undefined &&
                   (lane.soonestDeadlineDays < 0
                     ? ` — passed ${Math.abs(lane.soonestDeadlineDays)} day${
@@ -524,7 +557,7 @@ function PortfolioCard({ item, onDrill }: { item: PortfolioItem; onDrill: () => 
               )}
               {item.ageDays !== undefined && (
                 <span className="num text-muted-foreground">
-                  detected {item.ageDays}d ago
+                  Detected {item.ageDays}d ago
                 </span>
               )}
             </p>
@@ -540,8 +573,11 @@ function PortfolioCard({ item, onDrill }: { item: PortfolioItem; onDrill: () => 
             <TimeToImpactLine timeToImpact={item.timeToImpact} className="mt-0.5 flex" />
           )}
 
+          {/* The detector writes its own sentence, and it writes dates the
+              way a warehouse does ("since 2026-05"). Same repair the fact
+              rows make: spell the date, touch nothing else. */}
           <p className="mt-1 line-clamp-2 text-micro leading-snug text-muted-foreground">
-            {item.detail}
+            {humanizeIsoDates(item.detail)}
           </p>
 
           {/* Where this lead stands with the humans working it, and the
@@ -587,8 +623,12 @@ function PortfolioCard({ item, onDrill }: { item: PortfolioItem; onDrill: () => 
                   className="mt-1 flex items-center gap-1 rounded text-left text-micro leading-snug text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground focus-ring"
                 >
                   <Info className="size-2.5 shrink-0" />
-                  Drills {item.drillMetricId ?? "a different measure"}, not{" "}
-                  {item.drillRepointedFrom}
+                  {/* The measures in the analyst's spelling. `denied_dollars`
+                      is the catalog's key, not a phrase anyone says out
+                      loud, and the tooltip below keeps the server's own
+                      sentence verbatim. */}
+                  Drills {item.drillMetricId ? humanizeInline(item.drillMetricId) : "a different measure"}, not{" "}
+                  {humanizeInline(item.drillRepointedFrom)}
                 </button>
               </TooltipTrigger>
               <TooltipContent side="right" className="max-w-72 text-meta leading-snug">
@@ -723,7 +763,7 @@ function ImpactAgreement({ item }: { item: PortfolioItem }) {
           {(agreement === "diverged" || agreement === "not_comparable") &&
           item.reconciledImpactCents !== undefined ? (
             <>
-              this platform: {formatWholeDollars(item.reconciledImpactCents)}
+              This platform: {formatWholeDollars(item.reconciledImpactCents)}
               {agreement === "diverged" && item.impactDeltaFraction !== undefined && (
                 <span className="font-medium">
                   {" "}
@@ -735,7 +775,7 @@ function ImpactAgreement({ item }: { item: PortfolioItem }) {
               )}
             </>
           ) : (
-            "not re-derived here — the detector's figure alone"
+            "Not re-derived here — the detector's figure alone"
           )}
         </button>
       </TooltipTrigger>
@@ -774,10 +814,10 @@ function RankedOnLabel({ item }: { item: PortfolioItem }) {
 
   const label =
     rankedOn === "platform"
-      ? "ranked on this platform's figure"
+      ? "Ranked on this platform's figure"
       : rankedOn === "not_comparable"
-        ? "ranked on the detector's figure — not comparable"
-        : "ranked on the detector's figure";
+        ? "Ranked on the detector's figure — not comparable"
+        : "Ranked on the detector's figure";
   // The server's own sentence, per card. It is the only thing that
   // separates "we used ours because they diverge" from "we used theirs
   // because ours measures something else", and neither is derivable here.
@@ -844,7 +884,8 @@ function DimensionRepointDisclosure({ repoint }: { repoint: DrillDimensionRepoin
         >
           <GitCompareArrows className="mt-px size-2.5 shrink-0" aria-hidden />
           <span>
-            Cuts by {repoint.toDimension}, not {repoint.fromDimension}
+            Cuts by {humanizeInline(repoint.toDimension)}, not{" "}
+            {humanizeInline(repoint.fromDimension)}
           </span>
         </button>
       </TooltipTrigger>

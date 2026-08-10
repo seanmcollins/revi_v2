@@ -88,8 +88,8 @@ describe("what it promises tracks what the server actually gave back", () => {
   it("on a live session it says it has not measured, and names the check", async () => {
     // The demo case. Every turn here was watched streaming, so the client
     // store holds prose the server may never have kept — which is exactly
-    // how the round-9 pass concluded that answers restore with their
-    // narrative. They do not.
+    // how a reader concludes that answers restore with their narrative.
+    // They do not.
     useSessionStore.setState({ turns: [turn("t1", { narrative: "It rose 3.6 points." })] });
     draw();
     fireEvent.click(screen.getByRole("button", { name: /Copy link/ }));

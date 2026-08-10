@@ -145,7 +145,7 @@ describe("SessionRail — the session list is the server's, or nothing", () => {
 
     // `bg-accent` measures 1.15:1 against the translucent rail and its
     // hover variant 1.06:1 — the tint could not tell selected from hovered.
-    // `--ring` on that surface is 3.61:1 light / 10.22:1 dark.
+    // `--ring` on that surface is 3.61:1.
     expect(current.className).toContain("border-l-ring");
     expect(other.className).toContain("border-l-transparent");
     expect(other.className).not.toContain("border-l-ring");
@@ -156,9 +156,9 @@ describe("SessionRail — the session list is the server's, or nothing", () => {
 
     renderRail();
 
-    // White measured 3.74:1 light / 2.49:1 dark on the display stops — the
-    // most prominent button in the product, below AA in both themes. The
-    // CTA stops carry it at 5.21:1 → 5.48:1.
+    // White measured 3.74:1 on the display stops — the most prominent
+    // button in the product, below AA. The CTA stops carry it at
+    // 5.21:1 → 5.48:1.
     const cta = await screen.findByRole("button", { name: /New chat/ });
     expect(cta.className).toContain("accent-gradient-cta");
     expect(cta.className).not.toMatch(/(^|\s)accent-gradient(\s|$)/);
@@ -189,9 +189,9 @@ describe("SessionRail — the session list is the server's, or nothing", () => {
 
     renderRail();
 
-    // BUG 8 moved this off the section heading, where "1 of 12" sat as a
-    // number beside a title, and under the list, where it explains why
-    // the list ends. Same fact, said where it is read.
+    // This belongs under the list, where it explains why the list ends —
+    // not on the section heading, where "1 of 12" sat as a number beside
+    // a title. Same fact, said where it is read.
     expect(
       await screen.findByText("Showing the 1 most recent of 12."),
     ).toBeInTheDocument();
@@ -238,7 +238,7 @@ describe("SessionRail — the session list is the server's, or nothing", () => {
     // reconcile on screen.
     expect(
       screen.getByText(
-        /Showing the 1 most recent of 40 — 2 of the 3 read had no question in them and are not listed\./,
+        /Showing the 1 most recent of 40 — 2 of the 3 read had no question in them\./,
       ),
     ).toBeInTheDocument();
   });
@@ -535,9 +535,12 @@ describe("SessionRail — finding a session in a long list", () => {
 
     await userEvent.type(screen.getByRole("searchbox"), "zzz");
 
-    // Never "no sessions match": this read 9 of the tenant's 219.
+    // Never "no sessions match": this read 9 of the 219 that exist. And
+    // never "tenant" — that is the platform's word for the account, not
+    // one an analyst uses.
     const body = document.body.textContent ?? "";
     expect(body).toMatch(/Nothing in the 9 sessions loaded here matches/);
-    expect(body).toMatch(/this tenant has 219 in all/);
+    expect(body).toMatch(/there are 219 in all/);
+    expect(body).not.toMatch(/tenant/i);
   });
 });

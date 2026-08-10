@@ -194,7 +194,7 @@ describe("AnswerWorklist — the ranked list, inside a conversation", () => {
     // ANM-001 is ordered on this platform's $177,202.87, NOT the
     // detector's $170,643 printed on the rail's version of the same card.
     expect(text).toContain("$177,203");
-    expect(text).toContain("ranked on this platform's figure");
+    expect(text).toContain("Ranked on this platform's figure");
     // ANM-021's is the detector's, and the reason is not a divergence.
     expect(text).toContain("$178,217");
     expect(text).toContain("not comparable");
@@ -252,8 +252,15 @@ describe("AnswerWorklist — the ranked list, inside a conversation", () => {
 
   it("states the page it is showing rather than implying it is the whole list", () => {
     renderWorklist(parse(LIVE_WORKLIST));
-    expect(screen.getByText(/3 of 33 ranked cards/)).toBeInTheDocument();
+    const footer = screen.getByText(/3 of 33 ranked cards/);
+    expect(footer).toBeInTheDocument();
     expect(screen.getByText(/\$830,502 estimated recoverable/)).toBeInTheDocument();
+    // And it names the data load by DATE or not at all. This line used to
+    // read "…ranked cards at data load wm_003" — a log token in a sentence
+    // a director reads. The id stays on the title for whoever has to
+    // reproduce the query.
+    expect(footer.textContent).not.toMatch(/wm_\d/);
+    expect(footer).toHaveAttribute("title", "Data load wm_003");
   });
 
   it("carries the list's own caveats about the population", () => {

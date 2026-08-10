@@ -32,8 +32,8 @@ export function FindingCard({ finding, turnId }: { finding: Finding; turnId: str
   const emitRefinement = useSessionStore((s) => s.emitRefinement);
   const focused = useSessionStore((s) => s.focusedReferent === finding.referent.value);
 
-  // A CEILING, not a measurement. The wire has said so since wave B
-  // (`denial_rate__is_bound`) and this card printed "76.9%" in the same
+  // A CEILING, not a measurement. The wire has carried
+  // `denial_rate__is_bound` for several releases and this card printed "76.9%" in the same
   // 1.55rem numeral as the measured card three above it, under a title
   // that read "≤ 76.9% … (upper bound)". Two surfaces of one card
   // disagreeing about what kind of number it is.
@@ -132,14 +132,12 @@ export function FindingCard({ finding, turnId }: { finding: Finding; turnId: str
               the engine's own (`__bound_population`) and is stated in the
               same words the finding's statement uses. */}
           {bound && (
-            <p className="mt-1 text-micro font-medium leading-snug text-warning">
-              upper bound
+            <p className="mt-1 text-micro leading-snug text-muted-foreground">
+              <span className="font-medium text-foreground/80">Upper bound</span>
               {bound.boundPopulation !== undefined
                 ? ` over a population of ${formatCount(bound.boundPopulation)}`
                 : ""}
-              <span className="ml-1 font-normal text-muted-foreground">
-                — a ceiling, not a measurement
-              </span>
+              <span className="ml-1">— a ceiling, not a measurement</span>
             </p>
           )}
           {/* THE MOVEMENT IS NOT MEASURABLE. A trend finding states a
@@ -151,9 +149,9 @@ export function FindingCard({ finding, turnId }: { finding: Finding; turnId: str
               one. What the card publishes is the absence, above the
               engine's own sentence rather than instead of it. */}
           {movement && (
-            <p className="mt-1 text-micro font-medium leading-snug text-warning">
-              Movement not measurable
-              <span className="ml-1 font-normal text-muted-foreground">
+            <p className="mt-1 text-micro leading-snug text-muted-foreground">
+              <span className="font-medium text-foreground/80">Movement not measurable</span>
+              <span className="ml-1">
                 — {movementEndpoints(movement)}. A difference between ceilings is not a measured
                 change.
               </span>
@@ -174,7 +172,7 @@ export function FindingCard({ finding, turnId }: { finding: Finding; turnId: str
         {finding.comparison && <MiniBars comparison={finding.comparison} tone={tone} />}
       </div>
 
-      {/* BUG 6 — the card does not print its own title twice.
+      {/* THE CARD DOES NOT PRINT ITS OWN TITLE TWICE.
           Live, the statement OPENS with the title verbatim ("Pinnacle
           HMO: 47.2% denial rate over 2026-07-01..2026-07-31. No position
           is claimed for it — …"), so the heading, the display figure and

@@ -3666,7 +3666,13 @@ export function refinementsToWire(refinements: readonly Refinement[]): UnknownRe
 export interface ReceivedTurnState {
   findingReferents: Set<string>;
   chartIds: Set<string>;
-  narrativeLength: number;
+  /**
+   * The prose exactly as the live stream delivered it. Kept whole, not
+   * just counted: reconciling it with the terminal frame needs to know
+   * whether the stream is a PREFIX of the composed write-up, and a length
+   * cannot answer that.
+   */
+  narrativePrefix: string;
   hasHeader: boolean;
   hasDefinition: boolean;
   hasClarification: boolean;
@@ -3677,7 +3683,7 @@ export function newReceivedState(): ReceivedTurnState {
   return {
     findingReferents: new Set(),
     chartIds: new Set(),
-    narrativeLength: 0,
+    narrativePrefix: "",
     hasHeader: false,
     hasDefinition: false,
     hasClarification: false,
@@ -3698,7 +3704,9 @@ export function trackReceived(received: ReceivedTurnState, event: TurnEvent): vo
       received.chartIds.add(event.spec.id);
       break;
     case "narrative_delta":
-      received.narrativeLength += event.text.length;
+      received.narrativePrefix = event.replace
+        ? event.text
+        : received.narrativePrefix + event.text;
       break;
     case "warning":
       received.warningKeys.add(`${event.code}:${event.message}`);
@@ -3807,11 +3815,39 @@ export function turnResponseToEvents(
       events.push({ type: "warning", ...warning });
     }
   }
-  if (response.narrative !== undefined && response.narrative.length > received.narrativeLength) {
-    events.push({
-      type: "narrative_delta",
-      text: response.narrative.slice(received.narrativeLength),
-    });
+  /*
+   * THE STREAM IS A DRAFT; THE TERMINAL FRAME IS THE WRITE-UP.
+   *
+   * This used to be a pure length arithmetic —
+   * `narrative.slice(receivedLength)` — which is a correct
+   * CONTINUATION only if what was streamed is a byte-exact prefix of what
+   * was composed. The server does not promise that: measured on a live
+   * turn, the stream carried a 676-character draft and the terminal frame
+   * a 1,141-character rewrite of it, sharing no suffix. Slicing the second
+   * at the first's LENGTH cut three characters into a word and appended
+   * the remainder to the draft, so the answer ended with a sentence
+   * restarting in the middle of "July" and then repeating a paragraph the
+   * reader had just read.
+   *
+   * So the prefix is CHECKED rather than assumed. When it holds this is
+   * the tail and nothing else changes; when it does not, the composed
+   * narrative replaces the draft outright — it is the text the server
+   * stored, and the one the permalink will show.
+   */
+  if (response.narrative !== undefined) {
+    const streamed = received.narrativePrefix.length;
+    if (streamed === 0) {
+      if (response.narrative !== "") {
+        events.push({ type: "narrative_delta", text: response.narrative });
+      }
+    } else if (
+      response.narrative.length > streamed &&
+      response.narrative.startsWith(received.narrativePrefix)
+    ) {
+      events.push({ type: "narrative_delta", text: response.narrative.slice(streamed) });
+    } else if (response.narrative !== received.narrativePrefix) {
+      events.push({ type: "narrative_delta", text: response.narrative, replace: true });
+    }
   }
   if (response.definition && !received.hasDefinition) {
     events.push({ type: "definition_card", definition: response.definition });
@@ -3880,7 +3916,17 @@ export const REQUIRED_LINEAGE_NODE_FIELDS = [
   "turnClass",
 ] as const;
 
-export const REQUIRED_LINEAGE_EDGE_FIELDS = ["parentTurnId", "childTurnId"] as const;
+/**
+ * `turn_id` is REQUIRED, not incidental: it is the only field on an edge
+ * that lives in the same namespace as a node's `turnId`, so it is the only
+ * one the graph can join on. `parent_id` / `child_id` are investigation
+ * ids and join to nothing the DAG draws.
+ */
+export const REQUIRED_LINEAGE_EDGE_FIELDS = [
+  "parentInvestigationId",
+  "childInvestigationId",
+  "turnId",
+] as const;
 
 /** Wire aliases: canonical camelCase path → the spec's snake_case key. */
 export const LINEAGE_NODE_ALIASES: Record<string, string> = {
@@ -3890,8 +3936,9 @@ export const LINEAGE_NODE_ALIASES: Record<string, string> = {
 };
 
 export const LINEAGE_EDGE_ALIASES: Record<string, string> = {
-  parentTurnId: "parent_id",
-  childTurnId: "child_id",
+  parentInvestigationId: "parent_id",
+  childInvestigationId: "child_id",
+  turnId: "turn_id",
 };
 
 /** Read `path`, falling back to its snake_case alias; records misses. */
@@ -3955,20 +4002,110 @@ export function parseSessionLineage(raw: unknown): LineageParse {
   const edges: LineageEdge[] = [];
   rawEdges.forEach((edge, index) => {
     const missing: string[] = [];
-    const parentTurnId = pickAliased(edge, "parentTurnId", LINEAGE_EDGE_ALIASES, missing);
-    const childTurnId = pickAliased(edge, "childTurnId", LINEAGE_EDGE_ALIASES, missing);
+    const parentInvestigationId = pickAliased(
+      edge,
+      "parentInvestigationId",
+      LINEAGE_EDGE_ALIASES,
+      missing,
+    );
+    const childInvestigationId = pickAliased(
+      edge,
+      "childInvestigationId",
+      LINEAGE_EDGE_ALIASES,
+      missing,
+    );
+    const turnId = pickAliased(edge, "turnId", LINEAGE_EDGE_ALIASES, missing);
     if (missing.length > 0) {
       drift.push(...missing.map((path) => `edges[${index}].${path}`));
       return;
     }
     const record = edge as UnknownRecord;
     edges.push({
-      parentTurnId: parentTurnId as string,
-      childTurnId: childTurnId as string,
-      operators: Array.isArray(record.operators) ? (record.operators as string[]) : [],
+      parentInvestigationId: parentInvestigationId as string,
+      childInvestigationId: childInvestigationId as string,
+      turnId: turnId as string,
+      // The wire carries OBJECTS here, and this used to cast them to
+      // `string[]` and hand them straight to a `<code>` element. The cast
+      // was never caught because the edge join above never matched, so
+      // the array was never read.
+      operators: Array.isArray(record.operators)
+        ? record.operators
+            .map((op) => describeWireOperator(op))
+            .filter((label): label is string => label !== null)
+        : [],
     });
   });
   return { value: { nodes, edges }, drift };
+}
+
+/**
+ * One wire refinement operator as the label a lineage edge shows.
+ *
+ * `describeRefinement` (format.ts) is the display vocabulary for a
+ * `Refinement` this client built itself; this is the SAME vocabulary for
+ * one the server sent, whose shape is the snake_case DTO
+ * `refinementToWire` produces. `contract-lineage.test.ts` round-trips
+ * every operator through both so the two cannot drift into two dialects.
+ *
+ * A plain string passes through unchanged — mock fixtures and the local
+ * DAG already carry the display form. An operator this does not recognise
+ * degrades to its `op` name rather than vanishing: an unlabelled edge is a
+ * worse lie than an oddly-labelled one.
+ */
+export function describeWireOperator(raw: unknown): string | null {
+  if (typeof raw === "string") return raw;
+  if (!isRecord(raw) || typeof raw.op !== "string") return null;
+  const list = (value: unknown): string =>
+    Array.isArray(value) ? value.map((v) => String(v)).join(", ") : String(value ?? "");
+
+  switch (raw.op) {
+    case "set_dimensions":
+      return `SetDimensions(${list(raw.dimensions)})`;
+    case "add_filter":
+      return `AddFilter(${String(raw.dimension)} ${String(raw.predicate_op)} ${
+        Array.isArray(raw.values) ? raw.values.map((v) => String(v)).join("|") : ""
+      })`;
+    case "remove_filter":
+      return `RemoveFilter(${String(raw.dimension)})`;
+    case "set_window": {
+      const window = isRecord(raw.window) ? raw.window : undefined;
+      // Absolute windows carry start/end; a RELATIVE spec carries
+      // quantity/unit/mode and has no resolved dates to print.
+      if (window && typeof window.start === "string" && typeof window.end === "string") {
+        return `SetWindow(${window.start}…${window.end})`;
+      }
+      if (window && window.quantity !== undefined) {
+        return `SetWindow(${String(window.quantity)} ${String(window.unit ?? "")})`;
+      }
+      return "SetWindow";
+    }
+    case "set_comparison": {
+      if (isRecord(raw.custom) && typeof raw.custom.start === "string") {
+        return `SetComparison(${raw.custom.start}…${String(raw.custom.end)})`;
+      }
+      // The wire says `prior_year`; the UI's own vocabulary for the same
+      // comparison is `same_period_last_year` (see `refinementToWire`).
+      if (raw.kind === "prior_year") return "SetComparison(same_period_last_year)";
+      if (typeof raw.kind === "string") return `SetComparison(${raw.kind})`;
+      return "SetComparison(none)";
+    }
+    case "set_grain":
+      return `SetGrain(${String(raw.entity)})`;
+    case "drill_into":
+      return `DrillInto(${String(raw.target)})`;
+    case "pivot":
+      return `Pivot(${list(raw.measures)})`;
+    case "explain":
+      return `Explain(${String(raw.target)})`;
+    case "rank_by":
+      return `RankBy(${String(raw.by)} ${raw.descending === false ? "asc" : "desc"})`;
+    case "expand":
+      return "Expand";
+    case "reset_context":
+      return `ResetContext(keepPins=${String(raw.keep_pins === true)})`;
+    default:
+      return String(raw.op);
+  }
 }
 
 /* ------------------------------------------------------------------ */

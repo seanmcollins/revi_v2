@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle } from "lucide-react";
+import { Info } from "lucide-react";
 
 import { WarningList } from "@/components/banners/WarningBanner";
 import { BriefEntryRow, type BriefLeadHandle } from "@/components/monitors/BriefEntryRow";
@@ -173,7 +173,7 @@ function WalkCensus({ brief }: { brief: BriefData }) {
       {/* The parts do not close. Said rather than absorbed: a census that
           silently monitors is the filter this surface exists not to be. */}
       {remainder !== 0 && brief.pinsEvaluated > 0 && (
-        <span className="text-warning">
+        <span>
           {" "}
           {Math.abs(remainder)} {remainder > 0 ? "not accounted for" : "counted twice"} in that
           split.
@@ -255,13 +255,16 @@ function ImmaterialLine({ brief }: { brief: BriefData }) {
  */
 function FatigueAdvisory({ brief }: { brief: BriefData }) {
   if (!brief.fatigue.active || brief.fatigue.message === "") return null;
+  // An advisory about the reader's own thresholds is a note, not an
+  // alarm: nothing is wrong with the data and no number here reads
+  // differently because of it. Quiet ink, same sentence, same place.
   return (
     <p
       role="status"
       data-fatigue-advisory
-      className="flex max-w-[64ch] items-start gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-meta leading-snug"
+      className="flex max-w-[64ch] items-start gap-1.5 rounded-md border bg-surface-sunken/60 px-2.5 py-2 text-meta leading-snug text-muted-foreground"
     >
-      <AlertTriangle aria-hidden className="mt-0.5 size-3 shrink-0 text-warning" />
+      <Info aria-hidden className="mt-0.5 size-3 shrink-0" />
       {brief.fatigue.message}
     </p>
   );
@@ -285,7 +288,12 @@ function MaterialityNote({ brief }: { brief: BriefData }) {
           type="button"
           className="focus-ring num rounded text-micro text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground"
         >
-          gated by {m.source.split("/").slice(-2).join("/") || "the governed pack"}
+          {/* NO PACK FILE PATH ON THE FACE OF IT. "gated by
+              rcm/materiality.yaml" is a repository path an analyst has
+              never seen; which pack it was and the hash that identifies it
+              are the auditor's material and live one hover away, where the
+              rest of the gate already is. */}
+          Gated by the governed pack
         </button>
       </TooltipTrigger>
       <TooltipContent side="bottom" className="max-w-96 text-meta leading-snug">
@@ -293,17 +301,22 @@ function MaterialityNote({ brief }: { brief: BriefData }) {
         <ul className="num mt-1 space-y-0.5 text-micro">
           {Object.entries(m.unitKinds).map(([unit, rules]) => (
             <li key={unit}>
-              {UNIT_NOUNS[unit] ?? unit}: {describeRules(unit, rules)}
+              {sentenceCase(UNIT_NOUNS[unit] ?? unit)}: {describeRules(unit, rules)}
             </li>
           ))}
           <li>
-            a new lead: at least {formatWholeDollars(m.newLeadMinImpactCents)}
+            A new lead: at least {formatWholeDollars(m.newLeadMinImpactCents)}
             {m.alwaysMaterialLanes.length > 0 &&
               ` — except ${m.alwaysMaterialLanes.join(", ")} work, which is briefed whatever its size`}
           </li>
-          <li>at most {m.maxEntries} lines</li>
+          <li>At most {m.maxEntries} lines</li>
         </ul>
-        <p className="mt-1 font-mono text-micro text-muted-foreground">{m.contentHash.slice(0, 12)}</p>
+        {/* Which pack, and the hash that pins it — so two deployments
+            running different gates can be told apart from the payload. */}
+        <p className="mt-1 text-micro text-muted-foreground">
+          {m.source.split("/").slice(-2).join("/") || "the governed pack"} ·{" "}
+          <span className="font-mono">{m.contentHash.slice(0, 12)}</span>
+        </p>
       </TooltipContent>
     </Tooltip>
   );
@@ -324,6 +337,13 @@ const KIND_NOUNS: Readonly<Record<string, string>> = {
 };
 
 /** The pack's unit kinds, in the reader's nouns. */
+/** A list entry starts with a capital, whatever noun the map supplies. */
+function sentenceCase(text: string): string {
+  const first = text[0];
+  if (first === undefined || first !== first.toLowerCase()) return text;
+  return first.toUpperCase() + text.slice(1);
+}
+
 const UNIT_NOUNS: Readonly<Record<string, string>> = {
   ratio: "a rate",
   money_cents: "money",

@@ -154,22 +154,24 @@ export function FactRow({
         <GradeDot grade={finding.grade} />
       </div>
 
+      {/* The mark is the "≤" on the figure above; these two lines are the
+          note under it. Muted ink, both of them: they say what kind of
+          number the reader is looking at, which is context, not a finding
+          against the answer. */}
       {bound && (
-        <p className="mt-0.5 pl-8 text-micro text-warning">
-          upper bound
+        <p className="mt-0.5 pl-8 text-micro text-muted-foreground">
+          <span className="font-medium text-foreground/80">Upper bound</span>
           {bound.boundPopulation !== undefined
             ? ` over a population of ${formatCount(bound.boundPopulation)}`
             : ""}
-          <span className="ml-1 text-muted-foreground">— a ceiling, not a measurement</span>
+          <span className="ml-1">— a ceiling, not a measurement</span>
         </p>
       )}
 
       {movement && (
-        <p className="mt-0.5 pl-8 text-micro text-warning">
-          Movement not measurable
-          <span className="ml-1 text-muted-foreground">
-            — a difference between ceilings is not a measured change
-          </span>
+        <p className="mt-0.5 pl-8 text-micro text-muted-foreground">
+          <span className="font-medium text-foreground/80">Movement not measurable</span>
+          <span className="ml-1">— a difference between ceilings is not a measured change</span>
         </p>
       )}
 

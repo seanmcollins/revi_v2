@@ -23,11 +23,13 @@ import { capChartSeries, humanizeColumn, OTHERS_SERIES_KEY } from "@/lib/contrac
 import { humanizeInline } from "@/lib/humanize";
 import { chartToCsv } from "@/lib/export";
 import {
+  formatCount,
   formatMeasure,
   formatMeasureDelta,
   formatMeasureTick,
   formatSignedPct,
   humanizeIsoDates,
+  shortDate,
 } from "@/lib/format";
 import { useSessionStore } from "@/lib/store";
 import type { ChartCell, ChartSeries, ChartSpec } from "@/lib/types";
@@ -148,10 +150,52 @@ function humanizeCategory(label: string): string {
 }
 
 /**
+ * A bucket the engine named by its own date: "2026-01-01".
+ *
+ * Strict on the month and the day, for the same reason `humanizeIsoDates`
+ * is: "2026-13-45" is not a date, and re-spelling it would print
+ * "undefined 45" over whatever the engine actually meant.
+ */
+const ISO_DATE_LABEL = /^\d{4}-(?:0[1-9]|1[0-2])-(?:0[1-9]|[12]\d|3[01])$/;
+
+/**
+ * The same category, spelled for an AXIS TICK.
+ *
+ * A time series arrives with ISO dates as its category labels, and the
+ * axis was printing them raw — twelve ticks reading "2026-01-01",
+ * "2026-02-01", "2026-03-01" under a title that says "by month". It is
+ * the same machine literal the rest of the product spells out
+ * (`humanizeIsoDates`), on the one surface that had no rule for it.
+ *
+ * SHORT on the tick and MEDIUM in the hover, which is the same split
+ * `shortDate`/`mediumDate` exist for: an axis is scanned and the year is
+ * the same on every tick, while the hover is where a reader goes to read
+ * one point exactly and is entitled to the whole date.
+ *
+ * Applied before the width budget rather than after it, so a shortened
+ * label is measured as drawn: "Jan 1" is five characters and "2026-01-01"
+ * is ten, and budgeting the second while drawing the first is how an axis
+ * rotates for room it does not need. The "≤" and the "†"/"‡"/"*" marks
+ * are added on top by `categoryTick`, untouched.
+ */
+function tickLabel(label: string): string {
+  if (ISO_DATE_LABEL.test(label)) {
+    try {
+      return shortDate(label);
+    } catch {
+      // Not a date after all ("2026-13-45"). The engine's own string is a
+      // better tick than a repaired guess at what it meant.
+      return label;
+    }
+  }
+  return humanizeCategory(label);
+}
+
+/**
  * A warehouse column reaching the figure as a LABEL — the axis caption,
  * a series name in the legend and the hover.
  *
- * BUG 1, on the figure. `xLabel` and the series keys are the wire's own
+ * NO WAREHOUSE IDENTIFIER REACHES A LABEL. `xLabel` and the series keys are the wire's own
  * column names, and a single-series trend was captioned `denial_rate`
  * under a title reading "Denial rate by month". Re-spelled here, at the
  * render site and nowhere else, because these same strings name the CSV's
@@ -163,6 +207,22 @@ function humanizeCategory(label: string): string {
  * "+13 others" is this client's own rollup name.
  */
 const WAREHOUSE_LABEL = /^[a-z][a-z0-9]*(?:_[a-z0-9]+)+$/;
+
+/**
+ * A caption starts with a capital. `orderNote` and the axis label are both
+ * composed as clauses so they can be joined, and a clause that ends up
+ * first on the line is a sentence — "ordered by denied dollars" under a
+ * figure reads as a fragment somebody forgot to finish.
+ *
+ * Only the first character, and only when it is a lowercase letter: an
+ * acronym the pack spells itself ("CARC", "DNFB") is already right, and
+ * a "≤" or a digit must not be touched.
+ */
+function sentenceCase(text: string): string {
+  const first = text[0];
+  if (first === undefined || first !== first.toLowerCase()) return text;
+  return first.toUpperCase() + text.slice(1);
+}
 
 function displayLabel(label: string): string {
   // `humanizeInline`, not a plain lowercase: "AR over 90 %" is the
@@ -222,7 +282,7 @@ const PLAIN_CUT_BUDGET = 6;
  * indistinguishable at the ceiling are printed whole — an axis that is
  * cramped is a worse figure, an axis that is wrong is a worse decision.
  *
- * BUG 2 — and the cut is a PLAIN one wherever a plain one will do.
+ * AND THE CUT IS A PLAIN ONE WHEREVER A PLAIN ONE WILL DO.
  *
  * The middle cut was applied unconditionally, so the thirty-plan filing
  * chart came out as "Bluestone…ral PPO", "Meridian …e PPO", "Federal
@@ -246,7 +306,7 @@ export function axisTickLabels(
   max = 40,
 ): Map<string, string> {
   const unique = [...new Set(labels)];
-  const spelled = new Map(unique.map((label) => [label, humanizeCategory(label)]));
+  const spelled = new Map(unique.map((label) => [label, tickLabel(label)]));
 
   /** Every label shortened this way at this width — or null if two collide. */
   const attempt = (
@@ -501,6 +561,8 @@ export function InvestigationChart({
   const hasBounded = spec.rows.some((row) => row.bounded === true);
   const hasProvisional = spec.rows.some((row) => row.provisional === true);
   const hasWithheld = spec.rows.some((row) => row.withheld === true);
+  /** Every sentence the engine published about this figure. */
+  const figureNotes = spec.notes ?? (spec.note !== undefined ? [spec.note] : []);
 
   /**
    * A mark that is not a measurement is not a point on a solid line.
@@ -612,7 +674,7 @@ export function InvestigationChart({
     spec.rows.filter((row) => row.withheld === true).map((row) => row.label),
   );
   /**
-   * BUG 2 — horizontal labels wherever they fit.
+   * HORIZONTAL LABELS WHEREVER THEY FIT.
    *
    * The rule was "more than six categories, rotate", which put a 35°
    * slant under axes whose labels are "0–30 days" and "Jan" — unreadable
@@ -625,7 +687,7 @@ export function InvestigationChart({
    * at which a 3xl-column figure runs out of room at the 12px tick size.
    */
   const longestLabel = spec.rows.reduce(
-    (longest, row) => Math.max(longest, humanizeCategory(row.label).length),
+    (longest, row) => Math.max(longest, tickLabel(row.label).length),
     0,
   );
   /**
@@ -731,6 +793,22 @@ export function InvestigationChart({
   );
   const axisHeight = rotateTicks ? rotatedAxisHeight(renderedTicks) : MIN_AXIS_HEIGHT;
 
+  // The caption under the figure: what the axis is, then what ordered it.
+  // `humanizeColumn` rather than `displayLabel` because this is a heading
+  // and the wire's own word for it is a column name — "carc" is what the
+  // pack calls it and "CARC" is what a reader calls it.
+  const footerCaption = [
+    spec.xLabel !== undefined
+      ? humanizeColumn(spec.xLabel)
+      : spec.kind !== "line"
+        ? "Click a bar to drill in"
+        : undefined,
+    orderNote(spec),
+  ]
+    .filter((part): part is string => part !== undefined && part !== "")
+    .map(sentenceCase)
+    .join(" · ");
+
   const tooltipContent = (props: unknown) => (
     <ChartTooltipContent
       {...(props as TooltipRenderProps)}
@@ -778,33 +856,17 @@ export function InvestigationChart({
         )}
       </figcaption>
 
-      {/* Said above the picture, not in a tooltip: a reader who does not
-          know eleven series were folded into one mark is reading a
-          different chart from the one the data supports. */}
-      {capNote && (
-        <p className="mb-1.5 text-micro leading-snug text-muted-foreground">{capNote}</p>
-      )}
+      {/* THE RANKING WAS REFUSED — the one sentence on this figure that
+          keeps the warning register, and the one that stays above the
+          picture. It is a refusal, not a caveat: a reader who takes the
+          leftmost bar for the worst offender has been misled by the
+          drawing. Everything else this figure has to say about itself is a
+          quiet caption under it (`FigureNotes`).
 
-      {/* The engine's own census of this figure. It rides on the wire as
-          `annotations[0]` ("upper bounds: 4 of 12 marks are ceilings, not
-          measurements…") and was being fed to a `ReferenceLine` as an x
-          value, where it matched no category and drew nothing at all. */}
-      {/* EVERY sentence, not the first one. A comparison publishes its own
-          annotation ahead of the rest ("comparison: two series per
-          category — current is this window and prior is the window it is
-          compared against. They are not summed."), so reading index 0
-          alone dropped the upper-bound census, the prior-only census and
-          the withheld census on exactly the figures that carry them. */}
-      {(spec.notes ?? (spec.note !== undefined ? [spec.note] : [])).map((note) => (
-        <p key={note} className="mb-1.5 text-micro leading-snug text-warning">
-          {note}
-        </p>
-      ))}
-
-      {/* THE RANKING WAS REFUSED. Said above the picture, at full width,
-          because the alternative is what shipped: a bar chart sorted by
-          value 400px below a banner explaining that ordering ceilings
-          against measurements sorts by population size. */}
+          At full width, because the alternative is what shipped: a bar
+          chart sorted by value 400px below a banner explaining that
+          ordering ceilings against measurements sorts by population
+          size. */}
       {spec.order?.refused && (
         <p className="mb-1.5 rounded border border-warning/40 bg-warning/10 px-2 py-1 text-meta leading-snug">
           <span className="font-medium">No ranking is published on this answer.</span>{" "}
@@ -842,7 +904,7 @@ export function InvestigationChart({
       >
         <ResponsiveContainer width="100%" height="100%">
           {spec.kind === "line" ? (
-            // BUG 2 — the figure keeps its own padding. `preserveStartEnd`
+            // The figure keeps its own padding. `preserveStartEnd`
             // draws the first and last tick, and both of them sit ON the
             // plot's edge: at the old zero margins the axis printed
             // "…s Medicaid HMO" with the rest of the name outside the
@@ -913,7 +975,7 @@ export function InvestigationChart({
               // A rotated tick runs down and to the LEFT of its bar, so
               // the leftmost label needs a gutter the plot area does not
               // otherwise give it — and the rightmost needs one for its
-              // ascender. See BUG 2.
+              // ascender. See `rotatedAxisGutter`.
               //
               // MEASURED from the label that has to fit, not a constant:
               // at the fixed 10px, the first tick of the twelve-payer
@@ -1046,25 +1108,59 @@ export function InvestigationChart({
       </div>
       )}
 
-      {/* The keying census, under the picture it explains. Live, a chart
-          declaring `x=month, series=payer` sent thirty rows over three
-          distinct keys; the old mapper kept whichever arrived last and drew
-          $3,468 of $441,808. */}
-      {spec.keying?.mode === "summed" && (
-        <p className="mt-1.5 text-micro leading-snug text-warning">{spec.keying.note}</p>
-      )}
+      {/* MARKS ON THE DATA, NOTES BELOW IT. Everything this figure has to
+          say about itself — what was rolled up, the engine's own census,
+          the keying, what "≤" and the tick marks mean — is one quiet
+          caption under the picture, in muted ink. The marks in the drawing
+          carry the signal; the caption explains them without dressing the
+          figure in alarm.
 
-      {/* What the marks mean when some of them are not measurements.
           Composed as ONE string per fact rather than interpolated across
-          spans: this sentence is read aloud, copied out of a screenshot
+          spans: these sentences are read aloud, copied out of a screenshot
           and searched for, and a phrase split across three text nodes is
           none of those things. */}
-      {(hasBounded || hasProvisional || hasWithheld || absentLabels.size > 0) && (
-        <p className="mt-1.5 text-micro leading-snug text-muted-foreground">
+      {(capNote !== undefined ||
+        figureNotes.length > 0 ||
+        spec.keying?.mode === "summed" ||
+        hasBounded ||
+        hasProvisional ||
+        hasWithheld ||
+        absentLabels.size > 0) && (
+        <p className="mt-1.5 space-y-1 text-micro leading-snug text-muted-foreground">
+          {/* A reader who does not know eleven series were folded into one
+              mark is reading a different chart from the one the data
+              supports. */}
+          {capNote && <span className="block">{capNote}</span>}
+
+          {/* The engine's own census of this figure. It rides on the wire
+              as `annotations` ("upper bounds: 4 of 12 marks are ceilings,
+              not measurements…") and was being fed to a `ReferenceLine` as
+              an x value, where it matched no category and drew nothing at
+              all.
+
+              EVERY sentence, not the first one. A comparison publishes its
+              own annotation ahead of the rest ("comparison: two series per
+              category…"), so reading index 0 alone dropped the upper-bound
+              census, the prior-only census and the withheld census on
+              exactly the figures that carry them. */}
+          {figureNotes.map((note) => (
+            <span key={note} className="block">
+              {note}
+            </span>
+          ))}
+
+          {/* The keying census. Live, a chart declaring `x=month,
+              series=payer` sent thirty rows over three distinct keys; the
+              old mapper kept whichever arrived last and drew $3,468 of
+              $441,808. */}
+          {spec.keying?.mode === "summed" && (
+            <span className="block">{spec.keying.note}</span>
+          )}
+
           {hasBounded && <span className="block">{boundedLegend(spec)}</span>}
           {/* The absence, said out loud on the figure. The engine's own
-              annotation above the picture counts them; this says what the
-              gap in the picture IS. */}
+              census counts them; this says what the gap in the picture
+              IS. */}
           {absentLabels.size > 0 && (
             <span className="block">
               ‡ marks a category with a figure in the window this one is compared against and none
@@ -1094,20 +1190,12 @@ export function InvestigationChart({
       )}
 
       <div className="mt-1.5 flex items-center justify-between gap-2">
-        <span className="text-micro text-muted-foreground">
-          {spec.xLabel !== undefined
-            ? displayLabel(spec.xLabel)
-            : spec.kind !== "line"
-              ? "click a bar to drill in"
-              : ""}
-          {/* What put the bars in this order. The chart sits under findings
-              that read "best to worst", so an axis whose order it does not
-              state is an axis the reader has to assume — and the assumption
-              was wrong: it was alphabetical. */}
-          {orderNote(spec) && (
-            <span className="text-muted-foreground"> · {orderNote(spec)}</span>
-          )}
-        </span>
+        {/* What the axis is, and what put the marks in the order they are
+            in — one caption, sentence case, middot-separated. The chart
+            sits under findings that read "best to worst", so an axis whose
+            order it does not state is an axis the reader has to assume,
+            and the assumption was wrong: it was alphabetical. */}
+        <span className="text-micro text-muted-foreground">{footerCaption}</span>
         <span className="flex items-center gap-1">
           {/* MONITOR THIS, at the figure's own pin point — beside the export,
               which is the other "take this away with you" gesture on the
@@ -1124,14 +1212,18 @@ export function InvestigationChart({
               size="row"
             />
           )}
+          {/* TRUNCATION IS CONTEXT, NOT AN ALARM. "Showing top 8 of 12" is
+              a fact about the drawing with the fix attached to it, and in
+              amber it read as a defect in the data. Quiet ink, same words,
+              same one-click expansion. */}
           {spec.truncation && spec.truncation.total > spec.truncation.shown && (
             <Button
               variant="ghost"
               size="xs"
-              className="h-5 gap-1 px-1.5 text-meta font-normal text-warning hover:text-warning"
+              className="h-5 gap-1 px-1.5 text-meta font-normal text-muted-foreground hover:text-foreground"
               onClick={() => emitRefinement({ op: "Expand" }, { turnId })}
             >
-              showing top {spec.truncation.shown} of {spec.truncation.total}
+              Showing top {spec.truncation.shown} of {spec.truncation.total}
               <Maximize2 className="size-2.5" />
               Expand
             </Button>
@@ -1252,14 +1344,16 @@ export function orderNote(spec: ChartSpec): string | undefined {
   if (order === undefined) return undefined;
   if (order.refused === true) return "unranked — no ranking was published for this answer";
   if (order.basis === "wire") return undefined;
+  // "Bounded cell" is the engine's word for it. The reader's word — the
+  // one the "≤" legend under this very caption uses — is a ceiling.
   const held =
     order.boundedExcluded !== undefined
-      ? `; ${order.boundedExcluded} bounded cell${order.boundedExcluded === 1 ? "" : "s"} held out of it, at the end`
+      ? `; ${order.boundedExcluded} ceiling${order.boundedExcluded === 1 ? "" : "s"} held out of it, at the end`
       : "";
   // The catalog SAID so, and the difference from the line below it is
   // worth the extra words: one is a published fact about the dimension,
   // the other is this client reading numbers out of label text.
-  // BUG 1 — the measure is named the way the rest of the product names
+  // The measure is named the way the rest of the product names
   // it. This note is composed HERE, not by the engine, and it was putting
   // `timely_filing_at_risk_dollars` under a figure whose own title reads
   // "Timely filing at risk dollars by plan". The raw column keeps
@@ -1380,7 +1474,11 @@ export function ChartTooltipContent({
               </span>
               <span className="num shrink-0 font-medium">
                 {line.absent ? (
-                  <span className="text-warning">no figure</span>
+                  // A MARK ON THE DATA, in the data's own place — the
+                  // absence stands where the number would be. It does not
+                  // need amber to be read: nothing else in this column is
+                  // a word.
+                  <span className="font-normal text-muted-foreground">No figure</span>
                 ) : line.value === undefined ? (
                   "—"
                 ) : (
@@ -1417,24 +1515,24 @@ export function ChartTooltipContent({
             return (
               <p
                 key={`bound:${line.key}`}
-                className="mt-1 max-w-56 border-t pt-1 text-meta leading-snug text-warning"
+                className="mt-1 max-w-56 border-t pt-1 text-meta leading-snug text-muted-foreground"
               >
                 {seriesLabel?.(line.key) ?? line.key} is an upper bound
-                {n !== undefined ? ` over n = ${n}` : ""} — a ceiling, not a measurement. It has no
-                position in a ranking.
+                {n !== undefined ? ` over a population of ${formatCount(n)}` : ""} — a ceiling, not
+                a measurement. It has no position in a ranking.
               </p>
             );
           })}
         {(currentAbsent || priorAbsent) && (
-          <p className="mt-1 max-w-56 border-t pt-1 text-meta leading-snug text-warning">
+          <p className="mt-1 max-w-56 border-t pt-1 text-meta leading-snug text-muted-foreground">
             No figure was measured for this category in that window. The zero on the wire is the
             join between the two windows, not a reading — an absence, not a measured zero.
           </p>
         )}
         {provisional && (
-          <p className="mt-1 max-w-56 border-t pt-1 text-meta leading-snug text-warning">
-            Provisional — this bucket is calendar-partial or still adjudicating, so the value will
-            move.
+          <p className="mt-1 max-w-56 border-t pt-1 text-meta leading-snug text-muted-foreground">
+            Provisional — this period is not over, or its claims are still adjudicating, so the
+            value will move.
           </p>
         )}
       </div>
@@ -1480,19 +1578,20 @@ export function ChartTooltipContent({
         ))}
       </ul>
       {bounded && (
-        <p className="mt-1 max-w-56 border-t pt-1 text-meta leading-snug text-warning">
-          Upper bound{denominator !== undefined ? ` over n = ${denominator}` : ""} — a ceiling, not
-          a measurement. It has no position in a ranking.
+        <p className="mt-1 max-w-56 border-t pt-1 text-meta leading-snug text-muted-foreground">
+          Upper bound
+          {denominator !== undefined ? ` over a population of ${formatCount(denominator)}` : ""} — a
+          ceiling, not a measurement. It has no position in a ranking.
         </p>
       )}
       {provisional && (
-        <p className="mt-1 max-w-56 border-t pt-1 text-meta leading-snug text-warning">
-          Provisional — this bucket is calendar-partial or still adjudicating, so the value will
-          move.
+        <p className="mt-1 max-w-56 border-t pt-1 text-meta leading-snug text-muted-foreground">
+          Provisional — this period is not over, or its claims are still adjudicating, so the value
+          will move.
         </p>
       )}
       {row?.withheld === true && (
-        <p className="mt-1 max-w-56 border-t pt-1 text-meta leading-snug text-warning">
+        <p className="mt-1 max-w-56 border-t pt-1 text-meta leading-snug text-muted-foreground">
           Withheld — the engine published no value for this cell under the small-cell policy. The
           gap is a refusal, not a zero.
         </p>

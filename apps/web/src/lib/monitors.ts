@@ -117,7 +117,7 @@ function asStringList(value: unknown): string[] {
 /* ------------------------------------------------------------------ */
 
 /**
- * `MonitorsTileIntegrity` — the M22 integrity line as a payload.
+ * `MonitorsTileIntegrity` — the integrity line as a payload.
  *
  * Every field is a count of something the tile also carries, so the line
  * a renderer draws from it states facts rather than inventing a score.
@@ -366,8 +366,9 @@ export interface MonitorsTile {
    * ("Pinnacle Health Plan"). Empty for a monitor with no dimension at all.
    *
    * The field that makes "the tile measures the cell that was pinned"
-   * checkable by a reader rather than eyeballed against the label — which
-   * is exactly the pair that disagreed on the tile that gated round 7.
+   * checkable by a reader rather than eyeballed against the label. The
+   * two have been observed to disagree, which is the whole reason the
+   * subject is published separately from the label.
    */
   headlineSubjectLabel: string;
   /** The headline number, rendered in its contract unit (with any `≤`). */

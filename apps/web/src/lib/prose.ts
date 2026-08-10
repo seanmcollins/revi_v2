@@ -80,10 +80,66 @@ export function scalarizeRankOfOne(text: string): string {
 }
 
 /**
- * Both repairs, in the order they have to run: the rank clause first (it
- * rewrites words), the punctuation second (it repairs joins, including
- * any the first repair produced).
+ * A data load named by its internal handle, in a sentence a normal reader
+ * meets on the default surface.
+ *
+ * The worklist's own summary arrives as "8 of 33 ranked cards at
+ * watermark wm_003, highest governed priority first." `wm_003` is a
+ * database handle: it tells an analyst nothing that "this data load" does
+ * not, and "data load" is what the rest of the product says. So the
+ * PHRASE is rewritten and the handle goes with it.
+ *
+ * Deliberately narrow. It matches only a handle introduced by the words
+ * that make it one ("watermark wm_…", "data load wm_…"), so a bare id
+ * standing on its own — which may be the only thing a sentence is about —
+ * is left alone rather than guessed at. The id is never re-spelled or
+ * word-split; `publicWarningBody` has a test pinning that "wm 003" is a
+ * broken spelling of a handle rather than a friendlier one, and this does
+ * not go near it. The engine's untouched sentence stays reachable on the
+ * surface that renders it.
+ */
+const LOAD_HANDLE = /\b(?:watermark|data load)\s+(wm_[A-Za-z0-9_]+)/gi;
+
+export function humanizeLoadHandles(text: string): string {
+  return text.replace(LOAD_HANDLE, "this data load");
+}
+
+/**
+ * A composed sentence that starts in lower case.
+ *
+ * The engine builds statements by concatenating clauses, and the leading
+ * clause is often a bare metric phrase — "denial rate is ≤ 76.9% over…",
+ * "the prior load produced no value for this monitor…". On a tile, that
+ * clause IS the sentence a reader meets, and a screen of sentences that
+ * all start in lower case reads as unfinished rather than as considered.
+ * The owner's question about it — "do lowercase starts to sentences
+ * inspire confidence?" — has one answer.
+ *
+ * The narrowest possible repair: the FIRST character, only when it is a
+ * lower-case letter, and never inside a token that is evidently an
+ * identifier rather than a word (`denial_rate` stays `denial_rate` — a
+ * capitalized id is a wrong id, and dropping it is not this function's
+ * job). No other character is touched, so a sentence that already opens
+ * with a capital, a figure, a quotation mark or a symbol comes back
+ * byte-identical.
+ */
+export function capitalizeOpening(text: string): string {
+  const first = text.search(/\S/);
+  if (first === -1) return text;
+  const char = text[first];
+  if (char < "a" || char > "z") return text;
+  // An opening token carrying an underscore is a machine name, not a word.
+  const token = /^\S+/.exec(text.slice(first))?.[0] ?? "";
+  if (token.includes("_")) return text;
+  return text.slice(0, first) + char.toUpperCase() + text.slice(first + 1);
+}
+
+/**
+ * The mechanical repairs, in the order they have to run: the rank clause
+ * first (it rewrites words), the punctuation second (it repairs joins,
+ * including any the first repair produced), the opening capital last (it
+ * acts on whatever ends up first).
  */
 export function readableStatement(text: string): string {
-  return tidyProse(scalarizeRankOfOne(text));
+  return capitalizeOpening(tidyProse(scalarizeRankOfOne(text)));
 }

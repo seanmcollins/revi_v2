@@ -173,8 +173,8 @@ export interface paths {
          *     four a person may set. `resolved_confirmed` and `regressed` are
          *     verdicts the PLATFORM reaches by re-running the lead's own drill
          *     across consecutive loads — asking for either is refused with the
-         *     reason. That asymmetry is the point: "mark as resolved" everywhere
-         *     else in this category is a checkbox, and a checkbox is an opinion.
+         *     reason. The asymmetry is deliberate: a claim that something is
+         *     resolved is an opinion until the data agrees with it.
          */
         patch: operations["patch_monitors_lead_v1_monitors_leads__anomaly_id__patch"];
         trace?: never;
@@ -286,8 +286,8 @@ export interface paths {
          * @description Open a session pinned to the newest watermark and active pack.
          *
          *     The tenant comes from the token. A body naming a different one is
-         *     refused rather than honored — that field used to be the only thing
-         *     deciding which tenant a session belonged to.
+         *     refused rather than honored: no request can choose the tenant its
+         *     session belongs to.
          */
         post: operations["open_session_v1_sessions_post"];
         delete?: never;
@@ -632,14 +632,12 @@ export interface components {
         };
         /**
          * AnomalyReconciliationPayload
-         * @description Card figure vs re-derived figure, stated (review F1).
+         * @description Card figure vs re-derived figure, stated.
          *
-         *     An anomaly card published ``$178,217``; drilling it answered
-         *     ``$195,873.92``; the turn's own reconciliation verdict said
-         *     ``not_applicable — this is a first turn``, which is true about the
-         *     investigation lineage and silent about the two numbers the reader had
-         *     just compared. 9.9% of disagreement, on consecutive screens, with no
-         *     reconciliation anywhere.
+         *     A card can publish ``$178,217`` while drilling it answers
+         *     ``$195,873.92`` — 9.9% of disagreement on consecutive screens. The §7.8
+         *     refinement verdict is silent about it, because that verdict is about
+         *     investigation lineage and this is about two numbers.
          *
          *     The figures are two different claims and both are honest:
          *
@@ -794,15 +792,14 @@ export interface components {
         };
         /**
          * ChartSort
-         * @description The ordering the PLAN resolved for the rows below (round-3 R3-13).
+         * @description The ordering the PLAN resolved for the rows below.
          *
-         *     The findings obey "best to worst" and the chart directly beneath them
-         *     was drawn alphabetically, because the ordering existed only inside the
-         *     plan — as an ``Ordering`` on the probe, as ``by``/``descending`` args
-         *     on a rank step, and as a ``{by}__rank`` column on a frame nothing
-         *     charts — and never reached the renderer. It is published here so the
-         *     chart and the sentence above it cannot disagree about which cell is
-         *     first.
+         *     Without it the ordering lives only inside the plan — as an ``Ordering``
+         *     on the probe, as ``by``/``descending`` args on a rank step, and as a
+         *     ``{by}__rank`` column on a frame nothing charts — and never reaches the
+         *     renderer, so findings ordered "best to worst" sit above a chart drawn
+         *     alphabetically. It is published here so the chart and the sentence above
+         *     it cannot disagree about which cell is first.
          *
          *     ``by`` is a column name on the charted frame (a measure id, or a
          *     dimension id when the ranking is over labels). ``direction`` is the
@@ -862,21 +859,16 @@ export interface components {
         };
         /**
          * CohortPayload
-         * @description The pinned population behind an answer, said in words (review F15).
+         * @description The pinned population behind an answer, said in words.
          *
-         *     The context header carried ``cohort: coh_9f2a11…`` and a size. A hash
-         *     is a correct identifier and a useless label: the analyst who drilled
-         *     "the top three payers" was shown a string that names their own
-         *     selection back to them in a vocabulary nobody speaks, and a chip that
-         *     cannot be read cannot be checked.
-         *
-         *     So the same object the platform pinned is published as its parts: what
-         *     the members ARE (``entity_grain``), which rule selected them
-         *     (``definition``, the pinned predicate rendered as text), where the
-         *     selection came from (``origin_referent`` and the turn that introduced
-         *     it), and how many there are. ``id`` stays — it is the handle a later
-         *     turn re-addresses the population by — it is simply no longer the only
-         *     thing on the wire.
+         *     A hash (``cohort: coh_9f2a11…``) is a correct identifier and a useless
+         *     label: a chip that cannot be read cannot be checked. So the pinned
+         *     object is published as its parts: what the members ARE
+         *     (``entity_grain``), which rule selected them (``definition``, the pinned
+         *     predicate rendered as text), where the selection came from
+         *     (``origin_referent`` and the turn that introduced it), and how many
+         *     there are. ``id`` stays — it is the handle a later turn re-addresses the
+         *     population by — it is simply no longer the only thing on the wire.
          */
         CohortPayload: {
             /** Definition */
@@ -1806,8 +1798,8 @@ export interface components {
          *     * ``rank_flip`` — the cell a ranked monitor headlines is not the cell it
          *       headlined last load. This is NOT a movement and never carries a
          *       delta: it is the fact that "your worst payer" is now a different
-         *       payer, which is the headline the movement it replaced was pretending
-         *       to be (round-7 FN-2).
+         *       payer, which is the real headline a spurious cross-subject delta
+         *       would have obscured.
          */
         MonitorsBriefEntry: {
             /** Anomaly Id */
@@ -1846,10 +1838,9 @@ export interface components {
          *     ``status`` has three values and the middle one is the point:
          *
          *     * ``first_load`` — nothing to diff against yet, said plainly;
-         *     * ``nothing_material`` — the loud, proud outcome. Revi walked the
-         *       Monitors, measured everything, and there is nothing you need to do.
-         *       That is the answer, with the counts that back it, and it is not an
-         *       empty page;
+         *     * ``nothing_material`` — everything was measured and nothing needs
+         *       acting on. That is an answer, published with the counts that back it,
+         *       not an empty page;
          *     * ``material_changes`` — entries follow.
          */
         MonitorsBriefResponse: {
@@ -2135,10 +2126,9 @@ export interface components {
          * @description One lead's lifecycle state.
          *
          *     ``resolved_confirmed`` and ``regressed`` are verdicts the PLATFORM
-         *     reaches from data across loads; a human can claim resolution and
-         *     cannot assert it. That asymmetry is the feature: "mark as resolved" on
-         *     every other tool in this category is a checkbox, and a checkbox is an
-         *     opinion.
+         *     reaches from data across loads; a human can claim resolution and cannot
+         *     assert it. That asymmetry is deliberate: a status settable by hand is an
+         *     opinion, not a measurement.
          */
         MonitorsLeadPayload: {
             /** Anomaly Id */
@@ -2386,7 +2376,7 @@ export interface components {
         };
         /**
          * MonitorsTileIntegrity
-         * @description The M22 integrity line, as a payload (the tile's honesty contract).
+         * @description The tile's integrity line, as a payload (the tile's honesty contract).
          *
          *     Every field here is a count of something the tile also carries, so a
          *     renderer states facts rather than inventing a score:
@@ -2564,8 +2554,7 @@ export interface components {
          *     ``items`` stays one ranked array — clients that already read it are
          *     untouched — and each card names its lane, so a UI can render
          *     "must-do regardless of size" as its own section instead of letting a
-         *     $824 compliance item sit at rank 1 above a $178K critical finding
-         *     and look like the most important thing in the building.
+         *     $824 compliance item sit at rank 1 above a $178K critical finding.
          */
         PortfolioLanePayload: {
             /** Anomaly Ids */
@@ -2670,14 +2659,14 @@ export interface components {
         };
         /**
          * PriorityDecompositionPayload
-         * @description Every term of ``anomaly_priority``, published (review F17).
+         * @description Every term of ``anomaly_priority``, published.
          *
-         *     The formula was documented and its inputs were on the card, but the
-         *     arithmetic was not: a reader could see ``priority_score: 0.6`` beside
-         *     ``impact_cents: 82437`` and had no way to tell that the score was a
-         *     floor rather than a computation. Publishing the three normalized
-         *     components, the three weighted terms and the normalizer costs nothing
-         *     at build time and makes the ranking checkable with a calculator.
+         *     Documenting the formula and putting its inputs on the card is not
+         *     enough: a reader seeing ``priority_score: 0.6`` beside
+         *     ``impact_cents: 82437`` cannot tell whether the score was a floor or a
+         *     computation. Publishing the three normalized components, the three
+         *     weighted terms and the normalizer costs nothing at build time and makes
+         *     the ranking checkable with a calculator.
          *
          *     ``score = (impact_term + recency_term + actionability_term) /
          *     weight_sum``, then raised to ``floor_value`` when
@@ -3328,11 +3317,11 @@ export interface components {
         };
         /**
          * WarningPayload
-         * @description One warning, with a handle a client can branch on (review F14).
+         * @description One warning, with a handle a client can branch on.
          *
-         *     Warnings used to travel as prose alone, so a client that wanted to
-         *     group, count, filter or icon them had to match substrings — and a
-         *     client matching substrings breaks the day the wording improves.
+         *     Warnings as prose alone force a client that wants to group, count,
+         *     filter or icon them to match substrings, which breaks the day the
+         *     wording improves.
          *
          *     ``message`` is the platform's own sentence VERBATIM: the code is a
          *     handle added beside the text, never a replacement for it. ``count``
@@ -3380,12 +3369,11 @@ export interface components {
          * WorklistPayload
          * @description The ranked anomaly worklist, answered into a conversation.
          *
-         *     The platform computed a prioritised, reconciled worklist and the
-         *     conversation could not reach it: "what should my denial team work first
-         *     this week to recover the most cash?" returned a clarification offering
-         *     four ranking bases, none of which was the 33-card list with its lanes,
-         *     recoverable estimates and reconciliation state. The portfolio was never
-         *     mentioned — two products in one shell.
+         *     Without it the prioritised, reconciled worklist is unreachable from the
+         *     conversation: "what should my denial team work first this week to
+         *     recover the most cash?" clarifies over ranking bases rather than
+         *     returning the ranked list with its lanes, recoverable estimates and
+         *     reconciliation state.
          *
          *     A turn carries this when it resolved the pack's governed worklist
          *     routing (``packs/base-rcm/worklist.yaml`` names the playbook and

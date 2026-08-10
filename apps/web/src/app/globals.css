@@ -1,24 +1,26 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-@custom-variant dark (&:is(.dark *));
-
 /* ---------------------------------------------------------------------------
-   Revi design tokens — financial-grade, dark-first, one confident accent.
+   Revi design tokens — financial-grade, one confident accent.
 
-   Depth model (both themes): page < panel < raised < overlay, hairline
-   borders, layered translucent surfaces over a faintly glowing page.
-   Dark surfaces carry a subtle WARM tint (not pure zinc); light is
-   paper-white warmth.
+   Light is the only theme. There is no dark palette, no theme toggle and
+   no `.dark` override: one set of tokens, measured once, that cannot
+   drift out of sync with a second set.
+
+   Depth model: page < panel < raised < overlay, hairline borders,
+   layered translucent surfaces over a faintly glowing page. Surfaces
+   carry paper-white warmth rather than pure white.
 
    Accent semantics (never decorative):
      verified  teal    → governed / deterministic / reconciled
-     warning   amber   → caveats, proxy grades, stale data
+     warning   amber   → verdicts only: premise corrections, refusals,
+                         regressions. Never caveats or context notes —
+                         those are muted ink below the figure.
      negative  red     → failures and direction-of-bad only
    One restrained gradient (teal → deep blue) is reserved for primary
    actions, active states, and the hero glow — never content.
-   Chart series colors are CVD-validated pairs (dataviz six-check validator):
-     light  #0d9488 / #2a78d6   dark  #0d9488 / #3987e5
+   Chart series colors are CVD-validated (dataviz six-check validator).
 --------------------------------------------------------------------------- */
 
 :root {
@@ -53,25 +55,19 @@
 
   /* ELEVATION, as a MEASURED token rather than a hardcoded shadow.
      `shadow-[0_1px_2px_rgba(0,0,0,0.03)]` was written into the tile itself
-     and measured as nothing: its darkest pixel is 1.064:1 against the light
-     page and 1.000:1 against the dark one — i.e. in dark there was no
-     shadow at all, and at twenty tiles the only thing between one monitor's
-     number and the next monitor's caveat sentence was 12px of gap.
+     and measured as nothing: its darkest pixel is 1.064:1 against the
+     page, and at twenty tiles the only thing between one monitor's number
+     and the next monitor's caveat sentence was 12px of gap.
 
-     Light: a two-layer drop shadow. Edge over the page measures 1.144:1
-     (was 1.064:1), and the card face itself is 1.092:1 over the page.
-     Dark: a drop shadow cannot exist over #0b0a09, so the elevation is a
-     TOP HIGHLIGHT plus a lighter face — `--surface-raised #161514` is
-     1.085:1 over the page (the card at #131211 was 1.057:1), the highlight
-     line reads 1.213:1 against the page, and the hairline border over the
-     raised face reads 1.323:1 against it. */
+     Now a two-layer drop shadow: the edge over the page measures 1.144:1
+     (was 1.064:1), and the card face itself is 1.092:1 over the page. */
   --elevation-raised: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
   --elevation-raised-hover: 0 2px 6px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.05);
 
   /* Both of these are read ON THEIR OWN 10% TINT — the accent chip, the
      caution banner, the reconciliation strip — which is the surface that
      decides whether they pass, and the surface nobody measured. Computed
-     over card / page / sunken / translucent-panel, light theme:
+     over card / page / sunken / translucent-panel:
 
        verified #0b7a70 on verified/10  4.54 / 4.18 / 3.98 / 4.38  (fails)
        verified #0a6a61 on verified/10  5.58 / 5.13 / 4.89 / 5.37  (passes)
@@ -80,8 +76,7 @@
 
      Neither token is ever a solid background under text (only 1.5px dots
      and hairline borders), so darkening is a strict improvement
-     everywhere else they appear. Dark theme already passes on the same
-     tints (verified 8.51, warning 9.30) and is unchanged. */
+     everywhere else they appear. */
   --verified: #0a6a61;
   --positive: #047857;
   --negative: #c81e1e;
@@ -90,11 +85,10 @@
   --accent-from: #0d9488;
   --accent-to: #2a63d4;
   /* The same gradient re-stopped for WHITE TEXT on top of it. The display
-     stops are chosen for the surface; these are chosen for the label, and
-     they are identical in both themes because the text is white in both:
+     stops are chosen for the surface; these are chosen for the label:
      white on #0b7a70 = 5.21:1, on #2a63d4 = 5.48:1, midpoint 5.53:1.
-     The display stops carry white at 3.74:1 light / 2.49:1 dark, which is
-     below AA for the most prominent button in the product. */
+     The display stops carry white at only 3.74:1, which is below AA for
+     the most prominent button in the product. */
   --cta-from: #0b7a70;
   --cta-to: #2a63d4;
   --glow-a: rgba(13, 148, 136, 0.07);
@@ -113,9 +107,8 @@
      read, same family, still unmistakably the governed accent rather
      than a status colour.
 
-     Re-validated rather than eyeballed (dataviz six checks, light
-     surface, against `--chart-baseline` which it pairs with on every
-     comparison):
+     Re-validated rather than eyeballed (dataviz six checks, against
+     `--chart-baseline` which it pairs with on every comparison):
        lightness band PASS · chroma floor PASS · contrast PASS
        CVD separation  #2a78d6 ↔ #0f9878  ΔE 18.5 protan (was 15.7)
        normal vision   ΔE 19.4 (was 16.4)
@@ -139,15 +132,14 @@
 
      These are the eight validated hues, in the order that clears every
      adjacent-pair gate. Recomputed against THIS product's card surface
-     (#ffffff light, #131211 dark) rather than taken on faith:
+     (#ffffff) rather than taken on faith:
 
-       light  lightness band PASS · chroma floor PASS
-              CVD separation PASS — worst adjacent #eda100↔#1baf7a ΔE 9.1 (protan)
-              normal-vision  PASS — worst adjacent #e87ba4↔#eda100 ΔE 19.6
-              contrast       WARN — aqua 2.82, yellow 2.17, magenta 2.69 below 3:1
-       dark   every check PASS, all eight ≥ 3:1
+       lightness band PASS · chroma floor PASS
+       CVD separation PASS — worst adjacent #eda100↔#1baf7a ΔE 9.1 (protan)
+       normal-vision  PASS — worst adjacent #e87ba4↔#eda100 ΔE 19.6
+       contrast       WARN — aqua 2.82, yellow 2.17, magenta 2.69 below 3:1
 
-     The light WARN is discharged by the relief rule, not ignored: every
+     The contrast WARN is discharged by the relief rule, not ignored: every
      series is named in the legend beside its swatch, every mark states
      itself on hover, and the exact rows leave as CSV — identity is never
      carried by colour alone. Ordering is the CVD-safety mechanism, so
@@ -164,88 +156,6 @@
   /* The rollup series. Deliberately the muted ink, not a ninth hue: it is
      not an entity, it is everything that did not fit. */
   --chart-cat-other: #6f6c64;
-}
-
-.dark {
-  --background: #0b0a09;
-  --foreground: #edecea;
-  --card: #131211;
-  --card-foreground: #edecea;
-  --popover: #1b1a18;
-  --popover-foreground: #edecea;
-  --primary: #fafaf9;
-  --primary-foreground: #131211;
-  --secondary: #1d1b19;
-  --secondary-foreground: #d6d4d0;
-  --muted: #191817;
-  --muted-foreground: #a09d97;
-  --accent: #201e1b;
-  --accent-foreground: #edecea;
-  --destructive: #ef4444;
-  --destructive-foreground: #fafafa;
-  --border: rgba(255, 255, 255, 0.075);
-  --input: rgba(255, 255, 255, 0.13);
-  --ring: #2dd4bf;
-
-  --surface-page: #0b0a09;
-  --surface-panel: rgba(19, 18, 16, 0.72);
-  --surface-raised: #161514;
-  --surface-sunken: #0e0d0c;
-  --surface-overlay: #1b1a18;
-
-  /* The dark half of the elevation token. A drop shadow over #0b0a09 is
-     invisible by construction (black on near-black), so depth here is a
-     1px top highlight — the same device the physical world gives a raised
-     edge — over the lighter `--surface-raised` face. Measured above. */
-  --elevation-raised: inset 0 1px 0 rgba(255, 255, 255, 0.045);
-  --elevation-raised-hover:
-    inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 2px 10px rgba(0, 0, 0, 0.5);
-
-  --verified: #2dd4bf;
-  --positive: #34d399;
-  --negative: #f87171;
-  --warning: #fbbf24;
-
-  --accent-from: #14b8a6;
-  --accent-to: #3987e5;
-  /* Deliberately NOT lightened for dark mode: the label is white here too,
-     so the stop that makes white legible is the same stop. */
-  --cta-from: #0b7a70;
-  --cta-to: #2a63d4;
-  --glow-a: rgba(45, 212, 191, 0.055);
-  --glow-b: rgba(57, 135, 229, 0.045);
-
-  --grade-direct: #2dd4bf;
-  --grade-derived: #60a5fa;
-  --grade-proxy: #fbbf24;
-  --grade-discovery: #a78bfa;
-  --grade-unavailable: #a09d97;
-
-  /* The dark step is CHOSEN, not an automatic lightening of the light
-     one — the dark surface has its own lightness band. Re-validated
-     against `--chart-baseline` on #131211:
-       lightness band PASS · chroma floor PASS · contrast PASS
-       CVD separation  #3987e5 ↔ #19ad8b  ΔE 18.7 deutan (was 15.1)
-       normal vision   ΔE 19.8 (was 16.1)
-     Contrast: card #131211 6.59:1 (was 5.00) · page #0b0a09 6.96:1. */
-  --chart-current: #19ad8b;
-  --chart-baseline: #3987e5;
-  --chart-grid: rgba(255, 255, 255, 0.05);
-  --chart-axis: #a09d97;
-
-  /* The same eight hues, re-stepped for the dark surface and validated as
-     a set against #131211 — not an automatic lightening of the light
-     column. Slot order is identical, so a series keeps its identity
-     across a theme flip. */
-  --chart-cat-1: #3987e5;
-  --chart-cat-2: #d95926;
-  --chart-cat-3: #199e70;
-  --chart-cat-4: #c98500;
-  --chart-cat-5: #d55181;
-  --chart-cat-6: #008300;
-  --chart-cat-7: #9085e9;
-  --chart-cat-8: #e66767;
-  --chart-cat-other: #a09d97;
 }
 
 @theme inline {
@@ -296,7 +206,7 @@
   --font-mono: var(--font-geist-mono), ui-monospace, "SF Mono", monospace;
 
   /* -----------------------------------------------------------------
-     THE TYPE SCALE (round-5 uiux P1).
+     THE TYPE SCALE.
 
      288 explicit font sizes existed on this app and 213 of them were
      below 11.2px — including the sentences that say how to read a
@@ -340,9 +250,6 @@
 
 html {
   color-scheme: light;
-}
-html.dark {
-  color-scheme: dark;
 }
 
 body {
@@ -408,15 +315,14 @@ body {
    `ui/button.tsx` and the other shadcn primitives carry their own (a
    `focus-visible:border-ring` + soft `ring-ring/50` pair). Everything else
    in this app — the underlined text buttons in the portfolio panel, the
-   chip triggers — is a bare `<button>`, and the round-1 fix pass gave each
-   of them `focus-visible:outline-none focus-visible:ring-2 ring-ring/60`
-   by hand. `--ring` at 60% measures 2.15:1 on card and 2.06:1 on page in
+   chip triggers — is a bare `<button>`, and each was given
+   `focus-visible:outline-none focus-visible:ring-2 ring-ring/60` by hand. `--ring` at 60% measures 2.15:1 on card and 2.06:1 on page in
    light, i.e. BELOW the 3:1 SC 1.4.11 floor, and each of those elements
    had a compliant UA outline before `outline-none` removed it.
 
    A solid outline at full `--ring` is 3.74:1 vs card, 3.43:1 vs page,
-   3.61:1 vs the translucent rail and 3.26:1 vs sunken in light; 10.05 /
-   10.63 / 10.22 in dark. It lives here, once, so it cannot drift again.
+   3.61:1 vs the translucent rail and 3.26:1 vs sunken. It lives here,
+   once, so it cannot drift again.
    Unlayered on purpose: it must win over Tailwind's layered utilities. */
 .focus-ring:focus-visible {
   outline: 2px solid var(--ring);
@@ -492,13 +398,12 @@ body {
 }
 
 /* ---------------------------------------------------------------------------
-   A RAISED SURFACE — one class, both themes, measured.
+   A RAISED SURFACE — one class, measured.
 
    The warmth pass's centrepiece ("a hairline shadow so the tile sits ON the
-   page rather than being cut out of it") was a hardcoded light-mode shadow,
-   so in dark it did not exist. This is the same intent expressed as a
-   theme-aware token: a drop shadow where a drop shadow can be seen, a top
-   highlight where it cannot. Ratios are published beside the tokens.
+   page rather than being cut out of it") was a shadow hardcoded into one
+   component. It lives here now as a token, so every raised surface in the
+   product lifts by the same measured amount. Ratios sit beside the token.
 --------------------------------------------------------------------------- */
 .raised {
   box-shadow: var(--elevation-raised);

@@ -149,16 +149,16 @@ export function SettingsPanel() {
               <dl className="num grid grid-cols-[9rem_minmax(0,1fr)] gap-x-3 gap-y-1 rounded-md border bg-surface-sunken/50 px-3 py-2.5 text-meta">
                 <Fact label="API" value={apiBaseUrl()} />
                 <Fact label="Connection" value={`${connection.mode} · ${connection.state}`} />
-                <Fact label="Model" value={connection.llmMode ?? capabilities?.llm ?? "unknown"} />
+                <Fact label="Model" value={connection.llmMode ?? capabilities?.llm ?? "Unknown"} />
                 <Fact
                   label="Model pin"
                   value={
                     bounds?.defaultModelTier ||
-                    (capabilitiesState === "ready" ? "not pinned" : "unknown")
+                    (capabilitiesState === "ready" ? "Not pinned" : "Unknown")
                   }
                 />
-                <Fact label="Stores" value={connection.storeMode ?? "unknown"} />
-                <Fact label="Auth" value={connection.authMode ?? "unknown"} />
+                <Fact label="Stores" value={connection.storeMode ?? "Unknown"} />
+                <Fact label="Auth" value={connection.authMode ?? "Unknown"} />
                 {/* The SESSION's pin, and a session is minted by the first
                     turn rather than by opening the app or clicking "New
                     chat". Until one exists this said the store's seed
@@ -171,7 +171,7 @@ export function SettingsPanel() {
                   value={
                     pinned
                       ? `${watermark.loadedAt} · through ${watermark.newestDataDate}`
-                      : "not pinned until your first question"
+                      : "Not pinned until your first question"
                   }
                 />
                 <Fact
@@ -179,7 +179,7 @@ export function SettingsPanel() {
                   value={
                     capabilities?.newestWatermarkId ||
                     connection.newestWatermarkId ||
-                    (pinned ? watermark.id : "unknown")
+                    (pinned ? watermark.id : "Unknown")
                   }
                 />
                 <Fact
@@ -191,7 +191,7 @@ export function SettingsPanel() {
                         ? // The DEPLOYMENT's active pack, which is a fact
                           // even before a session pins one.
                           `${capabilities.packId}@${capabilities.packVersion}`
-                        : "not pinned until your first question"
+                        : "Not pinned until your first question"
                   }
                 />
               </dl>
@@ -283,7 +283,7 @@ function ControlList({
           hint="Applies to the model calls that read your question, plan the work and write the answer."
         >
           <Segmented
-            name="model-tier"
+            name="Interpretation model"
             value={settings.modelTier ?? ""}
             options={[
               { value: "", label: "Deployment pin", hint: "Best accuracy" },
@@ -325,7 +325,7 @@ function ControlList({
                 className="h-1 min-w-0 flex-1 accent-[var(--verified)] disabled:opacity-40"
               />
               <span className="num w-14 shrink-0 text-right text-meta tabular-nums">
-                {current === null ? "off" : `$${settings.maxTurnCostUsd}`}
+                {current === null ? "Off" : `$${settings.maxTurnCostUsd}`}
               </span>
             </div>
             <label className="flex items-center gap-2 text-meta text-muted-foreground">
@@ -357,7 +357,7 @@ function ControlList({
           hint="How much the write-up covers. Every number is checked the same way at both settings."
         >
           <Segmented
-            name="narrative-depth"
+            name="Answer detail"
             value={settings.narrativeDepth}
             options={bounds.narrativeDepths.map((depth) => ({
               value: depth,
@@ -378,7 +378,7 @@ function ControlList({
           hint={`How many rows each check is allowed to bring back. Deep widens this platform's own cutoffs by ${bounds.evidenceDepthDeepMultiplier}× — it costs more time, and it never fetches less than standard does.`}
         >
           <Segmented
-            name="evidence-depth"
+            name="Evidence depth"
             value={settings.evidenceDepth}
             options={bounds.evidenceDepths.map((depth) => ({
               value: depth,
@@ -449,6 +449,9 @@ function Segmented({
   onChange: (value: string) => void;
 }) {
   return (
+    // The group's accessible name is the CONTROL's name, not the field
+    // key: a screen reader used to announce "model-tier, radio group",
+    // which is the payload's spelling read out loud.
     <div role="radiogroup" aria-label={name} className="flex flex-wrap gap-1">
       {options.map((option) => (
         <button

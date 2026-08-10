@@ -3,7 +3,6 @@ import { Geist, Geist_Mono } from "next/font/google";
 import "./globals.css";
 
 import { QueryProvider } from "@/components/providers/QueryProvider";
-import { ThemeProvider } from "@/components/theme/ThemeProvider";
 import { TooltipProvider } from "@/components/ui/tooltip";
 
 const geistSans = Geist({
@@ -22,19 +21,19 @@ export const metadata: Metadata = {
     "Conversational revenue-cycle analytics: typed investigations, governed metrics, auditable evidence.",
 };
 
+// Light is the only theme, so there is no theme provider and no class to
+// reconcile after hydration — which is also why `suppressHydrationWarning`
+// is gone: nothing rewrites <html> before React attaches.
 export default function RootLayout({ children }: LayoutProps<"/">) {
   return (
     <html
       lang="en"
       className={`${geistSans.variable} ${geistMono.variable} h-full antialiased`}
-      suppressHydrationWarning
     >
       <body className="h-full overflow-hidden">
-        <ThemeProvider>
-          <QueryProvider>
-            <TooltipProvider delayDuration={200}>{children}</TooltipProvider>
-          </QueryProvider>
-        </ThemeProvider>
+        <QueryProvider>
+          <TooltipProvider delayDuration={200}>{children}</TooltipProvider>
+        </QueryProvider>
       </body>
     </html>
   );

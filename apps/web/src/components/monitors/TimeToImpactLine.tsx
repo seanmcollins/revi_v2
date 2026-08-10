@@ -76,8 +76,9 @@ export function TimeToImpactLine({
       {/* PROVISIONAL is a word, not a shade. A projection that carried its
           uncertainty only in a lighter grey would be a forecast this
           platform has not earned, printed in the same column as a filing
-          limit that is a legal fact. */}
-      {tti.provisional && <span className="text-warning">provisional</span>}
+          limit that is a legal fact — so the word does the work and the
+          ink stays quiet. */}
+      {tti.provisional && <span className="text-muted-foreground">Provisional</span>}
     </span>
   );
 }
@@ -86,13 +87,13 @@ export function TimeToImpactLine({
 function phrase(tti: TimeToImpact): string | null {
   if (tti.kind === "deadline") {
     const date = tti.deadlineDate ? safeDate(tti.deadlineDate) : undefined;
-    if (date === undefined) return tti.days !== undefined ? `hits cash in ${tti.days} days` : null;
+    if (date === undefined) return tti.days !== undefined ? `Hits cash in ${tti.days} days` : null;
     return tti.days !== undefined
-      ? `hits cash ${date} — ${tti.days} days left`
-      : `hits cash ${date}`;
+      ? `Hits cash ${date} — ${tti.days} days left`
+      : `Hits cash ${date}`;
   }
   if (tti.kind === "projected") {
-    return tti.days !== undefined ? `hits cash in ~${tti.days} days` : null;
+    return tti.days !== undefined ? `Hits cash in ~${tti.days} days` : null;
   }
   if (tti.kind === "already_hit") {
     // The recovery window, when the detector published one, because that
@@ -103,15 +104,15 @@ function phrase(tti: TimeToImpact): string | null {
       const label = tti.recoveryLabel || "recovery window closes";
       const date = tti.recoveryDeadlineDate ? ` (${safeDate(tti.recoveryDeadlineDate)})` : "";
       return tti.recoveryDays < 0
-        ? `already hit cash — ${label} ${Math.abs(tti.recoveryDays)} days ago${date}`
-        : `already hit cash — ${label} in ${tti.recoveryDays} days${date}`;
+        ? `Already hit cash — ${label} ${Math.abs(tti.recoveryDays)} days ago${date}`
+        : `Already hit cash — ${label} in ${tti.recoveryDays} days${date}`;
     }
-    return "already hit cash";
+    return "Already hit cash";
   }
   // `unknown` with its reason. The reason is the tooltip; the line says
   // that there is no date rather than leaving a blank where every other
   // card has one.
-  return tti.reason !== undefined ? "no cash date for this kind of card" : null;
+  return tti.reason !== undefined ? "No cash date for this kind of card" : null;
 }
 
 /** `mediumDate` throws on anything that is not an ISO date. */

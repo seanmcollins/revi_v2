@@ -41,10 +41,14 @@ export function ChatThread() {
           <p className="text-micro uppercase tracking-wide text-muted-foreground">
             Failure-state preview (demo toggle)
           </p>
+          {/* `detail` is what the banner prints, so it is written the way
+              the platform writes one — a sentence. The machine form keeps
+              its exact spelling in `summary`, which is what the evidence
+              drawer and the decision trace read. */}
           <ReconciliationBanner
             result={{
               status: "failed",
-              detail: "failed measures: cash_posted",
+              detail: "Cash posted does not sum to its breakdown.",
               summary: "status=failed; failed measures: cash_posted",
             }}
           />
@@ -132,9 +136,10 @@ function EmptyState() {
           cohort and data date it used — and every number traces back to the
           query behind it.
         </p>
-        {/* BUG 5 — the standing disclaimer, said once, here, where a
-            first-time reader meets the product. It used to sit under the
-            composer on every screen of every session. */}
+        {/* The standing disclaimer, said ONCE — here, where a first-time
+            reader meets the product, rather than under the composer on
+            every screen of every session, which is how a true and
+            important sentence becomes furniture nobody reads. */}
         <p className="mx-auto max-w-md text-pretty text-meta leading-relaxed text-muted-foreground">
           Every number is computed from your data — the model reads the question and writes
           the answer, it never makes the numbers up.

@@ -6,6 +6,7 @@
  */
 
 import type { TurnSubmission } from "@/lib/driver";
+import { humanizeColumn } from "@/lib/humanize";
 import type { DateBasis, DirectionOfGood, Refinement, ResolvedWindow } from "@/lib/types";
 
 export const MINUS = "−";
@@ -278,6 +279,47 @@ const ISO_MONTH = /\b(\d{4})-(0[1-9]|1[0-2])\b(?!-)/g;
 /** "2026-07-01", "2026-07-31" → "Jul 1–31, 2026". Throws on non-ISO input. */
 export function isoRangeLabel(start: string, end: string): string {
   return bareRangeLabel(start, end);
+}
+
+/**
+ * A data load, spelled as a date or not spelled at all.
+ *
+ * The server names one load two ways — an id (`wm_003`) and the instant the
+ * loader finished ("2026-08-03 04:10") — and neither belongs inside a
+ * sentence an analyst reads: the id is a log token and the minute is a
+ * precision nobody acts on. This returns the calendar date when the value
+ * carries one and `undefined` when it is only an id, so a caller can drop
+ * the clause rather than print the token.
+ *
+ * The exact value is never lost: callers keep it on a `title`, and the
+ * evidence drawer, the decision trace and every export still print it
+ * verbatim, because those exist to reproduce a query.
+ */
+export function dataLoadDate(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  const m = /^(\d{4}-\d{2}-\d{2})/.exec(value.trim());
+  if (!m) return undefined;
+  try {
+    return mediumDate(m[1]);
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * "anomaly_priority@3" → "Anomaly priority v3"; "dollar_impact@1" →
+ * "Dollar impact v1".
+ *
+ * The ranking formula's identifier is published on the worklist and the
+ * portfolio rail, where it sits as a bare token beside a heading. It is a
+ * real fact — two lists ranked by different versions are not comparable —
+ * so it stays; it just stops being spelled the way the payload spells it.
+ * Anything this cannot parse is returned unchanged rather than guessed at,
+ * the same rule `humanizeIsoDates` follows.
+ */
+export function rankingVersionLabel(policy: string): string {
+  const m = /^([a-z][a-z0-9_]*)@(\d+)$/.exec(policy.trim());
+  return m ? `${humanizeColumn(m[1])} v${m[2]}` : policy;
 }
 
 /** Big count with grouping: 120000 → "120,000". */

@@ -89,9 +89,12 @@ export function IntegrityAtom({
         >
           <span className="sr-only">{grade.label}: </span>
         </span>
-        <span className={grade.tone === "qualified" ? "text-warning" : "text-foreground/80"}>
-          {grade.text}
-        </span>
+        {/* The DOT carries the grade — that is the mark, and it keeps its
+            colour. The clause beside it is the note, and it reads in the
+            same ink whichever grade it names: a tile that says "computed
+            from a stand-in measure" in amber looks like a tile that is
+            wrong, and it is a tile that is honest. */}
+        <span className="text-foreground/80">{grade.text}</span>
 
         {shown > 0 && (
           <>
@@ -150,7 +153,7 @@ export function IntegrityAtom({
 export function ValueMarks({ integrity }: { integrity: TileIntegrity }) {
   if (!integrity.isBound && !integrity.provisional) return null;
   return (
-    <span className="ml-1.5 inline-flex flex-wrap items-baseline gap-x-1.5 text-micro font-normal text-warning">
+    <span className="ml-1.5 inline-flex flex-wrap items-baseline gap-x-1.5 text-micro font-normal text-muted-foreground">
       {integrity.isBound && <span>a ceiling, not a measurement</span>}
       {integrity.isBound && integrity.provisional && (
         <span aria-hidden className="text-muted-foreground/60">

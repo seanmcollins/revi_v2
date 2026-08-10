@@ -492,11 +492,11 @@ export function SessionLink({ sessionId }: { sessionId: string }) {
           ))}
         </ul>
 
-        {/* Where the two lists came from. A disclosure that cannot say
-            whether it measured or assumed is the same shape as the
-            round-9 note this replaces, which reported that answers
-            restore with their prose — read in the tab that created them,
-            where the client store still held it. */}
+        {/* Where the two lists came from. A disclosure has to say whether
+            it MEASURED or assumed: the claim that answers restore with
+            their prose was made by reading a restored turn in the tab that
+            created it, where the client store still held the prose the
+            server had not kept. */}
         <p
           data-disclosure-basis={disclosure.basis}
           className="mt-2.5 text-micro leading-snug text-muted-foreground"

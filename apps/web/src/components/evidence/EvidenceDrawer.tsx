@@ -205,7 +205,7 @@ function ProbeNode({
             title="Reused from an earlier turn in this session instead of querying again."
           >
             <Zap className="size-2.5" />
-            reused
+            Reused
           </span>
         )}
       </button>
@@ -221,7 +221,7 @@ function ProbeNode({
                 which is not the same as coming back empty, so it says
                 that instead of printing a zero. */}
             {probe.rowCount === undefined ? (
-              <span>planned — not executed this turn</span>
+              <span>Planned — not executed this turn</span>
             ) : (
               <>
                 {formatCount(probe.rowCount)} row{probe.rowCount === 1 ? "" : "s"} returned

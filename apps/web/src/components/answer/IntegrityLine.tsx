@@ -41,7 +41,7 @@ import { cn } from "@/lib/utils";
  *     reader nothing about whether opening them matters; "10 change how a
  *     number here should be read" is the reason to open them.
  *   the CONTROLS look like controls. `decoration-border` computes to
- *     1.16:1 on the dark background — an underline you cannot see under
+ *     1.16:1 against the page — an underline you cannot see under
  *     text the same colour as the sentence around it. A disclosure
  *     control nobody can identify is a disclosure that did not happen.
  *
@@ -97,14 +97,14 @@ export function IntegrityLine({
             <span className="text-foreground/80">{verification.text}</span>
 
             {/* The answer-level grade, in words, on the surface that
-                otherwise never says it. */}
+                otherwise never says it. The DOT to the left of this line
+                is the mark and keeps its colour; the clause is a note and
+                reads in the line's own ink. A grade is a statement about
+                how the number was computed, not a finding against it. */}
             {verification.gradeNote && (
               <>
                 <Separator />
-                <span
-                  data-answer-grade={verification.gradeNote.grade}
-                  className="text-warning"
-                >
+                <span data-answer-grade={verification.gradeNote.grade}>
                   {verification.gradeNote.text}
                 </span>
               </>

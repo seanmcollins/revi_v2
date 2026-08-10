@@ -168,7 +168,7 @@ function BenchmarkRow({
             />
             {benchmark.cautions.length > 0
               ? `${benchmark.cautions.length} ${benchmark.cautions.length === 1 ? "caution" : "cautions"} on this range`
-              : "where this range comes from"}
+              : "Where this range comes from"}
           </button>
           {openCautions && (
             <ul
@@ -190,8 +190,16 @@ function BenchmarkRow({
  * `machine_researched` is not a grade and deliberately does not borrow the
  * GradeBadge vocabulary: an evidence grade certifies how THIS platform
  * computed a number from certified semantics, and this is an external
- * figure nobody here has checked. It gets the caution treatment and says
- * so in words a reader does not have to decode.
+ * figure nobody here has checked. It says so in a word a reader does not
+ * have to decode.
+ *
+ * A MARK, NOT A WARNING. The chip is where the reader's eye already is —
+ * on the range itself — and a dashed-outline chip in neutral ink says
+ * "nobody checked this" without saying "something is wrong here". The
+ * amber it used to wear made an ordinary reference band look like a
+ * finding against the analyst's own number, which is the opposite of what
+ * an external range is for. The full sentence is on the chip and the
+ * cautions are one tap below it, both unchanged.
  */
 function ReviewChip({ status }: { status: string }) {
   if (status === "") return null;
@@ -199,8 +207,8 @@ function ReviewChip({ status }: { status: string }) {
   return (
     <span
       className={cn(
-        "inline-flex h-[1.15rem] items-center rounded-full border px-1.5 text-micro font-medium uppercase tracking-wide",
-        unreviewed ? "border-warning/40 text-warning" : "border-border text-muted-foreground",
+        "inline-flex h-[1.15rem] items-center rounded-full border px-1.5 text-micro font-medium uppercase tracking-wide text-muted-foreground",
+        unreviewed ? "border-dashed border-muted-foreground/50" : "border-border",
       )}
       title={
         unreviewed
@@ -208,7 +216,7 @@ function ReviewChip({ status }: { status: string }) {
           : `Review status published by the pack: ${status}.`
       }
     >
-      {unreviewed ? "unreviewed" : status.replace(/_/g, " ")}
+      {unreviewed ? "Unreviewed" : status.replace(/_/g, " ")}
     </span>
   );
 }

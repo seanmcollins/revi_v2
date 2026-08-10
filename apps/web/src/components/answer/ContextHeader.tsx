@@ -324,8 +324,8 @@ function CohortChip({ cohort }: { cohort: NonNullable<ContextHeaderData["cohort"
         // `bg-verified/10` tint this measured 2.76:1 in light at 9.6px —
         // less than a third of the AA floor, on the population figure
         // that says what the number beside it counts. Solid on the same
-        // tint is 5.58:1 (light) / 8.51:1 (dark) once `--verified` is the
-        // darkened light-theme token; the size distinction that the
+        // tint is 5.58:1 once `--verified` is the darkened light-theme
+        // token; the size distinction that the
         // opacity was carrying is already carried by the type scale.
         <span className="num shrink-0 text-micro font-normal text-verified">{sized}</span>
       }

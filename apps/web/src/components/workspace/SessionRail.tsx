@@ -17,7 +17,6 @@ import { usePathname } from "next/navigation";
 import { useEffect, useState, useSyncExternalStore } from "react";
 
 import { CopyTextButton } from "@/components/answer/AnswerActions";
-import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { PortfolioPanel } from "@/components/portfolio/PortfolioPanel";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
@@ -71,7 +70,6 @@ export function SessionRail() {
             RCM
           </span>
         </div>
-        <ThemeToggle />
       </div>
 
       <div className="space-y-1.5 px-3 pb-3">
@@ -81,8 +79,8 @@ export function SessionRail() {
           size="sm"
           // The app's most prominent button, and the one whose label was
           // hardest to read: white on the display gradient measured
-          // 3.74:1 light and 2.49:1 dark. The CTA stops carry the same
-          // white at 5.21:1 → 5.48:1 across the sweep, in both themes.
+          // 3.74:1, below AA. The CTA stops carry the same white at
+          // 5.21:1 → 5.48:1 across the sweep.
           className="accent-gradient-cta w-full gap-1.5 text-meta font-medium text-white shadow-sm transition-all duration-150 hover:brightness-110 hover:shadow-md"
         >
           <MessageSquarePlus className="size-3" />
@@ -152,21 +150,25 @@ export function SessionRail() {
       </ScrollArea>
 
       <div className="border-t px-4 py-2.5">
-        {/* BUG 8 — one line, and only when it says something. The live
-            deployment names itself; the sentence about which driver is
-            "the product" was an argument with a reader who is not having
-            it, in the corner of every screen. The fixture keeps its full
-            warning, because there a reader IS looking at invented data
-            and needs to be told so. */}
-        <p className="num text-micro leading-relaxed text-muted-foreground">
+        {/* One line, and only when it says something. The live deployment
+            names itself and stops there — an argument about which data
+            source is "the product" does not belong in the corner of every
+            screen. The fixture keeps its disclosure, because there a
+            reader IS looking at invented data and needs to be told so; the
+            environment variable that switches it is a developer's fact and
+            lives on the title. */}
+        <p
+          className="num text-micro leading-relaxed text-muted-foreground"
+          title={
+            mode === "api"
+              ? undefined
+              : "Seed 20260807 · set NEXT_PUBLIC_REVI_DRIVER=api to use the live API"
+          }
+        >
           {mode === "api" ? (
             <>Live API · {apiBaseUrl()}</>
           ) : (
-            <>
-              Mock data · seed 20260807 · snap_003
-              <br />
-              Dev/test fixture — set NEXT_PUBLIC_REVI_DRIVER=api for the live API
-            </>
+            <>Mock fixture — invented data, not a live deployment</>
           )}
         </p>
       </div>
@@ -219,7 +221,7 @@ function MonitorsLink() {
       {unseen && (
         <span className="ml-auto inline-flex items-center gap-1 text-micro font-normal text-verified">
           <span aria-hidden className="integrity-dot inline-block size-1.5 rounded-full bg-verified" />
-          new load
+          New load
         </span>
       )}
     </Link>
@@ -253,6 +255,11 @@ function ReplayDemoButton({
 
   if (confirming) {
     return (
+      /* Amber stays here, and only here, among this rail's two confirms.
+         Unlike archiving — which keeps everything and moves a row — this
+         destroys an open investigation with no undo behind it and then
+         spends live model turns. That is a real consequence, stated
+         before the click rather than discovered after it. */
       <section className="space-y-1.5 rounded-md border border-warning/40 bg-warning/10 p-2">
         <p className="text-micro leading-snug">
           Replaying starts a new chat — this thread is cleared and cannot be brought back. It
@@ -386,11 +393,10 @@ function SessionList() {
 
   return (
     <section className="space-y-1">
-      {/* BUG 8 — the header names the section and stops there. The
-          "50 of 409" it used to carry is a fact about a page boundary,
-          not about anybody's work; it is stated once under the list,
-          where it explains why the list ends rather than decorating its
-          title. */}
+      {/* The header names the section and stops there. "50 of 409" is a
+          fact about a page boundary, not about anybody's work; it is
+          stated once under the list, where it explains why the list ends
+          rather than decorating its title. */}
       <h3 className="flex items-center gap-1.5 px-1 text-meta font-semibold uppercase tracking-wide text-muted-foreground">
         <MessagesSquare className="size-3" />
         Sessions
@@ -445,7 +451,7 @@ function SessionList() {
         <p className="px-1 text-micro leading-snug text-muted-foreground">
           Nothing in the {allSessions.length} session{allSessions.length === 1 ? "" : "s"}{" "}
           loaded here matches “{query.trim()}”
-          {total > allSessions.length && ` — this tenant has ${total} in all`}.
+          {total > allSessions.length && ` — there are ${total} in all`}.
         </p>
       ) : (
         <ul className="space-y-0.5">
@@ -493,9 +499,9 @@ function SessionList() {
                     // only its backing. `bg-accent` alone measured 1.15:1
                     // against the translucent rail and `hover:bg-accent/50`
                     // 1.06:1 — hover and selected were the same pixel.
-                    // `--ring` on the same surface is 3.61:1 light /
-                    // 10.22:1 dark. Every row reserves the 2px so
-                    // selecting one never nudges the text.
+                    // `--ring` on the same surface is 3.61:1. Every row
+                    // reserves the 2px so selecting one never nudges the
+                    // text.
                     "flex w-full items-baseline justify-between gap-2 rounded-md border-l-2 border-l-transparent px-2 py-1.5 text-left text-meta transition-colors duration-150 focus-ring",
                     // Room for the archive control, which sits over the
                     // row's right edge rather than in its flow — so
@@ -508,15 +514,16 @@ function SessionList() {
                   )}
                 >
                   <span className="truncate">{title}</span>
-                  {/* BUG 8 — the age, in the quietest ink on the rail.
-                      It is a scanning aid, not a column of data; the
-                      exact instant and the turn count are on the row's
-                      accessible name and its title. */}
-                  {/* Quiet, not unreadable. At 70% this measured 2.82:1
-                      on the rail's own translucent panel light-theme —
-                      below AA for 12px text by some distance; solid
-                      muted ink is 5.04:1 there and still reads as the
-                      quietest thing on the row. */}
+                  {/* The age, in the quietest ink on the rail: a scanning
+                      aid, not a column of data — the exact instant and the
+                      turn count are on the row's accessible name and its
+                      title.
+
+                      Quiet, not unreadable. At 70% this measured 2.82:1 on
+                      the rail's own translucent panel, below AA for 12px
+                      text by some distance; solid muted ink is 5.04:1
+                      there and still reads as the quietest thing on the
+                      row. */}
                   <span className="num flex shrink-0 items-center gap-1 text-micro text-muted-foreground">
                     {pending ? (
                       <Loader2 className="size-2.5 animate-spin" />
@@ -553,12 +560,12 @@ function SessionList() {
       )}
 
       {state === "ready" && total > allSessions.length && needle === "" && (
-        // Solid muted ink: at 70% it measured 2.9:1 light-theme on the
-        // rail at 12px, under the 4.5:1 floor for body text.
+        // Solid muted ink: at 70% it measured 2.9:1 on the rail at 12px,
+        // under the 4.5:1 floor for body text.
         <p className="num px-1 pt-1 text-micro text-muted-foreground">
           Showing the {allSessions.length} most recent of {total}
           {emptyRows > 0 &&
-            ` — ${emptyRows} of the ${listed.length} read had no question in them and are not listed`}
+            ` — ${emptyRows} of the ${listed.length} read had no question in them`}
           .
         </p>
       )}
@@ -599,11 +606,17 @@ function ArchiveConfirm({
   onCancel: () => void;
 }) {
   return (
-    <div className="space-y-1.5 rounded-md border border-warning/40 bg-warning/10 p-2">
+    /* No amber. Nothing here is a verdict, a refusal or a failure — the
+       server keeps every answer and the session stays fetchable at its own
+       link, which is exactly what the sentence below says. A caution tint
+       over that copy contradicts it. The decision still reads as a
+       decision: it replaces the row, and the two buttons are the only way
+       out of it. */
+    <div className="space-y-1.5 rounded-md border bg-surface-sunken/60 p-2">
       <p className="text-micro leading-snug">
         Remove <span className="font-medium">{title}</span> from this list? Its answers are
-        kept and it stays reachable at its link — only the row goes. Take the link first: once
-        the row is gone, this rail has no way back to it.
+        kept and it stays reachable at its link — only the row goes. Copy the link first:
+        this rail has no way back to it.
       </p>
       <CopyTextButton
         label="Copy this session's link"

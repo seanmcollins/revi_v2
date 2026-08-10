@@ -50,7 +50,7 @@ export const WARNING_TITLES: Readonly<Record<string, string>> = {
   // assumes and fell short of the SIZE it assumes. "Denials did not rise"
   // would be as false as "denials doubled" over a real +72.6%.
   PREMISE_PARTIAL: "The premise holds in direction, not in size",
-  // The fourth verdict, and the one this lane's own D-01 is about: a
+  // The fourth verdict: a
   // movement between two suppressed ceilings, a comparison whose panels
   // are not equally settled, and a size the platform could not parse are
   // each UNVERIFIABLE — neither confirmed nor refuted. Deliberately not
@@ -411,6 +411,74 @@ export function isVerdictCode(code: string): boolean {
   return VERDICT_CODES.has(code);
 }
 
+/* ------------------------------------------------------------------ */
+/* Marks on the data, notes below it, warnings only for verdicts       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * THE ONE LIST THAT DECIDES REGISTER: which codes may be rendered loud.
+ *
+ * Everything a warning says is worth saying. Only some of it is worth
+ * SHOUTING, and the difference is not severity — it is whether the
+ * sentence is a conclusion about the answer or context about the data.
+ *
+ *   a VERDICT is a conclusion. "The question's premise doesn't hold",
+ *     "No ranking was published", "A published value was corrected" —
+ *     each one changes what the reader may say out loud about the number,
+ *     and a reader who skims past it walks away with a false claim. These
+ *     keep the amber: the tinted box, the alert mark, the heading weight.
+ *   everything ELSE is context. Basis, windows, suppression, settling,
+ *     provisional buckets, comparison assumptions, keying, truncation,
+ *     cohort size, an unreviewed benchmark. Every one of them is true and
+ *     none of them is a finding against the answer, so they render as
+ *     quiet captions in muted ink — below the figure they qualify, one
+ *     tap from the full sentence wherever a surface has a disclosure.
+ *
+ * The register is decided by CODE and never by severity, because severity
+ * is the server's answer to a different question ("does this change how
+ * you read the number?") and answering it in amber is what made a page of
+ * ordinary bookkeeping look like a page of alarms. `caution` still orders
+ * the list — cautions before notes — it just no longer sets the ink.
+ *
+ * Membership, and why the two borderline codes landed where they did:
+ *
+ *   PREMISE_VERIFIED is a verdict and is deliberately NOT loud. It is the
+ *     one premise outcome that is good news, and "the premise you assumed
+ *     is correct" printed in the same amber as "your premise is false"
+ *     teaches a reader that the colour means nothing. It keeps its seat at
+ *     the top of the list (`VERDICT_CODES`) and loses only the alarm.
+ *   BOUNDED_CELLS_UNRANKED is not a verdict — it does not lead the answer
+ *     in prose — and it IS loud, because it is a refusal: those cells were
+ *     not ranked, and a reader who takes the axis order for a league table
+ *     has been misled by the picture rather than merely under-informed.
+ *
+ * This is presentation only. `warnings_v2` on the wire is untouched, the
+ * Evidence rail and every export still carry each sentence in full, and
+ * nothing on this list or off it is ever dropped from a surface — a note
+ * that stops being amber becomes a caption, not a deletion.
+ */
+export const LOUD_CODES: ReadonlySet<string> = new Set([
+  /* -- premise corrections: the answer's finding about the question -- */
+  "PREMISE_FALSE",
+  "PREMISE_PARTIAL",
+  "PREMISE_UNVERIFIABLE",
+  "DIRECTION_UNMATCHED",
+  /* -- refusals: an order the platform declined to publish ----------- */
+  "RANKING_REFUSED",
+  "BOUNDED_CELLS_UNRANKED",
+  /* -- a figure this platform published and then took back ----------- */
+  "VALUE_CORRECTED",
+]);
+
+/**
+ * May this code wear the warning register — amber ink, a tinted box, an
+ * alert mark? Everything not on the list renders quiet, whatever its
+ * severity.
+ */
+export function isLoudCode(code: string): boolean {
+  return LOUD_CODES.has(code);
+}
+
 /**
  * `probe 'main__window__prior'` — an internal plan node, named inside a
  * warning sentence. The probe is the only thing that differs between six
@@ -421,7 +489,7 @@ const PROBE_REFERENCE = /\bprobe(s)? '([^']+)'/g;
 
 /** The same fact, spelled without whichever plan node happened to raise it. */
 function factKey(code: string, message: string): string {
-  return `${code} ${message
+  return `${code}\0${message
     .replace(PROBE_REFERENCE, "probe ⟨⟩")
     .replace(/\s+/g, " ")
     .trim()
@@ -508,13 +576,63 @@ function sentencesOf(paragraph: string): string[] {
 }
 
 /**
+ * A terminal stop with the next sentence welded onto it.
+ *
+ * Live, on the flagship answer: the composer appended the
+ * `FINDINGS_TRUNCATED` disclosure to the clause before it with no space —
+ *
+ *   "…govern how far these figures can be
+ *    generalized.Superlatives and spread statements on this answer
+ *    describe the published slice, not the full population."
+ *
+ * — and two things followed from the missing space. The reader saw a
+ * mangled join at the end of the write-up, and the FOLD could not see the
+ * disclosure at all: `sentencesOf` splits on a stop FOLLOWED BY SPACE, so
+ * the disclosure and its host were one unit, matched no banner, and the
+ * sentence the fold exists to remove was printed twice.
+ *
+ * So the join is repaired before the split, not after it. This is the same
+ * class of repair `tidyProse` makes to a doubled stop — a mechanical
+ * defect made where two builders met, not a re-wording — and it is applied
+ * BEFORE the comparison rather than after because `normalizeSentence`
+ * collapses whitespace anyway: mending the join changes where sentences
+ * begin and end, which is exactly the point, and changes no string that is
+ * ever compared.
+ *
+ * THE FOLD REMOVES WHOLE SENTENCES AND ONLY WHOLE SENTENCES. There is no
+ * path here that splices a fragment back into the prose: a sentence either
+ * matches a banner's sentence entire and goes, or it stays entire.
+ */
+const WELDED_STOP = /(?<=[a-z]{2})([.!?])(?=[A-Za-z])/g;
+
+/**
+ * How many words a welded tail must have before it is treated as a
+ * sentence.
+ *
+ * The guard, and the reason this is not a blind `replace`. "export.csv"
+ * and "no.2" are not two sentences, and a rule that separated them would
+ * be inventing a defect. A mandatory disclosure is a paragraph-length
+ * clause; five words is comfortably below the shortest one the composer
+ * writes and comfortably above a file extension.
+ */
+const WELDED_TAIL_WORDS = 5;
+
+function mendWeldedStops(text: string): string {
+  return text.replace(WELDED_STOP, (stop: string, _p1: string, offset: number) => {
+    const clause = /^[^.!?]*/.exec(text.slice(offset + 1))?.[0] ?? "";
+    const words = clause.trim().split(/\s+/).filter((w) => w !== "");
+    return words.length < WELDED_TAIL_WORDS ? stop : `${stop} `;
+  });
+}
+
+/**
  * The narrative with the sentences the banners already carry taken out of
  * it.
  *
  * Two correct fixes were never reconciled. The composer deliberately
- * builds mandatory disclosures into the prose (`mandatory_disclosures`,
- * round-2 FN-3) while the card independently renders the same
- * `warnings_v2` as banners (rounds 1/3). Measured on one live turn: the
+ * builds mandatory disclosures into the prose (`mandatory_disclosures`)
+ * while the card independently renders the same `warnings_v2` as
+ * banners. Measured on one live turn: the
  * write-up is 4,933 characters of which 1,704 — 34.5% — are byte-identical
  * copies of banners on the same screen; one census sentence appears four
  * times on one answer; "this is not a ranking" is restated fourteen times
@@ -527,13 +645,16 @@ function sentencesOf(paragraph: string): string[] {
  *
  * Deliberately conservative. A prose sentence is dropped only when it
  * matches a rendered warning's own sentence exactly (modulo case, spacing
- * and trailing punctuation), or is a whole sentence of one. Nothing is
- * paraphrased, nothing is summarized, and a narrative that shares no
- * sentence with any banner comes back byte-identical.
+ * and trailing punctuation), or is a whole sentence of one. WHOLE
+ * SENTENCES ONLY: a partial match drops nothing, so no fragment is ever
+ * spliced back into the prose. Nothing is paraphrased, nothing is
+ * summarized, and a narrative that shares no sentence with any banner
+ * comes back byte-identical — apart from a welded terminal stop, which is
+ * separated so the reader does not read one (see `mendWeldedStops`).
  *
  * THE LEAD SENTENCE IS NEVER FOLDED, and that is unconditional.
  *
- * Round-9 P0. On a provisional window the composer opens the write-up with
+ * On a provisional window the composer opens the write-up with
  * the SETTLED reading — "Through June 2026 — the last period that has
  * finished settling — denial rate reads 9.1%…" — and the engine also
  * publishes that same paragraph as the body of `ADJUDICATION_INCOMPLETE`.
@@ -554,7 +675,12 @@ export function foldComposedDisclosures(
   narrative: string,
   warnings: readonly { code: string; message: string }[],
 ): { text: string; folded: number } {
-  if (narrative.trim() === "" || warnings.length === 0) return { text: narrative, folded: 0 };
+  // The join is repaired FIRST, so a disclosure the composer welded to the
+  // clause before it is a sentence this function can see — and so no
+  // reader is left with "…generalized.Superlatives and spread statements…"
+  // whether it folds or not. See `mendWeldedStops`.
+  const mended = mendWeldedStops(narrative);
+  if (mended.trim() === "" || warnings.length === 0) return { text: mended, folded: 0 };
 
   const banner = new Set<string>();
   for (const warning of warnings) {
@@ -573,7 +699,7 @@ export function foldComposedDisclosures(
   banner.delete("");
 
   let folded = 0;
-  const paragraphs = narrative.split(/\n{2,}/);
+  const paragraphs = mended.split(/\n{2,}/);
   const kept: string[] = [];
   // Where the write-up's opening sentence is, wherever leading blank
   // lines put it: the first paragraph that has a sentence at all. Held out
@@ -592,7 +718,10 @@ export function foldComposedDisclosures(
     if (keptSentences.length > 0) kept.push(keptSentences.join(" "));
   });
 
-  if (folded === 0) return { text: narrative, folded: 0 };
+  // `folded` is what was actually removed — the count the fold note
+  // prints, and never an estimate: each increment is one whole sentence
+  // that is no longer in the returned text.
+  if (folded === 0) return { text: mended, folded: 0 };
   return { text: kept.join("\n\n").trim(), folded };
 }
 

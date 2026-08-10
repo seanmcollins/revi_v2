@@ -68,9 +68,9 @@ export const ANSWER_VARIANT_LABELS: Readonly<Record<AnswerVariant, string>> = {
 
 /** One sentence per layout, for the palette row's hint. */
 export const ANSWER_VARIANT_HINTS: Readonly<Record<AnswerVariant, string>> = {
-  current: "the pre-A/B layout — retired from the toggle, still at ?variant=current",
-  a: "narrative first, cautions in one group, findings as rows",
-  b: "the default — the answer as writing; facts and cautions one tap away",
+  current: "The pre-A/B layout — retired from the toggle, still at ?variant=current",
+  a: "Narrative first, cautions in one group, findings as rows",
+  b: "The default — the answer as writing; facts and cautions one tap away",
 };
 
 /**

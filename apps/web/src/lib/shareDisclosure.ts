@@ -44,9 +44,9 @@ export interface LinkDisclosure {
    * `observed` — this browser has re-read at least one turn of this
    *   session from the server, so the lists say what actually came back.
    * `unobserved` — every turn here was watched live and the client store
-   *   still holds prose the server may or may not have kept. This is the
-   *   state the reviewer's own round-9 pass was in when it recorded that
-   *   answers restore with their narrative; they do not.
+   *   still holds prose the server may or may not have kept. Reading a
+   *   restored turn in this state is what produces the false conclusion
+   *   that answers come back with their narrative; they do not.
    */
   basis: "observed" | "unobserved";
 }
@@ -73,7 +73,7 @@ export function sessionLinkDisclosure(
         // The honest shape of an unobserved claim: name the thing most
         // likely to be missing, and hand over the one-step check rather
         // than a reassurance this browser cannot back.
-        "Anything else the server did not keep for a turn — the written analysis is the usual one. No turn in this session has been re-read from the server yet, so open the link once yourself before you send it: a restored turn states in its own words what was kept.",
+        "Anything else the server did not keep — the written analysis is the usual one. No turn here has been re-read from the server yet, so open the link once yourself before you send it.",
       ],
       basis: "unobserved",
     };

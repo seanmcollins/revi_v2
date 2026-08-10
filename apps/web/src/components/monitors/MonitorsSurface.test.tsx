@@ -150,18 +150,23 @@ describe("Monitors speaks while it works", () => {
   });
 
   /**
-   * TWO CONTROLS, ONE NAME.
+   * NO TWO CONTROLS SHARE ONE NAME.
    *
-   * `document.querySelectorAll('button[aria-label="Toggle theme"]')`
-   * returned 2 on this route — the rail's and the page header's — so a
-   * screen reader announced the same control twice with nothing to tell
-   * them apart, and a sighted reader saw two identical moon icons on one
-   * screen. The workspace header never had one; this page now matches it,
-   * and the rail's is the one that survives because it is on every route.
+   * This started as a theme-toggle count: two buttons on this route both
+   * announced "Toggle theme" (the rail's and the page header's), so a
+   * screen reader read the same control twice with nothing to tell them
+   * apart. Light is now the only theme and both toggles are gone, so the
+   * assertion is the general rule the specific one was standing in for —
+   * every focusable control on the route has a distinct accessible name.
    */
-  it("offers exactly one theme toggle, as every other route does", () => {
-    draw();
-    expect(screen.getAllByRole("button", { name: "Toggle theme" })).toHaveLength(1);
+  it("gives every control on the route a distinct accessible name", () => {
+    const { container } = draw();
+    const named = [...container.querySelectorAll<HTMLElement>(FOCUSABLE)]
+      .filter((el) => !el.hasAttribute("disabled") && el.getAttribute("tabindex") !== "-1")
+      .map((el) => el.getAttribute("aria-label") ?? el.textContent?.trim() ?? "")
+      .filter(Boolean);
+    const duplicated = named.filter((name, i) => named.indexOf(name) !== i);
+    expect(duplicated).toEqual([]);
   });
 
   it("lands each skip link on something that can take focus", () => {

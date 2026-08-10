@@ -80,9 +80,8 @@ export function ContextPanel() {
                     <EvidenceDrawer evidence={selected.answer.evidence} />
                   ) : (
                     <p className="text-meta leading-relaxed text-muted-foreground">
-                      This turn published no evidence bundle — no data check ran for it, or
-                      the record the server kept does not include one. Anything it did
-                      publish is above.
+                      This turn published no evidence bundle — either no data check ran, or
+                      the record the server kept has none. Anything it did publish is above.
                     </p>
                   )}
                 </>
@@ -98,9 +97,8 @@ export function ContextPanel() {
                  * promise went with it rather than being carried over.
                  */
                 <p className="py-6 text-center text-meta leading-relaxed text-muted-foreground">
-                  No evidence yet. Every answer keeps its full working: the checks it
-                  ran, what each one returned, which of them were reused rather than
-                  re-queried, and whether the parts add up.
+                  No evidence yet. Every answer keeps its full working — the checks it
+                  ran, what each returned, and whether the parts add up.
                 </p>
               )}
             </div>

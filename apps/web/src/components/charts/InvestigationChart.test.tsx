@@ -145,7 +145,9 @@ describe("InvestigationChart — what the figure states in words", () => {
           order: { basis: "value", by: "denial_rate", descending: true, boundedExcluded: 4 },
         }),
       ),
-    ).toBe("ordered by denial rate, high to low; 4 bounded cells held out of it, at the end");
+      // "Bounded cell" is the engine's word; the reader's word — the one
+      // the "≤" legend under this caption uses — is a ceiling.
+    ).toBe("ordered by denial rate, high to low; 4 ceilings held out of it, at the end");
   });
 });
 
@@ -276,6 +278,75 @@ describe("InvestigationChart — marks that are not measurements", () => {
     expect(screen.getByText("upper bounds: 1 of 2 marks are ceilings")).toBeInTheDocument();
   });
 
+  /**
+   * MARKS ON THE DATA, NOTES BELOW IT, WARNINGS ONLY FOR VERDICTS.
+   *
+   * The engine's census, the rollup sentence and the keying note were all
+   * printed in amber above the plot, which made every figure that had
+   * anything to say about itself look like a figure with something wrong
+   * with it. They are captions now, in muted ink, under the picture they
+   * explain. The refusal is the exception and keeps its box: a reader who
+   * takes the leftmost bar for the worst offender has been misled by the
+   * drawing, not merely under-informed.
+   */
+  it("captions the engine's census quietly, under the picture", () => {
+    const { container } = render(
+      <InvestigationChart
+        spec={{ ...bounded, note: "upper bounds: 1 of 2 marks are ceilings" }}
+        turnId="turn_1"
+      />,
+    );
+    const note = screen.getByText("upper bounds: 1 of 2 marks are ceilings");
+    const caption = note.closest("p");
+    expect(caption?.className).toContain("text-muted-foreground");
+    expect(caption?.className).not.toContain("text-warning");
+    // Below the plot, not above it.
+    const plot = container.querySelector(".recharts-responsive-container")?.parentElement;
+    expect(plot).not.toBeNull();
+    expect(plot!.compareDocumentPosition(caption!) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+  });
+
+  it("keeps the refusal in the warning register, and only the refusal", () => {
+    render(
+      <InvestigationChart
+        spec={{
+          ...bounded,
+          note: "upper bounds: 1 of 2 marks are ceilings",
+          keying: {
+            xColumn: "payer",
+            seriesColumn: null,
+            wireRows: 4,
+            keys: 2,
+            mode: "summed",
+            wireTotal: 111,
+            drawnTotal: 111,
+            note: "Rows were summed to the declared grain.",
+            rows: [],
+          },
+          order: { basis: "wire", refused: true },
+        }}
+        turnId="turn_1"
+      />,
+    );
+    const refusal = screen.getByText("No ranking is published on this answer.").closest("p");
+    expect(refusal?.className).toContain("border-warning/40");
+    // Everything else on the figure reads in the caption's own ink.
+    expect(
+      screen.getByText("Rows were summed to the declared grain.").closest("p")?.className,
+    ).not.toContain("text-warning");
+  });
+
+  it("says how many rows are drawn without dressing it as a defect", () => {
+    render(
+      <InvestigationChart
+        spec={{ ...bounded, truncation: { shown: 2, total: 12 } }}
+        turnId="turn_1"
+      />,
+    );
+    const expand = screen.getByRole("button", { name: /Showing top 2 of 12/ });
+    expect(expand.className).not.toContain("text-warning");
+  });
+
   it("marks a provisional bucket rather than drawing it as settled", () => {
     render(
       <InvestigationChart
@@ -390,6 +461,36 @@ describe("axis labels name one entity each", () => {
     // literally; "Other" is not a better label than "OTHER" and this
     // renderer does not get to decide what a governed code means.
     expect(ticks.get("OTHER")).toBe("OTHER");
+  });
+
+  /**
+   * A TIME AXIS IS SPELLED THE WAY THE REST OF THE PRODUCT SPELLS DATES.
+   *
+   * The category labels on a trend are the engine's own ISO dates, and the
+   * axis printed them raw: twelve ticks reading "2026-01-01",
+   * "2026-02-01", "2026-03-01" under a title that says "by month". Short
+   * on the tick, where the year is the same on every one of them; medium
+   * in the hover, where a reader goes to read one point exactly.
+   */
+  it("spells an ISO date on the tick the way a reader says it", () => {
+    const days = ["2026-01-01", "2026-02-01", "2026-12-25"];
+    const ticks = axisTickLabels(days, 12);
+    expect(ticks.get("2026-01-01")).toBe("Jan 1");
+    expect(ticks.get("2026-02-01")).toBe("Feb 1");
+    expect(ticks.get("2026-12-25")).toBe("Dec 25");
+  });
+
+  it("shortens the date BEFORE budgeting the width, so nothing is cut", () => {
+    // "2026-01-01" is ten characters and "Jan 1" is five. Budgeting the
+    // first while drawing the second is how an axis buys room it does not
+    // need — and how a tick that would have fitted gets an ellipsis.
+    const ticks = axisTickLabels(["2026-01-01", "2026-02-01"], 6);
+    expect([...ticks.values()].every((tick) => !tick.includes("\u2026"))).toBe(true);
+  });
+
+  it("leaves a token it cannot prove is a date exactly as the wire wrote it", () => {
+    const ticks = axisTickLabels(["2026-13-45"], 20);
+    expect(ticks.get("2026-13-45")).toBe("2026-13-45");
   });
 
   it("prints two names whole rather than printing them wrong", () => {
@@ -762,13 +863,23 @@ describe("the hover on a comparison reads as a movement", () => {
   it("marks the ceiling on each side that has one, with its own population", () => {
     render(hover(COMPARISON.rows[0]!));
     expect(screen.getByText("≤ 76.9%")).toBeInTheDocument();
-    expect(screen.getByText(/This window \(Jul 2026\) is an upper bound over n = 13/)).toBeInTheDocument();
-    expect(screen.getByText(/Prior window \(Jun 2026\) is an upper bound over n = 24/)).toBeInTheDocument();
+    // "n = 13" is statistical shorthand; the population is stated the way
+    // every other surface in the product states it.
+    expect(
+      screen.getByText(/This window \(Jul 2026\) is an upper bound over a population of 13/),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/Prior window \(Jun 2026\) is an upper bound over a population of 24/),
+    ).toBeInTheDocument();
   });
 
-  it("says 'no figure' where the wire's zero is the join, and computes no delta from it", () => {
+  it("says 'No figure' where the wire's zero is the join, and computes no delta from it", () => {
     render(hover(COMPARISON.rows[1]!));
-    expect(screen.getByText("no figure")).toBeInTheDocument();
+    // A MARK ON THE DATA, in sentence case and in quiet ink: the absence
+    // stands where the number would be and does not need amber to read.
+    const absence = screen.getByText("No figure");
+    expect(absence).toBeInTheDocument();
+    expect(absence.className).not.toContain("text-warning");
     expect(screen.queryByText("Change")).not.toBeInTheDocument();
     expect(
       screen.getByText(/The zero on the wire is the join between the two windows, not a reading/),

@@ -53,10 +53,15 @@ describe("BenchmarkStrip", () => {
     ).toBeInTheDocument();
   });
 
+  // Sentence case, and the chip is a MARK rather than a warning: the
+  // relief is a dashed outline, not amber. An external reference band is
+  // not a finding against the analyst's own number.
   it("marks a machine-researched range as unreviewed, prominently", () => {
     render(<BenchmarkStrip benchmarks={[KFF]} measured={MEASURED} referent="F1" />);
-    const chip = screen.getByText("unreviewed");
+    const chip = screen.getByText("Unreviewed");
     expect(chip).toBeInTheDocument();
+    expect(chip.className).toContain("border-dashed");
+    expect(chip.className).not.toContain("text-warning");
     expect(chip).toHaveAttribute("title", expect.stringContaining("not reviewed by a person"));
     // Never dressed up as the engine's own certification.
     expect(screen.queryByText(/certified/i)).not.toBeInTheDocument();

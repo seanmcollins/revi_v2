@@ -181,8 +181,9 @@ const LINEAGE_NODE_BACKING = {
 >;
 
 const LINEAGE_EDGE_BACKING = {
-  parentTurnId: "parent_id",
-  childTurnId: "child_id",
+  parentInvestigationId: "parent_id",
+  childInvestigationId: "child_id",
+  turnId: "turn_id",
 } satisfies Record<
   (typeof REQUIRED_LINEAGE_EDGE_FIELDS)[number],
   keyof Schemas["LineageEdgePayload"]
