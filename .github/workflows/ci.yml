@@ -21,6 +21,10 @@ jobs:
           --health-interval 5s --health-timeout 3s --health-retries 10
     steps:
       - uses: actions/checkout@v4
+        with:
+          # The archaeology tests resolve pinned disclosure-boundary
+          # commits with git cat-file; a shallow clone cannot.
+          fetch-depth: 0
       - uses: astral-sh/setup-uv@v5
         with:
           python-version: "3.12"
