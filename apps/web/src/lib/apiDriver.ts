@@ -563,6 +563,12 @@ export class ApiDriver implements TurnDriver {
   private readonly recoveryDelayMs: number;
   private session: SessionBootstrap | null = null;
   private sessionPromise: Promise<SessionBootstrap> | null = null;
+  /**
+   * A session this client is already in, which THIS driver instance has not
+   * opened yet — see `continueSession`. Consumed by the next bootstrap,
+   * which re-joins it instead of minting a replacement.
+   */
+  private continueSessionId: string | null = null;
 
   constructor(private readonly options: ApiDriverOptions = {}) {
     this.baseUrl = options.baseUrl ?? apiBaseUrl();
@@ -599,6 +605,39 @@ export class ApiDriver implements TurnDriver {
   async newSession(): Promise<void> {
     this.session = null;
     this.sessionPromise = null;
+    // Including the pending re-join. "New chat" is the one thing that starts
+    // a fresh session, so a session id handed to this driver a moment ago
+    // must not survive the click that abandons it.
+    this.continueSessionId = null;
+  }
+
+  /**
+   * "You are already in this session" — told to a driver that does not know
+   * it yet.
+   *
+   * A driver instance is minted by a React component (`useMemo` in the
+   * workspace and in Monitors), so it is born with no session while the
+   * STORE may already be in one: a hop to Monitors and back unmounts the
+   * workspace and mounts a new driver, and the thread, the session rail and
+   * the `/s/{id}` address bar all go on naming the session those turns are
+   * in. Until this existed, that driver had no way to be told, and
+   * `ensureSession` did the only thing it could — mint a new session — so
+   * the next question silently opened a SECOND one-turn session while
+   * everything on screen claimed otherwise, and the lineage of a real
+   * multi-turn investigation was split into single nodes.
+   *
+   * Purely local and free: nothing is requested here. The next turn's
+   * bootstrap posts `session_id` and the server re-joins (its own published
+   * semantics — the same call `resumeSession` makes), so the turn lands in
+   * the session the analyst is looking at.
+   *
+   * Conservative by design. A driver that already HAS a session keeps it:
+   * `adoptSession` syncs the store from the driver, so the two can only
+   * disagree in the one direction this repairs — the driver having none.
+   */
+  continueSession(sessionId: string): void {
+    if (this.session !== null || sessionId === "") return;
+    this.continueSessionId = sessionId;
   }
 
   /**
@@ -713,6 +752,7 @@ export class ApiDriver implements TurnDriver {
     // turn must bootstrap cleanly rather than continue a half-switched one.
     this.session = null;
     this.sessionPromise = null;
+    this.continueSessionId = null;
     const session = await this.openSession({
       tenant: resolveTenant(),
       session_id: sessionId,
@@ -764,7 +804,19 @@ export class ApiDriver implements TurnDriver {
   }
 
   private async createSession(signal?: AbortSignal): Promise<SessionBootstrap> {
-    return this.openSession({ tenant: resolveTenant() }, signal);
+    // RE-JOIN when this client is already in a session (`continueSession`),
+    // mint only when it is not. The id is consumed either way: a re-join
+    // that fails is surfaced as the server's own refusal, never quietly
+    // retried as a brand-new session — which is the failure this whole path
+    // exists to stop.
+    const continuing = this.continueSessionId;
+    this.continueSessionId = null;
+    return this.openSession(
+      continuing === null
+        ? { tenant: resolveTenant() }
+        : { tenant: resolveTenant(), session_id: continuing },
+      signal,
+    );
   }
 
   /**

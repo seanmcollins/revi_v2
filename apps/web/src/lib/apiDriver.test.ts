@@ -402,6 +402,94 @@ describe("ApiDriver.newSession", () => {
   });
 
   /**
+   * The session outlives the driver that opened it.
+   *
+   * A driver instance is owned by a React `useMemo`, so a remount (a hop to
+   * Monitors and back, a route change) installs one that has never opened a
+   * session — over a thread, a rail row and a `/s/{id}` address bar that all
+   * still name the session those turns are in. `continueSession` is how that
+   * driver is told, and this pins the wire consequence: a RE-JOIN, not a mint.
+   */
+  it("continueSession re-joins that session on the next turn instead of minting one", async () => {
+    const onSession = vi.fn();
+    let sessionCalls = 0;
+    const { fetchImpl, calls } = scriptedFetch((call) => {
+      if (call.url.endsWith("/v1/sessions")) {
+        sessionCalls += 1;
+        // The server's re-join semantics: with `session_id` it answers with
+        // THAT session, not a new one.
+        const id = (call.body?.session_id as string | undefined) ?? `sess_minted_${sessionCalls}`;
+        return fakeResponse({ json: { ...SESSION_WIRE, session_id: id } });
+      }
+      return fakeResponse({ stream: streamOf(COMPLETE_FRAMES) });
+    });
+    // A FRESH driver, exactly as a remount produces: it has opened nothing.
+    const driver = makeDriver(fetchImpl, { onSession });
+
+    driver.continueSession("sess_live_1");
+    await collectSubmit(driver, { utterance: "Break that down by payer" });
+
+    const bootstrap = calls.find((c) => c.url.endsWith("/v1/sessions"));
+    // THE LINE THIS PINS (`createSession`): the bootstrap carries the id it
+    // was told to continue. Without it the body is a bare `{tenant}` mint
+    // and the follow-up opens a second one-turn session.
+    expect(bootstrap?.body).toEqual({ tenant: "demo", session_id: "sess_live_1" });
+    expect(calls.find((c) => c.url.includes("/turns"))?.url).toBe(
+      "http://api.test/v1/sessions/sess_live_1/turns",
+    );
+    // One bootstrap, and the turn after it continues the same session.
+    await collectSubmit(driver, { utterance: "Which payer contributed most?" });
+    expect(calls.filter((c) => c.url.endsWith("/v1/sessions"))).toHaveLength(1);
+    expect(calls.filter((c) => c.url.includes("/turns"))).toHaveLength(2);
+  });
+
+  it("newSession() drops a pending continue — 'New chat' still starts fresh", async () => {
+    let sessionCalls = 0;
+    const { fetchImpl, calls } = scriptedFetch((call) => {
+      if (call.url.endsWith("/v1/sessions")) {
+        sessionCalls += 1;
+        const id = (call.body?.session_id as string | undefined) ?? `sess_minted_${sessionCalls}`;
+        return fakeResponse({ json: { ...SESSION_WIRE, session_id: id } });
+      }
+      return fakeResponse({ stream: streamOf(COMPLETE_FRAMES) });
+    });
+    const driver = makeDriver(fetchImpl);
+
+    driver.continueSession("sess_live_1");
+    await driver.newSession();
+    await collectSubmit(driver, { utterance: "q1" });
+
+    // "New chat" is the one thing that starts a fresh session. A session id
+    // handed over a moment earlier must not survive the click that
+    // abandoned it.
+    expect(calls.find((c) => c.url.endsWith("/v1/sessions"))?.body).toEqual({ tenant: "demo" });
+    expect(calls.find((c) => c.url.includes("/turns"))?.url).toBe(
+      "http://api.test/v1/sessions/sess_minted_1/turns",
+    );
+  });
+
+  it("continueSession is ignored by a driver that already has its own session", async () => {
+    const { fetchImpl, calls } = scriptedFetch((call) =>
+      call.url.endsWith("/v1/sessions")
+        ? fakeResponse({ json: SESSION_WIRE })
+        : fakeResponse({ stream: streamOf(COMPLETE_FRAMES) }),
+    );
+    const driver = makeDriver(fetchImpl);
+    await collectSubmit(driver, { utterance: "q1" });
+
+    // Conservative on purpose: `adoptSession` syncs the store FROM the
+    // driver, so the two can only disagree in the one direction this
+    // repairs — the driver having no session at all.
+    driver.continueSession("sess_other");
+    await collectSubmit(driver, { utterance: "q2" });
+
+    expect(calls.filter((c) => c.url.endsWith("/v1/sessions"))).toHaveLength(1);
+    for (const turn of calls.filter((c) => c.url.includes("/turns"))) {
+      expect(turn.url).toBe("http://api.test/v1/sessions/sess_live_1/turns");
+    }
+  });
+
+  /**
    * `DELETE /v1/sessions/{sid}` — a soft archive. Live: 204 with no body,
    * idempotent (archiving an archived session succeeds), and a 404 for one
    * that never existed.

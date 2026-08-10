@@ -378,6 +378,137 @@ describe("newChat() — session lifecycle", () => {
   });
 });
 
+/* ------------------------------------------------------------------ */
+/* The session outlives the driver that opened it                      */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A driver that bootstraps like the real one.
+ *
+ * `ApiDriver` keeps the live session in a PRIVATE field and mints a new one
+ * on the first turn that finds it empty — so a fake that models only
+ * `submit` cannot catch the defect this section is about. This one carries
+ * the same three moving parts: a cached session, an optional "you are
+ * already in this one" (`continueSession`), and a bootstrap that re-joins
+ * what it was told and otherwise mints.
+ */
+function makeBootstrappingDriver(mint: { next: number }): TurnDriver & {
+  sessionsUsed: string[];
+} {
+  let session: string | null = null;
+  let continueId: string | null = null;
+  const sessionsUsed: string[] = [];
+  return {
+    sessionsUsed,
+    newSession: async () => {
+      session = null;
+      continueId = null;
+    },
+    continueSession: (sessionId: string) => {
+      if (session !== null) return;
+      continueId = sessionId;
+    },
+    submit: async (_submission, emit) => {
+      if (session === null) {
+        // `ensureSession` → `createSession`: re-join, or mint. Only a MINT
+        // advances the counter — that is the number the regression is
+        // about.
+        if (continueId === null) mint.next += 1;
+        session = continueId ?? `sess_minted_${mint.next}`;
+        continueId = null;
+        // What `onSession` does.
+        useSessionStore.getState().adoptSession({
+          sessionId: session,
+          watermark: { id: "wm_9", loadedAt: "2026-08-08 04:00", newestDataDate: "2026-08-07" },
+          pack: { packId: "base-rcm", version: "1.0.0" },
+        });
+      }
+      sessionsUsed.push(session);
+      emit({
+        type: "turn_complete",
+        investigationId: `inv_${sessionsUsed.length}`,
+        status: "complete",
+      });
+    },
+  };
+}
+
+describe("a session persists across turns, and across the driver that opened it", () => {
+  beforeEach(() => {
+    useSessionStore.getState().reset();
+    useSessionStore.setState({ sessionLive: false, connection: { mode: "api", state: "online" } });
+  });
+
+  /**
+   * MEASURED LIVE, and this is the regression it pins.
+   *
+   * A driver is minted by a React `useMemo`, so it dies with the component:
+   * asking a question, opening Monitors and coming back installs a driver
+   * that has opened no session — while the thread, the rail's selected row
+   * and the `/s/{id}` address bar all still name the session those turns
+   * are in. The follow-up then opened a SECOND session, and one two-turn
+   * investigation became two single-node lineages. "New chat" is meant to
+   * be the only thing that starts a fresh session.
+   */
+  it("a remounted driver continues the session — a follow-up does not open a second one", async () => {
+    const mint = { next: 0 };
+    const first = makeBootstrappingDriver(mint);
+    useSessionStore.getState().setDriver(first);
+
+    await useSessionStore.getState().submit({ utterance: "Why did cash decline last week?" });
+    const opened = useSessionStore.getState().sessionId;
+    expect(first.sessionsUsed).toEqual([opened]);
+    expect(useSessionStore.getState().sessionLive).toBe(true);
+
+    // THE REMOUNT. A new component, a new driver, the same store — the
+    // thread and the session id survive, the driver's cache does not.
+    const second = makeBootstrappingDriver(mint);
+    useSessionStore.getState().setDriver(second);
+
+    await useSessionStore.getState().submit({ utterance: "Break that down by payer" });
+
+    // One session, two turns — not two sessions of one turn each.
+    expect(second.sessionsUsed).toEqual([opened]);
+    expect(useSessionStore.getState().sessionId).toBe(opened);
+    expect(useSessionStore.getState().turns).toHaveLength(2);
+    expect(mint.next).toBe(1); // exactly one session was ever opened
+  });
+
+  it("says nothing about a session before the first turn mints one", async () => {
+    const mint = { next: 0 };
+    const driver = makeBootstrappingDriver(mint);
+    const continueSession = vi.spyOn(driver, "continueSession");
+    useSessionStore.getState().setDriver(driver);
+
+    // `sessionLive` is false on a cold start: the store's `sessionId` is
+    // still its seed constant, and claiming THAT to a driver would re-join
+    // a session id this browser invented.
+    expect(continueSession).not.toHaveBeenCalled();
+  });
+
+  it("New chat still starts a fresh session on the next question", async () => {
+    const mint = { next: 0 };
+    const driver = makeBootstrappingDriver(mint);
+    useSessionStore.getState().setDriver(driver);
+
+    await useSessionStore.getState().submit({ utterance: "Why did cash decline last week?" });
+    const opened = useSessionStore.getState().sessionId;
+
+    await useSessionStore.getState().newChat();
+    expect(useSessionStore.getState().sessionLive).toBe(false);
+
+    // Even with a remount across the gap: nothing may re-join the session
+    // the button just abandoned.
+    const afterNewChat = makeBootstrappingDriver(mint);
+    useSessionStore.getState().setDriver(afterNewChat);
+    await useSessionStore.getState().submit({ utterance: "Give me my denial rate by month" });
+
+    expect(afterNewChat.sessionsUsed).toHaveLength(1);
+    expect(afterNewChat.sessionsUsed[0]).not.toBe(opened);
+    expect(useSessionStore.getState().turns).toHaveLength(1);
+  });
+});
+
 /**
  * A driver whose `submit` resolves each turn on a real (macro)task tick, so
  * a test can prove calls are serialized — never in flight at the same

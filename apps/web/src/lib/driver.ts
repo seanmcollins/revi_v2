@@ -137,6 +137,23 @@ export interface TurnDriver {
    */
   newSession(): Promise<void>;
   /**
+   * "You are already in this session" — told to a driver that does not know
+   * it yet, so the next turn CONTINUES that session instead of opening a
+   * new one.
+   *
+   * A driver is owned by a React component, and a session outlives the
+   * component that opened it: a hop to Monitors and back mounts a fresh
+   * driver over a thread that is still on screen, still named in the
+   * `/s/{id}` address bar, and still the session the analyst is in. The
+   * store is what remembers across that gap (`sessionId` + `sessionLive`),
+   * so the store tells the driver — see its `setDriver`.
+   *
+   * Synchronous and free: no request. The api driver posts `session_id` on
+   * the next bootstrap and the server re-joins; the mock fixture has one
+   * session and nothing to re-join, and says so by not implementing this.
+   */
+  continueSession?(sessionId: string): void;
+  /**
    * `GET /v1/investigations/{iid}/trace` — a turn's decision breakdown,
    * read AFTER the fact. The server records a trace on every turn
    * regardless of the debug setting (the setting only decides whether it

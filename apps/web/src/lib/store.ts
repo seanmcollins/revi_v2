@@ -709,7 +709,30 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   capabilitiesError: null,
   lastPolicyDenial: null,
 
-  setDriver: (driver) => set({ driver }),
+  /**
+   * Install the driver — and tell it which session this store is already in.
+   *
+   * THE SESSION OUTLIVES THE DRIVER. A driver is minted by a `useMemo` in a
+   * component (the workspace, and Monitors' own copy), so every remount
+   * installs one that has never opened a session; this store, the thread on
+   * screen, the rail's selected row and the `/s/{id}` address bar all
+   * survive that remount still naming the session those turns are in.
+   * Measured live: ask a question, open Monitors, come back, ask a
+   * follow-up — the follow-up opened a SECOND session while every surface
+   * claimed the first, and the lineage of one two-turn investigation became
+   * two single nodes. `setDriver` was where the id was dropped: it stored
+   * the new driver and said nothing about the session it was joining.
+   *
+   * Only when a session is genuinely live. Across "New chat" (and before
+   * the first turn) `sessionLive` is false and nothing is claimed — the
+   * server mints the session on the first question, which is the one thing
+   * that may start a new one.
+   */
+  setDriver: (driver) => {
+    const { sessionId, sessionLive } = get();
+    if (sessionLive && sessionId) driver.continueSession?.(sessionId);
+    set({ driver });
+  },
 
   hydrateSettings: () => set({ settings: loadSettings() }),
 
