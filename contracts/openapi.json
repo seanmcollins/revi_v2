@@ -3768,6 +3768,13 @@
             "default": 0,
             "title": "Total",
             "type": "integer"
+          },
+          "unreadable": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Unreadable",
+            "type": "array"
           }
         },
         "title": "RoundsPinListResponse",
@@ -4386,7 +4393,8 @@
                 "enum": [
                   "points",
                   "relative_pct",
-                  "cents"
+                  "cents",
+                  "days"
                 ],
                 "type": "string"
               },

@@ -11,19 +11,45 @@ capability implementations. Selection order per frame:
 2. the **LLM suggestion**, only when no recipe matched and the suggestion's
    columns exist in the frame;
 3. **heuristics**: time-bucketed frames → line; one dimension → bar (two →
-   grouped_bar); measure-only → table.
+   grouped_bar); measure-only → bar on the synthetic PERIOD axis.
+
+…and then, last and over all three, the **shape rule**: a chart kind that
+the frame cannot support is corrected here rather than at the renderer
+(see :func:`_shape_corrected_type`).
 
 Every series row carries the referent id registered for its dimension
 value, so a click compiles to a typed ``DrillInto`` — no natural language
 in the gesture loop. Truncation and suppression are surfaced as
 annotations, never hidden.
+
+FIX-8 — WHAT A CATEGORY AXIS MAY CONTAIN. A frame with no dimension and no
+time bucket (one scalar, or one scalar against its baseline) has no column
+to key marks by, and this module used to fall back to the MEASURE column:
+``x = time_col or (dims[0] if dims else value)``. ``row[index_of(x)]`` is
+then the measured number itself, so the live turn "Why did our denial rate
+go up in July 2026?" published a chart whose entire category axis was the
+single tick ``0.127591`` — the answer's own figure, filed as though it were
+the name of a group. A tenant-wide scan found 18 of 85 stored specs in that
+state ("What is my denial rate?"; "days in A/R for Atlas Commercial", axis
+``179.468320``), and on a two-window comparison it was worse than cosmetic:
+the July value keyed BOTH marks, so June (0.091386) was filed under July's
+value and the two series collided on one bogus key.
+
+The rule that replaces it: when a frame has no dimension, the category axis
+is the WINDOW. One labelled column for a scalar, two period labels ("Jul
+2026" against "Jun 2026") for a comparison — never a formatted value as a
+category key, and never two series sharing a key derived from one of their
+values. See :class:`ChartWindow`, :func:`period_label` and
+``PERIOD_SERIES_COLUMN``.
 """
 
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
+from datetime import date, timedelta
 from decimal import Decimal
+from typing import Protocol
 
 from revi_investigation_contracts.api import ChartRow, ChartSort, ChartSpec, ChartType
 from revi_kernel.filters import Scalar
@@ -120,8 +146,154 @@ PRIOR_SERIES = "prior"
 #: renderer can group by it; it is deliberately not a frame column, because
 #: the distinction it draws is between two WINDOWS rather than between two
 #: values of a dimension.
+#:
+#: FIX-8 gives it a second job: on a frame with no dimension at all it is
+#: the ``x`` as well as the ``series``, and that is not a confusion — the
+#: identity of such a mark IS its window, so the axis it sits on and the
+#: grouping that colours it are the same one concept, published under the
+#: same one name so a client has only that concept to implement.
 PERIOD_SERIES_COLUMN = "period"
 _PRIOR_SUFFIX = "__prior"
+
+#: Month names spelled out rather than taken from ``strftime("%b")``: that
+#: goes through the process locale, and an axis reading "juil. 2026" on one
+#: deployment and "Jul 2026" on another is not a label a client can match
+#: against the header chip or a reviewer against a stored spec.
+_MONTH_ABBR = (
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
+)
+
+#: What the period axis says when the caller passed no window. Prose, and
+#: deliberately not empty: a turn with no context header still has to draw
+#: an honest category, and the two things it must never be are a number
+#: (the defect) and a blank (a tick a reader will read as missing data).
+UNNAMED_CURRENT_LABEL = "this window"
+UNNAMED_PRIOR_LABEL = "the window compared against"
+
+#: Points a line needs before it is a trend rather than a decoration. Two
+#: marks joined by a segment assert a direction between them and nothing
+#: else; one mark with a line through it asserts a direction that has no
+#: second point at all — which is exactly what the ``denial_rate_trend``
+#: recipe forced onto the live one-point denial-rate frame.
+_MIN_POINTS_FOR_A_LINE = 3
+
+#: The ``windows`` key meaning "every frame on this turn". A turn has ONE
+#: effective window (it is on the context header, and every frame was
+#: measured under it), so the common call passes one entry under this key;
+#: a per-frame entry, should a caller ever have one, still wins over it.
+DEFAULT_WINDOW_KEY = ""
+
+
+@dataclass(frozen=True, slots=True)
+class ChartWindow:
+    """The period labels a dimensionless frame is charted against.
+
+    Already rendered, because the window a turn ran over is the caller's
+    fact, not this module's: the API has it on the turn's context header
+    (``window_start``/``window_end`` and, for a comparison,
+    ``comparison_start``/``comparison_end``) and hands it over as text via
+    :func:`period_label`. ``prior_label`` is ``None`` on a turn that
+    compared nothing — a baseline label invented where no baseline was
+    measured would be the same class of lie as the value-as-category axis
+    this type exists to end.
+    """
+
+    current_label: str
+    prior_label: str | None = None
+
+
+class WindowFacts(Protocol):
+    """Anything carrying the four window dates — the context header, live
+    or restored.
+
+    Structural on purpose. ``build_chart_specs``' two call sites in the API
+    are held to one added argument each, so they pass the header payload
+    they already hold rather than importing :class:`ChartWindow` and
+    composing it; and taking it structurally keeps this module's inputs
+    plain dates, so nothing about a domain header type leaks into the
+    presentation layer.
+    """
+
+    @property
+    def window_start(self) -> date: ...
+
+    @property
+    def window_end(self) -> date: ...
+
+    @property
+    def comparison_start(self) -> date | None: ...
+
+    @property
+    def comparison_end(self) -> date | None: ...
+
+
+def _ends_a_month(day: date) -> bool:
+    return (day + timedelta(days=1)).day == 1
+
+
+def period_label(start: date, end: date) -> str:
+    """Name an INCLUSIVE ``start..end`` range the way a reader says it.
+
+    ``2026-07-01..2026-07-31`` → ``"Jul 2026"``; a whole quarter → ``"Q2
+    2026"``; a whole calendar year → ``"2026"``; a single day → ``"Aug 2,
+    2026"``; anything else keeps its edges: ``"Jul 1 — Aug 2, 2026"``, or
+    ``"Dec 15, 2025 — Jan 14, 2026"`` across a year boundary.
+
+    Whole-period forms are not cosmetic. A chart tick reading "Jul 2026"
+    beside a header chip reading ``2026-07-01..2026-07-31`` is recognisably
+    the same window; ``"2026-07-01 — 2026-07-31"`` on a 90px axis slot is
+    two truncated ISO strings. The exact edges are never lost — the header
+    states them, and this label is only ever the axis.
+
+    Inclusive because every window in the product is: the header composes
+    ``start.isoformat()..end.isoformat()`` from the same
+    :class:`~revi_kernel.filters.TimeWindow`, and treating July 31 as an
+    exclusive bound here would silently retitle July as "Jul 1 — Jul 30".
+    """
+    if start > end:  # nothing to say about an inverted range; state both edges
+        return _explicit_range(start, end)
+    if start.day == 1 and _ends_a_month(end):
+        if start.month == 1 and end.month == 12 and start.year == end.year:
+            return str(start.year)
+        if (
+            start.year == end.year
+            and start.month in (1, 4, 7, 10)
+            and end.month == start.month + 2
+        ):
+            return f"Q{(start.month - 1) // 3 + 1} {start.year}"
+        if start.year == end.year and start.month == end.month:
+            return f"{_MONTH_ABBR[start.month - 1]} {start.year}"
+    if start == end:
+        return f"{_MONTH_ABBR[start.month - 1]} {start.day}, {start.year}"
+    return _explicit_range(start, end)
+
+
+def _explicit_range(start: date, end: date) -> str:
+    left = f"{_MONTH_ABBR[start.month - 1]} {start.day}"
+    right = f"{_MONTH_ABBR[end.month - 1]} {end.day}, {end.year}"
+    if start.year != end.year:
+        left = f"{left}, {start.year}"
+    return f"{left} — {right}"
+
+
+def window_from_facts(facts: WindowFacts | None) -> ChartWindow | None:
+    """A :class:`ChartWindow` off a turn's context header, or ``None``.
+
+    ``None`` in, ``None`` out: a turn that published no header (a
+    clarification, a context-control turn) has no window to name, and its
+    dimensionless charts fall back to :data:`UNNAMED_CURRENT_LABEL` rather
+    than to a date this function would have had to guess.
+    """
+    if facts is None:
+        return None
+    prior = (
+        period_label(facts.comparison_start, facts.comparison_end)
+        if facts.comparison_start is not None and facts.comparison_end is not None
+        else None
+    )
+    return ChartWindow(
+        current_label=period_label(facts.window_start, facts.window_end), prior_label=prior
+    )
 
 
 def bounded_rows(frame: EvidenceFrame, measure: str, threshold: int | None) -> dict[int, int]:
@@ -211,7 +383,52 @@ def _heuristic_type(frame: EvidenceFrame) -> ChartType:
         return "grouped_bar"
     if len(dims) == 1:
         return "bar"
-    return "table"
+    # No dimension: the period axis (FIX-8). One labelled column for a
+    # scalar — a stat figure, which the closed ``ChartType`` set spells
+    # "bar" with a single category — and two paired columns for a window
+    # against its baseline. This used to be ``table``, which was a fair
+    # rendering of one number but told the client nothing about the shape,
+    # so a one-row frame arrived looking like every other table.
+    return "bar"
+
+
+def _shape_corrected_type(
+    chart_type: ChartType, rows: Sequence[ChartRow], *, ordered_axis: bool
+) -> ChartType:
+    """The last word on chart kind, decided from what will be DRAWN.
+
+    A line asserts a trend: that the marks are in an order, and that the
+    segment between two of them is a movement. Both claims are checkable
+    here and nowhere else — only at this point are the rows built, so only
+    here is the number of distinct categories known — and both were being
+    made falsely on live turns:
+
+    * 16 stored specs declared ``line`` over two categories or fewer,
+      including the one-point denial-rate frame the pack's
+      ``denial_rate_trend`` recipe asks for a line on. The web client
+      quietly drew bars instead, so the wire and the screen disagreed about
+      what the answer was;
+    * lines were drawn across ``payer`` and ``facility`` axes, where the
+      order of the categories is whatever the sort left them in and the
+      slope between Atlas Commercial and State Medicaid is not a rate of
+      change of anything.
+
+    This runs AFTER the recipe, the LLM suggestion and the heuristic, and
+    it overrides all three — a governed pack recipe included. A recipe
+    states a preference about a metric ("chart denial rate as a trend"); it
+    cannot know that this particular frame came back with one point on no
+    time axis, and honouring it there publishes a trend nobody measured.
+    The demotion is stated in an annotation when it overrules a recipe, so
+    the ``recipe_id`` on the wire and the ``chart_type`` beside it do not
+    read as a contradiction.
+    """
+    if chart_type != "line":
+        return chart_type
+    if not ordered_axis:
+        return "bar"
+    if len({row.x for row in rows}) < _MIN_POINTS_FOR_A_LINE:
+        return "bar"
+    return chart_type
 
 
 def build_chart_spec(
@@ -225,6 +442,7 @@ def build_chart_spec(
     suppression_threshold: int | None = None,
     provisional_x: str | None = None,
     sort: tuple[str, bool] | None = None,
+    window: ChartWindow | None = None,
 ) -> ChartSpec | None:
     """Build one chart spec for a frame, or None when nothing is chartable.
 
@@ -238,6 +456,12 @@ def build_chart_spec(
     published on the spec so the renderer orders the marks the way the
     findings above them were ordered. It is passed through, never derived:
     a chart with no plan ordering says so rather than implying one.
+
+    ``window`` names the period(s) this frame was measured over, and is
+    read only when the frame has no dimension and no time bucket — the
+    case that has no category to key marks by (FIX-8, module docstring).
+    Omitted there, the axis says :data:`UNNAMED_CURRENT_LABEL` rather than
+    falling back to anything derived from the numbers themselves.
     """
     value = primary_measure(frame)
     if value is None:
@@ -264,7 +488,13 @@ def build_chart_spec(
     else:
         chart_type = _heuristic_type(frame)
 
-    x = time_col or (dims[0] if dims else value)
+    # FIX-8: with neither a time bucket nor a dimension there is no column
+    # that names a category, and the fallback used to be ``value`` — the
+    # MEASURE column, whose cells are the numbers being charted. Every mark
+    # was then filed under its own figure. The axis is the window instead;
+    # it is synthetic, so it is never looked up in ``frame.schema``.
+    period_axis = time_col is None and not dims
+    x = time_col or (dims[0] if dims else PERIOD_SERIES_COLUMN)
     series = dims[0] if time_col is not None and dims else (dims[1] if len(dims) > 1 else None)
 
     # A compare frame draws BOTH windows (round-5 D-02). Only when the
@@ -288,55 +518,98 @@ def build_chart_spec(
     # Derived when the caller did not name one. A caller that DID name a
     # bucket wins: it knows which finding it is drawing under.
     censored_x = provisional_x if provisional_x is not None else provisional_bucket(frame, value)
+    # The two ticks of the period axis, composed once. Never read out of a
+    # cell, and never a bare number: they are the only thing standing
+    # between this chart and an axis labelled with its own measurement.
+    current_period = window.current_label if window is not None else UNNAMED_CURRENT_LABEL
+    prior_period = (window.prior_label if window is not None else None) or UNNAMED_PRIOR_LABEL
     rows: list[ChartRow] = []
     for row_index, row in enumerate(frame.rows):
-        x_value = row[frame.schema.index_of(x)] if x in frame.schema.names else None
+        if period_axis:
+            x_value: object | None = current_period
+        else:
+            x_value = row[frame.schema.index_of(x)] if x in frame.schema.names else None
         series_value: object | None = None
         if two_sided:
             series_value = CURRENT_SERIES
         elif series is not None:
             series_value = row[frame.schema.index_of(series)]
         referent_id: str | None = None
+        # A period label is not a dimension value, so nothing is registered
+        # against it and nothing is looked up: a drill handle here would
+        # compile to a DrillInto on a group that does not exist.
         if x_is_dim:
             referent_id = referents.get((x, str(x_value)))
         if referent_id is None and series is not None and series in dims:
             referent_id = referents.get((series, str(series_value)))
-        rows.append(
-            ChartRow(
-                x=str(x_value),
-                series=str(series_value) if series_value is not None else None,
-                value=_cell(row[frame.schema.index_of(value)]),
-                referent_id=referent_id,
-                is_bound=row_index in bounds,
-                bound_population=bounds.get(row_index),
-                provisional=censored_x is not None and str(x_value) == censored_x,
-            )
+        current_mark = ChartRow(
+            x=str(x_value),
+            series=str(series_value) if series_value is not None else None,
+            value=_cell(row[frame.schema.index_of(value)]),
+            referent_id=referent_id,
+            is_bound=row_index in bounds,
+            bound_population=bounds.get(row_index),
+            provisional=censored_x is not None and str(x_value) == censored_x,
         )
-        if two_sided:
-            rows.append(
-                ChartRow(
-                    x=str(x_value),
-                    series=PRIOR_SERIES,
-                    value=_cell(row[frame.schema.index_of(prior_column)]),
-                    referent_id=referent_id,
-                    is_bound=row_index in prior_bounds,
-                    bound_population=prior_bounds.get(row_index),
-                    # A settlement caveat is about the CURRENT bucket; the
-                    # baseline it is compared against has already settled.
-                    provisional=False,
-                )
+        prior_mark = (
+            ChartRow(
+                # On a dimension axis both marks share the category and are
+                # told apart by their series. On the PERIOD axis the mark's
+                # category IS its window, so the baseline takes its own
+                # tick — the alternative is what FIX-8 found live, both
+                # windows keyed by one of the two values.
+                x=prior_period if period_axis else str(x_value),
+                series=PRIOR_SERIES,
+                value=_cell(row[frame.schema.index_of(prior_column)]),
+                referent_id=referent_id,
+                is_bound=row_index in prior_bounds,
+                bound_population=prior_bounds.get(row_index),
+                # A settlement caveat is about the CURRENT bucket; the
+                # baseline it is compared against has already settled.
+                provisional=False,
             )
+            if two_sided
+            else None
+        )
+        if prior_mark is not None and period_axis:
+            # Two ticks on one axis are read left to right as time, so the
+            # baseline is drawn first. (On a dimension axis the pair sits
+            # inside one category and this ordering would say nothing.)
+            rows.extend((prior_mark, current_mark))
+        elif prior_mark is not None:
+            rows.extend((current_mark, prior_mark))
+        else:
+            rows.append(current_mark)
+
+    # FIX-8, defensively: on the period axis every tick was composed above
+    # from dates. If one ever equals the cell it labels, the measurement has
+    # leaked back onto the category axis and the chart is the exact defect
+    # this rule exists to prevent — better a loud failure here than 18 more
+    # stored specs keyed by their own figures.
+    assert not period_axis or all(mark.x != str(mark.value) for mark in rows)
 
     annotations: list[str] = []
-    if two_sided:
+    if two_sided and period_axis:
+        # The dimension-axis wording below would be false here: these two
+        # marks are not two series on ONE category, they are one measure on
+        # two windows, and the axis says which is which.
+        annotations.append(
+            f"comparison: one measure on two windows — {current_period} ({CURRENT_SERIES}) "
+            f"against {prior_period} ({PRIOR_SERIES}). They are not summed."
+        )
+    elif two_sided:
         annotations.append(
             f"comparison: two series per category — {CURRENT_SERIES} is this window and "
             f"{PRIOR_SERIES} is the window it is compared against. They are not summed."
         )
+    if two_sided and not period_axis:
         # The mirror case (round-5 D-02): the compare operator outer-joins
         # and zero-fills additive units, so a key present only on the prior
         # side arrives with a current value of 0. Drawn as such it reads as
-        # a collapse to nothing; counted here it reads as what it is.
+        # a collapse to nothing; counted here it reads as what it is. Only
+        # a keyed frame can have this: with no dimension there is no join
+        # key to be missing, so a current 0 there is a measured 0 and
+        # calling it an absence would be the opposite error.
         prior_only = sum(
             1
             for row in frame.rows
@@ -387,6 +660,24 @@ def build_chart_spec(
             f"suppression: {frame.suppressed_cells} small cells withheld per policy"
         )
 
+    # Last, over everything above it — see ``_shape_corrected_type``. The
+    # rows exist by now, so this is the first point at which the number of
+    # categories a line would be drawn through is known.
+    drawn_type = _shape_corrected_type(chart_type, rows, ordered_axis=time_col is not None)
+    if drawn_type != chart_type and recipe is not None:
+        points = len({mark.x for mark in rows})
+        axis = (
+            "the period axis"
+            if period_axis
+            else ("its time axis" if time_col is not None else "an axis that is in no order")
+        )
+        annotations.append(
+            f"chart type: drawn as {drawn_type}, not the {chart_type} the {recipe.id} recipe "
+            f"asks for — a line asserts a movement between ordered points, and this figure "
+            f"draws {points} point{'' if points == 1 else 's'} on {axis}."
+        )
+    chart_type = drawn_type
+
     unit_col = frame.schema.columns[frame.schema.index_of(value)]
     return ChartSpec(
         id=f"chart_{frame_id}",
@@ -422,12 +713,29 @@ def build_chart_specs(
     limit: int = 4,
     suppression_threshold: int | None = None,
     sorts: Mapping[str, tuple[str, bool]] | None = None,
+    windows: Mapping[str, ChartWindow] | WindowFacts | None = None,
 ) -> tuple[ChartSpec, ...]:
     """Chart the displayable frames, derived (compare/share) outputs first.
 
     ``sorts`` maps a frame id to the ``(column, descending)`` the plan
     resolved for it (see ``resolved_orderings``); frames absent from it
     were not ordered by the plan and publish no sort.
+
+    ``windows`` names the period(s) the frames were measured over, for the
+    frames that have no dimension to key their marks by (FIX-8). Either
+    form is accepted, and they mean the same thing:
+
+    * the turn's **context header** — anything carrying the four window
+      dates (:class:`WindowFacts`). One turn has one effective window, so
+      this is the ordinary call, and it lets the API pass the payload it
+      already holds instead of importing :class:`ChartWindow`;
+    * a **mapping** of frame id → :class:`ChartWindow`, with an optional
+      :data:`DEFAULT_WINDOW_KEY` entry standing for the rest. For a caller
+      that really does have per-frame windows.
+
+    Absent, a dimensionless frame still charts — its axis says
+    :data:`UNNAMED_CURRENT_LABEL`. What it must never do is fall back to
+    the measured value, which is what it did before FIX-8.
 
     Two rules keep one figure per fact (round-5 D-02):
 
@@ -449,6 +757,13 @@ def build_chart_specs(
         for frame_id, _ in frames
         if not frame_id.endswith(("__prior", "__rank"))
     }
+    # Normalised once: a header is one window for every frame on the turn.
+    by_frame: Mapping[str, ChartWindow]
+    if isinstance(windows, Mapping):
+        by_frame = windows
+    else:
+        turn_window = window_from_facts(windows)
+        by_frame = {} if turn_window is None else {DEFAULT_WINDOW_KEY: turn_window}
     ranked = sorted(
         frames,
         key=lambda item: (
@@ -476,6 +791,9 @@ def build_chart_specs(
             row_referents=row_referents,
             suppression_threshold=suppression_threshold,
             sort=(sorts or {}).get(frame_id),
+            # A frame's own window wins over the turn's, when a caller has
+            # one; neither is invented when the caller passed nothing.
+            window=by_frame.get(frame_id, by_frame.get(DEFAULT_WINDOW_KEY)),
         )
         if spec is None or not spec.rows:
             continue

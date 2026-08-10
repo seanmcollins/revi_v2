@@ -162,7 +162,7 @@ live("ApiDriver against a live API", () => {
     const findings = rebuilt.events.filter((e) => e.type === "finding");
     expect(
       findings.map((e) => (e.type === "finding" ? e.finding.referent.value : "")),
-    ).toEqual(["F1", "F2", "F3"]);
+    ).toEqual(["F1", "F2", "F3", "F4"]);
     expect(rebuilt.events[rebuilt.events.length - 1]).toMatchObject({
       type: "turn_complete",
       status: "complete",

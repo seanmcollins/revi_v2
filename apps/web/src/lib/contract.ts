@@ -69,7 +69,7 @@ import type {
   WarningEvent,
 } from "@/lib/types";
 import { GRADE_STRENGTH } from "@/lib/types";
-import { formatMeasure, type MeasureUnit } from "@/lib/format";
+import { chartWindowLabel, formatMeasure, type MeasureUnit } from "@/lib/format";
 import { humanizeColumn } from "@/lib/humanize";
 import { dedupeWarnings } from "@/lib/warnings";
 import type {
@@ -1190,6 +1190,17 @@ export interface ChartTurnContext {
   metricDisplay?: Record<string, MetricDisplay>;
   /** `warnings_v2` codes published on this turn. */
   warningCodes?: readonly string[];
+  /**
+   * The turn's own windows, already humanized ("Jul 2026" / "Jun 2026").
+   *
+   * Read off the context header at the parse site, because a DIMENSIONLESS
+   * frame has no category axis of its own and the chart payload carries no
+   * dates: the axis of "what is my denial rate?" is the window the
+   * question was asked over, and nothing else in the chart spec knows what
+   * that window is. Optional throughout — a streamed frame arrives before
+   * any header and is mapped without one.
+   */
+  windows?: { current?: string; prior?: string };
 }
 
 /** Units whose cells may be added together without inventing a number. */
@@ -1214,6 +1225,40 @@ function additiveUnit(unit: ChartSpec["unit"]): boolean {
  */
 export const PERIOD_CURRENT_KEY = "current";
 export const PERIOD_PRIOR_KEY = "prior";
+
+/**
+ * The column name the engine gives that synthetic axis (`charts.py`
+ * `PERIOD_SERIES_COLUMN`). Read here because the axis is being MOVED: the
+ * engine is re-keying scalar and comparison frames so the category axis is
+ * the window rather than the measurement, and this client has to read both
+ * generations for as long as both are stored.
+ */
+const PERIOD_COLUMN = "period";
+
+/**
+ * What the engine writes on that axis when IT had no window to name
+ * (`charts.py` `UNNAMED_CURRENT_LABEL` / `UNNAMED_PRIOR_LABEL`), plus the
+ * bookkeeping keys themselves.
+ *
+ * Both are honest ticks and neither is a date. The client is frequently in
+ * a position the composer was not — the context header travels on the same
+ * payload — so where it knows the dates it says them, and where it does
+ * not it leaves the engine's own words alone.
+ */
+const CURRENT_PERIOD_TICKS = new Set([PERIOD_CURRENT_KEY, "this window"]);
+const PRIOR_PERIOD_TICKS = new Set([PERIOD_PRIOR_KEY, "the window compared against"]);
+
+/**
+ * A category tick that is really a measurement: `0.127591`, `179.468320`.
+ *
+ * Live, `"Why did our denial rate go up in July 2026?"` drew a chart whose
+ * entire category axis was the single tick `0.127591` — because a frame
+ * with no dimension has no x column to key on and the engine fell back to
+ * the VALUE column, writing the formatted number into the category slot
+ * (and, on a comparison, filing June's mark under July's number). 18 of 85
+ * stored chart specs on the demo tenant carry an axis like it.
+ */
+const BARE_NUMBER_LABEL = /^-?\d+(?:\.\d+)?$/;
 
 /**
  * Are these the two halves of one measure over two windows?
@@ -1408,9 +1453,21 @@ export function mapChartSpec(
    *     nobody computed.
    */
   const paired = isPeriodPair(seriesKeys);
+  /**
+   * The CATEGORIES themselves are windows (the engine's new dimensionless
+   * shape: `x: "period"`, one tick per window, each carrying its own
+   * series). It looks like a comparison whose current mark is missing from
+   * every category, and it is the opposite: each category HAS exactly the
+   * one mark it is supposed to have.
+   */
+  const periodCategoryAxis = xColumn === PERIOD_COLUMN;
   if (paired) {
     seriesKeys.sort((a, b) => (a === PERIOD_CURRENT_KEY ? -1 : b === PERIOD_CURRENT_KEY ? 1 : 0));
-    for (const row of rows) {
+    // The absence census below is a statement about a JOIN — a category
+    // the prior window had and this one did not — so it is never made on a
+    // period axis, where there is no join key to be missing and each
+    // window's mark is exactly where it belongs.
+    for (const row of periodCategoryAxis ? [] : rows) {
       const current = row.values[PERIOD_CURRENT_KEY];
       const prior = row.values[PERIOD_PRIOR_KEY];
       // A category the comparison window has and this one does not. The
@@ -1425,6 +1482,80 @@ export function mapChartSpec(
         const cell = (cells[PERIOD_CURRENT_KEY] ??= {});
         cell.absent = true;
       }
+    }
+  }
+
+  /*
+   * THE AXIS OF A FRAME WITH NO DIMENSION IS THE WINDOW, NEVER THE NUMBER.
+   *
+   * A dimensionless frame — "what is my denial rate?", "days in A/R for
+   * Atlas Commercial" — declares its x column as the MEASURE, and the two
+   * payload generations in flight fill the category slot differently:
+   *
+   *   OLD (value-keyed): rows[].x is the measurement itself, so the axis
+   *     reads "0.127591" and a comparison's prior mark is filed under the
+   *     current mark's number. One category, one meaningless tick.
+   *   NEW (period-keyed): the engine keys the axis to the period, so the
+   *     rows arrive as `current` / `prior` — its bookkeeping names for two
+   *     windows, not what either window is called.
+   *
+   * Both are read, and neither is left on screen as it arrived: a bare
+   * decimal is not a category, and `current` is not a date. The window
+   * labels come from the turn's own header when there is one; without a
+   * header the measure's governed display name is used, which is a true
+   * statement about the column and the honest floor for a streamed frame
+   * that arrives before any dates do.
+   *
+   * Scoped hard, because a real dimension may legitimately hold numeric
+   * members (a CARC code, a month number): only a frame whose x column IS
+   * the measure (or is the synthetic period column), and only a single
+   * category — the shape a dimensionless frame can actually have.
+   */
+  const dimensionless = xColumn === "" || xColumn === valueColumn;
+  const measureLabel =
+    metricDisplay?.[valueColumn]?.displayName ??
+    (valueColumn === "" ? "This measure" : humanizeColumn(valueColumn));
+  /** The axis is windows rather than categories — whoever named the ticks. */
+  let periodAxis = false;
+  /** …and the ticks that are drawn ARE windows, so the caption may say so. */
+  let windowTicks = false;
+  if (rows.length > 0 && (dimensionless || periodCategoryAxis)) {
+    const unnamed = rows.every(
+      (row) => CURRENT_PERIOD_TICKS.has(row.label) || PRIOR_PERIOD_TICKS.has(row.label),
+    );
+    const firstRow = rows[0];
+    if (unnamed) {
+      // A tick that stands for a window without naming it — the engine's
+      // bookkeeping key, or its own placeholder prose on a turn whose
+      // composer was handed no dates. The header on this very payload has
+      // them, so the axis says them.
+      for (const row of rows) {
+        const current = CURRENT_PERIOD_TICKS.has(row.label);
+        const dated = current ? turn?.windows?.current : turn?.windows?.prior;
+        if (dated !== undefined) row.label = dated;
+        // No dates to hand: the engine's own placeholder prose stands, and
+        // a raw bookkeeping key becomes the words it stands for. Never a
+        // date this client would have had to guess.
+        else if (row.label === PERIOD_CURRENT_KEY) row.label = "This window";
+        else if (row.label === PERIOD_PRIOR_KEY) row.label = "Prior window";
+      }
+      periodAxis = true;
+      windowTicks = true;
+    } else if (periodCategoryAxis) {
+      // The engine composed these ticks from the turn's own dates ("Jul
+      // 2026" / "Jun 2026"). Nothing to substitute — but the axis is still
+      // a window axis, and the rules that follow are the window axis's.
+      periodAxis = true;
+      windowTicks = true;
+    } else if (rows.length === 1 && firstRow !== undefined && BARE_NUMBER_LABEL.test(firstRow.label)) {
+      // One column, and what it is a column OF. On a comparison the two
+      // windows are the two MARKS (the legend names each one's dates), so
+      // the column is the measure; on a scalar the column is the window
+      // the number was measured over.
+      const dated = paired ? undefined : turn?.windows?.current;
+      firstRow.label = dated ?? measureLabel;
+      periodAxis = true;
+      windowTicks = dated !== undefined;
     }
   }
 
@@ -1466,7 +1597,12 @@ export function mapChartSpec(
   // exactly right.
   const declared = CHART_KIND_BY_WIRE[wireType] ?? "bar";
   const labels = rows.map((row) => row.label);
-  const temporal = isTemporalAxis(labels);
+  // A WINDOW AXIS IS NOT A TREND. Once the ticks are period labels they
+  // look temporal ("Jul 2026", "Jun 2026") and a two-point line between
+  // this window and the one it is compared against would draw a slope
+  // through a comparison — two readings, not a series. Two windows are
+  // paired bars; one window is a column.
+  const temporal = !periodAxis && isTemporalAxis(labels);
   const kind: ChartSpec["kind"] =
     declared === "line"
       ? temporal
@@ -1546,6 +1682,10 @@ export function mapChartSpec(
     return [...[...measured].sort(compare), ...ceilings];
   };
 
+  // A WINDOW AXIS IS ALREADY ORDERED, like a temporal one: this window,
+  // then the one it is compared against, in the order the engine emitted
+  // them. A value sort over it would put June ahead of July whenever June
+  // was the larger number — time re-ordered by size.
   let ordered = rows;
   let order: ChartSpec["order"] = { basis: "wire" };
   if (axisOrder.length > 0) {
@@ -1559,9 +1699,9 @@ export function mapChartSpec(
       ...(xColumn !== "" ? { by: xColumn } : {}),
       ...(rankingRefused ? { refused: true } : {}),
     };
-  } else if (!temporal && rankingRefused) {
+  } else if (!temporal && !periodAxis && rankingRefused) {
     order = { basis: "wire", refused: true };
-  } else if (!temporal) {
+  } else if (!temporal && !periodAxis) {
     const sortsOnValue =
       sort !== undefined &&
       (sort.by === valueColumn || sort.by === "value" || seriesKeys.includes(sort.by));
@@ -1661,7 +1801,11 @@ export function mapChartSpec(
     ),
     wireTitle: asString(raw.title) || undefined,
     unit,
-    xLabel: xColumn || undefined,
+    // What the categories ARE. On a frame with no dimension the wire's x
+    // column is the measure, and captioning an axis of dates "denial rate"
+    // names the wrong thing on the one axis a reader has to trust.
+    xLabel: windowTicks ? "window" : xColumn || undefined,
+    ...(periodAxis ? { windowAxis: true as const } : {}),
     series: seriesKeys.map((key, index) => ({
       key,
       // The wire's series key IS the label everywhere except a
@@ -1836,7 +1980,14 @@ export function selectRenderableCharts(specs: readonly ChartSpec[]): ChartSpec[]
   for (const spec of specs) {
     if (dropped.has(spec.id)) continue;
     const resolved = merged.get(spec.id) ?? spec;
-    if (markCount(resolved) < 2) continue;
+    // …EXCEPT a labelled column over a window, which is a whole figure at
+    // one mark. The rule above exists because a single point on a category
+    // axis is a number made to look like a trend; a stat figure makes no
+    // such claim — its axis is the period the number was measured over,
+    // and the engine composes it deliberately for a frame with no
+    // dimension. Dropping it is why "What is my denial rate?" — the first
+    // question anyone asks this product — rendered no figure at all.
+    if (markCount(resolved) < 2 && resolved.windowAxis !== true) continue;
     out.push(resolved);
   }
   return out;
@@ -1979,6 +2130,49 @@ export function capChartSeries(spec: ChartSpec, max: number = MAX_DRAWN_SERIES):
     hiddenSeries,
     rolledUp: true,
     note: `showing the ${kept.length} largest of ${spec.series.length} series; the other ${hiddenSeries} are combined into “+${hiddenSeries} others” — each one is a separate column in the CSV`,
+  };
+}
+
+/**
+ * The turn's windows, humanized, straight off the raw context header.
+ *
+ * Read from the WIRE rather than from `mapContextHeader`'s output because
+ * the charts are mapped before the header is (and on the investigation
+ * path the header needs a session pin this may not have): what a chart
+ * needs is two strings, and a chart that could not draw its axis because
+ * the session pin was missing would be a rendering fault with an
+ * unrelated cause.
+ *
+ * A snapshot contract (`as_of`) publishes no measured range, so it names
+ * the moment instead — a scalar axis reading "Jul 2026" over an A/R-aging
+ * balance taken as of 2026-08-02 would be the header defect this codebase
+ * already fixed once, re-committed on the axis.
+ */
+export function chartWindowsFromHeader(
+  raw: unknown,
+): { current?: string; prior?: string } | undefined {
+  if (!isRecord(raw)) return undefined;
+  const basis = asString(raw.basis) as DateBasis;
+  const asOf = optionalString(raw.as_of);
+  const start = optionalString(raw.window_start);
+  const end = optionalString(raw.window_end);
+  const priorStart = optionalString(raw.comparison_start);
+  const priorEnd = optionalString(raw.comparison_end);
+  const label = (from?: string, to?: string): string | undefined => {
+    if (from === undefined || to === undefined || from === "" || to === "") return undefined;
+    try {
+      return chartWindowLabel({ start: from, end: to, basis });
+    } catch {
+      // A date this client cannot parse is still a date the server sent.
+      return `${from}..${to}`;
+    }
+  };
+  const current = asOf !== undefined ? `as of ${asOf}` : label(start, end);
+  const prior = asOf !== undefined ? undefined : label(priorStart, priorEnd);
+  if (current === undefined && prior === undefined) return undefined;
+  return {
+    ...(current !== undefined ? { current } : {}),
+    ...(prior !== undefined ? { prior } : {}),
   };
 }
 
@@ -3050,9 +3244,16 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
   const turnWarnings = readTurnWarnings(raw.warnings_v2, warningSentences);
   const warningCodes = turnWarnings.map((w) => w.code);
 
+  // The turn's windows, for the frames that have no category axis of their
+  // own: a scalar's axis IS its window, and the chart payload does not
+  // carry dates.
+  const chartWindows = chartWindowsFromHeader(raw.context_header);
   const charts: ChartSpec[] = [];
   asArray(raw.chart_specs).forEach((entry, index) => {
-    const spec = mapChartSpec(entry, displayIndex, { warningCodes });
+    const spec = mapChartSpec(entry, displayIndex, {
+      warningCodes,
+      ...(chartWindows !== undefined ? { windows: chartWindows } : {}),
+    });
     if (spec === null || spec.id === "") {
       drift.push(`chart_specs[${index}].id`);
       return;
@@ -3258,6 +3459,7 @@ export function parseInvestigationResponse(
   // published. The narrative is not among them — nothing stores the
   // composed prose — and a restored turn says so rather than filling in.
   const restoredTurnWarnings = readTurnWarnings(raw.warnings_v2, restoredWarnings);
+  const restoredWindows = chartWindowsFromHeader(raw.context_header);
   const charts: ChartSpec[] = [];
   asArray(raw.chart_specs).forEach((entry, index) => {
     // A restored turn gets the same restraint the live one got: the stored
@@ -3265,6 +3467,11 @@ export function parseInvestigationResponse(
     // ranking the original answer refused.
     const spec = mapChartSpec(entry, undefined, {
       warningCodes: restoredTurnWarnings.map((w) => w.code),
+      // And the same windows: a restored scalar's axis is the window it
+      // was measured over, exactly as the live one's was. Absent when the
+      // stored record carries no header, which is a real payload
+      // generation and leaves the axis named for its measure instead.
+      ...(restoredWindows !== undefined ? { windows: restoredWindows } : {}),
     });
     if (spec === null || spec.id === "") {
       drift.push(`chart_specs[${index}].id`);

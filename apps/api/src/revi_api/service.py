@@ -349,6 +349,81 @@ def settings_payload(settings: SessionSettings) -> SessionSettingsModel:
     )
 
 
+class TurnIdentityError(ReviError):
+    """A turn envelope that does not belong to the request it answers.
+
+    Its own code would need a wire-contract addition; ``POLICY_DENIED`` is
+    the honest existing one — the platform is refusing to publish something,
+    and the analyst's recovery (retry) is the same either way. What matters
+    is that the turn FAILS rather than returning a stranger's identifiers,
+    because every client on this platform adopts response ids: they become
+    the permalink, the "Copy link" target, and the provenance of anything
+    pinned from the answer.
+    """
+
+    code = ErrorCode.POLICY_DENIED
+
+
+def _assert_own_turn(session_id: str, outcome: TurnOutcome) -> None:
+    """The engine answered THIS request's session, or nothing goes out."""
+    if outcome.session.id == session_id:
+        return
+    logger.error(
+        "turn identity violation: POST to session %s produced an outcome for session %s "
+        "(investigation %s) — refusing to publish another caller's identifiers",
+        session_id,
+        outcome.session.id,
+        outcome.investigation.id,
+    )
+    raise TurnIdentityError(
+        "this turn was answered against a different session than the one it was posted to, "
+        "so nothing is published for it: an answer carrying another session's identifiers "
+        "would become this answer's permalink and the provenance of anything pinned from "
+        "it. Retry the turn",
+        details={"session_id": session_id},
+    )
+
+
+def _own_envelope(
+    session_id: str, outcome: TurnOutcome, response: TurnResult
+) -> TurnResult:
+    """The envelope's identity, taken from THIS request's resolved objects.
+
+    Round-8 FIX-5. ``session_id`` is the path parameter and
+    ``outcome.investigation`` is the record this call awaited — both are
+    facts about this request that were in hand before the response was
+    assembled. Anything else on the envelope is a read of shared state, and
+    a read of shared state under concurrency is how two turns posted to one
+    session came back naming a stranger's.
+
+    A mismatch is a defect and is logged as one; the envelope is corrected
+    rather than published wrong, because the alternative is a permalink into
+    somebody else's investigation.
+    """
+    if isinstance(response, TurnError):
+        return response.model_copy(update={"session_id": session_id})
+    if (
+        response.session_id == session_id
+        and response.investigation_id == outcome.investigation.id
+    ):
+        return response
+    logger.error(
+        "turn envelope identity mismatch on session %s: assembled session_id=%s "
+        "investigation_id=%s, this request resolved session_id=%s investigation_id=%s",
+        session_id,
+        response.session_id,
+        response.investigation_id,
+        session_id,
+        outcome.investigation.id,
+    )
+    return response.model_copy(
+        update={
+            "session_id": session_id,
+            "investigation_id": outcome.investigation.id,
+        }
+    )
+
+
 def _session_response(session: Session) -> SessionResponse:
     return SessionResponse(
         session_id=session.id,
@@ -567,6 +642,20 @@ class ApiService:
                 ),
             )
             outcome = await self._components.submit.submit(engine_request)
+            # THE TURN THAT CAME BACK IS THE TURN THAT WENT OUT. The session
+            # is a PATH PARAMETER — this request's own resolved object, known
+            # for certain before the engine was called — so an outcome
+            # carrying a different one is not a fact about the analyst's
+            # session, it is another caller's identity on this caller's wire.
+            # It happened: under concurrent load two turns posted to one
+            # session came back naming a stranger's session and
+            # investigations, and the client adopts response ids — "Copy
+            # link" copied a stranger's investigation, and the leaked
+            # permalink rendered a stranger's transcript (round-8 FIX-5).
+            # Refused here, loudly, rather than published: an error the
+            # analyst can retry is recoverable, and a permalink into
+            # somebody else's data is not.
+            _assert_own_turn(session_id, outcome)
             if worklist_reference is not None:
                 outcome = _with_warning(
                     outcome, worklist_reference_warning(worklist_reference)
@@ -600,6 +689,12 @@ class ApiService:
                 worklist=worklist,
                 trace=trace,
             )
+            # The same identity, re-asserted on what will actually go out.
+            # The check above covers the engine's boundary; this one covers
+            # everything between it and the wire, which is where a
+            # read-back-shaped assembly could still substitute a newest-row
+            # for this request's own resolved objects.
+            response = _own_envelope(session_id, outcome, response)
             if worklist is not None:
                 # Which page was shown, so the NEXT turn can address it by
                 # id or by position (round-3 R3-09). Best-effort: a lost
@@ -687,8 +782,12 @@ class ApiService:
         declaration that silently registered nothing is the worst outcome
         available — the analyst walks away believing they are being watched.
         """
-        label = declaration.subject.strip() or (response.findings[0].title
-                                                if response.findings else "Watched spec")
+        # What the analyst SAID, carried through as said. The watch's title
+        # is composed from the RESOLVED spec inside register_intent_pin
+        # (round-8 FIX-10) — this used to be the label itself, so "watch
+        # Silverline Health" kept a payer name the platform had already
+        # resolved to a different one, and "watch this" produced a tile whose
+        # entire title was the pronoun.
         units = self._units_for_answer(outcome)
         if declaration.threshold_unreadable:
             # A stated sensitivity this grammar could not read is NEVER
@@ -721,7 +820,7 @@ class ApiService:
             payload = await self._rounds.register_intent_pin(
                 principal,
                 outcome,
-                label=label,
+                stated_subject=declaration.subject,
                 watch=declaration.watch,
                 matched_phrase=declaration.matched_phrase,
             )
@@ -738,6 +837,14 @@ class ApiService:
                 ),
             )
         except Exception:  # pragma: no cover - defensive
+            # ``not_stored`` is a claim about the STORE, and it has to be
+            # true. It was not: the confirmation payload used to be composed
+            # after the pin was written, so a watch the wire could not
+            # describe was live in the store while this sentence told the
+            # analyst nothing was watching — and they said it again, which
+            # is how one tenant ended up with two identical days watches.
+            # register_intent_pin now composes before it writes, so reaching
+            # here means nothing was written (round-8 FIX-3).
             logger.exception("watch declaration could not be registered")
             return self._watch_refused(
                 response,
@@ -745,7 +852,8 @@ class ApiService:
                     reason_code="not_stored",
                     reason=(
                         "this turn read as a watch declaration and the watch could not be "
-                        "stored (the attempt is recorded in the API log)"
+                        "stored (the attempt is recorded in the API log); nothing was "
+                        "written, so there is no half-created watch to clean up"
                     ),
                     subject=declaration.subject,
                     threshold_phrase=declaration.threshold_phrase,

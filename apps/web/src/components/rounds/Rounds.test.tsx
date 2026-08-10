@@ -58,6 +58,7 @@ beforeEach(() => {
     knownWatches: [],
     watchesLoaded: false,
     watchesLoading: false,
+    watchesError: null,
     watchPendingKey: null,
     watchError: null,
     leadStates: {},
@@ -480,6 +481,104 @@ describe("a tile is one tab stop, with its controls reachable inside it", () => 
     expect(item.getAttribute("aria-label")).toContain(tile.label);
     expect(item.getAttribute("aria-label")).toContain(tile.valueText);
     expect(item).toHaveAttribute("aria-describedby", "rounds-tile-hint");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* A failed read is never a disabled control                           */
+/* ------------------------------------------------------------------ */
+
+/**
+ * ROUND 8's LEAD UI DEFECT, closed at the client.
+ *
+ * Live, `GET /v1/rounds/pins` 500'd off one watch whose threshold unit was
+ * `days`, the store swallowed it in an empty `catch {}`, and "Change what
+ * it takes to brief you" rendered `disabled` on all thirty tiles with no
+ * sentence anywhere on the page. Three reviewers reported it as a dead
+ * button; nobody could tell it from a feature that was switched off.
+ *
+ * The server-side half is somebody else's fix and it does not close this:
+ * a read that CAN fail must present as a failed read whenever it does.
+ */
+describe("a tile whose settings could not be read says so", () => {
+  const tile = () => (ROUNDS.value?.tiles ?? [])[0];
+
+  const openMenu = (label: string) =>
+    fireEvent.click(screen.getByRole("button", { name: `Settings for the watch ${label}` }));
+
+  it("mocks the 500: the sentence renders and the control offers the read again", async () => {
+    const listRoundsPins = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("GET /v1/rounds/pins failed: 500 Internal Server Error"))
+      .mockResolvedValue([]);
+    useSessionStore.setState({
+      driver: { submit: async () => {}, listRoundsPins } as unknown as never,
+    });
+    await useSessionStore.getState().loadWatches();
+    // The store keeps the server's own sentence rather than dropping it.
+    expect(useSessionStore.getState().watchesError).toContain("500");
+    expect(useSessionStore.getState().watchesLoaded).toBe(false);
+
+    const t = tile();
+    draw(<WatchTile tile={t} />);
+    openMenu(t.label);
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      /Could not read this watch's settings — reload to try again/,
+    );
+    // And the failure itself, verbatim, so the reason is diagnosable from
+    // the screen the analyst is already looking at.
+    expect(alert).toHaveTextContent(/500/);
+
+    // Nothing on this menu is a disabled control: the whole defect class
+    // was a control whose only account of itself was that it could not be
+    // pressed.
+    for (const button of screen.getAllByRole("button")) {
+      expect(button, `${button.textContent} must not be dead`).toBeEnabled();
+    }
+
+    // THE CONTROL EXPLAINS ITSELF. Not "Change what it takes to brief you"
+    // greyed out — a live control that re-runs the read that failed.
+    const retry = screen.getByRole("button", { name: /Read this watch's settings again/ });
+    fireEvent.click(retry);
+    expect(listRoundsPins).toHaveBeenCalledTimes(2);
+  });
+
+  it("says so too when the read succeeded without this watch in it", async () => {
+    // The other live failure mode behind the same symptom: a 200 whose
+    // list did not contain the pin the tile was drawn from.
+    useSessionStore.setState({
+      driver: { submit: async () => {}, listRoundsPins: async () => [] } as unknown as never,
+    });
+    await useSessionStore.getState().loadWatches();
+    expect(useSessionStore.getState().watchesLoaded).toBe(true);
+    expect(useSessionStore.getState().watchesError).toBeNull();
+
+    const t = tile();
+    draw(<WatchTile tile={t} />);
+    openMenu(t.label);
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      /Could not read this watch's settings — reload to try again/,
+    );
+    expect(alert).toHaveTextContent(/came back without this watch in it/);
+  });
+
+  it("opens the editor the moment the settings ARE in hand", async () => {
+    const pin = mapRoundsPin(live.pins.pins[0]);
+    expect(pin).not.toBeNull();
+    const t = { ...tile(), pinId: pin!.pinId };
+    draw(<WatchTile tile={t} pin={pin!} />);
+    openMenu(t.label);
+    const change = await screen.findByRole("button", {
+      name: /Change what it takes to brief you/,
+    });
+    expect(change).toBeEnabled();
+    fireEvent.click(change);
+    expect(
+      await screen.findByRole("button", { name: /Save and restart this watch/ }),
+    ).toBeInTheDocument();
   });
 });
 

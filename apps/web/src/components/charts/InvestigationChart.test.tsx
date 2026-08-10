@@ -19,6 +19,7 @@ import {
   ChartTooltipContent,
   InvestigationChart,
   orderNote,
+  rotatedAxisGutter,
 } from "@/components/charts/InvestigationChart";
 import type { ChartSpec } from "@/lib/types";
 
@@ -428,6 +429,38 @@ describe("axis labels name one entity each", () => {
     expect(new Set(plans.map((p) => ticks.get(p))).size).toBe(3);
     expect(ticks.get("Federal Medicare Part A")).toContain("Part A");
     expect(ticks.get("Federal Medicare Part B")).toContain("Part B");
+  });
+
+  /**
+   * …and then the figure has to give the label somewhere to be drawn.
+   *
+   * Live on the twelve-payer ranking the leftmost tick read "ate Medicaid
+   * MCO": the shortener had correctly kept "State Medicaid MCO" whole, and
+   * the rotated text ran off the left of the card because the margin was
+   * a constant 10px. A label cut by the container is the same wrong-
+   * identity defect as a label cut by the shortener.
+   */
+  it("gives a rotated first tick the room it actually needs", () => {
+    const ticks = axisTickLabels(LIVE_PAYERS, 18);
+    const first = ticks.get("State Medicaid MCO")!;
+    const gutter = rotatedAxisGutter(first);
+    // The horizontal run of the rotated text, less the y-axis width it may
+    // legitimately sweep under, is what has to fit.
+    const needed = Math.ceil(first.length * 6.3 * 0.82) - 48;
+    expect(gutter).toBeGreaterThanOrEqual(needed);
+    // The old constant did not.
+    expect(gutter).toBeGreaterThan(10);
+  });
+
+  it("does not buy a gutter a short axis has no use for", () => {
+    expect(rotatedAxisGutter("Jul")).toBe(10);
+    expect(rotatedAxisGutter(undefined)).toBe(10);
+  });
+
+  it("stops buying room before the plot is squeezed out of the card", () => {
+    // Two names that can only be told apart whole (`axisTickLabels` prints
+    // them in full) must not take half the figure with them.
+    expect(rotatedAxisGutter("A".repeat(200))).toBe(72);
   });
 });
 

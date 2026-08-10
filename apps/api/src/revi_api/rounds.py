@@ -359,10 +359,16 @@ _WINDOW_NOTES["anchored"] = _WINDOW_NOTES["absolute"]
 #: The sentence a movement earns when both loads measured the SAME dates.
 #: Not a caveat about the number — the number is right — but about what the
 #: change MEANS, which is the thing a delta on a daily surface is read for.
+#:
+#: Opens by naming WHICH COMPARISON it qualifies. A brief entry can carry
+#: two window clauses — one for the prior-load delta and one for the
+#: baseline — and unattributed they read as a paragraph contradicting
+#: itself: "different date ranges" three words after "the same dates"
+#: (round-8 FIX-10, five personas).
 SAME_WINDOW_NOTE = (
-    "Both loads measured the same dates ({start}..{end}), so this change is late-arriving "
-    "data settling — adjudication run-out, back-dated charges — rather than a movement in "
-    "the period itself."
+    "Against the previous load, both readings measured the same dates ({start}..{end}), so "
+    "this change is late-arriving data settling — adjudication run-out, back-dated charges — "
+    "rather than a movement in the period itself."
 )
 
 
@@ -525,7 +531,7 @@ class RoundsService:
         principal: Principal,
         outcome: TurnOutcome,
         *,
-        label: str,
+        stated_subject: str,
         watch: RoundsWatch | None,
         matched_phrase: str,
     ) -> WatchDeclarationPayload:
@@ -537,6 +543,26 @@ class RoundsService:
         answer doubles as the baseline. Nothing is re-interpreted: this is
         the same ``typed_spec_from_analysis`` resolution the on-screen pin
         path uses, over the same stored spec.
+
+        THE LABEL IS COMPOSED FROM THE RESOLVED SPEC, never from the words
+        (round-8 FIX-10). ``stated_subject`` is what the analyst SAID, which
+        is not always what the platform resolved: "watch Silverline Health"
+        resolved to Silverline Medicare Advantage and kept the wrong payer's
+        name on the tile permanently; "watch denied dollars for Meridian HMO
+        Care" named a payer this warehouse does not contain; and "watch
+        this" produced a watch whose entire label was the pronoun. A watch
+        titled after an unresolved phrase is a watch nobody can check. The
+        analyst's own words are not thrown away — the confirmation names the
+        resolution, so they can see what happened and correct it on the spot.
+
+        WRITE ORDER IS LOAD-BEARING (round-8 FIX-3). The confirmation payload
+        is composed BEFORE the pin is stored. It used to be composed after,
+        so a watch whose sensitivity the wire could not describe — one
+        ``days`` threshold — was written to the store and then failed to
+        serialize, and the caller's blanket handler told the analyst
+        ``not_stored``. They said it again. Two pins, both live, both
+        briefing, and a confirmed belief that nothing was watching. Nothing
+        is written now until the sentence that reports it has been built.
         """
         investigation = outcome.investigation
         watermark = outcome.session.watermark
@@ -550,6 +576,22 @@ class RoundsService:
                     f"this watch's threshold cannot be applied honestly: {refusal}",
                     details={"tenant": principal.tenant},
                 )
+        label = self._composed_label(spec)
+        # Already watching exactly this? The declaration path bypassed the
+        # spec-hash dedupe the on-screen pin path has run since round 7, so
+        # two identical watches over one spec briefed one movement twice
+        # every morning — the alert fatigue the pack spends 300 lines
+        # preventing, created by the platform itself (round-8 FIX-3).
+        existing_pin = await self._pin_with_same_spec(principal.tenant, spec, "scalar")
+        if existing_pin is not None:
+            return self._existing_watch_payload(
+                existing_pin,
+                spec=spec,
+                stated_subject=stated_subject,
+                stated_watch=watch,
+                baseline=baseline,
+                matched_phrase=matched_phrase,
+            )
         pin = RoundsPin(
             id=f"pin_{uuid.uuid4().hex[:12]}",
             tenant=principal.tenant,
@@ -571,6 +613,33 @@ class RoundsService:
             baseline_unit=baseline.unit if baseline is not None else None,
             baseline_captured_at=datetime.now(UTC) if baseline is not None else None,
         )
+        threshold_statement = _threshold_statement(watch, baseline.unit if baseline else None)
+        alternative = _threshold_alternative(
+            watch, baseline.unit if baseline else None, baseline.value if baseline else None
+        )
+        value_text = baseline.text if baseline is not None else ""
+        statement = _watch_confirmation(
+            label,
+            value_text,
+            threshold_statement,
+            alternative,
+            resolution=_resolution_clause(stated_subject, label, spec),
+        )
+        # Composed first, stored second: everything above can raise, and a
+        # raise above this line leaves NOTHING watching, which is exactly
+        # what the caller's refusal then says.
+        payload = WatchDeclarationPayload(
+            pin_id=pin.id,
+            label=label,
+            statement=statement,
+            spec=spec,
+            watch=_watch_model(watch),
+            threshold_statement=threshold_statement,
+            threshold_alternative=alternative,
+            baseline_value_text=value_text,
+            baseline_watermark_id=pin.baseline_watermark_id or "",
+            matched_phrase=matched_phrase,
+        )
         await self._components.rounds_pins.save(pin)
         # The declaration turn IS an evaluation of this watch at this load,
         # so it is stored as one. Without it the baseline is a bare number
@@ -588,33 +657,129 @@ class RoundsService:
                     exc_info=True,
                 )
         logger.info("rounds watch %s declared by intent for tenant %s", pin.id, pin.tenant)
-        threshold_statement = _threshold_statement(watch, baseline.unit if baseline else None)
-        alternative = _threshold_alternative(
-            watch, baseline.unit if baseline else None, baseline.value if baseline else None
-        )
+        return payload
+
+    def _existing_watch_payload(
+        self,
+        pin: RoundsPin,
+        *,
+        spec: TypedInvestigationSpec,
+        stated_subject: str,
+        stated_watch: RoundsWatch | None,
+        baseline: _Headline | None,
+        matched_phrase: str,
+    ) -> WatchDeclarationPayload:
+        """The confirmation for a declaration that names a watch this tenant
+        already holds.
+
+        No second pin, and no silent adoption of the existing sensitivity
+        either: when the analyst stated one and it differs, the sentence says
+        which threshold is actually in force and where to change it. Quietly
+        answering "watch this, more than 3 points" with an existing watch set
+        to 0.5 is the silent substitution this platform refuses everywhere
+        else — and creating the second watch instead would brief the same
+        movement twice every morning.
+        """
+        unit = baseline.unit if baseline is not None else pin.baseline_unit
+        threshold_statement = _threshold_statement(pin.watch, unit)
         value_text = baseline.text if baseline is not None else ""
-        statement = _watch_confirmation(
-            label, value_text, threshold_statement, alternative
+        current = f" — currently {value_text}" if value_text else ""
+        sentence = (
+            f"You are already watching this, as {pin.label!r}{current}. I have not created a "
+            f"second watch over the same spec — it would brief the same movement twice every "
+            f"morning — so that one stands, and it briefs you {threshold_statement}."
         )
+        if stated_watch is not None and stated_watch != pin.watch:
+            sentence += (
+                f" You stated a different sensitivity just now; I have not quietly changed "
+                f"{pin.label!r} to it. Change that watch's threshold if the new one is what "
+                "you want."
+            )
+        resolution = _resolution_clause(stated_subject, pin.label, spec)
+        statement = f"{sentence} {resolution}".strip() if resolution else sentence
         return WatchDeclarationPayload(
             pin_id=pin.id,
-            label=label,
+            label=pin.label,
             statement=statement,
-            spec=spec,
-            watch=_watch_model(watch),
+            spec=pin.spec,
+            watch=_watch_model(pin.watch),
             threshold_statement=threshold_statement,
-            threshold_alternative=alternative,
+            threshold_alternative="",
             baseline_value_text=value_text,
             baseline_watermark_id=pin.baseline_watermark_id or "",
             matched_phrase=matched_phrase,
         )
 
     async def list_pins(self, principal: Principal) -> RoundsPinListResponse:
+        """Every watch this tenant holds, composed ONE AT A TIME.
+
+        Round-8 FIX-3. This was a list comprehension, so a single stored
+        watch the wire could not describe — one ``days`` threshold, legal in
+        the engine and missing from the wire's own enum — raised out of the
+        comprehension and returned **500 for the entire tenant**. Every pin
+        after it in the list was punished for it, and the client that reads
+        this endpoint to render the per-tile settings control disabled that
+        control on all 31 tiles.
+
+        A watch that cannot be fully described is now described as far as it
+        can be, with the reason on the row: the analyst can still see WHAT
+        is watched, still un-pin it, and still read why its threshold is not
+        rendering. A pin whose stored spec itself cannot be read has nothing
+        left to publish, so it is named in :attr:`unreadable` rather than
+        dropped silently.
+        """
         pins = await self._components.rounds_pins.list_for_tenant(principal.tenant)
+        payloads: list[RoundsPinPayload] = []
+        unreadable: list[str] = []
+        for pin in pins:
+            try:
+                payloads.append(self._pin_payload(pin))
+                continue
+            except Exception:
+                logger.exception(
+                    "rounds: pin %s could not be composed for the pin list; degrading it "
+                    "rather than failing the tenant's whole list",
+                    pin.id,
+                )
+            try:
+                payloads.append(self._degraded_pin_payload(pin))
+            except Exception:
+                logger.exception("rounds: pin %s cannot be published at all", pin.id)
+                unreadable.append(pin.id)
         return RoundsPinListResponse(
             tenant=principal.tenant,
-            pins=[self._pin_payload(pin) for pin in pins],
-            total=len(pins),
+            pins=payloads,
+            total=len(payloads),
+            unreadable=unreadable,
+        )
+
+    def _degraded_pin_payload(self, pin: RoundsPin) -> RoundsPinPayload:
+        """What can still be published about a watch the wire cannot fully
+        describe: the spec, the label, the window — everything except the
+        part that failed, with the reason where that part would have been."""
+        return RoundsPinPayload(
+            pin_id=pin.id,
+            tenant=pin.tenant,
+            label=pin.label,
+            presentation=pin.presentation,  # type: ignore[arg-type]
+            spec=pin.spec,
+            window_mode=pin.window_mode,  # type: ignore[arg-type]
+            window_note=_WINDOW_NOTES.get(pin.window_mode, ""),
+            created_from_kind=pin.created_from_kind,  # type: ignore[arg-type]
+            created_from_investigation_id=pin.created_from_investigation_id,
+            created_from_referent=pin.created_from_referent,
+            notes=[
+                "part of this watch could not be described on this API version (the attempt "
+                "is recorded in the API log), so it is shown without its sensitivity "
+                "settings rather than removed from your list or failing the whole list. "
+                "What it MEASURES, below, is the stored spec verbatim and is unaffected."
+            ],
+            watch=None,
+            baseline_watermark_id=pin.baseline_watermark_id,
+            baseline_value=None if pin.baseline_value is None else float(pin.baseline_value),
+            baseline_unit=pin.baseline_unit,
+            created_at=pin.created_at,
+            archived_at=pin.archived_at,
         )
 
     async def archive_pin(self, principal: Principal, pin_id: str) -> None:
@@ -650,6 +815,17 @@ class RoundsService:
           stopped and explained itself.
 
         Idempotent: a watch already narrowed to its cell is left alone.
+
+        RETURNS THE IDS IT TOUCHED, and the caller re-derives them (round-8
+        FIX-1). This rewrote the PIN row and nothing else, and the surface
+        renders the stored TILE: two watches were narrowed to Pinnacle
+        Health Plan, relabelled and had their baselines cleared, and
+        ``GET /v1/rounds`` went on serving their pre-repair tiles — "Pinnacle
+        Health Plan: 22.9% denial rate" over State Medicaid MCO's 29.5% —
+        because ``evaluate_load`` reuses any stored result for the current
+        watermark. The repair was real, invisible, and would have stayed
+        invisible until a watermark that was not coming. A repair that does
+        not change what the surface serves is not a repair.
         """
         repaired: list[str] = []
         archived: list[str] = []
@@ -938,22 +1114,42 @@ class RoundsService:
         than recomputed, so calling this from the scheduled sweep and from
         the brief route costs one evaluation between them. ``force``
         re-evaluates — for a redeployed pack, or a repaired snapshot.
+
+        Reuse is conditional on the stored tile still MATCHING THE WATCH
+        (round-8 FIX-1). Idempotence used to be unconditional: any stored
+        row for this watermark won, so a watch repaired between loads
+        republished the tile the repair existed to replace, for as long as
+        the watermark stood. Two of them were on the live surface for two
+        days under a fix's name. A stored evaluation is now reused only
+        while it is still an evaluation OF THIS WATCH — see
+        :func:`_stale_result_reason`.
         """
         # Watches created before the narrowed-cell rule are brought onto it
         # (or stopped) BEFORE they are evaluated, so no load re-publishes a
         # tile whose label and value name different subjects. Runs on every
         # load and does nothing after the first: a repaired watch names one
         # cell, and this only looks at watches that do not.
+        repaired: set[str] = set()
         try:
-            await self.repair_pins(tenant)
+            report = await self.repair_pins(tenant)
+            repaired = set(report["repaired"])
         except Exception:  # pragma: no cover - a repair must not cost a load
             logger.exception("rounds: pin repair pass failed for tenant %s", tenant)
         pins = await self._components.rounds_pins.list_for_tenant(tenant)
         evaluated = 0
         for pin in pins:
             existing = await self._components.rounds_results.get(pin.id, watermark.id)
-            if existing is not None and not force:
-                continue
+            if existing is not None and not force and pin.id not in repaired:
+                stale = _stale_result_reason(pin, existing)
+                if stale is None:
+                    continue
+                logger.info(
+                    "rounds: re-deriving pin %s at %s rather than republishing its stored "
+                    "tile — %s",
+                    pin.id,
+                    watermark.id,
+                    stale,
+                )
             await self._evaluate_pin(pin, watermark)
             evaluated += 1
 
@@ -1164,6 +1360,39 @@ class RoundsService:
         # round 7 — so the check runs on every payload build rather than in
         # a test that only covers the paths somebody thought of.
         _assert_subject_matches_label(pin, headline)
+        if headline is not None and pin.spec.dimensions and not headline.subject:
+            # A watch that BREAKS OUT a dimension headlines one cell of that
+            # breakdown, and a tile that cannot say which one is a number
+            # under somebody's name with no way to check whose. That is the
+            # round-7 signature defect with the evidence removed, so it is
+            # published as unavailable with the reason rather than as an
+            # ordinary reading (round-8 FIX-1, belt to the repair's braces).
+            logger.warning(
+                "rounds: pin %s produced a %s breakdown with no resolvable subject at %s",
+                pin.id,
+                " and ".join(pin.spec.dimensions),
+                watermark.id,
+            )
+            return RoundsTilePayload(
+                pin_id=pin.id,
+                label=pin.label,
+                presentation=pin.presentation,  # type: ignore[arg-type]
+                status="unavailable",
+                watermark_id=watermark.id,
+                newest_data_date=watermark.newest_data_date,
+                evaluated_at=datetime.now(UTC),
+                investigation_id=outcome.investigation.id,
+                warnings=warnings,
+                warnings_v2=classified,
+                unavailable_reason=(
+                    "this watch breaks out "
+                    + " and ".join(pin.spec.dimensions)
+                    + ", and this load could not record WHICH cell its number is about. A "
+                    "value published under a title nobody can check against it is the defect "
+                    "this surface was rebuilt to prevent, so no value is published here. Open "
+                    "the watch to see the full breakdown."
+                ),
+            )
         return RoundsTilePayload(
             pin_id=pin.id,
             label=pin.label,
@@ -1236,6 +1465,18 @@ class RoundsService:
                 subject = _subject_of(
                     outcome.referents, finding.referent.value, spec.dimensions
                 )
+                if not subject and not spec.dimensions:
+                    # A FILTER-ONLY watch ("denial rate for Atlas
+                    # Commercial") breaks out nothing, so there is no
+                    # referent cell to read a subject off — and it publishes
+                    # a number about exactly one cell all the same, fixed by
+                    # its own equality filters. Recording it here is what
+                    # lets the label/value identity guard cover this whole
+                    # class, which it could not: it returned early on an
+                    # empty subject, so "denied dollars for Meridian HMO
+                    # Care" measuring another payer was unreachable by the
+                    # one check written to catch it (round-8 FIX-10).
+                    subject = _eq_filters_of(spec)
                 return _Headline(
                     referent=finding.referent.value,
                     title=finding.title,
@@ -2489,6 +2730,59 @@ def _subject_of(
     return ()
 
 
+def _stale_result_reason(pin: RoundsPin, stored: RoundsPinResult) -> str | None:
+    """Why this stored evaluation may not be republished for this watch.
+
+    Round-8 FIX-1, the belt to the repair pass's braces. Re-evaluation is
+    keyed on ``(pin, watermark)`` and a watch can change UNDER a watermark:
+    the repair pass narrows a spec and recomposes a label between loads, and
+    the stored tile — the thing the surface actually renders — then names a
+    watch that no longer exists. Reuse is therefore conditional on the
+    stored tile still being an evaluation of THIS watch, as it stands now:
+
+    * its title is the watch's current title. A repaired watch is
+      relabelled, so the two disagree exactly when re-derivation is owed;
+    * a watch whose number is ABOUT ONE CELL — because it breaks a
+      dimension out, or because its own filters fix one — published WHICH
+      cell. Tiles stored before subjects were recorded carry none, and
+      every comparability guard downstream needs one — a delta between two
+      loads with no recorded subject is the phantom movement of round-7
+      FN-2, and re-deriving is what supplies the fact;
+    * it does not publish a cell the spec has since been narrowed away
+      from. That combination is the round-7 signature defect itself, and it
+      is refused at build time — refusing to REPUBLISH it costs one
+      re-evaluation and closes the door the stored row left open.
+
+    ``None`` means the stored tile still stands, which is the ordinary case
+    and the one that keeps a load cheap.
+    """
+    try:
+        tile = RoundsTilePayload.model_validate(stored.payload)
+    except Exception:
+        return "its stored tile can no longer be read in the current tile shape"
+    if tile.label != pin.label:
+        return (
+            f"its stored tile is titled {tile.label!r} and the watch is now titled "
+            f"{pin.label!r}"
+        )
+    fixed = dict(_eq_filters_of(pin.spec))
+    for dimension, value in tile.headline_subject.items():
+        expected = fixed.get(dimension)
+        if expected is not None and expected != value:
+            return (
+                f"its stored tile publishes {dimension}={value!r} under a spec now narrowed "
+                f"to {dimension}={expected!r}"
+            )
+    if tile.status == "ok" and (pin.spec.dimensions or fixed) and not tile.headline_subject:
+        about = (
+            "it breaks out " + " and ".join(pin.spec.dimensions)
+            if pin.spec.dimensions
+            else "its filters fix one cell (" + ", ".join(sorted(fixed)) + ")"
+        )
+        return f"{about} and its stored tile does not record which cell its number is about"
+    return None
+
+
 def _spec_names_one_cell(spec: TypedInvestigationSpec) -> bool:
     """Does this spec pin down exactly one cell of its own breakdown?
 
@@ -2514,15 +2808,30 @@ def _subject_mismatch(
     breakdown headlines whatever ranks first, so a rank flip produced a
     delta between two payers, gated it material, counted it, and explained
     it as adjudication run-out (round-7 FN-2).
+
+    FAILS CLOSED (round-8 FIX-2). The both-blank case used to return
+    ``None`` — comparable — and that was the only branch here that failed
+    OPEN. It also covered the entire installed base: every tile stored
+    before subjects were recorded has a blank one on both sides, so the
+    guard was unreachable on precisely the rows it was written for, and the
+    live brief went on publishing "29.5%, up 3.6 points from 25.9%...
+    late-arriving data settling — adjudication run-out" for a watch whose
+    two loads were two different payers and whose named payer had FALLEN.
+    A comparison that rests on an unrecorded subject is not a comparison
+    somebody can check, and this platform withholds those.
     """
     if _spec_names_one_cell(pin.spec):
         # The spec fixes the cell, so both sides measured it whatever their
         # payloads recorded — including tiles stored before subjects were.
         return None
+    if prior_label and prior_label == current_label:
+        return None
     if not prior_label and not current_label:
-        return None
-    if prior_label == current_label:
-        return None
+        return (
+            "this watch measures a ranked breakdown and neither load recorded which cell it "
+            "headlined, so there is no way to tell whether these two numbers are two "
+            "measurements of one cell or one measurement each of two different cells"
+        )
     if not prior_label:
         return (
             "this watch measures a ranked breakdown and the earlier load did not record which "
@@ -2751,8 +3060,8 @@ def _movement_sentence(
             + (
                 ""
                 if baseline.same_window
-                else " Those two readings cover different date ranges, so part of that is the "
-                "window moving rather than the measure."
+                else " Against where you started, those two readings cover different date "
+                "ranges, so part of that is the window moving rather than the measure."
             )
         )
     if delta.same_window and tile.window_start is not None and tile.window_end is not None:
@@ -3096,8 +3405,47 @@ def _threshold_alternative(
     )
 
 
+def _resolution_clause(
+    stated_subject: str, label: str, spec: TypedInvestigationSpec
+) -> str:
+    """"You said X; that resolved to Y" — or nothing, when they match.
+
+    Round-8 FIX-10. A watch is titled from the RESOLVED spec, which is the
+    only title that can be checked against the number under it. That is a
+    strict improvement and it is also a substitution, so it is stated:
+    "watch Silverline Health" became a watch on Silverline Medicare
+    Advantage, and an analyst who is never told cannot catch the day the
+    resolution was wrong. Silent only when there is nothing to report —
+    the words the analyst used already appear in the composed label.
+    """
+    stated = " ".join(stated_subject.split())
+    if not stated:
+        return ""
+    said = stated.casefold()
+    if said in label.casefold():
+        return ""
+    cells = [str(value) for _, value in _eq_filters_of(spec)]
+    # They named the cell it resolved to, in either direction — "watch
+    # Pinnacle" against a spec fixed to "Pinnacle Health Plan", or "days in
+    # A/R for Atlas Commercial" against "Atlas Commercial". Nothing was
+    # substituted, so there is nothing to report, and a sentence that fires
+    # every time is a sentence nobody reads on the day it matters.
+    if cells and all(
+        value.casefold() in said or said in value.casefold() for value in cells
+    ):
+        return ""
+    return (
+        f"You said {stated!r}; that resolved to {label!r}, which is what this watch measures "
+        "and what its tile is titled — say so now if that is not the one you meant."
+    )
+
+
 def _watch_confirmation(
-    label: str, value_text: str, threshold_statement: str, alternative: str = ""
+    label: str,
+    value_text: str,
+    threshold_statement: str,
+    alternative: str = "",
+    resolution: str = "",
 ) -> str:
     """The one-time baseline confirmation, composed from the answer.
 
@@ -3111,7 +3459,7 @@ def _watch_confirmation(
         f"Watching: {label}{current}. I'll brief you {threshold_statement}, and the answer "
         "above is the baseline I'll measure that from."
     )
-    return f"{sentence} {alternative}".strip() if alternative else sentence
+    return " ".join(part for part in (sentence, resolution, alternative) if part)
 
 
 def pin_payload(

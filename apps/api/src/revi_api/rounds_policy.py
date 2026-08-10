@@ -416,7 +416,7 @@ def assess_movement(
             return MaterialityVerdict(
                 False,
                 "watch_direction",
-                f"this watch is set to movements {watch.direction} only, and the tile moved "
+                f"this watch is set to movements {watch.direction} only, and it moved "
                 f"{'up' if delta > 0 else 'down'} by {magnitude_text}",
                 threshold_source="watch",
             )
@@ -473,10 +473,10 @@ def _watch_verdict(
         return MaterialityVerdict(
             material,
             "watch_any_movement",
-            f"this watch is set to brief on any movement at all, and the tile moved "
+            f"this watch is set to brief on any movement at all, and it moved "
             f"{magnitude_text}"
             if material
-            else "this watch is set to brief on any movement at all, and the tile did not move",
+            else "this watch is set to brief on any movement at all, and it did not move",
         )
     if watch.value is None:
         return MaterialityVerdict(
@@ -511,7 +511,7 @@ def _watch_verdict(
     return MaterialityVerdict(
         material,
         "watch_delta_gte",
-        f"this watch briefs at {format_threshold(watch, unit)} and the tile moved "
+        f"this watch briefs at {format_threshold(watch, unit)} and it moved "
         f"{magnitude_text}"
         + (f" ({watch.note})" if watch.note else ""),
     )
@@ -553,11 +553,21 @@ def _unit_mismatch_note(watch: RoundsWatch, unit: str | None) -> str:
 
 
 def format_threshold(watch: RoundsWatch, unit: str | None) -> str:
-    """The watch's threshold, said the way its unit should be said."""
+    """The watch's threshold, said the way its unit should be said.
+
+    Including its number's own grammar: exactly one point is "1 point". The
+    platform read "1 points" on the first screen, which is the kind of seam
+    a reader files under "software wrote this" — on a surface whose whole
+    claim is that a person could have written every sentence on it.
+    """
     if watch.value is None:
         return "no threshold"
     if watch.unit == "points":
-        return f"{float(watch.value):.2f} points".replace(".00 ", " ")
+        # ``.00`` is dropped on whole numbers and kept on fractional ones
+        # ("0.50 points" is how a threshold that precise should read), and
+        # exactly one point is singular.
+        rendered = f"{float(watch.value):.2f}".replace(".00", "")
+        return f"{rendered} point" + ("" if float(watch.value) == 1 else "s")
     if watch.unit == "cents":
         return magnitude(int(watch.value), MONEY_UNIT)
     if watch.unit == "days":

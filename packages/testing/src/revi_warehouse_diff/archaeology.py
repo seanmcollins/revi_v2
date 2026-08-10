@@ -75,7 +75,14 @@ DISCLOSURE_FIXES: tuple[DisclosureFix, ...] = (
         # own-period note and whose findings state 2026-07-06..2026-08-02).
         # 05:30 sits inside that gap.
         landed=dt.datetime(2026, 8, 10, 5, 30, 0, tzinfo=dt.UTC),
-        commit="wave-E2 (uncommitted when this boundary was written)",
+        # Backfilled in round 8. This read "wave-E2 (uncommitted when this
+        # boundary was written)" — a boundary that excused 170 divergences
+        # by DATE while naming no commit anybody could check it against,
+        # which is the one thing this field exists to prevent. 5ad1774 is
+        # the commit wave E2 landed in; ``test_every_disclosure_fix_names_a
+        # _real_commit`` resolves every hash here through ``git cat-file``
+        # so the field cannot go back to being prose.
+        commit="5ad1774",
         what=(
             "a finding whose probe declared its own window states THAT window "
             "in its title and statement, publishes it as "

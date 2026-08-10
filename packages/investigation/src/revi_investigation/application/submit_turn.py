@@ -47,11 +47,12 @@ from __future__ import annotations
 import re
 import time
 import uuid
+from calendar import monthrange
 from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field, replace
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from typing import Any
+from typing import Any, assert_never
 
 from revi_investigation.application.anchoring import window_anchor
 from revi_investigation.application.calculation_glue import (
@@ -131,14 +132,24 @@ from revi_investigation.application.refinement_llm import (
 )
 from revi_investigation.application.rendering import MONEY_UNIT as _MONEY_UNIT_NAME
 from revi_investigation.application.rendering import RATIO_UNIT as _RATIO_UNIT_NAME
-from revi_investigation.application.rendering import metric_label, money, points, ratio_pct
+from revi_investigation.application.rendering import (
+    format_value,
+    metric_label,
+    money,
+    points,
+    ratio_pct,
+)
 from revi_investigation.application.validation import (
     PlanClarificationNeeded,
     PlanValidationService,
     ValidatedPlan,
     map_predicates,
 )
-from revi_investigation.application.window_maturity import WindowMaturityService
+from revi_investigation.application.window_maturity import (
+    WindowMaturity,
+    WindowMaturityService,
+    covered_months,
+)
 from revi_investigation.domain.context import (
     AnalysisSpec,
     ContextPin,
@@ -199,10 +210,12 @@ from revi_kernel.frame import EvidenceFrame, primary_measure
 from revi_kernel.probes import AggregationProbe, EvidenceProbe, SnapshotProbe
 from revi_kernel.refs import SERVICE, DimensionRef, EntityGrain, Grain, MetricRef, ReferentId
 from revi_kernel.scope import (
+    AbsoluteRange,
     ComparisonKind,
     RangeMode,
     RelativeRange,
     TimeUnit,
+    TimeWindow,
     derive_comparison,
     resolve_window,
 )
@@ -257,6 +270,20 @@ def _not_applicable(reason: str) -> str:
     "never claim more than the evidence supports" where silence was
     ambiguous."""
     return f"status=not_applicable; reason={reason}"
+
+
+def _period_phrase(window: AbsoluteRange) -> str:
+    """A window as a reader would say it: "June 2026", or the two dates.
+
+    Only ever a month NAME when the range really is one whole calendar
+    month — a phrase that rounds 2026-06-08..2026-08-02 to "June" would be
+    the misattribution this platform spends its warnings avoiding.
+    """
+    last_day = monthrange(window.end.year, window.end.month)[1]
+    one_month = (window.start.year, window.start.month) == (window.end.year, window.end.month)
+    if one_month and window.start.day == 1 and window.end.day == last_day:
+        return window.start.strftime("%B %Y")
+    return f"{window.start.isoformat()}..{window.end.isoformat()}"
 
 
 _KERNEL_ONLY = (RankBy, Expand)
@@ -505,13 +532,23 @@ def probe_families_empty_warning(
     coded warning naming each probe, its metric ids and the rows it
     returned, so a reader can see what was looked at and dropped.
 
-    Silent on a turn that published nothing at all — that is the emptiness
-    fact's job, and two statements of the same nothing is one too many.
+    Round-8 FIX-9(1) is the same defect one turn further on. "Build me a
+    payer scorecard for Pinnacle, I have a JOC next week" ran six probe
+    families, got **direct**-grade rows from every one of them, published
+    ZERO findings, and this warning stayed silent — because it was silent
+    on any turn with no findings at all, on the reasoning that the
+    emptiness fact would speak for the turn. The emptiness fact spoke for
+    exactly one family ("1 ranked row(s) on 'denied_dollars', and every one
+    was zero or suppressed") and the other five were dropped without a
+    word.
+
+    So the rule is now the one the gate is named for: a family that was
+    read publishes a finding or is NAMED. The single-family case keeps the
+    old behaviour — there the emptiness fact really does speak for the
+    whole turn, and two statements of the same nothing is one too many.
     """
-    if not findings:
-        return None
     published = {ref.id for finding in findings for ref in finding.metric_refs}
-    if not published:
+    if findings and not published:
         return None
     by_node = {item.node_id: item for item in executed}
     # Grouped by metric family, not by node: a comparison twin and its
@@ -540,15 +577,24 @@ def probe_families_empty_warning(
         )
     if not families:
         return None
+    if not findings and len(families) < 2:
+        # One family, nothing published: ``empty_result`` says the same
+        # thing with the reason attached, and it says it better.
+        return None
     named = "; ".join(
         f"{', '.join(metrics)} ({', '.join(nodes)}, {rows_by_family[metrics]} row(s))"
         for metrics, nodes in families.items()
     )
+    tail = (
+        "Nothing on this turn speaks for any of them: the emptiness stated above is about "
+        "the family that was ranked, not about these."
+        if not findings
+        else "The findings rank within the families that did publish — they are not a "
+        "cross-family comparison, and a family's absence is not evidence that it is fine."
+    )
     return (
         f"probe_families_empty: {len(families)} metric famil(ies) on this plan were read and "
-        f"produced no published finding, so nothing above speaks for them: {named}. The "
-        "findings rank within the families that did publish — they are not a cross-family "
-        "comparison, and a family's absence is not evidence that it is fine."
+        f"produced no published finding, so nothing above speaks for them: {named}. {tail}"
     )
 
 
@@ -602,11 +648,20 @@ def _frame_money_totals(
 
 
 def _sum_money_column(frame: EvidenceFrame, index: int) -> int:
+    """Sum one money column in cents, skipping cells that are not amounts.
+
+    Same guard as :func:`_sum_named_money_column` below, and for the same
+    reason: a column carries the whole ``Scalar`` vocabulary, and a date or
+    a label in a money-united column is not a smaller amount — it is not an
+    amount. ``bool`` is refused ahead of ``int`` because Python counts
+    ``True`` as 1.
+    """
     total = 0
     for row in frame.rows:
         value = row[index]
-        if value is not None:
-            total += int(value)
+        if value is None or isinstance(value, bool) or not isinstance(value, (int, Decimal)):
+            continue
+        total += int(value)
     return total
 
 
@@ -1327,6 +1382,53 @@ def drop_refuted_options(
     )
 
 
+#: An option that is itself a question (round-8 FIX-12(d)). Live, on "Why
+#: did it go up?": option 3 read "Which metric are you asking about? — I
+#: mean the last figure you charted." An option is a sentence the analyst
+#: SENDS BACK; a question sent back resolves nothing, and the reader is
+#: left choosing between answering and being asked again.
+#:
+#: Matched on the shape rather than on a keyword list: an interrogative
+#: opener plus a question mark. "What if we exclude Medicare?" would be a
+#: legitimate thing to say and is not one of these — it has no
+#: interrogative opener asking the ANALYST to supply the thing this
+#: platform is missing.
+_INTERROGATIVE_OPTION = re.compile(
+    r"^\s*(?:what|which|who|why|how|when|where|do|does|did|are|is|should|could|would)\b"
+    r"[^?]*\?",
+    re.IGNORECASE,
+)
+
+
+def _drop_interrogative_options(
+    clarification: ClarificationRequest,
+) -> ClarificationRequest:
+    """The same question, minus every "option" that is another question."""
+    if not clarification.options:
+        return clarification
+    kept = tuple(
+        option
+        for option in clarification.options
+        if _INTERROGATIVE_OPTION.match(option) is None
+    )
+    if len(kept) == len(clarification.options):
+        return clarification
+    if not kept:
+        # Better an honest optionless card than a row of buttons that ask
+        # the reader the same thing the heading does; ``_no_options_card``
+        # already renders that state as a statement of what is needed.
+        return replace(
+            clarification,
+            options=(),
+            bindings=(),
+            reason=(
+                f"{clarification.reason}; every generated option was itself a question, "
+                "so none of them could be sent back as an answer"
+            ),
+        )
+    return replace(clarification, options=kept, bindings=_bindings_for(clarification, kept))
+
+
 def _bindings_for(
     clarification: ClarificationRequest, kept: tuple[str, ...]
 ) -> tuple[ClarificationBinding, ...]:
@@ -1580,6 +1682,46 @@ def _same_findings(served: Sequence[Finding], parent: Sequence[Finding]) -> bool
     return [(f.title, f.statement, f.values) for f in served] == [
         (f.title, f.statement, f.values) for f in parent
     ]
+
+
+#: "Export this" and the ways people say it. A file is not something this
+#: engine can hand over: the export is composed in the client, from the
+#: answer already on screen, and nothing on the wire produces a document.
+_EXPORT_REQUEST = re.compile(
+    r"(?<!\w)(?:export|download|save\s+(?:this|that|it)|send\s+(?:me\s+)?(?:this|that|it)|"
+    r"email\s+(?:me\s+)?(?:this|that|it)|(?:as|to)\s+(?:a\s+)?(?:csv|excel|xlsx|pdf|"
+    r"spreadsheet)|give\s+me\s+(?:a\s+)?(?:csv|file|spreadsheet))(?!\w)",
+    re.IGNORECASE,
+)
+
+
+def _export_request_refusal(question: str) -> str | None:
+    """Refuse an export by name rather than re-answering (FIX-12(b)).
+
+    Live: "Export this" came back ``turn_class: presentation_only`` with a
+    freshly written paraphrase of the same finding — no file, no download,
+    no sentence saying where export lives. A director who says "export
+    this" and gets a re-worded paragraph concludes the export failed or the
+    assistant is stalling, and neither is recoverable on stage.
+
+    The export itself is real and good: Copy answer and the CSV download
+    sit on the answer card, run entirely in the browser, and carry the
+    provenance line and the provisional marks. What does not exist is a
+    way to ASK for it in words, so this says exactly that and points at the
+    control — the shape this platform uses for every other thing it cannot
+    do.
+    """
+    match = _EXPORT_REQUEST.search(question)
+    if match is None:
+        return None
+    return (
+        f"refinement_not_applied: you asked to {match.group(0).lower()} this, and I cannot "
+        "hand you a file from here — nothing I return is a document. The export is on the "
+        "answer itself: 'Copy answer' puts the findings, the analysis and every caveat on "
+        "your clipboard, and the CSV download saves the rows with their provisional marks "
+        "and the data load in the filename. The answer below is the previous one re-served, "
+        "unchanged; nothing was exported by this turn."
+    )
 
 
 def _unapplied_presentation_request(question: str) -> str | None:
@@ -2374,7 +2516,23 @@ class SubmitTurnService:
         state.time_stage("classify")
 
         if classified.clarification is not None or classified.classification is None:
-            committed = self._commit_instead_of_clarifying(state, pending)
+            # One question of ours on screen at a time (round-8 FIX-12(d)).
+            # Live: the analyst left "Who is my worst payer?" unanswered and
+            # asked their next real question, "Show me AR aging" — and got
+            # "Is this answering the 'worst payer' question by picking the
+            # days-in-A/R measure, or a new A/R aging request?", with "Drop
+            # the worst payer question entirely" among the options. Asking a
+            # reader to adjudicate the relationship between their own two
+            # sentences is not a clarification; it is the platform's
+            # bookkeeping handed over as a question. A self-contained
+            # question supersedes whatever was pending, and says so.
+            # …after the convergence rule, which describes the same move
+            # more precisely when it applies: "I asked twice and did not
+            # converge" is a better sentence than "you asked something
+            # else", and it names the question being answered.
+            committed = self._commit_instead_of_clarifying(
+                state, pending
+            ) or self._supersede_pending(state, pending)
             if committed is None:
                 clarification = classified.clarification or ClarificationRequest(
                     question="Could you rephrase that?", reason="unclassifiable turn"
@@ -2382,8 +2540,12 @@ class SubmitTurnService:
                 return await self._clarification_outcome(
                     session, state, classified, clarification
                 )
-            # §2.8 convergence: stop asking, commit, and say what was assumed.
+            # §2.8 convergence: stop asking, commit, and say what was
+            # assumed. Parented on the question that was dropped, so the
+            # lineage shows what this turn replaced.
             state.assumptions.append(committed)
+            if pending is not None and state.lineage_parent is None:
+                state.lineage_parent = pending.investigation_id
             return await self._new_investigation_turn(session, state, classified)
 
         turn_class = classified.classification.turn_class
@@ -2401,14 +2563,17 @@ class SubmitTurnService:
             return await self._context_control_turn(session, state, classified)
         if turn_class is TurnClass.CLARIFICATION_RESPONSE:
             return await self._clarification_response_turn(session, state, classified, pending)
-        clarification = ClarificationRequest(
-            question=(
-                "That reads like an answer to a question I haven't asked — what would "
-                "you like to investigate?"
-            ),
-            reason=f"turn class {turn_class.value} is not actionable here",
-        )
-        return await self._clarification_outcome(session, state, classified, clarification)
+        # Every class in the §7.3 taxonomy is dispatched above, so there is
+        # nothing left to fall through to. This used to be the "that reads
+        # like an answer to a question I haven't asked" clarification, which
+        # was CLARIFICATION_RESPONSE's fallthrough before that class got the
+        # branch above it (the sentence still lives on the path where it is
+        # TRUE — a clarification response with nothing pending). Leaving it
+        # here would tell an analyst their question read as an answer when
+        # what actually happened is that the taxonomy grew a class the
+        # engine does not route; exhaustiveness says so instead, and says it
+        # at type-check time.
+        assert_never(turn_class)
 
     async def _classification_by_construction(
         self, session: Session, pending: PendingClarification | None, state_question: str
@@ -3067,6 +3232,34 @@ class SubmitTurnService:
         )
 
     @staticmethod
+    def _supersede_pending(
+        state: _TurnState, pending: PendingClarification | None
+    ) -> str | None:
+        """Drop the pending question rather than ask a second one (FIX-12(d)).
+
+        Fires only where the analyst has plainly moved on: a clarification
+        is on screen, the new utterance is a self-contained question that
+        answers none of its options (``_answers_pending``), and this turn
+        was about to raise ANOTHER clarification on top of it. Then the
+        honest move is not a third question about which question we are
+        answering — it is to answer the one they just asked and say the
+        other was dropped.
+
+        Returns the sentence to publish, or ``None`` to clarify as usual.
+        A turn with nothing pending is untouched, and so is a genuine
+        clarification answer: superseding those would throw away the reply
+        the platform asked for.
+        """
+        if pending is None or _answers_pending(state.question, pending):
+            return None
+        return (
+            f"Assumed: this is a new question and it replaces the one I had open. I asked "
+            f"{pending.question!r} and you asked something else, so I dropped my question "
+            "rather than ask a second one about which of the two we are doing — ask it "
+            "again whenever you want it, and it will run as its own turn."
+        )
+
+    @staticmethod
     def _commit_instead_of_clarifying(
         state: _TurnState, pending: PendingClarification | None
     ) -> str | None:
@@ -3155,7 +3348,7 @@ class SubmitTurnService:
         self,
         session: Session,
         state: _TurnState,
-        classified: ClassificationOutcome,
+        classified: ClassificationOutcome | None,
         *,
         binding: ClarificationBinding | None = None,
         resume: AnalysisSpec | None = None,
@@ -3168,6 +3361,13 @@ class SubmitTurnService:
         by a model — and ``resume`` is the context of the answer the
         clarification interrupted, applied only where the sentence itself
         states nothing (round-5 A-01).
+
+        ``classified`` is ``None`` on the turns this engine decides WITHOUT
+        a model — the deterministic display-limit expansion, a budget stop
+        taken before classification — and those turns reach here through
+        ``_apply_binding``. It is threaded, never invented: the trace and
+        the persisted node both record "no classification" rather than a
+        fabricated one (see ``_trace_record``/``_minimal_investigation``).
         """
         exhausted = self._budget_stop(state, "working out what to measure")
         if exhausted is not None:
@@ -3652,6 +3852,12 @@ class SubmitTurnService:
         playbook = (
             self._pack.playbook(effective_playbook) if effective_playbook is not None else None
         )
+        # Every window this plan READS, judged against the load's settling
+        # curve before any verdict is composed over one (round-8 FIX-9(3)).
+        # A playbook probe declares its own window, so the premise verdict
+        # was being computed over a period the spec never named and the
+        # maturity guard — which read the spec — never saw it.
+        maturity_by_window = await self._plan_window_maturity(validated.plan, spec)
         findings_result = await self._evaluator.evaluate(
             plan=validated.plan,
             calculation=calculation,
@@ -3660,6 +3866,7 @@ class SubmitTurnService:
             playbook=playbook,
             session_id=session.id,
             investigation_id=state.investigation_id,
+            window_maturity=maturity_by_window,
             # The §15 threshold the frames were policed under: a bound is
             # only recognisable against the threshold that produced it, and
             # without it findings publish `(threshold - 1) / n` as a
@@ -3770,7 +3977,12 @@ class SubmitTurnService:
         # …and the same guard applied to the shape neither the series rule
         # nor the comparison rule can see: ONE window, one number (E-01).
         findings_result = await self._guard_window_maturity(
-            findings_result, spec, extra_warnings, state
+            findings_result,
+            spec,
+            extra_warnings,
+            state,
+            maturity_by_window,
+            window_explicit=window_explicit,
         )
         for detail in calculation.warnings:
             await self._events.publish(
@@ -3810,7 +4022,7 @@ class SubmitTurnService:
         # retrieved at all, "no finding survived" is a consequence, not the
         # explanation.
         emptiness = calculation.emptiness or findings_result.emptiness
-        benchmarks = self._benchmarks_for(findings_result)
+        benchmarks = self._benchmarks_for(findings_result, warnings)
         header = build_context_header(
             spec,
             session,
@@ -4203,12 +4415,63 @@ class SubmitTurnService:
         warnings.extend(v.warning for v in verdicts)
         return _qualify_every_finding(findings)
 
+    async def _plan_window_maturity(
+        self, plan: InvestigationPlan, spec: AnalysisSpec
+    ) -> dict[AbsoluteRange, WindowMaturity]:
+        """The settling verdict for every window this plan actually reads.
+
+        Round-8 FIX-9(3). The guard used to ask about ``spec.context.window``
+        and nothing else, which is the window the header ANNOUNCES. A
+        playbook probe declares its own — the denial_spike premise probe
+        read 2026-06-08..2026-08-02 while the turn announced July against
+        June — so the one window that mattered was the one nothing asked
+        about, and "your denial spike did not happen" was published over a
+        window three quarters of which had not come back.
+
+        Costs one aggregation per (watermark, basis, entity, yardstick):
+        the curve is cached inside the service and every window after the
+        first is arithmetic over it.
+        """
+        if self._window_maturity is None:
+            return {}
+        windows: dict[AbsoluteRange, TimeWindow] = {spec.context.window.range: spec.context.window}
+        if spec.context.comparison is not None:
+            comparison = spec.context.comparison.window
+            windows.setdefault(comparison.range, comparison)
+        for node in plan.nodes:
+            window = getattr(node.probe, "window", None)
+            if isinstance(window, TimeWindow):
+                windows.setdefault(window.range, window)
+        # …and every whole month inside each of them. A window wider than a
+        # month blends settled and settling data and passes as a blend: the
+        # playbook's 2026-06-08..2026-08-02 holds a settled June, a July at
+        # 26% and two days of August, and only the July inside it explains
+        # a 39.5% "fall". The premise verdict reads these (see
+        # ``verify_premise``); the turn-level guard above still keys on the
+        # window the header announced.
+        for window in tuple(windows.values()):
+            for month in covered_months(window.range):
+                windows.setdefault(month, replace(window, range=month, requested=None))
+        out: dict[AbsoluteRange, WindowMaturity] = {}
+        for window_range, window in windows.items():
+            verdict = await self._window_maturity.verdict_for(
+                window,
+                grain=spec.context.grain.entity,
+                watermark=spec.context.watermark,
+            )
+            if verdict is not None:
+                out[window_range] = verdict
+        return out
+
     async def _guard_window_maturity(
         self,
         findings: FindingsResult,
         spec: AnalysisSpec,
         warnings: list[str],
         state: _TurnState,
+        maturity_by_window: Mapping[AbsoluteRange, WindowMaturity] | None = None,
+        *,
+        window_explicit: bool = True,
     ) -> FindingsResult:
         """Apply the adjudication guard to a SINGLE WINDOW (round-6 E-01).
 
@@ -4221,20 +4484,24 @@ class SubmitTurnService:
 
         Silent where another guard has already spoken: a turn that carries
         ``adjudication_incomplete`` from its series or its comparison does
-        not need a third sentence about the same fact. Silent, too, on a
-        comparison — the panel rule owns that axis and states the asymmetry
-        between the two sides, which is the stronger fact.
+        not need a third sentence about the same fact.
+
+        It is NOT silent on a comparison any more (round-8 FIX-9(3)). The
+        panel rule owns that axis where it can see it — and it sees only a
+        ratio's adjudicated denominator, so a comparison of an additive
+        money measure, or one whose two sides are equally unsettled, left
+        the turn with no maturity statement at all. That is the hole the
+        playbook premise fell through. Where the panel rule spoke, the
+        warning check above still stands this one down.
         """
         if self._window_maturity is None or not findings.findings:
             return findings
-        if spec.context.comparison is not None:
-            return findings
         if any(w.startswith("adjudication_incomplete:") for w in warnings):
             return findings
-        verdict = await self._window_maturity.verdict(spec)
+        verdict = (maturity_by_window or {}).get(spec.context.window.range)
         if verdict is None:
             return findings
-        warnings.append(verdict.warning)
+        warnings.append(await self._with_settled_reading(verdict, spec, window_explicit))
         await self._events.publish(
             TurnEvent(
                 kind="warning",
@@ -4255,9 +4522,74 @@ class SubmitTurnService:
             ),
         )
 
-    def _benchmarks_for(self, findings: FindingsResult) -> tuple[BenchmarkSpec, ...]:
+    async def _with_settled_reading(
+        self, verdict: WindowMaturity, spec: AnalysisSpec, window_explicit: bool
+    ) -> str:
+        """The maturity caveat, with the settled figure in front of it.
+
+        Round-8 FIX-12(a). "What is my denial rate?" led with 12.8% — the
+        July figure this product's own trend answer excludes as provisional
+        — and every caveat that governed it sat underneath. The reader
+        leaves with the number, not with the paragraph.
+
+        So when the period was one this platform CHOSE (no window in the
+        question) and that period has not settled, the answer states what
+        the last settled month reads before it states the provisional one.
+        Measured, never estimated; over the analyst's own scope; and only
+        for a question with a single measure, because "the settled reading"
+        of four metrics at once is a table, not a sentence.
+
+        Silent — the plain caveat, unchanged — whenever the reading cannot
+        be had honestly, and whenever the analyst NAMED the period: asking
+        about July and being told about June is answering a different
+        question.
+        """
+        if self._window_maturity is None or window_explicit or len(spec.measures) != 1:
+            return verdict.warning
+        measure = spec.measures[0].id
+        reading = await self._window_maturity.settled_reading(
+            spec,
+            measure=measure,
+            # The §15 threshold this turn's own frames were policed under:
+            # a settled reading over a handful of claims is the small cell
+            # the rest of the engine withholds.
+            suppression_threshold=self._executor.suppression_threshold,
+        )
+        if reading is None:
+            return verdict.warning
+        return (
+            f"adjudication_incomplete: through {_period_phrase(reading.window)} — the last "
+            f"period of this metric that has finished settling — {metric_label(measure)} reads "
+            f"{format_value(reading.value, reading.unit)}. The window below "
+            f"({verdict.window.start.isoformat()}..{verdict.window.end.isoformat()}) is the one "
+            "this platform assumed, and it has NOT finished settling: it holds "
+            f"{verdict.population:,} settled record(s) where a window of that length normally "
+            f"holds about {verdict.expected:,}, {verdict.share:.1%} of it. Read the settled "
+            "figure as the level and the one below as provisional — what has settled is not a "
+            "random sample of what has not, so a total there is understated and a rate there is "
+            f"skewed. The count is the one {verdict.yardstick!r} declares, and the norm is the "
+            "median month of this load."
+        )
+
+    def _benchmarks_for(
+        self, findings: FindingsResult, warnings: Sequence[str] = ()
+    ) -> tuple[BenchmarkSpec, ...]:
         """Benchmark ranges for every metric the turn's findings cite, in
-        finding order, deduplicated by benchmark id."""
+        finding order, deduplicated by benchmark id.
+
+        Withheld entirely when the turn's own window has not finished
+        settling (round-8 FIX-12(a)). Live: "the denial rate stands at 12.8%
+        (F1), which sits below the benchmark range of 19-20 percent" — a
+        favourable verdict, in the reader's first sentence, on a month that
+        was 26% adjudicated, against an insurer-reported cohort whose
+        caution ("plan-reported data with no initial/final distinction")
+        did not make it into the clause. A benchmark comparison is a
+        judgement about a level; a provisional level has no judgement to
+        pass on it yet, and passing one anyway is the most quotable
+        sentence on the answer.
+        """
+        if any(w.startswith("adjudication_incomplete:") for w in warnings):
+            return ()
         seen: dict[str, BenchmarkSpec] = {}
         for finding in findings.findings:
             for ref in finding.metric_refs:
@@ -4478,7 +4810,13 @@ class SubmitTurnService:
             )
             chart_sorts = _chart_sorts_for(frames, key, descending) or chart_sorts
         else:
-            not_applied = _unapplied_presentation_request(state.question)
+            # An export asked for in words is refused BY NAME, ahead of the
+            # generic "that request was not applied" (round-8 FIX-12(b)):
+            # the reader needs to know where the export is, not only that
+            # this turn did not do it.
+            not_applied = _export_request_refusal(
+                state.question
+            ) or _unapplied_presentation_request(state.question)
             if not_applied is not None:
                 warnings = (*warnings, not_applied)
         investigation = replace(
@@ -4899,6 +5237,13 @@ class SubmitTurnService:
         # paths that skipped one of these steps).
         #
         offered = len(clarification.options)
+        # 0. An option is something the analyst can SAY. Live (round-8
+        #    FIX-12(d)): "Why did it go up?" was answered with option 3
+        #    "Which metric are you asking about? — I mean the last figure
+        #    you charted." — the platform's own question pasted into the
+        #    list of things the reader might reply. Sending it back answers
+        #    nothing, which is how a clarification becomes a loop.
+        clarification = _drop_interrogative_options(clarification)
         # 1. Values this session has already proved do not exist (FN-6)…
         clarification = drop_refuted_options(
             clarification, await self._refuted_in_session(session)
@@ -4998,7 +5343,7 @@ class SubmitTurnService:
         self,
         session: Session,
         state: _TurnState,
-        classified: ClassificationOutcome,
+        classified: ClassificationOutcome | None,
         answer: DefinitionalAnswer | None = None,
     ) -> TurnOutcome:
         # ZERO probes by construction: the executor is never invoked on this

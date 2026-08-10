@@ -43,6 +43,21 @@ jobs:
         env:
           REVI_DATABASE_URL: postgresql+psycopg://revi:revi_dev_only@localhost:5433/revi
         run: uv run pytest -m postgres -q
+      # FN-17. The independent recomputation path is a gate or it is a
+      # demo, and it was neither in CI: `make warehouse-diff` appeared
+      # nowhere in this file, so the only thing enforcing it was a pytest
+      # case that skips on an empty corpus. Named as its own step here, and
+      # non-zero on any live divergence, planted-error miss, golden
+      # mismatch or answer-key mismatch. The corpus half only has anything
+      # to say once this database has been seeded — the report says so in
+      # one sentence rather than printing percentages of nothing, so a
+      # green tick on an empty corpus cannot be read as coverage.
+      - name: Warehouse-diff (independent recomputation)
+        env:
+          REVI_DATABASE_URL: postgresql+psycopg://revi:revi_dev_only@localhost:5433/revi
+        run: |
+          make migrate
+          make warehouse-diff
 
   web:
     runs-on: ubuntu-latest

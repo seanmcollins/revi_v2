@@ -40,7 +40,7 @@ from __future__ import annotations
 
 from calendar import monthrange
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal
 
 from revi_calculation_contracts.contract import CountDistinct
@@ -48,7 +48,8 @@ from revi_investigation.application.capability_ports import PackPort
 from revi_investigation.domain.context import AnalysisSpec
 from revi_kernel.capabilities import AnalyticalRepository
 from revi_kernel.errors import ReviError
-from revi_kernel.filters import EMPTY_SCOPE
+from revi_kernel.filters import EMPTY_SCOPE, Scalar
+from revi_kernel.frame import EvidenceFrame
 from revi_kernel.maturity import (
     DENOMINATOR_SUFFIX,
     MIN_SERIES_POINTS,
@@ -71,11 +72,48 @@ _CURVE_YEARS = 3
 #: settling one — excluded from the curve so it cannot drag the norm down.
 _STUB_MONTH_DAYS = 3
 
+#: The anatomy column a repository returns for a measure's numerator.
+#: Its twin, ``__den``, is :data:`revi_kernel.maturity.DENOMINATOR_SUFFIX`.
+_NUMERATOR_SUFFIX = "__num"
+
+#: How far back :meth:`WindowMaturityService.settled_reading` will walk to
+#: find a period it can speak for. Three months: past that the "settled
+#: reading" is old enough that leading with it would answer a different
+#: question, and saying nothing is the better failure.
+_SETTLED_LOOKBACK = 3
+
+
+def _measured(value: Scalar) -> Decimal | int | None:
+    """One cell as a MEASUREMENT, or ``None`` when it is not one.
+
+    A frame column carries the whole ``Scalar`` vocabulary — text, dates
+    and flags included — and a settled reading is arithmetic over it. A
+    date in a measure column is not a small number, it is not a number at
+    all, and reading one as a value published a ``date`` where every
+    caller formats a quantity. ``bool`` is refused ahead of ``int``
+    because Python says ``True`` is 1 while a flag column is still not a
+    measurement.
+    """
+    if value is None or isinstance(value, bool) or not isinstance(value, (int, Decimal)):
+        return None
+    return value
+
 __all__ = [
+    "SettledReading",
     "WindowMaturity",
     "WindowMaturityService",
     "adjudication_yardstick",
 ]
+
+
+@dataclass(frozen=True, slots=True)
+class SettledReading:
+    """One measure, over the latest period that has finished adjudicating."""
+
+    window: AbsoluteRange
+    measure: str
+    value: Decimal | int
+    unit: str | None
 
 
 @dataclass(frozen=True, slots=True)
@@ -149,6 +187,25 @@ def _month_start(day: date) -> date:
     return date(day.year, day.month, 1)
 
 
+def covered_months(window: AbsoluteRange) -> tuple[AbsoluteRange, ...]:
+    """Every whole calendar month this range touches, as its own range.
+
+    A window wider than a month blends settled and settling data, and the
+    blend hides the part that matters: 2026-06-08..2026-08-02 holds a fully
+    settled June, a July that is a quarter adjudicated and two days of
+    August, and judged as one span it passes. Judged month by month, the
+    July inside it is what makes a delta across that window a settlement
+    artifact (round-8 FIX-9(3)).
+    """
+    out: list[AbsoluteRange] = []
+    cursor = _month_start(window.start)
+    while cursor <= window.end:
+        last = monthrange(cursor.year, cursor.month)[1]
+        out.append(AbsoluteRange(start=cursor, end=date(cursor.year, cursor.month, last)))
+        cursor = _month_start(date(cursor.year, cursor.month, last) + timedelta(days=1))
+    return tuple(out)
+
+
 def _covered_share(bucket: date, window: AbsoluteRange) -> Decimal:
     """How much of one month the window covers, as a fraction of its days.
 
@@ -183,15 +240,34 @@ class WindowMaturityService:
     async def verdict(self, spec: AnalysisSpec) -> WindowMaturity | None:
         """Is this spec's window still settling? ``None`` when it is not —
         or when this load gives no honest way to tell."""
-        window = spec.context.window
-        yardstick = adjudication_yardstick(
-            self._pack, grain=spec.context.grain.entity, basis=window.basis
+        return await self.verdict_for(
+            spec.context.window,
+            grain=spec.context.grain.entity,
+            watermark=spec.context.watermark,
         )
+
+    async def verdict_for(
+        self,
+        window: TimeWindow,
+        *,
+        grain: EntityGrain,
+        watermark: DataWatermark,
+    ) -> WindowMaturity | None:
+        """…asked of ANY window, not only the one the header announced.
+
+        Round-8 FIX-9(3). A playbook probe declares its own window, and the
+        premise verdict on the playbook path was therefore checked over
+        2026-06-08..2026-08-02 while the turn announced July against June —
+        so the guard, which read the spec, judged a window nothing was
+        computed over and stayed silent on the one that was. The caller
+        collects the windows a plan actually reads and asks about each; the
+        settling curve behind them is read once per (watermark, basis,
+        entity, yardstick) whatever they are.
+        """
+        yardstick = adjudication_yardstick(self._pack, grain=grain, basis=window.basis)
         if yardstick is None:
             return None
-        curve = await self._curve(
-            spec.context.watermark, window.basis, spec.context.grain.entity, yardstick
-        )
+        curve = await self._curve(watermark, window.basis, grain, yardstick)
         if curve is None:
             return None
         covered = [
@@ -232,6 +308,134 @@ class WindowMaturityService:
                 "settled period, or on a basis whose events are already recorded, to read "
                 "this without the caveat."
             ),
+        )
+
+    async def settled_reading(
+        self,
+        spec: AnalysisSpec,
+        *,
+        measure: str,
+        suppression_threshold: int | None = None,
+        max_steps: int = _SETTLED_LOOKBACK,
+    ) -> SettledReading | None:
+        """The same measure over the most recent period that HAS settled.
+
+        Round-8 FIX-12(a). "What is my denial rate?" — the first question of
+        any demo — assumed July and answered "12.8%", the one figure this
+        product's own trend answer excludes as provisional (1,544 records
+        against a series median of 6,051). The caveats were all present and
+        all underneath. A director carries "our denial rate is 12.8%" out of
+        the room, and the settled book runs 7.2-9.1%.
+
+        Naming the caveat is not enough when the number itself is the
+        wrong one to lead with, so the settled reading is MEASURED and put
+        in front of it: "Through June, 9.1%; July reads 12.8% but only 26%
+        of it has adjudicated." One aggregation, outside the plan for the
+        same reason the curve is (the plan is the analyst's), over the
+        analyst's own scope so the two figures describe one population.
+
+        ``None`` whenever the honest answer is silence: no settled period
+        within the lookback, a source that will not serve it, or a frame
+        with no value in it.
+        """
+        window = spec.context.window
+        entity = spec.context.grain.entity
+        candidate = _month_start(window.range.start)
+        for _ in range(max_steps):
+            candidate = _month_start(candidate - timedelta(days=1))
+            settled_window = TimeWindow(
+                basis=window.basis,
+                range=AbsoluteRange(
+                    start=candidate,
+                    end=date(
+                        candidate.year,
+                        candidate.month,
+                        monthrange(candidate.year, candidate.month)[1],
+                    ),
+                ),
+                calendar=window.calendar,
+            )
+            if settled_window.range.end > spec.context.watermark.newest_data_date:
+                continue
+            if (
+                await self.verdict_for(
+                    settled_window, grain=entity, watermark=spec.context.watermark
+                )
+                is not None
+            ):
+                continue  # that one is still settling too — keep walking back
+            probe = AggregationProbe(
+                measures=(MetricRef(measure),),
+                dimensions=(),
+                scope=spec.context.scope,
+                window=settled_window,
+                grain=Grain(entity),
+            )
+            try:
+                frame = await self._repository.execute(
+                    probe, watermark=spec.context.watermark
+                )
+            except ReviError:
+                # Any refusal — the source is down, the grain does not take
+                # this measure — is evidence of nothing, and this method
+                # says nothing rather than guessing.
+                return None
+            return self._reading_from(frame, measure, settled_window, suppression_threshold)
+        return None
+
+    def _reading_from(
+        self,
+        frame: EvidenceFrame,
+        measure: str,
+        window: TimeWindow,
+        suppression_threshold: int | None,
+    ) -> SettledReading | None:
+        """One measure's value off a repository frame, ratios composed.
+
+        A repository returns a metric's ANATOMY — ``<m>__num`` and
+        ``<m>__den`` — and the ratio itself is the kernel's arithmetic, not
+        the warehouse's. Reading only a ``<m>`` column therefore found
+        nothing on every ratio in the pack, which is every metric this
+        sentence is worth saying about.
+
+        The §15 policy is applied here too, on the same threshold the
+        turn's own frames were policed under: a settled reading over a
+        handful of claims is exactly the small cell the rest of the engine
+        withholds, and it may not slip in through a caveat.
+        """
+        if not frame.rows:
+            return None
+        row = frame.rows[0]
+        names = frame.schema.names
+        contract = self._pack.metric(measure)
+        unit = str(contract.unit) if contract is not None else None
+        if measure in names:
+            value = _measured(row[frame.schema.index_of(measure)])
+            if value is None:
+                return None
+            column_unit = frame.schema.columns[frame.schema.index_of(measure)].unit
+            return SettledReading(
+                window=window.range, measure=measure, value=value, unit=column_unit or unit
+            )
+        numerator = f"{measure}{_NUMERATOR_SUFFIX}"
+        denominator = f"{measure}{DENOMINATOR_SUFFIX}"
+        if numerator not in names:
+            return None
+        num = _measured(row[frame.schema.index_of(numerator)])
+        if num is None:
+            return None
+        if denominator not in names:  # an additive measure has no divisor
+            return SettledReading(window=window.range, measure=measure, value=num, unit=unit)
+        den = _measured(row[frame.schema.index_of(denominator)])
+        if den is None or den <= 0:
+            return None
+        if suppression_threshold is not None and den < suppression_threshold:
+            return None
+        return SettledReading(
+            window=window.range,
+            measure=measure,
+            value=Decimal(num) / Decimal(den),
+            unit=unit,
         )
 
     async def _curve(

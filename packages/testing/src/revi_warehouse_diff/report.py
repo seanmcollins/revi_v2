@@ -6,7 +6,7 @@ from collections import Counter
 from typing import Any
 
 from revi_warehouse_diff.answer_key import KeyResult
-from revi_warehouse_diff.archaeology import DISCLOSURE_CONTRACT_SINCE, DISCLOSURE_FIXES
+from revi_warehouse_diff.archaeology import DISCLOSURE_CONTRACT_SINCE, DISCLOSURE_FIXES, LIVE
 from revi_warehouse_diff.goldens import GoldenResult
 from revi_warehouse_diff.replay import BASIS_AMBIGUOUS, BOUND_UPHELD, ROUNDED_INPUTS, ReplayReport
 
@@ -15,6 +15,72 @@ RULE = "=" * 78
 
 def _pct(part: int, whole: int) -> str:
     return f"{(100.0 * part / whole):.1f}%" if whole else "n/a"
+
+
+def headline(replay: ReplayReport) -> str:
+    """THE QUOTABLE SENTENCE — every number in it, in one string.
+
+    Round-8 FIX-11. The sentence people repeated was "5,059 published values
+    re-derived, zero live divergences", which is two true numbers with the
+    three that qualify them removed: how many of the audited values were
+    derivable at all, how many of THOSE reproduced, and how much of the
+    corpus the zero actually covers. Three reviewers ran the harness
+    independently and all three reconstructed the missing numbers by hand;
+    the instrument was right every time and the sentence about it was not.
+
+    So the quotable sentence and the honest sentence are now the same
+    string, and it is the one the report prints. If a deck wants a line
+    about this harness, this is the line — there is no shorter true one.
+    """
+    counts = replay.counts()
+    total = len(replay.audited)
+    if not total:
+        # A green tick over an empty corpus is the most misreadable output
+        # this tool can produce, so it says what it is instead of printing
+        # percentages of nothing.
+        return (
+            "NO CORPUS REPLAYED — 0 published values audited. The goldens and the answer-key "
+            "cross-check above are the only evidence in this run; nothing here says anything "
+            "about what the product has published."
+        )
+    reproduced = (
+        counts.get("matched", 0)
+        + counts.get(BASIS_AMBIGUOUS, 0)
+        + counts.get(ROUNDED_INPUTS, 0)
+        + counts.get(BOUND_UPHELD, 0)
+    )
+    derivable = reproduced + counts.get("diverged", 0)
+    live_audited = sum(1 for a in replay.audited if a.era == LIVE)
+    live_divergences = len(replay.live_divergences)
+    return (
+        f"{total} published values audited; {_pct(derivable, total)} derivable by the audit "
+        f"path; {_pct(reproduced, derivable)} of those reproduce; {live_audited} values sit "
+        "under the current disclosure contract, with "
+        f"{live_divergences if live_divergences else 'zero'} divergence"
+        f"{'' if live_divergences == 1 else 's'} among them."
+    )
+
+
+def live_window(replay: ReplayReport) -> str:
+    """How much of the corpus the zero-live gate actually covers.
+
+    Stated beside the verdict because "zero live divergences" over 7% of the
+    corpus and over all of it are different claims, and only one of them is
+    the one a reader hears.
+    """
+    live_ids = {a.investigation_id for a in replay.audited if a.era == LIVE}
+    seen_ids = {a.investigation_id for a in replay.audited}
+    if not seen_ids:
+        return (
+            "no corpus was replayed, so the live/archaeology split says nothing about this "
+            f"run (the disclosure contract in force is dated {DISCLOSURE_CONTRACT_SINCE.isoformat()})"
+        )
+    return (
+        f"live window: {len(live_ids)} of {len(seen_ids)} audited investigations "
+        f"({_pct(len(live_ids), len(seen_ids))}) were published under the current "
+        f"disclosure contract (since {DISCLOSURE_CONTRACT_SINCE.isoformat()}); the rest are "
+        "dated archaeology and are reported, never dropped"
+    )
 
 
 def divergence_class(item: Any) -> str:
@@ -188,6 +254,11 @@ def render(
         if not live and not golden_counts.get("diverged") and not key_counts.get("diverged")
         else "FAIL"
     )
+    # The one sentence anybody is going to repeat, with every number that
+    # qualifies it inside it. Printed beside the verdict so a reader cannot
+    # take the verdict without the scope (round-8 FIX-11).
+    add(f"IN ONE SENTENCE: {headline(replay)}")
+    add(f"SCOPE: {live_window(replay)}")
     add(f"VERDICT: {verdict}")
     add(RULE)
     return "\n".join(lines)
@@ -197,6 +268,11 @@ def as_json(
     replay: ReplayReport, goldens: list[GoldenResult], key_results: list[KeyResult]
 ) -> dict[str, Any]:
     return {
+        # The same string the human report prints, so a dashboard, a deck
+        # and a terminal cannot quote three different sentences about one
+        # run (round-8 FIX-11).
+        "headline": headline(replay),
+        "scope": live_window(replay),
         "goldens": {
             "counts": dict(Counter(r.outcome for r in goldens)),
             "failures": [

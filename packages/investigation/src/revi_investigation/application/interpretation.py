@@ -123,6 +123,7 @@ from revi_kernel.scope import (
     derive_comparison,
     resolve_anchored,
     resolve_window,
+    whole_month_span,
 )
 from revi_kernel.watermark import DataWatermark
 
@@ -248,6 +249,63 @@ _FORWARD_PHRASE = re.compile(
     re.IGNORECASE,
 )
 
+#: "Now" said about a quantity that only exists over a period (round-8
+#: FIX-6). "Who is my worst payer on denial rate RIGHT NOW, and is that a
+#: change from last month?" — the sentence the whole Rounds pitch is built
+#: on — resolved to 2026-08-01..2026-08-02, the two days since the month
+#: boundary, compared against a same-length slice of July, and returned a
+#: blank page in a customer room. The identical question with the months
+#: named returns three findings.
+#:
+#: A denial RATE has no value at an instant: it is a numerator over a
+#: denominator accumulated across a period, and the last two days of it are
+#: the least adjudicated data in the load. So "right now" on a periodic
+#: metric means "the latest period this load can speak for" — the last FULL
+#: one — and the assumption is stated, exactly as an assumed window is.
+#: (A snapshot contract IS an instant, and the ``snapshot_as_of`` note
+#: already says so; this rule never touches those.)
+_NOW_PHRASE = re.compile(
+    r"(?<!\w)(right now|just now|as of now|as we speak|as things stand|at the moment|"
+    r"at present|presently|currently|today)(?!\w)",
+    re.IGNORECASE,
+)
+
+#: The now-phrases that are ALSO in the relative vocabulary above. "Today"
+#: resolves to a one-day window there; on a monthly metric that is the same
+#: two-day defect with a shorter window, so it is anchored like the rest of
+#: the family rather than excluded as a period the analyst named.
+_NOW_PHRASE_LABELS: frozenset[str] = frozenset({"today"})
+
+#: A period named as the thing being COMPARED AGAINST rather than as the
+#: window to measure — "is that a change FROM LAST MONTH", "vs last month",
+#: "compared to a year ago". Two jobs, both round-8 FIX-6:
+#:
+#: 1. it is not the window. The vocabulary scan above matches "last month"
+#:    wherever it appears, so an utterance that names its window with a now
+#:    phrase and its baseline with "from last month" used to be measured
+#:    over the baseline;
+#: 2. it IS a comparison. A question that asks for a change and gets a level
+#:    is a dead end even when the level is right, and the demo opener asks
+#:    for one in plain English.
+#:
+#: Deterministic and closed, like every other phrase table here: the model
+#: is asked for a comparison first and this catches the ones it drops.
+_COMPARISON_PHRASE = re.compile(
+    r"(?<!\w)(?:than|versus|vs\.?|compared\s+(?:to|with)|against|from|since|over)\s+"
+    r"(?:the\s+)?(?:same\s+(?:period|month|quarter)\s+)?"
+    r"(?P<period>last\s+month|the\s+(?:prior|previous)\s+month|a\s+month\s+ago|"
+    r"last\s+quarter|the\s+(?:prior|previous)\s+quarter|"
+    r"last\s+year|the\s+(?:prior|previous)\s+year|a\s+year\s+ago|"
+    r"the\s+(?:prior|previous)\s+period)",
+    re.IGNORECASE,
+)
+
+#: Which kind of comparison each of those periods names. A month-ago
+#: baseline is the period before a MONTHLY window; it is not "the prior
+#: period" of a quarter, so the caller checks the window's own shape before
+#: honoring it (see ``_comparison_from_phrase``).
+_PRIOR_YEAR_PERIODS = ("last year", "prior year", "previous year", "a year ago")
+
 
 @dataclass(frozen=True, slots=True)
 class RelativePeriod:
@@ -286,6 +344,95 @@ def recognize_relative_period(question: str) -> RelativePeriod | None:
         if re.search(rf"(?<!\w){re.escape(needle)}(?!\w)", text):
             return RelativePeriod(quoted=label, relative=relative)
     return None
+
+
+def recognize_now_phrase(question: str) -> str | None:
+    """The "now" this utterance says, if it says one (round-8 FIX-6)."""
+    match = _NOW_PHRASE.search(question)
+    return match.group(0).lower() if match is not None else None
+
+
+def recognize_comparison_phrase(question: str) -> tuple[str, ComparisonKind] | None:
+    """The baseline this utterance names, and which comparison it is.
+
+    ``("last month", PRIOR_PERIOD)`` for "is that a change from last month".
+    The kind is the FAMILY the phrase belongs to; whether the period it
+    names really is the window's prior period is the caller's check, because
+    only the caller knows how long the window is.
+    """
+    match = _COMPARISON_PHRASE.search(question)
+    if match is None:
+        return None
+    period = " ".join(match.group("period").lower().split())
+    kind = (
+        ComparisonKind.PRIOR_YEAR
+        if any(needle in period for needle in _PRIOR_YEAR_PERIODS)
+        else ComparisonKind.PRIOR_PERIOD
+    )
+    return period, kind
+
+
+def without_comparison_clause(question: str) -> str:
+    """The utterance with its "vs last month" clause removed.
+
+    Only ever used to decide what the WINDOW is. "Last month" names a
+    period wherever it appears and the vocabulary scan cannot tell the two
+    roles apart, so an utterance that names its window one way and its
+    baseline another was measured over the baseline (round-8 FIX-6).
+    """
+    return _COMPARISON_PHRASE.sub(" ", question)
+
+
+def last_full_period(
+    watermark: DataWatermark, unit: TimeUnit, basis: DateBasisRef
+) -> TimeWindow:
+    """The most recent COMPLETE period of this unit that the load can see.
+
+    One helper so the "now" rule, the default window and a playbook default
+    cannot sit on three different ideas of the latest period; the anchor is
+    the one :mod:`revi_investigation.application.anchoring` states.
+    """
+    requested = RelativeRange(Decimal(1), unit, RangeMode.FULL_PERIODS)
+    return resolve_window(
+        requested, window_anchor(watermark, RangeMode.FULL_PERIODS), basis=basis
+    )
+
+
+#: The units a "now" can be rounded back to. A metric read at day grain has
+#: no full period worth anchoring to (yesterday is not a reporting period),
+#: so day and week "nows" land on the month the rest of the product assumes.
+_PERIOD_UNITS: tuple[TimeUnit, ...] = (TimeUnit.MONTH, TimeUnit.QUARTER, TimeUnit.YEAR)
+
+
+def _period_names_prior_window(
+    phrase: str, kind: ComparisonKind, window: TimeWindow
+) -> bool:
+    """Is the baseline this phrase names the window's own prior period?
+
+    "Vs last month" against a month IS the prior period. Against a quarter
+    it is not — the period before this quarter is three months back — and
+    silently answering the second when the analyst said the first is how a
+    comparison ends up describing dates nobody asked about. When the shapes
+    do not line up this returns False and the utterance's baseline goes
+    unanswered rather than wrongly answered.
+    """
+    if kind is ComparisonKind.PRIOR_YEAR or "period" in phrase:
+        return True
+    requested = window.requested
+    span = whole_month_span(window.range)
+    if "month" in phrase:
+        return span == 1 or (
+            requested is not None
+            and requested.unit is TimeUnit.MONTH
+            and requested.quantity == 1
+        )
+    if "quarter" in phrase:
+        return span == 3 or (
+            requested is not None
+            and requested.unit is TimeUnit.QUARTER
+            and requested.quantity == 1
+        )
+    return False  # pragma: no cover - the pattern names no other period
 
 
 #: The sizes an assertion can name, as a multiple of the prior level. A
@@ -1105,6 +1252,15 @@ class InterpretQuestionService:
         window, period_label = self._interpreted_window(parsed.window, basis, session)
 
         notes: list[str] = []
+        # An as-of contract reports a balance standing at the watermark, so
+        # "right now" is literally what it measures and no period rounding
+        # applies to it. Read here rather than below because the "now" rule
+        # and the ``snapshot_as_of`` note are the same decision said twice.
+        as_of_only = bool(governing) and all(
+            str(contract.kind) == _SNAPSHOT_KIND for contract in governing
+        )
+        now_phrase = recognize_now_phrase(question)
+        comparison_named = recognize_comparison_phrase(question)
         # The model is asked for a window first; this catches the phrases it
         # drops (round-3 R3-16). "This week" and "the next 30 days" were
         # both answered with ``the question named no period``, printed under
@@ -1112,7 +1268,15 @@ class InterpretQuestionService:
         # month.
         relative_named: RelativePeriod | None = None
         if not window_explicit:
-            relative_named = recognize_relative_period(question)
+            # …read off the utterance MINUS its baseline clause when the
+            # window is named by a "now": "worst payer right now, is that a
+            # change from last month" names July and June, not July twice
+            # (round-8 FIX-6).
+            relative_named = recognize_relative_period(
+                without_comparison_clause(question)
+                if now_phrase is not None and comparison_named is not None
+                else question
+            )
         if relative_named is not None and relative_named.relative is not None:
             anchor = window_anchor(session.watermark, relative_named.relative.mode)
             window = resolve_window(relative_named.relative, anchor, basis=basis)
@@ -1138,6 +1302,48 @@ class InterpretQuestionService:
             )
             window_explicit = True  # a period WAS named; do not claim otherwise
             period_label = relative_named.quoted
+        # "Right now" on a quantity that only exists over a period (FIX-6).
+        # Everything above has run, so this sees the window the model or the
+        # vocabulary actually resolved — and re-anchors it to the last FULL
+        # period when that window is a slice of the period still open. The
+        # analyst is told, in the same shape an assumed window is told.
+        if now_phrase is not None and not as_of_only:
+            named_a_period = (
+                relative_named is not None
+                and relative_named.quoted.lower() not in _NOW_PHRASE_LABELS
+            )
+            requested = window.requested
+            unit = (
+                requested.unit
+                if requested is not None and requested.unit in _PERIOD_UNITS
+                else TimeUnit.MONTH
+            )
+            target = last_full_period(session.watermark, unit, basis)
+            # Only a window that reaches into the open period and is no
+            # longer than one whole period is a "now" to round back: a
+            # trailing 90 days ends there too and is a span the analyst
+            # asked for, not a period boundary they fell over.
+            partial = (
+                window.range.end > target.range.end
+                and window.range.day_length <= target.range.day_length
+            )
+            if partial and not named_a_period:
+                stale = window.range
+                window = target
+                window_explicit = True  # a period WAS named — "right now"
+                period_label = now_phrase
+                notes.append(
+                    f'window_assumed: you said "{now_phrase}", and this metric is measured '
+                    "over a period rather than at an instant — so I read it over the last "
+                    f"FULL period this load can see, {window.range.start.isoformat()}.."
+                    f"{window.range.end.isoformat()} on the {basis.id} basis (newest data "
+                    f"date {session.watermark.newest_data_date.isoformat()}). Taken "
+                    f"literally it would have been {stale.start.isoformat()}.."
+                    f"{stale.end.isoformat()} — {stale.day_length} day(s) of the period "
+                    "that is still open, which is the least settled data in this load and "
+                    "is not comparable to a whole one. Name a period to read a different "
+                    "one."
+                )
         # A period the analyst NAMED is checked against the data this load
         # holds before anything is computed over it. Saying "the question
         # named no period" under a bubble containing the words "in January
@@ -1161,9 +1367,9 @@ class InterpretQuestionService:
             # The comparison is derived from the window below, and the
             # length gate reads it, so truncating HERE is what makes every
             # downstream surface state the window that was actually read.
-            requested = window.range
+            requested_range = window.range
             effective = AbsoluteRange(
-                start=requested.start, end=session.watermark.newest_data_date
+                start=requested_range.start, end=session.watermark.newest_data_date
             )
             window = replace(window, range=effective)
             named = f"you asked about {period_label}" if period_label else "the window requested"
@@ -1171,7 +1377,7 @@ class InterpretQuestionService:
                 f"window_out_of_range: {named}, and this load only reaches "
                 f"{session.watermark.newest_data_date.isoformat()} — so the EFFECTIVE window is "
                 f"{effective.start.isoformat()}..{effective.end.isoformat()} "
-                f"({effective.day_length} of the {requested.day_length} days named). Every "
+                f"({effective.day_length} of the {requested_range.day_length} days named). Every "
                 "figure, the context header and any comparison below are computed over the "
                 "effective window; nothing here describes the part of the period that has not "
                 "landed."
@@ -1196,6 +1402,26 @@ class InterpretQuestionService:
             context = replace(
                 context, comparison=derive_comparison(window, ComparisonKind(parsed.comparison))
             )
+        elif comparison_named is not None:
+            # The model dropped a baseline the utterance names (round-8
+            # FIX-6): "…and is that a change from last month?" came back as
+            # a level with no comparison at all, which answers half the
+            # question and reads as a non-answer to the half that matters.
+            # Honored only where the named period IS the window's own prior
+            # one — "last month" against a monthly window — because
+            # answering "vs last month" with the quarter before this quarter
+            # would be a different wrong answer.
+            phrase, kind = comparison_named
+            if _period_names_prior_window(phrase, kind, window):
+                assumed = derive_comparison(window, kind)
+                context = replace(context, comparison=assumed)
+                notes.append(
+                    f'comparison_assumed: you asked for a change "{phrase}", so I compared '
+                    f"{window.range.start.isoformat()}..{window.range.end.isoformat()} "
+                    f"against {assumed.window.range.start.isoformat()}.."
+                    f"{assumed.window.range.end.isoformat()} — the whole period that name "
+                    "points at, not a slice of it."
+                )
         spec = AnalysisSpec(
             context=context,
             measures=tuple(MetricRef(mid) for mid in parsed.metric_ids),
@@ -1252,9 +1478,7 @@ class InterpretQuestionService:
         # about a scoping that did not happen (round-2 FN-2). The turn
         # still carries a window — the cohort and charts are scoped by it
         # — and what the analyst is owed is the fact that the number is not.
-        as_of_only = bool(governing) and all(
-            str(contract.kind) == _SNAPSHOT_KIND for contract in governing
-        )
+        # (Read above, where the "now" rule needs the same fact.)
         if as_of_only:
             names = ", ".join(repr(contract.id) for contract in governing)
             notes.append(

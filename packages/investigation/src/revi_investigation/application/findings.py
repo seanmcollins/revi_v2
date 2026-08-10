@@ -94,7 +94,7 @@ Every compare row is also registered as a dimension-value referent
 
 from __future__ import annotations
 
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from datetime import date
 from decimal import Decimal
@@ -144,6 +144,7 @@ from revi_investigation.application.rendering import (
     ratio_pct,
     render_row_label,
 )
+from revi_investigation.application.window_maturity import WindowMaturity
 from revi_investigation.domain.context import (
     AnalysisSpec,
     AskedMagnitude,
@@ -1265,6 +1266,17 @@ class PremiseCheck:
     #: publishes, so it inherits that probe's window — and the verdict
     #: sentence has to state the period it was checked over.
     window: TimeWindow | None = None
+    #: That window's own settling verdict (round-8 FIX-9(3)). The fourth
+    #: integrity leg, and the one the playbook path needed: the panel rule
+    #: above compares two sides and is blind to an ADDITIVE money measure
+    #: (there is no denominator to count), so "we have a denial spike" ran
+    #: the playbook, measured denied dollars over 2026-06-08..2026-08-02 —
+    #: the least settled window in the load — and published "It did not
+    #: happen: denied dollars fell 39.5%" as a flat refutation. Minutes
+    #: earlier the DIRECT path had refused the equivalent comparison with
+    #: "the two windows are not equally settled … 27.0%". Same engine, same
+    #: metric, opposite honesty.
+    window_immature: WindowMaturity | None = None
 
     @property
     def magnitude_short(self) -> bool:
@@ -1291,6 +1303,7 @@ class PremiseCheck:
         return (
             self.bounded
             or self.immature is not None
+            or self.window_immature is not None
             or self.not_comparable_windows
             or self.size_asserted_unparsed
         )
@@ -1372,6 +1385,41 @@ def _premise_frames(
     return [*dedicated, *scalar]
 
 
+#: How much of a premise's window one unsettled month must account for
+#: before it decides the verdict. A month is a settlement artifact of the
+#: window it dominates: July is 55% of 2026-06-08..2026-08-02 and 8% of a
+#: year, and a caveat that fires on the second would be a caveat on every
+#: annual question this warehouse can answer.
+_UNSETTLED_MONTH_SHARE = Decimal("0.25")
+
+
+def _unsettled_part(
+    window: AbsoluteRange, verdicts: Mapping[AbsoluteRange, WindowMaturity] | None
+) -> WindowMaturity | None:
+    """This window's settling verdict — the whole window, or a month of it.
+
+    Round-8 FIX-9(3). The exact window first: for the ordinary shape (one
+    named month) that is the whole answer. Then the months INSIDE it,
+    because a window wider than a month blends settled and settling data
+    and passes as a blend — "denied dollars fell 39.5%" over
+    2026-06-08..2026-08-02 is a fully settled June measured against a July
+    that is a quarter adjudicated, and the blended share (68%) clears every
+    threshold while the delta is an artifact.
+    """
+    if not verdicts:
+        return None
+    exact = verdicts.get(window)
+    if exact is not None:
+        return exact
+    days = Decimal(window.day_length)
+    for month, verdict in verdicts.items():
+        if month.start < window.start or month.end > window.end:
+            continue  # only a month this window holds WHOLE
+        if Decimal(month.day_length) / days >= _UNSETTLED_MONTH_SHARE:
+            return verdict
+    return None
+
+
 def verify_premise(
     plan: InvestigationPlan,
     calculation: CalculationResult,
@@ -1380,6 +1428,7 @@ def verify_premise(
     *,
     premise_prefix: str,
     suppression_threshold: int | None = None,
+    window_maturity: Mapping[AbsoluteRange, WindowMaturity] | None = None,
 ) -> PremiseCheck | None:
     """Check the asserted aggregate movement, before anything explains it.
 
@@ -1471,8 +1520,22 @@ def verify_premise(
             and _is_additive(unit)
             else None
         )
+        # …and the fourth leg (round-8 FIX-9(3)): has the window this was
+        # checked over finished settling at all? Keyed on the range the
+        # premise probe actually read — a playbook probe's own window, not
+        # the one the header announced — because judging the announced
+        # window is how this guard came to be silent on the playbook path.
+        window_immature = _unsettled_part(
+            (window or spec.context.window).range, window_maturity
+        )
         blocked = any(
-            (bounded, immature is not None, not_comparable is not None, length_mismatched)
+            (
+                bounded,
+                immature is not None,
+                window_immature is not None,
+                not_comparable is not None,
+                length_mismatched,
+            )
         )
         # Direction is necessary and not sufficient. "Doubled" asserts a
         # SIZE, and the movement has to land inside a band around what was
@@ -1514,6 +1577,7 @@ def verify_premise(
             not_comparable=not_comparable,
             length_mismatched=length_mismatched,
             window=window,
+            window_immature=window_immature,
         )
     return None
 
@@ -1733,6 +1797,34 @@ def _unverifiable_sentence(
             "by how much of the newer window has come back rather than by anything that "
             "happened. Ask again once the thinner side matures."
         )
+    if premise.window_immature is not None:
+        # Round-8 FIX-9(3). The same refusal the direct path makes, made on
+        # the playbook path, in the same words: an RCM director must not be
+        # told their denial spike did not happen because three quarters of
+        # the window has not come back yet.
+        immature_window = premise.window_immature
+        checked = premise.window.range if premise.window is not None else None
+        part = (
+            f"the window it was checked over ({immature_window.window.start.isoformat()}.."
+            f"{immature_window.window.end.isoformat()})"
+            if checked is None or checked == immature_window.window
+            else (
+                f"the window it was checked over ({checked.start.isoformat()}.."
+                f"{checked.end.isoformat()}) still runs into a period "
+                f"({immature_window.window.start.isoformat()}.."
+                f"{immature_window.window.end.isoformat()}) that"
+            )
+        )
+        return (
+            f"You asked about {noun} in {label}. It cannot be checked yet — {part} "
+            "has not finished settling: it holds "
+            f"{immature_window.population:,} settled record(s) where a window of that length "
+            f"normally holds about {immature_window.expected:,}, "
+            f"{immature_window.share:.1%} of it. What HAS settled "
+            f"is not a random sample of what has not, so {figures} {phrase} is dominated by how "
+            "much of the window has come back rather than by anything that happened. Ask again "
+            "over a settled period and I will verify it."
+        )
     if premise.not_comparable is not None:
         # The arithmetic OUT LOUD, like every other arm: withholding the two
         # figures would leave a reader believing the platform could not
@@ -1918,10 +2010,18 @@ class EvaluateFindingsService:
         session_id: str,
         investigation_id: str,
         suppression_threshold: int | None = None,
+        window_maturity: Mapping[AbsoluteRange, WindowMaturity] | None = None,
     ) -> FindingsResult:
         self._threshold = suppression_threshold
         # The premise first, always: a question that STATES a movement is
         # answered honestly only once that movement has been measured.
+        #
+        # ``window_maturity`` is the settling verdict for every window this
+        # PLAN reads, computed by the caller (which owns the repository)
+        # and passed in as an integrity input, exactly like the suppression
+        # threshold. Round-8 FIX-9(3): the premise probe on a playbook path
+        # reads the playbook's window, so a guard that only knew the spec's
+        # window judged a period nothing was computed over.
         premise = verify_premise(
             plan,
             calculation,
@@ -1929,6 +2029,7 @@ class EvaluateFindingsService:
             pack,
             premise_prefix=_PREMISE_PREFIX,
             suppression_threshold=suppression_threshold,
+            window_maturity=window_maturity,
         )
         # The verdict is published on EVERY premise turn, holds or not, and
         # it is published FIRST — registered before any other shape reads
@@ -3043,9 +3144,9 @@ class EvaluateFindingsService:
         urgency = _declared_bucket_order(plan, shape)
         if urgency is not None:
             idx_dim = schema.index_of(shape.dimension_columns[0])
-            position = {value: i for i, value in enumerate(urgency)}
+            bucket_order = {value: i for i, value in enumerate(urgency)}
             candidates.sort(
-                key=lambda row: position.get(str(row[idx_dim]), len(position))
+                key=lambda row: bucket_order.get(str(row[idx_dim]), len(bucket_order))
             )
         measured = [row for row in candidates if bound_of(row) is None]
         bounded = [row for row in candidates if bound_of(row) is not None]

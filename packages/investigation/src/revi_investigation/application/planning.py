@@ -122,6 +122,23 @@ _DIMENSION_PARAM = "$dimension"
 _IMPACT_ARG = "impact_cents"
 _PRIOR_SUFFIX = "__prior"
 
+#: Playbook transforms that ARE the answer, as opposed to transforms that
+#: enrich one. A pack may declare a transform this milestone's engine does
+#: not implement; for ``share_of_total`` or ``decompose`` that costs the
+#: reader a column and the plan says so in a note. For these two it costs
+#: them the question:
+#:
+#: * ``pivot`` is what turns the payer scorecard's six probes into one row
+#:   per payer — without it there is no card, only six unrelated frames;
+#: * ``project_lagged_realization`` is the cash outlook's forecast —
+#:   without it there is no next month, only a total for a window the
+#:   question did not name.
+#:
+#: Named here rather than in the pack because it is a fact about THIS
+#: engine's operator set, not about the content: the day either is
+#: implemented, it comes off this list and the playbooks answer unchanged.
+ANSWERING_TRANSFORMS: frozenset[str] = frozenset({"pivot", "project_lagged_realization"})
+
 #: What ``evidence_depth=deep`` multiplies a *pack-authored* ``top_n`` by.
 #:
 #: A playbook's ``top_n`` is the platform's own cutoff — the pack author's
@@ -1188,6 +1205,41 @@ class BuildInvestigationPlanService:
                         "retrieved by separate probes at different grains in this plan"
                     )
                 continue
+            if operator in ANSWERING_TRANSFORMS:
+                # …and the ones whose absence changes WHAT the answer is
+                # (round-8 FIX-9(2), FIX-12(c)). Both were live this hour,
+                # both at severity INFO under an answer about something
+                # else:
+                #
+                # * "Build me a payer scorecard for Pinnacle, I have a JOC
+                #   next week" ran six probes, got direct-grade rows from
+                #   every one, recorded `transform 'pivot' is not
+                #   executable` and published ZERO findings beside four
+                #   one-row charts. The pivot is what makes a scorecard a
+                #   scorecard;
+                # * "Will my cash increase next month?" — a chip on the
+                #   hero — recorded `project_lagged_realization is not
+                #   executable` at INFO and handed over $6,355,211.10 of
+                #   cash posted over the playbook's own trailing window,
+                #   with the words "forecast" and "cannot" nowhere in the
+                #   response.
+                #
+                # A skipped enrichment is a caveat; a skipped ANSWER is a
+                # refusal, and it is raised here so no probe runs, no chart
+                # is drawn and no figure for a different question is handed
+                # to a reader who will quote it. The recovery path turns it
+                # into the alternatives this pack really can answer.
+                raise UnsupportedConceptError(
+                    f"the {playbook.id!r} playbook answers by {operator!r}, and this engine "
+                    f"cannot execute that transform — so there is no {playbook.id!r} answer "
+                    "to give. The probes underneath it measure real things and none of them "
+                    "is the shape you asked for.",
+                    details={
+                        "playbook": playbook.id,
+                        "transform": operator,
+                        "metric": None,
+                    },
+                )
             notes.append(
                 f"transform {operator!r} is not executable on this milestone's engine; "
                 "recorded and skipped"

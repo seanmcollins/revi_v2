@@ -985,9 +985,20 @@ class DrillDimensionRepoint(ClosedModel):
 RoundsWatchMode = Literal["governed_default", "any_movement", "delta_gte", "crosses"]
 
 #: How a threshold is STATED — not the metric's own unit. ``points`` for a
-#: rate (0.5 = half a percentage point), ``cents`` for money,
+#: rate (0.5 = half a percentage point), ``cents`` for money, ``days`` for a
+#: lag contract ("tell me if posting lag stretches by more than 2 days"),
 #: ``relative_pct`` for a fraction of the reference value (legal anywhere).
-RoundsWatchUnit = Literal["points", "relative_pct", "cents"]
+#:
+#: MUST equal ``revi_investigation.application.ports.WATCH_THRESHOLD_UNITS``,
+#: which is the engine's own list and the one the parser, the pack and the
+#: materiality policy all read. It did not: ``days`` was legal everywhere
+#: inside the engine and absent from this literal, so a stored ``days``
+#: watch could not be serialized — one such row 500'd
+#: ``GET /v1/rounds/pins`` for the WHOLE tenant, and a days declaration
+#: stored its pin and then reported ``not_stored`` when the confirmation
+#: failed to validate. ``tests/test_watch_unit_contract.py`` asserts the two
+#: lists are the same set on every CI run so the skew cannot return.
+RoundsWatchUnit = Literal["points", "relative_pct", "cents", "days"]
 
 
 class RoundsWatchModel(ClosedModel):

@@ -538,7 +538,12 @@ def test_bare_charges_trend_falls_back_to_the_line_heuristic(snapshot: PackSnaps
                 FrameColumn("charges", MetricRef("charges"), 1, "money_cents"),
             )
         ),
-        rows=((date(2026, 7, 27), 100), (date(2026, 8, 3), 120)),
+        # Three buckets, not two: FIX-8 decides chart kind from the frame's
+        # shape last of all, and two points joined by a segment assert a
+        # movement and nothing else, so a two-bucket frame now charts as
+        # bars whatever was selected. The rebinding this test is about is
+        # unaffected — it is about which RECIPE captures the frame.
+        rows=((date(2026, 7, 20), 90), (date(2026, 7, 27), 100), (date(2026, 8, 3), 120)),
         watermark=DataWatermark(
             id="wm_test", loaded_at=datetime(2026, 8, 3, 4, 10), newest_data_date=date(2026, 8, 2)
         ),

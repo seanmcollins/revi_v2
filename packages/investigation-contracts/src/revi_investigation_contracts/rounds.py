@@ -192,7 +192,15 @@ class RoundsPinPayload(ClosedModel):
 class RoundsPinListResponse(ClosedModel):
     tenant: str = ""
     pins: list[RoundsPinPayload] = Field(default_factory=list)
+    #: How many pins this response CARRIES — which is what a client renders.
+    #: Equal to ``len(pins)`` by construction, so a count and a list can
+    #: never disagree on screen.
     total: int = 0
+    #: Pin ids the tenant holds that could not be published at all (a stored
+    #: spec this API version cannot read). Named rather than dropped: a
+    #: watch that vanishes from the list without a word is a watch somebody
+    #: believes is still running. Empty in every ordinary response.
+    unreadable: list[str] = Field(default_factory=list)
 
 
 # ---------------------------------------------------------------------------

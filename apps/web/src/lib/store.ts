@@ -413,6 +413,20 @@ interface SessionState {
   watchesLoaded: boolean;
   /** A `loadWatches` read is in flight — the single-flight latch. */
   watchesLoading: boolean;
+  /**
+   * Why this tenant's watches could not be read — the server's own
+   * sentence, or this client's when the failure was not the server's.
+   *
+   * It exists because the alternative was measured live and is worse than
+   * any error copy: `GET /v1/rounds/pins` 500'd off one malformed watch,
+   * this store swallowed it in an empty `catch {}`, and every tile's
+   * settings menu rendered "Change what it takes to brief you" as a
+   * DISABLED button with nothing on screen to say why — a control that
+   * cannot be operated and cannot be diagnosed, on all thirty tiles at
+   * once. A failed read is a fact about the deployment and it is stated;
+   * it is never presented as an affordance that simply does not work.
+   */
+  watchesError: string | null;
   /** The artifact key a watch is being created for, while the POST is in flight. */
   watchPendingKey: string | null;
   /**
@@ -508,9 +522,14 @@ interface SessionState {
    * read leaves `watchesLoaded` false and the affordance offers the watch,
    * which is the harmless direction to fail in (the server refuses a
    * duplicate spec on its own terms; a hidden control cannot be recovered
-   * from at all).
+   * from at all) — and it RECORDS the failure in `watchesError` so every
+   * surface that gates on a pin can say why it has none.
+   *
+   * `force` re-reads a list that already loaded (or already failed): it is
+   * what the retry beside the error sentence does, and without it the
+   * single-flight latch would make "try again" a no-op.
    */
-  loadWatches: () => Promise<void>;
+  loadWatches: (options?: { force?: boolean }) => Promise<void>;
   /**
    * Stop watching (`DELETE /v1/rounds/pins/{pin_id}`) — a soft archive
    * server-side. `key` is the artifact whose affordance goes back to
@@ -668,6 +687,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   knownWatches: [],
   watchesLoaded: false,
   watchesLoading: false,
+  watchesError: null,
   watchPendingKey: null,
   watchError: null,
   leadStates: {},
@@ -914,20 +934,46 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     // selectable row for it, so nothing here re-selects one.
   },
 
-  loadWatches: async () => {
+  loadWatches: async (options) => {
     const { driver, watchesLoaded, watchesLoading } = get();
-    if (watchesLoaded || watchesLoading || !driver?.listRoundsPins) return;
+    if (watchesLoading) return;
+    if (watchesLoaded && options?.force !== true) return;
+    if (!driver?.listRoundsPins) {
+      // Not a failure and not silence either: this driver has no
+      // deployment to list watches from (the mock fixture, or a store that
+      // has not been given a driver yet), and saying so is what stops a
+      // surface from blaming the server for it.
+      set({
+        watchesError:
+          driver === null
+            ? "This browser has not connected to a deployment yet, so no watch settings could be read."
+            : "This browser is running the mock fixture, which stores no watches — their settings live on the deployment.",
+      });
+      return;
+    }
     // Single-flight across every affordance on the page. The latch is set
     // before the await, so twelve fact rows mounting at once make one GET.
-    set({ watchesLoading: true });
+    set({ watchesLoading: true, watchesError: null });
     try {
       const pins = await driver.listRoundsPins();
-      set({ knownWatches: pins, watchesLoaded: true });
-    } catch {
+      set({ knownWatches: pins, watchesLoaded: true, watchesError: null });
+    } catch (error) {
       // Left unloaded on purpose. The affordance then offers the watch,
       // and the server is the authority on whether that is a duplicate —
       // a control hidden because a list could not be read is a control
       // nobody can recover from.
+      //
+      // But NOT left unsaid. The server's own sentence is kept so the
+      // menu that needs a pin can explain itself instead of drawing a
+      // grey button: measured live, one malformed watch 500'd this read
+      // tenant-wide and every tile's settings control went dead with no
+      // sentence anywhere on the page.
+      set({
+        watchesError:
+          error instanceof Error && error.message !== ""
+            ? error.message
+            : "The request for this tenant's watches did not complete.",
+      });
     } finally {
       set({ watchesLoading: false });
     }

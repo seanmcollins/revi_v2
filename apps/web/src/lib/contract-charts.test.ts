@@ -32,6 +32,7 @@ import {
   ordinalBucketKey,
   OTHERS_SERIES_KEY,
   readChartSort,
+  selectRenderableCharts,
 } from "@/lib/contract";
 import type { ChartSpec } from "@/lib/types";
 
@@ -791,5 +792,239 @@ describe("a comparison is one chart with two windows in it", () => {
     // Never "ordered by current": the caption names the measure the wire
     // sorted on, which is what the reader asked for.
     expect(spec?.order).toEqual({ basis: "value", by: "denied_dollars", descending: true });
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* A frame with no dimension has a WINDOW axis, not a value axis        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * ROUND 8's FIGURE DEFECT, read defensively at the client.
+ *
+ * Live, "Why did our denial rate go up in July 2026?" drew a chart whose
+ * entire category axis was the single tick `0.127591`, and the prior
+ * window's mark (0.091386) was filed under the current value's category
+ * key: a frame with no dimension has no x column, and the engine fell back
+ * to the VALUE column for one. 18 of 85 stored specs on the demo tenant
+ * carry an axis like it, including "What is my denial rate?" and "days in
+ * A/R for Atlas Commercial" (x `179.468320`).
+ *
+ * The engine is being fixed to key that axis on the PERIOD. Both shapes
+ * are stored and both must read, so both are exercised here — and neither
+ * is allowed to put a bare decimal on screen as a category.
+ */
+describe("a dimensionless frame is drawn over its window, never over its own value", () => {
+  const WINDOWS = { current: "Jul 2026", prior: "Jun 2026" };
+
+  const scalar = {
+    id: "chart_main",
+    chart_type: "bar",
+    title: "denial rate — main",
+    frame_id: "main",
+    // The tell: the x column IS the measure, because there is no dimension.
+    x: "denial_rate",
+    series: null,
+    value: "denial_rate",
+    unit: "ratio",
+    rows: [{ x: "0.127591", series: null, value: 0.127591 }],
+    annotations: [],
+  };
+
+  it("OLD SHAPE, scalar: the tick is the window, not the number", () => {
+    const spec = mapChartSpec(scalar, undefined, { windows: WINDOWS });
+    expect(spec?.rows.map((r) => r.label)).toEqual(["Jul 2026"]);
+    // The value is untouched — only the category it was filed under was
+    // ever wrong.
+    expect(spec?.rows[0]?.values).toEqual({ denial_rate: 12.7591 });
+    // And the axis is captioned for what its ticks are. "denial rate"
+    // under a tick reading "Jul 2026" names the wrong thing.
+    expect(spec?.xLabel).toBe("window");
+  });
+
+  it("OLD SHAPE, comparison: one column of the measure, two window marks", () => {
+    const spec = mapChartSpec(
+      {
+        ...scalar,
+        id: "chart_main__compare",
+        frame_id: "main__compare",
+        series: "period",
+        rows: [
+          { x: "0.127591", series: "current", value: 0.127591 },
+          { x: "0.127591", series: "prior", value: 0.091386 },
+        ],
+      },
+      undefined,
+      { windows: WINDOWS },
+    );
+    // The two windows are the two MARKS (the legend names their dates), so
+    // the single column is the measure — never one window's number, and
+    // never one window's label over a pair that includes the other.
+    expect(spec?.rows.map((r) => r.label)).toEqual(["Denial rate"]);
+    expect(spec?.rows[0]?.values).toEqual({ current: 12.7591, prior: 9.1386 });
+    expect(spec?.comparison).toEqual({ currentKey: "current", priorKey: "prior" });
+    // Two readings, not a series: paired bars, never a two-point line.
+    expect(spec?.kind).toBe("grouped_bar");
+  });
+
+  it("NEW SHAPE: period keys become the windows they stand for", () => {
+    const spec = mapChartSpec(
+      {
+        ...scalar,
+        x: "period",
+        rows: [
+          { x: "current", series: null, value: 0.127591 },
+          { x: "prior", series: null, value: 0.091386 },
+        ],
+      },
+      undefined,
+      { windows: WINDOWS },
+    );
+    expect(spec?.rows.map((r) => r.label)).toEqual(["Jul 2026", "Jun 2026"]);
+    expect(spec?.xLabel).toBe("window");
+    // `current`/`prior` are the engine's bookkeeping, and an axis reading
+    // "current" tells a reader nothing about which dates it covers.
+    expect(spec?.kind).toBe("bar");
+    // This window first, in the order the engine emitted them: a value
+    // sort here would put June ahead of July whenever June was larger.
+    expect(spec?.order).toEqual({ basis: "wire" });
+  });
+
+  it("names the measure when the turn published no window at all", () => {
+    // A streamed frame arrives before any header does. The floor is a true
+    // statement about the column — never the measurement as its own label.
+    const spec = mapChartSpec(scalar);
+    expect(spec?.rows.map((r) => r.label)).toEqual(["Denial rate"]);
+  });
+
+  it("takes the governed display name over the raw column when there is one", () => {
+    const spec = mapChartSpec(
+      { ...scalar, x: "dnfb_dollars", value: "dnfb_dollars", unit: "money_cents",
+        rows: [{ x: "19587392", series: null, value: 19_587_392 }] },
+      { dnfb_dollars: { metricId: "dnfb_dollars", displayName: "Discharged not final billed" } },
+    );
+    expect(spec?.rows.map((r) => r.label)).toEqual(["Discharged not final billed"]);
+  });
+
+  it("says the moment, not a range, on a snapshot contract", () => {
+    // An A/R balance taken as of a date was never measured over a window,
+    // and an axis reading "Jul 2026" over it would re-commit the header
+    // defect this codebase already fixed once.
+    const spec = mapChartSpec({ ...scalar, x: "ar_over_90", value: "ar_over_90", unit: "days",
+      rows: [{ x: "179.468320", series: null, value: 179.46832 }] },
+      undefined,
+      { windows: { current: "as of 2026-08-02" } },
+    );
+    expect(spec?.rows.map((r) => r.label)).toEqual(["as of 2026-08-02"]);
+  });
+
+  it("leaves a REAL dimension whose members happen to be numeric alone", () => {
+    // CARC codes are numbers and they are categories. The rule is scoped
+    // to a frame whose x column is the measure itself, so this is
+    // untouched — the guard against a fix that renames real cells.
+    const spec = mapChartSpec(
+      {
+        id: "chart_by_carc",
+        chart_type: "bar",
+        title: "denied dollars — by carc",
+        frame_id: "by_carc",
+        x: "carc",
+        series: null,
+        value: "denied_dollars",
+        unit: "money_cents",
+        rows: [
+          { x: "16", series: null, value: 100 },
+          { x: "197", series: null, value: 200 },
+        ],
+        annotations: [],
+      },
+      undefined,
+      { windows: WINDOWS },
+    );
+    expect(spec?.rows.map((r) => r.label)).toEqual(["16", "197"]);
+  });
+});
+
+/**
+ * THE LIVE PAYLOAD, this hour, off `POST /v1/sessions/{sid}/turns`
+ * {"utterance": "What is my denial rate?"} against the deployment on :8000
+ * with the engine's FIX-8 half landed:
+ *
+ *   chart_main | chart_type bar | x "period" | series null | value denial_rate
+ *   rows: [{x: "this window", series: null, value: 0.127591}]
+ *
+ * The axis is no longer the measurement — and the tick is the engine's own
+ * placeholder, because its composer was handed no dates. This client was
+ * handed them: they are on `context_header` of the same response.
+ */
+describe("the engine's period axis, read as the client finds it", () => {
+  const LIVE_SCALAR = {
+    id: "chart_main",
+    chart_type: "bar",
+    title: "denial rate — main",
+    frame_id: "main",
+    x: "period",
+    series: null,
+    value: "denial_rate",
+    unit: "ratio",
+    rows: [{ x: "this window", series: null, value: 0.127591, referent_id: null }],
+    annotations: [],
+  };
+
+  it("dates the engine's placeholder tick from the turn's own header", () => {
+    const spec = mapChartSpec(LIVE_SCALAR, undefined, { windows: { current: "Jul 2026" } });
+    expect(spec?.rows.map((r) => r.label)).toEqual(["Jul 2026"]);
+    expect(spec?.xLabel).toBe("window");
+  });
+
+  it("leaves the engine's own words alone when there are no dates to say", () => {
+    const spec = mapChartSpec(LIVE_SCALAR);
+    expect(spec?.rows.map((r) => r.label)).toEqual(["this window"]);
+  });
+
+  it("draws the stat figure instead of dropping it for having one mark", () => {
+    // The two-mark rule is for a lone point on a CATEGORY axis. A labelled
+    // column over a window claims no trend, and dropping it is why the
+    // first question anyone asks rendered no picture at all.
+    const spec = mapChartSpec(LIVE_SCALAR, undefined, { windows: { current: "Jul 2026" } })!;
+    expect(spec.windowAxis).toBe(true);
+    expect(selectRenderableCharts([spec]).map((c) => c.id)).toEqual(["chart_main"]);
+  });
+
+  it("still drops a lone point on a category axis", () => {
+    const lonely = mapChartSpec({
+      ...LIVE_SCALAR,
+      x: "payer",
+      rows: [{ x: "Atlas Commercial", series: null, value: 0.1 }],
+    })!;
+    expect(lonely.windowAxis).toBeUndefined();
+    expect(selectRenderableCharts([lonely])).toEqual([]);
+  });
+
+  it("does not call a window's own mark an absence on the two-window shape", () => {
+    // The engine gives each window its own tick and its own series
+    // (baseline first, left to right as time). Read as an ordinary
+    // comparison that is 'a category whose current mark is missing', and
+    // the figure would print "‡ … an absence, not a measured zero" under
+    // June — about a mark that is exactly where it belongs.
+    const spec = mapChartSpec(
+      {
+        ...LIVE_SCALAR,
+        id: "chart_main__compare",
+        frame_id: "main__compare",
+        rows: [
+          { x: "Jun 2026", series: "prior", value: 0.091386 },
+          { x: "Jul 2026", series: "current", value: 0.127591 },
+        ],
+      },
+      undefined,
+      { windows: { current: "Jul 2026", prior: "Jun 2026" } },
+    );
+    expect(spec?.rows.map((r) => r.label)).toEqual(["Jun 2026", "Jul 2026"]);
+    expect(spec?.rows.every((r) => r.cells === undefined)).toBe(true);
+    // Two windows, side by side, in the order the engine drew them.
+    expect(spec?.kind).toBe("grouped_bar");
+    expect(spec?.order).toEqual({ basis: "wire" });
+    expect(spec?.stacked).toBeUndefined();
   });
 });

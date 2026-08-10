@@ -811,6 +811,19 @@ export interface ChartSpec {
   /** Annotation, e.g. "decline week". */
   highlightLabel?: string;
   xLabel?: string;
+  /**
+   * The categories on this axis are WINDOWS, not members of a dimension.
+   *
+   * A frame with no dimension and no time bucket has nothing to key its
+   * marks by, and both payload generations say so differently: the older
+   * one fell back to the measure column (an axis reading `0.127591`), the
+   * current one keys on the synthetic `period` column. Either way what the
+   * axis distinguishes is one window from another, which changes three
+   * things downstream — the ticks are dates, the marks are never re-sorted
+   * by value, and ONE mark is a whole figure (a labelled column of a
+   * measure over its window), not a lone point pretending to be a trend.
+   */
+  windowAxis?: true;
 }
 
 /* ------------------------------------------------------------------ */

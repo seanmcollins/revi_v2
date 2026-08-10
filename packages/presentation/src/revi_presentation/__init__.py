@@ -5,9 +5,11 @@ grounding validation. Pure functions over kernel frames and contract DTOs
 from revi_investigation_contracts.header import build_header_payload
 from revi_presentation.charts import (
     ChartSuggestion,
+    ChartWindow,
     RecipeSpec,
     build_chart_spec,
     build_chart_specs,
+    period_label,
     provisional_bucket,
 )
 from revi_presentation.narrative import (
@@ -44,6 +46,7 @@ __all__ = [
     "REDACTION_NOTE",
     "REDACTION_WARNING_PREFIX",
     "ChartSuggestion",
+    "ChartWindow",
     "RecipeSpec",
     "apply_metric_display",
     "build_chart_spec",
@@ -54,6 +57,7 @@ __all__ = [
     "empty_narrative",
     "ends_on_abbreviation",
     "mandatory_disclosures",
+    "period_label",
     "provisional_bucket",
     "reconciliation_disclosure",
     "recovered_code",

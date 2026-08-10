@@ -708,6 +708,18 @@ LEAD_DISCLOSURE_CODES: tuple[str, ...] = (
     "RANKING_REFUSED",
     "DIRECTION_UNMATCHED",
     "EMPTY_RESULT",
+    # A window that has not finished adjudicating (round-8 FIX-12(a)). It
+    # trailed for six rounds, and trailing is what made the first question
+    # of every demo — "what is my denial rate?" — answer "12.8%" in its
+    # opening clause: the July figure this product's own trend answer
+    # excludes as provisional, with the caveat that governs it two
+    # paragraphs down and a favourable benchmark verdict in between. The
+    # caveat is not a footnote on the number; it decides whether the number
+    # may be read as the level at all, which is the same job the premise
+    # verdicts above do. Where the engine could measure the last SETTLED
+    # period, this sentence carries that figure — so the answer leads with
+    # what has settled and names the provisional one as provisional.
+    "ADJUDICATION_INCOMPLETE",
 )
 
 #: Codes that must be said, after the prose, in this order. These bound how
@@ -720,10 +732,6 @@ TRAILING_DISCLOSURE_CODES: tuple[str, ...] = (
     "SUPPRESSION_BOUNDED",
     # …and which of them could not be ordered at all (round-3 R3-02).
     "BOUNDED_CELLS_UNRANKED",
-    # A series whose last point is a data-maturity artifact rather than a
-    # measurement (R3-06): "up 5.5 points" over a month that is 23%
-    # adjudicated is the claims run-out, not the business.
-    "ADJUDICATION_INCOMPLETE",
     # …and the same fact where the CONTRACT declares it rather than a panel
     # count revealing it (round-7 FN-4). "Net collection rate 72.5% →
     # 18.5%, fell 53.9 points" was published at direct/high beside the same

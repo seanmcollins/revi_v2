@@ -790,3 +790,71 @@ describe("chunkNarrative", () => {
     expect(chunkNarrative(text).join("")).toBe(text);
   });
 });
+
+/**
+ * WHY THIS TENANT'S WATCHES COULD NOT BE READ.
+ *
+ * `loadWatches` used to end in `catch {}` — no state, no sentence, no
+ * console line. Live that swallowed a tenant-wide 500 and the only visible
+ * consequence was every watch tile's settings control rendering disabled,
+ * which reads as a feature that is switched off rather than a read that
+ * failed. Failing OPEN is still right (the affordance keeps offering the
+ * watch and the server refuses duplicates on its own terms); failing
+ * SILENTLY is not.
+ */
+describe("loadWatches keeps the reason a read failed", () => {
+  beforeEach(() => {
+    useSessionStore.setState({
+      driver: null,
+      knownWatches: [],
+      watchesLoaded: false,
+      watchesLoading: false,
+      watchesError: null,
+    });
+  });
+
+  it("records the server's own sentence on a 500 and stays unloaded", async () => {
+    const listRoundsPins = vi
+      .fn()
+      .mockRejectedValue(new Error("GET /v1/rounds/pins failed: 500 Internal Server Error"));
+    useSessionStore.getState().setDriver({ submit: vi.fn(), newSession: vi.fn(), listRoundsPins });
+
+    await useSessionStore.getState().loadWatches();
+
+    expect(useSessionStore.getState().watchesError).toContain("500");
+    // Unloaded, so the affordance still offers the watch — the harmless
+    // direction — and a retry is a real read rather than a no-op.
+    expect(useSessionStore.getState().watchesLoaded).toBe(false);
+    expect(useSessionStore.getState().knownWatches).toEqual([]);
+  });
+
+  it("retries past the single-flight latch and clears the error when it lands", async () => {
+    const listRoundsPins = vi
+      .fn()
+      .mockRejectedValueOnce(new Error("HTTP 500"))
+      .mockResolvedValue([]);
+    useSessionStore.getState().setDriver({ submit: vi.fn(), newSession: vi.fn(), listRoundsPins });
+
+    await useSessionStore.getState().loadWatches();
+    expect(useSessionStore.getState().watchesError).toBe("HTTP 500");
+
+    await useSessionStore.getState().loadWatches();
+    expect(listRoundsPins).toHaveBeenCalledTimes(2);
+    expect(useSessionStore.getState().watchesError).toBeNull();
+    expect(useSessionStore.getState().watchesLoaded).toBe(true);
+
+    // A loaded list is not re-read without being asked...
+    await useSessionStore.getState().loadWatches();
+    expect(listRoundsPins).toHaveBeenCalledTimes(2);
+    // ...and IS re-read when the retry beside the error sentence asks.
+    await useSessionStore.getState().loadWatches({ force: true });
+    expect(listRoundsPins).toHaveBeenCalledTimes(3);
+  });
+
+  it("says a driver with nowhere to read from is not a failed deployment", async () => {
+    useSessionStore.getState().setDriver(new MockDriver(0));
+    await useSessionStore.getState().loadWatches();
+    expect(useSessionStore.getState().watchesError).toMatch(/mock fixture/i);
+    expect(useSessionStore.getState().watchesLoaded).toBe(false);
+  });
+});

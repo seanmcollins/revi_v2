@@ -80,7 +80,7 @@ export function DeltaLine({
             </button>
           </TooltipTrigger>
           <TooltipContent side="bottom" className="max-w-72 text-meta leading-snug">
-            Both loads measured the same dates, so this is the data catching up — claims
+            Against the previous load, both readings measured the same dates — so this is the data catching up — claims
             finishing adjudication, charges arriving late — rather than a change in what is
             happening.
           </TooltipContent>

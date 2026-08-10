@@ -246,9 +246,43 @@ function TileMenu({ tile, pin }: { tile: RoundsTile; pin?: RoundsPin }) {
   const removeWatch = useSessionStore((s) => s.removeWatch);
   const pendingKey = useSessionStore((s) => s.watchPendingKey);
   const watchError = useSessionStore((s) => s.watchError);
+  // WHY THERE IS NO PIN, when there is none. The settings this menu edits
+  // ride on `GET /v1/rounds/pins`, which is a different read from the one
+  // that drew the tile — so it can fail on its own, and it has: one
+  // malformed watch 500'd it tenant-wide and every tile's editor went grey
+  // with no sentence anywhere on the page.
+  const loadWatches = useSessionStore((s) => s.loadWatches);
+  const watchesError = useSessionStore((s) => s.watchesError);
+  const watchesLoading = useSessionStore((s) => s.watchesLoading);
+  const watchesLoaded = useSessionStore((s) => s.watchesLoaded);
   const key = `tile:${tile.pinId}`;
   const pending = pendingKey === key;
   const refusal = watchError?.key === key ? watchError.message : undefined;
+
+  /**
+   * The one sentence this menu owes the reader when it has no settings to
+   * show. Three states, three different facts — and never a bare disabled
+   * control, which is the shape that says "this feature is off" about a
+   * read that failed thirty seconds ago and would succeed on a reload.
+   */
+  const missingSettings = pin
+    ? undefined
+    : watchesLoading
+      ? { text: "Reading this watch's settings…", failed: false }
+      : watchesError !== null
+        ? {
+            text: `Could not read this watch's settings — reload to try again. ${watchesError}`,
+            failed: true,
+          }
+        : watchesLoaded
+          ? {
+              // A 200 that did not contain this watch. Measured live
+              // alongside the 500, and it deserves its own sentence: the
+              // read worked and this pin was not in it.
+              text: "Could not read this watch's settings — reload to try again. The deployment's watch list came back without this watch in it.",
+              failed: true,
+            }
+          : { text: "This watch's settings have not been read yet.", failed: false };
 
   const onSave = (watch: WatchModel): void => {
     if (!pin) return;
@@ -320,10 +354,16 @@ function TileMenu({ tile, pin }: { tile: RoundsTile; pin?: RoundsPin }) {
               {/* The window mode in the server's own sentence: a moving
                   period (a real movement) or fixed dates (late-arriving
                   data). It decides how every delta on this tile should be
-                  read, and it is not derivable from the spec on screen. */}
-              <p className="mt-1 text-micro leading-snug text-muted-foreground">
-                {pin?.windowNote || "This watch's window is published on its pin."}
-              </p>
+                  read, and it is not derivable from the spec on screen.
+                  Only when this watch's settings were actually read: with
+                  no pin at all, the sentence below says why, and a generic
+                  "published on its pin" over a failed read would be this
+                  panel answering a question nobody could ask. */}
+              {pin && (
+                <p className="mt-1 text-micro leading-snug text-muted-foreground">
+                  {pin.windowNote || "This watch's window is published on its pin."}
+                </p>
+              )}
               {/* What happened to the request at creation — the cell it was
                   narrowed to, a duplicate returned instead of a second
                   watch. Facts about THIS watch that no other line carries. */}
@@ -343,16 +383,50 @@ function TileMenu({ tile, pin }: { tile: RoundsTile; pin?: RoundsPin }) {
                   Your reason: {pin.watch.note}
                 </p>
               )}
+              {/* THE STATED ABSENCE. `role="alert"` only when something
+                  actually failed — an in-flight read is not an error and
+                  must not interrupt a screen reader as one. */}
+              {missingSettings && (
+                <p
+                  data-watch-settings-error={missingSettings.failed ? "true" : undefined}
+                  {...(missingSettings.failed ? { role: "alert" as const } : {})}
+                  className={cn(
+                    "mt-1 text-micro leading-snug",
+                    missingSettings.failed ? "text-negative" : "text-muted-foreground",
+                  )}
+                >
+                  {missingSettings.text}
+                </p>
+              )}
             </div>
-            <Button
-              variant="outline"
-              size="xs"
-              disabled={!pin}
-              onClick={() => setEditing(true)}
-              className="w-full justify-start text-meta font-normal"
-            >
-              Change what it takes to brief you
-            </Button>
+            {/* THE CONTROL EXPLAINS ITSELF. With settings in hand it opens
+                the editor; without them it is the retry for the read that
+                failed — never a grey rectangle whose only account of
+                itself is that it cannot be pressed. */}
+            {pin ? (
+              <Button
+                variant="outline"
+                size="xs"
+                onClick={() => setEditing(true)}
+                className="w-full justify-start text-meta font-normal"
+              >
+                Change what it takes to brief you
+              </Button>
+            ) : (
+              <Button
+                variant="outline"
+                size="xs"
+                disabled={watchesLoading}
+                onClick={() => {
+                  void loadWatches({ force: true });
+                }}
+                className="w-full justify-start text-meta font-normal"
+              >
+                {watchesLoading
+                  ? "Reading this watch's settings…"
+                  : "Read this watch's settings again"}
+              </Button>
+            )}
             <Button
               variant="ghost"
               size="xs"

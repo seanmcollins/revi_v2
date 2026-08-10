@@ -46,10 +46,27 @@ def _payer_cash(truncated: bool = False, suppressed: int = 0) -> EvidenceFrame:
     )
 
 
+def _weekly_cash() -> EvidenceFrame:
+    """Three weekly buckets — the one shape a line may be drawn over.
+
+    Fewer points, or an axis with no order, and the shape rule demotes it
+    (FIX-8; see ``test_fix8_period_axis.py``), so the selection tests below
+    exercise recipe/suggestion precedence on a frame that can actually
+    carry the type they ask for.
+    """
+    return _frame(
+        (
+            FrameColumn("week", DimensionRef("time_bucket:week")),
+            FrameColumn("cash_posted", MetricRef("cash_posted"), 1, "money_cents"),
+        ),
+        ((date(2026, 7, 13), 90), (date(2026, 7, 20), 110), (date(2026, 7, 27), 100)),
+    )
+
+
 class TestChartSelection:
     def test_recipe_takes_precedence(self) -> None:
         recipe = RecipeSpec(id="cash_trend", applies_to="cash_posted", chart_type="line")
-        spec = build_chart_spec("main", _payer_cash(), recipes=(recipe,))
+        spec = build_chart_spec("main", _weekly_cash(), recipes=(recipe,))
         assert spec is not None
         assert spec.chart_type == "line" and spec.recipe_id == "cash_trend"
 
@@ -67,32 +84,33 @@ class TestChartSelection:
         suggestion = ChartSuggestion(chart_type="stacked_bar", x="payer", value="cash_posted")
         spec = build_chart_spec("main", _payer_cash(), suggestion=suggestion)
         assert spec is not None and spec.chart_type == "stacked_bar"
-        recipe = RecipeSpec(id="r", applies_to="cash_posted", chart_type="line")
+        # ``waterfall`` rather than the old ``line``: a line over two payer
+        # names is demoted by the shape rule after selection, which would
+        # hide the thing this test is about (FIX-8 covers the demotion).
+        recipe = RecipeSpec(id="r", applies_to="cash_posted", chart_type="waterfall")
         overridden = build_chart_spec(
             "main", _payer_cash(), recipes=(recipe,), suggestion=suggestion
         )
-        assert overridden is not None and overridden.chart_type == "line"
+        assert overridden is not None and overridden.chart_type == "waterfall"
 
     def test_heuristics_time_line_dim_bar(self) -> None:
-        weekly = _frame(
-            (
-                FrameColumn("week", DimensionRef("time_bucket:week")),
-                FrameColumn("cash_posted", MetricRef("cash_posted"), 1, "money_cents"),
-            ),
-            ((date(2026, 7, 27), 100),),
-        )
-        line = build_chart_spec("trend", weekly)
+        line = build_chart_spec("trend", _weekly_cash())
         assert line is not None and line.chart_type == "line" and line.x == "week"
         bar = build_chart_spec("main", _payer_cash())
         assert bar is not None and bar.chart_type == "bar"
 
-    def test_measure_only_frame_is_a_table(self) -> None:
+    def test_measure_only_frame_is_one_labelled_column(self) -> None:
+        """FIX-8: a frame with no dimension has one mark, and its category
+        is the WINDOW. It used to be typed ``table``, which said nothing
+        about the shape; it is now a single-category ``bar`` — the closed
+        ``ChartType`` set's spelling of a stat figure — on the ``period``
+        axis rather than on the measure column."""
         totals = _frame(
             (FrameColumn("cash_posted", MetricRef("cash_posted"), 1, "money_cents"),),
             ((100,),),
         )
         spec = build_chart_spec("totals", totals)
-        assert spec is not None and spec.chart_type == "table"
+        assert spec is not None and spec.chart_type == "bar" and spec.x == "period"
 
 
 class TestRowsAndAnnotations:

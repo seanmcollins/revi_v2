@@ -357,6 +357,28 @@ class TestArchaeologyClassification:
                 "silent multi-hour shift in which answers get excused"
             )
 
+    def test_every_disclosure_fix_names_a_real_commit(self) -> None:
+        """A commit field that says "uncommitted" excuses divergences by a
+        date nobody can check against a tree (round-8 FIX-11). Each hash is
+        resolved through git, so the boundary is falsifiable by anyone with
+        the repository — which is the only sense in which it is evidence.
+        """
+        for fix in DISCLOSURE_FIXES:
+            resolved = subprocess.run(
+                ["git", "cat-file", "-t", fix.commit],
+                cwd=REPO_ROOT,
+                capture_output=True,
+                text=True,
+                check=False,
+            )
+            if resolved.returncode != 0 and "not a git repository" in resolved.stderr:
+                pytest.skip("not a git checkout")
+            assert resolved.returncode == 0 and resolved.stdout.strip() == "commit", (
+                f"{fix.code}: commit {fix.commit!r} does not resolve in this repository. "
+                "This field is what makes the archaeology boundary checkable rather than "
+                "asserted; prose here excuses divergences by a date with nothing behind it."
+            )
+
     def test_an_undated_answer_is_live_not_old(self) -> None:
         """The safe reading of "I don't know when this was written"."""
         assert classify(None) == "live"

@@ -285,6 +285,42 @@ export function axisTickLabels(
 }
 
 /**
+ * How much room a ROTATED axis needs on the left, in pixels.
+ *
+ * A tick at −35° with `textAnchor: "end"` runs down and to the LEFT of its
+ * own category, so the FIRST label is the one that leaves the figure: live
+ * on the twelve-payer ranking the leftmost tick read "ate Medicaid MCO" —
+ * "St" cut off by the container's edge, on the axis whose whole job is
+ * saying which payer each bar is. The margin was a constant 10px against
+ * labels up to 40 characters long.
+ *
+ * So the gutter is measured from the label that has to fit:
+ *
+ *   width  ≈ 6.3px per character at the 12px tick size (the axis is set in
+ *            the UI sans, whose average advance at 12px measures ~6.2-6.4);
+ *   extent  = width × cos(35°) ≈ 0.82 × width, the horizontal run of the
+ *            rotated text;
+ *   room    = the 48px the y-axis already occupies to the left of the plot,
+ *            which the tick may legitimately sweep under.
+ *
+ * Capped, because a gutter is bought from the plot: past `MAX` the figure
+ * is being squeezed to fit a name, and the tick shortener — which grows
+ * labels only until they are UNIQUE — has already made the label as short
+ * as it can be told apart at.
+ */
+const TICK_CHAR_PX = 6.3;
+const TICK_ROTATION_COS = 0.82;
+const AXIS_Y_WIDTH = 48;
+const MIN_AXIS_GUTTER = 10;
+const MAX_AXIS_GUTTER = 72;
+
+export function rotatedAxisGutter(firstTick: string | undefined): number {
+  if (firstTick === undefined || firstTick === "") return MIN_AXIS_GUTTER;
+  const extent = firstTick.length * TICK_CHAR_PX * TICK_ROTATION_COS;
+  return Math.max(MIN_AXIS_GUTTER, Math.min(MAX_AXIS_GUTTER, Math.ceil(extent) - AXIS_Y_WIDTH));
+}
+
+/**
  * The mark treatment for a cell the engine published as a ceiling.
  *
  * Desaturated fill plus a dashed outline: the bar reads as an EDGE rather
@@ -526,6 +562,13 @@ export function InvestigationChart({
     return `${prefix}${short}${suffix}`;
   };
 
+  // The room the FIRST tick needs to the left of the plot — it is the one
+  // a rotated axis pushes past the card's edge, and it is the tick that
+  // says which entity the first bar is.
+  const leftGutter = rotateTicks
+    ? rotatedAxisGutter(data[0] === undefined ? undefined : categoryTick(String(data[0].label)))
+    : MIN_AXIS_GUTTER;
+
   const tooltipContent = (props: unknown) => (
     <ChartTooltipContent
       {...(props as TooltipRenderProps)}
@@ -699,13 +742,22 @@ export function InvestigationChart({
               // the leftmost label needs a gutter the plot area does not
               // otherwise give it — and the rightmost needs one for its
               // ascender. See BUG 2.
+              //
+              // MEASURED from the label that has to fit, not a constant:
+              // at the fixed 10px, the first tick of the twelve-payer
+              // ranking rendered "ate Medicaid MCO" with its head outside
+              // the card (`rotatedAxisGutter`).
               // THE WARMTH PASS, in geometry. A denser plot is not a more
               // informative one: at 26% category gap the bars were a
               // palisade, and the eye read the fence rather than the
               // heights. 34% lets each category breathe and makes the
               // 2-3px gap between a comparison's two bars legible as a
               // pair rather than as one thick mark.
-              margin={rotateTicks ? { top: 12, right: 16, bottom: 0, left: 10 } : { top: 12, right: 14, bottom: 0, left: 0 }}
+              margin={
+                rotateTicks
+                  ? { top: 12, right: 16, bottom: 0, left: leftGutter }
+                  : { top: 12, right: 14, bottom: 0, left: 0 }
+              }
               barGap={3}
               barCategoryGap="34%"
             >

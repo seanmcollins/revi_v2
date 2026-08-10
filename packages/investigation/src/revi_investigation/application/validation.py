@@ -466,6 +466,10 @@ class PlanValidationService:
         """
         dimension_id = error.details.get("dimension")
         metric_id = error.details.get("metric")
+        transform = error.details.get("transform")
+        playbook_id = error.details.get("playbook")
+        if isinstance(transform, str) and isinstance(playbook_id, str):
+            return self._playbook_transform_alternative(playbook_id, transform)
         if isinstance(dimension_id, str) and self._catalog.dimension(dimension_id) is not None:
             return self._grain_alternative(dimension_id, metric_id, spec)
         if isinstance(dimension_id, str):
@@ -475,6 +479,79 @@ class PlanValidationService:
         if isinstance(metric_id, str) and self._pack.metric(metric_id) is None:
             return self._near_miss_metric(metric_id)
         return None
+
+    def _playbook_transform_alternative(
+        self, playbook_id: str, transform: str
+    ) -> ClarificationRequest | None:
+        """What this pack CAN answer when a playbook's answer is missing.
+
+        Round-8 FIX-9(2) and FIX-12(c). ``pivot`` and
+        ``project_lagged_realization`` are the two transforms this engine
+        does not implement and that a playbook answers WITH, so the plan
+        refuses rather than publishing the probes underneath as if they
+        were the card or the forecast (see
+        ``planning.ANSWERING_TRANSFORMS``). A refusal on its own would be
+        honest and useless: the probes it declined to publish name real
+        measurements, and each of them is a question this platform answers
+        well on the direct path.
+
+        So each probe family becomes one option, bound to the metric ids
+        and the cut it declares — content, never invented — and the
+        question names the transform that is missing. Nothing here promises
+        the scorecard: it says which of its columns can be had one at a
+        time.
+        """
+        playbook = self._pack.playbook(playbook_id)
+        if playbook is None:  # pragma: no cover - the planner read it a moment ago
+            return None
+        options: list[str] = []
+        bindings: list[ClarificationBinding] = []
+        for probe in playbook.probes:
+            metrics = tuple(
+                metric_id
+                for metric_id in probe.metric_ids
+                if self._pack.metric(metric_id) is not None
+            )
+            if not metrics:
+                continue
+            dimensions = tuple(
+                dimension
+                for dimension in probe.dimensions
+                if self._catalog.dimension(dimension) is not None
+            )
+            label = ", ".join(metrics[:3])
+            cut = f" by {', '.join(dimensions)}" if dimensions else ""
+            option = f"Measure {label}{cut}"
+            if option in options:
+                continue
+            options.append(option)
+            bindings.append(
+                ClarificationBinding(
+                    option=option,
+                    kind="metric_cut",
+                    metric_ids=metrics,
+                    dimension_ids=dimensions,
+                )
+            )
+            if len(options) >= MAX_SUGGESTED_VALUES:
+                break
+        if not options:
+            return None
+        return ClarificationRequest(
+            question=(
+                f"I can't build that: the {playbook_id!r} playbook answers by {transform!r}, "
+                "which this engine does not implement — so what it would have produced does "
+                "not exist here, and I won't hand you the probes underneath it as if they "
+                f"were it. These {len(options)} measurements from the same playbook I can "
+                "give you now, one at a time. Which do you want?"
+            ),
+            options=tuple(options),
+            reason=(
+                f"PLAYBOOK_TRANSFORM_UNAVAILABLE: {playbook_id} answers by {transform!r}; "
+                f"{len(options)} probe famil(ies) offered as direct measurements instead"
+            ),
+            bindings=tuple(bindings),
+        )
 
     def _basis_alternative(
         self, metric_id: str, refused_basis: object

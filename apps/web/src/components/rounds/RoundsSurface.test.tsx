@@ -20,6 +20,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RoundsSurface } from "@/components/rounds/RoundsSurface";
 import { TooltipProvider } from "@/components/ui/tooltip";
+import live from "@/lib/__fixtures__/live-rounds.json";
 import { noteRoundsRedirect } from "@/lib/roundsVisit";
 import { useSessionStore } from "@/lib/store";
 
@@ -124,5 +125,84 @@ describe("Rounds speaks while it works", () => {
     // already read.
     draw();
     expect(screen.getByRole("link", { name: /Skip to your watches/ })).toBeInTheDocument();
+  });
+});
+
+/**
+ * THE WHOLE PATH, against the API driver: does a tile actually GET the
+ * watch it was drawn from?
+ *
+ * The round-8 defect had two live faces behind one symptom — the pins read
+ * 500ing, and the read returning 200 with thirty pins while `pinsById`
+ * stayed empty — and both ended at the same disabled button. The test the
+ * reviewer asked for by name is this one: mount the surface against the
+ * driver the product runs, and assert the tiles and the pins meet.
+ *
+ * Everything here is the captured live payload; only the network is
+ * replaced.
+ */
+describe("Rounds reaches the watches its tiles are drawn from", () => {
+  // The single-flight latch is store state, and the tests above leave a
+  // pins read in flight forever (their network never answers). A fresh
+  // surface is a fresh read.
+  beforeEach(() => {
+    useSessionStore.setState({
+      knownWatches: [],
+      watchesLoaded: false,
+      watchesLoading: false,
+      watchesError: null,
+    });
+  });
+
+  function serve(pins: unknown, status = 200) {
+    vi.stubGlobal(
+      "fetch",
+      vi.fn((input: RequestInfo | URL) => {
+        const url = String(input);
+        const json = (body: unknown, code = 200) =>
+          Promise.resolve(
+            new Response(JSON.stringify(body), {
+              status: code,
+              headers: { "content-type": "application/json" },
+            }),
+          );
+        if (url.includes("/v1/health")) return json({ watermark: "wm_003", store_mode: "postgres" });
+        if (url.includes("/v1/rounds/pins")) return json(pins, status);
+        if (url.includes("/v1/rounds/brief")) return json(live.brief);
+        if (url.includes("/v1/rounds")) return json(live.rounds);
+        if (url.includes("/v1/portfolio")) return json({ ...live.cards });
+        return json({}, 404);
+      }),
+    );
+  }
+
+  it("hands every tile the watch it was drawn from", async () => {
+    serve(live.pins);
+    draw();
+    // The tiles land…
+    await waitFor(() =>
+      expect(document.querySelectorAll("[data-tile-pin]").length).toBe(live.rounds.tiles.length),
+    );
+    // …and so do the pins behind them: every tile's settings menu offers
+    // the editor rather than explaining an absence.
+    await waitFor(() =>
+      expect(useSessionStore.getState().knownWatches.length).toBe(live.pins.pins.length),
+    );
+    const pinned = new Set(useSessionStore.getState().knownWatches.map((p) => p.pinId));
+    for (const tile of document.querySelectorAll("[data-tile-pin]")) {
+      expect(pinned.has(tile.getAttribute("data-tile-pin") ?? "")).toBe(true);
+    }
+    expect(useSessionStore.getState().watchesError).toBeNull();
+  });
+
+  it("says so on the page when that read 500s", async () => {
+    serve({ detail: "watch unit 'days' is not a RoundsWatchUnit" }, 500);
+    draw();
+    await waitFor(() => expect(useSessionStore.getState().watchesError).not.toBeNull());
+    // The tiles are still drawn — the two reads are independent, and a
+    // failed settings read must not blank the surface.
+    await waitFor(() =>
+      expect(document.querySelectorAll("[data-tile-pin]").length).toBe(live.rounds.tiles.length),
+    );
   });
 });

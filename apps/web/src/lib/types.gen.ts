@@ -2383,6 +2383,8 @@ export interface components {
              * @default 0
              */
             total: number;
+            /** Unreadable */
+            unreadable?: string[];
         };
         /**
          * RoundsPinPayload
@@ -2707,7 +2709,7 @@ export interface components {
              */
             note: string;
             /** Unit */
-            unit?: ("points" | "relative_pct" | "cents") | null;
+            unit?: ("points" | "relative_pct" | "cents" | "days") | null;
             /** Value */
             value?: number | null;
         };

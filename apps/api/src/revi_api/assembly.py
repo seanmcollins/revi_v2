@@ -508,6 +508,11 @@ async def restored_chart_specs(
             # recorded with it, so a re-opened turn's charts sort the way the
             # live ones did instead of falling back to frame order (R3-13).
             sorts=chart_sorts_from_trace(trace),
+            # The window this turn ran over, rebuilt from its own stored spec
+            # by the same builder the restored response publishes: a frame
+            # with no dimension is charted against its PERIOD, and a restored
+            # turn must name the same one the live answer did (FIX-8).
+            windows=restored_context_header(investigation),
         )
     )
     # The same two contract checks the live turn ran (R4-09, R4-14): a
@@ -949,6 +954,11 @@ async def assemble_turn_response(
                 frame_id: (by, descending)
                 for frame_id, by, descending in outcome.chart_sorts
             },
+            # The turn's own window, off the header it already published: a
+            # frame with no dimension has no category to key marks by, and
+            # its axis is the period rather than — as it was live — the
+            # measured value itself (FIX-8).
+            windows=outcome.header,
         )
     )
     # …and then the two contract checks a published chart must pass: its
