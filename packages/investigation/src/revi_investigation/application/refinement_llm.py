@@ -136,6 +136,36 @@ def referent_tokens(question: str) -> tuple[str, ...]:
     return tuple(dict.fromkeys(match.group(1).upper() for match in REFERENT_HANDLE.finditer(question)))
 
 
+def referent_option(referent_id: str, label: str) -> str:
+    """One shown item, worded as something the analyst can SAY BACK.
+
+    A REFERENT GUESS IS AN OPTION. "By 'that', do you mean F2?" shipped with
+    ``options: ()`` — so the funnel's last step stamped it
+    ``CLARIFICATION_NO_OPTIONS`` and the card printed *"There is no
+    answerable option to offer here."* one line above a question that was
+    offering exactly one. The platform had a candidate, named it, and told
+    the reader it had nothing.
+
+    THE HANDLE LEADS, and that is what makes this a real option rather than
+    a sentence. A reply carrying a handle this session published is resolved
+    by LOOKUP one turn later (§7.6): ``_referent_resume`` sends it back into
+    the refinement pipeline, where ``resolve_referent_tokens`` claims the
+    token at confidence 1.0 before any planner or model sees it, and the
+    question this clarification interrupted resumes against it. The label
+    rides behind the handle because "F2" alone is not a thing a reader can
+    choose between — it says WHICH figure the handle stands for, in the
+    words that figure was published under.
+
+    Deliberately NOT given a :class:`ClarificationBinding`. The binding
+    kinds are what this platform DERIVED from governed content, and
+    ``_lone_binding`` applies a lone deterministic one without asking; a
+    sub-threshold guess by a model is the one thing that must not be
+    auto-applied under a rule written for the pack's own derivations.
+    """
+    trimmed = " ".join(label.split())
+    return f"{referent_id} — {trimmed}" if trimmed else referent_id
+
+
 def resolve_referent_tokens(
     question: str, entries: tuple[RegisteredReferent, ...]
 ) -> tuple[tuple[ReferentResolution, ...], tuple[str, ...]]:
@@ -440,6 +470,7 @@ class ResolveReferentsService:
                 (), clarify, result.usage, self._template.sha256, LlmFailureKind.SCHEMA
             )
         by_value = {entry.referent.value: entry.referent for entry in entries}
+        labels = {entry.referent.value: entry.label for entry in entries}
         resolutions: list[ReferentResolution] = []
         for item in parsed.resolutions:
             referent = by_value.get(item.referent_id)
@@ -449,13 +480,18 @@ class ResolveReferentsService:
                     details={"referent": item.referent_id, "mention": item.mention},
                 )
             if item.confidence < _MIN_RESOLUTION_CONFIDENCE:
+                # The candidate is OFFERED, not merely mentioned. Below the
+                # threshold this platform does not claim to know which item
+                # was meant — but it does have one to put forward, and a
+                # question that names a candidate while publishing no
+                # options is how a helpful guess reached the analyst in a
+                # refusal's costume (see :func:`referent_option`).
+                option = referent_option(item.referent_id, labels.get(item.referent_id, ""))
                 return ResolutionOutcome(
                     (),
                     ClarificationRequest(
-                        question=(
-                            f"By {item.mention!r}, do you mean {item.referent_id} "
-                            f"({by_value[item.referent_id].kind.value})?"
-                        ),
+                        question=f"By {item.mention!r}, do you mean {option}?",
+                        options=(option,),
                         reason=f"referent resolution confidence {item.confidence:.2f}",
                     ),
                     result.usage,

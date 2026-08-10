@@ -167,7 +167,19 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
 
       {variant !== "b" && worklistBlock}
 
-      {a.clarification && <ClarificationPrompt clarification={a.clarification} />}
+      {a.clarification && (
+        <ClarificationPrompt
+          clarification={a.clarification}
+          // The register, from the server's own coded declaration. The
+          // engine marks a dead end `CLARIFICATION_NO_OPTIONS` and the API
+          // publishes that marking as a classified warning; the reason
+          // string it also rode on is customer copy, and the copy
+          // discipline strips internal enums out of it. Reading the code
+          // means the card's register survives that strip — and it is the
+          // wire distinction this component was written to adopt.
+          noOptions={a.warnings.some((w) => w.code === "CLARIFICATION_NO_OPTIONS")}
+        />
+      )}
 
       {a.error && <TurnErrorCard error={a.error} />}
 

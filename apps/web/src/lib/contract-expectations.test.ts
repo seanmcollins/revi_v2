@@ -614,6 +614,26 @@ describe("TurnResponse contract (parseTurnResponse)", () => {
     expect(complete.type === "turn_complete" && complete.status).toBe("clarification_required");
   });
 
+  it("carries the assembled clarification on the terminal frame, always", () => {
+    // Even when the live stream already delivered a `clarification` frame.
+    // That frame is progress: the options on it are whatever the funnel had
+    // reached, and the reason on it predates nothing. The terminal payload
+    // is the assembled one, and skipping it left a card rendered mid-flight
+    // as the last word — options computed, validated, published, and never
+    // rendered as chips.
+    const { value } = parseTurnResponse(SAMPLES.clarification_body, PIN);
+    if (value?.outcome !== "clarification_required") throw new Error("unreachable");
+    const received = newReceivedState();
+    trackReceived(received, { type: "clarification", clarification: value.clarification });
+
+    const events = turnResponseToEvents(value, received);
+
+    expect(events.map((e) => e.type)).toEqual(["stage", "turn_complete"]);
+    const complete = events[events.length - 1];
+    if (complete.type !== "turn_complete") throw new Error("unreachable");
+    expect(complete.clarification).toEqual(value.clarification);
+  });
+
   it("skips deltas already received on the live stream (duplicate-free recovery)", () => {
     const { value } = parseTurnResponse(SAMPLES.turn_complete, PIN);
     if (value?.outcome !== "answer") throw new Error("expected an answer");

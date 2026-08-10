@@ -105,6 +105,61 @@ describe("applyEventToAnswer (pure reducer)", () => {
     expect(answer.error).toBeUndefined();
   });
 
+  /**
+   * THE CHIPS ARRIVED AND NOTHING RENDERED THEM.
+   *
+   * The engine computes clarification options, validates them against the
+   * warehouse and publishes them — twelve real payer values on the live
+   * "what is the denial rate for UnitedHealthcare?" turn. The store took
+   * the first `clarification` frame as final and the terminal frame's
+   * clarification was never merged, so a card rendered from a frame that
+   * predated the options showed a question above an empty row.
+   */
+  it("merges options that arrive on the terminal frame", () => {
+    const answer = reduce([
+      {
+        type: "clarification",
+        clarification: { question: "Which payer did you mean?", options: [] },
+      },
+      {
+        type: "turn_complete",
+        investigationId: "i",
+        status: "clarification_required",
+        clarification: {
+          question: "Which payer did you mean?",
+          options: ["Atlas Commercial", "Federal Medicare"],
+        },
+      },
+    ]);
+    expect(answer.clarification?.options).toEqual(["Atlas Commercial", "Federal Medicare"]);
+  });
+
+  it("never lets a later empty list erase chips already on screen", () => {
+    const answer = reduce([
+      {
+        type: "clarification",
+        clarification: {
+          question: "Which payer did you mean?",
+          options: ["Atlas Commercial", "Federal Medicare"],
+          // The engine's shape marker rides on the streamed frame; the
+          // terminal payload's reason has been through the API's copy
+          // discipline, which takes internal enums out of it.
+          reason: "CLARIFICATION_NO_OPTIONS",
+        },
+      },
+      {
+        type: "turn_complete",
+        investigationId: "i",
+        status: "clarification_required",
+        clarification: { question: "Which payer did you mean?", options: [] },
+      },
+    ]);
+    expect(answer.clarification?.options).toEqual(["Atlas Commercial", "Federal Medicare"]);
+    // A field the terminal payload does not carry keeps what did arrive:
+    // the register the engine declared is not lost to a merge.
+    expect(answer.clarification?.reason).toBe("CLARIFICATION_NO_OPTIONS");
+  });
+
   it("turn_complete finalizes stages and carries grade + governed provenance", () => {
     const answer = reduce(REFERENCE_TURNS[2].events);
     expect(answer.status).toBe("complete");

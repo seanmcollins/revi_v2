@@ -57,7 +57,7 @@ from revi_api.auth import (
     cors_origins_from_env,
 )
 from revi_api.cohort_sweep import CohortSweepScheduler, sweep_interval_seconds
-from revi_api.error_copy import plain_message
+from revi_api.error_copy import clarification_frame_reason, plain_message
 from revi_api.monitors_sweep import MonitorsSweepScheduler
 from revi_api.monitors_sweep import sweep_interval_seconds as monitors_sweep_interval_seconds
 from revi_api.service import (
@@ -167,6 +167,25 @@ _SSE_DESCRIPTION = "\n".join(
 
 def _sse_frame(kind: str, payload: dict[str, Any]) -> str:
     return f"event: {kind}\ndata: {json.dumps(payload, separators=(',', ':'))}\n\n"
+
+
+def _public_payload(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
+    """One engine frame, in the register the boundary publishes.
+
+    Engine events are written for the engine. Everything the analyst
+    eventually reads goes through this module's copy discipline on the
+    terminal ``TurnResponse`` — and the ``clarification`` frame, which is
+    the one engine event a client renders DIRECTLY as a card, went out
+    around it. So the discipline is applied to the frame as well, at the
+    same boundary and by the same function
+    (:func:`revi_api.error_copy.clarification_frame_reason`).
+
+    Every other kind is passed through untouched: the presentation frames
+    are already assembled payloads and the progress frames carry no prose.
+    """
+    if kind != "clarification":
+        return payload
+    return {**payload, "reason": clarification_frame_reason(payload.get("reason"))}
 
 
 _SSE_MEDIA_TYPE = "text/event-stream"
@@ -437,13 +456,17 @@ def create_app(
                     if drain in done:
                         event = drain.result()
                         if event.kind != "turn_complete":  # the API emits the final frame
-                            yield _sse_frame(event.kind, dict(event.payload))
+                            yield _sse_frame(
+                                event.kind, _public_payload(event.kind, dict(event.payload))
+                            )
                         continue
                     drain.cancel()
                     while not queue.empty():
                         event = queue.get_nowait()
                         if event.kind != "turn_complete":
-                            yield _sse_frame(event.kind, dict(event.payload))
+                            yield _sse_frame(
+                                event.kind, _public_payload(event.kind, dict(event.payload))
+                            )
                     break
                 response = task.result()
                 yield _sse_frame("turn_complete", _dump(response))

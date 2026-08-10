@@ -9,6 +9,7 @@ transport (the only one with a wire).
 
 from __future__ import annotations
 
+import re
 from collections.abc import AsyncIterator
 from itertools import pairwise
 from pathlib import Path
@@ -427,6 +428,40 @@ class TestHttpOnly:
             assert max(positions[earlier]) < min(positions[later]), kinds
         assert final is not None and final["outcome"] == "answer"
         assert [f["referent"] for f in final["findings"]] == ["F1", "F2", "F3"]
+
+    async def test_the_clarification_frame_is_a_published_surface(
+        self, http: HttpInvestigationClient
+    ) -> None:
+        """The intermediate frame carries its options, in the boundary's copy.
+
+        Two halves of one defect. The frame published ``{question, reason}``
+        alone, so every option the funnel had validated arrived only on the
+        terminal frame and a card rendered from this one showed a question
+        above an empty row; and it published ``ClarificationRequest.reason``
+        byte for byte, so the trace's own vocabulary — live, *"referent
+        resolution confidence 0.40"* — was printed under the question.
+        """
+        session = await http.open_session(OpenSessionRequest(tenant="demo"))
+        frames = [
+            payload
+            async for kind, payload in http.stream_turn(
+                session.session_id, TurnRequest(utterance=CONFUSED_Q)
+            )
+            if kind == "clarification"
+        ]
+        assert len(frames) == 1
+        [frame] = frames
+        assert "options" in frame, frame
+        assert isinstance(frame["options"], list)
+        reason = frame["reason"] or ""
+        # The one internal token that may survive is the engine's shape
+        # marker, which the renderer strips before display (it decides
+        # whether the card is a question or a statement, and is not a
+        # sentence for a human). Nothing else internal rides with it.
+        readable = reason.replace("CLARIFICATION_NO_OPTIONS", "").strip(" ;")
+        assert not re.search(r"\bconfidence\s+\d*\.\d+", readable), reason
+        assert not re.search(r"\b[A-Z][A-Z0-9]{2,}(?:_[A-Z0-9]+)+\b", readable), reason
+        assert not re.search(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b", readable), reason
 
     async def test_http_404_serves_the_error_envelope(
         self, http: HttpInvestigationClient

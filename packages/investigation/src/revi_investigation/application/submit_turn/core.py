@@ -958,7 +958,21 @@ class _TurnCore(_ClarificationPolicy):
             TurnEvent(
                 kind="clarification",
                 turn_id=state.turn_id,
-                payload={"question": clarification.question, "reason": clarification.reason},
+                # THE OPTIONS RIDE ON THE FRAME. This payload published the
+                # question and the reason and nothing else, so every option
+                # the funnel above had just computed, validated against the
+                # warehouse, dry-run against the planner and checked for
+                # subject drift arrived only on the terminal `turn_complete`
+                # frame — and a client that had already rendered the card
+                # from this one showed a question above an empty row.
+                # Live: "what is the denial rate for UnitedHealthcare?"
+                # enumerates all twelve real payers on the wire and rendered
+                # none of them as a chip.
+                payload={
+                    "question": clarification.question,
+                    "options": list(clarification.options),
+                    "reason": clarification.reason,
+                },
             )
         )
         await self._turn_complete(state, investigation)

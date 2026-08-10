@@ -1493,8 +1493,11 @@ TURN_EVENT_PAYLOADS: dict[str, str] = {
     "warning": "{code: str, ...} — a stable §12 code plus code-specific "
     "detail (e.g. WATERMARK_STALE carries pinned/newest, "
     "RECONCILIATION_FAILED carries detail).",
-    "clarification": "{question: str, reason: str|null} — a successful "
-    "outcome, never an error.",
+    "clarification": "{question: str, options: str[], reason: str|null} — a "
+    "successful outcome, never an error. `options` are the answerable "
+    "choices, the same list the terminal `TurnResponse` carries, so a card "
+    "rendered from this frame offers them rather than waiting for the "
+    "final frame to learn they exist.",
     "context_header": "ContextHeaderPayload — the effective context of the "
     "answer (§7.2); emitted before any finding.",
     "finding": "FindingPayload — one certified, referent-addressable result.",

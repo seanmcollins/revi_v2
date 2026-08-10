@@ -184,6 +184,37 @@ function applyStage(stages: StageStatus[], event: StageEvent): StageStatus[] {
   });
 }
 
+/**
+ * A clarification, updated by whatever the wire says next — never
+ * downgraded by it.
+ *
+ * TWO FRAMES CARRY THE SAME CARD and neither is complete on its own. The
+ * `clarification` SSE frame is what the card is rendered from the moment
+ * the turn resolves; the terminal `turn_complete` frame carries the
+ * server-assembled version, whose `reason` has been through the API's copy
+ * discipline. Replacing wholesale in either direction loses something: the
+ * terminal payload omits a `reason` the boundary stripped to null, and an
+ * early frame that arrived before the funnel had finished has no options.
+ *
+ * So the newer version wins on every field it actually carries, and
+ * OPTIONS MERGE: an empty list from a later frame never erases chips that
+ * already arrived. Live, "what is the denial rate for UnitedHealthcare?"
+ * enumerates all twelve real payer values on the wire and rendered a
+ * question above an empty row, because the options existed only on a frame
+ * the store had already stopped listening for.
+ */
+export function mergeClarification(
+  previous: ClarificationData | undefined,
+  next: ClarificationData,
+): ClarificationData {
+  if (previous === undefined) return next;
+  return {
+    ...previous,
+    ...next,
+    options: next.options.length > 0 ? next.options : previous.options,
+  };
+}
+
 /** Pure event reducer — unit tested without React. */
 export function applyEventToAnswer(answer: AnswerState, event: TurnEvent): AnswerState {
   switch (event.type) {
@@ -234,7 +265,11 @@ export function applyEventToAnswer(answer: AnswerState, event: TurnEvent): Answe
         narrative: event.replace ? event.text : answer.narrative + event.text,
       };
     case "clarification":
-      return { ...answer, clarification: event.clarification, status: "clarification" };
+      return {
+        ...answer,
+        clarification: mergeClarification(answer.clarification, event.clarification),
+        status: "clarification",
+      };
     case "warning":
       return { ...answer, warnings: [...answer.warnings, event] };
     case "evidence":
@@ -249,6 +284,14 @@ export function applyEventToAnswer(answer: AnswerState, event: TurnEvent): Answe
         ...answer,
         stages,
         investigationId: event.investigationId || answer.investigationId,
+        // The terminal frame's clarification is the assembled one: the
+        // options survived the funnel, the reason survived the copy
+        // discipline. Merged rather than assigned, so a stream frame that
+        // already delivered chips keeps them (see `mergeClarification`).
+        clarification:
+          event.clarification !== undefined
+            ? mergeClarification(answer.clarification, event.clarification)
+            : answer.clarification,
         debug: event.debug ?? answer.debug,
         answerGrade: event.answerGrade ?? answer.answerGrade,
         metric: event.metric ?? answer.metric,

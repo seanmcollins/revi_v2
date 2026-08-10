@@ -357,3 +357,35 @@ def clarification_reason_copy(reason: str | None, *, debug: bool = False) -> str
         return None
     joined = "; ".join(kept)
     return joined[:1].upper() + joined[1:]
+
+
+def clarification_frame_reason(reason: str | None) -> str | None:
+    """The reason as the intermediate SSE frame may carry it.
+
+    THE STREAM IS A DEFAULT SURFACE. ``clarification_reason_copy`` is
+    applied where the terminal ``TurnResponse`` is assembled, and the
+    ``clarification`` frame that precedes it published
+    ``ClarificationRequest.reason`` byte for byte — so a card rendered from
+    the stream (which is every live card: the client renders the frame the
+    moment it lands) carried the trace's own vocabulary. Live, a follow-up
+    that could not be pinned to a shown figure read *"referent resolution
+    confidence 0.40"* under the question, and a model's probability is a
+    fact about this platform's internals, never one an analyst is asked to
+    weigh mid-investigation.
+
+    One exception, and it is not copy: the engine's
+    ``CLARIFICATION_NO_OPTIONS`` marker survives. It is a SHAPE instruction
+    — the engine's own declaration that it has nothing answerable to offer,
+    which decides whether the card is a question or a statement — and the
+    renderer strips it before display precisely because it is not a
+    sentence for a human. Dropping it here would silently retire the
+    refusal register, so the one string this function preserves is the one
+    string no reader ever sees.
+
+    Full fidelity is unchanged: the raw reason is on the trace, on the
+    trace endpoint, and on the terminal frame under ``debug``.
+    """
+    copy = clarification_reason_copy(reason)
+    if _NO_OPTIONS_MARKER not in (reason or ""):
+        return copy
+    return f"{copy}; {_NO_OPTIONS_MARKER}" if copy else _NO_OPTIONS_MARKER

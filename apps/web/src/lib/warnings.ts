@@ -622,9 +622,56 @@ const WELDED_STOP = /(?<=[a-z]{2})([.!?])(?=[A-Za-z])/g;
  */
 const WELDED_TAIL_WORDS = 5;
 
+/**
+ * Tokens that make a full stop part of a NAME rather than a sentence end —
+ * the client half of the server's `_NAME_INTERNAL_SUFFIXES`
+ * (`revi_presentation.narrative`), kept byte-identical so the two layers
+ * cannot disagree about where a sentence begins.
+ *
+ * The word-count guard above is not enough on its own, and "HealthCare.gov"
+ * is the live proof. Benchmark cohort labels and sources are certified
+ * vocabulary the composer is instructed to quote — "ACA marketplace
+ * (HealthCare.gov) issuer data for 2023-2024 shows different denominators" —
+ * and the tail after that stop is nine words, comfortably past the guard.
+ * So the mend fired and the reader was shown "HealthCare. gov", a broken
+ * domain inside a governed citation, on the one line whose whole job is to
+ * say where the benchmark came from.
+ *
+ * Kept closed and short for the reason the server's is: a wide list would
+ * leave two real sentences welded together, which is this defect pointed
+ * the other way. `net`, `co` and `us` are deliberately absent — "…rose
+ * 4%.net of contractual adjustments…" is a seam worth repairing, and "net"
+ * opening a clause is ordinary revenue-cycle prose.
+ */
+const NAME_INTERNAL_SUFFIXES: ReadonlySet<string> = new Set([
+  // Domain suffixes present in governed pack content (benchmark sources
+  // and cohort labels): hfma.org, cms.gov, HealthCare.gov, techtarget.com,
+  // kff.org, mgma.com, optum.com …
+  "gov",
+  "com",
+  "org",
+  "edu",
+  "io",
+  // File extensions the product names when it talks about exports.
+  "csv",
+  "json",
+  "pdf",
+  "xlsx",
+]);
+
+/** The word immediately following a candidate seam's stop. */
+const SEAM_FOLLOWER = /^[A-Za-z]+/;
+
 function mendWeldedStops(text: string): string {
   return text.replace(WELDED_STOP, (stop: string, _p1: string, offset: number) => {
-    const clause = /^[^.!?]*/.exec(text.slice(offset + 1))?.[0] ?? "";
+    const after = text.slice(offset + 1);
+    // The stop belongs to a name, not to a sentence: leave it exactly as
+    // the composer wrote it. Checked BEFORE the word count, because the
+    // tail of "(HealthCare.gov) issuer data for 2023-2024 shows different
+    // denominators" is long enough to pass every other test here.
+    const follower = SEAM_FOLLOWER.exec(after)?.[0] ?? "";
+    if (NAME_INTERNAL_SUFFIXES.has(follower.toLowerCase())) return stop;
+    const clause = /^[^.!?]*/.exec(after)?.[0] ?? "";
     const words = clause.trim().split(/\s+/).filter((w) => w !== "");
     return words.length < WELDED_TAIL_WORDS ? stop : `${stop} `;
   });

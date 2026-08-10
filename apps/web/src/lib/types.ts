@@ -1250,6 +1250,17 @@ export interface TurnCompleteEvent {
   type: "turn_complete";
   investigationId: string;
   status: "complete" | "clarification_required" | "failed";
+  /**
+   * The server-assembled clarification, on the frame that is authoritative
+   * about it — the options as the funnel left them and the reason as the
+   * API's copy discipline left it.
+   *
+   * Rides here for the same reason the grade does: an intermediate frame
+   * is progress, and a card rendered from one had no way to learn what the
+   * finished turn actually offered. The store MERGES it rather than
+   * replacing, so nothing the stream already delivered is lost.
+   */
+  clarification?: ClarificationData;
   answerGrade?: EvidenceGrade;
   /** The governed provenance of this turn's numbers (`TurnAnswer.metric`). */
   metric?: MetricProvenance;

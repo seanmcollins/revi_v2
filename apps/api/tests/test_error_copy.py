@@ -22,6 +22,7 @@ from revi_api.error_copy import (
     PLAIN_MESSAGES,
     WAREHOUSE_READ_BUDGET,
     budget_subcode,
+    clarification_frame_reason,
     clarification_reason_copy,
     clarification_register,
     plain_message,
@@ -267,3 +268,52 @@ class TestClarificationReasonCopy:
         assert clarification_reason_copy("CLARIFICATION_NO_OPTIONS") is None
         assert clarification_reason_copy(None) is None
         assert clarification_reason_copy("   ") is None
+
+
+class TestClarificationFrameReason:
+    """THE STREAM IS A DEFAULT SURFACE TOO.
+
+    The copy discipline was applied where the terminal ``TurnResponse`` is
+    assembled, and the intermediate ``clarification`` SSE frame — which is
+    what a client renders the card from the instant a turn resolves —
+    published ``ClarificationRequest.reason`` byte for byte. Live, a
+    follow-up that could not be pinned to a shown figure printed *"referent
+    resolution confidence 0.40"* under the question.
+    """
+
+    def test_a_model_confidence_never_reaches_the_frame(self) -> None:
+        assert clarification_frame_reason("referent resolution confidence 0.40") is None
+
+    def test_the_frame_and_the_terminal_payload_agree_on_copy(self) -> None:
+        reason = (
+            "PREDICATE_VALUE_UNMATCHED: payer ['UnitedHealthcare'] not in the 12 values "
+            "this watermark holds"
+        )
+        assert clarification_frame_reason(reason) == clarification_reason_copy(reason)
+
+    def test_the_shape_marker_survives_because_nobody_reads_it(self) -> None:
+        """The one string this keeps, and the reason it is not copy.
+
+        ``CLARIFICATION_NO_OPTIONS`` is the engine's declaration that it has
+        nothing answerable to offer — the fact that decides whether the card
+        is a question or a statement. The renderer strips it before display.
+        Dropping it here would retire the refusal register silently.
+        """
+        assert (
+            clarification_frame_reason("referent resolution confidence 0.40; CLARIFICATION_NO_OPTIONS")
+            == "CLARIFICATION_NO_OPTIONS"
+        )
+        kept = clarification_frame_reason(
+            "no pack content matched the definitional lookup; CLARIFICATION_NO_OPTIONS"
+        )
+        assert kept is not None
+        assert kept.startswith("No pack content matched the definitional lookup")
+        assert kept.endswith("; CLARIFICATION_NO_OPTIONS")
+
+    def test_nothing_else_internal_rides_along_with_it(self) -> None:
+        kept = clarification_frame_reason(
+            "CLARIFICATION_SOLE_SURVIVOR: one left; options_dropped=2; CLARIFICATION_NO_OPTIONS"
+        )
+        # The leading code and the machine pair are gone; the sentence the
+        # engine wrote for a reader survives, and so does the shape marker.
+        assert kept == "One left; CLARIFICATION_NO_OPTIONS"

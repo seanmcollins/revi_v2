@@ -296,6 +296,37 @@ describe("foldComposedDisclosures — whole sentences, and a repaired join", () 
     const { text } = foldComposedDisclosures(narrative, warnings);
     expect(text).toBe(narrative);
   });
+
+  /**
+   * THE MEND MUST NOT SPLIT A DOMAIN — the client half of the server's
+   * `_NAME_INTERNAL_SUFFIXES` veto (`revi_presentation.narrative`).
+   *
+   * The word-count guard passes a nine-word tail, so the mend fired on the
+   * stop inside a certified benchmark source and the reader was shown
+   * "HealthCare. gov" — a broken domain inside a governed citation, on the
+   * line whose whole job is to say where the benchmark came from.
+   */
+  it("does not split a domain the composer was instructed to quote", () => {
+    const narrative =
+      "ACA marketplace (HealthCare.gov) issuer data for 2023-2024 shows different " +
+      "denominators.";
+    const { text, folded } = foldComposedDisclosures(narrative, warnings);
+    expect(text).toBe(narrative);
+    expect(folded).toBe(0);
+    expect(text).toContain("HealthCare.gov");
+    expect(text).not.toContain("HealthCare. gov");
+  });
+
+  it("still mends a genuine welded stop with the domain rule in place", () => {
+    // The defect this mend exists for, unchanged: two real sentences the
+    // composer joined with no space between them.
+    const narrative =
+      "The caution-severity notes published above this text govern how far these figures " +
+      "can be generalized.Superlatives and spread statements on this answer describe the " +
+      "published slice.";
+    const { text } = foldComposedDisclosures(narrative, []);
+    expect(text).toContain("can be generalized. Superlatives");
+  });
 });
 
 /**

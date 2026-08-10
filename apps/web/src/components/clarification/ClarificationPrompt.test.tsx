@@ -295,6 +295,60 @@ describe("ClarificationPrompt — options rendered as tappable recovery chips", 
       expect(screen.getByText(/Which did you mean\?/)).toBeInTheDocument();
     });
 
+    /**
+     * THE REGISTER SURVIVES THE COPY DISCIPLINE.
+     *
+     * `reason` is customer copy, and the API boundary takes internal enums
+     * out of it — the marker included. So the register also travels as the
+     * server's own classified warning, and this card reads that: without
+     * it, a genuine dead end would arrive with the marker stripped and be
+     * rendered as an ordinary question.
+     */
+    it("takes the loud register from the server's coded declaration", () => {
+      useSessionStore.setState({ submit: vi.fn(), streamingTurnId: null });
+      render(
+        <ClarificationPrompt
+          clarification={{
+            question: "What would you like me to measure?",
+            options: [],
+            // The marker is gone: this is the reason as the boundary
+            // publishes it on the terminal payload.
+            reason: "This pack publishes no metric for provider productivity",
+          }}
+          noOptions
+        />,
+      );
+
+      expect(screen.getByRole("group")).toHaveAttribute(
+        "data-clarification-register",
+        "refusal",
+      );
+      expect(
+        screen.getByText("There is no answerable option to offer here."),
+      ).toBeInTheDocument();
+    });
+
+    it("stays neutral when the server declared options were offered", () => {
+      useSessionStore.setState({ submit: vi.fn(), streamingTurnId: null });
+      render(
+        <ClarificationPrompt
+          clarification={{
+            question: "By 'that', do you mean F2 — Cash posted, July 2026?",
+            options: ["F2 — Cash posted, July 2026"],
+          }}
+          noOptions={false}
+        />,
+      );
+
+      expect(screen.getByRole("group")).toHaveAttribute(
+        "data-clarification-register",
+        "neutral",
+      );
+      expect(
+        screen.getByRole("button", { name: "F2 — Cash posted, July 2026" }),
+      ).toBeInTheDocument();
+    });
+
     it("names the composer as the answer when there are no chips to be an alternative to", () => {
       useSessionStore.setState({ submit: vi.fn(), streamingTurnId: null });
       render(

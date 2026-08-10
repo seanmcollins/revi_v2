@@ -20,8 +20,12 @@ from revi_investigation.application.llm.schemas import (
     SetDimensionsModel,
 )
 from revi_investigation.application.ports import RegisteredReferent
-from revi_investigation.application.refinement_llm import resolve_ordinal_referent
+from revi_investigation.application.refinement_llm import (
+    resolve_ordinal_referent,
+    resolve_referent_tokens,
+)
 from revi_investigation.application.submit_turn import (
+    NO_OPTIONS_REASON,
     PRESENTATION_PRODUCED_NOTHING_REASON,
     SubmitTurnRequest,
     TurnOutcome,
@@ -345,6 +349,53 @@ class TestConflictAndClarification:
         )
         assert outcome.clarification is not None
         assert "F1" in outcome.clarification.question
+        # A GUESS IS AN OPTION. The candidate the model named is offered as
+        # something the analyst can tap: it shipped with `options: ()`, so
+        # the funnel's last step stamped CLARIFICATION_NO_OPTIONS and the
+        # card printed "There is no answerable option to offer here." one
+        # line above a question that was offering exactly one.
+        assert outcome.clarification.options, "the candidate referent must be offered"
+        assert all("F1" in option for option in outcome.clarification.options)
+        assert NO_OPTIONS_REASON not in (outcome.clarification.reason or "")
+        # The option carries the HANDLE, which is what resolves it: a reply
+        # naming one is claimed by `resolve_referent_tokens` at confidence
+        # 1.0 before any model sees it (§7.6).
+        entries = await engine.referent_registry.list_for_session(t1.session.id)
+        resolved, unknown = resolve_referent_tokens(outcome.clarification.options[0], entries)
+        assert unknown == ()
+        assert [r.referent.value for r in resolved] == ["F1"]
+
+    async def test_the_referent_guess_frame_carries_its_option(
+        self, small_warehouse_path: Path
+    ) -> None:
+        """The SSE frame publishes the options, not only the question.
+
+        The frame is what a client renders the card from the moment a turn
+        resolves; it carried `{question, reason}` alone, so every option the
+        funnel had just validated arrived only on the terminal frame.
+        """
+        llm = MockLanguageModel()
+        _canned_t1(llm)
+        llm.respond(
+            "classify_turn",
+            {"turn_class": "refinement", "confidence": 0.9, "clarification_question": None},
+            matcher=lambda p: "that thing" in p,
+        )
+        llm.respond(
+            "resolve_referents",
+            {"resolutions": [{"mention": "that thing", "referent_id": "F1", "confidence": 0.2}]},
+            matcher=lambda p: "that thing" in p,
+        )
+        engine = _engine(small_warehouse_path, llm)
+        t1 = await _run_t1(engine)
+        await engine.submit.submit(
+            SubmitTurnRequest(
+                tenant="demo", question="drill into that thing", session_id=t1.session.id
+            )
+        )
+        [frame] = [e for e in engine.event_bus.events if e.kind == "clarification"]
+        assert frame.payload["options"], frame.payload
+        assert all("F1" in option for option in frame.payload["options"])
 
 
 class TestZeroProbeTurns:

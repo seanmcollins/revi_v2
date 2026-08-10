@@ -94,15 +94,24 @@ const NO_OPTIONS_TAIL = /\s*;?\s*CLARIFICATION_NO_OPTIONS\s*$/;
  * explains it. A model's confidence score is never a thing a reader is
  * asked to weigh mid-investigation.
  *
- * WHICH REGISTER, AND HOW IT IS DECIDED. The backend lane is adding a
- * wire-level distinction between "offers options" and "refuses". Until it
- * lands this keys on the one thing the payload already carries that is the
- * ENGINE's own statement about it: the `CLARIFICATION_NO_OPTIONS` marker
- * on the reason. ADOPT THE WIRE MARKER WHEN IT SHIPS — watch
- * `contracts/openapi.json`'s `TurnClarification` for a kind/class field
- * and key `refusal` off that instead, on the same principle: the register
- * follows what the server declared, never what the client inferred from a
- * field's being empty.
+ * WHICH REGISTER, AND HOW IT IS DECIDED. The server declares it twice, and
+ * both declarations are the ENGINE's rather than this card's inference.
+ *
+ *   `noOptions` is the coded one: the API classifies every clarification
+ *     as `CLARIFICATION_OPTIONS_OFFERED` or `CLARIFICATION_NO_OPTIONS` and
+ *     publishes that in `warnings_v2`. This is the authority, because the
+ *     `reason` string is customer copy and the boundary's copy discipline
+ *     takes internal enums out of it — including the marker.
+ *   the `CLARIFICATION_NO_OPTIONS` marker on the reason is the same fact,
+ *     surviving on the intermediate SSE frame (which is what the card is
+ *     rendered from the instant a turn resolves, before the classified
+ *     warnings arrive with the terminal frame). Kept as the second reader
+ *     so the register is right at both moments, and stripped from what the
+ *     analyst reads: it is a shape instruction for this component, not a
+ *     sentence for a human.
+ *
+ * Either declaration is the engine's; neither is inferred from a field
+ * being empty, which is the rule that matters and the one that was broken.
  *
  * AND ONE IS NOT A PROMPT AT ALL. A clarification rebuilt from the stored
  * investigation is a record of a question that was asked and answered
@@ -116,7 +125,19 @@ const NO_OPTIONS_TAIL = /\s*;?\s*CLARIFICATION_NO_OPTIONS\s*$/;
  * controls, because the composer at the foot of the thread is where this
  * conversation actually continues.
  */
-export function ClarificationPrompt({ clarification }: { clarification: ClarificationData }) {
+export function ClarificationPrompt({
+  clarification,
+  noOptions = false,
+}: {
+  clarification: ClarificationData;
+  /**
+   * The server's coded declaration that it has nothing answerable to offer
+   * (`CLARIFICATION_NO_OPTIONS` in this turn's classified warnings).
+   * Defaults to false: absent a declaration the card is a question, which
+   * is the register a clarification wears unless the engine says otherwise.
+   */
+  noOptions?: boolean;
+}) {
   const submit = useSessionStore((s) => s.submit);
   const streaming = useSessionStore((s) => s.streamingTurnId !== null);
   const debug = useSessionStore((s) => s.settings.debug);
@@ -154,7 +175,8 @@ export function ClarificationPrompt({ clarification }: { clarification: Clarific
   // all: the server stores the turn's status and not the question it
   // asked, so any reading of this field invents a fact the record does not
   // contain.
-  const refusal = !restored && (clarification.reason ?? "").includes(NO_OPTIONS_MARKER);
+  const refusal =
+    !restored && (noOptions || (clarification.reason ?? "").includes(NO_OPTIONS_MARKER));
   /** Whether there is a row of buttons at all — a fact about the ROW. */
   const offersButtons = clarification.options.length > 0;
 

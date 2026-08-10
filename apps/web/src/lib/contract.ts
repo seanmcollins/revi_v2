@@ -3820,6 +3820,13 @@ export function turnResponseToEvents(
       type: "turn_complete",
       investigationId: response.investigationId,
       status: "clarification_required",
+      // ALWAYS, including when the stream already delivered a
+      // `clarification` frame. The frame is progress and the terminal
+      // payload is the assembled answer: its options came through the
+      // funnel's value, plan, subject and convergence checks, and its
+      // reason came through the API's copy discipline. Skipping it left a
+      // card rendered from a mid-flight frame as the last word.
+      clarification: response.clarification,
       ...(response.worklist ? { worklist: response.worklist } : {}),
       ...(response.debug ? { debug: response.debug } : {}),
     });
