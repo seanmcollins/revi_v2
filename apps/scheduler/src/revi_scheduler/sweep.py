@@ -1,18 +1,15 @@
 """CLI: ``python -m revi_scheduler.sweep [--now ISO-8601] [--dry-run]`` — the cohort TTL sweep.
 
-Why this exists: pinning a cohort materializes a TABLE in the DuckDB warehouse
+Pinning a cohort materializes a TABLE in the DuckDB warehouse
 (``cohort_store.cohort_<hex>``) that outlives the turn — and the session, and
 the process — that pinned it. The TTL is the only thing bounding the
-warehouse's cohort schema, and a TTL nobody enforces is a comment. This sweep
-enforces it, and it is now the *whole* of the scheduler app: the portfolio
-pre-materialization runner this app was originally going to house was
-cancelled, because the anomaly/portfolio population is baked into the
-warehouse generator (``write_detected_anomalies``, run by ``make warehouse``).
+warehouse's cohort schema; this sweep is what enforces it, and it is the whole
+of the scheduler app.
 
-This is the **operator-invoked** path. The API process now runs the same
+This is the **operator-invoked** path. The API process runs the same
 reclamation on its own schedule (``revi_api.cohort_sweep``), so a deployment
-is not relying on anyone remembering to run this; the CLI is for one-off
-reclamation, for dry-run inspection, and for warehouses no API process owns.
+does not depend on anyone remembering to run this; the CLI is for one-off
+reclamation, dry-run inspection, and warehouses no API process owns.
 
 The sweep has two halves and reports them separately, because they can
 legitimately disagree — a table can already be gone, and metadata is simply
@@ -23,14 +20,13 @@ absent when running without a database:
   warehouse* — so a freshly started sweep process sees every cohort any
   process ever materialized, and it additionally reclaims ``cohort_*`` tables
   with no registry row at all (orphans from a crashed process, or from a
-  build that predates the registry). The two causes are reported separately
-  because they mean different things: expired is the TTL working, orphaned is
-  storage nothing was tracking.
+  build that predates the registry). The two causes are reported separately:
+  expired is the TTL working, orphaned is storage nothing was tracking.
 * **metadata** — ``CohortStore.expired(now)`` reports which cohort records in
   the *application-state* store have expired. It needs ``REVI_DATABASE_URL``;
   when that is unset or unreachable the sweep logs loudly and SKIPS this half
-  rather than reporting a zero it never measured. Note the asymmetry that
-  motivated D6: the warehouse half no longer depends on this one.
+  rather than reporting a zero it never measured. The warehouse half does not
+  depend on this one.
 
 ``--dry-run`` reports exactly what a real run would drop, from the registry
 and the table listing, and writes nothing — it opens the warehouse read-only.
@@ -65,9 +61,8 @@ logger = logging.getLogger("revi.scheduler.sweep")
 _REPO_ROOT = Path(__file__).resolve().parents[4]
 
 # ``drop_expired_cohorts`` compiles no probe, so the catalog and metric
-# contracts the repository constructor demands are never consulted. The sweep
-# hands over an empty catalog rather than loading catalog YAML it has no
-# business reading.
+# contracts the repository constructor demands are never consulted; the sweep
+# hands over an empty catalog rather than loading catalog YAML it never reads.
 _EMPTY_CATALOG = CatalogSnapshot(
     entities=(),
     dimensions=(),
@@ -146,8 +141,7 @@ class SweepReport:
         return tuple(lines)
 
     def _reconciliation(self) -> tuple[str, ...]:
-        """The two halves may honestly disagree; name the difference rather
-        than averaging it away."""
+        """Name where the two halves disagree rather than averaging it away."""
         expired = set(self.expired or ())
         dropped = set(self.dropped)
         lines: list[str] = []
@@ -172,8 +166,8 @@ def _census(inventory: CohortInventory) -> str:
 
 
 def _ids(ids: tuple[str, ...], *, limit: int | None = None) -> str:
-    """Ids for the report. A sweep that reclaims hundreds of orphans must not
-    print hundreds of lines, so long lists are elided rather than dumped."""
+    """Render ids for the report, eliding past ``limit`` so a sweep that
+    reclaims hundreds of orphans does not print hundreds of lines."""
     if not ids:
         return ""
     if limit is not None and len(ids) > limit:
@@ -191,8 +185,8 @@ def warehouse_path(env: Mapping[str, str]) -> Path:
 
 def build_cohort_store(env: Mapping[str, str]) -> CohortStoreChoice:
     """Postgres cohort store when ``REVI_DATABASE_URL`` is set *and* reachable;
-    otherwise no store at all — the sweep skips the metadata half rather than
-    silently reporting an in-memory store's empty answer as the truth."""
+    otherwise no store at all, so the sweep skips the metadata half rather than
+    reporting an in-memory store's empty answer as the truth."""
     url = env.get("REVI_DATABASE_URL", "").strip()
     if not url:
         logger.warning(

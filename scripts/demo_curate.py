@@ -1,12 +1,10 @@
 """Demo-tenant curation, as a command you can run twice.
 
-Round-10 R10-7. On the morning of the first owner demo the tenant held 163
-sessions, and the first eighteen rows of the rail — the left edge of every
-screen and every screenshot a prospect takes home — were reviewer probes
-("Who is my worst payer on deni…" four times, "(typed investigation)" six).
-Beside the seven curated monitors sat an eighth minted by a review battery,
-measuring the same metric as its curated twin under a different spelling.
-Curation had been done once, by hand, and there was no way to do it again.
+A working tenant accumulates probe sessions and stray monitors: after one
+round of exercise it held 163 sessions, the first eighteen rows of the rail
+were throwaway probes, and an eighth monitor minted by a test battery
+measured the same metric as its curated twin under a different spelling.
+Tidying that by hand works once and cannot be repeated.
 
 So this is a COMMAND, not a runbook. It is idempotent — running it twice
 changes nothing the second time — and it does three things in this order:
@@ -80,16 +78,14 @@ from revi_api.service import MAX_SESSION_LIST_LIMIT, ApiService  # noqa: E402
 from revi_api.wiring import build_components  # noqa: E402
 
 #: The documented shape of a curated demo tenant. Seven monitors is what the
-#: monitors surface is built around and what every screenshot in the review
-#: record shows; it is an argument rather than a constant because a
-#: different demo may walk a different set.
+#: monitors surface is built around; it is an argument rather than a constant
+#: because a different demo may walk a different set.
 DEFAULT_EXPECTED_PINS = 7
 
-#: The fixture decision, resolved (R10-7). The synthetic warehouse retires
+#: The fixture decision, resolved. The synthetic warehouse retires
 #: receivables slowly enough that the book reads 179.5 days in A/R with 48%
-#: over 120 days — filed in rounds 8, 9 and 10 with the same sentence: the
-#: first revenue-cycle person in the room will say the data is not real,
-#: out loud, and then say it about the analytics.
+#: over 120 days, and the first revenue-cycle person to see it will say the
+#: data is not real — and then say it about the analytics.
 #:
 #: Two ways out were priced. Fixing the generator's retirement behaviour is
 #: a warehouse change plus a regenerated answer key plus a re-run of every
@@ -320,7 +316,7 @@ async def _verify_surface(service: ApiService, caller: Principal, report: Report
         f"({first_readings} are)",
     )
 
-    # R10-2, live: one pin is one fact. The tile grid and the brief are two
+    # One pin is one fact. The tile grid and the brief are two
     # renderings of one default view, and a VP who scrolls reads both.
     disagreed: list[str] = []
     for entry in brief.entries:

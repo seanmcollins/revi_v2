@@ -32,6 +32,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from pathlib import Path
+from typing import TYPE_CHECKING
 
 from revi_api.actionability import ActionabilityRules, load_actionability_rules
 from revi_api.adapters import CalculationTransforms, PackSnapshotPort
@@ -93,7 +94,10 @@ from revi_investigation.application.refinement_llm import (
     ResolveReferentsService,
 )
 from revi_investigation.application.submit_turn import OpenSessionService, SubmitTurnService
-from revi_investigation.application.validation import PlanValidationService
+from revi_investigation.application.validation import (
+    PlanClarificationNeeded,
+    PlanValidationService,
+)
 from revi_investigation.application.window_maturity import WindowMaturityService
 from revi_investigation.domain.context import PackVersionRef
 from revi_investigation.domain.records import Session
@@ -107,10 +111,24 @@ from revi_pack.loader import load_layer
 from revi_pack.snapshot import build_snapshot
 from revi_presentation import RecipeSpec
 
+if TYPE_CHECKING:  # pragma: no cover - annotation only; see below
+    # Monitors imports this module (through :mod:`revi_api.assembly`) at
+    # runtime, so the alias for the probe THIS module supplies to it is
+    # taken as an annotation only. ``from __future__ import annotations``
+    # makes that sound for a dataclass field.
+    from revi_api.monitors.common import SubjectPresenceProbe
+
+
 logger = logging.getLogger("revi.api.wiring")
 
 # apps/api/src/revi_api/wiring.py → repo root
 _REPO_ROOT = Path(__file__).resolve().parents[4]
+
+#: The §6.6 refusal that means "no such value exists in this data" — the one
+#: clarification the subject-presence probe below is allowed to read as "the
+#: cell this monitor is about is gone". Written by
+#: :meth:`PlanValidationService.resolve_predicate_values`.
+_VALUE_UNMATCHED = "PREDICATE_VALUE_UNMATCHED"
 
 
 @dataclass
@@ -159,6 +177,11 @@ class ApiComponents:
     #: publish ``reconciled_impact_cents`` beside the detector's own figure
     #: so the two can never silently diverge.
     rederive_impact: ImpactReDeriver
+    #: Is the cell a monitor is about still IN this load's data? Asked
+    #: before a stored tile is republished, because a stored evaluation is
+    #: only reusable while it still describes the data as well as the
+    #: monitor. See :meth:`revi_api.monitors.tiles._LoadEvaluation.evaluate_load`.
+    subject_presence: SubjectPresenceProbe
     #: Governed display names for metric ids whose name overclaims what
     #: they measure.
     metric_display: MetricDisplayRules
@@ -393,6 +416,63 @@ def build_components(
             return f"{exc.code.value}: {exc.message}"
         return None
 
+    async def subject_presence(
+        spec: TypedInvestigationSpec, watermark: DataWatermark
+    ) -> str | None:
+        """Do the values this spec's filters name still exist at this load?
+
+        :func:`drillability` stops before the pipeline touches data, which
+        is right for "can this be answered at all" and blind to "is the
+        thing it is about still there". This goes one stage further and
+        runs §6.6 step 4b — the same async pass a live turn runs — which
+        resolves every filter value against the values the warehouse HOLDS
+        at this watermark and raises the analyst-facing question when one
+        of them matches nothing.
+
+        Cheap enough to ask for every monitor on every load: the values are
+        read once per (watermark, entity, dimension, window) and memoized on
+        the validator, so a whole surface of payer monitors costs one
+        grouped read between them.
+
+        Returns the refusal SENTENCE, never a bool, so the caller can put
+        the platform's own words on the tile. ``None`` covers both "every
+        value resolves" and "the question could not be put" — a spec that no
+        longer plans, or a source that could not answer, is not evidence
+        that a subject vanished, and this must never be the reason a monitor
+        loses its reading.
+        """
+        probe_session = Session(
+            id="monitors-subject-presence-probe",
+            tenant="monitors",
+            pack_version=PackVersionRef(pack_port.pack_id, pack_port.pack_version),
+            epochs=(WatermarkEpoch(index=0, watermark=watermark),),
+            created_at=datetime.now(UTC),
+        )
+        try:
+            interpreted = interpreter.from_typed_spec(
+                spec, session=probe_session, turn_id="subject-presence-probe"
+            )
+            plan = planner.build(interpreted.spec, playbook_id=None, window_explicit=True)
+            validated = validator.validate(plan, interpreted.spec)
+        except (ReviError, PlanClarificationNeeded):
+            return None
+        try:
+            await validator.resolve_predicate_values(validated, watermark=watermark)
+        except PlanClarificationNeeded as needed:
+            # ONLY the unmatched-value refusal counts. The pass can ask other
+            # questions, and answering "your subject is gone" to one of those
+            # would take a monitor's reading away for a reason that is not
+            # true.
+            if (needed.clarification.reason or "").startswith(_VALUE_UNMATCHED):
+                return needed.clarification.question
+            return None
+        except ReviError:
+            return None
+        except Exception:  # pragma: no cover - a probe must not cost a load
+            logger.exception("subject-presence probe failed at %s", watermark.id)
+            return None
+        return None
+
     rederive_impact: ImpactReDeriver = build_rederiver(
         interpreter=interpreter,
         planner=planner,
@@ -477,6 +557,7 @@ def build_components(
         actionability=actionability,
         drillability=drillability,
         rederive_impact=rederive_impact,
+        subject_presence=subject_presence,
         metric_display=metric_display,
         worklist=worklist,
         monitors_policy=monitors_policy,

@@ -11,6 +11,8 @@ and drops it at teardown — reruns never see stale state, and the default
 
 from __future__ import annotations
 
+import hashlib
+import importlib.util
 import subprocess
 import time
 from collections.abc import Iterator
@@ -48,6 +50,35 @@ pytestmark = pytest.mark.postgres
 
 ROOT = Path(__file__).resolve().parents[3]
 ALEMBIC_INI = Path(__file__).resolve().parents[1] / "alembic.ini"
+_VERSIONS = (
+    Path(__file__).resolve().parents[1]
+    / "src"
+    / "revi_store_postgres"
+    / "migrations"
+    / "versions"
+)
+
+
+def _migration(name: str) -> object:
+    """One migration module, loaded by path.
+
+    Version files are not importable as modules (``0008_…`` is not an
+    identifier) and are deliberately not re-exported from the package: a
+    migration is frozen history, and live code importing it would let a
+    later refactor change what a past migration did. The test reads it the
+    same way Alembic does, so the coverage list it checks IS the one the
+    migration applied.
+    """
+    spec = importlib.util.spec_from_file_location(f"revi_migration_{name}", _VERSIONS / f"{name}.py")
+    assert spec is not None and spec.loader is not None
+    module = importlib.util.module_from_spec(spec)
+    spec.loader.exec_module(module)
+    return module
+
+
+_SURFACES: tuple[tuple[str, str, str, bool], ...] = _migration(
+    "0008_entity_label_rename"
+)._SURFACES  # type: ignore[attr-defined]
 ADMIN_URL = database_url()  # REVI_DATABASE_URL or the docker-compose default
 
 
@@ -195,7 +226,7 @@ class TestMigrations:
     def test_migrated_to_head(self, engine: Engine) -> None:
         with engine.connect() as conn:
             version = conn.execute(sa.text("SELECT version_num FROM alembic_version")).scalar_one()
-        assert version == "0007"
+        assert version == "0008"
 
     def test_monitors_tables_exist(self, engine: Engine) -> None:
         """Migration 0005. Monitors is a capability, so it gets a
@@ -352,3 +383,301 @@ class TestEngineConfig:
             value = conn.execute(sa.text("SELECT now()")).scalar_one()
         assert value.tzinfo is not None
         assert value.utcoffset() is not None and value.utcoffset().total_seconds() == 0
+
+
+# --- migration 0008: the M32 entity-label rename ----------------------------
+
+
+#: One row per stored surface migration 0008 claims to cover, with a retired
+#: label in it. Written the way the corpus actually holds them — a filter
+#: value inside a spec, a recorded SQL string, a finding title, an analyst's
+#: own rationale — because a migration that passes against tidy fixtures and
+#: misses the real shapes has proved nothing.
+_LEGACY_ROWS: tuple[tuple[str, str, dict[str, object]], ...] = (
+    (
+        "revi_monitors",
+        "pins",
+        {
+            "id": "pin_legacy",
+            "tenant": "demo",
+            "label": "Pinnacle Health Plan — denial rate",
+            "presentation": "finding",
+            "window_mode": "absolute",
+            "spec": '{"metric_ids": ["denial_rate"], "filters": [{"dimension": "payer", '
+            '"predicate_op": "eq", "values": ["Pinnacle Health Plan"]}]}',
+            "monitor": '{"rationale": "Pinnacle is our JOC account — brief me on anything '
+            'over a point."}',
+            "created_from_kind": "spec",
+            "created_by": "",
+            "created_at": "2026-08-01T00:00:00+00:00",
+        },
+    ),
+    (
+        "revi_monitors",
+        "pin_results",
+        {
+            "pin_id": "pin_legacy",
+            "watermark_id": "wm_003",
+            "tenant": "demo",
+            "watermark_loaded_at": "2026-08-03T04:10:00+00:00",
+            "evaluated_at": "2026-08-03T05:00:00+00:00",
+            "payload": '{"label": "Meridian HMO Care — denied dollars", '
+            '"headline_subject": {"plan": "Meridian HMO Care"}, '
+            '"headline_subject_label": "Meridian HMO Care"}',
+        },
+    ),
+    (
+        "revi_monitors",
+        "loads",
+        {
+            "tenant": "demo",
+            "watermark_id": "wm_003",
+            "watermark_loaded_at": "2026-08-03T04:10:00+00:00",
+            "evaluated_at": "2026-08-03T05:00:00+00:00",
+            "payload": '{"leads": {"ANM-026": {"title": "Late charges: Eastside cardiology"}}}',
+        },
+    ),
+    (
+        "revi_monitors",
+        "leads",
+        {
+            "tenant": "demo",
+            "anomaly_id": "ANM-031",
+            "status": "open",
+            "note": "Pinnacle Oncology — posting stall, chasing the lockbox",
+            "updated_at": "2026-08-03T05:00:00+00:00",
+            "baseline_basis": "",
+            "confirming_watermarks": "[]",
+            "verification_note": "",
+            "history": '[{"note": "Eastside Medical Center late charges"}]',
+        },
+    ),
+    (
+        "revi_trace",
+        "investigations",
+        {
+            "id": "inv_legacy",
+            "session_id": "sess_legacy",
+            "turn_id": "turn_legacy",
+            "turn_class": "typed",
+            "question": "How is Meridian Health doing on denials?",
+            "spec": '{"filters": [{"dimension": "payer", "values": ["Meridian Health"]}]}',
+            "status": "answered",
+            "findings": '[{"title": "Meridian Health: $28,614.94 denied dollars"}]',
+            "frame_refs": "[]",
+            "warnings": '["population_caveat: Bluestone PPO Blue excluded"]',
+            "narrative": "Meridian Health leads the ranking.",
+            "created_at": "2026-08-03T05:00:00+00:00",
+        },
+    ),
+    (
+        "revi_trace",
+        "frames",
+        {
+            "key": "frame_legacy",
+            "frame": '{"sql": "SELECT SUM(base.denied_amount_cents) FROM snap_003.v_denial '
+            "AS base WHERE base.payer_name = 'Meridian Health'\"}",
+            "created_at": "2026-08-03T05:00:00+00:00",
+        },
+    ),
+    (
+        "revi_session",
+        "referents",
+        {
+            "session_id": "sess_legacy",
+            "referent_id": "F1",
+            "kind": "finding",
+            "payload": '{"dimension_value": ["facility", "Eastside Medical Center"]}',
+        },
+    ),
+    (
+        "revi_session",
+        "turn_receipts",
+        {
+            "tenant": "demo",
+            "session_id": "sess_legacy",
+            "idempotency_key": "key_legacy",
+            "response": '{"findings": [{"title": "Bluestone HMO Blue: 18.8% denial rate"}]}',
+            "created_at": "2026-08-03T05:00:00+00:00",
+        },
+    ),
+    (
+        "revi_cache",
+        "evidence",
+        {
+            "probe_hash": "probe_legacy",
+            "watermark_id": "wm_003",
+            "pack_snapshot_id": "pack_legacy",
+            "frame": '{"rows": [["Pinnacle PPO", 42]]}',
+            "created_at": "2026-08-03T05:00:00+00:00",
+        },
+    ),
+    (
+        "revi_cohort",
+        "cohorts",
+        {
+            "cohort_id": "coh_legacy",
+            "tenant": "demo",
+            "session_id": "sess_legacy",
+            "definition": '{"scope": {"payer": "Pinnacle Health Plan"}}',
+            "origin": '{"question": "Pinnacle POS claims"}',
+            "size": 12,
+            "pinned": '{"plan": "Meridian Exchange PPO"}',
+        },
+    ),
+    # THE CONTROL. Every one of these marks SURVIVED the rename, and two of
+    # them start with a stem that a retired name shares. A migration that
+    # rewrites any of them has renamed a live entity.
+    (
+        "revi_trace",
+        "investigations",
+        {
+            "id": "inv_survivor",
+            "session_id": "sess_legacy",
+            "turn_id": "turn_survivor",
+            "turn_class": "typed",
+            "question": "Bluestone Mutual and Bluestone Federal PPO denial rates?",
+            "spec": '{"filters": [{"dimension": "payer", "values": ["Bluestone Mutual"]}]}',
+            "status": "answered",
+            "findings": '[{"title": "Non-covered denial burst: Bluestone PPO Imaging"}, '
+            '{"title": "Small eligibility pocket: Bluestone HMO Primary Care"}]',
+            "frame_refs": "[]",
+            "warnings": "[]",
+            "narrative": "Bluestone Mutual is unchanged by the rename.",
+            "created_at": "2026-08-03T05:00:00+00:00",
+        },
+    ),
+)
+
+
+def _insert_legacy(engine: Engine) -> None:
+    with engine.begin() as conn:
+        for schema, table, row in _LEGACY_ROWS:
+            columns = ", ".join(row)
+            values = ", ".join(f":{name}" for name in row)
+            conn.execute(
+                sa.text(f'INSERT INTO "{schema}".{table} ({columns}) VALUES ({values})'), row
+            )
+
+
+def _label_snapshot(engine: Engine) -> str:
+    """One md5 over every migrated surface, in a stable order."""
+    digest = hashlib.md5()
+    with engine.connect() as conn:
+        for schema, table, column, _json in _SURFACES:
+            rows = conn.execute(
+                sa.text(f'SELECT {column}::text FROM "{schema}".{table} ORDER BY 1')
+            ).scalars()
+            digest.update(f"{schema}.{table}.{column}".encode())
+            for value in rows:
+                digest.update((value or "").encode())
+    return digest.hexdigest()
+
+
+def _all_text(engine: Engine) -> str:
+    with engine.connect() as conn:
+        return "\n".join(
+            str(value)
+            for schema, table, column, _json in _SURFACES
+            for value in conn.execute(
+                sa.text(f'SELECT {column}::text FROM "{schema}".{table}')
+            ).scalars()
+            if value is not None
+        )
+
+
+class TestEntityLabelRename:
+    """Migration 0008. M32 renamed twelve entities in the warehouse; the
+    stored corpus went on naming the retired ones, which made every audit
+    filter derive 0 against a real published figure and put dead names on
+    live tiles.
+    """
+
+    @pytest.fixture
+    def at_prior_revision(self) -> Iterator[tuple[Engine, Config]]:
+        """A throwaway database migrated to 0007 — the state this migration
+        finds. Its own database, because it deliberately walks the revision
+        back and forth."""
+        reason = _ensure_postgres()
+        if reason is not None:
+            pytest.skip(reason)
+        dbname = f"revi_labels_{uuid4().hex[:12]}"
+        _create_database(dbname)
+        url = _test_db_url(dbname)
+        config = _alembic_config(url)
+        engine = sa.create_engine(url, poolclass=NullPool)
+        try:
+            command.upgrade(config, "0007")
+            yield engine, config
+        finally:
+            engine.dispose()
+            _drop_database(dbname)
+
+    def test_every_stored_surface_is_migrated(
+        self, at_prior_revision: tuple[Engine, Config]
+    ) -> None:
+        engine, config = at_prior_revision
+        _insert_legacy(engine)
+
+        command.upgrade(config, "0008")
+
+        text = _all_text(engine)
+        for retired in (
+            "Pinnacle Health Plan",
+            "Meridian Health",
+            "Meridian HMO Care",
+            "Eastside Medical Center",
+            "Bluestone PPO Blue",
+            "Bluestone HMO Blue",
+            "Pinnacle PPO",
+            "Meridian Exchange PPO",
+        ):
+            assert retired not in text, retired
+        # The current names are there instead — including inside a recorded
+        # audit SQL string, which is what an auditor re-runs.
+        assert "Ashvale Health Plan" in text
+        assert "base.payer_name = 'Halvern Health'" in text
+        assert "Halvern HMO Care" in text
+        assert "Eastmere Medical Center" in text
+        assert "Bluestone Preferred PPO" in text and "Bluestone Select HMO" in text
+        # Prose the full labels cannot reach travels too: a card title, an
+        # analyst's own rationale.
+        assert "Ashvale Oncology" in text
+        assert "Eastmere cardiology" in text
+        assert "Ashvale is our JOC account" in text
+
+    def test_a_surviving_mark_is_never_rewritten(
+        self, at_prior_revision: tuple[Engine, Config]
+    ) -> None:
+        """The reason there is no ``Bluestone`` rule: three live entities and
+        two live card titles carry that mark, and renaming them would invent
+        names the warehouse has never held."""
+        engine, config = at_prior_revision
+        _insert_legacy(engine)
+
+        command.upgrade(config, "0008")
+
+        text = _all_text(engine)
+        for survivor in (
+            "Bluestone Mutual",
+            "Bluestone Federal PPO",
+            "Bluestone PPO Imaging",
+            "Bluestone HMO Primary Care",
+        ):
+            assert survivor in text, survivor
+
+    def test_the_reverse_map_round_trips_every_payload(
+        self, at_prior_revision: tuple[Engine, Config]
+    ) -> None:
+        """Symmetric, byte for byte. A rename that cannot be undone is a
+        rewrite of history rather than a migration."""
+        engine, config = at_prior_revision
+        _insert_legacy(engine)
+        before = _label_snapshot(engine)
+
+        command.upgrade(config, "0008")
+        migrated = _label_snapshot(engine)
+        command.downgrade(config, "0007")
+
+        assert migrated != before
+        assert _label_snapshot(engine) == before

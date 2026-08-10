@@ -33,8 +33,9 @@ from revi_investigation_contracts.api import (
 from revi_investigation_contracts.monitors import (
     CreateMonitorsPinRequest,
     MonitorsLeadPatchRequest,
+    MonitorsTilePayload,
 )
-from revi_investigation_contracts.refinements import WindowSpecModel
+from revi_investigation_contracts.refinements import AddFilterModel, WindowSpecModel
 from revi_kernel.errors import PolicyDeniedError, ReviError
 from revi_kernel.watermark import DataWatermark
 
@@ -1345,6 +1346,176 @@ class TestRepairingMonitorsPinnedBeforeTheCellRule:
 
         assert await service.monitors.repair_pins(TENANT) == {"repaired": [], "archived": []}
         assert await service.monitors.repair_pins(TENANT) == {"repaired": [], "archived": []}
+
+
+class TestASubjectThatVanishesFromTheLoad:
+    """A monitor may not go on publishing a number for a cell that is gone.
+
+    Regression, from the live corpus: a tile titled "<payer> — denial rate"
+    published "22.9%, #1 of 1", ``status: ok``, ``grade: direct``, at a load
+    whose warehouse held ZERO rows for that payer. Nothing was wrong with
+    the tile as an artifact — its label, its spec and its recorded subject
+    all agreed with each other — and that is exactly why no existing check
+    caught it: evaluation is idempotent per (monitor, load), and both
+    staleness tests compared the stored tile against the MONITOR. Neither
+    asked the warehouse whether the thing it was about was still there, so
+    a population restated under a watermark republished a dead reading for
+    as long as that watermark stood.
+
+    The setup below is the live one exactly: the retirement is applied to
+    the monitor AND to its stored tile together, so the two agree and the
+    only thing that can notice is a read of the data.
+    """
+
+    @staticmethod
+    def _spec(payer: str) -> TypedInvestigationSpec:
+        return TypedInvestigationSpec(
+            metric_ids=["denial_rate"],
+            dimensions=["payer"],
+            window=WindowSpecModel(quantity="1", unit="month", mode="full_periods"),
+            basis="service",
+            filters=[
+                AddFilterModel(
+                    op="add_filter", dimension="payer", predicate_op="eq", values=[payer]
+                )
+            ],
+        )
+
+    async def _retire_subject(
+        self, service: ApiService, pin_id: str, watermark_id: str, retired: str
+    ) -> None:
+        """Rewrite the monitor and its stored tile onto a payer that is not
+        in this warehouse — the world changing under a load, with every
+        label internally consistent."""
+        pin = await service.components.monitors_pins.get(pin_id)
+        assert pin is not None
+        await service.components.monitors_pins.save(
+            replace(pin, label=f"{retired} — denial rate", spec=self._spec(retired))
+        )
+        stored = await service.components.monitors_results.get(pin_id, watermark_id)
+        assert stored is not None
+        await service.components.monitors_results.put(
+            replace(
+                stored,
+                payload={
+                    **stored.payload,
+                    "label": f"{retired} — denial rate",
+                    "headline_subject": {"payer": retired},
+                    "headline_subject_label": retired,
+                },
+            )
+        )
+
+    async def test_a_vanished_subject_is_not_served_its_last_known_value(self) -> None:
+        service = _service()
+        first, _second, third = await _watermarks(service)
+        created = await service.monitors.create_pin(
+            CALLER,
+            CreateMonitorsPinRequest(
+                spec=self._spec("Ashvale Health Plan"),
+                label="Ashvale Health Plan — denial rate",
+                presentation="finding",
+            ),
+        )
+        surface = await service.monitors.monitors_at(CALLER, third)
+        [measured] = [t for t in surface.tiles if t.pin_id == created.pin_id]
+        assert measured.status == "ok" and measured.value is not None
+        published = measured.value_text
+
+        await self._retire_subject(service, created.pin_id, third.id, "Pinnacle Health Plan")
+
+        surface = await service.monitors.monitors_at(CALLER, third)
+        [tile] = [t for t in surface.tiles if t.pin_id == created.pin_id]
+        # The load-N reading is not served as a current one — not as the
+        # number, and not as a value at all.
+        assert tile.value_text != published
+        assert tile.value is None
+        assert tile.status != "ok"
+        # And the tile says which cell went missing, in the platform's own
+        # words, rather than going blank.
+        assert "Pinnacle Health Plan" in (tile.unavailable_reason or "")
+        # An honest tile is not a silent one: the evaluation behind it is a
+        # real investigation somebody can open.
+        assert tile.investigation_id
+        # The monitor is untouched by the refusal — it is the DATA that
+        # changed — so a load that finds the cell again publishes it again.
+        assert first  # the fixture's other loads exist; unused on purpose
+
+    async def test_the_brief_reports_the_disappearance_rather_than_counting_it(
+        self,
+    ) -> None:
+        """A monitor that had a reading last load and has none now is the
+        load's news, not housekeeping. It is still counted in the census —
+        the identity has to close — but it is named, with what it used to
+        say."""
+        service = _service()
+        _first, second, third = await _watermarks(service)
+        created = await service.monitors.create_pin(
+            CALLER,
+            CreateMonitorsPinRequest(
+                spec=self._spec("Ashvale Health Plan"),
+                label="Ashvale Health Plan — denial rate",
+                presentation="finding",
+            ),
+        )
+        await service.monitors.monitors_at(CALLER, second)
+        prior = await service.components.monitors_results.get(created.pin_id, second.id)
+        assert prior is not None
+        was = MonitorsTilePayload.model_validate(prior.payload).value_text
+        await service.monitors.monitors_at(CALLER, third)
+
+        await self._retire_subject(service, created.pin_id, third.id, "Pinnacle Health Plan")
+        brief = await service.monitors.brief_at(CALLER, third)
+
+        note = brief.immaterial.note
+        assert "stopped being measurable" in note, note
+        assert "Pinnacle Health Plan — denial rate" in note, note
+        assert was and was in note, note
+        # Counted as well as named: the census still closes.
+        assert brief.immaterial.unavailable >= 1
+        assert brief.pins_evaluated == (
+            len([e for e in brief.entries if e.kind in ("pin_movement", "rank_flip")])
+            + brief.immaterial.pin_movements
+            + brief.immaterial.not_yet_comparable
+            + brief.immaterial.unavailable
+        )
+
+    async def test_an_empty_population_is_published_as_unmeasured_not_as_ok(
+        self,
+    ) -> None:
+        """The other half: an evaluation that returns nothing must not be a
+        green tile with a blank number. `ok` is a reading, and a blank
+        rendered beside one reads as a zero."""
+        service = _service()
+        *_, third = await _watermarks(service)
+        spec = self._spec("Veritas Comp Fund").model_copy(
+            update={
+                "filters": [
+                    *self._spec("Veritas Comp Fund").filters,
+                    AddFilterModel(
+                        op="add_filter",
+                        dimension="service_line",
+                        predicate_op="eq",
+                        values=["Obstetrics"],
+                    ),
+                ]
+            }
+        )
+        created = await service.monitors.create_pin(
+            CALLER,
+            CreateMonitorsPinRequest(
+                spec=spec, label="Veritas obstetrics — denial rate", presentation="finding"
+            ),
+        )
+
+        surface = await service.monitors.monitors_at(CALLER, third)
+        [tile] = [t for t in surface.tiles if t.pin_id == created.pin_id]
+
+        assert tile.value is None and tile.value_text == ""
+        assert tile.status == "unavailable"
+        assert "no value" in (tile.unavailable_reason or "")
+        # The caveats that explain the emptiness travel with it.
+        assert tile.warnings
 
 
 async def _stored_pin(

@@ -13,6 +13,7 @@ from revi_api.monitors_policy import (
 )
 from revi_investigation_contracts.api import (
     PortfolioResponse,
+    TypedInvestigationSpec,
 )
 from revi_kernel.errors import ErrorCode, ReviError
 from revi_kernel.watermark import DataWatermark
@@ -29,6 +30,20 @@ logger = logging.getLogger("revi.api.monitors")
 #: a brief's "new lead" and the rail's card are the same object from the
 #: same build — the rule the conversational worklist already follows.
 PortfolioFor = Callable[[str, DataWatermark], Awaitable[PortfolioResponse]]
+
+
+#: Do the values a monitored spec names still EXIST at this load? Returns the
+#: platform's own refusal sentence when one of them matches nothing at this
+#: watermark, and ``None`` when they all resolve (or when the question could
+#: not be put to the source, which is not evidence of absence).
+#:
+#: Supplied by the composition root rather than re-implemented here: it is the
+#: §6.6 value-resolution pass a live turn already runs, stopped before
+#: execution — so "this payer is gone" is decided by the one component that
+#: decides it for an answer, and the tile and the answer cannot disagree.
+SubjectPresenceProbe = Callable[
+    [TypedInvestigationSpec, DataWatermark], Awaitable[str | None]
+]
 
 
 class _MonitorsBase:

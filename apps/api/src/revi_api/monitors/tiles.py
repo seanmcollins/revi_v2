@@ -46,7 +46,7 @@ if TYPE_CHECKING:  # pragma: no cover - import cycle at runtime only
     pass
 
 from revi_api.monitors.common import _decimal, _MonitorsBase, _utc, logger
-from revi_api.monitors.spec import _cell_phrase, _eq_filters_of
+from revi_api.monitors.spec import _cell_phrase, _eq_filters_of, _narrowed_to_cell
 
 #: What a pin evaluation's turn records as its question. Never shown as an
 #: analyst's words, because it is not one: it names the monitor it re-ran.
@@ -99,6 +99,18 @@ class _LoadEvaluation(_MonitorsBase):
         tile the repair existed to replace for as long as the watermark
         stands. A stored evaluation is reused only while it is still an
         evaluation OF THIS MONITOR — see :func:`_stale_result_reason`.
+
+        And only while it is still an evaluation OF THIS LOAD'S DATA — see
+        :meth:`_vanished_subject_reason`. The other two tests compare a
+        stored tile against the monitor and against the pair of loads it was
+        diffed across; neither of them looks at the warehouse, so a
+        watermark whose population is restated underneath it (a repaired
+        snapshot, a re-loaded feed, an entity retired between reads) had no
+        test at all. That gap is not academic: a tile went on publishing
+        "22.9%, #1 of 1" for a payer the load no longer held a single row
+        for, under ``status: ok`` and ``grade: direct``, because nothing
+        between the stored row and the screen ever asked whether the subject
+        still existed.
         """
         # Monitors created before the narrowed-cell rule are brought onto it
         # (or stopped) BEFORE they are evaluated, so no load re-publishes a
@@ -116,8 +128,10 @@ class _LoadEvaluation(_MonitorsBase):
         for pin in pins:
             existing = await self._components.monitors_results.get(pin.id, watermark.id)
             if existing is not None and not force and pin.id not in repaired:
-                stale = _stale_result_reason(pin, existing) or await self._stale_prior_reason(
-                    pin, existing, watermark
+                stale = (
+                    _stale_result_reason(pin, existing)
+                    or await self._vanished_subject_reason(pin, existing, watermark)
+                    or await self._stale_prior_reason(pin, existing, watermark)
                 )
                 if stale is None:
                     continue
@@ -253,6 +267,47 @@ class _LoadEvaluation(_MonitorsBase):
                 return MonitorsTilePayload.model_validate(result.payload)
         return None
 
+    async def _vanished_subject_reason(
+        self, pin: MonitorsPin, stored: MonitorsPinResult, watermark: DataWatermark
+    ) -> str | None:
+        """Is the cell this stored tile is ABOUT still in this load's data?
+
+        The third reuse test, and the only one that reads the warehouse. A
+        stored tile is an assertion with two halves — "at this load, THIS
+        CELL measured THIS VALUE" — and :func:`_stale_result_reason` only
+        ever checks the second half against the monitor. A population
+        restated under a watermark leaves the first half false, and a false
+        first half is the worse failure: a number under a subject that is
+        not there reads as a current reading of a live thing, certifies
+        itself ``grade: direct``, and carries a delta.
+
+        Asked of the cell the TILE published rather than of the spec alone,
+        because those come apart exactly where it matters. A monitor over a
+        ranked breakdown headlines whichever cell leads, and its spec names
+        no cell at all; asking only the spec would leave every ranked
+        monitor's headline unchecked — which is most of them before the
+        repair pass narrows them.
+
+        Costs one grouped read per (watermark, dimension, window) across the
+        whole surface (see :data:`SubjectPresenceProbe`), and answers
+        ``None`` whenever it cannot tell. Refusing to reuse on a probe that
+        failed would re-derive every monitor on every load for as long as a
+        source was unwell.
+        """
+        subject = _subject_asserted_by(pin, stored)
+        if not subject:
+            return None
+        refusal = await self._components.subject_presence(
+            _narrowed_to_cell(pin.spec, subject), watermark
+        )
+        if refusal is None:
+            return None
+        cell = ", ".join(f"{dimension}={value!r}" for dimension, value in subject)
+        return (
+            f"its stored tile publishes a value for {cell}, and that no longer exists in this "
+            f"load's data — {refusal}"
+        )
+
     async def _stale_prior_reason(
         self, pin: MonitorsPin, stored: MonitorsPinResult, watermark: DataWatermark
     ) -> str | None:
@@ -371,6 +426,44 @@ class _LoadEvaluation(_MonitorsBase):
         # on every payload build rather than in a test that only covers the
         # paths somebody thought of.
         _assert_subject_matches_label(pin, headline)
+        if headline is None and not outcome.findings:
+            # THE ANSWER CAME BACK EMPTY. The population this monitor names
+            # produced nothing at this load — every cell withheld by
+            # small-cell suppression, or no rows at all — and there is
+            # nothing here to show. Published with the platform's own status
+            # for "no value, and here is why" rather than as an ``ok`` tile
+            # holding a blank: `ok` is a reading, the surface renders the
+            # blank as a dash, and a dash beside a green tile is read as a
+            # zero. The caveats travel with it, because the reason the
+            # answer is empty is usually in them.
+            logger.info(
+                "monitors: pin %s produced no value at %s — publishing it as unmeasured "
+                "rather than as an empty reading",
+                pin.id,
+                watermark.id,
+            )
+            return MonitorsTilePayload(
+                pin_id=pin.id,
+                label=pin.label,
+                presentation=pin.presentation,  # type: ignore[arg-type]
+                status="unavailable",
+                watermark_id=watermark.id,
+                newest_data_date=watermark.newest_data_date,
+                evaluated_at=datetime.now(UTC),
+                window_start=outcome.header.window_start if outcome.header is not None else None,
+                window_end=outcome.header.window_end if outcome.header is not None else None,
+                investigation_id=outcome.investigation.id,
+                integrity=integrity,
+                warnings=warnings,
+                warnings_v2=classified,
+                unavailable_reason=(
+                    "this monitor's stored spec ran at this load and returned no value: the "
+                    "population it names is empty here, or every cell of it was withheld "
+                    "before results left the engine. No number is published rather than a "
+                    "blank one standing in for zero — open the monitor for the caveats this "
+                    "evaluation carried."
+                ),
+            )
         if headline is not None and pin.spec.dimensions and not headline.subject:
             # A monitor that BREAKS OUT a dimension headlines one cell of that
             # breakdown, and a tile that cannot say which one is a number
@@ -739,6 +832,30 @@ def _subject_of(
             return ()
         return tuple((dimension, members[dimension]) for dimension in wanted)
     return ()
+
+
+def _subject_asserted_by(
+    pin: MonitorsPin, stored: MonitorsPinResult
+) -> tuple[tuple[str, str], ...]:
+    """The cell a stored tile PUBLISHES A NUMBER FOR, as dimension members.
+
+    Empty when it publishes no number: a tile already standing at
+    ``unavailable`` or ``clarification`` asserts nothing about any cell, so
+    there is nothing about it that the data could falsify and no reason to
+    spend a read asking.
+
+    The tile's own recorded subject first, its monitor's fixed filters as
+    the fall-back — the same order every other subject-identity rule here
+    reads them in, so one tile cannot be judged against two different ideas
+    of what it is about.
+    """
+    try:
+        tile = MonitorsTilePayload.model_validate(stored.payload)
+    except Exception:  # pragma: no cover - _stale_result_reason ran first
+        return ()
+    if tile.status != "ok" or tile.value is None:
+        return ()
+    return tuple(tile.headline_subject.items()) or _eq_filters_of(pin.spec)
 
 
 def _stale_result_reason(pin: MonitorsPin, stored: MonitorsPinResult) -> str | None:

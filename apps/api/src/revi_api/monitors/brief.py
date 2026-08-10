@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import UTC, date, datetime
 from typing import TYPE_CHECKING, Any
 
@@ -81,6 +81,13 @@ class _MonitorCensus:
     not_yet_comparable: int = 0
     unavailable: int = 0
     below_gate: int = 0
+    #: Monitors counted in :attr:`unavailable` that HAD a reading at the load
+    #: this brief diffs from — one phrase each. A monitor that has never been
+    #: measurable is a setup problem and belongs in a count; one that was
+    #: measured last night and is not now is a change in the data, which is
+    #: the only thing a brief exists to report. Kept apart so the second is
+    #: never delivered as the first.
+    lost: list[str] = field(default_factory=list)
 
 
 class _BriefComposition(_MonitorsBase):
@@ -159,7 +166,9 @@ class _BriefComposition(_MonitorsBase):
             unavailable=census.unavailable,
             entries_withheld_by_kind=dropped_by_kind,
         )
-        immaterial = immaterial.model_copy(update={"note": _immaterial_note(immaterial)})
+        immaterial = immaterial.model_copy(
+            update={"note": _immaterial_note(immaterial, census.lost)}
+        )
         status = (
             "first_load"
             if prior is None
@@ -378,6 +387,9 @@ class _BriefComposition(_MonitorsBase):
             tile = MonitorsTilePayload.model_validate(stored.payload)
             if tile.status != "ok" or tile.value is None:
                 census.unavailable += 1
+                lost = await self._lost_reading(pin, prior_watermark, prior_date)
+                if lost is not None:
+                    census.lost.append(lost)
                 continue
             delta = await self._delta_against(pin, tile, prior_watermark, named=named)
             if delta is None:
@@ -422,6 +434,41 @@ class _BriefComposition(_MonitorsBase):
                 )
             )
         return census
+
+    async def _lost_reading(
+        self,
+        pin: MonitorsPin,
+        prior_watermark_id: str | None,
+        prior_date: date | None,
+    ) -> str | None:
+        """This monitor published a number last load and publishes none now.
+
+        The census counts it as unavailable either way — the identity has to
+        close — but the two cases are not one fact. "This monitor has never
+        been measurable" is a setup problem the analyst can look at whenever
+        they like; "the payer this monitor is about published 22.9% at the
+        last load and is not in this one" is the load's news, and delivering
+        it inside a sentence that opens "held back and counted rather than
+        hidden" would file a disappearance under housekeeping.
+
+        Returns the phrase, or ``None`` when there was no earlier reading to
+        lose.
+        """
+        if prior_watermark_id is None:
+            return None
+        stored = await self._components.monitors_results.get(pin.id, prior_watermark_id)
+        if stored is None:
+            return None
+        prior_tile = MonitorsTilePayload.model_validate(stored.payload)
+        if prior_tile.status != "ok" or prior_tile.value is None:
+            return None
+        subject = prior_tile.headline_subject_label
+        about = f" ({subject})" if subject and subject not in pin.label else ""
+        measured = prior_tile.value_text or "a value"
+        return (
+            f"{pin.label!r}{about} measured {measured} at {_load_phrase(prior_date)} and "
+            "returns nothing at this one"
+        )
 
     async def _delta_against(
         self,
@@ -850,12 +897,20 @@ def _data_date_of(load: MonitorsLoad | None) -> date | None:
     return raw if isinstance(raw, date) else None
 
 
-def _immaterial_note(immaterial: MonitorsImmaterialSummary) -> str:
+def _immaterial_note(
+    immaterial: MonitorsImmaterialSummary, lost: Sequence[str] = ()
+) -> str:
     """What the gate held back, in one sentence.
 
     Counted rather than hidden: suppressing a movement silently and
     suppressing it visibly are different products, and the first is a
     filter the analyst cannot audit.
+
+    ``lost`` is the exception that goes FIRST and is not called held back: a
+    monitor that had a reading at the previous load and has none at this one
+    lost it because the data changed, and that is the brief's own news. It
+    is still counted in ``unavailable`` so the census closes; it is just not
+    delivered as housekeeping.
     """
     bits: list[str] = []
     if immaterial.pin_movements:
@@ -899,9 +954,19 @@ def _immaterial_note(immaterial: MonitorsImmaterialSummary) -> str:
             f"{_plural(immaterial.entries_withheld_by_cap, 'further entry', 'further entries')}"
             f"{detail} were held back by the brief's own cap"
         )
-    if not bits:
-        return "Nothing was held back."
-    return "Held back and counted rather than hidden: " + "; ".join(bits) + "."
+    held = (
+        "Nothing was held back."
+        if not bits
+        else "Held back and counted rather than hidden: " + "; ".join(bits) + "."
+    )
+    if not lost:
+        return held
+    opening = (
+        f"{_plural(len(lost), 'monitor', 'monitors')} stopped being measurable at this load: "
+        + "; ".join(lost)
+        + ". Their tiles say why."
+    )
+    return f"{opening} {held}"
 
 
 def _headline_sentence(
