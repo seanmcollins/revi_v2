@@ -34,11 +34,19 @@ from revi_warehouse.dims import (
     ZIP_CODES,
     Dims,
     calendar_rows,
+    recovery_class_rows,
 )
 from revi_warehouse.project import SnapshotTables
 from revi_warehouse.world import World
 
-FACT_TABLES = ("fact_claim", "fact_claim_line", "fact_remit", "fact_transaction", "fact_denial")
+FACT_TABLES = (
+    "fact_claim",
+    "fact_claim_line",
+    "fact_remit",
+    "fact_transaction",
+    "fact_denial",
+    "fact_recovery_event",
+)
 DIM_TABLES = (
     "dim_payer",
     "dim_plan",
@@ -47,6 +55,7 @@ DIM_TABLES = (
     "dim_service_line",
     "dim_patient",
     "dim_denial_code",
+    "dim_recovery_class",
     "dim_calendar",
 )
 
@@ -145,6 +154,40 @@ _FACT_SQL: dict[str, str] = {
         FROM _revi_src
         ORDER BY denial_id
     """,
+    # One row per event in a denial's follow-up chain (recovery.py). The chain
+    # is linked, not implied: every row names the claim, the denial and the
+    # remit the denial arrived on, and an OUTCOME row names the resubmission it
+    # answers. `recovered_amount_cents` is the payer-allowed value of the
+    # denied unit — what the recovery is worth, not posted cash.
+    "fact_recovery_event": f"""
+        CREATE TABLE {{sch}}.fact_recovery_event AS
+        SELECT printf('RCV-%07d', eidx + 1) AS recovery_event_id,
+               CASE WHEN parent_idx < 0 THEN NULL
+                    ELSE printf('RCV-%07d', parent_idx + 1) END AS parent_event_id,
+               {_CLAIM_ID} AS claim_id,
+               printf('DEN-%06d', denial_idx + 1) AS denial_id,
+               printf('RMT-%07d', remit_idx + 1) AS denial_remit_id,
+               CAST(cycle_num AS INTEGER) AS cycle_num,
+               CASE type_code WHEN 0 THEN 'RESUBMISSION' ELSE 'OUTCOME' END AS event_type,
+               CAST(event_date AS DATE) AS event_date,
+               CASE action_i WHEN 0 THEN 'CORRECTED_CLAIM' WHEN 1 THEN 'RECONSIDERATION'
+                    WHEN 2 THEN 'REBILL_REROUTE' WHEN 3 THEN 'VOID_REPLACE'
+                    ELSE NULL END AS resubmission_type,
+               CASE outcome_i WHEN 0 THEN 'PAID_FULL' WHEN 1 THEN 'PAID_PARTIAL'
+                    WHEN 2 THEN 'DENIED_AGAIN' ELSE NULL END AS outcome,
+               CAST(days_from_denial AS INTEGER) AS days_from_denial,
+               CASE WHEN days_from_resubmission < 0 THEN NULL
+                    ELSE CAST(days_from_resubmission AS INTEGER) END AS days_from_resubmission,
+               CAST(denied_amount_cents AS BIGINT) AS denied_amount_cents,
+               CAST(recovered_amount_cents AS BIGINT) AS recovered_amount_cents,
+               CASE WHEN carc_code = 0 THEN NULL
+                    ELSE CAST(carc_code AS INTEGER) END AS carc_code,
+               CASE group_code_i WHEN 0 THEN 'CO' WHEN 1 THEN 'PR'
+                    WHEN 2 THEN 'OA' WHEN 3 THEN 'PI' ELSE NULL END AS group_code,
+               CASE WHEN rarc_i < 0 THEN NULL ELSE printf('RZ%02d', rarc_i) END AS rarc_synthetic
+        FROM _revi_src
+        ORDER BY recovery_event_id
+    """,
 }
 
 #: Claim-grain procedure attribution (catalog dimension `primary_proc_group`).
@@ -163,6 +206,48 @@ _PRIMARY_PROC_GROUP_ROLLUP = """
                   FROM {sch}.fact_claim_line GROUP BY claim_id, proc_group)
             GROUP BY claim_id
         ) ppg USING (claim_id)"""
+
+#: Denial-grain rollup of the recovery chain (catalog dimensions
+#: `recovery_status` / `resubmission_type` and the `recovered_amount_cents`
+#: measure bind here). Aggregated to ONE row per denial before it is joined, so
+#: a denial-grain count cannot fan out across a two-cycle chain — the same
+#: discipline `_PRIMARY_PROC_GROUP_ROLLUP` follows at the claim grain.
+#: `recovery_status` is a statement about THIS snapshot: NOT_RESUBMITTED covers
+#: both a denial nobody worked and one whose resubmission has not gone out yet,
+#: which is what right-censoring at the data edge looks like from inside the
+#: data.
+_RECOVERY_ROLLUP = """
+        LEFT JOIN (
+            SELECT denial_id,
+                   count(*) FILTER (WHERE event_type = 'RESUBMISSION') AS n_resubmissions,
+                   count(*) FILTER (WHERE event_type = 'OUTCOME') AS n_outcomes,
+                   MIN(event_date) FILTER (WHERE event_type = 'RESUBMISSION') AS resubmission_date,
+                   MIN(days_from_denial) FILTER (
+                       WHERE event_type = 'RESUBMISSION') AS days_to_resubmission,
+                   (list(resubmission_type ORDER BY cycle_num)
+                       FILTER (WHERE event_type = 'RESUBMISSION'))[1] AS first_action,
+                   MAX(event_date) FILTER (WHERE event_type = 'OUTCOME') AS recovery_outcome_date,
+                   (list(outcome ORDER BY cycle_num DESC)
+                       FILTER (WHERE event_type = 'OUTCOME'))[1] AS last_outcome,
+                   SUM(recovered_amount_cents) AS recovered_amount_cents
+            FROM {sch}.fact_recovery_event
+            GROUP BY denial_id
+        ) rcv USING (denial_id)
+        LEFT JOIN {sch}.dim_recovery_class rcls USING (carc_code)"""
+
+_RECOVERY_COLUMNS = """,
+               rcls.recovery_class AS denial_recovery_class,
+               CASE WHEN rcv.n_resubmissions IS NULL THEN 'NOT_RESUBMITTED'
+                    WHEN rcv.n_resubmissions > rcv.n_outcomes THEN 'RESUBMITTED_PENDING'
+                    WHEN rcv.last_outcome = 'PAID_FULL' THEN 'RECOVERED_FULL'
+                    WHEN rcv.last_outcome = 'PAID_PARTIAL' THEN 'RECOVERED_PARTIAL'
+                    ELSE 'DENIED_AGAIN' END AS recovery_status,
+               rcv.first_action AS resubmission_type,
+               rcv.resubmission_date,
+               CAST(rcv.days_to_resubmission AS INTEGER) AS days_to_resubmission,
+               rcv.recovery_outcome_date,
+               CAST(COALESCE(rcv.n_resubmissions, 0) AS INTEGER) AS recovery_cycles,
+               CAST(COALESCE(rcv.recovered_amount_cents, 0) AS BIGINT) AS recovered_amount_cents"""
 
 _VIEWS: dict[str, str] = {
     # v_claim's two derived flags are view-level, not stored: billed_flag and
@@ -249,12 +334,47 @@ _VIEWS: dict[str, str] = {
                c.payer_id, c.plan_id, c.facility_id, c.service_line_id,
                c.claim_type, c.service_date, c.submission_date,
                p.payer_name, p.payer_type, p.financial_class,
-               pl.plan_name, pl.product_type,
+               pl.plan_name, pl.product_type, pl.timely_filing_days,
+               f.facility_name, f.region,
+               s.service_line_name"""
+    + _RECOVERY_COLUMNS
+    + """
+        FROM {sch}.fact_denial d
+        JOIN {sch}.dim_denial_code dc USING (carc_code)"""
+    + _RECOVERY_ROLLUP
+    + """
+        JOIN {sch}.fact_claim c USING (claim_id)
+        JOIN {sch}.dim_payer p USING (payer_id)
+        JOIN {sch}.dim_plan pl USING (plan_id)
+        JOIN {sch}.dim_facility f USING (facility_id)
+        JOIN {sch}.dim_service_line s USING (service_line_id)
+    """,
+    # Event grain of the recovery feed: one row per resubmission and per
+    # outcome remit, pre-joined to the denial it answers and that denial's
+    # claim context (including the plan's filing limit, so the deadline
+    # interaction needs no extra join). Not a catalog entity — the catalog binds
+    # the chain at the denial grain, where a denial is still one row.
+    "v_recovery_event": """
+        SELECT e.recovery_event_id, e.parent_event_id, e.claim_id, e.denial_id, e.denial_remit_id,
+               e.cycle_num, e.event_type, e.event_date, e.resubmission_type, e.outcome,
+               e.days_from_denial, e.days_from_resubmission,
+               e.denied_amount_cents, e.recovered_amount_cents,
+               e.carc_code, e.group_code, e.rarc_synthetic,
+               d.carc_code AS denial_carc_code, d.group_code AS denial_group_code,
+               d.denial_level, d.denial_date, d.appeal_status,
+               rcls.recovery_class AS denial_recovery_class,
+               dc.category AS denial_category,
+               c.payer_id, c.plan_id, c.facility_id, c.service_line_id,
+               c.claim_type, c.service_date, c.submission_date,
+               p.payer_name, p.payer_type, p.financial_class,
+               pl.plan_name, pl.product_type, pl.timely_filing_days, pl.timely_filing_basis,
                f.facility_name, f.region,
                s.service_line_name
-        FROM {sch}.fact_denial d
-        JOIN {sch}.dim_denial_code dc USING (carc_code)
-        JOIN {sch}.fact_claim c USING (claim_id)
+        FROM {sch}.fact_recovery_event e
+        JOIN {sch}.fact_denial d USING (denial_id)
+        JOIN {sch}.dim_denial_code dc ON dc.carc_code = d.carc_code
+        LEFT JOIN {sch}.dim_recovery_class rcls ON rcls.carc_code = d.carc_code
+        JOIN {sch}.fact_claim c ON c.claim_id = e.claim_id
         JOIN {sch}.dim_payer p USING (payer_id)
         JOIN {sch}.dim_plan pl USING (plan_id)
         JOIN {sch}.dim_facility f USING (facility_id)
@@ -342,6 +462,14 @@ def _create_dims(con: duckdb.DuckDBPyConnection, sch: str, dims: Dims) -> None:
             },
             "carc_code",
         ),
+        "dim_recovery_class": (
+            {
+                "carc_code": np.array(recovery_class_rows()["carc_code"], dtype=np.int64),
+                "recovery_class": _o(recovery_class_rows()["recovery_class"]),
+                "class_description": _o(recovery_class_rows()["class_description"]),
+            },
+            "carc_code",
+        ),
     }
     for table, (source, order_by) in small_dims.items():
         con.register("_revi_src", source)
@@ -364,6 +492,14 @@ def _create_dims(con: duckdb.DuckDBPyConnection, sch: str, dims: Dims) -> None:
                 SELECT CAST(carc_code AS INTEGER) AS carc_code,
                        CAST(description_paraphrase AS VARCHAR) AS description_paraphrase,
                        CAST(category AS VARCHAR) AS category
+                FROM _revi_src ORDER BY {order_by}"""
+            )
+        elif table == "dim_recovery_class":
+            con.execute(
+                f"""CREATE TABLE {sch}.dim_recovery_class AS
+                SELECT CAST(carc_code AS INTEGER) AS carc_code,
+                       CAST(recovery_class AS VARCHAR) AS recovery_class,
+                       CAST(class_description AS VARCHAR) AS class_description
                 FROM _revi_src ORDER BY {order_by}"""
             )
         else:

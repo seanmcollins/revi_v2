@@ -48,6 +48,45 @@ def test_reference_conversation_numbers(full_key: dict) -> None:
     assert top2 == {"Atlas Commercial", "State Medicaid"}
 
 
+def test_full_scale_recovery_effects_are_detectable(full_key: dict) -> None:
+    """The effect sizes are only worth anything if a cohort-sized study finds them.
+
+    Small-scale tests can check direction; separation is a claim about *this*
+    warehouse's cohort sizes, so it belongs here. The strong/weak payer contrast
+    is the stated bar: a pooled two-proportion test over the decided chains has
+    to clear it comfortably, not marginally.
+    """
+    recovery = full_key["recovery"]["snap_003"]
+    detect = recovery["detectability"]
+    assert detect["strong_decided"] >= 100 and detect["weak_decided"] >= 100
+    assert detect["strong_rate"] - detect["weak_rate"] > 0.2
+    assert detect["two_proportion_z"] > 4.0, detect
+
+    by_class = {c["denial_recovery_class"]: c for c in recovery["by_class"]}
+    fixable = by_class["CODING"]["recovery_rate_of_decided"]
+    clinical = by_class["CLINICAL"]["recovery_rate_of_decided"]
+    assert fixable > 3 * clinical, (fixable, clinical)
+
+    buckets = {c["days_to_resubmission_bucket"]: c for c in recovery["by_days_to_resubmission"]}
+    rates = [buckets[b]["recovery_rate_of_decided"] for b in ("0-14", "15-30", "31-60", "61+")]
+    assert rates == sorted(rates, reverse=True), rates
+
+    past = [c for c in recovery["by_filing_position"] if c["filing_position"] == "past_deadline"]
+    assert past and sum(c["decided"] for c in past) >= 50
+    assert all(c["recovery_rate_of_decided"] < 0.15 for c in past), past
+
+
+def test_full_scale_recovery_is_censored_at_the_edge(full_key: dict) -> None:
+    """The newest load must not tell a finished story about unfinished work."""
+    recovery = full_key["recovery"]
+    assert recovery["snap_003"]["censoring"]["resubmitted_no_outcome_yet"] > 0
+    truth = recovery["world_truth"]
+    assert truth["resubmission_after_newest_watermark"] > 0
+    assert truth["settled_by_newest_watermark"] < truth["chains"]
+    counts = [recovery[s]["events"] for s in ("snap_001", "snap_002", "snap_003")]
+    assert counts == sorted(counts) and counts[0] < counts[-1]
+
+
 def test_full_scale_planted_counts(full_key: dict) -> None:
     s5 = full_key["scenarios"]["5_timely_filing_state_medicaid_hmo"]["snap_003"]
     assert 400 <= s5["unsubmitted_july_claims"] <= 420

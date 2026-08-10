@@ -8,6 +8,7 @@ A failing check makes the CLI exit nonzero.
 
 from __future__ import annotations
 
+import datetime as dt
 import itertools
 import json
 import math
@@ -25,12 +26,17 @@ from revi_warehouse.anomalies import (
 )
 from revi_warehouse.config import (
     ANOMALY_SPECS,
+    ORGANIC_ERA_START,
     SELF_RESOLVING_IDS,
     SNAPSHOTS,
     GeneratorConfig,
     day,
 )
 from revi_warehouse.writer import FACT_TABLES
+
+_ERA_START = (dt.date(1970, 1, 1) + dt.timedelta(days=ORGANIC_ERA_START)).isoformat()
+"""The recovery feed starts here: the 2024 backfill is a closed year with no
+follow-up work (answer_key.ERA_START says the same thing for scenarios)."""
 
 
 @dataclass(frozen=True)
@@ -132,7 +138,198 @@ _FK_CHECKS: tuple[tuple[str, str], ...] = (
         "SELECT count(*) FROM {s}.fact_denial d LEFT JOIN {s}.dim_denial_code k USING (carc_code) "
         "WHERE k.carc_code IS NULL",
     ),
+    (
+        "fact_recovery_event.claim_id",
+        "SELECT count(*) FROM {s}.fact_recovery_event e LEFT JOIN {s}.fact_claim c "
+        "USING (claim_id) WHERE c.claim_id IS NULL",
+    ),
+    (
+        "fact_recovery_event.denial_id",
+        "SELECT count(*) FROM {s}.fact_recovery_event e LEFT JOIN {s}.fact_denial d "
+        "USING (denial_id) WHERE d.denial_id IS NULL",
+    ),
+    (
+        "fact_recovery_event.denial_remit_id",
+        "SELECT count(*) FROM {s}.fact_recovery_event e LEFT JOIN {s}.fact_remit r "
+        "ON r.remit_id = e.denial_remit_id WHERE r.remit_id IS NULL",
+    ),
+    (
+        "fact_recovery_event.parent_event_id",
+        "SELECT count(*) FROM {s}.fact_recovery_event e LEFT JOIN {s}.fact_recovery_event p "
+        "ON p.recovery_event_id = e.parent_event_id "
+        "WHERE e.parent_event_id IS NOT NULL AND p.recovery_event_id IS NULL",
+    ),
+    (
+        "fact_recovery_event.carc_code",
+        "SELECT count(*) FROM {s}.fact_recovery_event e LEFT JOIN {s}.dim_denial_code k "
+        "USING (carc_code) WHERE e.carc_code IS NOT NULL AND k.carc_code IS NULL",
+    ),
+    (
+        "dim_recovery_class covers every CARC",
+        "SELECT count(*) FROM {s}.dim_denial_code k LEFT JOIN {s}.dim_recovery_class r "
+        "USING (carc_code) WHERE r.carc_code IS NULL",
+    ),
+    (
+        "fact_recovery_event: the chain's denial is the one on its claim",
+        "SELECT count(*) FROM {s}.fact_recovery_event e JOIN {s}.fact_denial d "
+        "USING (denial_id) WHERE d.claim_id <> e.claim_id OR d.remit_id <> e.denial_remit_id",
+    ),
 )
+
+
+def _recovery_checks(con: duckdb.DuckDBPyConnection, s: str, cutoff: str) -> list[Check]:
+    """The recovery feed's own invariants: causality, conservation, population.
+
+    A chain is only worth mining if it is ordered (denial before resubmission
+    before outcome), conserving (you cannot recover more than was denied),
+    linked (every outcome answers a resubmission that is in the table) and
+    honest about its population (organic era, no appealed denial, no backfill
+    claim). Each of those is a check here rather than a comment.
+    """
+    checks = [
+        _expect_zero(
+            con,
+            f"{s}: recovery events are causally ordered (denial < resubmission < outcome)",
+            f"""
+            SELECT count(*) FROM {s}.fact_recovery_event e
+            JOIN {s}.fact_denial d USING (denial_id)
+            LEFT JOIN {s}.fact_recovery_event p ON p.recovery_event_id = e.parent_event_id
+            WHERE e.event_date <= d.denial_date
+               OR (e.event_type = 'OUTCOME' AND e.event_date <= p.event_date)
+            """,
+        ),
+        _expect_zero(
+            con,
+            f"{s}: day counts restate the dates they are derived from",
+            f"""
+            SELECT count(*) FROM {s}.fact_recovery_event e
+            JOIN {s}.fact_denial d USING (denial_id)
+            LEFT JOIN {s}.fact_recovery_event p ON p.recovery_event_id = e.parent_event_id
+            WHERE e.days_from_denial <> e.event_date - d.denial_date
+               OR (e.event_type = 'OUTCOME'
+                   AND e.days_from_resubmission <> e.event_date - p.event_date)
+               OR (e.event_type = 'RESUBMISSION' AND e.days_from_resubmission IS NOT NULL)
+            """,
+        ),
+        _expect_zero(
+            con,
+            f"{s}: recovered dollars never exceed the denied dollars",
+            f"""
+            SELECT count(*) FROM {s}.fact_recovery_event
+            WHERE recovered_amount_cents < 0
+               OR recovered_amount_cents > denied_amount_cents
+               OR denied_amount_cents <= 0
+            """,
+        ),
+        _expect_zero(
+            con,
+            f"{s}: money moves only on a paid outcome",
+            f"""
+            SELECT count(*) FROM {s}.fact_recovery_event
+            WHERE (outcome IN ('PAID_FULL', 'PAID_PARTIAL')) <> (recovered_amount_cents > 0)
+            """,
+        ),
+        _expect_zero(
+            con,
+            f"{s}: event shape matches event type",
+            f"""
+            SELECT count(*) FROM {s}.fact_recovery_event
+            WHERE (event_type = 'RESUBMISSION') <> (resubmission_type IS NOT NULL)
+               OR (event_type = 'OUTCOME') <> (outcome IS NOT NULL)
+               OR (event_type = 'OUTCOME') <> (parent_event_id IS NOT NULL)
+               OR (outcome = 'DENIED_AGAIN') <> (carc_code IS NOT NULL)
+               OR (carc_code IS NULL) <> (group_code IS NULL)
+               OR cycle_num NOT IN (1, 2)
+               OR event_type NOT IN ('RESUBMISSION', 'OUTCOME')
+            """,
+        ),
+        _expect_zero(
+            con,
+            f"{s}: one resubmission and at most one answer per chain cycle",
+            f"""
+            SELECT count(*) FROM (
+                SELECT denial_id, cycle_num, event_type, count(*) AS n
+                FROM {s}.fact_recovery_event GROUP BY 1, 2, 3 HAVING n > 1
+            )
+            """,
+        ),
+        _expect_zero(
+            con,
+            f"{s}: a second cycle only follows a denial-again first cycle",
+            f"""
+            SELECT count(*) FROM (
+                SELECT denial_id FROM {s}.fact_recovery_event WHERE cycle_num = 2
+                EXCEPT
+                SELECT denial_id FROM {s}.fact_recovery_event
+                WHERE cycle_num = 1 AND outcome = 'DENIED_AGAIN'
+            )
+            """,
+        ),
+        _expect_zero(
+            con,
+            f"{s}: synthetic RARC shape on redenials",
+            f"SELECT count(*) FROM {s}.fact_recovery_event "
+            "WHERE rarc_synthetic IS NOT NULL AND NOT regexp_matches(rarc_synthetic, '^RZ[0-9]{2}$')",
+        ),
+        _expect_zero(
+            con,
+            f"{s}: no recovery activity after the snapshot cutoff",
+            f"SELECT count(*) FROM {s}.fact_recovery_event WHERE event_date > DATE '{cutoff}'",
+        ),
+        _expect_zero(
+            con,
+            f"{s}: the recovery feed's population is organic-era, un-appealed denials",
+            f"""
+            SELECT count(*) FROM {s}.fact_recovery_event e
+            JOIN {s}.v_denial d USING (denial_id)
+            WHERE d.appeal_status <> 'NONE' OR d.service_date < DATE '{_ERA_START}'
+            """,
+        ),
+        _expect_zero(
+            con,
+            f"{s}: v_denial restates the chain without fanning it out",
+            f"""
+            SELECT count(*) FROM {s}.v_denial d
+            LEFT JOIN (
+                SELECT denial_id,
+                       count(*) FILTER (WHERE event_type = 'RESUBMISSION') AS n_res,
+                       count(*) FILTER (WHERE event_type = 'OUTCOME') AS n_out,
+                       COALESCE(SUM(recovered_amount_cents), 0) AS cents
+                FROM {s}.fact_recovery_event GROUP BY denial_id
+            ) e USING (denial_id)
+            WHERE d.recovery_cycles <> COALESCE(e.n_res, 0)
+               OR d.recovered_amount_cents <> COALESCE(e.cents, 0)
+               OR d.recovery_status IS NULL
+               OR d.denial_recovery_class IS NULL
+               OR (d.recovery_status = 'NOT_RESUBMITTED') <> (e.denial_id IS NULL)
+               -- a chain is pending exactly while a resubmission is unanswered,
+               -- including the second cycle of a chain that was denied again
+               OR (d.recovery_status = 'RESUBMITTED_PENDING')
+                  <> (COALESCE(e.n_res, 0) > COALESCE(e.n_out, 0))
+               OR (d.recovery_status IN ('RECOVERED_FULL', 'RECOVERED_PARTIAL'))
+                  <> (d.recovered_amount_cents > 0
+                      AND COALESCE(e.n_res, 0) = COALESCE(e.n_out, 0))
+            """,
+        ),
+    ]
+    # Right-censoring is a property of the newest watermark, not a defect: some
+    # chains are out the door with no answer yet, and many more denials have not
+    # been worked at all. Both populations must be non-empty or the edge of the
+    # data is telling a story that is too tidy to be real.
+    if s == SNAPSHOTS[-1].schema_name:
+        for label, predicate in (
+            ("resubmitted, undecided", "recovery_status = 'RESUBMITTED_PENDING'"),
+            ("denied, not resubmitted", "recovery_status = 'NOT_RESUBMITTED'"),
+        ):
+            n = _count(
+                con,
+                f"SELECT count(*) FROM {s}.v_denial WHERE {predicate} "
+                f"AND service_date >= DATE '{_ERA_START}' AND appeal_status = 'NONE'",
+            )
+            checks.append(
+                Check(f"{s}: right-censoring at the edge ({label})", n > 0, "no such denial")
+            )
+    return checks
 
 _EXPECTED_WATERMARKS = [
     (s.watermark_id, s.schema_name, s.loaded_at, s.newest_data_date) for s in SNAPSHOTS
@@ -321,6 +518,7 @@ def _structural_checks(con: duckdb.DuckDBPyConnection) -> list[Check]:
                 """,
             )
         )
+        checks.extend(_recovery_checks(con, s, snap.newest_data_date))
     # Monotonicity: snap_n activity is a subset of snap_{n+1}.
     id_cols = {
         "fact_claim": "claim_id",
@@ -328,6 +526,7 @@ def _structural_checks(con: duckdb.DuckDBPyConnection) -> list[Check]:
         "fact_remit": "remit_id",
         "fact_transaction": "txn_id",
         "fact_denial": "denial_id",
+        "fact_recovery_event": "recovery_event_id",
     }
     for prev, nxt in itertools.pairwise(SNAPSHOTS):
         for table in FACT_TABLES:
@@ -719,6 +918,10 @@ def _backfill_guards(first_id: str, era_start: str, resolved_by: str) -> tuple[t
                     f"{s}: every backfill denial carries a terminal appeal status",
                     f"SELECT count(*) FROM wh.{s}.fact_denial WHERE {backfill} "
                     "AND appeal_status = 'APPEALED'",
+                ),
+                (
+                    f"{s}: no backfill claim carries recovery follow-up work",
+                    f"SELECT count(*) FROM wh.{s}.fact_recovery_event WHERE {backfill}",
                 ),
                 (
                     f"{s}: no backfill claim carries an unrefunded credit balance",

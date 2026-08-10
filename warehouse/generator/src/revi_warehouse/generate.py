@@ -19,6 +19,7 @@ from revi_warehouse.answer_key import compute_answer_key, write_answer_key
 from revi_warehouse.backfill import apply_backfill
 from revi_warehouse.config import GeneratorConfig, make_rng
 from revi_warehouse.dims import build_dims
+from revi_warehouse.recovery import apply_recovery, recovery_truth
 from revi_warehouse.verify import Check, run_verification
 from revi_warehouse.world import build_world
 from revi_warehouse.writer import write_warehouse
@@ -44,8 +45,9 @@ def run_generation(
     world = build_world(config, rng, dims)
     world = inject_anomalies(world, config)  # own RNG streams; base arrays untouched
     world = apply_backfill(world, config)  # own RNG streams; appended after everything
+    world = apply_recovery(world, config)  # own RNG streams; new arrays only
     row_counts = write_warehouse(out_path, config, world)
-    key = compute_answer_key(out_path, config)
+    key = compute_answer_key(out_path, config, recovery_truth(world))
     write_answer_key(key, ak_path)
     return GenerationResult(
         db_path=out_path,

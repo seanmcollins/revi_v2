@@ -49,8 +49,8 @@ def test_dimensions_yaml() -> None:
     dims = data["dimensions"]
     certified = {k for k, v in dims.items() if v["certified"]}
     uncertified = {k for k, v in dims.items() if not v["certified"]}
-    assert len(certified) == 26, sorted(certified)
-    assert uncertified == {"rarc_synthetic", "revenue_code"}
+    assert len(certified) == 28, sorted(certified)
+    assert uncertified == {"rarc_synthetic", "resubmission_type", "revenue_code"}
     # Both derived buckets declare their labels; nothing else may claim the kind.
     derived = {k for k, v in dims.items() if v.get("kind") == "derived_bucket"}
     assert derived == {"ar_age_bucket", "filing_runway_bucket"}
@@ -103,6 +103,9 @@ def test_measures_yaml() -> None:
         "appeal_count",
         "appeal_overturned_count",
         "appeal_upheld_count",
+        "recovered_amount_cents",
+        "resubmitted_denial_count",
+        "recovered_denial_count",
     }
     assert required <= set(measures), sorted(required - set(measures))
     for name, spec in measures.items():

@@ -285,6 +285,60 @@ dimensions:
     cardinality_estimate: 4
     value_domain: [NONE, APPEALED, OVERTURNED, UPHELD]
     phi: none
+  denial_recovery_class:
+    label: Denial recovery class
+    certified: true
+    description: >
+      How a denial recovers, not what it says: the governed CARC ->
+      recoverability mapping published as dim_recovery_class and pre-joined into
+      v_denial. CODING and REGISTRATION are the fixable half (a corrected claim
+      usually wins), ROUTING is the coordination-of-benefits / eligibility middle
+      (recovered by rebilling the payer or plan that holds the risk), CLINICAL
+      needs documentation and mostly loses, FINAL is the contractual,
+      patient-responsibility and expired-deadline tail that is not workable.
+      Total: every CARC in dim_denial_code has exactly one class (verify.py pins
+      the coverage), so a cut by this dimension reconciles to the ungrouped
+      denial total.
+      NOT the same cut as `denial_category`, which groups codes by what the
+      payer said. One category can hold codes of opposite workability — CARC 16
+      (missing information, fixable) and CARC 96 (non-covered, not) are both
+      `OTHER` — which is exactly why this dimension exists.
+    entities:
+      denial: denial_recovery_class
+    synonyms: [recovery class, recoverability, denial workability, workable category,
+               fixable vs clinical, recovery bucket, denial work type]
+    cardinality_estimate: 5
+    value_domain: [CODING, REGISTRATION, ROUTING, CLINICAL, FINAL]
+    phi: none
+  recovery_status:
+    label: Recovery status
+    certified: true
+    description: >
+      Where the denial's follow-up stands AT THIS DATA LOAD: NOT_RESUBMITTED,
+      RESUBMITTED_PENDING (out the door, no answer yet), RECOVERED_FULL,
+      RECOVERED_PARTIAL, DENIED_AGAIN. Derived from fact_recovery_event, the
+      resubmission feed, and total over denials — a denial with no follow-up
+      row reads NOT_RESUBMITTED rather than null.
+      READ NOT_RESUBMITTED AS CENSORED, NOT AS ABANDONED. At the edge of the
+      data it holds both denials nobody will ever work and denials whose
+      resubmission has not gone out yet, and nothing in the warehouse
+      distinguishes them; a later load resolves some of them into
+      RESUBMITTED_PENDING. Any recovery rate computed with NOT_RESUBMITTED in
+      the denominator is therefore a LOWER bound on fresh cohorts, and the
+      honest denominator for "how often does resubmitting work" is the decided
+      population (RECOVERED_* plus DENIED_AGAIN).
+      POPULATION CAVEAT. Chains are generated for denials with no formal appeal
+      on the remit; a denial worked through the appeal path carries its outcome
+      in `appeal_status` instead, and reads NOT_RESUBMITTED here. The two paths
+      are separate feeds and must not be summed without saying so.
+    entities:
+      denial: recovery_status
+    synonyms: [recovery state, rework status, resubmission status, follow-up status,
+               denial disposition, worked status]
+    cardinality_estimate: 5
+    value_domain: [NOT_RESUBMITTED, RESUBMITTED_PENDING, RECOVERED_FULL, RECOVERED_PARTIAL,
+                   DENIED_AGAIN]
+    phi: none
   clean_claim:
     label: Clean claim flag
     certified: true
@@ -425,6 +479,25 @@ dimensions:
       denial: rarc_synthetic
     synonyms: [remark code, rarc, remittance remark]
     cardinality_estimate: 20
+    phi: none
+  resubmission_type:
+    label: Resubmission type
+    certified: false
+    uncertified_reason: >
+      The action taken on the FIRST resubmission of a denial, and null on every
+      denial that was never resubmitted — around half of them — so a cut by it
+      silently drops the population that matters most. It is also our own
+      follow-up label rather than a payer-governed code, and it is confounded
+      with `denial_recovery_class` by construction (clinical work goes out as
+      RECONSIDERATION, coding fixes as CORRECTED_CLAIM), so its unstratified
+      recovery rates read as an effect of the action when they are an effect of
+      the denial. Answers cut by this dimension carry discovery grade.
+    entities:
+      denial: resubmission_type
+    synonyms: [rework type, resubmission action, corrected claim type, rebill type,
+               follow-up action]
+    cardinality_estimate: 4
+    value_domain: [CORRECTED_CLAIM, RECONSIDERATION, REBILL_REROUTE, VOID_REPLACE]
     phi: none
   revenue_code:
     label: Revenue code

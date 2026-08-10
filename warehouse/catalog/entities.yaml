@@ -63,7 +63,27 @@ entities:
     description: >
       One row per denial record from a remit. Keyed by the group code + CARC
       pair; denial_level distinguishes claim-level from line-level denials.
-      Pre-joins the denial code dimension and claim context.
+      Pre-joins the denial code dimension and claim context, plus the denial's
+      recovery chain rolled up from fact_recovery_event — the resubmission feed
+      is aggregated to one row per denial before it is joined, so denial counts
+      never fan out across a two-cycle chain. The chain's own event grain lives
+      in v_recovery_event, which is deliberately NOT an entity: a probe that
+      addressed it would count one denial once per event.
+    declared_columns:
+      # The plan's configured timely-filing limit, pre-joined from dim_plan —
+      # the same column the claim entity declares, bound here because the
+      # recovery question that needs it ("did the rework go out after the
+      # filing deadline?") asks it of a denial, not of a claim.
+      - timely_filing_days
+      # The recovery chain's dates and depth. Not date bases (no window rides
+      # on them: a recovery cohort is still scoped by SERVICE or REMIT) and not
+      # dimensions (nobody groups by a raw day count), but the inputs to
+      # days-to-resubmission stratification, which is the whole point of the
+      # feed. Declared so that dependency is catalog-visible.
+      - resubmission_date
+      - days_to_resubmission
+      - recovery_outcome_date
+      - recovery_cycles
 join_paths:
   # Certified inter-entity paths (all pre-joined inside the base views; listed
   # here so the planner can validate cohort flows between grains).

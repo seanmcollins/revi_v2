@@ -11,7 +11,13 @@ from dataclasses import dataclass, field
 
 import numpy as np
 
-from revi_warehouse.config import CALENDAR_END, CALENDAR_START, GeneratorConfig
+from revi_warehouse.config import (
+    CALENDAR_END,
+    CALENDAR_START,
+    RECOVERY_CLASS_BY_CARC,
+    RECOVERY_CLASS_DESCRIPTIONS,
+    GeneratorConfig,
+)
 
 # --- Payers -------------------------------------------------------------------
 # (name, payer_type, financial_class, claim_weight, contract_rate,
@@ -240,6 +246,23 @@ DENIAL_CODES: tuple[tuple[int, str, str], ...] = (
     (204, "The service is not a covered benefit under the member's current plan.", "ELIGIBILITY"),
     (253, "A federal sequestration reduction was applied to the payment.", "CONTRACTUAL"),
 )
+
+
+def recovery_class_rows() -> dict[str, list[object]]:
+    """dim_recovery_class content: CARC -> recoverability class + why.
+
+    The mapping itself is generator config (``RECOVERY_CLASS_BY_CARC``); this
+    publishes it as a dimension table so a query can group denials by how they
+    recover without re-encoding the rule.
+    """
+    carcs = sorted(code for code, _desc, _cat in DENIAL_CODES)
+    classes = [RECOVERY_CLASS_BY_CARC[carc] for carc in carcs]
+    return {
+        "carc_code": list(carcs),
+        "recovery_class": list(classes),
+        "class_description": [RECOVERY_CLASS_DESCRIPTIONS[name] for name in classes],
+    }
+
 
 # Fixed CARC -> claim adjustment group code. PR = patient responsibility, OA = other adjustment.
 CARC_GROUP: dict[int, str] = {1: "PR", 2: "PR", 3: "PR", 22: "OA", 23: "OA", 109: "OA"}

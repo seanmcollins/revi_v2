@@ -153,3 +153,36 @@ measures:
     additive: true
     unit: count
     synonyms: [upheld appeals, lost appeals, appeal losses]
+  # --- denial recovery (the resubmission feed, fact_recovery_event) -----------
+  # Rolled up to the denial grain in v_denial before it is measured, so a denial
+  # stays one row however many times it was worked.
+  recovered_amount_cents:
+    entity: denial
+    column: recovered_amount_cents
+    aggregation: sum
+    additive: true
+    unit: cents
+    # NOT posted cash. This is the payer-ALLOWED value of the denied unit on a
+    # recovered denial — what the recovery was worth, gross of patient
+    # responsibility — and it is carried by the resubmission feed, not by
+    # fact_transaction. Never add it to `payment_cents` or net it against
+    # `denied_amount_cents`: cash metrics answer "what posted", this answers
+    # "what the rework won".
+    synonyms: [recovered dollars, recovered amount, overturned dollars, recovery dollars,
+               dollars won back, rework recovery]
+  resubmitted_denial_count:
+    entity: denial
+    column: denial_id
+    filter: "recovery_status <> 'NOT_RESUBMITTED'"
+    aggregation: count_distinct
+    additive: true
+    unit: count
+    synonyms: [resubmitted denials, reworked denials, denials worked, rebilled denials]
+  recovered_denial_count:
+    entity: denial
+    column: denial_id
+    filter: "recovery_status IN ('RECOVERED_FULL', 'RECOVERED_PARTIAL')"
+    aggregation: count_distinct
+    additive: true
+    unit: count
+    synonyms: [recovered denials, denials recovered, overturned denials, wins]

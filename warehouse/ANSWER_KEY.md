@@ -536,6 +536,217 @@ that is the latest date carried by any backfill row of any kind, 430 days before
 the earliest watermark, so no trailing window the platform anchors at a 2026-08
 watermark can reach the backfill.
 
+## Denial recovery: the resubmission feed (`<snap>.fact_recovery_event`)
+
+"How often does resubmitting this kind of denial actually work, for this payer?"
+deserves the tenant's own history rather than an industry rule of thumb.
+`recovery.py` gives denials a follow-up story: a resubmission event, the payer's
+answer, and occasionally a second attempt — authored entirely from the config
+tables in `config.py` (`RECOVERY_CLASS_SPECS`, `RECOVERY_PAYER_OVERTURN_FACTOR`,
+`RECOVERY`), never per claim. The full parameter set and the realized aggregates
+are both in `data/answer_key.json` under `recovery`.
+
+**Population, stated first because every rate below is a rate over it.** Chains
+exist for **organic-era denials with no formal appeal on the remit** — the
+stories that used to end at the denial. At `snap_003`, full scale: 7,998
+organic-era denials, of which 2,600 went to the appeal path (their outcome is in
+`fact_denial.appeal_status`, unchanged) and **5,398** are the recovery feed's
+population. The 2024 backfill is a closed year and carries no follow-up work at
+all. Do not sum the two paths without saying so — they are separate feeds.
+
+**Dollars, stated second for the same reason.** `recovered_amount_cents` is the
+payer-**allowed** value of the denied unit, capped at the denied amount. It is
+what the rework was worth, gross of patient responsibility, and it is **not
+posted cash**: no transaction, remit, claim status or scenario figure moves
+because this feed exists. Every published number in this document is exactly
+what it was before it — proven by regenerating and diffing every pre-existing
+table.
+
+### Table shape
+
+| table | grain |
+| --- | --- |
+| `fact_recovery_event` | one row per event: `RESUBMISSION` or `OUTCOME` |
+| `v_recovery_event` | the same rows pre-joined to the denial, claim, payer, plan (incl. `timely_filing_days`) and recovery class |
+| `dim_recovery_class` | CARC -> recoverability class, with the reason |
+| `v_denial` (new columns) | the chain rolled up to **one row per denial**: `recovery_status`, `denial_recovery_class`, `resubmission_type`, `resubmission_date`, `days_to_resubmission`, `recovery_outcome_date`, `recovery_cycles`, `recovered_amount_cents` |
+
+Every event names its claim, its denial and the remit the denial arrived on; an
+`OUTCOME` row also names the `RESUBMISSION` it answers (`parent_event_id`), and
+a second denial carries a CARC, group code and synthetic `RZnn` remark from the
+same code system as the original. `snap_003` holds 5,888 events over 2,745
+chains: 2,745 first resubmissions, 2,546 answers, and 305 second attempts of
+which 292 have been answered. Outcomes so far: 900 `PAID_FULL`, 187
+`PAID_PARTIAL`, 1,751 `DENIED_AGAIN`.
+
+The catalog binds the chain at the **denial** grain, where a denial is still one
+row. `v_recovery_event` is deliberately not an entity: a probe addressing it
+would count one denial once per event.
+
+### The authored effects, and what the data realized
+
+All figures below are `snap_003`, full scale, from `answer_key.json`. The
+authored parameter is the model input; the realized rate is what the generated
+world actually shows, which differs because of censoring, class and payer mix,
+and the filing-deadline interaction.
+
+**By denial class** (`base_overturn` is the authored win rate at reference
+conditions; `recovery rate` is realized over *decided* chains):
+
+| class | resubmit prob | median days | base overturn | denials | resubmitted | decided | recovered | resub rate | recovery rate |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| CODING | 0.78 | 9 | 0.68 | 720 | 541 | 508 | 316 | 75.1% | **62.2%** |
+| REGISTRATION | 0.72 | 12 | 0.60 | 1,113 | 775 | 713 | 374 | 69.6% | 52.5% |
+| ROUTING | 0.66 | 18 | 0.50 | 1,340 | 780 | 718 | 321 | 58.2% | 44.7% |
+| CLINICAL | 0.44 | 28 | 0.21 | 1,480 | 576 | 528 | 74 | 38.9% | 14.0% |
+| FINAL | 0.12 | 34 | 0.07 | 745 | 73 | 66 | 2 | 9.8% | **3.0%** |
+
+Realized median days to resubmission: 9 / 13 / 20 / 31 / 49 — the fixable
+classes go back out first, as authored.
+
+**By payer.** `RECOVERY_PAYER_OVERTURN_FACTOR` multiplies the class base; payer
+identity enters the **outcome only**, never the decision to work the denial, so
+the payer contrast among resubmitted denials is not confounded by selection.
+
+| payer | factor | denials | resubmitted | decided | recovered | recovery rate |
+| --- | --- | --- | --- | --- | --- | --- |
+| Northbridge Commercial | **1.30 (strong)** | 329 | 160 | 148 | 84 | **56.8%** |
+| Federal Medicare | 1.10 | 437 | 246 | 230 | 113 | 49.1% |
+| Atlas Commercial | 1.15 | 1,009 | 556 | 518 | 233 | 45.0% |
+| Bluestone Mutual | 1.00 | 313 | 166 | 142 | 60 | 42.3% |
+| State Medicaid | 0.80 | 972 | 451 | 421 | 145 | 34.4% |
+| Summit Peak MA | 0.70 | 235 | 121 | 112 | 38 | 33.9% |
+| Lakewood Medicaid MCO | **0.55 (weak)** | 243 | 125 | 117 | 34 | **29.1%** |
+
+(The other five payers fall between; `Silverline Medicare Advantage` reads
+higher than its 0.95 factor suggests because the planted COB cohort concentrates
+guaranteed ROUTING recoveries on it — a **class-mix confound**, and exactly the
+reason a recoverability estimate has to stratify rather than rank payers raw.)
+
+**Detectability.** The strong/weak contrast is the check the effect sizes were
+set to pass: 84/148 vs 34/117, a pooled two-proportion **z = 4.50**
+(p ≈ 7e-6), recorded in `answer_key.json` at
+`recovery.snap_003.detectability`. Within a single class it is wider still —
+CODING is 34/37 (91.9%) for Northbridge against 8/25 (32.0%) for Lakewood.
+
+**Timeliness.** Recovery probability decays with days-to-resubmission
+(`timeliness_floor + (1 - floor) * exp(-days / tau)`, tau = 60 days, floor
+= 0.35) — and the decay is compounded by class mix, because slow classes are
+also weak ones:
+
+| days to resubmission | denials | decided | recovered | recovery rate |
+| --- | --- | --- | --- | --- |
+| 0-14 | 1,212 | 1,137 | 618 | 54.4% |
+| 15-30 | 862 | 779 | 341 | 43.8% |
+| 31-60 | 322 | 294 | 82 | 27.9% |
+| 61+ | 349 | 323 | 46 | **14.2%** |
+
+**The filing deadline, and the governed-rules interaction.** The deadline is the
+claim's service date plus its plan's configured limit (`dim_plan.
+timely_filing_days`, the same arithmetic the certified `filing_runway_bucket`
+uses). Crossing it collapses recovery — but *how far* it collapses depends on
+whether the limit is governed without caveat. Seven of the thirty plans resolve
+to a `requires_confirmation: false` rule in `packs/base-rcm/filing_rules.yaml`
+(State Medicaid HMO, the four Medicaid MCO plans, both Federal Medicare plans);
+for the other 23 the limit is a planning default that may not be the real
+contract term, so the observed cliff is partial:
+
+| position | filing rule | denials | decided | recovered | recovery rate |
+| --- | --- | --- | --- | --- | --- |
+| within deadline | confirmed | 643 | 595 | 255 | 42.9% |
+| within deadline | requires confirmation | 2,013 | 1,859 | 829 | 44.6% |
+| past deadline | confirmed | 43 | 39 | 0 | **0.0%** |
+| past deadline | requires confirmation | 46 | 40 | 3 | **7.5%** |
+
+An analysis that treats every deadline as governed will over-predict the cliff
+on 23 of 30 plans. What puts a real population past the deadline is **aged
+inventory**: `backlog_share` sends 6% of coding denials but 32% of the FINAL
+class to the back of a work queue for a median of 115 days first — past the
+90/95/120-day windows, inside the 180/365-day ones.
+
+**Dollar size** is deliberately mild: large denials are pursued more (+10% per
+decade of denied dollars, reference $1,000) and win slightly more (+5%).
+Realized resubmission rate: 48.7% under $500, 50.7% $500-$5k, **57.6%** over $5k.
+
+**Second cycles.** 305 chains were worked twice; the second attempt goes out
+faster (×0.75 on the median delay) and wins less (×0.55 on the probability).
+
+**`resubmission_type` carries no independent effect.** The action is drawn from
+the class (coding fixes go out as `CORRECTED_CLAIM`, clinical work as
+`RECONSIDERATION`), and the outcome does not read it. Its raw rates therefore
+look like an effect of the action — `CORRECTED_CLAIM` 50.2%, `RECONSIDERATION`
+11.8% — when they are entirely the class showing through. The dimension is
+uncertified for that reason, among others.
+
+### Right-censoring at the data edge
+
+Not a special case: event days are generated forward from the denial and each
+snapshot keeps only what had happened by its cutoff. At `snap_003`:
+
+- **212 chains are out the door with no answer yet** (`recovery_status =
+  'RESUBMITTED_PENDING'`);
+- **2,653 denials read `NOT_RESUBMITTED`** — and 383 of them *will* be
+  resubmitted after 2026-08-02 (`recovery.world_truth.
+  resubmission_after_newest_watermark`, which only the generator can see).
+  Nothing in the warehouse distinguishes those from the ones nobody will ever
+  work.
+
+The feed grows with the loads exactly as everything else does: 5,847 events at
+`wm_001`, 5,864 at `wm_002`, 5,888 at `wm_003`. A `wm_004` would resolve some of
+the open stories with no change to the scheme — the world already holds their
+dates.
+
+Consequences a correct recoverability estimate has to carry: a rate with
+`NOT_RESUBMITTED` in the denominator is a **lower bound** on fresh cohorts, and
+recency-weighted cohorts are the most censored ones. The honest denominator for
+"does resubmitting work" is the decided population.
+
+### Verify
+
+```sql
+-- realized recovery by payer and class, over the feed's own population
+SELECT payer_name, denial_recovery_class,
+       count(*) AS denials,
+       count(*) FILTER (WHERE recovery_status <> 'NOT_RESUBMITTED') AS resubmitted,
+       count(*) FILTER (WHERE recovery_status IN
+              ('RECOVERED_FULL', 'RECOVERED_PARTIAL', 'DENIED_AGAIN')) AS decided,
+       count(*) FILTER (WHERE recovery_status IN
+              ('RECOVERED_FULL', 'RECOVERED_PARTIAL')) AS recovered,
+       SUM(recovered_amount_cents) AS recovered_cents
+FROM snap_003.v_denial
+WHERE service_date >= DATE '2025-01-01' AND appeal_status = 'NONE'
+GROUP BY 1, 2 ORDER BY 1, 2;
+
+-- the timeliness decay, and the deadline cliff underneath it
+SELECT CASE WHEN resubmission_date > service_date + timely_filing_days
+            THEN 'past_deadline' ELSE 'within_deadline' END AS filing_position,
+       CASE WHEN days_to_resubmission <= 14 THEN '0-14'
+            WHEN days_to_resubmission <= 30 THEN '15-30'
+            WHEN days_to_resubmission <= 60 THEN '31-60' ELSE '61+' END AS bucket,
+       count(*) AS decided,
+       count(*) FILTER (WHERE recovery_status LIKE 'RECOVERED%') AS recovered
+FROM snap_003.v_denial
+WHERE service_date >= DATE '2025-01-01' AND appeal_status = 'NONE'
+  AND recovery_status <> 'NOT_RESUBMITTED' AND recovery_status <> 'RESUBMITTED_PENDING'
+GROUP BY 1, 2 ORDER BY 1, 2;
+
+-- the chain itself, ordered and linked (returns zero rows)
+SELECT e.recovery_event_id
+FROM snap_003.fact_recovery_event e
+JOIN snap_003.fact_denial d USING (denial_id)
+LEFT JOIN snap_003.fact_recovery_event p ON p.recovery_event_id = e.parent_event_id
+WHERE e.event_date <= d.denial_date
+   OR (e.event_type = 'OUTCOME' AND (p.recovery_event_id IS NULL OR e.event_date <= p.event_date))
+   OR e.recovered_amount_cents > e.denied_amount_cents;
+```
+
+**Determinism.** Each sub-stream is seeded by
+`(REVI_SEED, RECOVERY_STREAM, crc32(sub_stream))` and the stage runs last, after
+the backfill. No draw belonging to dims/world/anomalies/backfill is consumed or
+shifted: regenerating with the feed added leaves all 43 pre-existing tables and
+all five base views byte-identical, and the answer key gains entries without
+changing one.
+
 ## Cross-cutting invariants (also enforced by `--verify`)
 
 - `main.watermarks` matches design doc section 10.3 verbatim.
@@ -552,3 +763,9 @@ watermark can reach the backfill.
   deliberately exempt: a signal that stops qualifying disappears (the three
   documented self-resolvers above). `--verify` still asserts that nothing else
   ever disappears.
+- Recovery chains are causally ordered (denial < resubmission < outcome),
+  conserving (`recovered_amount_cents` between 0 and the denied amount, non-zero
+  only on a paid outcome), linked (every outcome answers a resubmission that is
+  in the table), and confined to their stated population (organic era, no
+  appealed denial, no backfill claim). `v_denial` restates each chain without
+  fanning the denial out.

@@ -8,6 +8,7 @@ surface. The same SQL is documented in warehouse/ANSWER_KEY.md.
 from __future__ import annotations
 
 import json
+import math
 from pathlib import Path
 from typing import Any
 
@@ -17,7 +18,10 @@ import numpy as np
 from revi_warehouse.config import (
     ANOMALY_SPECS,
     BACKFILL,
+    GOVERNED_CONFIRMED_PLANS,
     ORGANIC_ERA_START,
+    RECOVERY_STRONG_PAYER,
+    RECOVERY_WEAK_PAYER,
     REVI_SEED,
     SCENARIOS,
     SELF_RESOLVING_IDS,
@@ -353,6 +357,177 @@ def _timely_filing(con: duckdb.DuckDBPyConnection, sch: str, newest_data_date: s
     }
 
 
+#: The recovery feed's population, as a SQL predicate on v_denial: organic-era
+#: denials carrying no appeal on the remit at this watermark. Recovery chains
+#: exist only for these (recovery.py), so every rate below is a rate over them —
+#: NOT over all denials, which would silently mix in the appeal path.
+_RECOVERY_COHORT = "service_date >= DATE '{era}' AND appeal_status = 'NONE'"
+
+_RECOVERED = "recovery_status IN ('RECOVERED_FULL', 'RECOVERED_PARTIAL')"
+_DECIDED = "recovery_status IN ('RECOVERED_FULL', 'RECOVERED_PARTIAL', 'DENIED_AGAIN')"
+
+
+def _rate(num: int, den: int) -> float | None:
+    return (num / den) if den else None
+
+
+def _two_proportion_z(k1: int, n1: int, k2: int, n2: int) -> float | None:
+    """Pooled two-proportion z. The detectability check the effect sizes are set to pass."""
+    if not n1 or not n2:
+        return None
+    p1, p2 = k1 / n1, k2 / n2
+    pooled = (k1 + k2) / (n1 + n2)
+    se = math.sqrt(pooled * (1 - pooled) * (1 / n1 + 1 / n2))
+    return ((p1 - p2) / se) if se else None
+
+
+def _recovery(con: duckdb.DuckDBPyConnection, sch: str) -> dict[str, Any]:
+    """Realized recovery outcomes at this watermark, plus what it cannot see yet.
+
+    Everything here is read back out of the written snapshot — the authored
+    parameters that produced it are recorded separately (recovery.py's
+    `recovery_truth`), so a later phase can check its estimator against the
+    realized numbers and its assumptions against the generating model.
+    """
+    cohort = _RECOVERY_COHORT.format(era=ERA_START)
+    confirmed = ", ".join(f"'{plan}'" for plan in sorted(GOVERNED_CONFIRMED_PLANS))
+    counters = f"""
+        count(*) AS denials,
+        count(*) FILTER (WHERE recovery_status <> 'NOT_RESUBMITTED') AS resubmitted,
+        count(*) FILTER (WHERE {_DECIDED}) AS decided,
+        count(*) FILTER (WHERE {_RECOVERED}) AS recovered,
+        count(*) FILTER (WHERE recovery_status = 'RECOVERED_PARTIAL') AS recovered_partial,
+        count(*) FILTER (WHERE recovery_status = 'DENIED_AGAIN') AS denied_again,
+        count(*) FILTER (WHERE recovery_status = 'RESUBMITTED_PENDING') AS pending,
+        count(*) FILTER (WHERE recovery_status = 'NOT_RESUBMITTED') AS not_resubmitted,
+        COALESCE(SUM(denied_amount_cents), 0) AS denied_cents,
+        COALESCE(SUM(recovered_amount_cents), 0) AS recovered_cents
+    """
+
+    def cells(group_sql: str, keys: tuple[str, ...]) -> list[dict[str, Any]]:
+        rows = con.execute(
+            f"SELECT {group_sql}, {counters} FROM {sch}.v_denial WHERE {cohort} "
+            f"GROUP BY ALL ORDER BY ALL"
+        ).fetchall()
+        out: list[dict[str, Any]] = []
+        for row in rows:
+            key_values = row[: len(keys)]
+            (
+                denials, resubmitted, decided, recovered, partial, denied_again,
+                pending, not_resubmitted, denied_cents, recovered_cents,
+            ) = row[len(keys):]
+            cell = dict(zip(keys, key_values, strict=True))
+            cell.update(
+                {
+                    "denials": int(denials),
+                    "resubmitted": int(resubmitted),
+                    "decided": int(decided),
+                    "recovered": int(recovered),
+                    "recovered_partial": int(partial),
+                    "denied_again": int(denied_again),
+                    "resubmitted_pending": int(pending),
+                    "not_resubmitted": int(not_resubmitted),
+                    "denied_cents": int(denied_cents),
+                    "recovered_cents": int(recovered_cents),
+                    "resubmission_rate": _rate(int(resubmitted), int(denials)),
+                    "recovery_rate_of_decided": _rate(int(recovered), int(decided)),
+                    "recovery_rate_of_denials": _rate(int(recovered), int(denials)),
+                }
+            )
+            out.append(cell)
+        return out
+
+    by_payer_class = cells("payer_name, denial_recovery_class", ("payer_name", "denial_recovery_class"))
+    by_payer = cells("payer_name", ("payer_name",))
+    by_class = cells("denial_recovery_class", ("denial_recovery_class",))
+    totals = cells("1 AS all_rows", ("all_rows",))
+    overall = {k: v for k, v in (totals[0] if totals else {}).items() if k != "all_rows"}
+
+    by_timeliness = cells(
+        """CASE WHEN days_to_resubmission IS NULL THEN 'not_resubmitted'
+                WHEN days_to_resubmission <= 14 THEN '0-14'
+                WHEN days_to_resubmission <= 30 THEN '15-30'
+                WHEN days_to_resubmission <= 60 THEN '31-60'
+                ELSE '61+' END AS days_to_resubmission_bucket""",
+        ("days_to_resubmission_bucket",),
+    )
+    by_deadline = cells(
+        f"""CASE WHEN resubmission_date IS NULL THEN 'not_resubmitted'
+                 WHEN resubmission_date > service_date + timely_filing_days THEN 'past_deadline'
+                 ELSE 'within_deadline' END AS filing_position,
+            CASE WHEN plan_name IN ({confirmed}) THEN 'confirmed' ELSE 'requires_confirmation' END
+                AS filing_rule_authority""",
+        ("filing_position", "filing_rule_authority"),
+    )
+    by_dollar = cells(
+        """CASE WHEN denied_amount_cents < 50000 THEN 'under_500'
+                WHEN denied_amount_cents < 500000 THEN '500_to_5k'
+                ELSE 'over_5k' END AS denied_amount_bucket""",
+        ("denied_amount_bucket",),
+    )
+    by_action = cells(
+        "COALESCE(resubmission_type, 'NONE') AS resubmission_type", ("resubmission_type",)
+    )
+
+    strong = next((c for c in by_payer if c["payer_name"] == RECOVERY_STRONG_PAYER), None)
+    weak = next((c for c in by_payer if c["payer_name"] == RECOVERY_WEAK_PAYER), None)
+    detectability: dict[str, Any] = {
+        "comparison": "recovery rate among DECIDED chains, strong payer vs weak payer",
+        "strong_payer": RECOVERY_STRONG_PAYER,
+        "weak_payer": RECOVERY_WEAK_PAYER,
+    }
+    if strong is not None and weak is not None:
+        detectability.update(
+            {
+                "strong_recovered": strong["recovered"],
+                "strong_decided": strong["decided"],
+                "strong_rate": strong["recovery_rate_of_decided"],
+                "weak_recovered": weak["recovered"],
+                "weak_decided": weak["decided"],
+                "weak_rate": weak["recovery_rate_of_decided"],
+                "two_proportion_z": _two_proportion_z(
+                    strong["recovered"], strong["decided"], weak["recovered"], weak["decided"]
+                ),
+            }
+        )
+
+    events, chains, first_event, last_event = _one(
+        con,
+        f"""
+        SELECT count(*), count(DISTINCT denial_id),
+               CAST(MIN(event_date) AS VARCHAR), CAST(MAX(event_date) AS VARCHAR)
+        FROM {sch}.fact_recovery_event
+        """,
+    )
+    return {
+        "cohort": (
+            "organic-era denials with appeal_status = 'NONE' at this watermark — "
+            "the population recovery chains are generated for"
+        ),
+        "events": int(events),
+        "chains": int(chains),
+        "event_date_range": {"first": first_event, "last": last_event},
+        "overall": overall,
+        "by_payer": by_payer,
+        "by_class": by_class,
+        "by_payer_class": by_payer_class,
+        "by_days_to_resubmission": by_timeliness,
+        "by_filing_position": by_deadline,
+        "by_denied_amount": by_dollar,
+        "by_resubmission_type": by_action,
+        "censoring": {
+            "resubmitted_no_outcome_yet": overall.get("resubmitted_pending"),
+            "not_resubmitted_at_this_watermark": overall.get("not_resubmitted"),
+            "note": (
+                "NOT_RESUBMITTED is not the same claim as 'never worked': at the "
+                "data edge it also holds denials whose resubmission has not gone "
+                "out yet. A later load resolves them."
+            ),
+        },
+        "detectability": detectability,
+    }
+
+
 _ANOMALY_COLUMNS = (
     "anomaly_id, CAST(detected_at AS VARCHAR), category, title, description, metric_id, "
     "CAST(dimensions AS VARCHAR), CAST(window_start AS VARCHAR), CAST(window_end AS VARCHAR), "
@@ -410,7 +585,16 @@ def _backfill_meta(con: duckdb.DuckDBPyConnection, config: GeneratorConfig) -> d
     }
 
 
-def compute_answer_key(db_path: Path, config: GeneratorConfig) -> dict[str, Any]:
+def compute_answer_key(
+    db_path: Path, config: GeneratorConfig, recovery_truth: dict[str, Any] | None = None
+) -> dict[str, Any]:
+    """Read every published figure back out of the written warehouse.
+
+    `recovery_truth` is the one thing SQL cannot supply: the authored recovery
+    parameters and the shape of the story past the newest watermark, which only
+    the generator can see (recovery.py). Omit it and the recovery section still
+    records everything the data itself shows.
+    """
     con = duckdb.connect(str(db_path), read_only=True)
     try:
         key: dict[str, Any] = {
@@ -441,6 +625,10 @@ def compute_answer_key(db_path: Path, config: GeneratorConfig) -> dict[str, Any]
                 "5_timely_filing_state_medicaid_hmo": {},
             },
             "anomalies": {},
+            "recovery": {
+                "generating_model": (recovery_truth or {}).get("model", {}),
+                "world_truth": (recovery_truth or {}).get("world_truth", {}),
+            },
             "anomalies_meta": {
                 "base_n_claims": config.n_claims,
                 "first_injected_claim_id": f"CLM-{config.n_claims + 1:07d}",
@@ -468,6 +656,7 @@ def compute_answer_key(db_path: Path, config: GeneratorConfig) -> dict[str, Any]
             )
             key["anomalies"][sch] = _anomaly_rows(con, sch)
             key["anomalies_meta"]["per_snapshot_counts"][sch] = len(key["anomalies"][sch])
+            key["recovery"][sch] = _recovery(con, sch)
         return key
     finally:
         con.close()

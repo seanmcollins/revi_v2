@@ -37,7 +37,14 @@ def test_watermarks_match_design_doc(small_result: GenerationResult) -> None:
 
 def test_snapshots_grow_monotonically(small_result: GenerationResult) -> None:
     counts = small_result.row_counts
-    for table in ("fact_claim", "fact_claim_line", "fact_remit", "fact_transaction", "fact_denial"):
+    for table in (
+        "fact_claim",
+        "fact_claim_line",
+        "fact_remit",
+        "fact_transaction",
+        "fact_denial",
+        "fact_recovery_event",
+    ):
         sizes = [counts[s.schema_name][table] for s in SNAPSHOTS]
         assert sizes == sorted(sizes), f"{table}: {sizes}"
         assert sizes[0] < sizes[-1], f"{table} gained no rows across snapshots: {sizes}"
@@ -95,6 +102,7 @@ def test_base_views_exist_and_join_cleanly(small_result: GenerationResult) -> No
                 ("v_transaction", "fact_transaction"),
                 ("v_remit", "fact_remit"),
                 ("v_denial", "fact_denial"),
+                ("v_recovery_event", "fact_recovery_event"),
             ):
                 view_n = con.execute(f"SELECT count(*) FROM {snap.schema_name}.{view}").fetchone()
                 base_n = con.execute(f"SELECT count(*) FROM {snap.schema_name}.{base}").fetchone()

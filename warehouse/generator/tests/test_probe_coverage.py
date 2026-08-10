@@ -223,7 +223,15 @@ def test_every_additive_measure_is_non_degenerate_in_a_trailing_window(con: Any)
 #: construction — verify.py guards "every backfill claim is billed" directly —
 #: so a two-valued billed_flag in 2024 would mean the backfill had sprung a
 #: leak, not that the dimension had become more useful.
-_SINGLE_VALUED_IN_2024 = {"billed_flag": "the 2024 backfill is fully billed (verify.py guards it)"}
+_SINGLE_VALUED_IN_2024 = {
+    "billed_flag": "the 2024 backfill is fully billed (verify.py guards it)",
+    "recovery_status": (
+        "the 2024 backfill is a closed year and carries no resubmission feed, so "
+        "every backfill denial reads NOT_RESUBMITTED (verify.py guards it). A "
+        "recovery rate cut by service year is therefore a 2025-2026 statement "
+        "only — the 2024 column is structurally zero, not observed zero."
+    ),
+}
 
 
 def test_certified_boolean_flags_carry_both_values(con: Any, base_views: dict[str, str]) -> None:

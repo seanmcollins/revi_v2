@@ -425,6 +425,250 @@ class BackfillSpec:
 
 BACKFILL = BackfillSpec()
 
+RECOVERY_STREAM = 0xDEC0
+"""Seed-sequence tag for the recovery-chain streams (DEnial reCOvery).
+
+Independent of every other draw, exactly like ``ANOMALY_STREAM`` and
+``BACKFILL_STREAM``: recovery.py consumes only ``(REVI_SEED, RECOVERY_STREAM,
+crc32(sub_stream))`` generators and appends new arrays, so no pre-existing row
+moves by a byte.
+"""
+
+# --- Denial recovery: the resubmission -> outcome feed (recovery.py) ----------
+#
+# Everything below is CONFIG, not per-claim scripting: the generator reads these
+# tables for every eligible denial and nothing else. Effect sizes are set to be
+# statistically detectable at this warehouse's cohort sizes (a two-proportion
+# test between the strong and weak payer separates at z > 6 on the full-scale
+# organic-era population) without being cartoonish.
+
+RECOVERY_CLASSES: tuple[str, ...] = ("CODING", "REGISTRATION", "ROUTING", "CLINICAL", "FINAL")
+"""Recoverability classes: what kind of work a denial needs, not what it says.
+
+CODING/REGISTRATION are the fixable half (a corrected claim usually wins),
+ROUTING is the coordination-of-benefits/eligibility middle (recovered by sending
+the claim to the right payer or plan), CLINICAL needs documentation and mostly
+loses, FINAL is the contractual/patient-responsibility/expired-deadline tail
+that is essentially not workable.
+"""
+
+RECOVERY_CLASS_BY_CARC: dict[int, str] = {
+    # -- fixable on our side: the claim was wrong, not the care -----------------
+    4: "CODING",  # modifier conflict
+    11: "CODING",  # diagnosis does not support the procedure
+    97: "CODING",  # bundled into a companion line
+    16: "REGISTRATION",  # missing information / submission error
+    18: "REGISTRATION",  # duplicate — usually a rebill artifact, not a real dup
+    # -- send it somewhere else: coverage exists, this payer is not it ----------
+    22: "ROUTING",  # coordination of benefits
+    23: "ROUTING",  # prior payer adjudication
+    109: "ROUTING",  # wrong entity, must be re-routed
+    27: "ROUTING",  # coverage terminated — re-verify and rebill the right plan
+    204: "ROUTING",  # not a covered benefit under THIS plan
+    # -- clinical: needs records, an appeal, or a retro authorization -----------
+    50: "CLINICAL",  # not medically necessary
+    151: "CLINICAL",  # frequency/quantity not documented
+    197: "CLINICAL",  # no prior authorization
+    96: "CLINICAL",  # non-covered service
+    # -- final: the money is gone, or was never ours ---------------------------
+    45: "FINAL",  # over the fee schedule — contractual, by definition
+    253: "FINAL",  # sequestration
+    29: "FINAL",  # filed too late; the deadline does not reopen
+    1: "FINAL",  # deductible — patient responsibility, not a payer dispute
+    2: "FINAL",  # coinsurance
+    3: "FINAL",  # copay
+}
+"""CARC -> recoverability class. Covers every code in ``dims.DENIAL_CODES``
+(verify.py pins the coverage); written per CARC rather than per denial category
+because one category holds codes of different workability (16 "missing
+information" is fixable, 96 "non-covered" is not, and both are `OTHER`)."""
+
+RECOVERY_CLASS_DESCRIPTIONS: dict[str, str] = {
+    "CODING": (
+        "Fixable on our side: the coding was wrong, the care was not. A corrected "
+        "claim usually wins, and it wins faster than anything else."
+    ),
+    "REGISTRATION": (
+        "Fixable on our side: information missing or wrong at registration or "
+        "billing. Recovers well once the record is corrected."
+    ),
+    "ROUTING": (
+        "Coverage exists, but not here. Recovered by re-verifying benefits and "
+        "rebilling the payer or plan that actually holds the risk."
+    ),
+    "CLINICAL": (
+        "The payer disputes the care itself. Recovery needs documentation, takes "
+        "longer, and mostly does not come."
+    ),
+    "FINAL": (
+        "Contractual, patient responsibility, or a deadline already passed. Not "
+        "workable: what little comes back is exceptional."
+    ),
+}
+"""Why each class recovers the way it does — carried into dim_recovery_class so
+the reason travels with the data instead of living only in the generator."""
+
+RESUBMISSION_TYPES: tuple[str, ...] = (
+    "CORRECTED_CLAIM",  # 837 with a corrected-claim indicator
+    "RECONSIDERATION",  # payer-level reconsideration request with records attached
+    "REBILL_REROUTE",  # rebilled to a different payer/plan after re-verification
+    "VOID_REPLACE",  # void the original, submit a replacement
+)
+
+RECOVERY_OUTCOMES: tuple[str, ...] = ("PAID_FULL", "PAID_PARTIAL", "DENIED_AGAIN")
+
+
+@dataclass(frozen=True)
+class RecoveryClassSpec:
+    """Per-class recovery behaviour. One row of the authored effect table."""
+
+    name: str
+    resubmit_prob: float
+    """P(the denial is ever worked and resubmitted), before the dollar tilt."""
+    delay_median_days: float
+    """Median days from denial to resubmission (lognormal median)."""
+    delay_sigma: float
+    backlog_share: float
+    """Share of worked denials that sat in the queue first. Denial inventory
+    ages — the classes nobody wants to touch age most — and this is what puts a
+    real population on the far side of the filing deadline instead of leaving
+    the deadline interaction as a handful of tail draws."""
+    base_overturn: float
+    """P(the resubmission is paid) at the reference conditions: an average payer,
+    a same-day resubmission, a $1,000 denial, inside the filing deadline."""
+    partial_prob: float
+    """Given paid, P(paid partial rather than in full)."""
+    second_cycle_prob: float
+    """Given denied again, P(we work it a second time)."""
+    primary_action: str
+    primary_action_share: float
+    alt_action: str
+    redenial_carcs: tuple[int, ...]
+    """CARCs a second denial may carry (all already in dim_denial_code)."""
+
+
+RECOVERY_CLASS_SPECS: tuple[RecoveryClassSpec, ...] = (
+    # Fixable classes resubmit faster and more often, win far more often, and
+    # sit in the work queue least.
+    #                   name            resub  median sigma backlog overturn partial cyc2
+    RecoveryClassSpec("CODING", 0.78, 9.0, 0.55, 0.06, 0.68, 0.18, 0.30,
+                      "CORRECTED_CLAIM", 0.85, "VOID_REPLACE", (4, 11, 97, 16)),
+    RecoveryClassSpec("REGISTRATION", 0.72, 12.0, 0.60, 0.09, 0.60, 0.20, 0.26,
+                      "CORRECTED_CLAIM", 0.70, "VOID_REPLACE", (16, 18)),
+    RecoveryClassSpec("ROUTING", 0.66, 18.0, 0.70, 0.14, 0.50, 0.22, 0.22,
+                      "REBILL_REROUTE", 0.80, "CORRECTED_CLAIM", (22, 109, 27)),
+    RecoveryClassSpec("CLINICAL", 0.44, 28.0, 0.75, 0.24, 0.21, 0.34, 0.14,
+                      "RECONSIDERATION", 0.75, "CORRECTED_CLAIM", (50, 151, 197)),
+    RecoveryClassSpec("FINAL", 0.12, 34.0, 0.80, 0.32, 0.07, 0.30, 0.06,
+                      "RECONSIDERATION", 0.60, "CORRECTED_CLAIM", (45, 29, 96)),
+)
+
+RECOVERY_PAYER_OVERTURN_FACTOR: tuple[float, ...] = (
+    # Multiplier on the class base overturn probability, in PAYERS order. One
+    # strong payer, one weak payer, the rest between: a payer either works a
+    # corrected claim or does not, and this is the only place payer identity
+    # enters the outcome.
+    1.15,  # Atlas Commercial
+    1.05,  # Halvern Health
+    0.95,  # Silverline Medicare Advantage
+    1.30,  # Northbridge Commercial   <- STRONG: reprocesses corrections cleanly
+    0.80,  # State Medicaid
+    0.85,  # State Medicaid MCO
+    1.10,  # Federal Medicare
+    1.00,  # Bluestone Mutual
+    0.90,  # Ashvale Health Plan
+    0.75,  # Veritas Comp Fund
+    0.55,  # Lakewood Medicaid MCO    <- WEAK: upholds nearly everything
+    0.70,  # Summit Peak Medicare Advantage
+)
+
+RECOVERY_STRONG_PAYER = "Northbridge Commercial"
+RECOVERY_WEAK_PAYER = "Lakewood Medicaid MCO"
+
+GOVERNED_CONFIRMED_PLANS: frozenset[str] = frozenset(
+    {
+        # The 7 of 30 plans whose filing limit resolves to a pack rule with
+        # `requires_confirmation: false` (packs/base-rcm/filing_rules.yaml:
+        # state_medicaid_hmo_90, medicaid_mco_plans_95, medicare_ffs_365).
+        # test_recovery.py re-derives this set from the pack ladder so the
+        # constant cannot drift away from the governed rules.
+        "State Medicaid HMO",
+        "State MCO Standard",
+        "State MCO Expansion",
+        "Lakewood MCO Core",
+        "Lakewood MCO Plus",
+        "Federal Medicare Part A",
+        "Federal Medicare Part B",
+    }
+)
+
+
+@dataclass(frozen=True)
+class RecoverySpec:
+    """Scalar knobs of the recovery model (the non per-class half)."""
+
+    # -- timeliness -----------------------------------------------------------
+    timeliness_tau_days: float = 60.0
+    """Decay constant: overturn probability falls as exp(-days/tau) toward the
+    floor. 10 days out keeps ~90% of the reference chance, 60 days ~59%."""
+    timeliness_floor: float = 0.35
+    """The asymptote — a very late resubmission is worth a third of a fast one,
+    not nothing. The cliff is the filing deadline, not this curve."""
+    past_deadline_factor_confirmed: float = 0.12
+    """Multiplier once the resubmission crosses a filing deadline the pack
+    ladder states WITHOUT a confirmation caveat (GOVERNED_CONFIRMED_PLANS).
+    Those limits are the system of record, so the collapse is near-total."""
+    past_deadline_factor_default: float = 0.45
+    """Same crossing on a plan whose limit is a `requires_confirmation: true`
+    planning default: the deadline is a guess, so the observed collapse is
+    partial. Treating both tiers alike over-predicts the cliff."""
+
+    # -- dollar size ----------------------------------------------------------
+    dollar_reference_cents: int = 100_000  # $1,000 denial = neutral
+    dollar_tilt_resubmit: float = 0.10
+    """Per decade of denied dollars: a $10k denial is pursued 10% more often
+    than a $1k one, a $100 denial 10% less. Mild by design."""
+    dollar_tilt_overturn: float = 0.05
+    dollar_factor_min: float = 0.75
+    dollar_factor_max: float = 1.30
+
+    # -- lags -----------------------------------------------------------------
+    resubmit_min_days: int = 3
+    resubmit_max_days: int = 270
+    backlog_delay_median_days: float = 115.0
+    """Median days a backlogged denial waits before anyone works it. Past the
+    90/95/120-day filing limits on the short-window plans, inside the 180/365-day
+    ones — which is exactly why the deadline cliff is a payer-and-plan story and
+    not a global one."""
+    backlog_delay_sigma: float = 0.45
+    outcome_lag_median_days: float = 24.0
+    outcome_lag_sigma: float = 0.45
+    outcome_lag_min_days: int = 7
+    outcome_lag_max_days: int = 150
+    rebill_prep_min_days: int = 7
+    rebill_prep_max_days: int = 21
+    """Days between the rebill going out and the payer's second remit landing,
+    for the chains whose outcome the base world already recorded (the planted
+    COB rebill cohort). Back-dated from the real remit so the chain agrees with
+    fact_remit to the day."""
+
+    # -- second cycle ---------------------------------------------------------
+    second_cycle_delay_factor: float = 0.75  # the second attempt goes out faster
+    second_cycle_overturn_factor: float = 0.55  # and wins less often
+
+    # -- outcomes -------------------------------------------------------------
+    partial_min_share: float = 0.35
+    partial_max_share: float = 0.85
+    redenial_same_carc_prob: float = 0.60
+    redenial_rarc_prob: float = 0.40  # matches the base world's RARC density
+    overturn_prob_floor: float = 0.01
+    overturn_prob_ceiling: float = 0.95
+    resubmit_prob_floor: float = 0.01
+    resubmit_prob_ceiling: float = 0.97
+
+
+RECOVERY = RecoverySpec()
+
 
 @dataclass(frozen=True)
 class GeneratorConfig:

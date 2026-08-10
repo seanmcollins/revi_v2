@@ -144,6 +144,24 @@ class World:
     dn_file_day: Any = None
     dn_dec_day: Any = None
     dn_overturned: Any = None
+    # recovery chain events (E) — appended by recovery.py after every other
+    # stage. One row per resubmission and per outcome remit; `rc_denial` indexes
+    # the denial arrays above, `rc_parent` the outcome's own resubmission row.
+    rc_denial: Any = None
+    rc_claim: Any = None
+    rc_cycle: Any = None
+    rc_type: Any = None  # 0 = RESUBMISSION, 1 = OUTCOME
+    rc_day: Any = None
+    rc_parent: Any = None  # -1 on resubmission rows
+    rc_action: Any = None  # index into RESUBMISSION_TYPES, -1 on outcome rows
+    rc_outcome: Any = None  # index into RECOVERY_OUTCOMES, -1 on resubmission rows
+    rc_days_from_denial: Any = None
+    rc_days_from_resub: Any = None  # -1 on resubmission rows
+    rc_denied_amount: Any = None
+    rc_recovered: Any = None
+    rc_carc: Any = None  # 0 = NULL (paid outcomes and resubmissions)
+    rc_group: Any = None  # -1 = NULL
+    rc_rarc: Any = None  # -1 = NULL
 
 
 def _rint64(x: np.ndarray) -> np.ndarray:

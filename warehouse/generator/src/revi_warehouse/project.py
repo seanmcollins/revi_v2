@@ -158,3 +158,48 @@ class SnapshotTables:
             "appeal_code": appeal_code[dm],
             "appeal_decision_date": days_to_ts(dec_date[dm]),
         }
+
+        # --- recovery chain events ------------------------------------------
+        # Right-censoring by construction: the world knows when every chain
+        # resubmits and settles, this snapshot keeps only what had happened by
+        # its cutoff. A chain resubmitted before the cutoff whose outcome lands
+        # after it shows a resubmission and no answer; a chain that has not gone
+        # back out yet shows nothing at all, and is indistinguishable here from
+        # a denial nobody will ever work.
+        n_events = 0 if w.rc_day is None else len(w.rc_day)
+        em = (
+            np.zeros(0, dtype=bool)
+            if n_events == 0
+            else (w.rc_day <= d) & (w.dn_day[w.rc_denial] <= d)
+        )
+        self.fact_recovery_event: dict[str, Any] = {
+            "eidx": np.arange(n_events, dtype=np.int64)[em],
+            "parent_idx": w.rc_parent[em] if n_events else np.zeros(0, dtype=np.int64),
+            "denial_idx": w.rc_denial[em] if n_events else np.zeros(0, dtype=np.int64),
+            "claim_idx": w.rc_claim[em] if n_events else np.zeros(0, dtype=np.int64),
+            "remit_idx": (
+                w.dn_remit[w.rc_denial[em]] if n_events else np.zeros(0, dtype=np.int64)
+            ),
+            "cycle_num": w.rc_cycle[em] if n_events else np.zeros(0, dtype=np.int64),
+            "type_code": w.rc_type[em] if n_events else np.zeros(0, dtype=np.int64),
+            "event_date": days_to_ts(
+                w.rc_day[em] if n_events else np.zeros(0, dtype=np.int64)
+            ),
+            "action_i": w.rc_action[em] if n_events else np.zeros(0, dtype=np.int64),
+            "outcome_i": w.rc_outcome[em] if n_events else np.zeros(0, dtype=np.int64),
+            "days_from_denial": (
+                w.rc_days_from_denial[em] if n_events else np.zeros(0, dtype=np.int64)
+            ),
+            "days_from_resubmission": (
+                w.rc_days_from_resub[em] if n_events else np.zeros(0, dtype=np.int64)
+            ),
+            "denied_amount_cents": (
+                w.rc_denied_amount[em] if n_events else np.zeros(0, dtype=np.int64)
+            ),
+            "recovered_amount_cents": (
+                w.rc_recovered[em] if n_events else np.zeros(0, dtype=np.int64)
+            ),
+            "carc_code": w.rc_carc[em] if n_events else np.zeros(0, dtype=np.int64),
+            "group_code_i": w.rc_group[em] if n_events else np.zeros(0, dtype=np.int64),
+            "rarc_i": w.rc_rarc[em] if n_events else np.zeros(0, dtype=np.int64),
+        }
