@@ -8,6 +8,7 @@ from revi_investigation.application.interpretation import (
     PendingClarification,
 )
 from revi_investigation.application.submit_turn.clarification import (
+    CLARIFICATION_NOT_CONVERGING_REASON,
     _answers_pending,
     _bindings_for,
     _bindings_from_trace,
@@ -151,7 +152,17 @@ class _ClarificationPolicy(_AnalysisGuards):
         pending = state.pending
         if pending is None or pending.streak < MAX_CONSECUTIVE_CLARIFICATIONS:
             return clarification
+        reason = (clarification.reason or "").strip()
+        if reason.startswith(CLARIFICATION_NOT_CONVERGING_REASON):
+            # Already bounded on this turn. The funnel reaches this guard
+            # from two sites (the clarification-resume path and the funnel
+            # proper), and wrapping a second time nests the reason inside
+            # itself — "…; original reason: CLARIFICATION_NOT_CONVERGING:
+            # 2 consecutive clarifications; original reason: …" — which is
+            # what the analyst then reads in the fine print.
+            return clarification
         original = pending.original_question or state.question
+        trailer = f"; original reason: {reason}" if reason else ""
         return ClarificationRequest(
             question=(
                 f"We're going in circles — I've asked {pending.streak} questions about this "
@@ -161,9 +172,13 @@ class _ClarificationPolicy(_AnalysisGuards):
             ),
             options=clarification.options,
             reason=(
-                f"CLARIFICATION_NOT_CONVERGING: {pending.streak} consecutive clarifications; "
-                f"original reason: {clarification.reason}"
+                f"{CLARIFICATION_NOT_CONVERGING_REASON}: {pending.streak} consecutive "
+                f"clarifications{trailer}"
             ),
+            # Bindings are what make an option tappable. A bounded
+            # clarification that keeps its options and drops their bindings
+            # offers rows that resolve against nothing.
+            bindings=clarification.bindings,
         )
 
     @staticmethod
@@ -188,8 +203,8 @@ class _ClarificationPolicy(_AnalysisGuards):
         if pending is None or _answers_pending(state.question, pending):
             return None
         return (
-            f"Assumed: this is a new question and it replaces the one I had open. I asked "
-            f"{pending.question!r} and you asked something else, so I dropped my question "
+            "Assumed: this is a new question and it replaces the one I had open. I had a "
+            "question of my own on screen and you asked something else, so I dropped mine "
             "rather than ask a second one about which of the two we are doing — ask it "
             "again whenever you want it, and it will run as its own turn."
         )

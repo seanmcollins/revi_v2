@@ -393,6 +393,20 @@ FAMILIES: list[tuple[str, str, str]] = [
         "outside the prior window's top-N and their prior value was never retrieved. Those "
         "cells publish no prior figure, no movement and no impact.",
     ),
+    # The two clarification REGISTERS. Copied verbatim from
+    # ``revi_api.error_copy``, which is what the wire carries.
+    (
+        "CLARIFICATION_OPTIONS_OFFERED",
+        "info",
+        "clarification_options_offered: this is a question with answers to choose from, "
+        "not a refusal — pick one and the question you already asked runs with it applied.",
+    ),
+    (
+        "CLARIFICATION_NO_OPTIONS",
+        "caution",
+        "clarification_no_options: there is no answerable option to offer for this one, "
+        "so the way forward is to ask it a different way.",
+    ),
     (
         "REFINEMENT_REUSED_PLAN",
         "info",

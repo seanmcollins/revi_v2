@@ -137,6 +137,11 @@ export const WARNING_TITLES: Readonly<Record<string, string>> = {
   COHORT_WINDOW_DROPPED: "The pinned population kept no window",
   ASSUMPTION_COMMITTED: "An assumption was made and applied",
   CLARIFICATION_ANSWER_APPLIED: "Read as an answer to the question above",
+  // The two registers of a clarification, declared by the engine — a
+  // question with choices is an offer, not a verdict; only a declared
+  // no-options dead end wears the loud register.
+  CLARIFICATION_OPTIONS_OFFERED: "One answer from you settles this",
+  CLARIFICATION_NO_OPTIONS: "There is no answerable option to offer here",
   // This platform's own dimension swap, disclosed on the turn that made
   // it: the drill does not read the cut the card was detected on.
   DIMENSION_REPOINTED: "This drill reads a different cut",

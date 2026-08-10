@@ -20,6 +20,7 @@ from revi_investigation.application.ports import (
 )
 from revi_investigation.application.refinement_llm import (
     ReferentResolution,
+    resolve_ordinal_referent,
     resolve_referent_tokens,
     to_domain_operators,
 )
@@ -134,6 +135,14 @@ class _RefinementTurns(_TurnCore):
             if unknown:
                 return await self._clarification_outcome(
                     session, state, classified, self._unknown_handle(unknown, entries)
+                )
+            if not deterministic:
+                # An ordinal points at a POSITION, and a position exists
+                # exactly when the previous answer published one. Reading
+                # it off that answer's own findings is a lookup, not an
+                # inference — see ``resolve_ordinal_referent``.
+                deterministic = resolve_ordinal_referent(
+                    state.question, parent.findings, entries
                 )
             if deterministic or not entries:
                 # Nothing left for a model to resolve: every handle matched,

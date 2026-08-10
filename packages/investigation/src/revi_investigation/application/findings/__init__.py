@@ -106,6 +106,7 @@ from revi_investigation.application.findings.bounds import (
     row_noun,
 )
 from revi_investigation.application.findings.bounds import _bound_values as _bound_values
+from revi_investigation.application.findings.builders import claimed_rank
 from revi_investigation.application.findings.premise import (
     PREMISE_MAGNITUDE_BAND,
     MagnitudeVerdict,
@@ -159,6 +160,7 @@ __all__ = [
     "TrendShape",
     "as_number",
     "bound_text",
+    "claimed_rank",
     "find_primary_compare",
     "find_primary_concentration",
     "find_primary_movement",

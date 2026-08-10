@@ -8,6 +8,7 @@ from typing import TYPE_CHECKING, Any
 
 import pytest
 
+from revi_investigation.application.interpretation import definitional_lead_in
 from revi_investigation.application.submit_turn import SubmitTurnRequest
 from revi_investigation.domain.records import InvestigationStatus
 from revi_investigation.domain.turns import TurnClass
@@ -114,6 +115,98 @@ class TestDefinitionalPath:
         assert outcome.definitional is None
         assert outcome.clarification is not None
         assert outcome.investigation.status is InvestigationStatus.CLARIFICATION_REQUIRED
+        assert engine.repository.execute_count == 0
+
+
+class TestDefinitionalPhrasingIsAFamilyNotAPrefixList:
+    """"define denied dollars" produced an excellent card; "what counts as
+    denied dollars here?" — the same question — produced an amber "no pack
+    content matched the definitional lookup", because the closed prefix
+    tuple matched nothing and the WHOLE utterance went to the pack as the
+    term. The families below are phrasing shapes, not metric names: no
+    entry here mentions a metric, and it is the pack that decides whether
+    what survives the strip is a thing this deployment defines."""
+
+    @pytest.mark.parametrize(
+        "question",
+        [
+            "what counts as denied dollars here?",
+            "what counts as denied dollars",
+            "what is denied dollars here",
+            "what does denied dollars mean",
+            "what does denied dollars mean here?",
+            "how do you define denied dollars?",
+            "how is denied dollars calculated?",
+            "what goes into denied dollars",
+            "what is included in denied dollars",
+            "what do you mean by denied dollars",
+            "what qualifies as denied dollars",
+            "define denied dollars",
+            "the definition of denied dollars",
+        ],
+    )
+    def test_every_natural_phrasing_extracts_the_same_term(self, question: str) -> None:
+        assert definitional_lead_in(question) == "denied dollars"
+
+    @pytest.mark.parametrize(
+        "question",
+        [
+            "denial rate by payer",
+            "how is our AR looking?",
+            "why did cash decline last week",
+            "show me denied dollars by facility",
+            "which payer denies the most dollars",
+        ],
+    )
+    def test_an_analytical_question_is_not_phrased_as_a_definition(
+        self, question: str
+    ) -> None:
+        assert definitional_lead_in(question) is None
+
+    async def test_the_natural_phrasing_answers_from_the_pack(self) -> None:
+        """End to end, and by construction: a governed lead-in over a term
+        the pack resolves whole needs no model call at all."""
+        llm = MockLanguageModel()
+        engine = _engine(llm)
+        outcome = await engine.submit.submit(
+            SubmitTurnRequest(
+                tenant="demo", question="what counts as denied dollars here?"
+            )
+        )
+        assert outcome.clarification is None
+        answer = outcome.definitional
+        assert answer is not None
+        assert any(term.term == "denied_dollars" for term in answer.terms)
+        assert outcome.investigation.turn_class is TurnClass.DEFINITIONAL
+        assert engine.repository.execute_count == 0
+        assert llm.structured_calls == [], "a pack lookup needs no model call"
+
+    async def test_a_classified_definitional_turn_still_asks_the_model(
+        self, seed_prior_turn: SeedPriorTurn
+    ) -> None:
+        """Classifying a turn DEFINITIONAL must not DOWNGRADE the term
+        extractor. On a later turn the LLM classifier decides the class,
+        and the engine then extracted the term with the deterministic
+        strip alone — so a phrasing the strip cannot read was refused
+        without the model that had just understood the sentence ever being
+        asked which term it meant."""
+        llm = MockLanguageModel()
+        _classify(llm, "definitional")
+        llm.respond(
+            "interpret_question", _interpretation(definitional_terms=["denied dollars"])
+        )
+        engine = _engine(llm)
+        session_id = await seed_prior_turn(engine)
+        outcome = await engine.submit.submit(
+            SubmitTurnRequest(
+                tenant="demo",
+                question="remind me, which dollars land in that bucket?",
+                session_id=session_id,
+            )
+        )
+        assert outcome.clarification is None, "refused without asking the model"
+        assert outcome.definitional is not None
+        assert any(term.term == "denied_dollars" for term in outcome.definitional.terms)
         assert engine.repository.execute_count == 0
 
 
@@ -263,3 +356,27 @@ class TestInterpretationValidation:
         assert "- cash_posted:" in prompt  # metric vocabulary present
         assert "- payer:" in prompt  # dimension vocabulary present
         assert "- cash_decline:" in prompt  # playbook vocabulary present
+
+    async def test_the_prompt_carries_each_playbooks_authored_triggers(self) -> None:
+        """Every `triggers:` block in the pack had no runtime consumer:
+        selection read the id and 160 clipped description characters and
+        nothing else. So "Is anything about to miss a filing deadline?"
+        never met `timely_filing_watch`'s own recorded phrasing for it, and
+        answered with a bare at-risk total whose mandatory caveat told the
+        analyst to go cut it by `filing_runway_bucket` themselves."""
+        llm = MockLanguageModel()
+        llm.respond("interpret_question", _interpretation(clarification="which?"))
+        engine = _engine(llm)
+        await engine.submit.submit(SubmitTurnRequest(tenant="demo", question="numbers please"))
+        [interpret_call] = llm.calls_for("interpret_question")
+        prompt = interpret_call.rendered_prompt
+
+        assert "asked as:" in prompt
+        assert "claims about to miss filing" in prompt
+        assert "is anything about to miss a filing deadline" in prompt
+        # Every playbook the pack authors triggers for carries them.
+        for pid, _ in engine.pack_port.playbook_summaries():
+            spec = engine.pack_port.playbook(pid)
+            assert spec is not None
+            if spec.triggers:
+                assert spec.triggers[0] in prompt, pid

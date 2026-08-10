@@ -72,6 +72,51 @@ class TestAWriteUpNeverPrintsItselfTwice:
         assert doubled_span(emitted) is None
         assert len(dropped) == 4
 
+    def test_a_domain_sentence_survives_the_deduper_whole(self) -> None:
+        """The seam split made a fragment, and the deduper is what turned a
+        fragment into a LOSS: a split head is a prefix of its own sentence,
+        so the prefix rule reports it as prose already published. Assert the
+        whole path, not just the split — nothing is dropped and nothing is
+        rewritten."""
+        text = (
+            "All three sit well below the external reference point of 19-20 percent of "
+            "in-network claims denied drawn from ACA marketplace (HealthCare.gov) issuer "
+            "data for 2023-2024 (F1)."
+        )
+        emitted, dropped = dedupe_sentences(text)
+        assert emitted == text
+        assert dropped == []
+        assert "HealthCare.gov" in emitted
+
+    def test_a_weld_beside_a_domain_mends_the_weld_and_keeps_the_domain(self) -> None:
+        """The live shape: the composer restated a mandatory disclosure and
+        welded the benchmark sentence onto it. The weld is a real one and is
+        repaired; the domain inside the sentence it welded is not."""
+        trail = [
+            "Superlatives and spread statements on this answer describe the published "
+            "slice, not the full population."
+        ]
+        body = (
+            "Eastmere Medical Center posts the highest denial rate at 8.3% (F1). "
+            "Superlatives and spread statements on this answer describe the published "
+            "slice, not the full population.HealthCare.gov issuer data is plan-reported "
+            "and is not a like-for-like target (F1)."
+        )
+
+        narrative, repeated = compose_narrative([], body, trail)
+
+        assert "HealthCare.gov" in narrative
+        assert "HealthCare. gov" not in narrative
+        # The weld was mended: the disclosure and the benchmark are two
+        # sentences, and the disclosure is published exactly once.
+        assert narrative.count("Superlatives and spread statements") == 1
+        assert "population. HealthCare.gov issuer data" in narrative
+        # Nothing dropped but the genuine restatement — no fragment.
+        assert len(repeated) == 1
+        assert repeated[0].startswith("Superlatives and spread statements")
+        for sentence in split_sentences(narrative):
+            assert sentence != "HealthCare."
+
     def test_the_note_can_only_be_composed_from_the_emitted_text(self) -> None:
         """The invariant: whenever there is something to say about
         repetition, the emitted string differs from the original."""

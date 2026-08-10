@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import re
 from decimal import Decimal
 
 from revi_calculation_contracts.contract import SignConvention
@@ -32,6 +33,7 @@ from revi_investigation.application.findings.premise import (
     _unverifiable_reason,
     movement_forms,
     premise_verdict_sentence,
+    then,
 )
 from revi_investigation.application.findings.shapes import (
     ConcentrationShape,
@@ -84,6 +86,32 @@ from revi_kernel.refs import (
     ReferentId,
     ReferentKind,
 )
+
+#: The position claim in a concentration finding's own sentence, as
+#: ``_build_concentration_finding`` writes it ("Eastmere Medical Center
+#: ranks #1 of 6 measured by denial rate …").
+_RANK_CLAIM = re.compile(r"\branks #(\d+)\b")
+
+
+def claimed_rank(finding: Finding) -> int | None:
+    """The position this finding's PUBLISHED SENTENCE claims, or ``None``.
+
+    Deliberately not ``finding.value("rank")``. That value is the row's
+    place in the frame and is recorded whether or not the answer stood
+    behind it: a population with too many suppressed numerators is built
+    with ``display_rank=None`` and says so — *"No position is claimed for
+    it — too much of this population carries suppressed numerators for an
+    order to mean anything"* — while still carrying a rank value of 1. An
+    ordinal follow-up resolved against that value would drill into a row
+    the answer explicitly declined to put first.
+
+    So the reader and the writer are the same fact: a position exists for
+    a later turn exactly when the analyst was shown one. ``None`` for
+    bounded cells, for urgency-sequenced bands, and for every finding
+    shape that is not a ranked population.
+    """
+    match = _RANK_CLAIM.search(finding.statement)
+    return int(match.group(1)) if match is not None else None
 
 
 class _FindingBuilders:
@@ -276,10 +304,11 @@ class _FindingBuilders:
             # nobody parsed asserts what cannot be checked; "Premise not
             # supported" would be the opposite error.
             title = f"Premise cannot be verified: {sentence}"
-            statement = (
-                f"{sentence}. Nothing below may be called {claim_noun} or offered as evidence "
-                "against it: the cells that follow are the composition of a movement this "
-                "answer cannot certify."
+            statement = then(
+                sentence,
+                f"Nothing below may be called {claim_noun} or offered as evidence against "
+                "it: the cells that follow are the composition of a movement this answer "
+                "cannot certify.",
             )
         elif premise.magnitude_short:
             # A third title, because there are three outcomes. "Premise
@@ -287,24 +316,26 @@ class _FindingBuilders:
             # it; "Premise not supported" over a real 72.6% rise would be
             # the opposite error.
             title = f"Premise partly supported: {sentence}"
-            statement = (
-                f"{sentence}. The movement is real and it is not the movement the question "
-                f"names, so nothing here or below may be called {claim_noun}: the cells that "
-                "follow compose a movement that fell short of the claim."
+            statement = then(
+                sentence,
+                "The movement is real and it is not the movement the question names, so "
+                f"nothing here or below may be called {claim_noun}: the cells that follow "
+                "compose a movement that fell short of the claim.",
             )
         elif premise.holds:
             title = f"Premise confirmed: {sentence}"
-            statement = (
-                f"{sentence}. That is the movement the question takes as given, measured on the "
+            statement = then(
+                sentence,
+                "That is the movement the question takes as given, measured on the "
                 "population it names, so the cells below are its composition rather than a "
-                "separate claim."
+                "separate claim.",
             )
         else:
             title = f"Premise not supported: {sentence}"
-            statement = (
-                f"{sentence}. The population the question names does not show the movement it "
-                "assumes, so the movements below are the exceptions inside it rather than the "
-                "story."
+            statement = then(
+                sentence,
+                "The population the question names does not show the movement it assumes, "
+                "so the movements below are the exceptions inside it rather than the story.",
             )
         statement = _with_window_note(statement, spec, premise.window)
         values: list[tuple[str, Scalar]] = [
@@ -919,6 +950,10 @@ class _FindingBuilders:
             )
         elif display_rank is not None:
             of_text = f" of {measured_total} measured" if measured_total else ""
+            # The one sentence in this module that CLAIMS a position, and
+            # the only thing :func:`claimed_rank` reads. Changing its
+            # wording without changing that reader is what would let "the
+            # top one" resolve against an answer that claimed nothing.
             statement = (
                 f"{label} ranks #{display_rank}{of_text} by {measure_label}{order_text} "
                 f"{period_text}: {magnitude}{share_text}."

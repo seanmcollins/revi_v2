@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
-from dataclasses import replace
+from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any
 
@@ -24,12 +24,14 @@ from revi_investigation.application.interpretation import (
     InterpretedInvestigation,
 )
 from revi_investigation.application.planning import (
+    ANSWERING_TRANSFORMS,
     PlanDiff,
     resolved_orderings,
 )
 from revi_investigation.application.ports import (
     TurnEvent,
 )
+from revi_investigation.application.rendering import metric_label
 from revi_investigation.application.submit_turn.census import (
     _bounds_by_window,
     _same_findings,
@@ -61,6 +63,7 @@ from revi_investigation.application.submit_turn.types import (
 )
 from revi_investigation.application.validation import (
     PlanClarificationNeeded,
+    PlanValidationService,
 )
 from revi_investigation.domain.context import (
     AnalysisSpec,
@@ -86,6 +89,17 @@ from revi_kernel.errors import (
     ReviError,
     UnsupportedConceptError,
 )
+from revi_kernel.filters import PredicateOp
+from revi_kernel.refs import MetricRef
+
+
+@dataclass(frozen=True, slots=True)
+class _DirectRoute:
+    """A plan built around a playbook this engine cannot run, and the
+    sentence that says so."""
+
+    spec: AnalysisSpec
+    disclosure: str
 
 
 class _TurnCore(_ClarificationPolicy):
@@ -153,9 +167,7 @@ class _TurnCore(_ClarificationPolicy):
         # deterministic one the typed-reply path uses.
         state.question = _join_question_and_answer(state.question, binding.option)
         resumed = await self._resumed_context(session, state)
-        return await self._new_investigation_turn(
-            session, state, classified, binding=binding, resume=resumed
-        )
+        return await self._new_investigation_turn(session, state, classified, binding=binding, resume=resumed)
 
     async def _new_investigation_turn(
         self,
@@ -218,9 +230,7 @@ class _TurnCore(_ClarificationPolicy):
             # than asking the same question a second time. Only reachable
             # on the clarification-resume path, where the alternative is a
             # loop the analyst has already answered once.
-            typed = (
-                self._spec_for_binding(session, binding) if binding is not None else None
-            )
+            typed = self._spec_for_binding(session, binding) if binding is not None else None
             if typed is None:
                 return await self._clarification_outcome(
                     session,
@@ -330,12 +340,28 @@ class _TurnCore(_ClarificationPolicy):
                 evidence_depth=evidence_depth,
             )
         except (DateBasisInvalidError, GrainIncompatibleError, UnsupportedConceptError) as refusal:
-            recovered = await self._recoverable_refusal(
-                session, state, classified, refusal, spec
-            )
-            if recovered is not None:
-                return recovered
-            raise
+            direct = self._direct_route_for_unexecutable_playbook(refusal, spec)
+            rebuilt = None
+            if direct is not None:
+                try:
+                    rebuilt = self._planner.build(
+                        direct.spec,
+                        playbook_id=None,
+                        window_explicit=window_explicit,
+                        evidence_depth=evidence_depth,
+                    )
+                except ReviError:
+                    rebuilt = None  # the direct route is no route: refuse as before
+            if direct is None or rebuilt is None:
+                recovered = await self._recoverable_refusal(session, state, classified, refusal, spec)
+                if recovered is not None:
+                    return recovered
+                raise
+            plan = rebuilt
+            spec = direct.spec
+            effective_playbook = None
+            playbook_id = None
+            state.assumptions.append(direct.disclosure)
         diff: PlanDiff | None = None
         if parent is not None:
             parent_playbook = playbook_id if not parent.spec.measures else None
@@ -359,17 +385,11 @@ class _TurnCore(_ClarificationPolicy):
             # exist at this watermark. A separate (async) pass because it
             # reads the source; the refusal it can raise is a question for
             # the analyst, not an error code (§6.6 step 4b).
-            validated = await self._validator.resolve_predicate_values(
-                validated, watermark=session.watermark
-            )
+            validated = await self._validator.resolve_predicate_values(validated, watermark=session.watermark)
         except PlanClarificationNeeded as needed:
-            return await self._clarification_outcome(
-                session, state, classified, needed.clarification
-            )
+            return await self._clarification_outcome(session, state, classified, needed.clarification)
         except (DateBasisInvalidError, GrainIncompatibleError, UnsupportedConceptError) as refusal:
-            recovered = await self._recoverable_refusal(
-                session, state, classified, refusal, spec
-            )
+            recovered = await self._recoverable_refusal(session, state, classified, refusal, spec)
             if recovered is not None:
                 return recovered
             raise
@@ -393,9 +413,7 @@ class _TurnCore(_ClarificationPolicy):
         state.time_stage("calculate")
 
         await self._stage(state, "findings")
-        playbook = (
-            self._pack.playbook(effective_playbook) if effective_playbook is not None else None
-        )
+        playbook = self._pack.playbook(effective_playbook) if effective_playbook is not None else None
         # Every window this plan READS, judged against the load's settling
         # curve before any verdict is composed over one. A playbook probe
         # declares its own window, so a premise verdict could be computed
@@ -458,9 +476,7 @@ class _TurnCore(_ClarificationPolicy):
         # A comparison against a different-length window is answerable but
         # not a delta anyone should act on; the warning rides with the
         # answer and the findings withhold impact (see comparison.py).
-        families = probe_families_empty_warning(
-            validated, executed, findings_result.findings
-        )
+        families = probe_families_empty_warning(validated, executed, findings_result.findings)
         if families is not None:
             extra_warnings.append(families)
             await self._events.publish(
@@ -520,16 +536,12 @@ class _TurnCore(_ClarificationPolicy):
         # …and the data-maturity guard the trend path has always had,
         # applied to the axis it could not see: two windows settled to
         # different degrees are not comparable at high confidence.
-        findings_result = self._guard_comparison_maturity(
-            findings_result, calculation, extra_warnings
-        )
+        findings_result = self._guard_comparison_maturity(findings_result, calculation, extra_warnings)
         # …and to the leg neither of those can measure: a metric whose own
         # contract declares two windows non-comparable. The panel rule keys
         # on adjudicated-record counts and is structurally blind to a metric
         # whose denominator is dollars.
-        findings_result = self._guard_declared_comparability(
-            findings_result, calculation, extra_warnings
-        )
+        findings_result = self._guard_declared_comparability(findings_result, calculation, extra_warnings)
         # …and the same guard applied to the shape neither the series rule
         # nor the comparison rule can see: ONE window, one number.
         findings_result = await self._guard_window_maturity(
@@ -704,6 +716,79 @@ class _TurnCore(_ClarificationPolicy):
             chart_sorts=chart_sorts,
         )
 
+    def _direct_route_for_unexecutable_playbook(
+        self, refusal: ReviError, spec: AnalysisSpec
+    ) -> _DirectRoute | None:
+        """A one-probe direct route for a DRILL a playbook cannot answer.
+
+        "Drill into Eastmere Medical Center", one turn after a facility
+        ranking, was refused: interpretation had reached for
+        ``dimension_scorecard``, that playbook answers by ``pivot``, and
+        ``pivot`` is one of the two transforms this engine does not
+        implement — so a question with an obvious one-probe answer became
+        a second clarification in a thread that had already asked one.
+
+        The refusal itself is right and stays: a question that asks FOR a
+        scorecard gets told the scorecard does not exist here rather than
+        being handed its columns dressed as one (``ANSWERING_TRANSFORMS``,
+        and the payer-scorecard and cash-outlook cases that pin it). What
+        was wrong is applying it to a question that asked for something
+        else. This is the entity half of a rule this engine already keeps
+        on the measure side — *a text naming a governed measure is a direct
+        query whatever playbook words it also contains*
+        (``PlanValidationService.unanswerable_playbook``) — and it is
+        one-sided in the same way: it only ever converts a refusal into an
+        answer, never an answer into a refusal.
+
+        The discriminator is the SCOPE, not the wording. A spec whose
+        effective scope already pins a dimension to specific values is
+        addressing one cell; a pivot across cells is not what it asked for,
+        and measuring the cell it names is. Where nothing is pinned — "score
+        my facilities" — no route is offered and the refusal stands.
+        """
+        if not isinstance(refusal, UnsupportedConceptError):
+            return None
+        details = refusal.details or {}
+        playbook_id, transform = details.get("playbook"), details.get("transform")
+        if not isinstance(playbook_id, str) or transform not in ANSWERING_TRANSFORMS:
+            return None
+        if spec.measures:
+            return None  # a named measure already routes directly
+        pinned = {
+            predicate.dimension.id
+            for predicate in PlanValidationService._top_level_predicates(spec.context.effective_scope())
+            if predicate.op in (PredicateOp.EQ, PredicateOp.IN) and predicate.values
+        }
+        if not pinned:
+            return None  # nothing is named: this really is a cross-cell ask
+        playbook = self._pack.playbook(playbook_id)
+        if playbook is None:  # pragma: no cover - the planner read it a moment ago
+            return None
+        measures: list[MetricRef] = []
+        for probe in playbook.probes:
+            for metric_id in probe.metric_ids:
+                if self._pack.metric(metric_id) is None:
+                    continue
+                ref = MetricRef(id=metric_id)
+                if ref not in measures:
+                    measures.append(ref)
+            if measures:
+                break  # ONE probe family: a drill is a measurement, not a sweep
+        if not measures:
+            return None
+        named = ", ".join(metric_label(ref.id) for ref in measures)
+        return _DirectRoute(
+            spec=replace(spec, measures=tuple(measures)),
+            disclosure=(
+                f"Assumed: measured {named} directly for the population this question "
+                f"already names, rather than through the {playbook_id!r} playbook. That "
+                f"playbook answers by a {transform!r} step this engine does not implement, "
+                "and a question already scoped to a named entity is a measurement of that "
+                "entity — not a comparison across entities. Ask for the others by name and "
+                "they run the same way."
+            ),
+        )
+
     async def _recoverable_refusal(
         self,
         session: Session,
@@ -769,9 +854,7 @@ class _TurnCore(_ClarificationPolicy):
         #    clarification becomes a loop.
         clarification = _drop_interrogative_options(clarification)
         # 1. Values this session has already proved do not exist…
-        clarification = drop_refuted_options(
-            clarification, await self._refuted_in_session(session)
-        )
+        clarification = drop_refuted_options(clarification, await self._refuted_in_session(session))
         # 2. …then the warehouse and the planner…
         clarification = await self._validated_options(session, clarification)
         # 2b. …then the plan grammar, applied to the option's WORDS as well
@@ -869,9 +952,7 @@ class _TurnCore(_ClarificationPolicy):
             else None,
         )
         await self._traces.save(
-            self._trace_record(
-                session, state, classified, clarification=clarification, extra=extra
-            )
+            self._trace_record(session, state, classified, clarification=clarification, extra=extra)
         )
         await self._events.publish(
             TurnEvent(
@@ -895,6 +976,37 @@ class _TurnCore(_ClarificationPolicy):
             settings=state.settings,
         )
 
+    async def _definitional_from_model(
+        self, session: Session, state: _TurnState
+    ) -> DefinitionalAnswer | None:
+        """The model's reading of WHICH term a definitional turn asked about.
+
+        The deterministic strip handles the phrasings it knows and cannot
+        know all of them; ``interpret_question`` already has a
+        ``definitional_terms`` field and resolves each term against the
+        pack individually. This is the same path the NEW_INVESTIGATION
+        route takes — reached here so that a correct classification is
+        never worse than an absent one.
+
+        ``None`` on any refusal or budget stop: this runs where the
+        alternative is an amber card, so it may not turn one into an error.
+        """
+        if self._budget_stop(state, "looking up that definition") is not None:
+            return None
+        try:
+            interpretation = await self._interpreter.interpret(
+                state.question,
+                session=session,
+                turn_id=state.turn_id,
+                policy=state.call_policy(),
+            )
+        except ReviError:
+            return None
+        state.record_llm("interpret_question", interpretation.usage, interpretation.failure)
+        state.template_hashes["interpret_question@v1"] = interpretation.template_hash
+        state.time_stage("interpret")
+        return interpretation.definitional
+
     async def _definitional_outcome(
         self,
         session: Session,
@@ -908,6 +1020,18 @@ class _TurnCore(_ClarificationPolicy):
             answer = self._interpreter.definitional_answer(state.question)
         state.time_stage("definitional")
         if not answer.terms:
+            # Classifying a turn DEFINITIONAL must not DOWNGRADE the term
+            # extractor. The deterministic strip is a fast path, not the
+            # only reading: when it comes up empty, the model that just
+            # read the sentence is asked which term it was about, exactly
+            # as it would be on the NEW_INVESTIGATION route. Refusing
+            # without asking is how "what counts as denied dollars here?"
+            # came back as "no pack content matched" over a pack that
+            # defines denied_dollars.
+            recovered = await self._definitional_from_model(session, state)
+            if recovered is not None and recovered.terms:
+                answer = recovered
+        if not answer.terms:
             clarification = ClarificationRequest(
                 question=(
                     "I couldn't find a governed definition for that term — could you name "
@@ -916,13 +1040,9 @@ class _TurnCore(_ClarificationPolicy):
                 reason="no pack content matched the definitional lookup",
             )
             return await self._clarification_outcome(session, state, classified, clarification)
-        investigation = self._minimal_investigation(
-            session, state, InvestigationStatus.COMPLETE, classified
-        )
+        investigation = self._minimal_investigation(session, state, InvestigationStatus.COMPLETE, classified)
         await self._investigations.save(investigation, None)
-        await self._traces.save(
-            self._trace_record(session, state, classified, definitional=answer)
-        )
+        await self._traces.save(self._trace_record(session, state, classified, definitional=answer))
         await self._turn_complete(state, investigation)
         return TurnOutcome(
             session=session,

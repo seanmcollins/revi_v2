@@ -13,37 +13,50 @@ description: >-
 triggers:
   - timely filing risk
   - claims about to miss filing
+  - is anything about to miss a filing deadline
+  - what is aging out of timely filing
   - filing deadline exposure
   - tfl watch
 params:
   - plan
   - facility
 probes:
-  - id: at_risk_by_plan
-    metric_ids: [timely_filing_at_risk_dollars]
-    dimensions: [plan, facility]
-    top_n: 10
-    scope_note: >-
-      Snapshot of unsubmitted OPEN dollars by plan and facility — WHERE the
-      inventory sits, not how urgent it is. Read with filing_runway_profile
-      below, which is the same dollars aged against each plan's own limit:
-      this probe's totals are a population, and a conclusion of filing risk
-      drawn from them alone is the upper-bound claim the runway cut exists
-      to replace. The planted scenario clusters July services on a 90-day
-      service-basis Medicaid HMO plan at one facility.
+  # FIRST on purpose. The findings layer publishes the first ranked frame
+  # that carries a dimension and a measure, so probe order decides what
+  # "is anything about to miss a filing deadline?" is ANSWERED with. Led by
+  # at_risk_by_plan, the answer was a plan/facility league table of the
+  # whole unbilled population, ending in its own instruction to the reader
+  # to go and cut it by filing_runway_bucket themselves — a correct number
+  # that answers a different question, reachable only by typing an internal
+  # identifier. The runway cut is the answer to a deadline question; the
+  # population is context for it. That is what this file's own scope notes
+  # said before anything read them in this order.
   - id: filing_runway_profile
     metric_ids: [timely_filing_at_risk_dollars]
     dimensions: [filing_runway_bucket, plan]
     top_n: 10
     scope_note: >-
-      The same unsubmitted OPEN dollars, cut by how much filing runway each
-      claim has left: `expired` (the deadline has passed and the dollars are
-      gone), `0-30`, `31-60`, `61-90`, `90+`. The limit comes from the
-      claim's own plan record via the pack's filing-rule ladder. Two things
-      any answer over this must carry: `expired` is not workable inventory,
-      it is loss already taken; and a plan whose matched rule requires
-      confirmation is on a PLANNING DEFAULT, not a known deadline — 23 of
-      the 30 plans here are, so most rows want that label.
+      Unsubmitted OPEN dollars cut by how much filing runway each claim has
+      left: `expired` (the deadline has passed and the dollars are gone),
+      `0-30`, `31-60`, `61-90`, `90+`. The limit comes from the claim's own
+      plan record via the pack's filing-rule ladder. This is the cut a
+      deadline question is asking for — how urgent, not where it sits — so
+      it leads. Two things any answer over it must carry: `expired` is not
+      workable inventory, it is loss already taken; and a plan whose matched
+      rule requires confirmation is on a PLANNING DEFAULT, not a known
+      deadline — 23 of the 30 plans here are, so most rows want that label.
+  - id: at_risk_by_plan
+    metric_ids: [timely_filing_at_risk_dollars]
+    dimensions: [plan, facility]
+    top_n: 10
+    scope_note: >-
+      The same unsubmitted OPEN dollars by plan and facility — WHERE the
+      inventory sits, not how urgent it is. Read with filing_runway_profile
+      above, which is these dollars aged against each plan's own limit:
+      this probe's totals are a population, and a conclusion of filing risk
+      drawn from them alone is the upper-bound claim the runway cut exists
+      to replace. The planted scenario clusters July services on a 90-day
+      service-basis Medicaid HMO plan at one facility.
   - id: unbilled_aging_profile
     metric_ids: [ar_balance]
     dimensions: [ar_age_bucket]

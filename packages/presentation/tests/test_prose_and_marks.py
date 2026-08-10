@@ -85,6 +85,57 @@ class TestSentenceSplittingKeepsAbbreviations:
         text = "Denials rose 4.2% (F1). Cash fell $99,093 (F2). Both are direct."
         assert len(split_sentences(text)) == 3
 
+
+class TestTheSeamRepairStaysOutOfNames:
+    """The unspaced-seam repair had a left-hand guard and no right-hand one,
+    so it split "HealthCare.gov" — a benchmark cohort label the composer is
+    instructed to quote — into "…sites." and "gov) issuer data…". The
+    deduper then ate the head (a split head is a PREFIX of its own sentence,
+    which is what the 120-character prefix rule matches) and published the
+    orphan alone."""
+
+    def test_the_benchmark_label_survives_intact(self) -> None:
+        text = (
+            "All three sit well below the external reference point of 19-20 percent "
+            "drawn from ACA marketplace (HealthCare.gov) issuer data for 2023-2024 "
+            "(F1)."
+        )
+        assert split_sentences(text) == [text]
+
+    @pytest.mark.parametrize(
+        "text",
+        [
+            "Rates are published at HealthCare.gov for the marketplace population.",
+            "The benchmark is sourced from hfma.org and is plan-reported.",
+            "Cohort figures come from techtarget.com and are not like-for-like.",
+            "The published median is on cms.gov (F2).",
+            "Every figure above is in the export.csv attached to this answer.",
+        ],
+    )
+    def test_a_domain_or_extension_is_never_a_sentence_end(self, text: str) -> None:
+        assert split_sentences(text) == [text]
+
+    def test_the_real_weld_is_still_mended(self) -> None:
+        """The case the repair exists for: a stop welded to the next
+        sentence's capitalised first word."""
+        text = (
+            "Superlatives on this answer describe the published slice, not the full "
+            "population, so the spread should be read as generalized.Superlatives and "
+            "spread statements do not follow from a truncated list."
+        )
+        parts = split_sentences(text)
+        assert len(parts) == 2
+        assert parts[0].endswith("generalized.")
+        assert parts[1].startswith("Superlatives and spread statements do not follow")
+
+    def test_a_lowercase_weld_that_is_not_a_name_still_mends(self) -> None:
+        """The original live defect, unchanged: "matured.prior" is two
+        sentences and the right-hand guard must not save it."""
+        assert split_sentences("The comparison has matured.prior month is settled.") == [
+            "The comparison has matured.",
+            "prior month is settled.",
+        ]
+
     def test_no_emitted_sentence_terminates_on_an_abbreviation(self) -> None:
         text = (
             "Dr. Casey Quarry is at most 90.9% (F1). The population is 11 entities, "

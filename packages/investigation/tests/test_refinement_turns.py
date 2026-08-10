@@ -4,11 +4,13 @@ zero-probe paths, gestures, pins, and watermark epochs (§7, §8.2-8.3)."""
 from __future__ import annotations
 
 from datetime import UTC, datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Any
 
 import pytest
 
+from revi_investigation.application.findings import claimed_rank
 from revi_investigation.application.gestures import parse_gesture
 from revi_investigation.application.llm.schemas import (
     AddFilterModel,
@@ -17,16 +19,20 @@ from revi_investigation.application.llm.schemas import (
     RankByModel,
     SetDimensionsModel,
 )
+from revi_investigation.application.ports import RegisteredReferent
+from revi_investigation.application.refinement_llm import resolve_ordinal_referent
 from revi_investigation.application.submit_turn import (
     PRESENTATION_PRODUCED_NOTHING_REASON,
     SubmitTurnRequest,
     TurnOutcome,
 )
 from revi_investigation.domain.context import PackVersionRef
-from revi_investigation.domain.records import InvestigationStatus, Session
+from revi_investigation.domain.records import Finding, InvestigationStatus, Session
 from revi_investigation.domain.refinements import SetDimensions
 from revi_kernel.errors import ReferentNotFoundError
 from revi_kernel.filters import iter_predicates
+from revi_kernel.grades import EvidenceGrade
+from revi_kernel.refs import MetricRef, ReferentId, ReferentKind
 from revi_kernel.watermark import WatermarkEpoch
 from revi_testing.engine_wiring import WiredEngine, build_duckdb_engine
 from revi_testing.mock_llm import MockLanguageModel
@@ -906,6 +912,152 @@ class TestNamedEntityBackReference:
         )
         [emit] = llm.calls_for("emit_refinements")
         assert payer in emit.rendered_prompt
+
+    async def test_the_top_one_resolves_against_the_ranking_just_published(
+        self, small_warehouse_path: Path
+    ) -> None:
+        """"Denial rate by facility last quarter" answered with a ranking —
+        "ranks #1 of 6", a chart ordered high to low — and the next turn,
+        "drill into the top one", refused to choose on the grounds that
+        picking a row would invent an ordering the context had not
+        established. The context had established it: the ordering is in the
+        answer's own findings, which is where this now reads it."""
+        ranked_question = "denial rate by payer last quarter"
+        llm = MockLanguageModel()
+        llm.respond(
+            "classify_turn",
+            {"turn_class": "new_investigation", "confidence": 0.94,
+             "clarification_question": None},
+            matcher=lambda p: ranked_question in p,
+        )
+        llm.respond(
+            "interpret_question",
+            {
+                "intent_summary": "denial rate by payer",
+                "metric_ids": ["denial_rate"],
+                "dimension_ids": ["payer"],
+                "concept_ids": [],
+                "playbook_id": None,
+                "window": {"quantity": "1", "unit": "quarter", "mode": "full_periods"},
+                "basis": None,
+                "comparison": None,
+                "scope": [],
+                "clarification": None,
+                "definitional_terms": [],
+            },
+        )
+        engine = _engine(small_warehouse_path, llm)
+        t1 = await engine.submit.submit(
+            SubmitTurnRequest(tenant="demo", question=ranked_question)
+        )
+        assert t1.findings, "the fixture turn published nothing"
+        first = t1.findings[0]
+        assert claimed_rank(first) == 1, "the fixture turn published no ranking"
+
+        llm.respond(
+            "classify_turn",
+            {"turn_class": "refinement", "confidence": 0.93, "clarification_question": None},
+        )
+        llm.respond(
+            "emit_refinements",
+            {"operators": [{"op": "drill_into", "target": first.referent.value}],
+             "rationale": "the published #1"},
+        )
+
+        await engine.submit.submit(
+            SubmitTurnRequest(
+                tenant="demo",
+                question="drill into the top one",
+                session_id=t1.session.id,
+            )
+        )
+
+        assert llm.calls_for("resolve_referents") == (), (
+            "a position this platform published one turn ago is a lookup, not a guess"
+        )
+        [emit] = llm.calls_for("emit_refinements")
+        _, _, tail = emit.rendered_prompt.partition("Resolved mentions for this utterance:")
+        assert first.referent.value in tail
+        assert "the top one" in tail
+
+
+class TestOrdinalsReadThePublishedOrdering:
+    """The ordinal resolver in isolation: what it will and will not bind."""
+
+    @staticmethod
+    def _finding(referent: str, rank: int | None) -> Finding:
+        statement = (
+            f"Eastmere ranks #{rank} of 6 measured by denial rate over 2026-04-01: 8.3%."
+            if rank is not None
+            else (
+                "Eastmere: 8.3% denial rate. No position is claimed for it — too much of "
+                "this population carries suppressed numerators for an order to mean anything."
+            )
+        )
+        return Finding(
+            referent=ReferentId(value=referent, kind=ReferentKind.FINDING),
+            title=f"{referent} title",
+            statement=statement,
+            metric_refs=(MetricRef(id="denial_rate"),),
+            values=(("denial_rate", Decimal("0.083")), ("rank", rank or 1)),
+            grade=EvidenceGrade.DIRECT,
+        )
+
+    @staticmethod
+    def _entries(*findings: Finding) -> tuple[RegisteredReferent, ...]:
+        return tuple(
+            RegisteredReferent(
+                session_id="s",
+                investigation_id="i",
+                referent=f.referent,
+                label=f.title,
+                cohort=None,
+            )
+            for f in findings
+        )
+
+    @pytest.mark.parametrize(
+        ("question", "expected"),
+        [
+            ("drill into the top one", "F1"),
+            ("drill into the first one", "F1"),
+            ("show me the second row", "F2"),
+            ("open #3", "F3"),
+            ("drill into number 2", "F2"),
+            ("what about the last one", "F3"),
+            ("break out the bottom one", "F3"),
+        ],
+    )
+    def test_a_position_the_answer_claimed_binds(
+        self, question: str, expected: str
+    ) -> None:
+        findings = tuple(self._finding(f"F{i}", i) for i in (1, 2, 3))
+        [resolution] = resolve_ordinal_referent(question, findings, self._entries(*findings))
+        assert resolution.referent.value == expected
+        assert resolution.confidence == 1.0
+
+    def test_an_answer_that_claimed_no_position_binds_nothing(self) -> None:
+        """A population too bounded to order does not acquire an order
+        because somebody asked for its top row."""
+        findings = tuple(self._finding(f"F{i}", None) for i in (1, 2, 3))
+        assert resolve_ordinal_referent(
+            "drill into the top one", findings, self._entries(*findings)
+        ) == ()
+
+    @pytest.mark.parametrize(
+        "question",
+        [
+            "show me the top 3 payers",  # a LIMIT, not a referent
+            "compare the first quarter to the second",  # a period, not a row
+            "drill into the worst one",  # polarity: which end depends on the sign
+            "drill into the best one",
+            "drill into the fourth one",  # no such published position
+            "why did denials rise",
+        ],
+    )
+    def test_what_is_left_to_the_model(self, question: str) -> None:
+        findings = tuple(self._finding(f"F{i}", i) for i in (1, 2, 3))
+        assert resolve_ordinal_referent(question, findings, self._entries(*findings)) == ()
 
     def test_ambiguity_is_left_to_the_model(self) -> None:
         """Two payers on screen and "that payer" means somebody has to say

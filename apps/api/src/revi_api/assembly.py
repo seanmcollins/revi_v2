@@ -24,6 +24,7 @@ from typing import Any
 from revi_api.chart_integrity import apply_axis_order, enforce_row_keys
 from revi_api.cohort_payload import cohort_payload_for
 from revi_api.debug_trace import build_debug_trace
+from revi_api.error_copy import clarification_reason_copy, clarification_register
 from revi_api.evidence import build_evidence
 from revi_api.metric_display import MetricDisplayRules
 from revi_api.metric_provenance import build_metric_provenance
@@ -939,13 +940,25 @@ async def assemble_turn_response(
     )
 
     if outcome.clarification is not None:
+        # WHICH KIND of clarification this is, on the wire, in the coded
+        # warning vocabulary the client already renders — so "pick one of
+        # these three AR views" and "nothing here answers that" stop
+        # arriving in the same register. The reason is cleaned for the same
+        # audience: full fidelity stays on the trace and under `debug`.
+        register = clarification_register(
+            outcome.clarification.reason, outcome.clarification.options
+        )
         return TurnClarification(
             outcome="clarification_required",
             session_id=outcome.session.id,
             investigation_id=outcome.investigation.id,
             question=outcome.clarification.question,
             options=list(outcome.clarification.options),
-            reason=outcome.clarification.reason,
+            reason=clarification_reason_copy(
+                outcome.clarification.reason, debug=debug is not None
+            ),
+            warnings=[register],
+            warnings_v2=structured_warnings([register]),
             # Only ever an explicitly requested one here: the platform
             # could not answer the question, which is not a reason to
             # withhold the list the caller asked for by name.

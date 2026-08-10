@@ -42,7 +42,12 @@ demo-curate: ## Curate + verify the demo tenant, then print a readiness checklis
 	@# Idempotent and re-runnable — the last pre-demo step, not a one-time
 	@# seed. Names to keep come from --keep-session/--keep-pin or a manifest;
 	@# with none named it archives nothing and prints the tenant as it stands.
-	@# Pass args with ARGS="--manifest demo/curation.json".
+	@# The canonical pre-demo invocation, which is what demo/curation.json's
+	@# own _readme documents:
+	@#   make demo-curate ARGS="--manifest demo/curation.json --clean-rail"
+	@# Without --clean-rail a manifest that names no sessions refuses (exit 2)
+	@# and changes nothing, rather than curating half the tenant. --dry-run
+	@# prints the tenant as it stands.
 	uv run python scripts/demo_curate.py $(ARGS)
 
 api: ## Run the FastAPI app (dev; open auth — see REVI_AUTH_DEV_TENANT)

@@ -255,7 +255,54 @@ _ABBREVIATION_TAIL = re.compile(
 #: not two more letters — and the letter lookahead keeps it off decimals,
 #: money and dates. Anything it over-splits ("Inc." opening a name) the
 #: abbreviation rejoin below puts straight back.
+#:
+#: This finds CANDIDATES. :data:`_NAME_INTERNAL_SUFFIXES` vetoes the ones
+#: whose stop belongs to a name rather than to a sentence.
 _UNSPACED_SEAM = re.compile(r"(\w{3,}|[)\]\"'])([.!?])(?=[A-Za-z])")
+
+#: Tokens that make a full stop part of a NAME rather than a sentence end.
+#: The mirror image of :data:`_ABBREVIATIONS`: that set keeps the split off
+#: a stop whose LEFT side is not a sentence end, this one keeps it off a
+#: stop whose RIGHT side is not a sentence start.
+#:
+#: "HealthCare.gov" is the live case. Benchmark cohort labels and sources
+#: are certified vocabulary the composer is instructed to quote
+#: (``ACA marketplace (HealthCare.gov issuers)``), and the unguarded seam
+#: split one into "…sites." + "gov) issuer data…". The deduper then dropped
+#: the head — a split head is by construction a PREFIX of the sentence it
+#: came from, so the 120-character prefix rule below matched it against an
+#: already-published disclosure and reported it as a word-for-word repeat —
+#: and published the orphaned tail alone. One missing space cost a whole
+#: sentence and left a fragment in its place.
+#:
+#: Kept closed and short for the reason the abbreviation set is: a wide
+#: list would leave two real sentences welded together, which is this
+#: defect pointed the other way. Every entry is a token that is *never* an
+#: English word this corpus would open a sentence with — which is why
+#: ``net``, ``co`` and ``us`` are deliberately absent ("…rose 4%.net of
+#: contractual adjustments…" is a seam worth repairing, and "net" opening
+#: a clause is ordinary revenue-cycle prose).
+_NAME_INTERNAL_SUFFIXES: frozenset[str] = frozenset(
+    {
+        # Domain suffixes present in governed pack content (benchmark
+        # sources and cohort labels): hfma.org, cms.gov, HealthCare.gov,
+        # techtarget.com, kff.org, mgma.com, optum.com …
+        "gov", "com", "org", "edu", "io",
+        # File extensions the product names when it talks about exports.
+        "csv", "json", "pdf", "xlsx",
+    }
+)
+
+#: The word immediately following a candidate seam's stop.
+_SEAM_FOLLOWER = re.compile(r"[A-Za-z]+")
+
+
+def _repair_seam(match: re.Match[str]) -> str:
+    """Insert the missing space, unless the stop is inside a name."""
+    follower = _SEAM_FOLLOWER.match(match.string, match.end(2))
+    if follower is not None and follower.group(0).casefold() in _NAME_INTERNAL_SUFFIXES:
+        return match.group(0)
+    return f"{match.group(1)}{match.group(2)} "
 
 
 def split_sentences(text: str) -> list[str]:
@@ -270,9 +317,11 @@ def split_sentences(text: str) -> list[str]:
     Whitespace between rejoined fragments is normalised to a single space —
     the validator emits ``" ".join(kept)`` anyway, so no published text
     changes shape because of it. A terminator with NO whitespace after it
-    is repaired the same way, for the same reason.
+    is repaired the same way, for the same reason — except where the stop
+    belongs to a name (:data:`_NAME_INTERNAL_SUFFIXES`), which is left
+    exactly as the composer wrote it.
     """
-    stripped = _UNSPACED_SEAM.sub(r"\1\2 ", text.strip())
+    stripped = _UNSPACED_SEAM.sub(_repair_seam, text.strip())
     if not stripped:
         return []
     parts: list[str] = []

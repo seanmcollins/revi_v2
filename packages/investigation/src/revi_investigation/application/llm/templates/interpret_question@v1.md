@@ -13,7 +13,9 @@ Dimensions (id: label):
 
 {dimensions}
 
-Playbooks (id: description):
+Playbooks (id: description, then `asked as:` — phrasings the pack author
+recorded for how analysts ask for this one; they are examples, not patterns,
+and a question that means the same thing in other words still matches):
 
 {playbooks}
 

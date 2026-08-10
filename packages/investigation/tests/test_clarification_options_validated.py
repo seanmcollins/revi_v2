@@ -180,3 +180,58 @@ class TestPhantomValuesAreDroppedBeforeTheyAreOffered:
         )
         assert "CARC code" not in " ".join(outcome.clarification.options)
         assert "CLARIFICATION_SOLE_SURVIVOR" in (outcome.clarification.reason or "")
+
+
+class TestAValueExistenceRefusalKeepsItsCandidates:
+    """The twelve real payers are the whole answer to "there is no payer
+    named UnitedHealthcare". They are read out of the warehouse's own
+    domain one step earlier and bound as ``predicate_value`` options — and
+    every step of the offer funnel runs over them afterwards. An option the
+    validator itself derived from live data is not a guess to be re-checked
+    away: dropping them leaves a question that enumerates twelve values in
+    its prose above a blank row of buttons."""
+
+    async def test_the_candidate_values_reach_the_wire_as_options(self) -> None:
+        llm = MockLanguageModel()
+        llm.respond(
+            "classify_turn",
+            {"turn_class": "new_investigation", "confidence": 0.95,
+             "clarification_question": None},
+        )
+        llm.respond(
+            "interpret_question",
+            {
+                "intent_summary": "denial rate for one payer",
+                "metric_ids": ["denial_rate"],
+                "dimension_ids": [],
+                "concept_ids": [],
+                "playbook_id": None,
+                "window": {"quantity": "1", "unit": "month", "mode": "full_periods"},
+                "basis": None,
+                "comparison": None,
+                "scope": [
+                    {"dimension": "payer", "op": "eq", "values": ["UnitedHealthcare"]}
+                ],
+                "clarification": None,
+                "definitional_terms": [],
+            },
+        )
+        engine = build_duckdb_engine(warehouse_path=WAREHOUSE, llm=llm)
+
+        outcome = await engine.submit.submit(
+            SubmitTurnRequest(
+                tenant="demo", question="what is the denial rate for UnitedHealthcare?"
+            )
+        )
+
+        clarification = outcome.clarification
+        assert clarification is not None
+        assert clarification.options, "the candidate values were computed and discarded"
+        # Every offered option is a real payer, and each carries the binding
+        # that makes it tappable rather than re-readable as free text.
+        assert len(clarification.options) >= 2
+        for option in clarification.options:
+            assert option in clarification.question
+            binding = clarification.binding_for(option)
+            assert binding is not None and binding.kind == "predicate_value"
+            assert binding.scope == (("payer", (option,)),)

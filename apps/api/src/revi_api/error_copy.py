@@ -24,7 +24,8 @@ more certain.
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+import re
+from collections.abc import Mapping, Sequence
 
 from revi_kernel.errors import ErrorCode
 
@@ -210,3 +211,149 @@ def plain_message(
     if code in _ECHO_CODES:
         plain = f"{plain}{_named_terms(details)}"
     return f"{plain} [{code.value}: {technical}]" if debug else plain
+
+
+# ----------------------------------------------------------- clarifications
+#
+# A clarification is a first-class SUCCESSFUL outcome (§2.8, §12) and there
+# are two kinds of it, which want opposite readings:
+#
+# * "Which AR view do you want — days in AR, aging distribution, or balance
+#   trend?" needs ONE ANSWER, after which the question the analyst already
+#   asked runs. Neutral. A dialogue move.
+# * "I couldn't find a governed definition for that term" is a VERDICT:
+#   nothing here answers it, and the way forward is a different question.
+#
+# Both shipped under the same amber refusal copy, so the helpful one read
+# as a failure — the disambiguation above arrived under "There is no
+# answerable option to offer here." The register is published as a coded
+# warning rather than a new field: the severity ladder in
+# :mod:`revi_api.warning_codes` already means exactly this (``info`` is
+# "worth knowing", ``caution`` is "this changes how to read what you got"),
+# so a client that renders warning codes gets the distinction for free and
+# no parallel scheme is invented beside the one that exists.
+
+CLARIFICATION_OPTIONS_OFFERED_WARNING = (
+    "clarification_options_offered: this is a question with answers to choose from, not a "
+    "refusal — pick one and the question you already asked runs with it applied."
+)
+
+CLARIFICATION_NO_OPTIONS_WARNING = (
+    "clarification_no_options: there is no answerable option to offer for this one, so the "
+    "way forward is to ask it a different way."
+)
+
+
+#: The engine's own marker for "I have nothing answerable to offer here"
+#: (``submit_turn.clarification.NO_OPTIONS_REASON``), stamped by the last
+#: step of the clarification funnel.
+_NO_OPTIONS_MARKER = "CLARIFICATION_NO_OPTIONS"
+
+
+def clarification_register(reason: str | None, options: Sequence[str]) -> str:
+    """Which register this clarification is in, as a coded warning sentence.
+
+    Loud only where the ENGINE declared it cannot offer anything. Empty
+    ``options`` is not that declaration on its own: a clarification can
+    legitimately invite a free-text answer, and treating "no buttons" as
+    "no way forward" is how a question with twelve real payers behind it
+    rendered as a dead end. The engine's marker is the signal; the option
+    list is corroboration, not the test.
+    """
+    declared = _NO_OPTIONS_MARKER in (reason or "")
+    if declared and not options:
+        return CLARIFICATION_NO_OPTIONS_WARNING
+    return CLARIFICATION_OPTIONS_OFFERED_WARNING
+
+
+#: A reason fragment's leading code ("CLARIFICATION_SOLE_SURVIVOR: …").
+_REASON_CODE = re.compile(r"^([A-Z][A-Z0-9]{2,}(?:_[A-Z0-9]+)*):\s*(.*)$", re.DOTALL)
+
+#: An internal enum token anywhere in a fragment.
+_ENUM_TOKEN = re.compile(r"\b[A-Z][A-Z0-9]{2,}(?:_[A-Z0-9]+)+\b")
+
+#: A snake_case governed identifier — a metric id, a playbook id, a
+#: dimension id. The vocabulary rule this repo already keeps says internal
+#: identifiers never appear on default surfaces (display names do, and
+#: Evidence and exports carry the ids); fine print is a default surface.
+_INTERNAL_ID = re.compile(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b")
+
+#: A model's numeric confidence, in the phrasings the engine writes it —
+#: "turn classification confidence 0.78", "referent resolution confidence
+#: 0.62". A probability is a fact about the platform's internals, not about
+#: the analyst's question; it belongs in the trace, where
+#: ``DebugTracePayload.classification_confidence`` already publishes it
+#: under the debug gate this string ignored.
+_CONFIDENCE = re.compile(r"\bconfidence\s+\d*\.\d+")
+
+#: Machine key/value pairs, e.g. ``options_dropped=2``.
+_MACHINE_PAIR = re.compile(r"\b\w+=\S+")
+
+#: The refinement operators by their wire ids, in the words a reader uses.
+#: They are governed identifiers rather than English: "drill_into takes
+#: exactly one referent id" is a sentence about this engine's schema, not
+#: about the question that was asked.
+_OPERATOR_PHRASES: dict[str, str] = {
+    "set_dimensions": "changing the breakdown",
+    "add_filter": "narrowing the scope",
+    "remove_filter": "widening the scope",
+    "set_comparison": "changing the comparison",
+    "set_window": "changing the period",
+    "set_grain": "changing the grain",
+    "reset_context": "resetting the context",
+    "drill_into": "drilling in",
+    "rank_by": "re-ranking",
+    "explain": "explaining",
+    "expand": "showing more rows",
+    "pivot": "pivoting",
+}
+
+
+def clarification_reason_copy(reason: str | None, *, debug: bool = False) -> str | None:
+    """The customer-facing fine print for a clarification, or ``None``.
+
+    ``ClarificationRequest.reason`` is written for the trace: it leads with
+    a code, carries machine pairs, and names operators and metric ids
+    because those are what a decision record is made of. It was published
+    verbatim, so an analyst read *"turn classification confidence 0.78"*
+    under a helpful question, and *"CLARIFICATION_SOLE_SURVIVOR"* under a
+    refusal.
+
+    Nothing is lost by cleaning it: the raw string is recorded on the trace
+    (``recording.py``) and served at full fidelity by the trace endpoint and
+    by ``debug=True`` here — the same seam
+    :func:`plain_message` uses for the engine's own error sentences.
+
+    Fragments are kept only when what remains is a sentence about the
+    ANALYST'S question. A fragment that still carries internal vocabulary
+    after the operator names are translated is omitted rather than
+    paraphrased: guessing at what a code meant would publish a sentence
+    nobody wrote. When every fragment goes, so does the fine print — a
+    question with no explanation reads better than one explained in ids.
+    """
+    if reason is None or not reason.strip():
+        return None
+    if debug:
+        return reason
+    kept: list[str] = []
+    for fragment in reason.split(";"):
+        text = fragment.strip()
+        code_match = _REASON_CODE.match(text)
+        if code_match is not None:
+            text = code_match.group(2).strip()
+        if not text:
+            continue
+        for operator, phrase in _OPERATOR_PHRASES.items():
+            text = re.sub(rf"\b{operator}\b", phrase, text)
+        if (
+            _ENUM_TOKEN.search(text)
+            or _INTERNAL_ID.search(text)
+            or _CONFIDENCE.search(text)
+            or _MACHINE_PAIR.search(text)
+        ):
+            continue
+        kept.append(text)
+    if not kept:
+        return None
+    joined = "; ".join(kept)
+    return joined[:1].upper() + joined[1:]

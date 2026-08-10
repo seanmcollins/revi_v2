@@ -311,3 +311,88 @@ class TestConvergence:
         assert QUESTION in last.question  # the thread's own starting point, not a new topic
         earlier = outcomes[0].clarification
         assert earlier is not None and last.question != earlier.question
+
+    async def test_the_impasse_reason_is_serialized_once(
+        self, engine: WiredEngine, seed_prior_turn: SeedPriorTurn
+    ) -> None:
+        """The guard is reached from two sites in one turn and had no
+        idempotence check, so the reason nested inside itself:
+        "CLARIFICATION_NOT_CONVERGING: 2 …; original reason:
+        CLARIFICATION_NOT_CONVERGING: 2 …; original reason: <X>". The
+        analyst read that doubled string as the turn's fine print."""
+        engine.llm.respond(
+            "classify_turn",
+            {"turn_class": "new_investigation", "confidence": 0.95,
+             "clarification_question": None},
+        )
+        engine.llm.respond(
+            "interpret_question",
+            {**_INTERPRETATION, "metric_ids": [], "clarification": "Which metric?"},
+        )
+
+        session_id: str | None = await _opened(engine, seed_prior_turn)
+        reasons: list[str] = []
+        for _ in range(MAX_CONSECUTIVE_CLARIFICATIONS + 2):
+            outcome = await _turn(engine, session_id, QUESTION)
+            session_id = outcome.session.id
+            if outcome.clarification is not None and outcome.clarification.reason:
+                reasons.append(outcome.clarification.reason)
+
+        bounded = [r for r in reasons if "CLARIFICATION_NOT_CONVERGING" in r]
+        assert bounded, "the thread was never bounded"
+        for reason in bounded:
+            assert reason.count("CLARIFICATION_NOT_CONVERGING") == 1, reason
+            assert reason.count("original reason:") <= 1, reason
+            assert reason.startswith("CLARIFICATION_NOT_CONVERGING: ")
+
+
+class TestAResumedAnswerQuotesTheAnalystNotThePlatform:
+    """A successful comparison opened by quoting the turn before it: "Read
+    as an answer to the question above: 'We're going in circles — I've asked
+    2 questions…'". The echo pulled ``PendingClarification.question``, which
+    is the PLATFORM's composed text — and the platform's clarifications
+    include refusals and impasse statements. "The question above" is a
+    deictic reference to what is on screen; what gets quoted is the
+    analyst."""
+
+    async def test_the_resume_never_quotes_the_platforms_own_question(
+        self, engine: WiredEngine, seed_prior_turn: SeedPriorTurn
+    ) -> None:
+        engine.llm.respond(
+            "classify_turn",
+            {"turn_class": "new_investigation", "confidence": 0.95,
+             "clarification_question": None},
+        )
+        engine.llm.respond(
+            "interpret_question",
+            {**_INTERPRETATION, "metric_ids": [], "clarification": "Which metric?"},
+        )
+
+        session_id: str | None = await _opened(engine, seed_prior_turn)
+        asked: list[str] = []
+        for _ in range(MAX_CONSECUTIVE_CLARIFICATIONS + 1):
+            outcome = await _turn(engine, session_id, QUESTION)
+            session_id = outcome.session.id
+            if outcome.clarification is not None:
+                asked.append(outcome.clarification.question)
+
+        impasse = [q for q in asked if q.startswith("We're going in circles")]
+        assert impasse, "the thread never reached the impasse statement"
+
+        # Now answer it. Whatever the engine assumes about this turn, it may
+        # not quote its own impasse statement back as the analyst's words.
+        engine.llm.respond(
+            "classify_turn",
+            {"turn_class": "clarification_response", "confidence": 0.95,
+             "clarification_question": None},
+        )
+        engine.llm.respond("interpret_question", _INTERPRETATION)
+        resumed = await _turn(engine, session_id, OPTION)
+
+        published = list(resumed.warnings) + list(resumed.investigation.warnings)
+        for warning in published:
+            assert "We're going in circles" not in warning, warning
+            assert "I've asked" not in warning, warning
+        for warning in published:
+            if warning.startswith("Read as an answer to the question above:"):
+                assert OPTION in warning or "F" in warning, warning

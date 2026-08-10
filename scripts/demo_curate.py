@@ -406,6 +406,35 @@ async def _run(args: argparse.Namespace) -> int:
             else args.expect_pins,
         )
 
+    # An operator-input problem, refused BEFORE anything is touched.
+    #
+    # A manifest that names pins but no sessions used to run: the pin pass
+    # archived monitors, the session pass declined to guess and recorded a
+    # failed check, and the command exited non-zero having already changed
+    # half the tenant. `make` then reported its own exit 2 over it. So the
+    # documented invocation (`--manifest demo/curation.json`) was a
+    # designed failure that was not a no-op, four minutes before a demo.
+    #
+    # Exit 2 already means "the operator has to fix the invocation" here
+    # (a missing manifest file), and this is that: the session pass has no
+    # instruction. Nothing is applied, and the message is the command to
+    # run instead.
+    if manifest.pins and not manifest.sessions and not args.clean_rail and not args.dry_run:
+        parts = ["--manifest", str(args.manifest)] if args.manifest else []
+        print(
+            f"\nThis manifest names {len(manifest.pins)} pin(s) and no sessions, so the "
+            "session pass has nothing to go on — and archiving monitors while leaving the "
+            "rail unexamined is half a curation. Say what should happen to the sessions:\n\n"
+            f"  make demo-curate ARGS=\"{' '.join([*parts, '--clean-rail'])}\"\n\n"
+            "    …archives every session not named to keep (an empty rail is what a demo "
+            "walked live wants, and archiving is soft).\n\n"
+            f"  make demo-curate ARGS=\"{' '.join([*parts, '--dry-run'])}\"\n\n"
+            "    …changes nothing and prints the tenant as it stands.\n\n"
+            "Pre-staging a walk instead? Put the session ids in the manifest and this "
+            "runs as it is. Nothing was changed."
+        )
+        return 2
+
     env = dict(os.environ)
     tenant = args.tenant or env.get("REVI_AUTH_DEV_TENANT", "demo")
     # Scripted model, always: curation reads and archives, and a command run

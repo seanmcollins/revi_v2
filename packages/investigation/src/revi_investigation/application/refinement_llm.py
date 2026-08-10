@@ -19,11 +19,13 @@ proposes ways forward on the "no operators" path they ride along as
 from __future__ import annotations
 
 import re
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
 from pydantic import ValidationError
 
+from revi_investigation.application.findings import claimed_rank
 from revi_investigation.application.llm.guard import assert_safe_payload
 from revi_investigation.application.llm.render import (
     LoadedTemplate,
@@ -63,6 +65,7 @@ from revi_investigation.application.ports import (
     failure_note,
     retry_may_help,
 )
+from revi_investigation.domain.records import Finding
 from revi_investigation.domain.refinements import (
     AddFilter,
     DrillInto,
@@ -241,6 +244,136 @@ def resolve_named_referents(
             ),
         )
     return ()
+
+
+#: Words that name a row's PLACE in an order that was published.
+#:
+#: Polarity words — "worst", "best", "biggest", "smallest" — are
+#: deliberately absent. Which end of a ranking they point at depends on the
+#: metric contract's sign convention AND on the order the analyst asked for
+#: (``AskedOrder``), so "the worst one" over a list ranked best-first is
+#: the LAST row, not the first. Reading them here would silently drill into
+#: the opposite row; they stay with the model, which sees the sentence.
+_ORDINAL_NAMES: dict[str, int] = {
+    "first": 1, "1st": 1, "top": 1,
+    "second": 2, "2nd": 2,
+    "third": 3, "3rd": 3,
+    "fourth": 4, "4th": 4,
+    "fifth": 5, "5th": 5,
+    "sixth": 6, "6th": 6,
+    "seventh": 7, "7th": 7,
+    "eighth": 8, "8th": 8,
+    "ninth": 9, "9th": 9,
+    "tenth": 10, "10th": 10,
+}
+
+#: Sentinel for "whichever position the answer put last".
+_LAST_POSITION = -1
+
+_ORDINAL_LAST = ("last", "bottom")
+
+#: What an ordinal may be attached to. "The top one", "the first row" — but
+#: never "the top 3", which is a LIMIT the analyst named, not a row they
+#: pointed at (``requested_finding_limit`` owns that).
+_ORDINAL_NOUN = r"(?:one|row|item|result|entry|finding|record)"
+
+_ORDINAL_WORD_GROUP = "|".join(
+    re.escape(word) for word in (*_ORDINAL_NAMES, *_ORDINAL_LAST)
+)
+
+_ORDINAL_PATTERNS: tuple[re.Pattern[str], ...] = (
+    # "the top one", "that first row", "the last finding"
+    re.compile(
+        rf"\b(?:the|that|this)\s+(?P<word>{_ORDINAL_WORD_GROUP})\s+{_ORDINAL_NOUN}\b",
+        re.IGNORECASE,
+    ),
+    # "the top", "the bottom" with no noun — only at a clause end, and
+    # only for the two words that cannot also name a calendar period.
+    # "first", "second" and "last" are excluded here on purpose:
+    # "compare the first quarter to the second" ends on an ordinal that
+    # points at a PERIOD, and binding it to a row would answer a different
+    # question confidently.
+    re.compile(
+        r"\b(?:the|that|this)\s+(?P<word>top|bottom)\s*(?=[.,;:!?]|$)",
+        re.IGNORECASE,
+    ),
+    # "#1", "number 2", "rank 3", "no. 1"
+    re.compile(
+        r"(?:#\s*|\bnumber\s+|\brank\s+|\bno\.?\s+)(?P<digits>\d{1,2})\b",
+        re.IGNORECASE,
+    ),
+)
+
+
+def _requested_ordinal(question: str) -> tuple[str, int] | None:
+    """``(the words the analyst used, the position they name)``, or ``None``."""
+    for pattern in _ORDINAL_PATTERNS:
+        match = pattern.search(question)
+        if match is None:
+            continue
+        digits = match.groupdict().get("digits")
+        if digits is not None:
+            position = int(digits)
+            return (match.group(0).strip(), position) if position >= 1 else None
+        word = (match.group("word") or "").lower()
+        if word in _ORDINAL_LAST:
+            return match.group(0).strip(), _LAST_POSITION
+        return match.group(0).strip(), _ORDINAL_NAMES[word]
+    return None
+
+
+def resolve_ordinal_referent(
+    question: str,
+    findings: Sequence[Finding],
+    entries: tuple[RegisteredReferent, ...],
+) -> tuple[ReferentResolution, ...]:
+    """Bind "the top one" to the row the previous answer PUT first.
+
+    An answer that published an ordering established that ordering as
+    context. "Denial rate by facility last quarter" replied *"Eastmere
+    Medical Center ranks #1 of 6"*, captioned its chart *"Ordered by denial
+    rate, high to low"*, and wrote *"the ranking puts Eastmere first"* — and
+    the very next turn, "drill into the top one" came back refusing to
+    choose, on the grounds that picking a row would invent an order the
+    context had not established. The context had established it. The engine
+    was reading the registry (ids and labels) and the spec's ``rank_by``,
+    neither of which carries what the ANSWER said.
+
+    So the ordering is read where it was published: off the findings' own
+    claimed positions (:func:`claimed_rank`). Three consequences follow, all
+    of them the honest ones:
+
+    * an answer that claimed no positions resolves nothing — a population
+      too bounded to order does not acquire an order because someone asked
+      for its top row;
+    * a position no finding claims resolves nothing ("the fourth one" over
+      three published rows is a question, not a referent);
+    * ties do not block it. Three facilities within a rounding hair of each
+      other still have a published #1, and the caveat about the tie is in
+      the prose the analyst just read. Refusing here would mean the
+      platform's own ranking is not something it will stand behind.
+    """
+    requested = _requested_ordinal(question)
+    if requested is None:
+        return ()
+    mention, wanted = requested
+    ranked = [
+        (rank, finding)
+        for rank, finding in ((claimed_rank(f), f) for f in findings)
+        if rank is not None
+    ]
+    if not ranked:
+        return ()
+    if wanted == _LAST_POSITION:
+        wanted = max(rank for rank, _ in ranked)
+    matches = [finding for rank, finding in ranked if rank == wanted]
+    if len(matches) != 1:
+        return ()
+    by_value = {entry.referent.value: entry for entry in entries}
+    entry = by_value.get(matches[0].referent.value)
+    if entry is None:
+        return ()  # the registry was rebuilt: let the model see the drift
+    return (ReferentResolution(mention=mention, referent=entry.referent, confidence=1.0),)
 
 
 @dataclass(frozen=True, slots=True)

@@ -610,6 +610,13 @@ def _no_options_card(clarification: ClarificationRequest) -> ClarificationReques
     )
 
 
+#: Marks a thread that has asked its allowance of questions and is stating
+#: the impasse instead of asking another. Applied ONCE: the funnel reaches
+#: the guard from two sites, and a second application nests the reason
+#: inside itself.
+CLARIFICATION_NOT_CONVERGING_REASON = "CLARIFICATION_NOT_CONVERGING"
+
+
 #: Marks a question that was ASKED AGAIN because the reply could not be
 #: matched — narrowed where the reply narrowed it, and named as a repeat
 #: either way, so the second ask is never mistaken for the first.

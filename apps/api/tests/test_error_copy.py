@@ -11,15 +11,22 @@ the code untouched, and the precision still reachable.
 
 from __future__ import annotations
 
+import re
+
 import pytest
 
 from revi_api.error_copy import (
+    CLARIFICATION_NO_OPTIONS_WARNING,
+    CLARIFICATION_OPTIONS_OFFERED_WARNING,
     MODEL_SPEND_BUDGET,
     PLAIN_MESSAGES,
     WAREHOUSE_READ_BUDGET,
     budget_subcode,
+    clarification_reason_copy,
+    clarification_register,
     plain_message,
 )
+from revi_api.warning_codes import structured_warnings
 from revi_kernel.errors import ErrorCode
 
 TECHNICAL = "date basis 'remit' is not bound for entity 'claim'"
@@ -162,3 +169,101 @@ class TestBudgetSubcodes:
             details={"max_budget_usd": 0.5},
         )
         assert technical in message and "QUERY_BUDGET_EXCEEDED" in message
+
+
+class TestClarificationRegister:
+    """A clarification is a successful outcome and there are two kinds.
+    "Which AR view do you want — days in AR, aging distribution, or balance
+    trend?" needs one answer; "I couldn't find a governed definition for
+    that term" is a verdict. Both shipped in the same register, so the
+    helpful one arrived under "There is no answerable option to offer
+    here." """
+
+    def test_a_question_with_options_is_neutral(self) -> None:
+        sentence = clarification_register(
+            "PREDICATE_VALUE_UNMATCHED: payer ['X'] not in the 12 values",
+            ("Atlas Commercial", "State Medicaid"),
+        )
+        assert sentence == CLARIFICATION_OPTIONS_OFFERED_WARNING
+        [payload] = structured_warnings([sentence])
+        assert payload.code == "CLARIFICATION_OPTIONS_OFFERED"
+        assert payload.severity == "info"
+
+    def test_only_an_engine_declared_dead_end_is_loud(self) -> None:
+        sentence = clarification_register(
+            "no pack content matched the definitional lookup; CLARIFICATION_NO_OPTIONS", ()
+        )
+        assert sentence == CLARIFICATION_NO_OPTIONS_WARNING
+        [payload] = structured_warnings([sentence])
+        assert payload.code == "CLARIFICATION_NO_OPTIONS"
+        assert payload.severity == "caution"
+
+    def test_no_buttons_is_not_a_declaration_on_its_own(self) -> None:
+        """A clarification may legitimately invite a free-text answer."""
+        assert (
+            clarification_register("model requested clarification", ())
+            == CLARIFICATION_OPTIONS_OFFERED_WARNING
+        )
+
+
+class TestClarificationReasonCopy:
+    """The reason is written for the trace: it leads with a code, carries
+    machine pairs, and names operators and metric ids. Published verbatim,
+    an analyst read "turn classification confidence 0.78" under a helpful
+    question and "CLARIFICATION_SOLE_SURVIVOR" under a refusal."""
+
+    @pytest.mark.parametrize(
+        "reason",
+        [
+            "turn classification confidence 0.78",
+            "referent resolution confidence 0.62",
+            "model requested clarification; options_dropped=2",
+        ],
+    )
+    def test_a_numeric_confidence_never_reaches_fine_print(self, reason: str) -> None:
+        copy = clarification_reason_copy(reason)
+        assert copy is None or "confidence 0." not in copy
+        assert copy is None or "=" not in copy
+
+    @pytest.mark.parametrize(
+        "reason",
+        [
+            "CLARIFICATION_SOLE_SURVIVOR: one option left after value and plan validation",
+            "CLARIFICATION_NOT_CONVERGING: 2 consecutive clarifications",
+            "PLAYBOOK_TRANSFORM_UNAVAILABLE: dimension_scorecard answers by 'pivot'",
+            "no pack content matched the definitional lookup; CLARIFICATION_NO_OPTIONS",
+        ],
+    )
+    def test_no_internal_enum_or_id_reaches_fine_print(self, reason: str) -> None:
+        copy = clarification_reason_copy(reason)
+        if copy is None:
+            return
+        assert not re.search(r"\b[A-Z][A-Z0-9]{2,}(?:_[A-Z0-9]+)+\b", copy), copy
+        assert not re.search(r"\b[a-z][a-z0-9]*(?:_[a-z0-9]+)+\b", copy), copy
+
+    def test_the_analysts_own_sentence_survives(self) -> None:
+        copy = clarification_reason_copy(
+            "PREDICATE_VALUE_UNMATCHED: payer ['UnitedHealthcare'] not in the 12 values "
+            "this watermark holds"
+        )
+        assert copy is not None
+        assert "not in the 12 values this watermark holds" in copy
+        assert "PREDICATE_VALUE_UNMATCHED" not in copy
+
+    def test_operator_ids_are_translated_not_printed(self) -> None:
+        copy = clarification_reason_copy(
+            "AMBIGUOUS_REFINEMENT: drill_into takes exactly one referent, so choosing "
+            "would be a guess"
+        )
+        assert copy is not None
+        assert "drill_into" not in copy
+        assert "rilling in" in copy  # capitalized when it leads the sentence
+
+    def test_debug_keeps_every_byte(self) -> None:
+        raw = "CLARIFICATION_SOLE_SURVIVOR: one left; options_dropped=2"
+        assert clarification_reason_copy(raw, debug=True) == raw
+
+    def test_an_all_internal_reason_publishes_nothing(self) -> None:
+        assert clarification_reason_copy("CLARIFICATION_NO_OPTIONS") is None
+        assert clarification_reason_copy(None) is None
+        assert clarification_reason_copy("   ") is None

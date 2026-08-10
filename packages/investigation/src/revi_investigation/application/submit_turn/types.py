@@ -291,6 +291,27 @@ def _join_question_and_answer(question: str | None, answer: str) -> str:
     return f"{original} — {reply}"
 
 
+#: How a resumed turn names the question it is answering.
+#:
+#: "The question above" is a DEICTIC reference to what is on screen, and it
+#: stays one: what follows the colon is the ANALYST's reply, never the
+#: platform's own clarification text. That text is whatever the engine last
+#: published, and the engine's clarifications include refusals and impasse
+#: statements — so a successful comparison opened with *"Read as an answer
+#: to the question above: 'We're going in circles — I've asked 2
+#: questions…'"*, quoting its own refusal back at the analyst as though
+#: they had said it. The platform's question is on screen already and rides
+#: the trace at full fidelity; an assumption published beside an ANSWER
+#: quotes the analyst.
+RESUMED_QUESTION_LEAD = "Read as an answer to the question above"
+
+
+def _anchor_phrase(question: str | None) -> str:
+    """The analyst's own question, for a sentence that resumes it."""
+    original = (question or "").strip()
+    return repr(original) if original else "the question this thread started with"
+
+
 def _predicate_label(predicate: Predicate) -> str:
     values = ", ".join(str(v) for v in predicate.values)
     return f"{predicate.dimension.id} {predicate.op.value} [{values}]".strip()

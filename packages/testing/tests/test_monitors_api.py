@@ -507,7 +507,11 @@ class TestAMonitorSurvivesTheQuestionItTriggered:
         # Silence is the one unacceptable option, and a clarification had no
         # channel to speak on until now.
         assert any("NOTHING is being monitored" in w for w in outcome.warnings)
-        assert [w.code for w in outcome.warnings_v2] == ["MONITOR_PENDING_CLARIFICATION"]
+        # Every clarification now states which REGISTER it is in; the
+        # deferred-monitor sentence rides beside it rather than alone.
+        codes = [w.code for w in outcome.warnings_v2]
+        assert "MONITOR_PENDING_CLARIFICATION" in codes
+        assert codes[0] in ("CLARIFICATION_OPTIONS_OFFERED", "CLARIFICATION_NO_OPTIONS")
         assert unconserved(outcome.warnings, outcome.warnings_v2) == ()
 
     async def test_the_declaration_is_registered_from_the_resolved_answer(self) -> None:

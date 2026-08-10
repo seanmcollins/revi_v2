@@ -204,6 +204,17 @@ _RULES: tuple[_Rule, ...] = (
     _rule("WORKLIST_UNAVAILABLE", CAUTION, r"^the ranked anomaly worklist was requested"),
     # -- coverage the pipeline measured and did not publish ---------------
     _rule("PROBE_FAMILIES_EMPTY", CAUTION, r"^probe_families_empty:"),
+    # -- which REGISTER a clarification is in -----------------------------
+    # A clarification is a successful outcome and there are two kinds. One
+    # needs an answer and then runs the question already asked; the other
+    # is a verdict that nothing here answers it. They shipped identically,
+    # so "Which AR view do you want — days in AR, aging distribution, or
+    # balance trend?" arrived under refusal copy. The severity ladder is
+    # already the right distinction: offering options changes nothing about
+    # how to read the turn (INFO), having none to offer is the turn's whole
+    # content (CAUTION). See :func:`revi_api.error_copy.clarification_register`.
+    _rule("CLARIFICATION_OPTIONS_OFFERED", INFO, r"^clarification_options_offered:"),
+    _rule("CLARIFICATION_NO_OPTIONS", CAUTION, r"^clarification_no_options:"),
 )
 
 #: Every code this module can emit, for the client that wants to enumerate

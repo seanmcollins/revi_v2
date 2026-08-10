@@ -588,10 +588,11 @@ def test_playbook_descriptions_front_load_within_the_selection_clip(
     snapshot: PackSnapshot,
 ) -> None:
     """Playbook selection reads `playbook_summaries()` clipped to 160 chars
-    and nothing else — `triggers:` has no runtime consumer. So a
-    disambiguation past the clip is a disambiguation nobody reads:
-    `payer_scorecard`'s tiebreak against the pre-existing generic
-    `dimension_scorecard` has to land inside it."""
+    plus the authored `triggers:` (see
+    `InterpretQuestionService._playbook_line`). A disambiguation past the
+    clip is still a disambiguation nobody reads: `payer_scorecard`'s
+    tiebreak against the pre-existing generic `dimension_scorecard` has to
+    land inside it, because no trigger phrasing can carry it."""
     clip = 160
     payer = next(p for p in snapshot.playbooks if p.id == "payer_scorecard")
     head = " ".join(payer.description.split())[:clip]

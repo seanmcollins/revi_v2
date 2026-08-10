@@ -136,20 +136,73 @@ _DEFAULT_WINDOW = RelativeRange(Decimal(1), TimeUnit.MONTH, RangeMode.FULL_PERIO
 _SNAPSHOT_KIND = "snapshot"
 _DESCRIPTION_CLIP = 160
 
-# Deterministic definitional lead-ins, longest first.
-_DEFINITIONAL_LEAD_INS = (
-    "tell me about",
-    "what is the meaning of",
-    "what is a",
-    "what is an",
-    "what does",
-    "what are",
-    "meaning of",
-    "what is",
-    "what's",
-    "whats",
-    "define",
-    "explain",
+#: How many of a playbook's authored trigger phrasings reach the prompt.
+#: Enough to carry the ways a question is actually asked, bounded so a
+#: pack that authors twenty does not crowd out the other seventeen
+#: playbooks.
+_PLAYBOOK_TRIGGER_LIMIT = 6
+
+#: Deterministic definitional lead-ins, as phrasing FAMILIES rather than a
+#: list of sentences.
+#:
+#: "define denied dollars" resolved on the first try and produced a card;
+#: "what counts as denied dollars here?" — the same question, asked the way
+#: people ask it — matched no prefix, so the WHOLE utterance went to the
+#: pack as the term, resolved to nothing, and came back as an amber "no
+#: pack content matched the definitional lookup". A closed tuple of literal
+#: openings will keep losing that race, because the number of ways to ask
+#: what something means is not closed.
+#:
+#: Ordered: alternation is first-match, so specific openings precede the
+#: generic "what is". Nothing here names a metric — the term is whatever
+#: survives the strip, and it is the PACK that decides whether that is a
+#: thing this deployment defines.
+_DEFINITIONAL_LEAD_IN = re.compile(
+    r"""^\s*
+    (?:(?:can|could|would)\s+you\s+|please\s+)?
+    (?:
+        what(?:'s|s)?(?:\s+is)?\s+the\s+(?:meaning|definition)\s+of
+      | (?:the\s+)?(?:meaning|definition)\s+of
+      | what\s+(?:counts|qualifies)\s+(?:as|toward|towards)
+      | what\s+(?:goes|falls)\s+(?:into|under)
+      | what(?:'s|s)?(?:\s+is)?\s+included\s+in
+      | what\s+do(?:es)?\s+(?:you|we|it|they)\s+mean\s+by
+      | how\s+do(?:es)?\s+(?:you|we|they|this|it)\s+(?:define|calculate|compute|measure)
+      | how\s+is(?=\s+.*\b(?:defined|calculated|computed|measured)\b)
+      | tell\s+me\s+about
+      | what\s+(?:is|are|does|do)\s+(?:a|an|the)
+      | what\s+(?:is|are|does|do)
+      | what(?:'s|s)
+      | define
+      | explain
+      | describe
+    )
+    \s+""",
+    re.IGNORECASE | re.VERBOSE,
+)
+
+#: Trailing filler that scopes a definitional question to this deployment
+#: without changing which term it asks about — "…mean", "…here", "…in this
+#: data". Stripped repeatedly: "what does denied dollars mean here?" ends
+#: on two of them.
+_DEFINITIONAL_TRAILERS = (
+    "mean",
+    "means",
+    "stand for",
+    "stands for",
+    "defined",
+    "calculated",
+    "computed",
+    "measured",
+    "here",
+    "exactly",
+    "in this data",
+    "in this dataset",
+    "in this pack",
+    "in our data",
+    "in this warehouse",
+    "for us",
+    "on this platform",
 )
 
 # Coming up empty has two honest shapes and they want opposite advice. A
@@ -861,18 +914,44 @@ def _clip(text: str) -> str:
     return flat[:_DESCRIPTION_CLIP]
 
 
+def _strip_definitional_trailers(text: str) -> str:
+    """Drop trailing filler until none is left ("PR3 mean here" → "PR3")."""
+    current = text
+    while True:
+        for trailer in _DEFINITIONAL_TRAILERS:
+            if current.endswith(" " + trailer):
+                current = current[: -len(trailer) - 1].strip().strip(",").strip()
+                break
+        else:
+            return current
+
+
+def definitional_lead_in(question: str) -> str | None:
+    """The term a definitional question asks about, or ``None``.
+
+    ``None`` means the utterance is not PHRASED as a definition — no
+    governed lead-in opens it — which is a different fact from "the term it
+    named is not one we define". Callers that need the distinction (see
+    :meth:`InterpretQuestionService.definitional_match`) must not infer it
+    from the stripped text, because trailing filler is stripped either way.
+    """
+    text = question.strip().strip("?!.").strip().lower()
+    match = _DEFINITIONAL_LEAD_IN.match(text)
+    if match is None:
+        return None
+    term = text[match.end() :].strip()
+    for article in ("a ", "an ", "the ", "our ", "my "):
+        if term.startswith(article):
+            term = term[len(article) :].strip()
+            break
+    return _strip_definitional_trailers(term) or None
+
+
 def strip_definitional_lead_in(question: str) -> str:
     """Deterministically strip definitional lead-in phrases and trailing
     filler ("what does PR3 mean?" → "PR3")."""
     text = question.strip().strip("?!.").strip().lower()
-    for lead in _DEFINITIONAL_LEAD_INS:
-        if text.startswith(lead + " "):
-            text = text[len(lead) :].strip()
-            break
-    for trailer in (" mean", " stand for"):
-        if text.endswith(trailer):
-            text = text[: -len(trailer)].strip()
-    return text
+    return definitional_lead_in(question) or _strip_definitional_trailers(text)
 
 
 @dataclass(frozen=True, slots=True)
@@ -1029,6 +1108,33 @@ class InterpretQuestionService:
 
     # ---------------------------------------------------------- vocabulary
 
+    def _playbook_line(self, pid: str, description: str) -> str:
+        """One playbook's prompt entry: what it is, and how it gets asked.
+
+        Playbook selection read the id and 160 clipped characters of
+        description and nothing else, so every ``triggers:`` block in the
+        pack was authored content with no runtime consumer — eighteen
+        playbooks' worth of the pack author's own words for how analysts
+        phrase each question, sitting inert. The cost was routing:
+        "Is anything about to miss a filing deadline?" matched
+        ``timely_filing_watch``'s trigger *"claims about to miss filing"*
+        exactly, and the model never saw it, so the question came back as a
+        bare ``timely_filing_at_risk_dollars`` total whose own mandatory
+        caveat told the analyst to go cut it by ``filing_runway_bucket``
+        themselves.
+
+        Triggers are phrasings, not patterns: nothing here matches an
+        utterance: the model still chooses, and every id it returns is
+        still validated against the pinned pack. This is vocabulary.
+        """
+        line = f"- {pid}: {_clip(description)}"
+        spec = self._pack.playbook(pid)
+        triggers = spec.triggers if spec is not None else ()
+        phrasings = "; ".join(
+            _clip(trigger) for trigger in triggers[:_PLAYBOOK_TRIGGER_LIMIT] if trigger.strip()
+        )
+        return f"{line}\n    asked as: {phrasings}" if phrasings else line
+
     def _vocabulary(self) -> dict[str, str]:
         metrics = "\n".join(
             f"- {mid}: {_clip(desc)}" for mid, desc in self._pack.metric_summaries()
@@ -1037,7 +1143,7 @@ class InterpretQuestionService:
             f"- {dim.id}: {dim.label}" for dim in self._catalog.dimensions if dim.certified
         )
         playbooks = "\n".join(
-            f"- {pid}: {_clip(desc)}" for pid, desc in self._pack.playbook_summaries()
+            self._playbook_line(pid, desc) for pid, desc in self._pack.playbook_summaries()
         )
         concepts = "\n".join(f"- {cid}: {name}" for cid, name in self._pack.concept_summaries())
         date_bases = ", ".join(basis.id for basis in self._catalog.date_bases)
@@ -1068,8 +1174,8 @@ class InterpretQuestionService:
         ``SubmitTurnService._classification_by_construction``). A lookup
         against governed content is not a guess, so it does not need one.
         """
-        stripped = strip_definitional_lead_in(question)
-        if not stripped or stripped == question.strip().strip("?!.").strip().lower():
+        stripped = definitional_lead_in(question)
+        if not stripped:
             return False  # no lead-in was present: not phrased as a definition
         return bool(self._pack.resolve_term(stripped))
 

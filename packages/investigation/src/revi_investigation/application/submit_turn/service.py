@@ -47,8 +47,10 @@ from revi_investigation.application.submit_turn.open_session import OpenSessionS
 from revi_investigation.application.submit_turn.refinement import _RefinementTurns
 from revi_investigation.application.submit_turn.types import (
     _NO_MODEL_USAGE,
+    RESUMED_QUESTION_LEAD,
     SubmitTurnRequest,
     TurnOutcome,
+    _anchor_phrase,
     _join_question_and_answer,
     _new_id,
     _TurnState,
@@ -531,10 +533,10 @@ class SubmitTurnService(_RefinementTurns):
         state.question = _join_question_and_answer(pending.original_question, state.question)
         state.lineage_parent = pending.investigation_id
         state.assumptions.append(
-            f"Read as an answer to the question above: {pending.question!r} → "
-            f"{', '.join(tokens)}. Those are handles this session published, so they are "
-            "resolved against what was shown rather than read as values in the data, and "
-            f"{pending.original_question!r} is resumed against them."
+            f"{RESUMED_QUESTION_LEAD}: {', '.join(tokens)}. Those are handles this session "
+            "published, so they are resolved against what was shown rather than read as "
+            f"values in the data, and {_anchor_phrase(pending.original_question)} is "
+            "resumed against them."
         )
         return await self._refinement_turn(session, state, classified, dto_ops=None)
 
@@ -579,10 +581,10 @@ class SubmitTurnService(_RefinementTurns):
         state.question = _join_question_and_answer(pending.original_question, answer)
         state.lineage_parent = pending.investigation_id
         state.assumptions.append(
-            f"Read as an answer to the question above: {pending.question!r} → {answer!r}. "
-            f"That question was asked about a re-presentation, so this answer re-serves the "
-            f"{len(parent.findings)} row(s) the turn above it published, with your request "
-            "applied to them — nothing was re-planned and nothing was re-measured."
+            f"{RESUMED_QUESTION_LEAD}: {answer!r}. That question was asked about a "
+            f"re-presentation, so this answer re-serves the {len(parent.findings)} row(s) "
+            "the turn above it published, with your request applied to them — nothing was "
+            "re-planned and nothing was re-measured."
         )
         return await self._presentation_turn(session, state, classified, parent)
 
@@ -647,9 +649,9 @@ class SubmitTurnService(_RefinementTurns):
             state.question = pending.original_question
             state.lineage_parent = pending.investigation_id
             state.assumptions.append(
-                f"Read as an answer to the question above: {pending.question!r} → "
-                f"{binding.option!r}. Resuming {pending.original_question!r} with that "
-                "applied; this answer is recorded as a child of the turn that asked."
+                f"{RESUMED_QUESTION_LEAD}: {binding.option!r}. Resuming "
+                f"{_anchor_phrase(pending.original_question)} with that applied; this "
+                "answer is recorded as a child of the turn that asked."
             )
             return await self._apply_binding(session, state, classified, binding)
         # A reply that answers nothing is not an answer: a genuinely new
@@ -661,7 +663,7 @@ class SubmitTurnService(_RefinementTurns):
         # dropped rather than as applied.
         if not _answers_pending(state.question, pending):
             state.assumptions.append(
-                f"Assumed: this is a new question, not an answer to {pending.question!r} — it "
+                "Assumed: this is a new question, not an answer to the question above — it "
                 "matches none of the options that question offered and stands on its own. "
                 "That question is left unanswered; ask it again if you still want it."
             )
@@ -670,8 +672,8 @@ class SubmitTurnService(_RefinementTurns):
         resolved = _join_question_and_answer(pending.original_question, state.question)
         if resolved != state.question:
             state.assumptions.append(
-                f"Read as an answer to the question above: {pending.question!r} → "
-                f"{state.question!r}. Answering the original question with that applied."
+                f"{RESUMED_QUESTION_LEAD}: {state.question!r}. Answering "
+                f"{_anchor_phrase(pending.original_question)} with that applied."
             )
             state.question = resolved
         # Parented either way: an answer to a question this platform asked

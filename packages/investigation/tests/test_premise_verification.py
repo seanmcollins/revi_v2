@@ -27,6 +27,7 @@ from revi_investigation.application.findings import (
     MagnitudeVerdict,
     verify_premise,
 )
+from revi_investigation.application.findings.premise import then
 from revi_investigation.application.interpretation import (
     asserted_multiple,
     size_asserted_unparsed,
@@ -343,3 +344,47 @@ class TestThePropertyTheReviewAskedFor:
         assert result.findings[0].confidence == "qualified"
         assert result.warnings[0].startswith("premise_unverifiable:")
         assert dict(result.findings[0].values)["premise_unverifiable"] is True
+
+
+class TestAVerdictIsJoinedWithOneStop:
+    """``premise_verdict_sentence`` returns a FINISHED sentence — several
+    branches end on "…Ask again once the thinner side matures." — and every
+    caveat that quoted it appended a stop of its own. The CSV export and the
+    warning register both published "…matures.. The question's own
+    assumption…": a doubled period in the middle of the most carefully
+    written prose this engine produces."""
+
+    @pytest.mark.parametrize(
+        "sentence",
+        [
+            "You asked about an increase. Ask again once the thinner side matures.",
+            "It did not double — it rose 8%.",
+            "Nothing on this answer confirms or refutes the claim!",
+            "Which window did you mean?",
+        ],
+    )
+    def test_a_finished_sentence_is_not_given_a_second_stop(self, sentence: str) -> None:
+        joined = then(sentence, "The question's own assumption is neither confirmed nor refuted.")
+        assert ".." not in joined
+        assert "?." not in joined and "!." not in joined
+        assert joined.startswith(sentence)
+        assert joined.endswith("The question's own assumption is neither confirmed nor refuted.")
+
+    def test_an_unterminated_sentence_still_gets_one(self) -> None:
+        assert then("It rose 8%", "So read it that way.") == "It rose 8%. So read it that way."
+
+    def test_the_live_caveat_carries_exactly_one_period(self) -> None:
+        """The exact string the export published."""
+        sentence = (
+            "You asked about an increase in denial rate in July 2026. It cannot be checked "
+            "yet — the two windows are not equally settled (1,544 adjudicated record(s) on "
+            "this window against 5,878 on the comparison window, 26.3%), so the difference "
+            "between them is dominated by how much of the newer window has come back rather "
+            "than by anything that happened. Ask again once the thinner side matures."
+        )
+        caveat = "premise_unverifiable: " + then(
+            sentence,
+            "The question's own assumption is neither confirmed nor refuted on this answer.",
+        )
+        assert "matures.. " not in caveat
+        assert "matures. The question's own assumption" in caveat

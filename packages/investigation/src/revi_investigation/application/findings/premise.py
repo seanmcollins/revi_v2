@@ -557,6 +557,26 @@ def _asserted_claim(spec: AnalysisSpec) -> tuple[str, str]:
     return noun, spec.direction.value
 
 
+def then(sentence: str, tail: str) -> str:
+    """``sentence`` followed by ``tail``, with exactly one stop between them.
+
+    :func:`premise_verdict_sentence` returns a finished sentence — some
+    branches end on "…Ask again once the thinner side matures." — and every
+    caveat that quotes it appended a full stop of its own. The CSV export
+    and the warning register both published *"…matures.. The question's own
+    assumption…"*, a doubled period in the middle of the most carefully
+    written prose this engine produces.
+
+    Fixed where the composition happens rather than where it is rendered:
+    a client that repairs its own copy leaves the wire, the export and the
+    trace saying something the product would not write.
+    """
+    lead = sentence.rstrip()
+    if not lead.endswith((".", "!", "?", ":", ";")):
+        lead = f"{lead}."
+    return f"{lead} {tail}"
+
+
 def premise_verdict_sentence(
     premise: PremiseCheck, spec: AnalysisSpec, *, comparison: ComparisonRendering | None
 ) -> str:
@@ -787,22 +807,23 @@ def _premise_warning(
     assert spec.direction is not None
     sentence = premise_verdict_sentence(premise, spec, comparison=comparison)
     if premise.unverifiable:
-        return (
-            f"premise_unverifiable: {sentence}. The question's own assumption is neither "
-            "confirmed nor refuted on this answer, so nothing below may be read as evidence "
-            "for it or against it."
+        return "premise_unverifiable: " + then(
+            sentence,
+            "The question's own assumption is neither confirmed nor refuted on this "
+            "answer, so nothing below may be read as evidence for it or against it.",
         )
     if premise.magnitude_short:
-        return (
-            f"premise_partial: {sentence}. The direction the question assumes is right and the "
-            "size is not, so nothing below may be described in the question's own words for it. "
-            "What follows is the composition of the movement that did happen."
+        return "premise_partial: " + then(
+            sentence,
+            "The direction the question assumes is right and the size is not, so nothing "
+            "below may be described in the question's own words for it. What follows is "
+            "the composition of the movement that did happen.",
         )
-    return (
-        f"premise_false: {sentence}. The question takes that movement as given, and over this "
-        "window there was none. What follows describes the cells that did move that way; it is "
-        "context for a movement that did not happen at the level asked about, not confirmation "
-        "of it."
+    return "premise_false: " + then(
+        sentence,
+        "The question takes that movement as given, and over this window there was none. "
+        "What follows describes the cells that did move that way; it is context for a "
+        "movement that did not happen at the level asked about, not confirmation of it.",
     )
 
 
@@ -817,7 +838,8 @@ def _premise_verified_warning(
     sub-cell. A verdict is a verdict either way.
     """
     sentence = premise_verdict_sentence(premise, spec, comparison=comparison)
-    return (
-        f"premise_verified: {sentence}. The movement below is read against that aggregate, "
-        "which is the level the question asked about."
+    return "premise_verified: " + then(
+        sentence,
+        "The movement below is read against that aggregate, which is the level the "
+        "question asked about.",
     )
