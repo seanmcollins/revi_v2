@@ -36,12 +36,11 @@ ERA_START = _iso(ORGANIC_ERA_START)
 """Every scenario cohort is scoped to claims serviced in the organic era.
 
 Three of the five scenarios compare a window against "everything before the
-break". The 2024 comparison backfill (backfill.py) is not part of that history —
-it is a closed prior year planted for period-over-period questions — so the
-open-ended cohorts are bounded below by the claim's service date. (Service date,
-not remit date: a December-2024 claim adjudicates in January 2025.) Every
+break", and the 2024 backfill (backfill.py) is not part of that history, so the
+open-ended cohorts are bounded below by the claim's service date — service date,
+not remit date, because a December-2024 claim adjudicates in January 2025. Every
 organic and injected claim is serviced on or after this day, so the bound leaves
-each published figure exactly where it was.
+each published figure unchanged.
 """
 
 
@@ -60,7 +59,7 @@ def _one(con: duckdb.DuckDBPyConnection, sql: str) -> tuple[Any, ...]:
 
 
 def _denial_spike(con: duckdb.DuckDBPyConnection, sch: str) -> dict[str, Any]:
-    """Scenario 1: Meridian Health x Imaging CARC 197 (CO) rate by first-remit month."""
+    """Scenario 1: Halvern Health x Imaging CARC 197 (CO) rate by first-remit month."""
     monthly = con.execute(
         f"""
         WITH cell AS (
@@ -314,7 +313,7 @@ def _underpayment(con: duckdb.DuckDBPyConnection, sch: str) -> dict[str, Any]:
 
 
 def _timely_filing(con: duckdb.DuckDBPyConnection, sch: str, newest_data_date: str) -> dict[str, Any]:
-    """Scenario 5: State Medicaid HMO x Eastside — unsubmitted July claims aging to 90 days."""
+    """Scenario 5: State Medicaid HMO x Eastmere — unsubmitted July claims aging to 90 days."""
     count, billed, min_age, med_age, max_age = _one(
         con,
         f"""

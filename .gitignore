@@ -29,5 +29,5 @@ out/
 .idea/
 .vscode/
 
-# agent worktrees
-.claude/worktrees/
+# agent scratch: worktrees, scheduled-task locks, local session state
+.claude/

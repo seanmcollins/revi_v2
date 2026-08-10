@@ -1,6 +1,10 @@
 # Governed remittance-code definitions. Every definition_paraphrase is written
 # in our own words — the official X12 code text is licensed and is never
-# reproduced here. X12 is cited as the code-list maintainer. Denial analytics
+# reproduced here. Write new entries from the governed meaning, not from X12's
+# sentence with its slashes expanded into "or"; that is a copy wearing a hat,
+# and packages/pack/tests/test_code_text_independence.py fails it (by digest,
+# so the official text stays out of this repository even in the test). X12 is
+# cited as the code-list maintainer. Denial analytics
 # key on the group code + CARC pair ("what is PR3" -> group PR + CARC 3).
 # Categories on CARCs match the warehouse's certified denial_category domain.
 codes:
@@ -109,9 +113,10 @@ codes:
     code: "4"
     title: Procedure/modifier mismatch
     definition_paraphrase: >-
-      The procedure code is inconsistent with the modifier used, or a
-      required modifier is missing — a coding correction, usually
-      resubmittable.
+      The modifier attached to the line does not agree with the procedure
+      billed, or the line needed a modifier and none was supplied. Work at
+      the coding desk rather than the appeals desk: corrected and rebilled,
+      these usually pay.
     category: CODING
   - code_system: carc
     code: "11"
@@ -124,40 +129,45 @@ codes:
     code: "16"
     title: Missing or invalid information
     definition_paraphrase: >-
-      The claim or service lacks information, or contains a submission or
-      billing error, and cannot be adjudicated as sent. Usually paired with
-      remark codes specifying what is missing; a classic correct-and-rebill
-      denial.
+      Something the payer needed in order to adjudicate is absent or wrong
+      on the submission, so the claim stops before any coverage decision is
+      reached. Remark codes riding alongside name the specific field. This
+      says nothing about whether the service was covered — it is the classic
+      correct-and-rebill denial.
     category: OTHER
   - code_system: carc
     code: "18"
     title: Duplicate
     definition_paraphrase: >-
-      The claim or service appears to be an exact duplicate of one already
-      on file with the payer.
+      The payer already holds a matching claim and is treating this one as a
+      repeat submission. Frequently a rebill sent while the original was
+      still in process rather than a genuine double-bill.
     category: DUPLICATE
   - code_system: carc
     code: "22"
     title: Coordination of benefits — other coverage
     definition_paraphrase: >-
-      [superseded: independently worded in packs/base-rcm/codes.yaml] —
-      the claim went to this payer in the wrong order. The signature COB
-      code; concentration of 22s is proxy evidence of a COB problem.
+      Another insurer sits ahead of this one in the member's coverage order,
+      so this payer holds the claim back until the primary has adjudicated.
+      The signature coordination-of-benefits code: a concentration of 22s is
+      proxy evidence that eligibility capture is sequencing payers wrongly.
     category: COB
   - code_system: carc
     code: "23"
     title: Prior payer adjudication impact
     definition_paraphrase: >-
-      The amount reflects the impact of a prior payer's adjudication —
-      what this (secondary) payer allows is reduced by what the primary
-      already decided.
+      This payer sits downstream of a primary that has already paid or
+      adjusted, and the amount here is whatever that earlier decision left
+      behind. Expected mechanics on secondary claims, not a workable denial.
     category: COB
   - code_system: carc
     code: "27"
     title: Coverage terminated before service
     definition_paraphrase: >-
-      Expenses were incurred after the member's coverage ended — an
-      eligibility failure discoverable at verification.
+      The member's policy had already lapsed on the date of service, so
+      nothing about the encounter was covered. Almost always catchable at
+      registration: an eligibility check keyed to the right date surfaces it
+      before the visit happens.
     category: ELIGIBILITY
   - code_system: carc
     code: "29"
@@ -170,9 +180,10 @@ codes:
     code: "45"
     title: Exceeds fee schedule / contracted amount
     definition_paraphrase: >-
-      The billed charge exceeds the fee schedule, maximum allowable, or
-      contracted amount — the routine contractual reduction, normally under
-      group CO and not a workable denial.
+      The charge sat above what the contract or fee schedule permits, and
+      the payer wrote the difference down to the allowed amount. Routine
+      contractual mechanics, normally under group CO: volume here tracks
+      chargemaster levels rather than anything an analyst can work.
     category: CONTRACTUAL
   - code_system: carc
     code: "50"
@@ -193,22 +204,28 @@ codes:
     code: "97"
     title: Included in another service's allowance
     definition_paraphrase: >-
-      Payment for this service is already included in the allowance for
-      another adjudicated service — the bundling/inclusive-payment denial.
+      The payer treats this line as absorbed into a companion line it has
+      already priced, so no separate money attaches to it. The bundling
+      denial: an appeal turns on whether the two services are genuinely
+      distinct, not on documentation.
     category: CODING
   - code_system: carc
     code: "109"
     title: Wrong payer or contractor
     definition_paraphrase: >-
-      This payer is not responsible for the claim; it must be sent to the
-      correct payer or contractor — a routing/COB-family denial.
+      The claim landed at an entity that does not hold this member's risk,
+      and the payer is returning it to be re-routed. A routing failure in
+      the COB family: the work is finding the right destination, not arguing
+      coverage.
     category: COB
   - code_system: carc
     code: "151"
     title: Frequency/quantity not supported
     definition_paraphrase: >-
-      Payment was adjusted because the documentation does not support this
-      many or this frequent services — a utilization-review reduction.
+      The payer accepted the service but not the volume: the record it read
+      does not justify repeating it this often or billing this many units.
+      A utilization judgment, so the remedy is clinical documentation rather
+      than a coding fix.
     category: MEDICAL_NECESSITY
   - code_system: carc
     code: "197"
@@ -222,8 +239,10 @@ codes:
     code: "204"
     title: Not a covered benefit
     definition_paraphrase: >-
-      The service, equipment, or drug is not a covered benefit under the
-      member's current plan — an eligibility/benefit-design denial.
+      What was furnished falls outside the benefits the member's plan
+      actually buys, so coverage never attached in the first place. Benefit
+      design rather than error: appeals rarely move it, though a different
+      plan year or an exception process might.
     category: ELIGIBILITY
   - code_system: carc
     code: "253"

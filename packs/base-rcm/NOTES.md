@@ -1385,8 +1385,8 @@ unsubmitted claims, which have no submission date to anchor on.
 `dim_plan`, so plan-level coverage is complete and the generator needed no
 extension. The pack's rule ladder is coarser: it resolves 13 of the 30 plans
 to the same limit the plan record carries and the other 17 to a payer-pattern
-default that differs (six payers — Atlas, Meridian, Northbridge, Bluestone,
-Pinnacle, Veritas — have no rule of their own and fall through to
+default that differs (six payers — Atlas, Halvern, Northbridge, Bluestone,
+Ashvale, Veritas — have no rule of their own and fall through to
 `commercial_default_90` or `unmatched_default_90`). Only **7 of 30** plans
 match a rule with `requires_confirmation: false` (Federal Medicare Part A/B,
 the four Medicaid MCO plans, State Medicaid HMO); the other 23 are planning

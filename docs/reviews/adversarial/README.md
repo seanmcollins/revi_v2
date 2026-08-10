@@ -1,7 +1,7 @@
 # Adversarial review rounds (2026-08-09)
 
 Full persona reports + consolidations for the six-persona adversarial loop
-(RCM exec, RCM analyst, VC investor, Adonis exec, UI/UX principal, principal
+(RCM exec, RCM analyst, VC investor, competitor exec, UI/UX principal, principal
 product designer). Rounds 1-2 ran against the overnight MVP (demo bar); rounds
 3-5 against the sellability bar. Each roundN.json holds result.reviews[] (per-
 persona: regression verdicts, scenarios, findings, buy verdict) and

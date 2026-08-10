@@ -15,7 +15,7 @@ REVI_SEED = 20260807
 
 
 def make_rng() -> np.random.Generator:
-    """The one generator threaded through every stage, exactly as specified."""
+    """The one generator threaded through every stage."""
     return np.random.Generator(np.random.PCG64(REVI_SEED))
 
 
@@ -35,7 +35,7 @@ ORGANIC_ERA_START = SERVICE_START
 
 Everything the five scenarios and the anomaly population describe happens in the
 organic era. The 2024 comparison backfill (backfill.py) sits entirely before it,
-so scenario and anomaly *baseline* windows are bounded below by this date: a
+so scenario and anomaly *baseline* windows are bounded below by this date — a
 prior-year cohort must not retroactively redefine "the period before the break".
 No pre-existing row carries a service, remit or denial date before it, so the
 bound is value-preserving for every published number.
@@ -70,8 +70,8 @@ SNAPSHOTS: tuple[SnapshotSpec, ...] = (
 class ScenarioSpec:
     """Constants for the five planted scenarios. Dates are fixed regardless of scale."""
 
-    # Scenario 1 — denial spike: Meridian Health x Imaging, CARC 197 (CO).
-    s1_payer = "Meridian Health"
+    # Scenario 1 — denial spike: Halvern Health x Imaging, CARC 197 (CO).
+    s1_payer = "Halvern Health"
     s1_service_line = "Imaging"
     s1_break_day: int = day("2026-06-15")
     s1_pre_prob: float = 0.02
@@ -106,9 +106,9 @@ class ScenarioSpec:
     s4_start_day: int = day("2026-05-01")
     s4_factor: float = 0.92
 
-    # Scenario 5 — timely filing: State Medicaid HMO (90 days from service), Eastside.
+    # Scenario 5 — timely filing: State Medicaid HMO (90 days from service), Eastmere.
     s5_plan = "State Medicaid HMO"
-    s5_facility = "Eastside Medical Center"
+    s5_facility = "Eastmere Medical Center"
     s5_july_start: int = day("2026-07-01")
     s5_july_end: int = day("2026-07-31")
     # Late-filed claims must have service >90 days before submission for a CARC 29
@@ -208,8 +208,8 @@ ANOMALY_SPECS: tuple[AnomalySpec, ...] = (
        onset="2026-07-10", window_end="2026-07-25", n_claims=3,
        billed_total_cents=85_000, min_events=2),
     _a(spec_id="ANM-006", category="eligibility_cluster", metric_id="denial_rate",
-       title="Coverage-terminated denial cluster: Pinnacle HMO Primary Care",
-       plan="Pinnacle HMO", service_line="Primary Care", carc=27,
+       title="Coverage-terminated denial cluster: Ashvale HMO Primary Care",
+       plan="Ashvale HMO", service_line="Primary Care", carc=27,
        onset="2026-07-18", window_end="2026-08-01", n_claims=22,
        billed_total_cents=980_000, min_events=8),
     _a(spec_id="ANM-007", category="eligibility_cluster", metric_id="denial_rate",
@@ -219,7 +219,7 @@ ANOMALY_SPECS: tuple[AnomalySpec, ...] = (
        billed_total_cents=1_450_000, min_events=6),
     _a(spec_id="ANM-008", category="eligibility_cluster", metric_id="denial_rate",
        title="Small eligibility pocket: Bluestone HMO Primary Care",
-       plan="Bluestone HMO Blue", service_line="Primary Care", carc=27,
+       plan="Bluestone Select HMO", service_line="Primary Care", carc=27,
        onset="2026-07-08", window_end="2026-07-16", n_claims=3,
        billed_total_cents=42_000, min_events=2),
     _a(spec_id="ANM-009", category="duplicate", metric_id="denied_dollars",
@@ -228,8 +228,8 @@ ANOMALY_SPECS: tuple[AnomalySpec, ...] = (
        onset="2026-06-25", window_end="2026-07-25", n_claims=12,
        billed_total_cents=2_300_000, min_events=6),
     _a(spec_id="ANM-010", category="duplicate", metric_id="denied_dollars",
-       title="Duplicate lab rebills: Pinnacle PPO Laboratory",
-       plan="Pinnacle PPO", service_line="Laboratory", carc=18,
+       title="Duplicate lab rebills: Ashvale PPO Laboratory",
+       plan="Ashvale PPO", service_line="Laboratory", carc=18,
        onset="2026-07-05", window_end="2026-07-12", n_claims=2,
        billed_total_cents=36_000, min_events=2),
     _a(spec_id="ANM-011", category="underpayment", metric_id="underpayment_variance",
@@ -253,13 +253,13 @@ ANOMALY_SPECS: tuple[AnomalySpec, ...] = (
        onset="2026-07-08", window_end="2026-07-24", n_claims=16,
        billed_total_cents=15_000_000, min_events=8),
     _a(spec_id="ANM-015", category="posting_lag", metric_id="avg_days_to_pay",
-       title="Posting stall on late-July remits: Pinnacle Oncology",
-       payer="Pinnacle Health Plan", service_line="Oncology", post_lag_days=25,
+       title="Posting stall on late-July remits: Ashvale Oncology",
+       payer="Ashvale Health Plan", service_line="Oncology", post_lag_days=25,
        onset="2026-07-22", window_end="2026-08-01", n_claims=10,
        billed_total_cents=10_500_000, min_events=5),
     _a(spec_id="ANM-016", category="submission_gap", metric_id="bill_lag_days",
-       title="Unsubmitted primary-care backlog: Meridian Health",
-       payer="Meridian Health", service_line="Primary Care",
+       title="Unsubmitted primary-care backlog: Halvern Health",
+       payer="Halvern Health", service_line="Primary Care",
        onset="2026-06-18", window_end="2026-07-08", n_claims=24,
        billed_total_cents=1_050_000, min_events=10),
     _a(spec_id="ANM-017", category="submission_gap", metric_id="bill_lag_days",
@@ -268,8 +268,8 @@ ANOMALY_SPECS: tuple[AnomalySpec, ...] = (
        onset="2026-07-02", window_end="2026-07-09", n_claims=3,
        billed_total_cents=54_000, min_events=2),
     _a(spec_id="ANM-018", category="timely_filing", metric_id="timely_filing_at_risk_dollars",
-       title="Timely-filing risk (window open): Meridian Exchange PPO at Southfield",
-       plan="Meridian Exchange PPO", facility="Southfield Community Hospital",
+       title="Timely-filing risk (window open): Halvern Exchange PPO at Southfield",
+       plan="Halvern Exchange PPO", facility="Southfield Community Hospital",
        service_line="Primary Care", onset="2026-06-02", window_end="2026-06-24",
        n_claims=16, billed_total_cents=2_950_000, min_events=8),
     _a(spec_id="ANM-019", category="timely_filing", metric_id="timely_filing_at_risk_dollars",
@@ -309,8 +309,8 @@ ANOMALY_SPECS: tuple[AnomalySpec, ...] = (
        onset="2026-07-04", window_end="2026-08-01", n_claims=14,
        billed_total_cents=8_600_000, min_events=5),
     _a(spec_id="ANM-026", category="charge_entry_lag", metric_id="late_charge_pct",
-       title="Late charges: Eastside cardiology",
-       payer="Bluestone Mutual", facility="Eastside Medical Center",
+       title="Late charges: Eastmere cardiology",
+       payer="Bluestone Mutual", facility="Eastmere Medical Center",
        service_line="Cardiology", charge_lag_min=18, charge_lag_max=30,
        onset="2026-07-18", window_end="2026-08-02", n_claims=12,
        billed_total_cents=4_100_000, min_events=5),
@@ -326,7 +326,7 @@ ANOMALY_SPECS: tuple[AnomalySpec, ...] = (
        billed_total_cents=3_100_000, min_events=8),
     _a(spec_id="ANM-029", category="denial_spike", metric_id="denial_rate",
        title="Non-covered denial burst: Bluestone PPO Imaging",
-       plan="Bluestone PPO Blue", service_line="Imaging", carc=204,
+       plan="Bluestone Preferred PPO", service_line="Imaging", carc=204,
        onset="2026-08-02", window_end="2026-08-02", n_claims=10,
        billed_total_cents=1_750_000, min_events=6),
     _a(spec_id="ANM-030", category="underpayment", metric_id="underpayment_variance",
@@ -336,7 +336,7 @@ ANOMALY_SPECS: tuple[AnomalySpec, ...] = (
        billed_total_cents=740_000, min_events=3),
     _a(spec_id="ANM-031", category="dnfb", metric_id="dnfb_dollars",
        title="DNFB blip (clears on 2026-08-02): Westpark general surgery",
-       payer="Pinnacle Health Plan", facility="Westpark Surgical Center",
+       payer="Ashvale Health Plan", facility="Westpark Surgical Center",
        service_line="General Surgery", onset="2026-07-22", window_end="2026-07-26",
        n_claims=12, billed_total_cents=9_800_000, min_events=8,
        resolve_submit_on="2026-08-02"),
@@ -353,8 +353,8 @@ ANOMALY_SPECS: tuple[AnomalySpec, ...] = (
        n_claims=10, billed_total_cents=130_000, min_events=5,
        resolve_submit_on="2026-08-02", min_impact_cents=0),
     _a(spec_id="ANM-034", category="eligibility_cluster", metric_id="denial_rate",
-       title="Eligibility denials: Meridian HMO Care Emergency",
-       plan="Meridian HMO Care", service_line="Emergency", carc=27,
+       title="Eligibility denials: Halvern HMO Care Emergency",
+       plan="Halvern HMO Care", service_line="Emergency", carc=27,
        onset="2026-08-01", window_end="2026-08-01", n_claims=9,
        billed_total_cents=760_000, min_events=9),
     _a(spec_id="ANM-035", category="duplicate", metric_id="denied_dollars",
@@ -364,7 +364,7 @@ ANOMALY_SPECS: tuple[AnomalySpec, ...] = (
        billed_total_cents=290_000, min_events=3),
     _a(spec_id="ANM-036", category="dnfb", metric_id="dnfb_dollars",
        title="Tiny DNFB tail: Central Plaza primary care",
-       payer="Meridian Health", facility="Central Physicians Plaza",
+       payer="Halvern Health", facility="Central Physicians Plaza",
        service_line="Primary Care", onset="2026-07-12", window_end="2026-07-24",
        n_claims=3, billed_total_cents=88_000, min_events=3),
 )
@@ -380,10 +380,10 @@ class BackfillSpec:
     """Shape of the additive 2024 prior year (backfill.py).
 
     Volume, seasonality, payer mix and denial propensity are declared here so
-    the "how did 2025 compare with 2024?" answer has one auditable source. The
-    resolution deadline is the load-bearing constant: every backfill claim is
-    closed before it, which is what keeps watermark-time point metrics (A/R,
-    DNFB, credit balances, timely-filing risk) exactly where they were.
+    the 2024-vs-2025 comparison has one auditable source. `resolved_by` is the
+    load-bearing constant: every backfill claim is closed before it, which is
+    what keeps watermark-time point metrics (A/R, DNFB, credit balances,
+    timely-filing risk) exactly where they were.
     """
 
     service_start: int = day("2024-01-01")
@@ -398,18 +398,18 @@ class BackfillSpec:
         1.04, 0.95, 1.05, 1.02, 1.03, 0.98, 0.94, 0.96, 1.01, 1.06, 0.97, 0.99,
     )
     # Multiplicative tilt on each payer's 2025 share, in PAYERS order, applied
-    # before renormalisation. The story: commercial and Medicare Advantage
-    # volume grew into 2025 while the Medicaid book receded.
+    # before renormalisation: commercial and Medicare Advantage volume grew into
+    # 2025 while the Medicaid book receded.
     payer_mix_tilt: tuple[float, ...] = (
         0.90,  # Atlas Commercial
-        1.05,  # Meridian Health
+        1.05,  # Halvern Health
         0.85,  # Silverline Medicare Advantage
         1.00,  # Northbridge Commercial
         1.15,  # State Medicaid
         1.10,  # State Medicaid MCO
         1.05,  # Federal Medicare
         0.95,  # Bluestone Mutual
-        1.00,  # Pinnacle Health Plan
+        1.00,  # Ashvale Health Plan
         1.10,  # Veritas Comp Fund
         1.10,  # Lakewood Medicaid MCO
         0.80,  # Summit Peak Medicare Advantage
@@ -417,7 +417,7 @@ class BackfillSpec:
     # Lifecycle clips, tightened from the organic world's so that the whole year
     # closes by `resolved_by`. Each bound sits far enough into the tail of the
     # organic distribution (>2.4 sigma) that mean cycle times are unchanged, so
-    # 2024-vs-2025 lag comparisons stay honest.
+    # 2024-vs-2025 lag comparisons remain valid.
     max_submission_lag: int = 22  # organic: 45
     max_adjudication_lag: int = 40  # organic: 60
     max_post_lag: int = 12  # organic: 15
@@ -440,7 +440,7 @@ class GeneratorConfig:
     overturn_frac: float = 0.45  # among decided appeals
     patient_collect_frac: float = 0.72
     refund_frac: float = 0.004
-    timely_cluster_size: int = 400  # scenario 5: July claims left unsubmitted at Eastside
+    timely_cluster_size: int = 400  # scenario 5: July claims left unsubmitted at Eastmere
     carc29_count: int = 15  # scenario 5: late-filed claims already denied CARC 29
     include_backfill: bool = True  # append the closed 2024 comparison year (backfill.py)
 
@@ -448,9 +448,8 @@ class GeneratorConfig:
     def small() -> GeneratorConfig:
         """Small preset for fast, deterministic tests.
 
-        10% of full scale (not the nominal ~5%): the Meridian x Imaging post-break
+        10% of full scale, not the nominal ~5%: the Halvern x Imaging post-break
         cell needs enough claims for the planted CARC 197 spike to be detectable.
-        Generation stays comfortably under a couple of seconds.
         """
         return GeneratorConfig(
             scale="small",

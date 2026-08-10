@@ -250,7 +250,7 @@ class TestTurnByTurn:
         assert set(cohort_predicate.values) == {
             "State Medicaid",
             "Atlas Commercial",
-            "Meridian Health",
+            "Halvern Health",
         }
         # probes ran at the denial grain through the claim-cohort semi-join
         executed = conversation.engine.repository.executed_probes[
@@ -278,7 +278,7 @@ class TestTurnByTurn:
             conversation.executes_after[1] : conversation.executes_after[2]
         ]
         probe = next(p for p in executed if isinstance(p, AggregationProbe))
-        payers = ("State Medicaid", "Atlas Commercial", "Meridian Health")
+        payers = ("State Medicaid", "Atlas Commercial", "Halvern Health")
         equivalent = replace(
             probe,
             scope=Predicate(DimensionRef("payer"), PredicateOp.IN, payers),

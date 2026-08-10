@@ -27,9 +27,9 @@ Service dates span **2024-01-01 .. 2026-08-02**, in two eras:
   organic and injected claim is serviced on or after that day, so the bound
   changes no published number.
 
-## Scenario 1 — Denial spike: Meridian Health x Imaging, CARC 197 (CO)
+## Scenario 1 — Denial spike: Halvern Health x Imaging, CARC 197 (CO)
 
-**Mechanism.** For claims of payer `Meridian Health` on service line `Imaging`,
+**Mechanism.** For claims of payer `Halvern Health` on service line `Imaging`,
 the probability of a claim-level CO/197 (prior authorization missing) denial on
 the first remit is 2% when the first remit falls before 2026-06-15 and 14% from
 2026-06-15 onward. The generic denial mix never emits 197 in this cell, so the
@@ -40,7 +40,7 @@ planted rates are clean.
 ```sql
 WITH cell AS (
   SELECT claim_id FROM snap_003.v_claim
-  WHERE payer_name = 'Meridian Health' AND service_line_name = 'Imaging'
+  WHERE payer_name = 'Halvern Health' AND service_line_name = 'Imaging'
     AND service_date >= DATE '2025-01-01'   -- organic era; excludes the 2024 backfill
 ),
 first_remit AS (
@@ -180,10 +180,10 @@ The post/pre allowed-to-billed ratio is ~0.917 (target 0.92; contract-rate
 jitter explains the remainder). Monthly variance dollars by first-remit month
 are in `scenarios.4_underpayment_northbridge_ortho`.
 
-## Scenario 5 — Timely filing: State Medicaid HMO (90 days from service) at Eastside
+## Scenario 5 — Timely filing: State Medicaid HMO (90 days from service) at Eastmere
 
 **Mechanism.** Exactly `timely_cluster_size` (400 at full scale) claims with
-July-2026 service dates at `Eastside Medical Center` are forced onto plan
+July-2026 service dates at `Eastmere Medical Center` are forced onto plan
 `State Medicaid HMO` (timely filing: 90 days, SERVICE basis) and left
 unsubmitted at every snapshot — at `snap_003` they are 2–32 days old, aging
 toward the 90-day deadline (58–88 days remaining). Additionally,
@@ -201,14 +201,14 @@ SELECT count(*), SUM(billed_amount_cents),
        MIN(DATE '2026-08-02' - service_date) AS min_age,
        MAX(DATE '2026-08-02' - service_date) AS max_age
 FROM snap_003.v_claim
-WHERE plan_name = 'State Medicaid HMO' AND facility_name = 'Eastside Medical Center'
+WHERE plan_name = 'State Medicaid HMO' AND facility_name = 'Eastmere Medical Center'
   AND service_date BETWEEN DATE '2026-07-01' AND DATE '2026-07-31'
   AND submission_date IS NULL;
 
 SELECT count(*), SUM(denied_amount_cents)
 FROM snap_003.v_denial
 WHERE plan_name = 'State Medicaid HMO'
-  AND facility_name = 'Eastside Medical Center' AND carc_code = 29
+  AND facility_name = 'Eastmere Medical Center' AND carc_code = 29
   AND service_date >= DATE '2025-01-01';   -- organic era
 ```
 
@@ -341,19 +341,19 @@ full scale (self-resolvers show their last observed severity instead).
 | `ANM-003` | denial_spike | Lakewood Medicaid MCO / Emergency | denial_rate | 2026-07-05 | $56,005 | high | 111 |
 | `ANM-004` | unworked_denials | Federal Medicare / General Surgery | denials_unworked_pct | 2026-03-01 | $62,035 | high | 111 |
 | `ANM-005` | denial_spike | Veritas Comp Fund / Behavioral Health | denial_rate | 2026-07-10 | $972 | low | 111 |
-| `ANM-006` | eligibility_cluster | Pinnacle HMO / Primary Care | denial_rate | 2026-07-18 | $10,018 | medium | 111 |
+| `ANM-006` | eligibility_cluster | Ashvale HMO / Primary Care | denial_rate | 2026-07-18 | $10,018 | medium | 111 |
 | `ANM-007` | eligibility_cluster | State MCO Standard / Emergency | denial_rate | 2026-08-02 | $15,182 | medium | --1 |
-| `ANM-008` | eligibility_cluster | Bluestone HMO Blue / Primary Care | denial_rate | 2026-07-08 | $507 | low | 111 |
+| `ANM-008` | eligibility_cluster | Bluestone Select HMO / Primary Care | denial_rate | 2026-07-08 | $507 | low | 111 |
 | `ANM-009` | duplicate | Federal Medicare / Imaging | denied_dollars | 2026-06-25 | $25,494 | high | 111 |
-| `ANM-010` | duplicate | Pinnacle PPO / Laboratory | denied_dollars | 2026-07-05 | $415 | low | 111 |
+| `ANM-010` | duplicate | Ashvale PPO / Laboratory | denied_dollars | 2026-07-05 | $415 | low | 111 |
 | `ANM-011` | underpayment | Bluestone Mutual / General Surgery / SURG-GEN | underpayment_variance | 2026-05-05 | $134,031 | critical | 111 |
 | `ANM-012` | underpayment | Summit Peak MA / Cardiology / CARD-PROC | underpayment_variance | 2026-05-20 | $7,741 | medium | 111 |
 | `ANM-013` | contractual | Veritas Comp Fund / Orthopedic Surgery / ORTHO-SURG | gross_collection_rate | 2026-05-01 | $493,266 | critical | 111 |
 | `ANM-014` | posting_lag | Bluestone Mutual / Cardiology | avg_days_to_pay | 2026-07-08 | $73,956 | high | 111 |
-| `ANM-015` | posting_lag | Pinnacle Health Plan / Oncology | avg_days_to_pay | 2026-07-22 | $63,552 | high | 111 |
-| `ANM-016` | submission_gap | Meridian Health / Primary Care | bill_lag_days | 2026-06-18 | $23,607 | medium | 111 |
+| `ANM-015` | posting_lag | Ashvale Health Plan / Oncology | avg_days_to_pay | 2026-07-22 | $63,552 | high | 111 |
+| `ANM-016` | submission_gap | Halvern Health / Primary Care | bill_lag_days | 2026-06-18 | $23,607 | medium | 111 |
 | `ANM-017` | submission_gap | Veritas Comp Fund / Primary Care | bill_lag_days | 2026-07-02 | $474 | low | 111 |
-| `ANM-018` | timely_filing | Meridian Exchange PPO / Southfield / Primary Care | timely_filing_at_risk_dollars | 2026-06-02 | $30,376 | high | 111 |
+| `ANM-018` | timely_filing | Halvern Exchange PPO / Southfield / Primary Care | timely_filing_at_risk_dollars | 2026-06-02 | $30,376 | high | 111 |
 | `ANM-019` | timely_filing | State Medicaid HMO / Northgate / Emergency | timely_filing_at_risk_dollars | 2026-03-18 | $13,237 | medium | 111 |
 | `ANM-020` | timely_filing | Lakewood MCO Core / Riverbend / Primary Care | timely_filing_at_risk_dollars | 2026-05-04 | $18,499 | medium | 111 |
 | `ANM-021` | dnfb | Federal Medicare / Northgate / General Surgery | dnfb_dollars | 2026-07-03 | $178,217 | critical | 111 |
@@ -361,17 +361,17 @@ full scale (self-resolvers show their last observed severity instead).
 | `ANM-023` | credit_balance | Atlas PPO Select / Imaging | credit_balance_dollars | 2026-06-05 | $48,939 | high | 111 |
 | `ANM-024` | credit_balance | Federal Medicare / Primary Care | credit_balance_dollars | 2026-06-14 | $824 | low | 111 |
 | `ANM-025` | charge_entry_lag | Federal Medicare / Riverbend / Oncology | charge_lag_days | 2026-07-04 | $83,805 | high | 111 |
-| `ANM-026` | charge_entry_lag | Bluestone Mutual / Eastside / Cardiology | late_charge_pct | 2026-07-18 | $37,504 | high | 111 |
+| `ANM-026` | charge_entry_lag | Bluestone Mutual / Eastmere / Cardiology | late_charge_pct | 2026-07-18 | $37,504 | high | 111 |
 | `ANM-027` | unworked_denials | State Medicaid FFS / Emergency | denials_unworked_pct | 2026-05-01 | $53,919 | high | 111 |
 | `ANM-028` | unworked_denials | Northbridge Commercial / Emergency | denials_unworked_pct | 2026-06-22 | $34,669 | high | 111 |
-| `ANM-029` | denial_spike | Bluestone PPO Blue / Imaging | denial_rate | 2026-08-02 | $17,677 | medium | --1 |
+| `ANM-029` | denial_spike | Bluestone Preferred PPO / Imaging | denial_rate | 2026-08-02 | $17,677 | medium | --1 |
 | `ANM-030` | underpayment | Lakewood MCO Plus / Laboratory / LAB | underpayment_variance | 2026-06-08 | $257 | low | 111 |
-| `ANM-031` | dnfb | Pinnacle Health Plan / Westpark / General Surgery | dnfb_dollars | 2026-07-22 | resolved | critical | 11- |
+| `ANM-031` | dnfb | Ashvale Health Plan / Westpark / General Surgery | dnfb_dollars | 2026-07-22 | resolved | critical | 11- |
 | `ANM-032` | submission_gap | Summit Peak MA / Central Plaza / Behavioral Health | bill_lag_days | 2026-07-14 | resolved | medium | 11- |
 | `ANM-033` | charge_hold | Federal Medicare / Riverbend / Laboratory | charge_lag_days | 2026-07-09 | resolved | low | 11- |
-| `ANM-034` | eligibility_cluster | Meridian HMO Care / Emergency | denial_rate | 2026-08-01 | $6,838 | medium | -11 |
+| `ANM-034` | eligibility_cluster | Halvern HMO Care / Emergency | denial_rate | 2026-08-01 | $6,838 | medium | -11 |
 | `ANM-035` | duplicate | State MCO Expansion / Laboratory | denied_dollars | 2026-07-06 | $3,524 | low | 111 |
-| `ANM-036` | dnfb | Meridian Health / Central Plaza / Primary Care | dnfb_dollars | 2026-07-12 | $626 | low | 111 |
+| `ANM-036` | dnfb | Halvern Health / Central Plaza / Primary Care | dnfb_dollars | 2026-07-12 | $626 | low | 111 |
 
 Magnitudes span four orders: `ANM-013` at $493k down to `ANM-030` at $257, with
 seven sub-$1k signals that exist precisely so that "rank by impact" has noise to
@@ -408,9 +408,9 @@ layers enforce that:
 
 1. **Disjoint cells by construction.** No spec targets a scenario's cell. The
    population deliberately *brushes against* scenario dimensions without
-   intersecting them — `ANM-016`/`ANM-036` use Meridian Health but Primary Care,
+   intersecting them — `ANM-016`/`ANM-036` use Halvern Health but Primary Care,
    never Imaging (scenario 1); `ANM-019` uses State Medicaid HMO but at Northgate,
-   never Eastside (scenario 5); `ANM-022`/`ANM-028` use Northbridge Commercial but
+   never Eastmere (scenario 5); `ANM-022`/`ANM-028` use Northbridge Commercial but
    never `ORTHO-SURG` lines (scenario 4); `ANM-023` uses Atlas Commercial but
    submits outside the scenario-3a window. Nothing at all is planted on
    Silverline Medicare Advantage (scenario 2).
@@ -518,14 +518,14 @@ WHERE c.service_date < DATE '2025-01-01' AND d.appeal_status = 'APPEALED';
 
 **Known consequence.** A cohort or probe with no lower date bound now spans
 2024 as well. For example, "all claims for Atlas Commercial, State Medicaid and
-Meridian Health" materialises 86,415 claims at `snap_003` rather than the 55,722
+Halvern Health" materialises 86,415 claims at `snap_003` rather than the 55,722
 it did before:
 
 ```sql
 SELECT count(*) FILTER (WHERE service_date >= DATE '2025-01-01') AS organic_era,
        count(*)                                                 AS with_backfill
 FROM snap_003.v_claim
-WHERE payer_name IN ('Atlas Commercial', 'State Medicaid', 'Meridian Health');
+WHERE payer_name IN ('Atlas Commercial', 'State Medicaid', 'Halvern Health');
 -- 55722, 86415
 ```
 

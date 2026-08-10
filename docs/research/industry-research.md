@@ -230,8 +230,8 @@ starred (★) entries, which appeared in 3+ sweeps.
 | Product | Category | Key capabilities | Conversational / AI | Gaps Revi can exploit |
 |---|---|---|---|---|
 | **VisiQuate (Ana, Flo, Policy Pulse)** | RCM analytics (KLAS leader, 92.0) | Denial analytics w/ AI root-cause, payer action center, CFO forecasting, Etyon ML scoring, anomaly alerting ($74M auth spike caught "in days") | **Closest competitor.** Ana: NL → real-time visualization ("denial rate by payer"); role-specific Ana Agents; playbook recommendations | Ana is NL→dashboard, not typed multi-turn investigation; no visible metric contracts, no reconciliation guarantees, no governed definitional answers; KLAS users "want more AI," complain of generic training |
-| **Adonis Intelligence** | AI RCM ops (Series C $40M) | Calibrated alerting (filters "administrative noise," scores by cash-recovery probability), denial clustering, smart worklists by dollar impact, "true underpayments not false flags," exec→claim drill-down | AI agents autonomously work claims; alerting + prioritization, not Q&A | No conversational analytics at all; black-box scoring vs Revi's deterministic provenance; alert-first not question-first |
-| **Waystar (AltitudeAI)** | Clearinghouse + AI suite (Best in KLAS claims 91.8) | AltitudePredict (denial prediction), AltitudeAssist (pre-submission auto-fix), AltitudeCreate (GenAI appeals, 3x faster), $15.5B denials prevented; peer benchmarking | Agentic workflow automation (Jan 2026), Google/Gemini partnership; no analyst Q&A interface | Support-responsiveness complaints; confusing rejection messages; analytics is dashboards + benchmarks, not investigation; clearinghouse lock-in |
+| **Adonis Intelligence** | AI RCM ops (Series C $40M) | Calibrated alerting (filters "administrative noise," scores by cash-recovery probability), denial clustering, smart worklists by dollar impact, "true underpayments not false flags," exec→claim drill-down | AI agents autonomously work claims; alerting + prioritization, not Q&A | No conversational analytics at all; scoring is surfaced as a prioritization signal, not as a published derivation the analyst can audit — Revi's provenance is deterministic and inspectable; alert-first not question-first |
+| **Waystar (AltitudeAI)** | Clearinghouse + AI suite (Best in KLAS claims 91.8) | AltitudePredict (denial prediction), AltitudeAssist (pre-submission auto-fix), AltitudeCreate (GenAI appeals, 3x faster), $15.5B denials prevented; peer benchmarking | Agentic workflow automation (Jan 2026), Google/Gemini partnership; no analyst Q&A interface | Rejection detail is returned in clearinghouse form rather than as analyst-readable explanation; analytics is dashboards + benchmarks, not investigation; clearinghouse lock-in |
 | **FinThrive (Fusion)** | RCM data platform | FHIR Data Hub, Insights Hub ML viz, 30/60/90 cash forecast, Denials & Underpayments Analyzer (32% of claims underpaid finding), 50+ AI use cases | Agentic next-best actions; no NL analytics | UI "not intuitive," breadth "overwhelming" (SelectHub 3.4/5) — an opening for a focused conversational surface |
 | **Experian Health (AI Advantage)** | Claims mgmt + denial AI | Predictive Denials (per-claim risk w/ contributing elements), Denial Triage (value segmentation); users ~4% denial rate vs 10%+ | Predictive, in-workflow; no Q&A | No investigation/RCA surface; scoring explanations limited to flagged claim elements |
 | **ENTER (CTRL ENTER)** | Full-stack AI RCM | Desktop NL assistant over EMR/PM/portals — "Why was this denied?"; contract-aware pre-flighting; 98.5% contract value collected claim | Clearest "talk to your RCM" entrant | Overlay assistant, not a governed analytics platform; no semantic catalog, no auditability story; unproven at enterprise |
@@ -377,7 +377,6 @@ Consolidated, deduplicated across sweeps.
 - https://www.hfma.org/press-releases/health-system-adoption-of-ai-outpaces-internal-governance-and-strategy/
 - https://www.hfma.org/fast-finance/aca-marketplace-plans-payment-denial/
 - https://www.hfma.org/payment-reimbursement-and-managed-care/no-surprises-act-idr-data-provider-wins/
-- https://silo.tips/download/hfma-map-keys-patient-access-measure
 - https://carecloud.com/continuum/hfma-map-keys-guide/
 - https://valerionhealth.com/blog/hfma-revenue-cycle-kpis/
 - https://www.mgma.com/articles/data-mine-measuring-success-finding-the-right-metrics-to-optimize-the-revenue-cycle
@@ -552,7 +551,6 @@ Consolidated, deduplicated across sweeps.
 - https://tdx.msu.edu/TDClient/32/Portal/KB/ArticleDet?ID=1278
 - https://emitrr.com/blog/athena-medical-billing/
 - https://blog.ttuhsc.edu/spirit5/_resources/images/2012/10/centricity_upgrade.pdf
-- https://1library.net/document/q2p95nry-transaction-editing-system-tes-workfiles.html
 - https://www.healthcareitnews.com/news/athenahealths-centricity-business-now-athenaidx
 - https://choc.org/wp-content/uploads/2020/07/Cerner-Patient-Accounting-Overview_v2.pdf
 - https://www.oracle.com/a/ocom/docs/industries/healthcare/oracle-health-patient-accounting-solution-brief.pdf

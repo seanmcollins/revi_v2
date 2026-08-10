@@ -26,7 +26,7 @@ Caveat: usage is billed to the logged-in Claude account (rate-limit events show 
 
 | Field | Type | Notes |
 |---|---|---|
-| `output_format` | `dict[str, Any] \| None` | Exactly `{"type": "json_schema", "schema": {...}}`. The transport forwards **only** the `schema` value, as `--json-schema '<json>'` (subprocess_cli.py:752). Any other `type` is silently ignored. |
+| `output_format` | `dict[str, Any] \| None` | Exactly `{"type": "json_schema", "schema": {...}}`. The transport forwards **only** the `schema` value, as `--json-schema '<json>'`. Any other `type` is silently ignored. |
 | `max_budget_usd` | `float \| None` | Forwarded as `--max-budget-usd`. Enforced between turns → can overshoot (observed $0.151 spent against a $0.05 cap when default tools were loaded). Result subtype on trip: `error_max_budget_usd`. |
 | `tools` | `list[str] \| ToolsPreset \| None` | **`tools=[]` is the pure-LLM mode** (base tool list empty). |
 | `allowed_tools` / `disallowed_tools` | `list[str]` | See the `disallowed_tools=["*"]` trap in §3. |
@@ -47,7 +47,7 @@ Caveat: usage is billed to the logged-in Claude account (rate-limit events show 
 
 **SDK error-surfacing quirk:** on any error subtype, `query()` first yields the `ResultMessage`
 and then raises a **bare `Exception`** ("Claude Code returned an error result: ...") — not a
-`ClaudeSDKError` subclass (`_internal/query.py:958`). The adapter must consume the
+`ClaudeSDKError` subclass. The adapter must consume the
 `ResultMessage` before the raise and catch broad `Exception`.
 
 ## 3. Structured output with the 12-operator discriminated union: WORKS (4/4 parses)

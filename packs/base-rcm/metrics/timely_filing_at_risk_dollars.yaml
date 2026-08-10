@@ -2,7 +2,7 @@
 # and (since 2026-08-09) a population that can be cut by how much runway is
 # left on each clock.
 #
-# WHAT CHANGED IN v2, AND WHAT DELIBERATELY DID NOT (round-1 review F9).
+# WHAT CHANGED IN v2, AND WHAT DELIBERATELY DID NOT.
 # v1 applied no deadline predicate and had no way to express one: the
 # claim -> plan -> filing rule join did not exist, so the id promised filing
 # exposure over a number that measured inventory. That join is now delivered

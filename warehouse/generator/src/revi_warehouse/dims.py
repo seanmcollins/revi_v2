@@ -35,7 +35,7 @@ class PayerSpec:
 
 PAYERS: tuple[PayerSpec, ...] = (
     PayerSpec("Atlas Commercial", "COMMERCIAL", "Commercial", 0.20, 0.55, 12.0, 2.5, 2.2, 0.9, 0.18, 0.07),
-    PayerSpec("Meridian Health", "COMMERCIAL", "Commercial", 0.10, 0.54, 12.0, 4.0, 2.5, 1.0, 0.17, 0.07),
+    PayerSpec("Halvern Health", "COMMERCIAL", "Commercial", 0.10, 0.54, 12.0, 4.0, 2.5, 1.0, 0.17, 0.07),
     PayerSpec(
         "Silverline Medicare Advantage",
         "MEDICARE_ADVANTAGE",
@@ -57,7 +57,7 @@ PAYERS: tuple[PayerSpec, ...] = (
     PayerSpec("Federal Medicare", "MEDICARE", "Medicare", 0.12, 0.42, 14.0, 3.0, 2.0, 0.8, 0.16, 0.05),
     PayerSpec("Bluestone Mutual", "BCBS", "Blue Cross", 0.06, 0.50, 13.0, 4.0, 2.5, 1.0, 0.15, 0.06),
     PayerSpec(
-        "Pinnacle Health Plan", "COMMERCIAL", "Commercial", 0.05, 0.52, 15.0, 5.0, 3.0, 1.2, 0.16, 0.07
+        "Ashvale Health Plan", "COMMERCIAL", "Commercial", 0.05, 0.52, 15.0, 5.0, 3.0, 1.2, 0.16, 0.07
     ),
     PayerSpec("Veritas Comp Fund", "OTHER", "Workers Comp", 0.02, 0.60, 20.0, 7.0, 4.0, 1.5, 0.00, 0.07),
     PayerSpec(
@@ -86,10 +86,10 @@ PLANS: tuple[tuple[str, str, str, int, str, float], ...] = (
     ("Atlas Commercial", "Atlas HMO Complete", "HMO", 180, "SUBMISSION", 0.25),
     ("Atlas Commercial", "Atlas POS Flex", "POS", 180, "SUBMISSION", 0.20),
     ("Atlas Commercial", "Atlas National PPO", "PPO", 365, "SUBMISSION", 0.15),
-    ("Meridian Health", "Meridian PPO Prime", "PPO", 180, "SERVICE", 0.40),
-    ("Meridian Health", "Meridian HMO Care", "HMO", 180, "SERVICE", 0.30),
-    ("Meridian Health", "Meridian POS Choice", "POS", 180, "SERVICE", 0.20),
-    ("Meridian Health", "Meridian Exchange PPO", "PPO", 90, "SERVICE", 0.10),
+    ("Halvern Health", "Halvern PPO Prime", "PPO", 180, "SERVICE", 0.40),
+    ("Halvern Health", "Halvern HMO Care", "HMO", 180, "SERVICE", 0.30),
+    ("Halvern Health", "Halvern POS Choice", "POS", 180, "SERVICE", 0.20),
+    ("Halvern Health", "Halvern Exchange PPO", "PPO", 90, "SERVICE", 0.10),
     ("Silverline Medicare Advantage", "Silverline MA Classic", "MA", 365, "SERVICE", 0.60),
     ("Silverline Medicare Advantage", "Silverline MA Plus", "MA", 365, "SERVICE", 0.40),
     ("Northbridge Commercial", "Northbridge PPO", "PPO", 120, "SUBMISSION", 0.50),
@@ -101,12 +101,12 @@ PLANS: tuple[tuple[str, str, str, int, str, float], ...] = (
     ("State Medicaid MCO", "State MCO Expansion", "MCO", 95, "SERVICE", 0.30),
     ("Federal Medicare", "Federal Medicare Part A", "FFS", 365, "SERVICE", 0.35),
     ("Federal Medicare", "Federal Medicare Part B", "FFS", 365, "SERVICE", 0.65),
-    ("Bluestone Mutual", "Bluestone PPO Blue", "PPO", 180, "SERVICE", 0.50),
-    ("Bluestone Mutual", "Bluestone HMO Blue", "HMO", 180, "SERVICE", 0.30),
+    ("Bluestone Mutual", "Bluestone Preferred PPO", "PPO", 180, "SERVICE", 0.50),
+    ("Bluestone Mutual", "Bluestone Select HMO", "HMO", 180, "SERVICE", 0.30),
     ("Bluestone Mutual", "Bluestone Federal PPO", "PPO", 365, "SERVICE", 0.20),
-    ("Pinnacle Health Plan", "Pinnacle PPO", "PPO", 90, "SUBMISSION", 0.50),
-    ("Pinnacle Health Plan", "Pinnacle HMO", "HMO", 90, "SUBMISSION", 0.30),
-    ("Pinnacle Health Plan", "Pinnacle POS", "POS", 90, "SUBMISSION", 0.20),
+    ("Ashvale Health Plan", "Ashvale PPO", "PPO", 90, "SUBMISSION", 0.50),
+    ("Ashvale Health Plan", "Ashvale HMO", "HMO", 90, "SUBMISSION", 0.30),
+    ("Ashvale Health Plan", "Ashvale POS", "POS", 90, "SUBMISSION", 0.20),
     ("Veritas Comp Fund", "Veritas Comp Standard", "FFS", 365, "SERVICE", 1.00),
     ("Lakewood Medicaid MCO", "Lakewood MCO Core", "MCO", 95, "SERVICE", 0.70),
     ("Lakewood Medicaid MCO", "Lakewood MCO Plus", "MCO", 95, "SERVICE", 0.30),
@@ -117,7 +117,7 @@ PLANS: tuple[tuple[str, str, str, int, str, float], ...] = (
 # --- Facilities ---------------------------------------------------------------
 
 FACILITIES: tuple[tuple[str, str, float], ...] = (
-    ("Eastside Medical Center", "East", 0.22),
+    ("Eastmere Medical Center", "East", 0.22),
     ("Northgate Regional Hospital", "North", 0.20),
     ("Westpark Surgical Center", "West", 0.13),
     ("Southfield Community Hospital", "South", 0.18),
@@ -223,12 +223,12 @@ DENIAL_CODES: tuple[tuple[int, str, str], ...] = (
     (96, "The charges are for a service the plan does not cover.", "OTHER"),
     (
         97,
-        "Payment for this service is already included in the allowance for another adjudicated service.",
+        "The payer folded this line into a companion line it has already priced.",
         "CODING",
     ),
     (
         109,
-        "This payer is not responsible for the claim; it must go to the correct payer or contractor.",
+        "The claim reached an entity that does not hold this member's risk and must be re-routed.",
         "COB",
     ),
     (
@@ -245,7 +245,7 @@ DENIAL_CODES: tuple[tuple[int, str, str], ...] = (
 CARC_GROUP: dict[int, str] = {1: "PR", 2: "PR", 3: "PR", 22: "OA", 23: "OA", 109: "OA"}
 
 # Generic denial CARC mix (normalized at draw time). Scenario CARCs (197 for the
-# Meridian x Imaging cell, forced 22 and 29) are drawn separately.
+# Halvern x Imaging cell, forced 22 and 29) are drawn separately.
 GENERIC_CARC_MIX: tuple[tuple[int, float], ...] = (
     (16, 0.14),
     (18, 0.10),
@@ -285,9 +285,12 @@ LAST_NAMES = (
     "Overbrook", "Pinehurst", "Quarry", "Riverstone", "Summerfield", "Thistledown", "Underhill",
     "Willowmere",
 )
+# Patient ZIPs are drawn from the 000xx block, which USPS has never assigned to
+# any delivery area (the lowest real ZIP is 00501). Nothing here can be mistaken
+# for a real postal geography, so patient rows carry no implied location.
 ZIP_CODES = (
-    "98901", "98902", "98903", "98904", "98905", "98906", "98907", "98908", "98909", "98910",
-    "98911", "98912", "98913", "98914", "98915", "98916", "98917", "98918", "98919", "98920",
+    "00001", "00002", "00003", "00004", "00005", "00006", "00007", "00008", "00009", "00010",
+    "00011", "00012", "00013", "00014", "00015", "00016", "00017", "00018", "00019", "00020",
 )
 
 SYNTHETIC_HOLIDAYS = (

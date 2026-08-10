@@ -62,7 +62,7 @@ _ALL_TIME = AbsoluteRange(date(2025, 1, 1), date(2026, 12, 31))
 _H1_2026 = AbsoluteRange(date(2026, 1, 1), date(2026, 6, 30))
 _POST_WINDOW = AbsoluteRange(date(2026, 2, 1), date(2026, 8, 2))
 
-_COHORT_SCOPE = Predicate(DimensionRef("payer"), PredicateOp.EQ, ("Meridian Health",))
+_COHORT_SCOPE = Predicate(DimensionRef("payer"), PredicateOp.EQ, ("Halvern Health",))
 _COHORT_DEFINITION = CohortDefinition(
     entity=EntityGrain.CLAIM,
     scope=_COHORT_SCOPE,

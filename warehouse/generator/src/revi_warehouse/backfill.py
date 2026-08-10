@@ -1,39 +1,33 @@
 """Additive 2024 backfill: a closed prior year to compare 2025 against.
 
 The organic world (world.py) plus the anomaly population (anomalies.py) cover
-2025-01-01..2026-08-02. "How did 2025 compare with 2024?" is an ordinary
-question for anyone probing this warehouse, and it deserves real rows rather
-than a shrug, so this stage appends a full calendar year of 2024 claims — with
-their lines, remits, transactions, denials and appeals — after every other
-stage has run.
+2025-01-01..2026-08-02. This stage appends a full calendar year of 2024 claims —
+with their lines, remits, transactions, denials and appeals — after every other
+stage has run, so period-over-period questions have real rows to read.
 
-Two properties make the backfill provably free of side effects:
+Two properties make the backfill free of side effects:
 
 1. **Its own RNG streams.** Each sub-stream is seeded by
-   ``(REVI_SEED, BACKFILL_STREAM, crc32(sub_stream))``, exactly the pattern the
-   anomaly engine uses. No draw belonging to dims/world/anomalies is consumed
-   or shifted, and the rows are appended after the existing ones, so every
-   pre-existing row stays byte-identical.
+   ``(REVI_SEED, BACKFILL_STREAM, crc32(sub_stream))``, the pattern the anomaly
+   engine uses. No draw belonging to dims/world/anomalies is consumed or
+   shifted, and rows are appended after the existing ones, so every pre-existing
+   row stays byte-identical.
 2. **The year is closed by 2025-06-30.** Every backfill claim is submitted,
    adjudicated, and then paid or written off; every appeal is decided; every
-   duplicate payment is refunded — all before ``BACKFILL.resolved_by``, which
-   is more than a year before the earliest watermark. No backfill row can
-   therefore reach a watermark-time point metric (A/R, DNFB, credit balances,
+   duplicate payment is refunded — all before ``BACKFILL.resolved_by``, more
+   than a year before the earliest watermark. No backfill row can therefore
+   reach a watermark-time point metric (A/R, DNFB, credit balances,
    timely-filing risk) or a trailing window anchored at the 2026-08 watermarks.
 
-Shape, so the comparison has something honest to say on all three axes:
-
-* **volume** — ~86% of the 2025 claims-per-day rate (the growth story), with
-  mild monthly seasonality;
-* **cash** — follows volume, since contract rates and payment mechanics are the
-  organic world's unchanged;
-* **denial rate** — each payer's 2025 propensity scaled by
-  ``BACKFILL.denial_factor``, so 2024 sits slightly below 2025.
+Shape: volume is ~86% of the 2025 claims-per-day rate with mild monthly
+seasonality; cash follows volume, since contract rates and payment mechanics are
+the organic world's unchanged; denial rate is each payer's 2025 propensity
+scaled by ``BACKFILL.denial_factor``.
 
 Lifecycle lag distributions are the organic world's, with clips tightened far
-enough into the tail (>2.4 sigma) that mean cycle times are unaffected — a
-2024-vs-2025 days-to-pay comparison is a real comparison, not an artifact of
-the closing deadline.
+enough into the tail (>2.4 sigma) that mean cycle times are unaffected, so a
+2024-vs-2025 days-to-pay comparison reflects the distributions rather than the
+closing deadline.
 """
 
 from __future__ import annotations
@@ -86,8 +80,8 @@ def _stream(sub_stream: str) -> np.random.Generator:
 def backfill_claim_count(world: World) -> int:
     """How many 2024 claims to plant: `volume_ratio` of the observed 2025 daily rate.
 
-    Derived from the built world rather than from a constant so the ratio holds
-    at every scale.
+    Read off the built world rather than a constant so the ratio holds at every
+    scale.
     """
     base = world.svc_day[: world.n_base_claims]
     n_2025 = int(np.count_nonzero((base >= ORGANIC_ERA_START) & (base <= day("2025-12-31"))))
@@ -217,7 +211,7 @@ def _carc_draws(
 ) -> dict[str, np.ndarray]:
     """Generic denial CARCs, levels, groups and remark codes for denied claims.
 
-    CARC 197 never appears in the Meridian Health x Imaging cell: prior-auth
+    CARC 197 never appears in the Halvern Health x Imaging cell: prior-auth
     denials there belong to scenario 1 and stay a 2026 story.
     """
     carcs = np.array([code for code, _wt in GENERIC_CARC_MIX])
@@ -289,12 +283,12 @@ def _build_rows(config: GeneratorConfig, dims: Dims, n: int) -> _Rows:
     den_rarc = np.where(denied, dr["rarc"], -1).astype(np.int64)
 
     # --- appeals: filed, decided, and closed inside the deadline --------------
-    # Appeals are drawn exactly as the organic world draws them — same filing,
-    # decision and rebill lags — and a chain whose closure would land after
+    # Appeals are drawn exactly as the organic world draws them (same filing,
+    # decision and rebill lags); a chain whose closure would land after
     # `resolved_by` is stood down to the never-appealed path. That backstop only
-    # reaches the very end of the year and at full scale it never fires (the
-    # latest possible chain closes in April 2025), so the 2024 appeal rate is
-    # the organic draw and stays comparable with 2025's.
+    # reaches the very end of the year and at full scale never fires — the latest
+    # possible chain closes in April 2025 — so the 2024 appeal rate is the
+    # organic draw and stays comparable with 2025's.
     appeal_draw = denied & (life.random(n) < config.appeal_frac)
     file_day = remit1_day + life.integers(5, 31, size=n)
     dec_day = file_day + life.integers(20, 61, size=n)

@@ -148,12 +148,12 @@ _FACT_SQL: dict[str, str] = {
 }
 
 #: Claim-grain procedure attribution (catalog dimension `primary_proc_group`).
-#: A claim has LINES, and each line has a proc_group; the claim itself has no
-#: procedure. Certifying one requires a rule, and the rule is: the proc_group
-#: carrying the largest share of the claim's billed charges wins, ties broken
-#: by proc_group name ascending so the column is a deterministic function of
-#: the data and not of DuckDB's aggregate ordering. NULL when the claim has no
-#: lines at all (only zero-billed claims are in that state; verify.py pins it).
+#: proc_group lives on the line, not the claim, so the claim-grain value needs a
+#: rule: the proc_group carrying the largest share of the claim's billed charges
+#: wins, ties broken by proc_group name ascending so the column is a
+#: deterministic function of the data rather than of DuckDB's aggregate
+#: ordering. NULL when the claim has no lines at all — only zero-billed claims
+#: are in that state, and verify.py pins it.
 _PRIMARY_PROC_GROUP_ROLLUP = """
         LEFT JOIN (
             SELECT claim_id,
@@ -165,12 +165,11 @@ _PRIMARY_PROC_GROUP_ROLLUP = """
         ) ppg USING (claim_id)"""
 
 _VIEWS: dict[str, str] = {
-    # v_claim's two derived flags are view-level, not stored: they restate
-    # nullable dates as the booleans the catalog certifies as dimensions
-    # (billed_flag / discharged_flag). A date basis carries a window; a flag
-    # carries a predicate, and a predicate needs a certified dimension.
-    # `primary_proc_group` is the same move for a rollup rather than a date:
-    # the dominant-by-billed-cents procedure group of the claim's own lines.
+    # v_claim's two derived flags are view-level, not stored: billed_flag and
+    # discharged_flag restate nullable dates as the booleans the catalog
+    # certifies as dimensions, because a predicate needs a certified dimension
+    # while a date only carries a window. `primary_proc_group` is the same move
+    # for a rollup: the dominant-by-billed-cents proc_group of the claim's lines.
     "v_claim": """
         SELECT c.*,
                (c.submission_date IS NOT NULL) AS billed_flag,
@@ -206,11 +205,11 @@ _VIEWS: dict[str, str] = {
         JOIN {sch}.dim_facility f USING (facility_id)
         JOIN {sch}.dim_service_line s USING (service_line_id)
     """,
-    # `primary_proc_group` is repeated here because the claim-grain cross-entity
-    # ratios (gross_collection_rate, net_collection_rate) put cash at the
-    # transaction grain against charges at the claim grain, and a cross-entity
-    # probe requires its group keys to bind at BOTH entities. Same rollup, same
-    # claim: a transaction's procedure attribution is its parent claim's.
+    # `primary_proc_group` is repeated here because the cross-entity ratios
+    # (gross_collection_rate, net_collection_rate) put cash at the transaction
+    # grain against charges at the claim grain, and a cross-entity probe needs
+    # its group keys to bind at BOTH entities. Same rollup, same claim: a
+    # transaction's procedure attribution is its parent claim's.
     "v_transaction": """
         SELECT t.txn_id, t.claim_id, t.claim_line_id, t.remit_id, t.txn_type,
                t.amount_cents, t.post_date, t.remit_date,

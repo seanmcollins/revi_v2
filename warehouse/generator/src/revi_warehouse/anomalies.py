@@ -1,21 +1,20 @@
 """Declarative anomaly injection + per-snapshot detection.
 
-Two halves, both driven by ``ANOMALY_SPECS`` (config.py):
+Both halves are driven by ``ANOMALY_SPECS`` (config.py):
 
-1. ``inject_anomalies`` — ONE vectorized pass that appends spec-generated
-   claims (with their lines, remits, transactions and denials) to the
-   already-built base ``World``. Base arrays are never mutated, so the five
-   original scenario aggregates cannot move; ``_enforce_guards`` raises if any
-   appended row could intersect a scenario cell/window or the reference-week
-   cash totals.
+1. ``inject_anomalies`` — one vectorized pass appending spec-generated claims
+   (with their lines, remits, transactions and denials) to the already-built
+   base ``World``. Base arrays are never mutated, so the five scenario
+   aggregates cannot move; ``_enforce_guards`` raises if any appended row could
+   intersect a scenario cell/window or the reference-week cash totals.
 
-2. ``write_detected_anomalies`` — persists ``<snap>.detected_anomalies`` as if
-   an external detection system ran at load time. Every impact and evidence
-   figure is recomputed with SQL from that snapshot's visible data; a spec is
-   emitted in a snapshot iff the snapshot shows >= ``min_events`` qualifying
-   events and the recomputed impact clears ``min_impact_cents`` (self-resolved
-   signals therefore simply disappear from later snapshots). Severity and
-   confidence follow the documented rules in ``severity_for``/``confidence_for``.
+2. ``write_detected_anomalies`` — persists ``<snap>.detected_anomalies`` as if an
+   external detection system ran at load time. Impact and evidence are
+   recomputed with SQL from that snapshot's visible data; a spec is emitted iff
+   the snapshot shows >= ``min_events`` qualifying events and the recomputed
+   impact clears ``min_impact_cents``, so self-resolved signals disappear from
+   later snapshots. Severity and confidence follow ``severity_for`` /
+   ``confidence_for``.
 
 Determinism: each spec draws from its own PCG64 stream seeded by
 ``(REVI_SEED, ANOMALY_STREAM, crc32(spec_id))`` — base-world draw sequences are
@@ -59,10 +58,9 @@ _LINE_FIELDS = LINE_ARRAY_FIELDS
 
 _ERA_START = str(np.datetime64(ORGANIC_ERA_START, "D"))
 """Baseline cohorts start here: the 2024 backfill is not part of any anomaly's
-'before the onset' comparison. Bounding is on the claim's service date (a
-December-2024 claim adjudicates in January 2025); every organic and injected
-claim is serviced on or after this day, so the bound leaves every published
-figure unchanged."""
+'before the onset' comparison. The bound is on service date (a December-2024
+claim adjudicates in January 2025); every organic and injected claim is serviced
+on or after this day, so no published figure moves."""
 
 _REFERENCE_CASH_START = SCENARIOS.s3_week_prior_start  # 2026-07-20
 _REFERENCE_CASH_END = SCENARIOS.s3_week_decline_end  # 2026-08-02
@@ -162,7 +160,7 @@ def _fill_cell(
 def _make_lines(
     spec: AnomalySpec, rng: np.random.Generator, n: int, payer_i: int,
 ) -> tuple[dict[str, np.ndarray], np.ndarray, np.ndarray, np.ndarray, np.ndarray]:
-    """Build lines for n claims. Returns (line dict, billed/expected/allowed totals, n_lines)."""
+    """Lines for n claims: (line dict, billed/expected/allowed totals, lines-per-claim)."""
     base = spec.billed_total_cents / n
     billed = np.maximum(_rint64(base * np.exp(rng.normal(0.0, 0.25, n))), 2_000)
     rate_target = spec.rate_override if spec.rate_override is not None else PAYERS[payer_i].contract_rate
@@ -569,10 +567,10 @@ def _enforce_guards(w: World, n0: int, m0: int, t0: int, d0: int) -> None:
         svcline == dims.service_line_index[s.s1_service_line]
     )
     if np.any(mer_img):
-        problems.append("injected claim in Meridian Health x Imaging (scenario 1 cell)")
+        problems.append("injected claim in Halvern Health x Imaging (scenario 1 cell)")
     smhmo_east = (plan == dims.plan_index[s.s5_plan]) & (facility == dims.facility_index[s.s5_facility])
     if np.any(smhmo_east):
-        problems.append("injected claim on State Medicaid HMO x Eastside (scenario 5 cell)")
+        problems.append("injected claim on State Medicaid HMO x Eastmere (scenario 5 cell)")
     atlas = payer == dims.payer_index[s.s3a_payer]
     atlas_sub_window = atlas & (sub >= day("2026-06-15")) & (sub <= day("2026-08-02"))
     if np.any(atlas_sub_window):
@@ -611,7 +609,7 @@ def _enforce_guards(w: World, n0: int, m0: int, t0: int, d0: int) -> None:
 
 
 def severity_for(impact_cents: int) -> str:
-    """Documented thresholds: critical >= $100k, high >= $25k, medium >= $5k, low below."""
+    """Severity tiers: critical >= $100k, high >= $25k, medium >= $5k, low below."""
     if impact_cents >= 10_000_000:
         return "critical"
     if impact_cents >= 2_500_000:
@@ -622,7 +620,7 @@ def severity_for(impact_cents: int) -> str:
 
 
 def confidence_for(n_events: int) -> float:
-    """Documented rule: confidence follows the qualifying-event count."""
+    """Confidence tier from the count of qualifying events."""
     if n_events >= 40:
         return 0.95
     if n_events >= 20:

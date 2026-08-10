@@ -142,13 +142,11 @@ _EXPECTED_WATERMARKS = [
 def _open_state_checks(con: duckdb.DuckDBPyConnection, s: str) -> list[Check]:
     """What OPEN actually means, guarded.
 
-    An audit found 593 OPEN claims at snap_003 carrying remit rows, which
-    contradicted the catalog's "OPEN means no remittance has been received
-    yet". The generator is right and the note was wrong: status is derived
-    from *payment posting* and denial visibility (project.py), so a claim
-    adjudicated clean sits OPEN for the length of the remit-to-post lag. That
-    is a real partial-adjudication state; these four checks pin every half of
-    it so neither the data nor the corrected note can drift again.
+    OPEN does not mean "no remittance received yet". Status is derived from
+    *payment posting* and denial visibility (project.py), so a claim adjudicated
+    clean sits OPEN for the length of the remit-to-post lag and legitimately
+    carries remit rows. These four checks pin every half of that
+    partial-adjudication state so neither the data nor the catalog can drift.
     """
     open_claim = f"SELECT count(*) FROM {s}.fact_claim c WHERE c.status = 'OPEN'"
     return [
@@ -184,9 +182,9 @@ def _claim_join_column_checks(con: duckdb.DuckDBPyConnection, s: str) -> list[Ch
     `primary_proc_group` is the dominant-by-billed-cents rollup of the claim's
     own lines (writer.py). `timely_filing_days` / `timely_filing_basis` are the
     plan's filing rule, pre-joined from dim_plan — the limit half of the
-    claim → plan → filing rule join that `days_to_filing_deadline` and
-    `filing_runway_bucket` read. Both are view-level derivations, so nothing
-    but a check like this stands between a silent rewrite and a wrong answer.
+    claim → plan → filing-rule join that `days_to_filing_deadline` and
+    `filing_runway_bucket` read. Both are view-level derivations with no
+    storage behind them, so only these checks catch a silent rewrite.
     """
     return [
         _expect_zero(
@@ -634,15 +632,15 @@ def _injection_guards(injected: str) -> tuple[tuple[str, str], ...]:
             "AND payer_name = 'Silverline Medicare Advantage'",
         ),
         (
-            "no injected claim in Meridian Health x Imaging",
+            "no injected claim in Halvern Health x Imaging",
             f"SELECT count(*) FROM wh.snap_003.v_claim WHERE {injected} "
-            "AND payer_name = 'Meridian Health' AND service_line_name = 'Imaging'",
+            "AND payer_name = 'Halvern Health' AND service_line_name = 'Imaging'",
         ),
         (
-            "no injected claim on State Medicaid HMO x Eastside",
+            "no injected claim on State Medicaid HMO x Eastmere",
             f"SELECT count(*) FROM wh.snap_003.v_claim WHERE {injected} "
             "AND plan_name = 'State Medicaid HMO' "
-            "AND facility_name = 'Eastside Medical Center'",
+            "AND facility_name = 'Eastmere Medical Center'",
         ),
         (
             "no injected Atlas submission in the scenario-3a window",
@@ -673,11 +671,11 @@ def _injection_guards(injected: str) -> tuple[tuple[str, str], ...]:
 def _backfill_guards(first_id: str, era_start: str, resolved_by: str) -> tuple[tuple[str, str], ...]:
     """The 2024 backfill's closure proof, per snapshot schema.
 
-    Every scenario window, every anomaly observation window and every trailing
-    window anchored at a watermark lives in 2025-2026, so "no backfill row
-    carries a date on or after `resolved_by` + 1" covers all of them at once.
-    The rest are the watermark-time point-metric invariants: nothing open,
-    nothing unbilled, nothing over-collected.
+    Every scenario window, anomaly observation window and watermark-anchored
+    trailing window lives in 2025-2026, so "no backfill row carries a date on or
+    after `resolved_by` + 1" covers all of them at once. The rest are the
+    watermark-time point-metric invariants: nothing open, nothing unbilled,
+    nothing over-collected.
     """
     backfill = f"claim_id >= '{first_id}'"
     guards: list[tuple[str, str]] = []

@@ -1,4 +1,4 @@
-# Governed routing for the ranked anomaly worklist (round-2 deferred P1).
+# Governed routing for the ranked anomaly worklist.
 #
 # The platform already computes a prioritised, reconciled worklist — 33
 # detected cards, two lanes, a published priority decomposition and a

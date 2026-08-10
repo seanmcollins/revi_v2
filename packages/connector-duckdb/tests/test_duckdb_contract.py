@@ -318,7 +318,7 @@ class TestDuckDbAdapterBehavior:
         oldest, newest = watermarks[0], watermarks[-1]
         definition = CohortDefinition(
             entity=EntityGrain.CLAIM,
-            scope=Predicate(DimensionRef("payer"), PredicateOp.EQ, ("Meridian Health",)),
+            scope=Predicate(DimensionRef("payer"), PredicateOp.EQ, ("Halvern Health",)),
             window=TimeWindow(basis=SERVICE, range=_H1_2026),
         )
         materialization = await repository.materialize_cohort(definition, watermark=newest)
@@ -357,7 +357,7 @@ class TestDuckDbAdapterBehavior:
         wm = await _newest(repository)
         definition = CohortDefinition(
             entity=EntityGrain.CLAIM,
-            scope=Predicate(DimensionRef("payer"), PredicateOp.EQ, ("Meridian Health",)),
+            scope=Predicate(DimensionRef("payer"), PredicateOp.EQ, ("Halvern Health",)),
             window=TimeWindow(basis=SERVICE, range=_H1_2026),
         )
         materialization = await repository.materialize_cohort(definition, watermark=wm)
@@ -404,7 +404,7 @@ class TestDuckDbAdapterBehavior:
 # would let these tests reclaim each other's fixtures.
 
 
-def _cohort_definition(payer: str = "Meridian Health") -> CohortDefinition:
+def _cohort_definition(payer: str = "Halvern Health") -> CohortDefinition:
     return CohortDefinition(
         entity=EntityGrain.CLAIM,
         scope=Predicate(DimensionRef("payer"), PredicateOp.EQ, (payer,)),
@@ -453,7 +453,7 @@ class TestCohortWritePath:
         self, repo: DuckDbAnalyticalRepository, warehouse: Path
     ) -> None:
         wm = await _newest(repo)
-        a = await repo.materialize_cohort(_cohort_definition("Meridian Health"), watermark=wm)
+        a = await repo.materialize_cohort(_cohort_definition("Halvern Health"), watermark=wm)
         b = await repo.materialize_cohort(_cohort_definition("Atlas Commercial"), watermark=wm)
 
         assert a.cohort_id != b.cohort_id
@@ -820,7 +820,7 @@ class TestReferenceAnswerKey:
             dimensions=(),
             scope=And(
                 (
-                    Predicate(DimensionRef("payer"), PredicateOp.EQ, ("Meridian Health",)),
+                    Predicate(DimensionRef("payer"), PredicateOp.EQ, ("Halvern Health",)),
                     Predicate(DimensionRef("service_line"), PredicateOp.EQ, ("Imaging",)),
                 )
             ),

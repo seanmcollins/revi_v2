@@ -3,7 +3,7 @@
 # Pack-adjacent governed content, loaded by the API alongside
 # `anomaly_actionability.yaml` and content-hashed the same way.
 #
-# WHY THIS FILE EXISTS (round-1 review F9). A metric id is a reference
+# WHY THIS FILE EXISTS. A metric id is a reference
 # anchor: playbooks name it, the answer key asserts on it, web fixtures
 # pin it, the review record cites it. So an id that turns out to promise
 # more than its formula delivers cannot simply be renamed — but it also
