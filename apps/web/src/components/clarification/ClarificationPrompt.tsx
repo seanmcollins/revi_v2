@@ -29,19 +29,80 @@ const NO_OPTIONS_TAIL = /\s*;?\s*CLARIFICATION_NO_OPTIONS\s*$/;
  * interpreter asks instead of guessing. Options are answerable
  * interpretations rendered as buttons, plus free text.
  *
- * The `reason` the server sends is often prefixed with a stable §12 code.
- * The sentence after it is the honest explanation and is always shown; the
- * code itself is engine vocabulary and appears in debug mode only — same
- * meaning, one fewer thing to decode mid-investigation.
+ * TWO REGISTERS, AND THEY ARE NOT THE SAME SPEECH ACT. This card was one
+ * component wearing one costume, and the costume was a warning's.
  *
- * ONE clarification is not a question at all. When the interpreter can
- * offer no answerable interpretation it marks the reason
- * `CLARIFICATION_NO_OPTIONS`, and what shipped for that was a question mark
- * above an empty row of buttons — a prompt asking the analyst to pick from
- * nothing, twice, live, once after a tenth of a dollar was spent deciding
- * the platform could not do it. That state renders as a statement of what
- * the platform needs instead, with the free-text composer as its only
- * recovery, because that is the only recovery there is.
+ *   A QUESTION WITH ANSWERS IS A NEUTRAL AFFORDANCE. "Which A/R view do
+ *     you want — days in A/R, aging distribution, or balance trend?" is
+ *     the product asking the reader something, with three real answers
+ *     attached. It shipped under an amber rule, a CircleAlert, the
+ *     sentence "There is no answerable option to offer here." and the
+ *     fine print "turn classification confidence 0.78" — a refusal's
+ *     costume over an ordinary question, above the three buttons that
+ *     answer it. The acceptance gate named it the single scariest-feeling
+ *     element in the product. It is now a quiet card: the question leads,
+ *     the options are buttons, nothing is amber, and the engine's own
+ *     bookkeeping is not on it.
+ *   A REFUSAL KEEPS THE LOUD ONE. When the interpreter can offer no
+ *     answerable interpretation it marks the reason
+ *     `CLARIFICATION_NO_OPTIONS`, and what shipped for THAT was a question
+ *     mark above an empty row of buttons — a prompt asking the analyst to
+ *     pick from nothing, twice, live, once after a tenth of a dollar was
+ *     spent deciding the platform could not do it. That state is a verdict
+ *     about what the platform cannot do, it renders as a statement of what
+ *     the platform needs instead, and it is not softened here.
+ *
+ * THE MARKER IS THE ENGINE'S CLAIM, AND ONLY THE ENGINE MAY MAKE IT. This
+ * card used to take the loud register off `options.length === 0` as well,
+ * reasoning that an empty list is the same defect arriving without its
+ * label. Measured live, that reasoning was wrong, and expensively:
+ *
+ *     Q  "what is the denial rate for UnitedHealthcare?"
+ *     A  reason (verbatim, debug): "PREDICATE_VALUE_UNMATCHED: payer
+ *        ['UnitedHealthcare'] not in the 12 values this watermark holds"
+ *        question: "There is no payer named 'UnitedHealthcare' in this
+ *        data … Here are all 12 payer values this watermark holds:
+ *        'Ashvale Health Plan', … 'Veritas Comp Fund'. Which did you
+ *        mean?"   options: []   — and NO `CLARIFICATION_NO_OPTIONS`.
+ *
+ * The value guard is the best behaviour in the product: it refuses a
+ * hallucinated payer, enumerates every real one, and asks which was meant.
+ * The card printed "There is no answerable option to offer here." in amber
+ * one line above twelve answerable options — a sentence the engine never
+ * said, contradicting the sentence underneath it. An empty `options` array
+ * means the buttons are missing, which is a fact about a ROW; it is not a
+ * fact about whether the platform has anything to offer, and the client
+ * may not promote the first into the second. So the loud register is taken
+ * when the engine marks it, and never inferred.
+ *
+ * WHICH LEAVES A THIRD STATE, and it is honest rather than loud: a
+ * question with no buttons, whose recovery is the composer under it. It
+ * gets the neutral card, its own placeholder ("Answer in your own words…",
+ * because "Or say it differently…" promises chips that are not there), and
+ * no claim about what the platform can do.
+ *
+ * WHAT THE REASON IS, AND WHERE IT GOES. On a refusal the reason is the
+ * honest explanation ("CAPABILITY_UNSUPPORTED: this pack publishes no
+ * metric for provider productivity") and it is the most useful sentence on
+ * the card, so it is shown. On a clarification that OFFERS options the
+ * reason is engine bookkeeping without exception — "turn classification
+ * confidence 0.78" (`interpretation.py`), "options_dropped=1",
+ * "CLARIFICATION_REPEATED: ask 2 narrowed 4 option(s) to 2 from the reply"
+ * — while every word written for a reader is already in the QUESTION,
+ * which the engine composes for exactly that purpose. So it is not on the
+ * default surface at all: it is in debug, verbatim, beside the trace that
+ * explains it. A model's confidence score is never a thing a reader is
+ * asked to weigh mid-investigation.
+ *
+ * WHICH REGISTER, AND HOW IT IS DECIDED. The backend lane is adding a
+ * wire-level distinction between "offers options" and "refuses". Until it
+ * lands this keys on the one thing the payload already carries that is the
+ * ENGINE's own statement about it: the `CLARIFICATION_NO_OPTIONS` marker
+ * on the reason. ADOPT THE WIRE MARKER WHEN IT SHIPS — watch
+ * `contracts/openapi.json`'s `TurnClarification` for a kind/class field
+ * and key `refusal` off that instead, on the same principle: the register
+ * follows what the server declared, never what the client inferred from a
+ * field's being empty.
  *
  * AND ONE IS NOT A PROMPT AT ALL. A clarification rebuilt from the stored
  * investigation is a record of a question that was asked and answered
@@ -79,22 +140,35 @@ export function ClarificationPrompt({ clarification }: { clarification: Clarific
   // has not told this card anything about that.
   const restored = clarification.restored === true;
 
-  // There is nothing to choose from. Keyed off the engine's marker, and
-  // also off an options list that is simply empty — that is the same defect
-  // arriving without its label, and a blank button row is not made honest
-  // by the absence of a marker explaining it.
+  // There is nothing to choose from — a REFUSAL, and the loud register.
   //
-  // Not on a RESTORED turn. There the empty list is an unrestored field,
-  // not a claim: the server stores the turn's status and not the question
-  // it asked, so reading emptiness as "the engine had nothing to offer"
-  // invents the one fact the record does not contain.
-  const marked = (clarification.reason ?? "").includes(NO_OPTIONS_MARKER);
-  const noOptions = !restored && (marked || clarification.options.length === 0);
+  // The ENGINE'S marker, and nothing else. An empty `options` array is not
+  // this claim: live, the value guard's own clarification enumerates all
+  // twelve real payers in its question, carries no marker, and ships
+  // `options: []` — and inferring the refusal from that emptiness printed
+  // "There is no answerable option to offer here." over twelve answerable
+  // options. (When the wire distinction lands, this is the line that reads
+  // it.)
+  //
+  // Not on a RESTORED turn. There nothing about the live shape survived at
+  // all: the server stores the turn's status and not the question it
+  // asked, so any reading of this field invents a fact the record does not
+  // contain.
+  const refusal = !restored && (clarification.reason ?? "").includes(NO_OPTIONS_MARKER);
+  /** Whether there is a row of buttons at all — a fact about the ROW. */
+  const offersButtons = clarification.options.length > 0;
 
   const declared = (clarification.reason ?? "").replace(NO_OPTIONS_TAIL, "").trim();
   const match = declared ? REASON_CODE.exec(declared) : null;
   const reasonCode = match?.[1];
-  const reasonText = debug ? clarification.reason : (match?.[2] ?? (declared || undefined));
+  const explanation = debug ? clarification.reason : (match?.[2] ?? (declared || undefined));
+  // WHAT THE READER IS SHOWN, per register. A refusal's reason explains the
+  // refusal and is the card's most useful sentence. A question's reason is
+  // the engine's own bookkeeping — a classification confidence, a dropped
+  // option count, an ask counter — and every reader-facing word is already
+  // in the question above it, so it appears only when somebody has asked
+  // for the engine's vocabulary by turning debug on.
+  const reasonText = refusal || debug ? explanation : undefined;
   // The one clarification whose recovery lives in a control rather than in
   // a reply: the per-turn cost ceiling is set in the settings panel.
   const budgetExhausted = reasonCode === "TURN_BUDGET_EXHAUSTED";
@@ -162,8 +236,12 @@ export function ClarificationPrompt({ clarification }: { clarification: Clarific
   return (
     <div
       role="group"
+      // The register, on the DOM, because it is a claim about which speech
+      // act this card is making and every test of it should read the claim
+      // rather than a colour token that may be re-tuned.
+      data-clarification-register={refusal ? "refusal" : "neutral"}
       aria-label={
-        noOptions
+        refusal
           ? `No answerable options: ${clarification.question}`
           : `Clarification: ${clarification.question}`
       }
@@ -178,31 +256,44 @@ export function ClarificationPrompt({ clarification }: { clarification: Clarific
       // reads the prompt either way.
       aria-live="polite"
       className={
-        noOptions
+        refusal
           ? "rounded-lg border border-warning/40 bg-warning/5 p-3.5"
-          : "rounded-lg border border-grade-derived/40 bg-grade-derived/5 p-3.5"
+          : // QUIET. A question the product asks its reader is an ordinary
+            // affordance and gets the card surface every other calm block
+            // on this thread gets — no accent rule, no tinted fill, no
+            // hue that means something elsewhere in this product
+            // (`grade-derived` is an EVIDENCE grade, and a question is not
+            // graded evidence).
+            "rounded-lg border bg-card/60 p-3.5"
       }
     >
       <div className="flex items-start gap-2.5">
-        {noOptions ? (
+        {refusal ? (
           <CircleAlert className="mt-0.5 size-4 shrink-0 text-warning" />
         ) : (
-          <MessageCircleQuestion className="mt-0.5 size-4 shrink-0 text-grade-derived" />
+          // A speech mark, in muted ink. It says "this is a question"
+          // without saying "something is wrong": the icon slot is kept so
+          // the card is identifiable at a glance in a scrolled thread, and
+          // the alert glyph and the warning colour are both gone from it.
+          <MessageCircleQuestion className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
         )}
         <div className="min-w-0 flex-1 space-y-2.5">
           {/* A statement, not a prompt. The engine's own question text is
               kept verbatim underneath — it says what was asked and is the
               most specific thing on the card — but the heading above it
               stops the card reading as "pick one" when there is no one to
-              pick. */}
-          {noOptions && (
+              pick. Only ever on a refusal: printed over three real
+              interpretations it was simply false. */}
+          {refusal && (
             <p className="text-body font-medium leading-snug text-warning">
               There is no answerable option to offer here.
             </p>
           )}
+          {/* THE LEAD on the neutral card — the question is what this card
+              is, and there is nothing above it. */}
           <p
             className={
-              noOptions
+              refusal
                 ? "text-body leading-snug text-foreground"
                 : "text-body font-medium leading-snug"
             }
@@ -216,7 +307,7 @@ export function ClarificationPrompt({ clarification }: { clarification: Clarific
               still occupies a gap and still reads to a screen reader as the
               group's set of choices, which is precisely the state the
               engine marked this card to avoid. */}
-          {(clarification.options.length > 0 || budgetExhausted) && (
+          {(offersButtons || budgetExhausted) && (
             <div className="flex flex-wrap gap-1.5">
               {clarification.options.map((option, index) => (
                 <Button
@@ -262,7 +353,17 @@ export function ClarificationPrompt({ clarification }: { clarification: Clarific
               // "Or say it differently" reads as the alternative to picking
               // a chip. With no chips it is the only way forward, and the
               // placeholder says so rather than implying a road not taken.
-              placeholder={noOptions ? "Ask it a different way…" : "Or say it differently…"}
+              placeholder={
+                refusal
+                  ? "Ask it a different way…"
+                  : offersButtons
+                    ? "Or say it differently…"
+                    : // No chips to be an alternative TO. The composer is
+                      // the whole recovery here, and the placeholder says
+                      // what it is for rather than implying a road not
+                      // taken.
+                      "Answer in your own words…"
+              }
               rows={1}
               className="min-h-8 flex-1 resize-none text-xs"
             />

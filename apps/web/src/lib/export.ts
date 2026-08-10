@@ -30,6 +30,7 @@ import {
   type MeasureUnit,
 } from "@/lib/format";
 import type { PortfolioItem } from "@/lib/mock/portfolio";
+import { tidyProse } from "@/lib/prose";
 import type {
   Benchmark,
   ContextHeaderData,
@@ -181,6 +182,28 @@ export const NO_CAVEATS_LINE =
  * Shared rather than duplicated: the text copy and the chart CSV must
  * carry the SAME caveats, or the product has two accounts of one answer
  * and the reader has whichever one they exported.
+ *
+ * THE ONE REPAIR AN EXPORT IS ALLOWED TO MAKE. `tidyProse`, and nothing
+ * else. Everything in this module exists to be reproducible, so the
+ * engine's wording is passed through — no identifier redaction, no date
+ * respelling, none of the presentation hygiene the SCREEN applies through
+ * `publicWarningBody`. A stop printed twice is the exception, because it
+ * is not wording: it is a mechanical defect in a join, and `tidyProse`
+ * returns anything without one byte-identical.
+ *
+ * WHERE IT COMES FROM, exactly, because the real fix is not here. The
+ * premise verdicts compose their warning as
+ * `f"premise_unverifiable: {sentence}. The question's own assumption is
+ * neither…"` in
+ * `packages/investigation/src/revi_investigation/application/findings/premise.py:791`,
+ * over a `sentence` that already ends on a full stop — "Ask again once the
+ * thinner side matures." at `:643`. So the wire carries
+ * "…matures.. The question's own assumption…", and has for four review
+ * rounds. That join is backend territory and stays filed there; what is
+ * fixed here is that the same string reached the CSV with the stop still
+ * doubled while the on-screen copy of it had been repaired since the
+ * banner shipped. One answer must not have two spellings depending on
+ * which button was pressed.
  */
 export function caveatLines(warnings: readonly WarningEvent[]): string[] {
   const ordered = [
@@ -191,7 +214,7 @@ export function caveatLines(warnings: readonly WarningEvent[]): string[] {
     const title = warningTitle(warning.code);
     // Unconditional, exactly as on screen: an untitled code costs the
     // reader a heading, not a machine prefix in the middle of a caveat.
-    const body = warningBody(warning.code, warning.message);
+    const body = tidyProse(warningBody(warning.code, warning.message));
     const times = warning.count && warning.count > 1 ? ` (raised ${warning.count} times)` : "";
     return `[${warning.severity}] ${title ? `${title} — ` : ""}${body}${times}`;
   });

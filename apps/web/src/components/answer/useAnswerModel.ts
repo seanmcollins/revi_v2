@@ -180,7 +180,11 @@ export function useAnswerModel(turn: TurnRecord): AnswerModel {
   // scalars. Both were being drawn: two identical charts stacked, and a
   // "trend" through one point. See `selectRenderableCharts`.
   const charts = useMemo(() => selectRenderableCharts(a.charts), [a.charts]);
-  const primaryChart = useMemo(() => selectPrimaryChart(charts), [charts]);
+  // The findings decide which figure leads when the engine named no `main`
+  // frame — see `selectPrimaryChart`. Passed here rather than resolved
+  // inside the selector so the one figure on screen and the facts behind
+  // it come from the same payload this model already holds.
+  const primaryChart = useMemo(() => selectPrimaryChart(charts, a.findings), [charts, a.findings]);
   const secondaryCharts = useMemo(
     () => charts.filter((chart) => chart.id !== primaryChart?.id),
     [charts, primaryChart],

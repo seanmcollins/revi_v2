@@ -9,6 +9,7 @@ import { IntegrityAtom, ValueMarks } from "@/components/monitors/IntegrityAtom";
 import { MonitorSensitivityForm } from "@/components/monitors/MonitorSensitivity";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import { respellInitialisms } from "@/lib/humanize";
 import { investigationLinkFor } from "@/lib/links";
 import { readableStatement } from "@/lib/prose";
 import type { MonitorsPin, MonitorsTile, MonitorModel } from "@/lib/monitors";
@@ -378,10 +379,18 @@ function TileMenu({ tile, pin }: { tile: MonitorsTile; pin?: MonitorsPin }) {
               {/* THE SPEC, in the reader's own nouns. This panel is the one
                   control that lets somebody catch a monitor measuring the
                   wrong cell, and it was rendering the window note alone
-                  while the summary rode on the wire unread. */}
+                  while the summary rode on the wire unread.
+
+                  `respellInitialisms` is the fifth mechanical repair, on
+                  the same terms as the other four: the summary is composed
+                  server-side from a fallback humanizer that splits
+                  `days_in_ar` on underscores and knows no initialisms, so
+                  this panel read "Days in ar" under a tile labelled "days
+                  in A/R by payer" — one measure, three spellings, one
+                  card. Whole known words only; nothing else is touched. */}
               {pin?.specSummary && (
                 <p className="mt-1 text-micro leading-snug text-foreground/80">
-                  {pin.specSummary}
+                  {respellInitialisms(pin.specSummary)}
                 </p>
               )}
               {/* The window mode in the server's own sentence: a moving

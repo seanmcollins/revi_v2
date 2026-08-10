@@ -692,6 +692,17 @@ export interface ChartSeries {
 
 export interface ChartSpec {
   id: string;
+  /**
+   * `ChartSpec.value` — the WAREHOUSE id of the measure this frame draws,
+   * kept beside the composed title.
+   *
+   * The title is the reader's phrase ("Denied A/R dollars by payer") and
+   * is deliberately not an identifier; a finding's `metricRefs` are
+   * identifiers. The two have to be matched to answer "which of these four
+   * figures is the one the write-up is about", and matching them on prose
+   * would be a client parsing its own captions.
+   */
+  measureId?: string;
   /** The shape this UI draws — a reduction of `chart_type` (see contract.ts). */
   kind: "bar" | "grouped_bar" | "line";
   /**

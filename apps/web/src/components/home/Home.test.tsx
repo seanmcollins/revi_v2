@@ -395,6 +395,44 @@ describe("Home — the anomalies zone", () => {
       await screen.findByLabelText(/Drill into DNFB accumulation/),
     ).toBeInTheDocument();
   });
+
+  /**
+   * NO PRIMARY ACTION ON HOME IS HOVER-REVEALED.
+   *
+   * Opening a card is what this page is for — for a tenant who has pinned
+   * nothing it is the only thing on it — and the rail's card shipped its
+   * "Drill in" control as `opacity-0 group-hover:opacity-100`. An
+   * affordance that does not exist until a mouse crosses it does not exist
+   * on a touch screen, in a screenshot, on a projector, or for anybody
+   * deciding whether the card is worth touching. The same rule already
+   * took the hover off the monitor tile's settings control, the lead
+   * status control and "Monitor this"; this is the last of them, on the
+   * surface where it costs the most.
+   *
+   * The rail keeps the tighter treatment on purpose — see
+   * `DrillAffordance` — so this asserts Home's own copy, by the attribute
+   * that records which treatment was chosen rather than by a colour.
+   */
+  it("draws the drill control without a hover — it is Home's primary action", async () => {
+    draw();
+    const drill = await screen.findByLabelText(/Drill into DNFB accumulation/);
+    expect(drill).toHaveAttribute("data-drill-affordance", "persistent");
+    expect(drill.className).not.toMatch(/\bopacity-0\b/);
+    expect(drill.className).not.toMatch(/group-hover:/);
+  });
+
+  it("leaves no hover-revealed control in Home's main column at all", async () => {
+    draw();
+    await screen.findByLabelText(/Drill into DNFB accumulation/);
+    // The rail is a different surface with a different rule; the main
+    // column is the page, and nothing on it may be revealed by a pointer.
+    const main = document.querySelector("main");
+    expect(main).not.toBeNull();
+    const hidden = Array.from(
+      main!.querySelectorAll<HTMLElement>("button, a[href]"),
+    ).filter((el) => /\bopacity-0\b/.test(el.className));
+    expect(hidden.map((el) => el.getAttribute("aria-label") ?? el.textContent)).toEqual([]);
+  });
 });
 
 describe("Home — the composer is one keystroke away, and it goes somewhere", () => {

@@ -179,4 +179,34 @@ describe("capitalizeOpening — a composed sentence that starts in lower case", 
       readableStatement("veritas Comp Fund ranks #1 of 1 measured by denial rate: 22.9%."),
     ).toBe("Veritas Comp Fund is the only cell measured here — denial rate: 22.9%.");
   });
+
+  it("runs after the initialisms, so an opening 'ar' becomes A/R and not Ar", () => {
+    expect(readableStatement("ar over 90 % is 31.4% as of 2026-08-02.")).toBe(
+      "A/R over 90 % is 31.4% as of 2026-08-02.",
+    );
+  });
+});
+
+/**
+ * The fifth mechanical repair. Live on `/monitors`: one tile labelled
+ * "days in A/R by payer" whose own statement said "…measured by days in
+ * ar as of 2026-08-02", because the engine composes that clause through a
+ * fallback humanizer that splits `days_in_ar` on underscores and has never
+ * heard of the pack's spelling. One measure, two names, one card.
+ */
+describe("readableStatement — the initialisms the engine's fallback lost", () => {
+  it("respells the measure inside a monitor's headline statement", () => {
+    expect(
+      readableStatement(
+        "Atlas Commercial ranks #1 of 12 measured by days in ar as of 2026-08-02: 179.5 days.",
+      ),
+    ).toBe(
+      "Atlas Commercial ranks #1 of 12 measured by days in A/R as of 2026-08-02: 179.5 days.",
+    );
+  });
+
+  it("leaves a statement with nothing to repair byte-identical", () => {
+    const clean = "State Medicaid MCO ranks #1 of 8 measured by denial rate: 29.5%.";
+    expect(readableStatement(clean)).toBe(clean);
+  });
 });

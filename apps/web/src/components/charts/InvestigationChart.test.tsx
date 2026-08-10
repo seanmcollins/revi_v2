@@ -119,8 +119,10 @@ describe("InvestigationChart — what the figure states in words", () => {
     // A DECLARED order and an INFERRED one read differently on purpose:
     // one is the pack's published fact, the other is this client reading
     // numbers out of label text.
+    // `A/R`, not `AR` — the spelling the metric pack itself uses, and the
+    // one the monitor beside this figure prints ("days in A/R by payer").
     expect(orderNote(spec({ order: { basis: "axis-order", by: "ar_age_bucket" } }))).toBe(
-      "in the catalog's declared order for AR age bucket",
+      "in the catalog's declared order for A/R age bucket",
     );
     expect(orderNote(spec({ order: { basis: "axis-order" } }))).toBe(
       "in the catalog's declared bucket order",

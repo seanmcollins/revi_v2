@@ -177,6 +177,16 @@ export function DetectedAnomalies({
                         <PortfolioCard
                           key={item.referent}
                           item={item}
+                          // HOME'S PRIMARY ACTION IS NOT HOVER-REVEALED.
+                          // This list IS the page for a tenant who has
+                          // pinned nothing, opening a card is the whole
+                          // reason it is on screen, and the rail's
+                          // `opacity-0 group-hover:opacity-100` treatment
+                          // makes that action non-existent on a touch
+                          // screen, in a screenshot and on a projector.
+                          // The rail keeps its tighter version — see
+                          // `DrillAffordance`.
+                          drillAffordance="persistent"
                           onDrill={() => {
                             if (item.drillSpec) {
                               // A card is not a refinement of whatever was

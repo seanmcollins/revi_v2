@@ -19,6 +19,7 @@ import { describe, expect, it } from "vitest";
 import {
   answerToText,
   buildCsv,
+  caveatLines,
   chartToCsv,
   csvCell,
   exportFilename,
@@ -671,5 +672,119 @@ describe("answerToText — the reasoning travels with the caveats", () => {
     expect(text).toContain("the narrative trace keeps its template, redactions and length");
     // And the caveats still travel in full underneath it.
     expect(text).toContain("claims still awaiting their first remittance");
+  });
+});
+
+/**
+ * THE DOUBLED STOP, ON THE SHEET.
+ *
+ * The premise verdicts compose their warning as
+ * `f"premise_unverifiable: {sentence}. The question's own assumption is
+ * neither…"` over a sentence that already ends on a full stop ("Ask again
+ * once the thinner side matures."), in
+ * `packages/investigation/.../findings/premise.py:791` and `:643`. So the
+ * wire carries "…matures.." — four review rounds running — and it reaches
+ * the SCREEN repaired, because `publicWarningBody` has run `tidyProse`
+ * over it since the banner shipped, and the CSV and the copied text
+ * unrepaired, because they were built to be verbatim.
+ *
+ * The origin is backend territory and stays filed there. What must not
+ * stand is one answer with two spellings depending on which button was
+ * pressed. `tidyProse` is the only repair the exports take: it re-words
+ * nothing and returns a clean string byte-identical.
+ */
+describe("exports — the one mechanical repair a reproducible artifact takes", () => {
+  const MATURITY: WarningEvent = {
+    type: "warning",
+    code: "PREMISE_UNVERIFIABLE",
+    severity: "caution",
+    structured: true,
+    message:
+      "premise_unverifiable: You asked about an increase in denial rate. It cannot be checked " +
+      "yet — the two windows are not equally settled. Ask again once the thinner side matures.. " +
+      "The question's own assumption is neither confirmed nor refuted on this answer.",
+  };
+
+  it("collapses the stop the engine printed twice, in the copied text", () => {
+    const text = answerToText({
+      header: HEADER,
+      findings: [FINDING],
+      narrative: "",
+      warnings: [MATURITY],
+      copiedAt: new Date("2026-08-09T14:32:00"),
+    });
+    expect(text).toContain("Ask again once the thinner side matures. The question's own");
+    expect(text).not.toContain("matures..");
+  });
+
+  it("collapses it in the chart CSV's preamble too — same answer, same caveat", () => {
+    // Through `caveatLines`, because that IS the composition site: the
+    // answer model builds `csvCaveats` with it and hands the same array to
+    // every chart on the turn, so the sheet and the copied text cannot
+    // disagree about a sentence.
+    const csv = chartToCsv(
+      {
+        id: "main",
+        title: "Denial rate by payer",
+        kind: "bar",
+        unit: "percent",
+        series: [{ key: "denial_rate", label: "Denial rate", role: "current" }],
+        rows: [{ label: "State Medicaid MCO", values: { denial_rate: 29.5082 } }],
+      } satisfies ChartSpec,
+      {
+        caveats: caveatLines([MATURITY]),
+        exportedAt: new Date("2026-08-09T14:32:00"),
+      },
+    );
+    expect(csv).toContain("Ask again once the thinner side matures. The question's own");
+    expect(csv).not.toContain("matures..");
+  });
+
+  it("hands the SAME repaired sentence to both artifacts", () => {
+    const [line] = caveatLines([MATURITY]);
+    expect(line).toContain("matures. The question's own");
+    expect(
+      answerToText({
+        header: HEADER,
+        findings: [FINDING],
+        narrative: "",
+        warnings: [MATURITY],
+        copiedAt: new Date("2026-08-09T14:32:00"),
+      }),
+    ).toContain(line);
+  });
+
+  it("leaves an ISO range's dots alone — they are its operator, not a typo", () => {
+    const text = answerToText({
+      header: HEADER,
+      findings: [FINDING],
+      narrative: "",
+      warnings: [
+        {
+          type: "warning",
+          code: "WINDOW_ASSUMED",
+          severity: "caution",
+          structured: true,
+          message:
+            "window_assumed: the question named no period, so I used 2026-07-01..2026-07-31 " +
+            "on the service basis.",
+        },
+      ],
+      copiedAt: new Date("2026-08-09T14:32:00"),
+    });
+    expect(text).toContain("2026-07-01..2026-07-31");
+  });
+
+  it("re-words nothing else — the engine's identifiers survive the export", () => {
+    const text = answerToText({
+      header: HEADER,
+      findings: [FINDING],
+      narrative: "",
+      warnings: WARNINGS,
+      copiedAt: new Date("2026-08-09T14:32:00"),
+    });
+    // `publicWarningBody` would humanize this id for the screen. An
+    // export exists to reproduce a query, so it does not.
+    expect(text).toContain("denial_rate — claims still awaiting their first remittance");
   });
 });

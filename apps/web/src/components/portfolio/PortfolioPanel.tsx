@@ -445,7 +445,34 @@ export function LaneHeader({ lane, count }: { lane?: PortfolioLane; count: numbe
   );
 }
 
-export function PortfolioCard({ item, onDrill }: { item: PortfolioItem; onDrill: () => void }) {
+/**
+ * How loudly a card's way IN is drawn.
+ *
+ * `"hover"` — the 16.5rem rail's treatment: the control appears on hover
+ *   and on keyboard focus. It survives here and only here, because the
+ *   rail stacks thirty-three of these in a column narrow enough that a
+ *   persistent control on every row competes with the row's own title,
+ *   and the rail is a peripheral list beside a surface that is not.
+ * `"persistent"` — everywhere the card IS the surface. Drilling in is the
+ *   whole point of a worklist card; on Home it is the page's primary
+ *   action, and a primary action that does not exist until a mouse
+ *   crosses it does not exist on a touch screen, in a screenshot, on a
+ *   projector, or for anybody reading the page before they touch it. Same
+ *   rule that took the hover off the monitor tile's settings control
+ *   (`MonitorTile`), the lead status control (`LeadStatus`) and "Monitor
+ *   this" (`MonitorThis`) — filed by three reviewers over four rounds.
+ */
+export type DrillAffordance = "hover" | "persistent";
+
+export function PortfolioCard({
+  item,
+  onDrill,
+  drillAffordance = "hover",
+}: {
+  item: PortfolioItem;
+  onDrill: () => void;
+  drillAffordance?: DrillAffordance;
+}) {
   const canDrill = item.drillable && (item.drillSpec !== undefined || item.drill !== undefined);
   // Only worth saying when the two numbers disagree — a card whose whole
   // impact is recoverable should not spend a line repeating itself.
@@ -611,7 +638,20 @@ export function PortfolioCard({ item, onDrill }: { item: PortfolioItem; onDrill:
                 variant="ghost"
                 size="xs"
                 aria-label={`Drill into ${item.title}`}
-                className="h-5 gap-0.5 rounded-full px-1.5 text-micro font-normal text-verified opacity-0 transition-opacity duration-150 hover:text-verified group-hover:opacity-100 focus-visible:opacity-100"
+                data-drill-affordance={drillAffordance}
+                className={cn(
+                  "h-5 gap-0.5 rounded-full px-1.5 text-micro font-normal",
+                  drillAffordance === "persistent"
+                    ? // PRESENT, and quiet. Solid muted ink rather than an
+                      // opacity step — `contrast.test.ts` bans those on
+                      // this token because they drop 12px text under the
+                      // AA floor, and a control quiet enough to miss is
+                      // the bug being fixed rather than the fix. It warms
+                      // to the drill colour under the pointer, so the
+                      // affordance is still legible as one.
+                      "text-muted-foreground transition-colors duration-150 hover:text-verified"
+                    : "text-verified opacity-0 transition-opacity duration-150 hover:text-verified group-hover:opacity-100 focus-visible:opacity-100",
+                )}
                 onClick={onDrill}
               >
                 {item.drill?.label ?? "Drill in"}

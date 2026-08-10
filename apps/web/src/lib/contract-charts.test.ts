@@ -32,9 +32,10 @@ import {
   ordinalBucketKey,
   OTHERS_SERIES_KEY,
   readChartSort,
+  selectPrimaryChart,
   selectRenderableCharts,
 } from "@/lib/contract";
-import type { ChartSpec } from "@/lib/types";
+import type { ChartSpec, Finding } from "@/lib/types";
 
 const AGING_ROWS = [
   { x: "0-30", series: null, value: 4_000_000 },
@@ -1026,5 +1027,92 @@ describe("the engine's period axis, read as the client finds it", () => {
     expect(spec?.kind).toBe("grouped_bar");
     expect(spec?.order).toEqual({ basis: "wire" });
     expect(spec?.stacked).toBeUndefined();
+  });
+});
+
+/**
+ * WHICH OF FOUR FIGURES THE ANSWER LEADS WITH.
+ *
+ * Captured from a live turn — "how are we doing on A/R?", watermark
+ * wm_003. Four frames, no `main` among them (a playbook turn names its
+ * frames after the plan nodes that ran), and three findings, every one of
+ * them measuring `denied_ar_dollars` by payer.
+ *
+ * The old fallback drew `charts[0]` — `ar_profile`, which is `ar_balance`
+ * by age bucket, and which is first only because it is the first node in
+ * the plan. So the calm layout's one figure was about a different measure
+ * from every sentence of its own write-up, and the payer chart the answer
+ * was actually about sat behind "3 more charts".
+ */
+describe("selectPrimaryChart — the figure the write-up is about", () => {
+  const frame = (frameId: string, value: string, x: string): ChartSpec =>
+    mapChartSpec({
+      id: `chart_${frameId}`,
+      frame_id: frameId,
+      chart_type: "bar",
+      title: `${value} — ${frameId}`,
+      x,
+      value,
+      unit: "money_cents",
+      rows: [
+        { x: "Atlas Commercial", series: null, value: 26_745_409 },
+        { x: "State Medicaid", series: null, value: 33_594_858 },
+      ],
+    })!;
+
+  const CHARTS: ChartSpec[] = [
+    frame("ar_profile", "ar_balance", "ar_age_bucket"),
+    frame("ar_aging_by_payer", "ar_over_90_pct", "payer"),
+    frame("denied_inventory", "denied_ar_dollars", "payer"),
+    frame("denied_inventory_aging", "denied_ar_dollars", "payer"),
+  ];
+
+  const finding = (referent: string, metricId: string): Finding => ({
+    referent: { value: referent, kind: "finding" },
+    title: `${referent}: a measured cell`,
+    statement: "",
+    metricRefs: [metricId],
+    values: {},
+    grade: "direct",
+    directionOfGood: "neutral",
+    confidence: "high",
+    suggestedRefinements: [],
+  });
+
+  it("leads with the chart drawing what the findings measure", () => {
+    const primary = selectPrimaryChart(CHARTS, [
+      finding("F1", "denied_ar_dollars"),
+      finding("F2", "denied_ar_dollars"),
+    ]);
+    expect(primary?.frameId).toBe("denied_inventory");
+    // Wire order among the two frames that draw it — never a re-rank by
+    // size, which would promote the 60-row aging frame over the answer.
+    expect(primary?.measureId).toBe("denied_ar_dollars");
+  });
+
+  it("gives the LEADING finding first claim on the figure", () => {
+    expect(
+      selectPrimaryChart(CHARTS, [
+        finding("F1", "ar_over_90_pct"),
+        finding("F2", "denied_ar_dollars"),
+      ])?.frameId,
+    ).toBe("ar_aging_by_payer");
+  });
+
+  it("never overrides the engine — a named main frame still leads", () => {
+    const withMain = [frame("main", "denial_rate", "payer"), ...CHARTS];
+    expect(
+      selectPrimaryChart(withMain, [finding("F1", "denied_ar_dollars")])?.frameId,
+    ).toBe("main");
+  });
+
+  it("falls back to wire order when nothing connects the two", () => {
+    // A turn whose findings measure something no frame drew, and a turn
+    // with no findings at all: neither invents a connection.
+    expect(selectPrimaryChart(CHARTS, [finding("F1", "cash_posted")])?.frameId).toBe(
+      "ar_profile",
+    );
+    expect(selectPrimaryChart(CHARTS)?.frameId).toBe("ar_profile");
+    expect(selectPrimaryChart([])).toBeUndefined();
   });
 });

@@ -70,7 +70,7 @@ import type {
 } from "@/lib/types";
 import { GRADE_STRENGTH } from "@/lib/types";
 import { chartWindowLabel, formatMeasure, type MeasureUnit } from "@/lib/format";
-import { humanizeColumn } from "@/lib/humanize";
+import { humanizeColumn, humanizeInline } from "@/lib/humanize";
 import { dedupeWarnings } from "@/lib/warnings";
 import type {
   PortfolioItem,
@@ -675,7 +675,12 @@ function composeChartTitle(
 ): string {
   const measure = governedName ? valueColumn : humanizeColumn(valueColumn);
   if (!xColumn || xColumn === valueColumn) return measure;
-  return `${measure} by ${humanizeColumn(xColumn).toLowerCase()}`;
+  // `humanizeInline`, never `.toLowerCase()`. The lower-casing is for the
+  // FIRST word of a phrase that is no longer starting a title — and applied
+  // to the whole string it also flattens the initialisms the same function
+  // just spelled: "days in A/R" came back as "days in ar" and reached a
+  // chart title beside a monitor labelled "days in A/R by payer".
+  return `${measure} by ${humanizeInline(xColumn)}`;
 }
 
 const COMPARISON_KIND_BY_WIRE: Record<string, ComparisonKind> = {
@@ -1141,13 +1146,19 @@ export function mapFinding(raw: unknown, context: FindingContext = {}): Finding 
  * in the fallback — a display name is an authored phrase ("Discharged not
  * final billed (unbilled discharges)") and lower-casing it would be this
  * client editing governed content.
+ *
+ * `humanizeInline` does that lower-casing, and does it to the FIRST word
+ * only. A blanket `.toLowerCase()` also un-spells every initialism the
+ * humanizer just got right — "days in A/R" → "days in ar", "CARC" →
+ * "carc" — which is not a case convention, it is a typo of the pack's own
+ * vocabulary.
  */
 function measureLabel(
   metricId: string,
   display: Record<string, MetricDisplay> | undefined,
 ): string {
   const entry = display?.[metricId];
-  return entry ? entry.displayName : humanizeColumn(metricId).toLowerCase();
+  return entry ? entry.displayName : humanizeInline(metricId);
 }
 
 /**
@@ -1790,6 +1801,10 @@ export function mapChartSpec(
     order,
     wireChartType: wireType,
     frameId: asString(raw.frame_id) || undefined,
+    // The measure's own id, kept for the one question the composed title
+    // cannot answer: which of a turn's four figures draws what the
+    // findings measure. See `selectPrimaryChart`.
+    ...(valueColumn ? { measureId: valueColumn } : {}),
     // The chart names the same measure the finding above it does, so it
     // takes the same governed correction: a card reading "Discharged not
     // final billed" over an axis reading "Dnfb dollars" is one answer
@@ -2007,9 +2022,28 @@ export function selectRenderableCharts(specs: readonly ChartSpec[]): ChartSpec[]
  *   1. the `main` frame exactly, if it is renderable;
  *   2. otherwise the first `main__…` frame in WIRE ORDER — a comparison
  *      turn publishes only `main__compare`, and that is its main chart;
- *   3. otherwise the first renderable chart, which is what a turn with no
- *      `main` frame at all (a worklist answer, whose frames are named for
- *      the portfolio families they came from) actually leads with.
+ *   3. otherwise the first chart, in wire order, that draws a measure the
+ *      turn's own FINDINGS are about — leading finding first;
+ *   4. otherwise the first renderable chart.
+ *
+ * RULE 3 IS THE ONE THAT WAS MISSING, and it cost the demo's first
+ * screen. A playbook turn names its frames after the plan nodes that ran
+ * and publishes no `main` at all, so the old fallback drew `charts[0]` —
+ * whichever node happened to run first. Live, "how are we doing on A/R?"
+ * published four frames and three findings: every finding measured
+ * `denied_ar_dollars` by payer, and the figure on the first screen was
+ * `ar_balance` by age bucket, because `ar_profile` was the first node in
+ * the plan. The payer chart the write-up was entirely about sat behind "3
+ * more charts". Same shape on the denials question.
+ *
+ * It reads ids, not prose. A finding's `metricRefs` and a chart's
+ * `measureId` are both warehouse identifiers off the wire; matching the
+ * write-up's WORDS against a chart's title would be this client parsing
+ * its own captions to guess what an answer is about.
+ *
+ * It never overrides the engine. Rules 1 and 2 come first, so a turn that
+ * named its main frame still leads with it — this only replaces an
+ * arbitrary pick with an evidenced one.
  *
  * Wire order throughout, never a re-rank: the engine emitted these in the
  * order its plan ran, and picking "the biggest" would let a supporting
@@ -2019,11 +2053,25 @@ export function selectRenderableCharts(specs: readonly ChartSpec[]): ChartSpec[]
  * real outcome and not a fallback: `selectRenderableCharts` has already
  * dropped every frame that draws fewer than two marks.
  */
-export function selectPrimaryChart(charts: readonly ChartSpec[]): ChartSpec | undefined {
+export function selectPrimaryChart(
+  charts: readonly ChartSpec[],
+  /** The turn's published findings, in the engine's own order. */
+  findings: readonly Finding[] = [],
+): ChartSpec | undefined {
   const exact = charts.find((chart) => chart.frameId === "main");
   if (exact !== undefined) return exact;
   const family = charts.find((chart) => chart.frameId?.startsWith("main__") === true);
-  return family ?? charts[0];
+  if (family !== undefined) return family;
+  // The leading finding gets first claim on the figure — it is the
+  // sentence the answer opens with — and each finding's own measures are
+  // tried in the order the engine listed them.
+  for (const finding of findings) {
+    for (const metricId of finding.metricRefs) {
+      const drawn = charts.find((chart) => chart.measureId === metricId);
+      if (drawn !== undefined) return drawn;
+    }
+  }
+  return charts[0];
 }
 
 /* ------------------------------------------------------------------ */

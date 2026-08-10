@@ -46,7 +46,10 @@ describe("publicWarningBody — the plan's handles come off the answer", () => {
     expect(body.text).toContain("denial rate");
     expect(body.text).toContain("cash posted");
     expect(body.text).toContain("DNFB dollars");
-    expect(body.text).toContain("AR over 90 %");
+    // `A/R`, not `AR`. The pack's own spelling — the monitor labelled
+    // "days in A/R by payer", the benchmark "percent of A/R aged over 90
+    // days" — and this sentence is read beside both.
+    expect(body.text).toContain("A/R over 90 %");
     expect(body.text).not.toContain("denial_rate");
   });
 
