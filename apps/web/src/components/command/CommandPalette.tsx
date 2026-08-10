@@ -15,7 +15,7 @@ import {
   Settings2,
   Sparkles,
 } from "lucide-react";
-import { useRouter } from "next/navigation";
+import { useNavigate } from "react-router-dom";
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
 
@@ -56,7 +56,7 @@ export function CommandPalette({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const router = useRouter();
+  const navigate = useNavigate();
   const submit = useSessionStore((s) => s.submit);
   const streaming = useSessionStore((s) => s.streamingTurnId !== null);
   const newChatPending = useSessionStore((s) => s.newChatPending);
@@ -137,11 +137,11 @@ export function CommandPalette({
 
   const actions = useMemo<PaletteAction[]>(() => {
     const driverKind = resolveDriverKind();
-    // `NEXT_PUBLIC_REVI_DRIVER=mock` forced by env — the only case where the
+    // `VITE_REVI_DRIVER=mock` forced by env — the only case where the
     // palette still offers a driver switch. The mock driver is a dev/test
     // fixture, not a user-facing mode: with the default env (live API), no
     // casual control writes the `revi-driver` localStorage override.
-    const envForcedMock = process.env.NEXT_PUBLIC_REVI_DRIVER === "mock";
+    const envForcedMock = import.meta.env.VITE_REVI_DRIVER === "mock";
     const list: PaletteAction[] = [];
 
     if (nextQuestion) {
@@ -249,7 +249,7 @@ export function CommandPalette({
       label: "Open Monitors",
       hint: "What changed in this data load",
       icon: <Eye className="size-3.5" />,
-      run: () => router.push("/monitors"),
+      run: () => navigate("/monitors"),
     });
 
     // And the gesture Monitors is made of, on the answer being read. The
@@ -349,7 +349,7 @@ export function CommandPalette({
     openSettings,
     debug,
     variant,
-    router,
+    navigate,
     streaming,
   ]);
 

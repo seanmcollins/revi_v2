@@ -13,6 +13,8 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
+import { MemoryRouter } from "react-router-dom";
+
 import { AnswerCard } from "@/components/answer/AnswerCard";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import typedTurns from "@/lib/__fixtures__/live-typed-turns.json";
@@ -79,11 +81,24 @@ function turn(debugTrace?: DebugTrace): TurnRecord {
   };
 }
 
+/**
+ * A ROUTER, BECAUSE THE APP HAS ONE.
+ *
+ * `next/link` and `useRouter()` were mocked or ambient; react-router's
+ * `<Link>`, `useNavigate` and `useLocation` all read a context and throw
+ * without one, so every render that reaches a link or a navigation is
+ * wrapped. `MemoryRouter` and not `BrowserRouter` on purpose: the router's
+ * location then lives in memory, and `window.location` — which
+ * `answerVariant` reads directly, by design — stays whatever the test set
+ * it to.
+ */
 function renderCard(record: TurnRecord) {
   return render(
-    <TooltipProvider>
-      <AnswerCard turn={record} />
-    </TooltipProvider>,
+    <MemoryRouter>
+      <TooltipProvider>
+        <AnswerCard turn={record} />
+      </TooltipProvider>
+    </MemoryRouter>,
   );
 }
 

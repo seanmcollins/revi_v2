@@ -1,3 +1,7 @@
 allowBuilds:
   sharp: false
   unrs-resolver: false
+  # Vite's transform pipeline. The postinstall only verifies that the
+  # platform-specific optional package resolves; without it pnpm prints an
+  # ERR_PNPM_IGNORED_BUILDS line on every install and CI reads as noisy.
+  esbuild: true

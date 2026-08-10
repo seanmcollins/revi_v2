@@ -1,8 +1,8 @@
 "use client";
 
 import { Command, Link as LinkIcon, Settings2 } from "lucide-react";
-import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { useNavigate } from "react-router-dom";
 
 import { CopyTextButton } from "@/components/answer/AnswerActions";
 import { ChatThread } from "@/components/chat/ChatThread";
@@ -30,7 +30,7 @@ import { useSessionStore } from "@/lib/store";
  * right contextual panel (evidence + lineage). Desktop tool — designed
  * down to 1280px. Keyboard-first: ⌘K opens the command palette.
  *
- * Driver selection: NEXT_PUBLIC_REVI_DRIVER=mock|api (default api — the
+ * Driver selection: VITE_REVI_DRIVER=mock|api (default api — the
  * live product; mock is a dev/test fixture, not a user-facing mode). A
  * client-side localStorage override exists for tooling but is no longer
  * written by any casual user-facing control. Both drivers speak the same
@@ -161,17 +161,31 @@ export default function Workspace({
    * A session is minted by the first turn, so the URL cannot be right
    * before then — and once it exists, the analyst who wants to send this
    * thread to a CFO should be able to use the browser's own address bar
-   * rather than hunt for a button. `replaceState` (not `push`) because a
+   * rather than hunt for a button. `replace` (not a push) because a
    * session becoming addressable is not a navigation the back button
-   * should have to undo; Next's router reads it, so `usePathname` stays in
-   * step.
+   * should have to undo.
+   *
+   * This was a raw `window.history.replaceState`, which Next's router
+   * observed. React Router does NOT observe raw history writes — its
+   * `useLocation` consumers (the rail's "you are here" on Monitors, most
+   * visibly) would go on reporting the previous path forever. So the write
+   * goes through the router, and the read that guards it stays on
+   * `window.location`: the router calls `history.replaceState`
+   * synchronously, so the two are never out of step, and comparing against
+   * the real address bar is what keeps this from fighting a permalink that
+   * is already correct.
+   *
+   * The route element is deliberately the same component for `/`, `/s/:id`
+   * and `/i/:id` (see `App.tsx`), so this navigation reconciles rather than
+   * remounting — the same non-event `replaceState` was.
    */
+  const navigate = useNavigate();
   const wasLive = useRef(false);
   useEffect(() => {
     if (sessionLive && sessionId) {
       wasLive.current = true;
       const path = `/s/${encodeURIComponent(sessionId)}`;
-      if (window.location.pathname !== path) window.history.replaceState(null, "", path);
+      if (window.location.pathname !== path) navigate(path, { replace: true });
       return;
     }
     // "New chat" leaves a real gap with no session in it (`sessionLive:
@@ -182,8 +196,8 @@ export default function Workspace({
     // the very link that was opened.
     if (!wasLive.current) return;
     wasLive.current = false;
-    if (window.location.pathname !== "/") window.history.replaceState(null, "", "/");
-  }, [sessionLive, sessionId]);
+    if (window.location.pathname !== "/") navigate("/", { replace: true });
+  }, [sessionLive, sessionId, navigate]);
 
   // Persisted settings are read on the CLIENT only: the server render has
   // no localStorage, and hydrating from it during render would mismatch.
@@ -215,7 +229,6 @@ export default function Workspace({
    *     returns here and stays here.
    */
   const newestWatermarkId = useSessionStore((s) => s.connection.newestWatermarkId);
-  const router = useRouter();
   const redirected = useRef(false);
   useEffect(() => {
     if (redirected.current) return;
@@ -230,12 +243,15 @@ export default function Workspace({
     // reader otherwise, and this is the one navigation this app makes on
     // the analyst's behalf.
     noteMonitorsRedirect();
-    // `router.push`, not `location.assign`: a client-side navigation keeps
+    // A router push, not `location.assign`: a client-side navigation keeps
     // the store, the driver and the health poll this component just set
     // up, so Monitors opens without re-bootstrapping everything it needs.
-    router.push("/monitors");
+    // A PUSH and not a replace — Back from Monitors has to return here,
+    // and the `redirected` latch above is what stops it bouncing straight
+    // back out again.
+    navigate("/monitors");
   }, [
-    router,
+    navigate,
     connectionMode,
     initialSessionId,
     initialInvestigationId,

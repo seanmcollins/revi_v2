@@ -13,11 +13,9 @@
 # testing
 /coverage
 
-# next.js
-/.next/
-/out/
-
-# production
+# build output
+/dist
+/dist-*
 /build
 
 # misc
@@ -30,12 +28,15 @@ yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
 
-# env files (can opt-in for committing if needed)
+# env files. The EXAMPLE is opted in: it is the only tracked record of the
+# three `VITE_REVI_*` settings this app reads, and while it was ignored the
+# rename from `NEXT_PUBLIC_*` would have landed on one machine and nowhere
+# else. Real `.env` / `.env.local` stay ignored.
 .env*
+!.env.example
 
 # vercel
 .vercel
 
 # typescript
 *.tsbuildinfo
-next-env.d.ts

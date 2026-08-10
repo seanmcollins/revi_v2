@@ -18,28 +18,31 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { MemoryRouter } from "react-router-dom";
+
 import { MonitorsSurface } from "@/components/monitors/MonitorsSurface";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import live from "@/lib/__fixtures__/live-monitors.json";
 import { noteMonitorsRedirect } from "@/lib/monitorsVisit";
 import { useSessionStore } from "@/lib/store";
 
-const push = vi.fn();
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push, replace: vi.fn(), refresh: vi.fn(), back: vi.fn() }),
-  usePathname: () => "/monitors",
-}));
-
 function draw() {
   const client = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
   return render(
-    <QueryClientProvider client={client}>
-      <TooltipProvider>
-        <MonitorsSurface />
-      </TooltipProvider>
-    </QueryClientProvider>,
+    // A real router at the real route, rather than a mocked `useRouter`:
+    // this surface both navigates (a lead's drill opens the thread) and is
+    // READ as a location — the rail's "New load" dot suppresses itself on
+    // `/monitors`, which is only true if the router says that is where we
+    // are.
+    <MemoryRouter initialEntries={["/monitors"]}>
+      <QueryClientProvider client={client}>
+        <TooltipProvider>
+          <MonitorsSurface />
+        </TooltipProvider>
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 

@@ -23,6 +23,8 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { MemoryRouter } from "react-router-dom";
+
 import { BriefPanel } from "@/components/monitors/BriefPanel";
 import { BriefEntryRow } from "@/components/monitors/BriefEntryRow";
 import { LeadLifecyclePanel } from "@/components/monitors/LeadLifecycle";
@@ -46,7 +48,11 @@ import {
 import { useSessionStore } from "@/lib/store";
 
 function draw(node: React.ReactNode) {
-  return render(<TooltipProvider>{node}</TooltipProvider>);
+  return render(
+    <MemoryRouter>
+      <TooltipProvider>{node}</TooltipProvider>
+    </MemoryRouter>,
+  );
 }
 
 const MONITORS = parseMonitors(live.monitors);

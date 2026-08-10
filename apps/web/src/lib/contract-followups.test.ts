@@ -16,13 +16,10 @@
  * parser and disagree with the server.
  */
 
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { describe, expect, it } from "vitest";
 
 import RAW_SAMPLES from "@/lib/__fixtures__/wire-samples.json";
+import { readRepoFile } from "@/lib/repoRoot";
 import {
   applyMetricDisplayNames,
   mapAnomalyReconciliation,
@@ -60,11 +57,8 @@ const SAMPLES = RAW_SAMPLES as any;
  * read, so nothing was checked" is the failure mode this replaced.
  */
 function publishedWarningCodes(): string[] {
-  const here = dirname(fileURLToPath(import.meta.url));
-  const source = readFileSync(
-    resolve(here, "../../../../apps/api/src/revi_api/warning_codes.py"),
-    "utf8",
-  );
+  // Repo-relative, not `../`-relative — see `lib/repoRoot`.
+  const source = readRepoFile("apps/api/src/revi_api/warning_codes.py");
   const codes = [...source.matchAll(/_rule\(\s*"([A-Z][A-Z0-9_]*)"/g)].map((m) => m[1]);
   const unclassified = /^UNCLASSIFIED\s*=\s*"([A-Z_]+)"/m.exec(source);
   if (unclassified) codes.push(unclassified[1]);

@@ -31,6 +31,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import live from "@/lib/__fixtures__/live-answers.json";
+import { MemoryRouter } from "react-router-dom";
+
 import { AnswerCard } from "@/components/answer/AnswerCard";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { resetAnswerVariantCache, setAnswerVariant } from "@/lib/answerVariant";
@@ -91,9 +93,11 @@ const VARIANTS = ["current", "a", "b"] as const;
 
 function renderCard(record: TurnRecord) {
   return render(
-    <TooltipProvider>
-      <AnswerCard turn={record} />
-    </TooltipProvider>,
+    <MemoryRouter>
+      <TooltipProvider>
+        <AnswerCard turn={record} />
+      </TooltipProvider>
+    </MemoryRouter>,
   );
 }
 

@@ -15,20 +15,23 @@ Three routes and a rail:
 | `/i/{investigation_id}` | Permalink to a single answer |
 | `/monitors` | What changed on this data load — the brief, the monitor tiles, and their leads |
 
-Next.js (App Router) + Tailwind + shadcn/ui + Zustand for turn state +
-TanStack Query for the GET side. Light theme only — there is no dark
-palette and no theme toggle.
+Vite + React 18 + react-router-dom v7 + Tailwind v4 + shadcn/ui + Zustand
+for turn state + TanStack Query for the GET side. Light theme only — there
+is no dark palette and no theme toggle.
+
+The dev server is pinned to `:3000` (`vite.config.ts`), not Vite's default
+`5173`: the API's CORS allowlist (`REVI_CORS_ORIGINS`) names that origin.
 
 ## Commands
 
 pnpm only. Run them from this directory.
 
 ```bash
-pnpm dev        # dev server on :3000
+pnpm dev        # vite dev server on :3000
 pnpm test       # vitest run
 pnpm test:watch # vitest, watching
 pnpm lint       # eslint
-pnpm build      # production build
+pnpm build      # tsc --noEmit && vite build -> dist/
 pnpm gen:types  # regenerate src/lib/types.gen.ts from ../../contracts/openapi.json
 ```
 
@@ -54,9 +57,12 @@ Configured by environment, with a per-browser override stored in
 
 | Variable | Default | Meaning |
 |---|---|---|
-| `NEXT_PUBLIC_REVI_DRIVER` | `api` | `api` or `mock` |
-| `NEXT_PUBLIC_REVI_API_URL` | `http://localhost:8000` | Where the API lives |
-| `NEXT_PUBLIC_REVI_TENANT` | `demo` | Tenant sent on session open |
+| `VITE_REVI_DRIVER` | `api` | `api` or `mock` |
+| `VITE_REVI_API_URL` | `http://localhost:8000` | Where the API lives |
+| `VITE_REVI_TENANT` | `demo` | Tenant sent on session open |
+
+Read through `import.meta.env`, and inlined at build time — a change to any
+of them needs a rebuild, not a restart.
 
 Mock mode is a fixture, not a demo of the product — every number it shows is
 canned. The connection pill says which mode is live at all times.
@@ -76,4 +82,4 @@ renamed wire field is caught at `pnpm test` time.
 ## Also read
 
 - [`../../README.md`](../../README.md) — the platform: stack, quickstart, repository map
-- [`./AGENTS.md`](./AGENTS.md) — required reading before writing Next.js code in this repo
+- [`./src/globals.css`](./src/globals.css) — the design tokens, the type scale, and the typeface

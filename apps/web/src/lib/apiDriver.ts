@@ -84,7 +84,7 @@ export type { SessionBootstrap } from "@/lib/contract";
 /* ------------------------------------------------------------------ */
 
 /**
- * `NEXT_PUBLIC_REVI_DRIVER=mock|api` — default api (the live product). A
+ * `VITE_REVI_DRIVER=mock|api` — default api (the live product). A
  * localStorage override ("revi-driver", set by the ⌘K palette) wins on the
  * client so the driver can be switched without a rebuild.
  */
@@ -97,17 +97,17 @@ export function resolveDriverKind(): DriverKind {
       // Storage unavailable (privacy mode) — fall through to the env default.
     }
   }
-  return process.env.NEXT_PUBLIC_REVI_DRIVER === "mock" ? "mock" : "api";
+  return import.meta.env.VITE_REVI_DRIVER === "mock" ? "mock" : "api";
 }
 
-/** `NEXT_PUBLIC_REVI_API_URL` — default the API dev origin. */
+/** `VITE_REVI_API_URL` — default the API dev origin. */
 export function apiBaseUrl(): string {
-  return process.env.NEXT_PUBLIC_REVI_API_URL ?? "http://localhost:8000";
+  return import.meta.env.VITE_REVI_API_URL ?? "http://localhost:8000";
 }
 
-/** `NEXT_PUBLIC_REVI_TENANT` — explicit tenant context on session open (§12). */
+/** `VITE_REVI_TENANT` — explicit tenant context on session open (§12). */
 export function resolveTenant(): string {
-  return process.env.NEXT_PUBLIC_REVI_TENANT ?? "demo";
+  return import.meta.env.VITE_REVI_TENANT ?? "demo";
 }
 
 /* ------------------------------------------------------------------ */

@@ -12,8 +12,7 @@ import {
   Search,
   Stethoscope,
 } from "lucide-react";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { Link, useLocation } from "react-router-dom";
 import { useEffect, useState, useSyncExternalStore } from "react";
 
 import { CopyTextButton } from "@/components/answer/AnswerActions";
@@ -162,7 +161,7 @@ export function SessionRail() {
           title={
             mode === "api"
               ? undefined
-              : "Seed 20260807 · set NEXT_PUBLIC_REVI_DRIVER=api to use the live API"
+              : "Seed 20260807 · set VITE_REVI_DRIVER=api to use the live API"
           }
         >
           {mode === "api" ? (
@@ -207,13 +206,13 @@ function MonitorsLink() {
   // Never on the page the dot is pointing AT. Sitting on Monitors reading
   // the new load under a badge announcing a new load is the app arguing
   // with itself, and "you are here" is the one thing the rail always knows.
-  const here = usePathname() === "/monitors";
+  const here = useLocation().pathname === "/monitors";
   const unseen = stored && !here;
 
   if (mode !== "api") return null;
   return (
     <Link
-      href="/monitors"
+      to="/monitors"
       className="focus-ring flex w-full items-center gap-1.5 rounded-md border px-2 py-1.5 text-meta font-medium text-muted-foreground transition-colors duration-200 hover:border-ring/40 hover:text-foreground"
     >
       <Stethoscope aria-hidden className="size-3" />

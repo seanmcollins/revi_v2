@@ -1,8 +1,7 @@
 "use client";
 
 import { AlertTriangle, ArrowLeft } from "lucide-react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { Link, useNavigate } from "react-router-dom";
 import { useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
 
 import { WarningList } from "@/components/banners/WarningBanner";
@@ -77,7 +76,7 @@ export function MonitorsSurface() {
   const setDriver = useSessionStore((s) => s.setDriver);
   const newestWatermarkId = useSessionStore((s) => s.connection.newestWatermarkId);
   const live = driverKind === "api";
-  const router = useRouter();
+  const navigate = useNavigate();
   const headingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
@@ -182,10 +181,10 @@ export function MonitorsSurface() {
         if (!item.drillable || !item.drillSpec) return undefined;
         return () => {
           void submit({ spec: item.drillSpec!, anomalyRef: item.referent });
-          router.push("/");
+          navigate("/");
         };
       },
-    [submit, router],
+    [submit, navigate],
   );
 
   const leadHandles = useMemo(() => {
@@ -279,7 +278,7 @@ export function MonitorsSurface() {
             </div>
             <div className="flex shrink-0 items-center gap-2.5">
               <Link
-                href="/"
+                to="/"
                 className="focus-ring inline-flex items-center gap-1 rounded-md border bg-surface-sunken/70 px-2 py-1 text-micro font-medium text-muted-foreground transition-colors duration-200 hover:border-ring/40 hover:text-foreground"
               >
                 <ArrowLeft aria-hidden className="size-3" />

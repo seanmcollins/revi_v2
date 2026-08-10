@@ -2,20 +2,26 @@ import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { MemoryRouter } from "react-router-dom";
+
 import { CommandPalette } from "@/components/command/CommandPalette";
 import { useSessionStore } from "@/lib/store";
 
 /**
  * The palette navigates now — "Open Monitors" is the ⌘K route to the surface
  * an analyst starts their day on, and it was the one primary destination
- * in the product with no keyboard verb. `useRouter` throws outside the app
- * router, which no unit test mounts, so the router is a spy here and the
- * navigation is asserted rather than performed.
+ * in the product with no keyboard verb. `useNavigate` throws outside a
+ * router, which no unit test mounts, so every render here gets a
+ * `MemoryRouter` and the navigation is performed into memory rather than
+ * into `window.location`.
  */
-const push = vi.fn();
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push, replace: vi.fn(), refresh: vi.fn(), back: vi.fn() }),
-}));
+function draw() {
+  return render(
+    <MemoryRouter initialEntries={["/"]}>
+      <CommandPalette open onOpenChange={() => {}} />
+    </MemoryRouter>,
+  );
+}
 
 // jsdom does not implement scrollIntoView; the palette calls it to keep the
 // selected row in view while arrowing.
@@ -23,15 +29,20 @@ beforeAll(() => {
   Element.prototype.scrollIntoView = vi.fn();
 });
 
-const ENV_KEY = "NEXT_PUBLIC_REVI_DRIVER";
+const ENV_KEY = "VITE_REVI_DRIVER";
 
+/**
+ * `vi.stubEnv` rather than a `process.env` assignment: the read site is
+ * `import.meta.env.VITE_REVI_DRIVER` now, and Vitest keeps that object
+ * live for exactly this (a production build statically replaces it, which
+ * is what `NEXT_PUBLIC_*` did too).
+ */
 function setEnvDriver(value: string | undefined) {
-  if (value === undefined) delete process.env[ENV_KEY];
-  else process.env[ENV_KEY] = value;
+  if (value === undefined) vi.stubEnv(ENV_KEY, undefined);
+  else vi.stubEnv(ENV_KEY, value);
 }
 
 describe("CommandPalette — driver-switch affordance is a dev/test-only action", () => {
-  const originalEnv = process.env[ENV_KEY];
 
   beforeEach(() => {
     useSessionStore.getState().reset();
@@ -40,33 +51,33 @@ describe("CommandPalette — driver-switch affordance is a dev/test-only action"
 
   afterEach(() => {
     cleanup();
-    setEnvDriver(originalEnv);
+    vi.unstubAllEnvs();
   });
 
   it("hides the driver-switch action with the default (live API) env", () => {
     setEnvDriver(undefined);
-    render(<CommandPalette open onOpenChange={() => {}} />);
+    draw();
 
     expect(screen.queryByText(/Switch to (mock|live API) driver/)).not.toBeInTheDocument();
   });
 
   it("hides the driver-switch action when the env is explicitly api", () => {
     setEnvDriver("api");
-    render(<CommandPalette open onOpenChange={() => {}} />);
+    draw();
 
     expect(screen.queryByText(/Switch to (mock|live API) driver/)).not.toBeInTheDocument();
   });
 
   it("keeps the driver-switch action only when the env itself forces mock", () => {
     setEnvDriver("mock");
-    render(<CommandPalette open onOpenChange={() => {}} />);
+    draw();
 
     expect(screen.getByText(/Use the (mock fixture|live API)/)).toBeInTheDocument();
   });
 
   it("always offers Replay reference demo, regardless of env", () => {
     setEnvDriver(undefined);
-    render(<CommandPalette open onOpenChange={() => {}} />);
+    draw();
 
     expect(screen.getByText("Replay reference demo")).toBeInTheDocument();
   });
@@ -84,7 +95,7 @@ describe("CommandPalette — the internal settings panel is ⌘K-reachable", () 
   });
 
   it("lists Settings in the Workspace group and opens the panel", () => {
-    render(<CommandPalette open onOpenChange={() => {}} />);
+    draw();
 
     fireEvent.click(screen.getByText("Settings"));
 
@@ -94,7 +105,7 @@ describe("CommandPalette — the internal settings panel is ⌘K-reachable", () 
   it("labels the action when debug mode is on, so it is visible from the palette", () => {
     useSessionStore.setState({ settings: { ...useSessionStore.getState().settings, debug: true } });
 
-    render(<CommandPalette open onOpenChange={() => {}} />);
+    draw();
 
     expect(screen.getByText("Internal · debug on")).toBeInTheDocument();
   });
@@ -111,7 +122,7 @@ describe("CommandPalette — replay action reflects live progress", () => {
     const replayReference = vi.fn().mockResolvedValue(undefined);
     useSessionStore.setState({ replayReference, replaying: false, replayProgress: null });
 
-    render(<CommandPalette open onOpenChange={() => {}} />);
+    draw();
     fireEvent.click(screen.getByText("Replay reference demo"));
 
     expect(replayReference).toHaveBeenCalledTimes(1);
@@ -120,7 +131,7 @@ describe("CommandPalette — replay action reflects live progress", () => {
   it("labels the action with live progress while a replay is running", () => {
     useSessionStore.setState({ replaying: true, replayProgress: { index: 2, total: 5 } });
 
-    render(<CommandPalette open onOpenChange={() => {}} />);
+    draw();
 
     expect(screen.getByText("Replaying reference demo (2/5)")).toBeInTheDocument();
   });
@@ -154,7 +165,7 @@ describe("CommandPalette — the selected row is drawn and announced", () => {
   afterEach(() => cleanup());
 
   it("marks exactly one option selected, with a 2px ring rail and no tint alone", () => {
-    render(<CommandPalette open onOpenChange={() => {}} />);
+    draw();
 
     const options = screen.getAllByRole("option");
     const selected = options.filter((o) => o.getAttribute("aria-selected") === "true");
@@ -166,7 +177,7 @@ describe("CommandPalette — the selected row is drawn and announced", () => {
   });
 
   it("points the combobox at the row Enter will run", () => {
-    render(<CommandPalette open onOpenChange={() => {}} />);
+    draw();
 
     const input = screen.getByRole("combobox");
     const active = input.getAttribute("aria-activedescendant");
@@ -175,7 +186,7 @@ describe("CommandPalette — the selected row is drawn and announced", () => {
   });
 
   it("moves the announced row with the arrow keys", () => {
-    render(<CommandPalette open onOpenChange={() => {}} />);
+    draw();
     const input = screen.getByRole("combobox");
 
     expect(input.getAttribute("aria-activedescendant")).toBe("palette-option-0");

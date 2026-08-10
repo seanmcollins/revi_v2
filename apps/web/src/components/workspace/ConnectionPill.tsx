@@ -73,7 +73,7 @@ export function DegradedModeBadge() {
     return (
       <DegradedBadge
         label="Demo script mode"
-        explanation="Mock is a dev/test fixture — it only matches the reference demo questions, and everything else gets a scripted clarification. The live API is the product; set NEXT_PUBLIC_REVI_DRIVER=api (the default) to use it."
+        explanation="Mock is a dev/test fixture — it only matches the reference demo questions, and everything else gets a scripted clarification. The live API is the product; set VITE_REVI_DRIVER=api (the default) to use it."
       />
     );
   }

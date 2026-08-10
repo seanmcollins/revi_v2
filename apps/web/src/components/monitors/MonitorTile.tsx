@@ -1,7 +1,7 @@
 "use client";
 
 import { MoreHorizontal } from "lucide-react";
-import Link from "next/link";
+import { Link } from "react-router-dom";
 import { useEffect, useRef, useState } from "react";
 
 import { DeltaLine, ThresholdNote } from "@/components/monitors/DeltaLine";
@@ -141,7 +141,7 @@ export function MonitorTile({ tile, pin }: { tile: MonitorsTile; pin?: MonitorsP
         <div className="min-w-0">
           {tile.investigationId ? (
             <Link
-              href={investigationLinkFor(tile.investigationId, "")}
+              to={investigationLinkFor(tile.investigationId, "")}
               title={`Open the investigation behind ${tile.label}`}
               // A PERSISTENT underline, not one that appears on hover. A
               // hover state does not exist on a touch screen or in a

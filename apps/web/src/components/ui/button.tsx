@@ -38,20 +38,36 @@ const buttonVariants = cva(
   }
 )
 
-function Button({
-  className,
-  variant = "default",
-  size = "default",
-  asChild = false,
-  ...props
-}: React.ComponentProps<"button"> &
-  VariantProps<typeof buttonVariants> & {
-    asChild?: boolean
-  }) {
+/**
+ * WHY `forwardRef` IS BACK ON EVERY PRIMITIVE IN THIS DIRECTORY.
+ *
+ * React 19 made `ref` an ordinary prop, so shadcn's current generator emits
+ * plain function components and the ref arrives through `props`. Under
+ * React 18 it does not: a ref handed to a function component is dropped
+ * with a console warning and resolves to `null`.
+ *
+ * That is not a cosmetic difference here. `Button` and `Badge` are the
+ * children of 42 `asChild` sites — Radix `Slot` clones the child and gives
+ * it the ref its `Popper` measures the anchor from. With a null anchor,
+ * tooltips, popovers, dropdowns and hover-cards lose their positioning and
+ * their focus return, app-wide, with nothing but a warning to say so. jsdom
+ * cannot see it, so no test would have caught it either.
+ */
+const Button = React.forwardRef<
+  HTMLButtonElement,
+  React.ComponentPropsWithoutRef<"button"> &
+    VariantProps<typeof buttonVariants> & {
+      asChild?: boolean
+    }
+>(function Button(
+  { className, variant = "default", size = "default", asChild = false, ...props },
+  ref
+) {
   const Comp = asChild ? Slot.Root : "button"
 
   return (
     <Comp
+      ref={ref}
       data-slot="button"
       data-variant={variant}
       data-size={size}
@@ -59,6 +75,6 @@ function Button({
       {...props}
     />
   )
-}
+})
 
 export { Button, buttonVariants }

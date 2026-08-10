@@ -2,6 +2,44 @@
 @import "tw-animate-css";
 
 /* ---------------------------------------------------------------------------
+   THE TYPEFACE, AND THE FACE THAT STANDS IN WHILE IT LOADS.
+
+   `next/font/google` used to do three things here, and all three are
+   load-bearing: it self-hosted Geist and Geist Mono (variable, all five
+   subsets, `font-display: swap`), it exposed them through
+   `--font-geist-sans` / `--font-geist-mono`, and it generated a
+   METRIC-MATCHED fallback so the swap does not reflow the page.
+
+   The first is `@fontsource-variable/geist` + `-mono`, imported in
+   `main.tsx` — the same Google-hosted variable woff2 files, the same five
+   unicode-range-gated subsets, the same `font-display: swap`. Fontsource
+   names the family "Geist Variable"; only the name differs.
+
+   The third is below, VERBATIM from what Next generated for these two
+   families (`ascent-override` / `descent-override` / `line-gap-override` /
+   `size-adjust` over `local(Arial)`). The type scale in this file was tuned
+   against those metrics, so re-deriving them by eye would be a layout
+   change wearing a font's clothes.
+--------------------------------------------------------------------------- */
+@font-face {
+  font-family: "Geist Fallback";
+  src: local("Arial");
+  ascent-override: 95.94%;
+  descent-override: 28.16%;
+  line-gap-override: 0%;
+  size-adjust: 104.76%;
+}
+
+@font-face {
+  font-family: "Geist Mono Fallback";
+  src: local("Arial");
+  ascent-override: 74.67%;
+  descent-override: 21.92%;
+  line-gap-override: 0%;
+  size-adjust: 134.59%;
+}
+
+/* ---------------------------------------------------------------------------
    Revi design tokens — financial-grade, one confident accent.
 
    Light is the only theme. There is no dark palette, no theme toggle and
@@ -24,6 +62,13 @@
 --------------------------------------------------------------------------- */
 
 :root {
+  /* The two variables the Next font loader put on <html> via a generated
+     class, with the same real-face-then-metric-fallback pair. `@theme`
+     below reads them into `--font-sans` / `--font-mono`, so these names
+     stay the seam between "which typeface" and "how type is scaled". */
+  --font-geist-sans: "Geist Variable", "Geist Fallback";
+  --font-geist-mono: "Geist Mono Variable", "Geist Mono Fallback";
+
   /* Paper, not white. The page sits a step BELOW the raised cards so the
      depth model reads in light mode too (sunken < page < panel < raised). */
   --background: #f6f5f0;

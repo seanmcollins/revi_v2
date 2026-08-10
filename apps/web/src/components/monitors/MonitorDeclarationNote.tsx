@@ -1,7 +1,7 @@
 "use client";
 
 import { Eye, EyeOff } from "lucide-react";
-import Link from "next/link";
+import { Link } from "react-router-dom";
 
 import type { MonitorDeclaration, MonitorRefusal } from "@/lib/monitors";
 
@@ -53,7 +53,7 @@ export function MonitorDeclarationNote({ monitor }: { monitor: MonitorDeclaratio
           )}
           {monitor.thresholdStatement !== "" && <span>{monitor.thresholdStatement}</span>}
           <Link
-            href="/monitors"
+            to="/monitors"
             className="focus-ring rounded underline decoration-foreground/30 underline-offset-[3px] transition-colors duration-150 hover:text-foreground hover:decoration-foreground"
           >
             See it in Monitors
@@ -120,7 +120,7 @@ export function MonitorRefusedNote({ refusal }: { refusal: MonitorRefusal }) {
         <p className="num flex flex-wrap items-baseline gap-x-2 text-micro text-muted-foreground">
           <span>The answer below stands on its own. Nothing is being monitored.</span>
           <Link
-            href="/monitors"
+            to="/monitors"
             className="focus-ring rounded underline decoration-foreground/30 underline-offset-[3px] transition-colors duration-150 hover:text-foreground hover:decoration-foreground"
           >
             See what IS being monitored

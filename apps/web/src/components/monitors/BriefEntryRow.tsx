@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowRight } from "lucide-react";
-import Link from "next/link";
+import { Link } from "react-router-dom";
 
 import { DeltaLine, ThresholdNote } from "@/components/monitors/DeltaLine";
 import { IntegrityAtom } from "@/components/monitors/IntegrityAtom";
@@ -182,7 +182,7 @@ export function BriefEntryRow({
             when neither exists — never a row that ends in nothing. */}
         {entry.investigationId ? (
           <Link
-            href={investigationLinkFor(entry.investigationId, "")}
+            to={investigationLinkFor(entry.investigationId, "")}
             className="focus-ring group/link inline-flex items-center gap-1 rounded underline decoration-foreground/30 underline-offset-[3px] transition-colors duration-150 hover:text-foreground hover:decoration-foreground"
           >
             Open the investigation

@@ -4,6 +4,8 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { MemoryRouter } from "react-router-dom";
+
 import { SessionRail } from "@/components/workspace/SessionRail";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import type { TurnDriver } from "@/lib/driver";
@@ -42,11 +44,17 @@ beforeAll(() => {
 function renderRail() {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    <QueryClientProvider client={client}>
-      <TooltipProvider>
-        <SessionRail />
-      </TooltipProvider>
-    </QueryClientProvider>,
+    // The rail reads `useLocation().pathname` to decide whether the "New
+    // load" dot is pointing at the page the reader is already on, so the
+    // route it renders under is part of what these assert: `/` is the
+    // workspace, which is where every one of these renders it.
+    <MemoryRouter initialEntries={["/"]}>
+      <QueryClientProvider client={client}>
+        <TooltipProvider>
+          <SessionRail />
+        </TooltipProvider>
+      </QueryClientProvider>
+    </MemoryRouter>,
   );
 }
 

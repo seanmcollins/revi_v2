@@ -17,6 +17,8 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
+import { MemoryRouter } from "react-router-dom";
+
 import { AnswerCard } from "@/components/answer/AnswerCard";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import typedTurns from "@/lib/__fixtures__/live-typed-turns.json";
@@ -249,9 +251,11 @@ function turn(over: Partial<TurnRecord["answer"]> = {}): TurnRecord {
 
 function renderCard(record: TurnRecord = turn()) {
   return render(
-    <TooltipProvider>
-      <AnswerCard turn={record} />
-    </TooltipProvider>,
+    <MemoryRouter>
+      <TooltipProvider>
+        <AnswerCard turn={record} />
+      </TooltipProvider>
+    </MemoryRouter>,
   );
 }
 

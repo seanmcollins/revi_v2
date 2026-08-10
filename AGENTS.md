@@ -111,7 +111,7 @@ packs/base-rcm/                           governed content: 49 metric contracts,
 warehouse/                                deterministic generator + catalog + answer key
 apps/api/                                 FastAPI + SSE; assembly.py projects engine output
                                           to the wire; monitors/ is the Monitors backend
-apps/web/                                 Next.js UI; lib/ maps wire → view models
+apps/web/                                 Vite + React SPA; lib/ maps wire → view models
 contracts/openapi.json                    exported API surface (make openapi)
 docs/reviews/adversarial/                 ten rounds of persona review — the "why" behind
                                           many non-obvious behaviors

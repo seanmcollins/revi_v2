@@ -52,7 +52,7 @@ api: ## Run the FastAPI app (dev; open auth — see REVI_AUTH_DEV_TENANT)
 token: ## Mint an API bearer token (needs REVI_AUTH_SECRET; --new-secret to create one)
 	uv run python -m revi_api.mint_token $(ARGS)
 
-web: ## Run the Next.js app (dev)
+web: ## Run the web app (Vite dev server)
 	cd apps/web && pnpm dev
 
 dev: ## Run API + web together (dev)

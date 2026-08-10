@@ -16,16 +16,13 @@
 
 import "@testing-library/jest-dom/vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it } from "vitest";
+
+import { MemoryRouter } from "react-router-dom";
 
 import { SessionLink } from "@/components/workspace/Workspace";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { emptyAnswer, useSessionStore, type TurnRecord } from "@/lib/store";
-
-vi.mock("next/navigation", () => ({
-  useRouter: () => ({ push: vi.fn(), replace: vi.fn(), refresh: vi.fn(), back: vi.fn() }),
-  usePathname: () => "/",
-}));
 
 const copied: string[] = [];
 
@@ -40,9 +37,11 @@ function turn(id: string, over: Partial<TurnRecord["answer"]>): TurnRecord {
 
 function draw() {
   return render(
-    <TooltipProvider>
-      <SessionLink sessionId="sess_6850e4aa2ccd" />
-    </TooltipProvider>,
+    <MemoryRouter>
+      <TooltipProvider>
+        <SessionLink sessionId="sess_6850e4aa2ccd" />
+      </TooltipProvider>
+    </MemoryRouter>,
   );
 }
 

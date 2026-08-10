@@ -36,6 +36,8 @@ import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 
 import live from "@/lib/__fixtures__/live-turns.json";
+import { MemoryRouter } from "react-router-dom";
+
 import { AnswerCard } from "@/components/answer/AnswerCard";
 import { ContextPanel } from "@/components/workspace/ContextPanel";
 import { TooltipProvider } from "@/components/ui/tooltip";
@@ -124,9 +126,11 @@ function seed(turn: TurnRecord): void {
 
 function renderAnswer(turn: TurnRecord) {
   return render(
-    <TooltipProvider>
-      <AnswerCard turn={turn} />
-    </TooltipProvider>,
+    <MemoryRouter>
+      <TooltipProvider>
+        <AnswerCard turn={turn} />
+      </TooltipProvider>
+    </MemoryRouter>,
   );
 }
 
@@ -228,9 +232,11 @@ describe("live turn — the premise correction, prose-primary", () => {
     seed(turn);
     useSessionStore.setState({ drawerTurnId: turn.id });
     const { container } = render(
-      <TooltipProvider>
-        <ContextPanel />
-      </TooltipProvider>,
+      <MemoryRouter>
+        <TooltipProvider>
+          <ContextPanel />
+        </TooltipProvider>
+      </MemoryRouter>,
     );
     expect(screen.getByRole("heading", { name: /Facts \(2\)/ })).toBeInTheDocument();
     const text = container.textContent ?? "";

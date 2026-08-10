@@ -24,19 +24,18 @@
  * be read, so nothing was checked" is not a pass.
  */
 
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
-import { fileURLToPath } from "node:url";
-
 import { describe, expect, it } from "vitest";
 
 import { MONITOR_UNITS } from "@/lib/contract";
+import { readRepoFile } from "@/lib/repoRoot";
 
-const here = dirname(fileURLToPath(import.meta.url));
-const repo = resolve(here, "../../../..");
-
+/**
+ * Repo-relative, not `../`-relative: the root is found by walking up to
+ * `pyproject.toml` (see `lib/repoRoot`), so this pin keeps reading the
+ * engine's own source wherever this app sits in the tree.
+ */
 function read(relative: string): string {
-  return readFileSync(resolve(repo, relative), "utf8");
+  return readRepoFile(relative);
 }
 
 /** The engine's own list — the one the phrase parser and the pack read. */

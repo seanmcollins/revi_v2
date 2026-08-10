@@ -26,23 +26,25 @@ const badgeVariants = cva(
   }
 )
 
-function Badge({
-  className,
-  variant = "default",
-  asChild = false,
-  ...props
-}: React.ComponentProps<"span"> &
-  VariantProps<typeof badgeVariants> & { asChild?: boolean }) {
+/** `forwardRef` for the reason spelled out in `button.tsx`: React 18 drops
+ *  a ref handed to a plain function component, and `Badge` is an `asChild`
+ *  target whose ref a Radix trigger measures its anchor from. */
+const Badge = React.forwardRef<
+  HTMLSpanElement,
+  React.ComponentPropsWithoutRef<"span"> &
+    VariantProps<typeof badgeVariants> & { asChild?: boolean }
+>(function Badge({ className, variant = "default", asChild = false, ...props }, ref) {
   const Comp = asChild ? Slot.Root : "span"
 
   return (
     <Comp
+      ref={ref}
       data-slot="badge"
       data-variant={variant}
       className={cn(badgeVariants({ variant }), className)}
       {...props}
     />
   )
-}
+})
 
 export { Badge, badgeVariants }

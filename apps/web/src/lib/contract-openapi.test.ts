@@ -53,8 +53,6 @@
  *    card's `drill_spec` posts) is bound alongside them.
  */
 
-import { readFileSync } from "node:fs";
-import path from "node:path";
 import { describe, expect, it } from "vitest";
 
 import {
@@ -73,6 +71,7 @@ import {
   REQUIRED_SESSION_SUMMARY_FIELDS,
   REQUIRED_TURN_ERROR_FIELDS,
 } from "@/lib/contract";
+import { readRepoFile } from "@/lib/repoRoot";
 import type { components, paths } from "@/lib/types.gen";
 
 type Schemas = components["schemas"];
@@ -369,9 +368,8 @@ interface OpenApiDoc {
   components: { schemas: Record<string, OpenApiSchema> };
 }
 
-const SPEC: OpenApiDoc = JSON.parse(
-  readFileSync(path.resolve(import.meta.dirname, "../../../../contracts/openapi.json"), "utf8"),
-) as OpenApiDoc;
+// Repo-relative, not `../`-relative — see `lib/repoRoot`.
+const SPEC: OpenApiDoc = JSON.parse(readRepoFile("contracts/openapi.json")) as OpenApiDoc;
 
 const schema = (name: string): OpenApiSchema => {
   const found = SPEC.components.schemas[name];
