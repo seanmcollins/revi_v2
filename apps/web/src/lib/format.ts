@@ -7,6 +7,7 @@
 
 import type { TurnSubmission } from "@/lib/driver";
 import { humanizeColumn } from "@/lib/humanize";
+import { capitalizeOpening } from "@/lib/prose";
 import type { DateBasis, DirectionOfGood, Refinement, ResolvedWindow } from "@/lib/types";
 
 export const MINUS = "−";
@@ -473,6 +474,16 @@ export function untitledTurnLabel(submission: Pick<TurnSubmission, "spec">): str
  * list meant to be scanned at a glance. This is a display-only
  * substitution for those two strings; every other title still renders
  * exactly as the server sent it.
+ *
+ * …EXCEPT FOR ITS FIRST LETTER. A session row is a CARD TITLE, and a rail
+ * of them read "how does our denial rate compare to the industry
+ * benchmark?", "what is the denial rate for UnitedHealthcare?", "how much
+ * cash came in during July?" — because that is how the questions were
+ * typed. The transcript is untouched: the turn in the thread still shows
+ * the utterance exactly as it was submitted, and the exports still carry
+ * the raw string. This repairs the LIST ENTRY, which is a label the product
+ * composed out of somebody's sentence, on the same terms as every other
+ * render-time repair in `lib/prose`.
  */
 export function displaySessionTitle(title: string): string {
   switch (title) {
@@ -481,6 +492,6 @@ export function displaySessionTitle(title: string): string {
     case "(typed gesture)":
       return DRILL_DOWN_LABEL;
     default:
-      return title;
+      return capitalizeOpening(title);
   }
 }

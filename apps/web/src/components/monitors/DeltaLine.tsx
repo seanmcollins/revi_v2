@@ -3,7 +3,7 @@
 import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { readableStatement } from "@/lib/prose";
+import { capitalizeOpening, readableStatement } from "@/lib/prose";
 import type { MonitorsDelta } from "@/lib/monitors";
 import { cn } from "@/lib/utils";
 
@@ -87,7 +87,15 @@ export function DeltaLine({
             ·
           </span>
         )}
-        {flat ? "no change" : word === "" ? delta.deltaText : `${word} ${delta.deltaText}`}
+        {/* THE MAGNITUDE OPENS THIS LINE, so it opens in capitals. The
+            arrow beside it is `aria-hidden` decoration, which means this
+            clause is the first thing a reader — and a screen reader —
+            meets on the line. Nothing is re-worded: `deltaText` is the
+            server's own rendering in the metric's own unit, and the only
+            character that moves is the first one. */}
+        {capitalizeOpening(
+          flat ? "no change" : word === "" ? delta.deltaText : `${word} ${delta.deltaText}`,
+        )}
       </span>
       {/* WHAT IT MOVED FROM. The figure when the payload carries one; the
           bare clause when it does not — never the data load's own handle,
@@ -175,11 +183,16 @@ export function ThresholdNote({ delta }: { delta: MonitorsDelta }) {
           data-threshold-source={delta.thresholdSource}
           className="focus-ring rounded text-left text-micro leading-snug text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground"
         >
+          {/* WHOSE LEVEL BRIEFED THIS, without the platform's word for
+              it. "The governed threshold" and "below the governed one" are
+              vocabulary from inside the engine; what a reader needs is
+              whether the level was theirs or Revi's, and whether theirs is
+              looser. The hover carries the rule itself, verbatim. */}
           {delta.thresholdSource === "monitor"
             ? delta.belowGovernedGate
-              ? "Your threshold, below the governed one"
-              : "Your threshold"
-            : "The governed threshold"}
+              ? "Your level, lower than Revi's"
+              : "Your level"
+            : "Revi's recommended level"}
         </button>
       </TooltipTrigger>
       <TooltipContent side="bottom" className="max-w-80 text-meta leading-snug">

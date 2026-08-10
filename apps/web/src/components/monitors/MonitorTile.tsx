@@ -7,11 +7,12 @@ import { useEffect, useRef, useState } from "react";
 import { DeltaLine, ThresholdNote } from "@/components/monitors/DeltaLine";
 import { IntegrityAtom, ValueMarks } from "@/components/monitors/IntegrityAtom";
 import { MonitorSensitivityForm } from "@/components/monitors/MonitorSensitivity";
+import { Sparkline } from "@/components/monitors/Sparkline";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { respellInitialisms } from "@/lib/humanize";
 import { investigationLinkFor } from "@/lib/links";
-import { readableStatement } from "@/lib/prose";
+import { MONITOR_HISTORY_MIN, monitorReadings } from "@/lib/monitorHistory";
+import { readableLabel, readableStatement } from "@/lib/prose";
 import type { MonitorsPin, MonitorsTile, MonitorModel } from "@/lib/monitors";
 import { useSessionStore } from "@/lib/store";
 import { isoRangeLabel } from "@/lib/format";
@@ -25,10 +26,16 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input, select, textarea, [ta
  *
  * The anatomy is the calm answer's, compressed to something readable at a
  * glance and stacked twenty times without becoming a monitoring console:
- * a label, the number, what it did, and the integrity line. No sparkline —
- * a 40px trend behind a figure is decoration that implies a shape the tile
- * has not published and cannot defend, and this surface's whole argument
- * is that a quiet morning should look quiet.
+ * a label, the number, what it did, and the integrity line.
+ *
+ * IT NOW CARRIES A SPARKLINE, and the rule that refused one still stands.
+ * What was refused was "a 40px trend behind a figure" — decoration
+ * implying a shape the tile has not published and cannot defend. What is
+ * drawn is the two or three STORED EVALUATIONS the payload carries, each at
+ * a named data load, with nothing between them and nothing drawn at all
+ * below three of them (`lib/monitorHistory`, `Sparkline`). A quiet morning
+ * still looks quiet: a monitor that did not move draws a flat line through
+ * its own readings and says "no change" beside it.
  *
  * Four rules the tile follows and the review rounds asked for by name:
  *
@@ -56,6 +63,29 @@ const FOCUSABLE = 'a[href], button:not([disabled]), input, select, textarea, [ta
  */
 export function MonitorTile({ tile, pin }: { tile: MonitorsTile; pin?: MonitorsPin }) {
   const unavailable = tile.status !== "ok";
+  /**
+   * THE LABEL AS A CARD TITLE OPENS IN CAPITALS, and the raw label is what
+   * still travels everywhere else.
+   *
+   * A monitor's label is whatever it was registered as — "days in A/R by
+   * payer", "denial rate for State Medicaid MCO" — and three of this
+   * tenant's seven open their tile in lower case. It is repaired at RENDER,
+   * once, and the repaired string is used for the spoken name too, so the
+   * card a screen reader announces and the card on screen are the same
+   * card. See `lib/prose::readableLabel`.
+   */
+  const label = readableLabel(tile.label);
+  /**
+   * THE STORED READINGS. This file's header used to say a sparkline
+   * "implies a shape the tile has not published and cannot defend", and
+   * that was true of a trend drawn behind a figure out of nothing. These
+   * are the two or three evaluations the payload actually carries, each at
+   * a named data load (`lib/monitorHistory`) — and below three of them
+   * nothing is drawn, because a line through two dots is a trajectory
+   * nobody measured. The full-surface tile carries it for the same reason
+   * the digest does: one vocabulary, both surfaces.
+   */
+  const readings = monitorReadings(tile);
   /**
    * The BASELINE movement, when it says something the prior-load movement
    * does not.
@@ -99,7 +129,7 @@ export function MonitorTile({ tile, pin }: { tile: MonitorsTile; pin?: MonitorsP
       data-tile-pin={tile.pinId}
       data-tile-entered={entered ? "true" : "false"}
       tabIndex={0}
-      aria-label={`${tile.label}: ${unavailable ? "no value at this load" : tile.valueText}`}
+      aria-label={`${label}: ${unavailable ? "no value at this load" : tile.valueText}`}
       aria-describedby="monitors-tile-hint"
       onKeyDown={(event) => {
         if (event.key === "Enter" && event.target === tileRef.current) {
@@ -143,7 +173,7 @@ export function MonitorTile({ tile, pin }: { tile: MonitorsTile; pin?: MonitorsP
           {tile.investigationId ? (
             <Link
               to={investigationLinkFor(tile.investigationId, "")}
-              title={`Open the investigation behind ${tile.label}`}
+              title={`Open the investigation behind ${label}`}
               // A PERSISTENT underline, not one that appears on hover. A
               // hover state does not exist on a touch screen or in a
               // screenshot, and this is the tile's only path to the
@@ -151,10 +181,10 @@ export function MonitorTile({ tile, pin }: { tile: MonitorsTile; pin?: MonitorsP
               // identify is a link that did not happen.
               className="focus-ring min-w-0 rounded text-meta font-medium leading-snug underline decoration-foreground/30 underline-offset-[3px] transition-colors duration-150 hover:decoration-foreground"
             >
-              {tile.label}
+              {label}
             </Link>
           ) : (
-            <p className="min-w-0 text-meta font-medium leading-snug">{tile.label}</p>
+            <p className="min-w-0 text-meta font-medium leading-snug">{label}</p>
           )}
           {/* WHICH CELL the number is about, resolved to dimension members
               rather than read off the title. A tile whose label names one
@@ -187,10 +217,15 @@ export function MonitorTile({ tile, pin }: { tile: MonitorsTile; pin?: MonitorsP
         </>
       ) : (
         <>
-          <p className="numeral text-lead leading-none">
-            {tile.valueText}
-            <ValueMarks integrity={tile.integrity} />
-          </p>
+          <div className="flex items-end justify-between gap-2">
+            <p className="numeral text-figure leading-none">
+              {tile.valueText}
+              <ValueMarks integrity={tile.integrity} />
+            </p>
+            {readings.length >= MONITOR_HISTORY_MIN && (
+              <Sparkline readings={readings} className="mb-1" />
+            )}
+          </div>
           {tile.delta ? (
             <DeltaLine delta={tile.delta} />
           ) : (
@@ -249,6 +284,10 @@ export function MonitorTile({ tile, pin }: { tile: MonitorsTile; pin?: MonitorsP
  * discover it tomorrow when a five-point drift becomes a fresh zero.
  */
 function TileMenu({ tile, pin }: { tile: MonitorsTile; pin?: MonitorsPin }) {
+  // The same repaired title the tile draws — a menu that announces
+  // "Settings for the monitor denial rate for State Medicaid MCO" is
+  // naming a card whose visible title now opens in capitals.
+  const label = readableLabel(tile.label);
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
   /**
@@ -340,7 +379,7 @@ function TileMenu({ tile, pin }: { tile: MonitorsTile; pin?: MonitorsPin }) {
         <Button
           variant="ghost"
           size="xs"
-          aria-label={`Settings for the monitor ${tile.label}`}
+          aria-label={`Settings for the monitor ${label}`}
           // PERSISTENT, not hover-revealed. It was `opacity-0
           // group-hover:opacity-100`, which is no control at all on a
           // touch screen, in a screenshot or on a projector — and the
@@ -381,16 +420,18 @@ function TileMenu({ tile, pin }: { tile: MonitorsTile; pin?: MonitorsPin }) {
                   wrong cell, and it was rendering the window note alone
                   while the summary rode on the wire unread.
 
-                  `respellInitialisms` is the fifth mechanical repair, on
+                  `readableLabel` carries the fifth mechanical repair on
                   the same terms as the other four: the summary is composed
                   server-side from a fallback humanizer that splits
                   `days_in_ar` on underscores and knows no initialisms, so
                   this panel read "Days in ar" under a tile labelled "days
                   in A/R by payer" — one measure, three spellings, one
-                  card. Whole known words only; nothing else is touched. */}
+                  card. Whole known words only, plus the opening capital
+                  every card title in this product now takes; nothing else
+                  is touched. */}
               {pin?.specSummary && (
                 <p className="mt-1 text-micro leading-snug text-foreground/80">
-                  {respellInitialisms(pin.specSummary)}
+                  {readableLabel(pin.specSummary)}
                 </p>
               )}
               {/* The window mode in the server's own sentence: a moving
@@ -478,7 +519,7 @@ function TileMenu({ tile, pin }: { tile: MonitorsTile; pin?: MonitorsPin }) {
             {armed ? (
               <div data-stop-monitor-armed className="space-y-1.5 rounded-md border p-2">
                 <p className="text-meta font-medium leading-snug">
-                  Stop monitoring {tile.label}?
+                  Stop monitoring {label}?
                 </p>
                 <p className="text-micro leading-snug text-muted-foreground">
                   Nothing is deleted. The loads this monitor has already been briefed on stay

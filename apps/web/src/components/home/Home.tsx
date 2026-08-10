@@ -8,6 +8,7 @@ import { HeroQuestions } from "@/components/chat/HeroQuestions";
 import { TurnInput } from "@/components/chat/TurnInput";
 import { ContractDriftBanner } from "@/components/banners/ContractDriftBanner";
 import { DetectedAnomalies } from "@/components/home/DetectedAnomalies";
+import { LeadAnchor } from "@/components/home/LeadAnchor";
 import { MonitorDigest } from "@/components/home/MonitorDigest";
 import { WhatChangedStrip } from "@/components/home/WhatChangedStrip";
 import { useLeadHandles } from "@/components/monitors/useLeadHandles";
@@ -17,6 +18,7 @@ import { ConnectionPill, DegradedModeBadge } from "@/components/workspace/Connec
 import { SessionRail } from "@/components/workspace/SessionRail";
 import { announce } from "@/lib/announce";
 import { mediumDate } from "@/lib/format";
+import { homeAnchor } from "@/lib/homeAnchor";
 import { homeShape } from "@/lib/homeLayout";
 import { hasUnseenLoad, markMonitorsSeen } from "@/lib/monitorsVisit";
 import { useBriefQuery, useMonitorsQuery, usePortfolioQuery } from "@/lib/queries";
@@ -99,6 +101,36 @@ export function Home() {
   );
 
   /**
+   * THE ONE OBJECT ON THIS LOAD THAT GETS DRAWN.
+   *
+   * Home had no picture on it at all: four zones of 12–13px type, and the
+   * owner's reading of the live surface was that it had failed to render.
+   * `homeAnchor` walks a fallback chain over the payloads already on this
+   * page — the ranked leads first, then this load's brief, then the
+   * monitors — and returns the first thing carrying a real investigation.
+   * `LeadAnchor` reads that investigation and draws ITS published figure
+   * with the answer surface's own chart component, drill and all. Nothing
+   * is composed here; when the chain finds nothing, nothing is drawn.
+   */
+  const anchor = useMemo(
+    () =>
+      // THE CHAIN IS ONLY WALKED ONCE THE BRIEF HAS ANSWERED. The brief
+      // read EVALUATES every monitor, so it lands seconds after the other
+      // two — and a chain walked before it arrives falls through to the
+      // monitors, draws one figure, then swaps it for another when the
+      // brief resolves. A landing page that changes its subject under the
+      // reader is worse than one that takes a moment to have one.
+      brief.isPending
+        ? undefined
+        : homeAnchor({
+            ...(portfolio.data ? { leads: portfolio.data.items } : {}),
+            ...(brief.data ? { entries: brief.data.entries } : {}),
+            ...(monitors.data ? { tiles: monitors.data.tiles } : {}),
+          }),
+    [portfolio.data, brief.data, brief.isPending, monitors.data],
+  );
+
+  /**
    * A LOAD NOBODY HAS BEEN BRIEFED ON ANNOUNCES ITSELF.
    *
    * What survives from the retired redirect. The headline is said once,
@@ -134,6 +166,22 @@ export function Home() {
    * session does, and without this Home would simply look as if the click
    * had not registered.
    */
+  /**
+   * THE WORKLIST AND ITS FIGURE TRAVEL TOGETHER.
+   *
+   * The key-figure band opens the anomalies zone and the drawn anchor
+   * follows it immediately, in both of `homeShape`'s orders — "how much is
+   * still catchable" and "here is the thing it is mostly about" are one
+   * reading, and splitting them across the monitors digest would put the
+   * page's two heaviest objects at opposite ends of a scroll.
+   */
+  const worklistZone = (
+    <>
+      <DetectedAnomalies query={portfolio} />
+      {anchor !== undefined && <LeadAnchor anchor={anchor} enabled={live} />}
+    </>
+  );
+
   const turns = useSessionStore((s) => s.turns);
   const streaming = useSessionStore((s) => s.streamingTurnId !== null);
   const sessionLive = useSessionStore((s) => s.sessionLive);
@@ -203,7 +251,7 @@ export function Home() {
           </header>
 
           <div className="min-h-0 flex-1 overflow-y-auto">
-            <div className="space-y-10 px-6 py-8">
+            <div className="space-y-8 px-6 py-6">
               <ContractDriftBanner />
               {!live ? (
                 <NoDeployment />
@@ -217,15 +265,28 @@ export function Home() {
                   />
 
                   {/* THE EVOLUTION, rendered. Two zones, one order, decided
-                      by `homeShape` and by nothing on this component. */}
+                      by `homeShape` and by nothing on this component.
+
+                      THE HIERARCHY PASS DID NOT TOUCH THIS ORDER, and that
+                      was deliberate. The eye is meant to land on the
+                      still-catchable figure, then the drawn lead, then the
+                      monitors, then the brief — and every one of those is
+                      achieved with SIZE, not by re-sequencing the page: the
+                      figure band is 30px numerals, the anchor is the only
+                      picture on the surface, the digest carries 30px values
+                      with their readings beside them, and the brief is one
+                      17px sentence. Re-ordering the DOM to match the eye
+                      would have broken the evolution rule, the skip links
+                      and the announcement's focus target — three real
+                      behaviours traded for a scroll position. */}
                   {shape.order === "monitors_first" ? (
                     <>
                       <MonitorDigest query={monitors} moved={shape.movedPinIds} />
-                      <DetectedAnomalies query={portfolio} />
+                      {worklistZone}
                     </>
                   ) : (
                     <>
-                      <DetectedAnomalies query={portfolio} />
+                      {worklistZone}
                       <MonitorDigest query={monitors} moved={shape.movedPinIds} />
                     </>
                   )}

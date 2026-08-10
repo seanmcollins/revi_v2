@@ -18,7 +18,7 @@ import {
   titleCarriesValue,
   titleLabelOnly,
 } from "@/lib/findingText";
-import { readableStatement } from "@/lib/prose";
+import { capitalizeOpening, readableStatement } from "@/lib/prose";
 import { useSessionStore } from "@/lib/store";
 import type { Finding } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -217,7 +217,10 @@ export function FactRow({
                 emitRefinement(drill.refinement, { turnId, referent: finding.referent.value })
               }
             >
-              {drill.label}
+              {/* The engine writes this suggestion in lower case
+                  ("drill into F1") and it is the whole of a control that
+                  stands on its own line. Same repair, same seam. */}
+              {capitalizeOpening(drill.label)}
               <ChevronRight aria-hidden className="size-3" />
             </Button>
           )}

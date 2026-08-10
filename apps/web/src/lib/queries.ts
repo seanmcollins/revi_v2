@@ -8,12 +8,13 @@
 import { useQuery } from "@tanstack/react-query";
 
 import {
+  fetchInvestigation,
   fetchPortfolioLatest,
   fetchMonitors,
   fetchMonitorsBrief,
   fetchSessionLineage,
 } from "@/lib/apiDriver";
-import type { PortfolioSnapshotData } from "@/lib/contract";
+import type { PortfolioSnapshotData, TurnResponseParse } from "@/lib/contract";
 import type { BriefData, MonitorsData } from "@/lib/monitors";
 import { useSessionStore } from "@/lib/store";
 import type { SessionLineageData } from "@/lib/types";
@@ -74,6 +75,35 @@ export function useMonitorsQuery(enabled: boolean, watermarkId: string) {
     enabled,
     staleTime: Infinity,
     retry: false,
+  });
+}
+
+/**
+ * `GET /v1/investigations/{iid}` — one stored investigation, read for its
+ * FIGURE rather than for its thread.
+ *
+ * Home draws the top-ranked thing on this load as a real chart, and a real
+ * chart means the rows the investigation behind it actually published —
+ * never a shape composed on the landing page from a summary. This is the
+ * read that fetches them.
+ *
+ * `staleTime: Infinity`, no interval, `retry: 1`. A stored investigation is
+ * immutable: it is a record of a question that was answered at a data load,
+ * so re-reading it can only ever return the same bytes. The one retry is
+ * for a dropped connection, not for a changing answer.
+ *
+ * No `pin`: the context header belongs to the SESSION this turn lives in,
+ * and Home has no session. The parse is the same minus the header (see
+ * `parseInvestigationResponse`), which is exactly right for a figure — a
+ * header pinned to invented dates is the thing that must not happen.
+ */
+export function useInvestigationQuery(investigationId: string, enabled: boolean) {
+  return useQuery<TurnResponseParse>({
+    queryKey: ["investigation", investigationId],
+    queryFn: () => fetchInvestigation(investigationId, { onDrift }),
+    enabled: enabled && investigationId !== "",
+    staleTime: Infinity,
+    retry: 1,
   });
 }
 

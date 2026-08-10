@@ -213,11 +213,19 @@ describe("a delta chip never paints a sign the payload did not carry", () => {
     return container.querySelector("[data-delta-mark]")?.getAttribute("data-delta-mark") ?? null;
   }
 
+  /*
+   * THE WORD IS THE SERVER'S; ONLY ITS FIRST CHARACTER IS THIS CLIENT'S.
+   * The magnitude opens the delta line — the arrow beside it is
+   * `aria-hidden` decoration — so it opens in capitals like every other
+   * card opening in the product (`capitalizeOpening`, applied in
+   * `DeltaLine`). "Up 3.6 points" is the same claim, in the same unit,
+   * from the same `deltaText`.
+   */
   it("says UP in the word the server sent, on a movement that went up", () => {
     const { container } = draw(
       <MonitorTile tile={tileWith({ direction: "up", sameWindow: false, delta: 0.035823 })} />,
     );
-    expect(screen.getByText(/up 3\.6 points/)).toBeInTheDocument();
+    expect(screen.getByText(/Up 3\.6 points/)).toBeInTheDocument();
     expect(markOf(container)).toBe("up");
   });
 
@@ -225,7 +233,7 @@ describe("a delta chip never paints a sign the payload did not carry", () => {
     const down = draw(
       <MonitorTile tile={tileWith({ direction: "down", sameWindow: false, delta: -0.035823 })} />,
     );
-    expect(screen.getByText(/down 3\.6 points/)).toBeInTheDocument();
+    expect(screen.getByText(/Down 3\.6 points/)).toBeInTheDocument();
     expect(markOf(down.container)).toBe("down");
     cleanup();
     const up = draw(
@@ -241,7 +249,7 @@ describe("a delta chip never paints a sign the payload did not carry", () => {
       <MonitorTile tile={tileWith({ direction: "up", sameWindow: true, delta: 0.035823 })} />,
     );
     expect(markOf(container)).toBe("neutral");
-    expect(screen.getByText(/up 3\.6 points/)).toBeInTheDocument();
+    expect(screen.getByText(/Up 3\.6 points/)).toBeInTheDocument();
     expect(container.querySelector(MINUS_PATH)).toBeNull();
   });
 
@@ -253,8 +261,10 @@ describe("a delta chip never paints a sign the payload did not carry", () => {
     // Scoped to the chip: the tile also carries a baseline movement, and
     // that one DID go somewhere.
     const chip = container.querySelector("[data-delta-mark]");
-    expect(chip?.textContent).toMatch(/no change/);
-    expect(chip?.textContent).not.toMatch(/\b(up|down) /);
+    expect(chip?.textContent).toMatch(/No change/);
+    // Case-insensitive on purpose: without the flag this assertion would
+    // silently stop testing anything the moment the word took a capital.
+    expect(chip?.textContent).not.toMatch(/\b(up|down) /i);
   });
 
   it("names no direction when the server named none", () => {
@@ -263,7 +273,9 @@ describe("a delta chip never paints a sign the payload did not carry", () => {
     );
     expect(markOf(container)).toBe("neutral");
     const chip = container.querySelector("[data-delta-mark]");
-    expect(chip?.textContent).not.toMatch(/\b(up|down) /);
+    // Case-insensitive on purpose: without the flag this assertion would
+    // silently stop testing anything the moment the word took a capital.
+    expect(chip?.textContent).not.toMatch(/\b(up|down) /i);
   });
 
   it("paints a minus sign on nothing, anywhere on the live grid", () => {
@@ -411,7 +423,12 @@ describe("the brief is a list of sentences, not of metrics", () => {
     draw(<BriefEntryRow entry={movement!} />);
     // Sentence case, quiet ink: which gate briefed this is a note, and
     // the words carry the distinction the colour used to.
-    const note = screen.getByText("Your threshold");
+    // "The governed threshold" / "your threshold" was engine vocabulary on
+    // the line explaining why somebody was interrupted. The FACT is
+    // unchanged — whose level briefed this, and whether it is looser than
+    // the recommended one — and the rule itself is still verbatim in the
+    // hover.
+    const note = screen.getByText("Your level");
     expect(note).toBeInTheDocument();
     expect(note.className).not.toContain("text-warning");
   });
@@ -1019,7 +1036,9 @@ describe("the lead lifecycle zone", () => {
   it("shows how far along a claimed fix is, from the record that carries it", () => {
     draw(<LeadLifecyclePanel leads={rows} totalLeads={33} headingId="leads-heading" />);
     expect(
-      screen.getByText("1 of the 2 consecutive loads the governed rule requires"),
+      screen.getByText(
+        "1 of the 2 consecutive loads Revi checks before it calls a fix confirmed",
+      ),
     ).toBeInTheDocument();
   });
 

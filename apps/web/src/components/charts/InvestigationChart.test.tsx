@@ -10,8 +10,8 @@
  */
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, beforeAll, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   axisTickLabels,
@@ -25,6 +25,8 @@ import {
   rotatedAxisGutter,
   rotatedAxisHeight,
 } from "@/components/charts/InvestigationChart";
+import { chartToCsv } from "@/lib/export";
+import { useSessionStore } from "@/lib/store";
 import type { ChartSpec } from "@/lib/types";
 
 // jsdom has no matchMedia; the figure asks it whether motion is reduced.
@@ -256,8 +258,13 @@ describe("InvestigationChart — marks that are not measurements", () => {
         turnId="turn_1"
       />,
     );
-    expect(screen.getByText(/upper bounds: 4 of 12 marks/)).toBeInTheDocument();
-    expect(screen.queryByText(/1 of 2 marks is a ceiling/)).not.toBeInTheDocument();
+    // The engine writes its census clause-led ("upper bounds: …"), which
+    // is right inside a paragraph and wrong under a figure, where every
+    // sentence is a caption of its own — so the render moves the first
+    // character and nothing else (`capitalizeOpening`). The census, the
+    // counts and the CSV preamble are untouched.
+    expect(screen.getByText(/Upper bounds: 4 of 12 marks/)).toBeInTheDocument();
+    expect(screen.queryByText(/1 of 2 marks is a ceiling/i)).not.toBeInTheDocument();
   });
 
   it("prints the refusal above the picture, not 400px below it", () => {
@@ -277,7 +284,7 @@ describe("InvestigationChart — marks that are not measurements", () => {
         turnId="turn_1"
       />,
     );
-    expect(screen.getByText("upper bounds: 1 of 2 marks are ceilings")).toBeInTheDocument();
+    expect(screen.getByText("Upper bounds: 1 of 2 marks are ceilings")).toBeInTheDocument();
   });
 
   /**
@@ -298,7 +305,7 @@ describe("InvestigationChart — marks that are not measurements", () => {
         turnId="turn_1"
       />,
     );
-    const note = screen.getByText("upper bounds: 1 of 2 marks are ceilings");
+    const note = screen.getByText("Upper bounds: 1 of 2 marks are ceilings");
     const caption = note.closest("p");
     expect(caption?.className).toContain("text-muted-foreground");
     expect(caption?.className).not.toContain("text-warning");
@@ -821,7 +828,7 @@ describe("a comparison chart says which two windows it is drawing", () => {
     );
     expect(screen.getByText(/They are not summed/)).toBeInTheDocument();
     expect(screen.getByText(/an absence, not a measured zero\.$/)).toBeInTheDocument();
-    expect(screen.getByText(/upper bounds: 1 of 4 marks/)).toBeInTheDocument();
+    expect(screen.getByText(/Upper bounds: 1 of 4 marks/)).toBeInTheDocument();
   });
 });
 
@@ -886,5 +893,420 @@ describe("the hover on a comparison reads as a movement", () => {
     expect(
       screen.getByText(/The zero on the wire is the join between the two windows, not a reading/),
     ).toBeInTheDocument();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* A single mark is a figure, not a chart                              */
+/* ------------------------------------------------------------------ */
+
+/**
+ * ONE NUMBER DRAWN AS A CHART READS AS A FAILED RENDER.
+ *
+ * The owner's report: a lone hairline bar in a ~700px plot, under a
+ * y-axis and a grid and over a single tick, does not look like data — it
+ * looks like a chart that did not load. The render policy inside
+ * `InvestigationChart` decides from the DRAWN rows: one drawable mark
+ * becomes a figure at display size (`KeyFigure`, the same vocabulary
+ * Home's key-figure band uses), one category across two windows becomes a
+ * stated movement, and everything else is still a chart.
+ *
+ * What these tests pin is the part that is dangerous to get wrong: every
+ * honesty mark travels UP to display size, a refusal never becomes a
+ * number, the drill still emits, and the CSV still carries the published
+ * rows. Recharts' marks remain unasserted for the reason the header of
+ * this file gives — jsdom hands `ResponsiveContainer` no size — so the
+ * presence of a chart is asserted by the container it renders into.
+ */
+const chartDrawn = (container: HTMLElement): boolean =>
+  container.querySelector(".recharts-responsive-container") !== null;
+
+const figureDrawn = (container: HTMLElement): Element | null =>
+  container.querySelector("[data-key-figure]");
+
+/** The one numeral the card sets at `--text-figure` (30px). */
+const displayFigure = (container: HTMLElement): string =>
+  container.querySelector(".text-figure")?.textContent ?? "";
+
+describe("InvestigationChart — one drawable mark is a figure, not a chart", () => {
+  it("draws a single bar row as a figure card, not a hairline over a one-tick axis", () => {
+    const { container } = render(
+      <InvestigationChart
+        spec={spec({ rows: [{ label: "CARC 16", values: { denied_dollars: 412300 } }] })}
+        turnId="turn_1"
+      />,
+    );
+
+    // The measure's own label, opened with a capital because it is in
+    // sentence position — the wire's string ("denied dollars") is not
+    // mutated, only its rendering.
+    expect(screen.getByText("Denied dollars")).toBeInTheDocument();
+    // The value at DISPLAY size, in the spec's unit.
+    expect(displayFigure(container)).toContain("$4,123.00");
+    // And no chart at all.
+    expect(chartDrawn(container)).toBe(false);
+  });
+
+  it("names the category as a quiet context line rather than a one-tick axis", () => {
+    render(
+      <InvestigationChart
+        spec={spec({ rows: [{ label: "CARC 16", values: { denied_dollars: 412300 } }] })}
+        turnId="turn_1"
+      />,
+    );
+
+    // The category, then the dimension it came from — humanised the way
+    // the footer caption humanises it ("carc" → "CARC").
+    expect(screen.getByText("CARC 16 · CARC")).toBeInTheDocument();
+  });
+
+  it("draws a single point on a line as a figure too", () => {
+    const { container } = render(
+      <InvestigationChart
+        spec={spec({
+          kind: "line",
+          xLabel: "month",
+          rows: [{ label: "2026-07-06", values: { denied_dollars: 100 } }],
+        })}
+        turnId="turn_1"
+      />,
+    );
+
+    expect(chartDrawn(container)).toBe(false);
+    expect(displayFigure(container)).toContain("$1.00");
+    // The hover's spelling of a date, not the axis tick's: this is read
+    // exactly rather than scanned, so it gets the whole date.
+    expect(screen.getByText("Jul 6, 2026 · Month")).toBeInTheDocument();
+  });
+
+  it("still draws a chart the moment there are two categories to compare", () => {
+    const { container } = render(<InvestigationChart spec={spec()} turnId="turn_1" />);
+
+    expect(chartDrawn(container)).toBe(true);
+    expect(figureDrawn(container)).toBeNull();
+  });
+
+  it("charts one category with two non-period series — the series are comparable", () => {
+    // THE TIE-BREAK. One category and several series looks like the defect
+    // and is also a real comparison; comparability wins, so it is charted.
+    // Only a genuinely single drawable mark becomes a figure.
+    const { container } = render(
+      <InvestigationChart
+        spec={spec({
+          xLabel: "payer",
+          series: [
+            { key: "ortho", label: "Orthopedic Surgery", role: "current" },
+            { key: "cardio", label: "Cardiology", role: "baseline" },
+          ],
+          rows: [{ label: "Federal Medicare", values: { ortho: 300, cardio: 200 } }],
+        })}
+        turnId="turn_1"
+      />,
+    );
+
+    expect(chartDrawn(container)).toBe(true);
+    expect(figureDrawn(container)).toBeNull();
+  });
+});
+
+describe("InvestigationChart — the honesty marks survive display size", () => {
+  const CEILING = spec({
+    unit: "percent",
+    xLabel: "provider",
+    boundedRows: 1,
+    series: [{ key: "denial_rate", label: "denial rate", role: "current" }],
+    rows: [
+      {
+        label: "Dr Reyes",
+        values: { denial_rate: 76.9 },
+        bounded: true,
+        denominator: 13,
+        provisional: true,
+      },
+    ],
+  });
+
+  it("carries the ≤, the ceiling wording and the provisional wording to display size", () => {
+    const { container } = render(<InvestigationChart spec={CEILING} turnId="turn_1" />);
+
+    // The "≤" the engine published, on the front of the 30px numeral.
+    expect(displayFigure(container)).toContain("≤ 76.9%");
+    // Both marks, composed — a bucket can be a ceiling AND still settling,
+    // and printing one of those at display size while dropping the other
+    // is the failure this policy exists to avoid.
+    expect(screen.getByText("a ceiling, not a measurement · still settling")).toBeInTheDocument();
+    // The provisional caption, said without pointing at an axis mark that
+    // is not drawn.
+    expect(
+      screen.getByText("This bucket is provisional: still settling, so its value will move."),
+    ).toBeInTheDocument();
+    // And `boundedLegend` still renders under the card, unchanged.
+    expect(screen.getByText(boundedLegend(CEILING))).toBeInTheDocument();
+  });
+
+  it("renders a withheld single row as a refusal, with no number on it", () => {
+    const { container } = render(
+      <InvestigationChart
+        spec={spec({
+          unit: "percent",
+          xLabel: "provider",
+          series: [{ key: "denial_rate", label: "denial rate", role: "current" }],
+          rows: [{ label: "Dr Reyes", values: {}, withheld: true }],
+        })}
+        turnId="turn_1"
+      />,
+    );
+
+    expect(screen.getByText("No value was published for this figure")).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "The engine withheld this cell outright — no value was published for it, so this gap is a refusal, not a zero.",
+      ),
+    ).toBeInTheDocument();
+    // NOT a figure, and above all not a zero: a withheld cell rendered as
+    // a 30px "0.0%" is the worst object this policy could produce.
+    expect(figureDrawn(container)).toBeNull();
+    expect(container.querySelector(".text-figure")).toBeNull();
+    expect(container.textContent).not.toContain("0.0%");
+  });
+});
+
+describe("InvestigationChart — one category across two windows is a movement", () => {
+  const ONE_PLAN: ChartSpec = {
+    id: "chart_main__compare",
+    kind: "grouped_bar",
+    title: "Denial rate by plan",
+    unit: "percent",
+    xLabel: "plan",
+    comparison: { currentKey: "current", priorKey: "prior" },
+    series: [
+      { key: "current", label: "This window", role: "current", pinned: true },
+      { key: "prior", label: "Prior window", role: "baseline", pinned: true },
+    ],
+    rows: [{ label: "Halvern PPO Prime", values: { current: 21, prior: 15.5 } }],
+  };
+
+  it("states a one-category comparison as a delta card: current large, prior quiet", () => {
+    const { container } = render(
+      <InvestigationChart
+        spec={ONE_PLAN}
+        turnId="turn_1"
+        comparisonWindows={{ current: "Jul 2026", prior: "Jun 2026" }}
+      />,
+    );
+
+    expect(chartDrawn(container)).toBe(false);
+    // The current window at display size, named by the window the turn
+    // published rather than by the engine's `current`/`prior` bookkeeping.
+    expect(
+      container.querySelector('[data-key-figure="This window (Jul 2026)"]'),
+    ).not.toBeNull();
+    expect(displayFigure(container)).toContain("21.0%");
+    // The window it is compared against, quiet — `KeyFigure`'s non-emphasis
+    // step, not the display step.
+    const prior = screen.getByText("15.5%");
+    expect(prior.className).toContain("text-lead");
+    expect(prior.className).not.toContain("text-figure");
+    expect(screen.getByText("Prior window (Jun 2026)")).toBeInTheDocument();
+  });
+
+  it("says the direction in the digest's own words, in the chart's own unit", () => {
+    render(
+      <InvestigationChart
+        spec={ONE_PLAN}
+        turnId="turn_1"
+        comparisonWindows={{ current: "Jul 2026", prior: "Jun 2026" }}
+      />,
+    );
+
+    // "up", the word `DeltaLine` uses, opened with a capital because the
+    // node is in sentence position. A rate's MOVEMENT is percentage
+    // points, never a percentage — no relative change is ever derived.
+    expect(screen.getByText("Up 5.5pp")).toBeInTheDocument();
+    // Never as a percentage: "up 5.5%" beside a 21.0% figure is the
+    // relative-change confusion `DeltaLine`'s doc comment exists to
+    // prevent, and no relative change is derived here at all.
+    expect(screen.queryByText(/Up 5\.5%/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\+26\.2%/)).not.toBeInTheDocument();
+  });
+
+  it("claims no direction when the two windows measured the same figure", () => {
+    const { container } = render(
+      <InvestigationChart
+        spec={{ ...ONE_PLAN, rows: [{ label: "Halvern PPO Prime", values: { current: 21, prior: 21 } }] }}
+        turnId="turn_1"
+      />,
+    );
+
+    // No arrow and no sign where there is no direction to claim.
+    expect(screen.getByText("No change")).toBeInTheDocument();
+    expect(container.querySelector('[data-delta-mark="neutral"]')).not.toBeNull();
+  });
+
+  it("says down when it went down", () => {
+    render(
+      <InvestigationChart
+        spec={{
+          ...ONE_PLAN,
+          rows: [{ label: "Halvern PPO Prime", values: { current: 15.5, prior: 21 } }],
+        }}
+        turnId="turn_1"
+      />,
+    );
+    expect(screen.getByText("Down 5.5pp")).toBeInTheDocument();
+  });
+
+  it("refuses to draw a movement when one side is a ceiling", () => {
+    render(
+      <InvestigationChart
+        spec={{
+          ...ONE_PLAN,
+          rows: [
+            {
+              label: "Halvern PPO Prime",
+              values: { current: 76.9231, prior: 41.6667 },
+              bounded: true,
+              cells: { current: { bounded: true, denominator: 13 } },
+            },
+          ],
+        }}
+        turnId="turn_1"
+        comparisonWindows={{ current: "Jul 2026", prior: "Jun 2026" }}
+      />,
+    );
+
+    // A ceiling minus a measurement is not a change, and it is said in
+    // words rather than drawn as a movement.
+    expect(
+      screen.getByText(
+        "No movement is published between these two windows: one of them is a limit rather than a measurement, and a ceiling minus a measurement is not a change.",
+      ),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/^Up /)).not.toBeInTheDocument();
+    expect(screen.queryByText(/^Down /)).not.toBeInTheDocument();
+    // The ceiling still travels, on the side that carries it.
+    expect(screen.getByText("≤ 76.9%")).toBeInTheDocument();
+  });
+
+  it("refuses to draw a movement when one side has no figure at all", () => {
+    render(
+      <InvestigationChart
+        spec={{
+          ...ONE_PLAN,
+          rows: [
+            {
+              label: "Halvern HMO Care",
+              values: { current: 0, prior: 35.7143 },
+              cells: { current: { absent: true } },
+            },
+          ],
+        }}
+        turnId="turn_1"
+      />,
+    );
+
+    // The compare operator's zero-fill is the join, not a reading, so it
+    // is never drawn as a figure and never subtracted.
+    expect(screen.getByText("No figure")).toBeInTheDocument();
+    expect(screen.queryByText("0.0%")).not.toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "No movement is published between these two windows: one of them has no figure at all, and a measurement minus an absence is not a change.",
+      ),
+    ).toBeInTheDocument();
+  });
+});
+
+describe("InvestigationChart — the figure card keeps the chart's affordances", () => {
+  const REAL_EMIT = useSessionStore.getState().emitRefinement;
+  afterEach(() => {
+    useSessionStore.setState({ emitRefinement: REAL_EMIT });
+  });
+
+  it("emits the same DrillInto the bar emitted, from a keyboard-reachable button", () => {
+    const emitRefinement = vi.fn();
+    useSessionStore.setState({ emitRefinement });
+
+    render(
+      <InvestigationChart
+        spec={spec({
+          rows: [
+            { label: "CARC 16", referent: "fact_carc_16", values: { denied_dollars: 412300 } },
+          ],
+        })}
+        turnId="turn_1"
+      />,
+    );
+
+    // A real `<button>`: reachable by keyboard, with an accessible name
+    // made of the figure it draws.
+    const card = screen.getByRole("button", { name: /CARC 16/ });
+    fireEvent.click(card);
+
+    expect(emitRefinement).toHaveBeenCalledWith(
+      { op: "DrillInto", target: "fact_carc_16" },
+      { turnId: "turn_1", referent: "fact_carc_16" },
+    );
+  });
+
+  it("falls back to the chart's own target when the wire published no referent", () => {
+    const emitRefinement = vi.fn();
+    useSessionStore.setState({ emitRefinement });
+
+    render(
+      <InvestigationChart
+        spec={spec({ rows: [{ label: "CARC 16", values: { denied_dollars: 412300 } }] })}
+        turnId="turn_1"
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /CARC 16/ }));
+
+    expect(emitRefinement).toHaveBeenCalledWith(
+      { op: "DrillInto", target: "chart_main:CARC 16" },
+      { turnId: "turn_1", referent: undefined },
+    );
+  });
+
+  it("exports the published rows unchanged — the rule changed the picture, not the file", () => {
+    // The CSV is built from the PUBLISHED spec and this policy never
+    // touches it: same rows, same series, same values, in the same unit.
+    const single = spec({
+      rows: [{ label: "CARC 16", referent: "fact_carc_16", values: { denied_dollars: 412300 } }],
+    });
+    render(<InvestigationChart spec={single} turnId="turn_1" />);
+
+    expect(screen.getByRole("button", { name: /CSV/ })).toBeInTheDocument();
+
+    const csv = chartToCsv(single);
+    // The file describes the published spec, not the drawn card.
+    expect(csv).toContain("1 row × 1 series");
+    // The row, its referent and its value — money in dollars, as the
+    // exporter has always written it.
+    expect(csv).toContain("CARC 16,fact_carc_16,4123");
+    // And the header still names the dimension and the measure.
+    expect(csv).toContain("carc,referent,denied dollars");
+  });
+
+  it("keeps the footer caption and Expand beside a figure card", () => {
+    // Only the PLOT AREA changes. The shell, the title, the notes and the
+    // whole footer row are the same objects on all three paths.
+    // (`MonitorThis` is driver-gated and renders nothing without one, in
+    // this test environment as on a chart.)
+    render(
+      <InvestigationChart
+        spec={spec({
+          order: { basis: "value", by: "denied_dollars", descending: true },
+          truncation: { shown: 1, total: 12 },
+          rows: [{ label: "CARC 16", values: { denied_dollars: 412300 } }],
+        })}
+        turnId="turn_1"
+        investigationId="inv_1"
+      />,
+    );
+
+    expect(screen.getByText("Denied dollars by CARC")).toBeInTheDocument();
+    expect(screen.getByText("CARC · Ordered by denied dollars, high to low")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Showing top 1 of 12/ })).toBeInTheDocument();
   });
 });

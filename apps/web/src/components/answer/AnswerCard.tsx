@@ -92,11 +92,26 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
       <p role="status" aria-live="polite" className="sr-only">
         {model.completionMessage}
       </p>
-      {/* Depth model: a faint accent glow marks the answer being read. */}
+      {/* Depth model: a faint accent glow marks the answer being read.
+          IT STARTS AT THE CARD'S OWN TOP EDGE, and that is a bug fix.
+          It was `-top-8`: the layer's box began 32px ABOVE this card,
+          and the gap between a turn's question bubble and its answer is
+          12px (`ChatThread`'s `space-y-3`) — so the decoration reached
+          20px into the bubble and tinted its lower edge. Measured live at
+          1440x900: glow top 336.1px against a bubble bottom of 355.6px,
+          a 19.5px overlap on every answered turn.
+          It was never a pointer problem (`pointer-events-none` and
+          `-z-10` were already here, and stay), which is exactly why it
+          survived: nothing was broken, something was drawn in the wrong
+          place. The gradient is brightest at its own top (`50% 0%`), so
+          anchoring the box to the card's edge puts the bright end where
+          the mark belongs rather than on the sentence above it. The
+          horizontal bleed stays: there is no sibling to its left or
+          right. */}
       {active && (
         <div
           aria-hidden
-          className="answer-glow pointer-events-none absolute -inset-x-10 -top-8 -z-10 h-80"
+          className="answer-glow pointer-events-none absolute -inset-x-10 top-0 -z-10 h-80"
         />
       )}
       {/* A turn rebuilt when this session was re-opened was never monitored

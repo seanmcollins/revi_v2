@@ -8,14 +8,12 @@ import {
   thingsToKnowLabel,
   thingsToKnowSeverity,
 } from "@/components/answer/ThingsToKnow";
-import {
-  CashTimingSummary,
-  LaneHeader,
-  PortfolioCard,
-} from "@/components/portfolio/PortfolioPanel";
+import { FigureBand, KeyFigure } from "@/components/figures/KeyFigure";
+import { LaneHeader, PortfolioCard } from "@/components/portfolio/PortfolioPanel";
 import { Button } from "@/components/ui/button";
 import type { PortfolioSnapshotData } from "@/lib/contract";
 import { dataLoadDate, rankingVersionLabel } from "@/lib/format";
+import { keyFigures } from "@/lib/homeFigures";
 import { groupByLane } from "@/lib/portfolioLanes";
 import { useAsk } from "@/lib/useAsk";
 import { useSessionStore } from "@/lib/store";
@@ -100,6 +98,7 @@ export function DetectedAnomalies({
   );
   const hidden = items.length - shown;
   const loadDate = snapshot?.watermark ? dataLoadDate(snapshot.watermark) : undefined;
+  const figures = keyFigures(snapshot);
 
   return (
     <section
@@ -135,11 +134,33 @@ export function DetectedAnomalies({
         <>
           {/* HOW MUCH OF THIS IS STILL CATCHABLE — the one total a director
               asks for before they allocate a morning, and it is not the
-              ranking. Same component the rail uses, so the dollars and the
-              deadline rules cannot drift between the two. */}
-          <div className="max-w-3xl rounded-lg border bg-surface-sunken/50 px-3 py-2.5">
-            <CashTimingSummary lanes={snapshot.cashTimingLanes} />
-          </div>
+              ranking.
+
+              IT USED TO BE THREE SENTENCES OF 12px TYPE. Every fact on this
+              band was already on the page — the rail's `CashTimingSummary`
+              renders the same lanes — and not one of them was legible from
+              two feet away, on the surface whose entire claim is "here is
+              what is still catchable". The rail keeps that component,
+              because a 16.5rem column is where a sentence is the right
+              shape; Home is where the number is. `keyFigures` reads the
+              same lanes, so the two cannot drift: no total is summed here,
+              no deadline is dated here, and the lane's own description is
+              one keyboard-reachable control away on each label. */}
+          <FigureBand data-key-figures={figures.length} className="max-w-5xl">
+            {figures.map((figure) => (
+              <KeyFigure
+                key={figure.key}
+                label={figure.label}
+                value={figure.value}
+                {...(figure.mark !== undefined ? { mark: figure.mark } : {})}
+                {...(figure.context !== undefined ? { context: figure.context } : {})}
+                {...(figure.labelDetail !== undefined
+                  ? { labelDetail: figure.labelDetail }
+                  : {})}
+                {...(figure.emphasis === true ? { emphasis: true } : {})}
+              />
+            ))}
+          </FigureBand>
 
           {/* THE SNAPSHOT'S OWN CAVEATS, COUNTED RATHER THAN STACKED.
               This list publishes six of them and every one is real — five

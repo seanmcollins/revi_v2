@@ -26,6 +26,14 @@
  * the workspace arrives, and `switchSession` no-ops on a session that is
  * streaming or already on screen — so nothing is re-joined. The tests below
  * pin the new front door and keep every invariant that still applies.
+ *
+ * AND ONE PROPERTY THAT IS NEW. The table used to have no catch-all, so an
+ * address matching none of the four resolved to no route and the app drew a
+ * BLANK page — found on `/rounds`, the address Monitors had before it was
+ * renamed, and read as the product being broken. `/rounds` redirects now and
+ * everything else lands on `NotFound`. Those two cases are asserted on the
+ * text that is really on screen rather than on the absence of the other
+ * surfaces, because "renders nothing" is precisely the bug.
  */
 
 import "@testing-library/jest-dom/vitest";
@@ -94,6 +102,16 @@ function Rewriter({ to }: { to: string }) {
   );
 }
 
+/** The browser's Back button, for the one test that is about history. */
+function Backer() {
+  const navigate = useNavigate();
+  return (
+    <button type="button" onClick={() => navigate(-1)}>
+      back
+    </button>
+  );
+}
+
 function draw(initial: string, rewriteTo = "/s/sess_1") {
   return render(
     <MemoryRouter initialEntries={[initial]}>
@@ -136,6 +154,74 @@ describe("the route table — Home at the front door, one workspace behind it", 
     expect(screen.getByTestId("monitors")).toBeInTheDocument();
     expect(screen.queryByTestId("workspace")).not.toBeInTheDocument();
     expect(screen.queryByTestId("home")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * NOTHING RESOLVES TO NOTHING.
+ *
+ * The regression these exist for is a BLANK page, so every assertion below
+ * names something that must be on screen. `NotFound` is deliberately not
+ * mocked — the three surfaces are stubbed because this file is about which
+ * element a path resolves to, and here the element's own words are the
+ * property: a stub would pass just as happily over an empty card.
+ */
+describe("no address falls through to a blank page", () => {
+  it("redirects /rounds — the surface's old name — onto Monitors", () => {
+    draw("/rounds");
+    expect(screen.getByTestId("monitors")).toBeInTheDocument();
+    expect(screen.queryByTestId("home")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("workspace")).not.toBeInTheDocument();
+  });
+
+  /**
+   * `replace`, asserted rather than assumed. Without it the redirect leaves
+   * `/rounds` in the history stack, and Back off Monitors lands on it and is
+   * pushed straight forward again — a Back button that does nothing, which
+   * is its own bug report.
+   */
+  it("leaves no /rounds entry behind, so Back does not bounce forward again", () => {
+    render(
+      <MemoryRouter initialEntries={["/", "/rounds"]} initialIndex={1}>
+        <Backer />
+        <AppRoutes />
+      </MemoryRouter>,
+    );
+    expect(screen.getByTestId("monitors")).toBeInTheDocument();
+
+    act(() => {
+      screen.getByRole("button", { name: "back" }).click();
+    });
+
+    expect(screen.getByTestId("home")).toBeInTheDocument();
+    expect(screen.queryByTestId("monitors")).not.toBeInTheDocument();
+  });
+
+  it("renders the not-found card at an unknown path, with real words on it", () => {
+    draw("/nope");
+
+    expect(
+      screen.getByRole("heading", { name: /this page doesn't exist/i }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/did not match anything this app serves/i),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /home/i })).toHaveAttribute("href", "/");
+    expect(screen.getByRole("link", { name: /monitors/i })).toHaveAttribute(
+      "href",
+      "/monitors",
+    );
+
+    expect(screen.queryByTestId("monitors")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("home")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("workspace")).not.toBeInTheDocument();
+  });
+
+  it("gives the not-found page a named landmark to arrive in", () => {
+    draw("/nope/deeper/still");
+    const main = screen.getByRole("main", { name: /this page doesn't exist/i });
+    expect(main).toBeInTheDocument();
+    expect(main).toContainElement(screen.getByRole("heading", { level: 1 }));
   });
 });
 

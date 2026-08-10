@@ -70,7 +70,10 @@ export function BriefPanel({
         <div className="fade-up relative space-y-2 py-2">
           <div
             aria-hidden
-            className="answer-glow pointer-events-none absolute -inset-x-8 -top-6 -z-10 h-40"
+            // Anchored to this panel's own top edge for the same reason the
+            // answer card's is — see `AnswerCard`. A decoration that begins
+            // above its own box is drawn over whatever is stacked above it.
+            className="answer-glow pointer-events-none absolute -inset-x-8 top-0 -z-10 h-40"
           />
           <p className="numeral max-w-[26ch] text-figure leading-tight">
             {brief.status === "first_load"
@@ -293,7 +296,11 @@ function MaterialityNote({ brief }: { brief: BriefData }) {
               never seen; which pack it was and the hash that identifies it
               are the auditor's material and live one hover away, where the
               rest of the gate already is. */}
-          Gated by the governed pack
+          {/* "Gated by the governed pack" was four words and two of them
+              were platform vocabulary. What a reader wants to know is what
+              had to be true for a line to appear, which is exactly what the
+              hover says. */}
+          What it took to reach this list
         </button>
       </TooltipTrigger>
       <TooltipContent side="bottom" className="max-w-96 text-meta leading-snug">
@@ -301,7 +308,12 @@ function MaterialityNote({ brief }: { brief: BriefData }) {
         <ul className="num mt-1 space-y-0.5 text-micro">
           {Object.entries(m.unitKinds).map(([unit, rules]) => (
             <li key={unit}>
-              {sentenceCase(UNIT_NOUNS[unit] ?? unit)}: {describeRules(unit, rules)}
+              {/* `?? unit` used to leak the raw wire kind (`money_cents`)
+                  the moment the map missed one. A measure this surface
+                  cannot name is described, not spelled in the warehouse's
+                  word for it. */}
+              {sentenceCase(UNIT_NOUNS[unit] ?? "this kind of measure")}:{" "}
+              {describeRules(unit, rules)}
             </li>
           ))}
           <li>
@@ -314,7 +326,14 @@ function MaterialityNote({ brief }: { brief: BriefData }) {
         {/* Which pack, and the hash that pins it — so two deployments
             running different gates can be told apart from the payload. */}
         <p className="mt-1 text-micro text-muted-foreground">
-          {m.source.split("/").slice(-2).join("/") || "the governed pack"} ·{" "}
+          {/* THE AUDITOR'S HALF, and only here. The source used to render
+              as `rcm/materiality.yaml` — a repository path an analyst has
+              never seen — on the face of the tooltip. It is a provenance
+              handle, so it is labelled as one rather than dropped: an
+              auditor comparing two deployments needs it, and a first-time
+              reader now knows what they are looking at. */}
+          Rule set{" "}
+          <span className="font-mono">{m.source.split("/").slice(-1)[0] || "unnamed"}</span> ·{" "}
           <span className="font-mono">{m.contentHash.slice(0, 12)}</span>
         </p>
       </TooltipContent>
@@ -374,5 +393,8 @@ function describeRules(unit: string, rules: Record<string, number>): string {
           : String(rules.min_absolute);
     parts.push(rules.min_relative !== undefined ? `and ${floor}` : floor);
   }
-  return parts.join(" ") || "the pack's own threshold";
+  // NOT "the pack's own threshold" — the owner's reaction to that phrase
+  // was "what the fuck does that even mean?". A gate this surface cannot
+  // spell out is described by what it does, not by what owns it.
+  return parts.join(" ") || "Revi's recommended level for this kind of measure";
 }

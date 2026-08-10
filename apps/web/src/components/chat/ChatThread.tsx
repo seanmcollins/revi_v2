@@ -124,7 +124,15 @@ function EmptyState() {
 
   return (
     <div className="@container relative flex flex-col items-center gap-7 pb-8 pt-10 text-center">
-      <div aria-hidden className="hero-glow pointer-events-none absolute inset-x-0 -top-16 h-[30rem]" />
+      {/* Anchored to this block's own top edge. It was `-top-16`, a layer
+          beginning 64px above the hero over a 24px column gap — so on any
+          session that opens with a banner above the empty state, the glow
+          was painted across it. Same rule as the answer card's accent glow
+          (`AnswerCard`), pinned by `lib/decoration.test.ts`: a decoration
+          layer stays inside its own vertical box, because above and below
+          is where a sibling is. The gradient is centred at `50% 42%`, so
+          the hero still sits inside the bright part of it. */}
+      <div aria-hidden className="hero-glow pointer-events-none absolute inset-x-0 top-0 h-[30rem]" />
 
       <div className="fade-up relative space-y-3">
         <p className="text-micro font-medium uppercase tracking-[0.3em] text-muted-foreground">

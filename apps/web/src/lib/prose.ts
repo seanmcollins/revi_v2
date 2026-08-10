@@ -162,3 +162,30 @@ export function capitalizeOpening(text: string): string {
 export function readableStatement(text: string): string {
   return capitalizeOpening(respellInitialisms(tidyProse(scalarizeRankOfOne(text))));
 }
+
+/**
+ * THE SAME REPAIRS, FOR A LABEL RATHER THAN A SENTENCE.
+ *
+ * A monitor's `label`, a lead's actionability class, a session's title: not
+ * prose, but text that OPENS a card, and the owner's rule is about the
+ * opening rather than about the grammar behind it. Live, Home's monitor
+ * digest opened three of its four cards with "denial rate for State
+ * Medicaid MCO", "days in A/R by payer", "monthly denial rate for Veritas
+ * Comp Fund" — the analyst's own words, stored the way they were typed, and
+ * a screen of them reads as a page that failed to finish rendering.
+ *
+ * It differs from `readableStatement` in exactly one way, and the
+ * difference is the point: `scalarizeRankOfOne` is not applied. That repair
+ * rewrites a rank CLAUSE, which is a thing a statement can contain and a
+ * label cannot; running it over a label would be this client editing a name
+ * somebody chose.
+ *
+ * Same conservatism as everything else in this file. A label already
+ * opening with a capital, a figure or a symbol comes back byte-identical,
+ * an opening token carrying an underscore is left alone (a capitalized id
+ * is a wrong id), and the raw value is what continues to reach the exports —
+ * this is a render-time repair, on the same terms as `tidyProse`.
+ */
+export function readableLabel(text: string): string {
+  return capitalizeOpening(respellInitialisms(tidyProse(text)));
+}

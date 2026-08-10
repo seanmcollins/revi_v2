@@ -1,6 +1,6 @@
 "use client";
 
-import { Maximize2 } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, Maximize2 } from "lucide-react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bar,
@@ -17,6 +17,7 @@ import {
 } from "recharts";
 
 import { DownloadCsvButton } from "@/components/answer/AnswerActions";
+import { KeyFigure } from "@/components/figures/KeyFigure";
 import { MonitorThis } from "@/components/monitors/MonitorThis";
 import { Button } from "@/components/ui/button";
 import { capChartSeries, humanizeColumn, OTHERS_SERIES_KEY } from "@/lib/contract";
@@ -31,8 +32,9 @@ import {
   humanizeIsoDates,
   shortDate,
 } from "@/lib/format";
+import { capitalizeOpening } from "@/lib/prose";
 import { useSessionStore } from "@/lib/store";
-import type { ChartCell, ChartSeries, ChartSpec } from "@/lib/types";
+import type { ChartCell, ChartRow, ChartSeries, ChartSpec } from "@/lib/types";
 import { usePrefersReducedMotion } from "@/lib/useReducedMotion";
 import { cn } from "@/lib/utils";
 
@@ -487,6 +489,472 @@ const BOUNDED_MARK = {
   strokeDasharray: "3 2",
 } as const;
 
+/* ------------------------------------------------------------------ */
+/* A SINGLE MARK IS NOT A CHART                                        */
+/* ------------------------------------------------------------------ */
+
+/**
+ * ONE NUMBER, DRAWN AS A CHART, READS AS A FAILED RENDER.
+ *
+ * `barCap` and `barCategoryGap` above fought the top half of this defect —
+ * a two-bar comparison in a ~700px plot drew 8–14px hairlines with three
+ * hundred pixels of nothing between them — and the floor they put under
+ * the band share does not reach the case underneath it: ONE category. A
+ * lone bar over a single tick, wearing a y-axis, a grid and 214px of empty
+ * plot, is not a picture of a number. It is a picture of a chart that
+ * failed to load, and that is what the owner reported seeing. A single
+ * point on a LINE is worse still: a shape whose entire job is to show a
+ * movement, drawing a dot.
+ *
+ * A chart earns its frame by having something to COMPARE. Where there is
+ * nothing to compare the frame is cost with no return, and the honest
+ * drawing of one measured number is the number — at display size, in the
+ * product's own figure vocabulary (`KeyFigure`), with every mark the
+ * engine put on it travelling at that size rather than being dropped on
+ * the way up. A figure that loses its honesty marks on the way to display
+ * size is the object most likely to be screenshotted.
+ *
+ * THE TIE-BREAK, WHICH IS THE PART A RULE LIKE THIS GETS WRONG.
+ *
+ * One category and MORE THAN ONE series is ambiguous: it looks like the
+ * defect above (several hairlines over a single tick) and it is also a
+ * real comparison — the series are comparable to each other, which is
+ * exactly what a chart is for. Comparability wins. Such a spec is
+ * CHARTED, and only a genuinely single drawable mark — one category × one
+ * series — becomes a figure card.
+ *
+ * A PERIOD COMPARISON is the one two-series shape that still does not
+ * chart, because its two marks are not two things: they are one measure
+ * in two windows, i.e. a movement. This product already refuses to let a
+ * movement be read off two bars by eye — `ChartTooltipContent` states the
+ * change in words rather than leaving the reader to subtract two heights —
+ * and at one category there is nothing left for the bars to do that the
+ * statement does not do better.
+ */
+type ChartRenderPolicy =
+  | { mode: "chart" }
+  | { mode: "figure"; row: ChartRow; series: ChartSeries }
+  | { mode: "delta"; row: ChartRow; current: ChartSeries; prior: ChartSeries };
+
+function singleMarkPolicy(spec: ChartSpec): ChartRenderPolicy {
+  // Decided on the DRAWABLE rows — the post-`capChartSeries` spec, after
+  // the selection this figure actually draws. What the CSV carries is a
+  // different and larger thing (the PUBLISHED spec) and nothing here
+  // touches it.
+  if (spec.rows.length !== 1) return { mode: "chart" };
+  const row = spec.rows[0];
+  if (row === undefined) return { mode: "chart" };
+
+  const pair = spec.comparison;
+  if (pair !== undefined) {
+    const current = spec.series.find((s) => s.key === pair.currentKey);
+    const prior = spec.series.find((s) => s.key === pair.priorKey);
+    // A comparison whose own keys are not among the drawn series is not a
+    // movement this renderer can state. The chart path still draws
+    // whatever survived, which is the conservative outcome.
+    if (current === undefined || prior === undefined) return { mode: "chart" };
+    return { mode: "delta", row, current, prior };
+  }
+
+  // THE TIE-BREAK. See above: series that are comparable to each other
+  // stay charted, whatever the category count.
+  if (spec.series.length !== 1) return { mode: "chart" };
+  const series = spec.series[0];
+  if (series === undefined) return { mode: "chart" };
+  return { mode: "figure", row, series };
+}
+
+/**
+ * THE MARK VOCABULARY, SAID WITHOUT AN AXIS TO POINT AT.
+ *
+ * The captions under a chart name the glyph the axis is wearing — "*
+ * marks a provisional bucket", "† marks a cell the engine withheld". A
+ * figure card has no axis and no glyph, so the same FACT is stated about
+ * the figure the reader is looking at instead. The sentences are the
+ * chart's, minus the pointer: a caption that names a mark which is
+ * nowhere on the surface teaches a reader to stop reading the captions,
+ * which is the one thing six rounds of honesty work cannot afford.
+ *
+ * Held as constants rather than inline JSX so the two forms of one
+ * sentence sit next to each other and cannot drift apart.
+ */
+const PROVISIONAL_AXIS_NOTE =
+  "* marks a provisional bucket: still settling, so its value will move.";
+const PROVISIONAL_CARD_NOTE =
+  "This bucket is provisional: still settling, so its value will move.";
+const WITHHELD_AXIS_NOTE =
+  "† marks a cell the engine withheld outright — no value was published for it, so its gap on this figure is a refusal, not a zero.";
+const WITHHELD_CARD_NOTE =
+  "The engine withheld this cell outright — no value was published for it, so this gap is a refusal, not a zero.";
+const ABSENT_AXIS_NOTE =
+  "‡ marks a category with a figure in the window this one is compared against and none in this one — its mark here is an absence, not a measured zero, so no bar is drawn.";
+const ABSENT_CARD_NOTE =
+  "This category carries a figure in the window it is compared against and none in this one — its mark here is an absence, not a measured zero, so no figure is drawn.";
+/** The wire sent this category with no number on it at all. */
+const NO_VALUE_CARD_NOTE =
+  "The engine published no figure for this mark, so none is drawn — the gap is an absence, not a measured zero.";
+
+/**
+ * What KIND of number this is, in the words the rest of the product uses:
+ * `ChartTooltipContent`'s "a ceiling, not a measurement" and the
+ * "still settling" `KeyFigure`'s own doc comment names. Lower case,
+ * because a mark is never in sentence position — it rides on the same
+ * line as the numeral, after it.
+ */
+const CEILING_MARK = "a ceiling, not a measurement";
+const SETTLING_MARK = "still settling";
+
+/**
+ * THE AXIS CONTEXT, AS A LINE OF TEXT RATHER THAN A ONE-TICK AXIS.
+ *
+ * On a chart the category is a tick and the dimension is the footer
+ * caption. With one mark there is no scale for a tick to sit on, and an
+ * axis drawn for a single label is a label pretending to be a scale. So
+ * the fact — "this is CARC 16, and the dimension was CARC" — becomes a
+ * quiet sentence under the number.
+ *
+ * Spelled the way the HOVER spells a category rather than the way a tick
+ * does: a tick is scanned and gets `shortDate` plus a width budget, while
+ * this is the surface a reader reads exactly and is entitled to the whole
+ * date and the whole name. The dimension is humanised exactly as
+ * `footerCaption` humanises it — "carc" is what the pack calls it and
+ * "CARC" is what a reader calls it.
+ */
+function markContext(spec: ChartSpec, row: ChartRow): string {
+  const parts = [humanizeIsoDates(humanizeCategory(row.label))];
+  if (spec.xLabel !== undefined && spec.xLabel !== "") parts.push(humanizeColumn(spec.xLabel));
+  // The owner's rule: a text node in sentence position opens with a
+  // capital. Applied at the render site only — the wire's own string keeps
+  // travelling to the CSV and the drill target exactly as it arrived.
+  return capitalizeOpening(parts.join(" · "));
+}
+
+/**
+ * Per-MARK when the row carries per-mark detail, per-ROW when it does
+ * not — the same rule the `<Cell>` loop and the tooltip already follow. A
+ * row that says "the prior cell is a ceiling" is also saying the current
+ * one is not.
+ */
+function cellBounded(row: ChartRow, key: string): boolean {
+  return row.cells !== undefined ? row.cells[key]?.bounded === true : row.bounded === true;
+}
+
+/**
+ * A REFUSAL WHERE THE FIGURE WOULD HAVE BEEN.
+ *
+ * The same shell as the `unkeyable` block, for the same reason: a figure
+ * that was not drawn is not a smaller figure, it is a different object,
+ * and it says so in the place the figure would have occupied. No number
+ * reaches this path at all — a withheld cell rendered as a 30px "0", or
+ * as a 30px "—" that a reader takes for one, is the single worst thing
+ * this render policy could produce.
+ */
+function NoFigureCard({
+  headline,
+  note,
+  context,
+}: {
+  headline: string;
+  note: string;
+  context: string;
+}) {
+  return (
+    <div className="rounded-md border border-dashed bg-surface-sunken/60 px-3 py-4 text-meta leading-snug text-muted-foreground">
+      <p className="font-medium text-foreground">{headline}</p>
+      <p className="mt-1">{note}</p>
+      <p className="mt-1 text-micro">{context}</p>
+    </div>
+  );
+}
+
+/**
+ * ONE DRAWABLE MARK, AT DISPLAY SIZE.
+ *
+ * `KeyFigure` is the product's display-figure vocabulary and it is
+ * imported rather than re-invented: the size steps, the accent-as-a-rule
+ * and the mark-beside-the-numeral rule are its, so this card cannot
+ * quietly grow a second way of making a number big.
+ *
+ * A REAL BUTTON, not a div with a click handler. The bar this replaces
+ * emitted `{op: "DrillInto", target}` and was reachable by pointer only;
+ * the card that replaces it is reachable by keyboard and carries an
+ * accessible name made of the label, the figure and its context.
+ */
+function SingleFigureCard({
+  spec,
+  row,
+  series,
+  label,
+  formatValue,
+  onDrill,
+}: {
+  spec: ChartSpec;
+  row: ChartRow;
+  series: ChartSeries;
+  /** The string the legend and the hover would have used for this mark. */
+  label: string;
+  formatValue: (value: number) => string;
+  onDrill: () => void;
+}) {
+  const context = markContext(spec, row);
+  const cell = row.cells?.[series.key];
+  const raw = row.values[series.key];
+
+  // AN ABSENCE IS NOT A FIGURE, AND A REFUSAL IS NOT A ZERO. Both are
+  // checked before anything is formatted, so there is no path on which a
+  // number is composed for a cell the engine declined to publish.
+  if (row.withheld === true) {
+    return (
+      <NoFigureCard
+        headline="No value was published for this figure"
+        note={WITHHELD_CARD_NOTE}
+        context={context}
+      />
+    );
+  }
+  if (cell?.absent === true) {
+    return (
+      <NoFigureCard headline="No figure was measured here" note={ABSENT_CARD_NOTE} context={context} />
+    );
+  }
+  if (typeof raw !== "number") {
+    return (
+      <NoFigureCard
+        headline="No figure was measured here"
+        note={NO_VALUE_CARD_NOTE}
+        context={context}
+      />
+    );
+  }
+
+  const bounded = cellBounded(row, series.key);
+  const provisional = row.provisional === true;
+  // EVERY mark travels, and they compose: a bucket can be both a ceiling
+  // and still settling, and printing one of those two facts at 30px while
+  // dropping the other is the failure mode this whole policy exists to
+  // avoid.
+  const marks = [bounded ? CEILING_MARK : undefined, provisional ? SETTLING_MARK : undefined].filter(
+    (mark): mark is string => mark !== undefined,
+  );
+
+  return (
+    <button
+      type="button"
+      onClick={onDrill}
+      title={`Drill into ${row.label}`}
+      className="focus-ring block w-full rounded-lg text-left"
+    >
+      <KeyFigure
+        // Sentence position, and the wire's series label is frequently a
+        // lower-case measure phrase ("denied dollars"). Capitalised at the
+        // render site; the exported value is untouched.
+        label={capitalizeOpening(label)}
+        // The "≤" the engine published, on the front of a 30px numeral —
+        // and the unit is the spec's, because the number goes through the
+        // same `formatValue` the axis and the hover use.
+        value={`${bounded ? "≤ " : ""}${formatValue(raw)}`}
+        {...(marks.length > 0 ? { mark: marks.join(" · ") } : {})}
+        context={context}
+        emphasis
+      />
+    </button>
+  );
+}
+
+/**
+ * THE MOVEMENT VOCABULARY, RESTATED OVER TWO NUMBERS.
+ *
+ * `DeltaLine.tsx` owns this rule and exports `deltaMark`/`directionWord`
+ * for it — but both take a `MonitorsDelta`, which a chart row is not and
+ * cannot be made into without inventing a `comparable`, a `sameWindow`
+ * and a `deltaText` that no payload published. Forcing a fake monitor
+ * through them would be worse than restating the rule, so the rule is
+ * restated verbatim and `DeltaLine.tsx` is named as its source: an arrow
+ * only where a direction may be claimed, "up"/"down"/"no change", and no
+ * sign at all when there is nothing to claim.
+ */
+type ChartDeltaMark = "up" | "down" | "neutral";
+
+function chartDeltaMark(delta: number): ChartDeltaMark {
+  if (delta === 0) return "neutral";
+  return delta > 0 ? "up" : "down";
+}
+
+function chartDirectionWord(mark: ChartDeltaMark): string {
+  return mark === "neutral" ? "" : mark;
+}
+
+/**
+ * The movement's SIZE, in the measure's own unit, UNSIGNED — the direction
+ * is carried by the word beside it, exactly as the monitors digest carries
+ * it ("up 7.3 points").
+ *
+ * `formatMeasureDelta` rather than `formatValue`, and the difference is
+ * the honesty: a rate's VALUE is a percentage and a rate's MOVEMENT is
+ * percentage POINTS. This file's own tooltip already states the same
+ * quantity as "+35.3pp" three lines from where it states "76.9%", and a
+ * card that said "up 35.3%" under a "76.9%" would print the relative
+ * change confusion `DeltaLine`'s doc comment exists to prevent. No
+ * percentage is ever derived here — the change is only ever the two
+ * published numbers subtracted.
+ */
+function changeSize(delta: number, unit: ChartSpec["unit"]): string {
+  return formatMeasureDelta(Math.abs(delta), unit).replace(/^\+/, "");
+}
+
+/**
+ * TWO WINDOWS OF ONE MEASURE, AT ONE CATEGORY — a movement, not a chart.
+ *
+ * The current window at display size, the window it is compared against
+ * quiet beside it, and the change stated in words. Which is what the
+ * grouped bars were for, minus the part where the reader has to measure
+ * two heights by eye.
+ *
+ * AND THE MOVEMENT IS WITHHELD WHENEVER EITHER SIDE IS NOT A
+ * MEASUREMENT. A ceiling minus a measurement is not a change: subtracting
+ * a suppression bound from a reading produces a number with no meaning,
+ * and drawing it as a movement at display size is the same lie the solid
+ * trend line through six ceilings was telling. Same for an absence — the
+ * compare operator's zero-fill is the join, not a reading.
+ */
+function SingleDeltaCard({
+  spec,
+  row,
+  current,
+  prior,
+  currentLabel,
+  priorLabel,
+  formatValue,
+  onDrill,
+}: {
+  spec: ChartSpec;
+  row: ChartRow;
+  current: ChartSeries;
+  prior: ChartSeries;
+  /** `periodSeriesLabel`'s naming — "This window (Jul 2026)". */
+  currentLabel: string;
+  priorLabel: string;
+  formatValue: (value: number) => string;
+  onDrill: () => void;
+}) {
+  const context = markContext(spec, row);
+
+  if (row.withheld === true) {
+    return (
+      <NoFigureCard
+        headline="No value was published for this figure"
+        note={WITHHELD_CARD_NOTE}
+        context={context}
+      />
+    );
+  }
+
+  const currentAbsent = row.cells?.[current.key]?.absent === true;
+  const priorAbsent = row.cells?.[prior.key]?.absent === true;
+  const read = (key: string, missing: boolean): number | undefined => {
+    if (missing) return undefined;
+    const raw = row.values[key];
+    return typeof raw === "number" ? raw : undefined;
+  };
+  const currentValue = read(current.key, currentAbsent);
+  const priorValue = read(prior.key, priorAbsent);
+  const currentBounded = cellBounded(row, current.key);
+  const priorBounded = cellBounded(row, prior.key);
+  const provisional = row.provisional === true;
+
+  const valueText = (value: number | undefined, bounded: boolean): string =>
+    // "No figure" is the tooltip's own word for a side the engine did not
+    // measure. It stands where the number would be, and it is not a dash a
+    // reader could take for a minus.
+    value === undefined ? "No figure" : `${bounded ? "≤ " : ""}${formatValue(value)}`;
+  const sideMark = (
+    value: number | undefined,
+    bounded: boolean,
+    absentSide: boolean,
+  ): string | undefined => {
+    if (value === undefined) {
+      return absentSide ? "an absence, not a measured zero" : "no value was published";
+    }
+    const marks = [bounded ? CEILING_MARK : undefined, provisional ? SETTLING_MARK : undefined].filter(
+      (mark): mark is string => mark !== undefined,
+    );
+    return marks.length > 0 ? marks.join(" · ") : undefined;
+  };
+
+  const measured =
+    currentValue !== undefined && priorValue !== undefined && !currentBounded && !priorBounded;
+  const delta = measured ? currentValue - priorValue : undefined;
+  const mark = delta === undefined ? undefined : chartDeltaMark(delta);
+  const word = mark === undefined ? "" : chartDirectionWord(mark);
+  const changeText =
+    delta === undefined || mark === undefined
+      ? ""
+      : mark === "neutral"
+        ? "no change"
+        : `${word} ${changeSize(delta, spec.unit)}`;
+  const currentSideMark = sideMark(currentValue, currentBounded, currentAbsent);
+  const priorSideMark = sideMark(priorValue, priorBounded, priorAbsent);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <div className="grid gap-2 sm:grid-cols-2">
+        <button
+          type="button"
+          onClick={onDrill}
+          title={`Drill into ${row.label}`}
+          className="focus-ring block w-full rounded-lg text-left"
+        >
+          <KeyFigure
+            label={capitalizeOpening(currentLabel)}
+            value={valueText(currentValue, currentBounded)}
+            {...(currentSideMark !== undefined ? { mark: currentSideMark } : {})}
+            context={context}
+            emphasis
+          />
+        </button>
+        {/* The window it is compared against, at the size `KeyFigure`
+            reserves for "the ones beside it". Not a button: the drill this
+            figure offers is into the category, and there is one category. */}
+        <KeyFigure
+          label={capitalizeOpening(priorLabel)}
+          value={valueText(priorValue, priorBounded)}
+          {...(priorSideMark !== undefined ? { mark: priorSideMark } : {})}
+        />
+      </div>
+      {delta !== undefined && mark !== undefined ? (
+        <p
+          data-delta-mark={mark}
+          className="num flex flex-wrap items-baseline gap-1.5 text-meta leading-snug text-foreground/80"
+        >
+          {/* THE MARK IS NOT A SIGN — `DeltaLine.tsx`. An arrow is a claim
+              about the world and is drawn only where the direction may be
+              claimed; the neutral case takes an unsigned middot, never a
+              glyph a reader reads as a minus. */}
+          {mark === "up" ? (
+            <ArrowUpRight aria-hidden className="size-3 translate-y-0.5" />
+          ) : mark === "down" ? (
+            <ArrowDownRight aria-hidden className="size-3 translate-y-0.5" />
+          ) : (
+            <span aria-hidden className="text-muted-foreground">
+              ·
+            </span>
+          )}
+          {/* The digest's own words ("up", "down", "no change"), opened
+              with a capital because this node is in sentence position and
+              the owner's rule says so — the word itself is unchanged. */}
+          <span>{capitalizeOpening(changeText)}</span>
+        </p>
+      ) : (
+        <p className="text-micro leading-snug text-muted-foreground">
+          {currentValue === undefined || priorValue === undefined
+            ? "No movement is published between these two windows: one of them has no figure at all, and a measurement minus an absence is not a change."
+            : "No movement is published between these two windows: one of them is a limit rather than a measurement, and a ceiling minus a measurement is not a change."}
+        </p>
+      )}
+    </div>
+  );
+}
+
 /**
  * Charts are live objects: clicking a bar emits a typed
  * `{op: "DrillInto", target}` refinement — no natural language in the
@@ -544,6 +1012,16 @@ export function InvestigationChart({
     spec.stacked && spec.kind !== "line" && spec.comparison === undefined ? spec.id : undefined;
   const seriesLabel = (s: ChartSeries): string =>
     periodSeriesLabel(spec, s.key, comparisonWindows) ?? displayLabel(s.label);
+  /**
+   * IS THERE ANYTHING TO COMPARE? See `singleMarkPolicy`. Decided from the
+   * DRAWN spec, so the answer is about the picture rather than about the
+   * payload — and it changes ONLY the plot area: the shell, the title, the
+   * refusal banner, the notes and the whole footer row (caption, Monitor
+   * this, Expand, CSV) are the same objects on all three paths, and the
+   * CSV still receives the PUBLISHED spec.
+   */
+  const policy = singleMarkPolicy(spec);
+  const asCard = policy.mode !== "chart";
 
   /**
    * Draw in ONCE, fast (260ms ease-out) — Recharts' 1.5s default is a
@@ -639,13 +1117,27 @@ export function InvestigationChart({
     return datum;
   });
 
+  /**
+   * ONE DRILL, TWO AFFORDANCES. The bar and the figure card emit the same
+   * refinement for the same row — the referent when the wire published
+   * one, else `${spec.id}:${label}` — because they are the same gesture
+   * on the same mark, and a card that drilled somewhere else would be a
+   * second contract nobody declared.
+   */
+  const drillInto = (target: { label: string; referent?: string }) => {
+    emitRefinement(
+      { op: "DrillInto", target: target.referent ?? `${spec.id}:${target.label}` },
+      { turnId, referent: target.referent },
+    );
+  };
+
   const handleBarClick = (entry: unknown) => {
     const payload = (entry as { payload?: RowDatum }).payload;
     if (!payload) return;
-    emitRefinement(
-      { op: "DrillInto", target: payload.referent ?? `${spec.id}:${payload.label}` },
-      { turnId, referent: payload.referent },
-    );
+    drillInto({
+      label: payload.label,
+      ...(payload.referent !== undefined ? { referent: payload.referent } : {}),
+    });
   };
 
   // Values arrive in their DISPLAY unit: `mapChartSpec` scales a wire
@@ -797,12 +1289,18 @@ export function InvestigationChart({
   // `humanizeColumn` rather than `displayLabel` because this is a heading
   // and the wire's own word for it is a column name — "carc" is what the
   // pack calls it and "CARC" is what a reader calls it.
+  //
+  // The drill HINT follows the affordance it describes: a figure card has
+  // no bar to click, and a caption naming one is a caption a reader
+  // checks once and never trusts again.
   const footerCaption = [
     spec.xLabel !== undefined
       ? humanizeColumn(spec.xLabel)
-      : spec.kind !== "line"
-        ? "Click a bar to drill in"
-        : undefined,
+      : asCard
+        ? "Click the figure to drill in"
+        : spec.kind !== "line"
+          ? "Click a bar to drill in"
+          : undefined,
     orderNote(spec),
   ]
     .filter((part): part is string => part !== undefined && part !== "")
@@ -840,8 +1338,14 @@ export function InvestigationChart({
             series beside its swatch: three of the eight light-mode hues
             sit below 3:1 on white, and the rule for that is relief — the
             identity must never be carried by colour alone. The swatch is
-            the cue; the label is the fact. */}
-        {spec.series.length > 1 && (
+            the cue; the label is the fact.
+
+            NOT ON A CARD. A legend is a key to marks in a plot, and a
+            delta card has no marks: its swatches would name colours that
+            appear nowhere on the figure, and each series name would be
+            printed twice — once in a key to nothing, once as the label of
+            the figure it belongs to. The card's own labels ARE the key. */}
+        {spec.series.length > 1 && !asCard && (
           <span className="flex max-w-[60%] flex-wrap items-center justify-end gap-x-2.5 gap-y-0.5">
             {spec.series.map((s) => (
               <span
@@ -886,6 +1390,39 @@ export function InvestigationChart({
           <p className="font-medium text-foreground">This chart is not drawn</p>
           <p className="mt-1">{spec.keying.note}</p>
         </div>
+      ) : policy.mode === "figure" ? (
+        /* ONE MARK — the number, not a hairline over a one-tick axis.
+           See `singleMarkPolicy`. */
+        <SingleFigureCard
+          spec={spec}
+          row={policy.row}
+          series={policy.series}
+          label={seriesLabel(policy.series)}
+          formatValue={formatValue}
+          onDrill={() =>
+            drillInto({
+              label: policy.row.label,
+              ...(policy.row.referent !== undefined ? { referent: policy.row.referent } : {}),
+            })
+          }
+        />
+      ) : policy.mode === "delta" ? (
+        /* ONE CATEGORY, TWO WINDOWS — a movement, stated. */
+        <SingleDeltaCard
+          spec={spec}
+          row={policy.row}
+          current={policy.current}
+          prior={policy.prior}
+          currentLabel={seriesLabel(policy.current)}
+          priorLabel={seriesLabel(policy.prior)}
+          formatValue={formatValue}
+          onDrill={() =>
+            drillInto({
+              label: policy.row.label,
+              ...(policy.row.referent !== undefined ? { referent: policy.row.referent } : {}),
+            })
+          }
+        />
       ) : (
       // A little more room than the marks strictly need. 13rem was the
       // height at which a twelve-bar ranking became a picket fence; 14
@@ -1142,10 +1679,20 @@ export function InvestigationChart({
               own annotation ahead of the rest ("comparison: two series per
               category…"), so reading index 0 alone dropped the upper-bound
               census, the prior-only census and the withheld census on
-              exactly the figures that carry them. */}
+              exactly the figures that carry them.
+
+              EACH ONE OPENS ITS OWN LINE, so each one opens in capitals.
+              The engine writes these as clause-led labels — "comparison:
+              two series per category…", "upper bounds: 4 of 12 marks are
+              ceilings…", "withheld: 1 of 8 cells were withheld outright…" —
+              which is the right grammar inside a paragraph and the wrong
+              one under a figure, where every sentence is a caption of its
+              own. `capitalizeOpening` moves the first character and
+              nothing else; the census and its numbers are untouched, and
+              the CSV preamble still carries the engine's exact string. */}
           {figureNotes.map((note) => (
             <span key={note} className="block">
-              {note}
+              {capitalizeOpening(note)}
             </span>
           ))}
 
@@ -1161,31 +1708,30 @@ export function InvestigationChart({
           {/* The absence, said out loud on the figure. The engine's own
               census counts them; this says what the gap in the picture
               IS. */}
+          {/* THE SAME FACTS, WITHOUT POINTING AT A GLYPH THAT IS NOT
+              THERE. On a chart these sentences name the mark the axis is
+              wearing; on a figure card there is no axis, so they name the
+              figure instead (see the `*_CARD_NOTE` constants). Nothing is
+              dropped — an honesty caption that goes quiet because the
+              plot area changed shape would be the defect. */}
           {absentLabels.size > 0 && (
-            <span className="block">
-              ‡ marks a category with a figure in the window this one is compared against and none
-              in this one — its mark here is an absence, not a measured zero, so no bar is drawn.
-            </span>
+            <span className="block">{asCard ? ABSENT_CARD_NOTE : ABSENT_AXIS_NOTE}</span>
           )}
-          {hasBounded && spec.kind === "line" && (
+          {hasBounded && spec.kind === "line" && !asCard && (
             <span className="block">
               Segments touching a ceiling are drawn dashed with a hollow point — the line between
               two ceilings is not a measured movement.
             </span>
           )}
           {hasProvisional && (
-            <span className="block">
-              * marks a provisional bucket: still settling, so its value will move.
-            </span>
+            <span className="block">{asCard ? PROVISIONAL_CARD_NOTE : PROVISIONAL_AXIS_NOTE}</span>
           )}
           {/* A blank that is a REFUSAL, said out loud. Without it a
-              withheld cell and a measured 0.0% are the same nothing. */}
-          {hasWithheld && (
-            <span className="block">
-              † marks a cell the engine withheld outright — no value was published for it, so its
-              gap on this figure is a refusal, not a zero.
-            </span>
-          )}
+              withheld cell and a measured 0.0% are the same nothing.
+              On a card the refusal IS the plot area — `NoFigureCard`
+              carries this sentence where the number would have been — so
+              it is not also repeated down here. */}
+          {hasWithheld && !asCard && <span className="block">{WITHHELD_AXIS_NOTE}</span>}
         </p>
       )}
 

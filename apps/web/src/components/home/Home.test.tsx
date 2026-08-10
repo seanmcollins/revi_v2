@@ -337,7 +337,15 @@ describe("Home — what changed, first and in one line", () => {
 describe("Home — the evolution rule, on the page", () => {
   it("MONITORS THAT MOVED: the digest is above the anomalies", async () => {
     draw();
-    await screen.findByText("Denial rate by payer, monthly");
+    // Scoped to the digest: the drawn anchor below names the same monitor,
+    // which is the point of it — one object, two places, one subject.
+    await waitFor(() =>
+      expect(
+        within(document.getElementById("home-monitors")!).getByText(
+          "Denial rate by payer, monthly",
+        ),
+      ).toBeInTheDocument(),
+    );
     await waitFor(() => expect(firstZone()).toBe("monitors"));
     expect(
       screen.getByText(/4 monitors re-run at this load, 1 moved enough to brief you/),
@@ -347,7 +355,13 @@ describe("Home — the evolution rule, on the page", () => {
   it("MONITORS, NOTHING MOVED: the digest stays below the anomalies", async () => {
     serve({ monitors: STILL_MONITORS, brief: NO_MOVEMENT_BRIEF });
     draw();
-    await screen.findByText("Denial rate by payer, monthly");
+    await waitFor(() =>
+      expect(
+        within(document.getElementById("home-monitors")!).getByText(
+          "Denial rate by payer, monthly",
+        ),
+      ).toBeInTheDocument(),
+    );
     await waitFor(() => expect(firstZone()).toBe("anomalies"));
     expect(
       screen.getByText(/4 monitors re-run at this load, none moved enough to brief you/),
@@ -383,10 +397,73 @@ describe("Home — the anomalies zone", () => {
     draw();
     expect(await screen.findByText("Must do regardless of size")).toBeInTheDocument();
     expect(screen.getByText("Ranked by value recoverable")).toBeInTheDocument();
-    const catchable = document.querySelector("[data-cash-timing]");
-    expect(catchable).not.toBeNull();
-    expect(within(catchable as HTMLElement).getByText("Still catchable")).toBeInTheDocument();
-    expect(catchable!.textContent).toContain("$169,306 recoverable");
+    // The still-catchable total is the BAND now, not three lines of 12px
+    // type: same lane, same server figure, at a size somebody reads. The
+    // rail keeps the sentence form (`CashTimingSummary`).
+    const band = await waitFor(() => {
+      const node = document.querySelector("[data-key-figures]");
+      expect(node).not.toBeNull();
+      return node!;
+    });
+    expect(within(band as HTMLElement).getByText("Still catchable")).toBeInTheDocument();
+    expect(band.textContent).toContain("~$169,306");
+  });
+
+  /**
+   * THE BAND IS COMPUTED, NOT WRITTEN.
+   *
+   * Every cell comes off the snapshot's own `cash_timing_lanes` and its own
+   * cards — the fixture publishes one lane with a $169,306 recoverable
+   * estimate over 1 lead and a dated limit 9 days out, and that is exactly
+   * what has to be on screen. A band that renders the right shape from the
+   * wrong payload is the failure this pins.
+   */
+  it("computes every figure in the band from the payload, marks and all", async () => {
+    draw();
+    const band = await waitFor(() => {
+      const node = document.querySelector("[data-key-figures]");
+      expect(node).not.toBeNull();
+      return node!;
+    });
+    const cell = (label: string): HTMLElement => {
+      const node = band.querySelector<HTMLElement>(`[data-key-figure="${label}"]`);
+      expect(node, `the band must carry a "${label}" figure`).not.toBeNull();
+      return node!;
+    };
+    // A RECOVERABLE ESTIMATE KEEPS ITS MARK AT DISPLAY SIZE. `~` is this
+    // product's existing mark for a governed estimate and the word says
+    // what kind of number it is; 30px is exactly where dropping either
+    // would matter most.
+    const catchable = cell("Still catchable");
+    expect(catchable.textContent).toContain("~$169,306");
+    expect(catchable.textContent).toContain("estimated");
+    expect(catchable.textContent).toContain("Recoverable, across 1 lead");
+    
+    // The count reconciles to the list: 4 cards, none of them worked.
+    expect(cell("Open leads").textContent).toContain("4");
+    // A REAL DATE OR NOTHING. The server's own arithmetic, not today's
+    // clock — 9 days, from `soonest_deadline_days`.
+    const deadline = cell("Soonest deadline");
+    expect(deadline.textContent).toContain("In 9 days");
+    expect(deadline.textContent).toContain("Aug 19, 2026");
+    // Amber is a verdict colour. A dashboard figure is not a verdict.
+    expect(band.querySelector("[class*='text-warning']")).toBeNull();
+  });
+
+  /**
+   * A LANE THE SERVER DID NOT PUBLISH DRAWS NO CELL. The band is allowed
+   * to be short; it is not allowed to hold a blank box, which is the exact
+   * "is this broken?" impression it exists to remove.
+   */
+  it("draws no cell for a lane the snapshot does not carry", async () => {
+    serve({ portfolio: { ...PORTFOLIO, cash_timing_lanes: [] } });
+    draw();
+    await screen.findByText("Must do regardless of size");
+    const band = document.querySelector("[data-key-figures]");
+    expect(band).not.toBeNull();
+    expect(band!.querySelector('[data-key-figure="Still catchable"]')).toBeNull();
+    // The count survives — it is computed from the cards, not the lanes.
+    expect(band!.querySelector('[data-key-figure="Open leads"]')).not.toBeNull();
   });
 
   it("offers a drill on a card the server published a handle for", async () => {
@@ -432,6 +509,112 @@ describe("Home — the anomalies zone", () => {
       main!.querySelectorAll<HTMLElement>("button, a[href]"),
     ).filter((el) => /\bopacity-0\b/.test(el.className));
     expect(hidden.map((el) => el.getAttribute("aria-label") ?? el.textContent)).toEqual([]);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* The readings a monitor has stored, drawn                            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A monitor whose PRIOR reading was a ceiling. Only the historical
+ * reading's own rendered text says so — that is the only per-reading
+ * evidence on the wire — and the point drawn for it must be hollow, with
+ * the segments touching it dashed, exactly as the big line charts treat a
+ * mark the engine did not measure.
+ */
+const BOUNDED_HISTORY: Json = {
+  ...MONITORS,
+  tiles: TILES.map((tile, i) =>
+    i === 0
+      ? {
+          ...tile,
+          delta: {
+            ...(tile.delta as Json),
+            prior_value_text: "≤ 25.9%",
+          },
+        }
+      : tile,
+  ),
+};
+
+describe("Home — a monitor's stored readings, and the two dots that are not a trend", () => {
+  const sparkline = (): SVGElement | null =>
+    document.querySelector<SVGElement>("[data-sparkline-points]");
+
+  it("draws the readings the payload carries, one point per stored load", async () => {
+    draw();
+    const line = await waitFor(() => {
+      const node = sparkline();
+      expect(node).not.toBeNull();
+      return node!;
+    });
+    // Three: the creation baseline (wm_001), the prior load (wm_002) and
+    // this one. Nothing between them and nothing beyond them.
+    expect(line.getAttribute("data-sparkline-points")).toBe("3");
+    expect(line.getAttribute("role")).toBe("img");
+    // NOT DECORATION FOR A SCREEN READER EITHER: the baseline reading
+    // appears nowhere else on the tile, so the figure names them all.
+    expect(line.getAttribute("aria-label")).toContain("24.3%");
+    expect(line.getAttribute("aria-label")).toContain("29.5%");
+  });
+
+  it("says in words what it draws as a hollow point — the current reading is still settling", async () => {
+    draw();
+    const line = await waitFor(() => {
+      const node = sparkline();
+      expect(node).not.toBeNull();
+      return node!;
+    });
+    // The live tile's own `integrity.provisional`. One qualified reading,
+    // and the words travel with it.
+    expect(line.getAttribute("data-sparkline-qualified")).toBe("1");
+    expect(line.getAttribute("aria-label")).toContain("still settling");
+    // A qualified point is a hollow one — filled with the card, not the
+    // series colour — and its segment is dashed.
+    expect(line.querySelector('circle[fill="var(--card)"]')).not.toBeNull();
+    expect(line.querySelector("line[stroke-dasharray]")).not.toBeNull();
+  });
+
+  it("carries a CEILING from a stored reading, not just from the newest one", async () => {
+    serve({ monitors: BOUNDED_HISTORY });
+    draw();
+    const line = await waitFor(() => {
+      const node = sparkline();
+      expect(node).not.toBeNull();
+      return node!;
+    });
+    // Two qualified now: the bounded prior reading and the provisional
+    // current one.
+    expect(line.getAttribute("data-sparkline-qualified")).toBe("2");
+    expect(line.getAttribute("aria-label")).toContain("a ceiling, not a measurement");
+  });
+
+  it("DRAWS NOTHING at two readings — a line through two dots is a trend nobody measured", async () => {
+    // Every tile reduced to one stored reading: no baseline, no prior.
+    serve({
+      monitors: {
+        ...MONITORS,
+        tiles: TILES.map((tile) => ({ ...tile, delta: null, baseline_delta: null })),
+      },
+    });
+    draw();
+    await waitFor(() =>
+      expect(
+        within(document.getElementById("home-monitors")!).getByText(
+          "Denial rate by payer, monthly",
+        ),
+      ).toBeInTheDocument(),
+    );
+    expect(sparkline()).toBeNull();
+    // …and the tile keeps its current form rather than a gap where a
+    // picture would have been: the value is still there, and so is the
+    // sentence that says there is nothing to compare it against.
+    expect(
+      within(document.getElementById("home-monitors")!).getAllByText(
+        "Nothing to compare against at this load",
+      ).length,
+    ).toBeGreaterThan(0);
   });
 });
 

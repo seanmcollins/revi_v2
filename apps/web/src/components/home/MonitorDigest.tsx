@@ -5,8 +5,10 @@ import { Link } from "react-router-dom";
 
 import { ValueMarks } from "@/components/monitors/IntegrityAtom";
 import { deltaMark, directionWord } from "@/components/monitors/DeltaLine";
+import { Sparkline } from "@/components/monitors/Sparkline";
 import { investigationLinkFor } from "@/lib/links";
-import { readableStatement } from "@/lib/prose";
+import { MONITOR_HISTORY_MIN, monitorReadings } from "@/lib/monitorHistory";
+import { capitalizeOpening, readableLabel, readableStatement } from "@/lib/prose";
 import { orderTilesForGrid, TILE_BANDS, tileBand, type MonitorsTile } from "@/lib/monitors";
 import { cn } from "@/lib/utils";
 
@@ -156,11 +158,23 @@ export function MonitorDigest({
 function DigestRow({ tile, moved }: { tile: MonitorsTile; moved: boolean }) {
   const unavailable = tile.status !== "ok";
   const band = tileBand(tile);
+  // The repaired card title. Three of this tenant's seven monitors are
+  // registered in lower case, and a digest of them opened three of four
+  // cards mid-sentence. See `lib/prose::readableLabel`.
+  const label = readableLabel(tile.label);
+  /**
+   * THE READINGS THIS MONITOR HAS STORED — three at most, each one a
+   * evaluation at a named data load, none of them interpolated. Below
+   * `MONITOR_HISTORY_MIN` the tile keeps exactly the form it had: a line
+   * through two dots is a trajectory nobody measured, and five of this
+   * tenant's seven monitors carry only two readings.
+   */
+  const readings = monitorReadings(tile);
   const body = (
     <>
       <p className="flex items-baseline justify-between gap-2">
         <span className="min-w-0 truncate text-meta font-medium leading-snug" title={tile.label}>
-          {tile.label}
+          {label}
         </span>
         {moved && (
           <span className="shrink-0 text-micro font-medium uppercase tracking-wide text-foreground/70">
@@ -174,12 +188,24 @@ function DigestRow({ tile, moved }: { tile: MonitorsTile; moved: boolean }) {
         <>
           {/* The number, with the marks that change what it IS. `valueText`
               already carries the server's `≤`; the words beside it say
-              what that means. */}
-          <p className="numeral text-lead leading-none">
+              what that means.
+
+              AT DISPLAY SIZE NOW. It was `text-lead` — the same 17px as the
+              brief sentence above it and the composer below it — so a
+              surface whose whole job is "what does this number say today"
+              had no number on it that read as one. The marks travel
+              unchanged; a ceiling at 30px is still a ceiling. */}
+          <p className="numeral text-figure leading-none">
             {tile.valueText}
             <ValueMarks integrity={tile.integrity} />
           </p>
-          <DeltaChip tile={tile} band={band} />
+          <div className="flex items-end justify-between gap-2">
+            <DeltaChip tile={tile} band={band} />
+            {/* The stored readings, beside the movement they produced. */}
+            {readings.length >= MONITOR_HISTORY_MIN && (
+              <Sparkline readings={readings} className="mb-0.5" />
+            )}
+          </div>
         </>
       )}
     </>
@@ -196,7 +222,7 @@ function DigestRow({ tile, moved }: { tile: MonitorsTile; moved: boolean }) {
       {tile.investigationId ? (
         <Link
           to={investigationLinkFor(tile.investigationId, "")}
-          aria-label={`${tile.label}: ${
+          aria-label={`${label}: ${
             unavailable ? "no value at this load" : tile.valueText
           } — open the investigation behind it`}
           className={cn(className, "focus-ring hover:border-ring/40")}
@@ -232,7 +258,7 @@ function DeltaChip({ tile, band }: { tile: MonitorsTile; band: number }) {
       // and runs to forty words; the whole statement is one tap away on
       // the investigation, and a digest row that grows to five lines
       // stops being a digest.
-      <p className="line-clamp-2 text-micro leading-snug text-muted-foreground">
+      <p className="line-clamp-2 min-w-0 text-micro leading-snug text-muted-foreground">
         {band === TILE_BANDS.noComparison && delta?.notComparableReason
           ? readableStatement(delta.notComparableReason)
           : "Nothing to compare against at this load"}
@@ -242,24 +268,35 @@ function DeltaChip({ tile, band }: { tile: MonitorsTile; band: number }) {
   const flat = delta.direction === "flat" || delta.delta === 0;
   const mark = deltaMark(delta);
   const word = directionWord(delta);
+  /**
+   * THE MOVEMENT, AT A SIZE SOMEBODY READS.
+   *
+   * "up 7.3 points" was 12px muted ink under a 17px value — the news on a
+   * monitoring surface, set smaller than the caption explaining it, and
+   * opening in lower case. Both are fixed here and neither is a re-wording:
+   * the magnitude is still the server's own `deltaText` in the metric's own
+   * unit (a rate moves in POINTS), the mark still follows `deltaMark`, and
+   * the only change to the string is the opening capital every other card
+   * title on this page now takes.
+   */
+  const magnitude = capitalizeOpening(
+    flat ? "no change" : word === "" ? delta.deltaText : `${word} ${delta.deltaText}`,
+  );
   return (
-    <p
-      data-digest-delta={mark}
-      className="num flex flex-wrap items-baseline gap-x-1.5 text-micro leading-snug"
-    >
-      <span className="inline-flex items-baseline gap-1 text-foreground/80">
+    <p data-digest-delta={mark} className="num min-w-0 leading-snug">
+      <span className="numeral flex items-baseline gap-1 text-lead leading-none text-foreground">
         {mark === "up" ? (
-          <ArrowUpRight aria-hidden className="size-2.5 translate-y-0.5" />
+          <ArrowUpRight aria-hidden className="size-3 shrink-0 translate-y-0.5" />
         ) : mark === "down" ? (
-          <ArrowDownRight aria-hidden className="size-2.5 translate-y-0.5" />
+          <ArrowDownRight aria-hidden className="size-3 shrink-0 translate-y-0.5" />
         ) : (
           <span aria-hidden className="text-muted-foreground">
             ·
           </span>
         )}
-        {flat ? "no change" : word === "" ? delta.deltaText : `${word} ${delta.deltaText}`}
+        {magnitude}
       </span>
-      <span className="text-muted-foreground">
+      <span className="mt-0.5 block text-micro text-muted-foreground">
         {delta.reference === "baseline"
           ? "since you started monitoring"
           : `from ${delta.priorValueText || "the prior load"}`}

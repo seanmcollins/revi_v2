@@ -4,6 +4,7 @@ import { AlertTriangle } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
+import { formatCents, formatWholeDollars } from "@/lib/format";
 import type { MonitorMode, MonitorModel, MonitorUnit } from "@/lib/monitors";
 import { cn } from "@/lib/utils";
 
@@ -13,7 +14,13 @@ import { cn } from "@/lib/utils";
  * Four modes, and the fourth is a different kind of question: `crosses`
  * measures against a LEVEL, not against the prior value. They are named
  * for what they do to the analyst's morning rather than for the rule
- * inside them ("Only when it moves at least…", not "delta_gte").
+ * inside them ("Tell me when it crosses a level…", not "crosses").
+ *
+ * EVERY OPTION IS A SENTENCE THE READER SAYS, not a setting they decode.
+ * Read back to the owner, the previous four read as platform vocabulary
+ * with the platform filed off, and the default option was the worst of
+ * them — see {@link recommendedRuleLabel} for what it said and why every
+ * NAME for that threshold failed.
  *
  * THE UNIT IS THE HONESTY CONTROL AND IT IS NOT PRE-VALIDATED HERE.
  * A `points` threshold on a money contract is refused by the server with a
@@ -42,6 +49,8 @@ export function MonitorSensitivityForm({
   /** The server's refusal from the last attempt, verbatim. */
   refusal,
   restartNote,
+  recommended,
+  metricLabel,
   onSubmit,
   onCancel,
 }: {
@@ -49,6 +58,27 @@ export function MonitorSensitivityForm({
   submitLabel: string;
   pending: boolean;
   refusal?: string;
+  /**
+   * THE RECOMMENDED RULE, AS A NUMBER AND A UNIT — when one is published.
+   *
+   * NOTHING SUPPLIES THIS TODAY, and that is a wire gap rather than an
+   * oversight here: `GET /v1/monitors` puts the governed gate only inside
+   * prose (`delta.materiality_note` — "…at or above the governed gate of
+   * 0.5 points") and `GET /v1/monitors/pins` carries only the analyst's
+   * OWN `monitor` object, never a recommended one. A client that read the
+   * number back out of that sentence would be parsing its own caption,
+   * which this codebase does not do anywhere else and must not start
+   * doing on the control that sets an interruption. So the default option
+   * renders the honest fallback until a structured field exists, and
+   * never invents a figure.
+   */
+  recommended?: { value: number; unit: MonitorUnit };
+  /**
+   * The measure in the reader's own noun ("denial rate"), for the one
+   * sentence that says whose recommendation this is. Absent, that
+   * sentence says "this metric" — vaguer, and true.
+   */
+  metricLabel?: string;
   /**
    * What saving COSTS, when it costs something.
    *
@@ -73,6 +103,7 @@ export function MonitorSensitivityForm({
   const needsValue = mode === "delta_gte" || mode === "crosses";
   const parsed = Number(value);
   const valueOk = !needsValue || (value.trim() !== "" && Number.isFinite(parsed));
+  const modes = modeOptions(recommended, metricLabel);
 
   return (
     <form
@@ -89,10 +120,15 @@ export function MonitorSensitivityForm({
       }}
     >
       <fieldset className="space-y-1.5">
+        {/* NOT A SENTENCE STEM. It read "Brief me when", which only works
+            while the options below it are clauses ("It moves at all").
+            The options are now whole sentences the reader says, so a stem
+            in front of them would make the control ungrammatical to
+            anybody reading it top to bottom. */}
         <legend className="text-micro font-semibold uppercase tracking-wide text-muted-foreground">
-          Brief me when
+          What is worth telling you about
         </legend>
-        {MODES.map((option) => (
+        {modes.map((option) => (
           <label
             key={option.mode}
             className="flex cursor-pointer items-start gap-2 rounded-md px-1 py-1 text-meta leading-snug transition-colors duration-150 hover:bg-accent/50"
@@ -131,27 +167,34 @@ export function MonitorSensitivityForm({
               aria-label="The unit that number is stated in"
               className="focus-ring rounded-md border bg-background px-2 py-1 text-meta"
             >
-              <option value="points">percentage points</option>
-              <option value="relative_pct">% of the current value</option>
-              <option value="cents">cents</option>
+              {/* EACH OPTION SAYS WHAT THE TYPED NUMBER MEANS, and none of
+                  them is the wire value wearing a capital letter. "cents"
+                  and "days" alone are the machine's words for these — a
+                  reader seeing "days" beside a box has to guess whether
+                  they are typing a date, a count of loads, or a size of
+                  movement. "A lag, in days" answers that in the option
+                  itself, and every one of them opens with a capital,
+                  which the old lowercase list did not. */}
+              <option value="points">Percentage points</option>
+              <option value="relative_pct">Percent of the current value</option>
+              <option value="cents">Money, in cents</option>
               {/* A LAG IS ITS OWN UNIT. "days in A/R moved 2 days" is not
                   two percentage points and not two cents; the engine, the
-                  pack and the wire have all taken `days` since round 8,
-                  and this control was the last copy of the list that had
-                  not — so a days monitor opened here read "2 percentage
-                  points" and saving it submitted a unit the server
-                  refuses. */}
-              <option value="days">days</option>
+                  governed rules and the wire have all taken `days` since
+                  round 8, and this control was the last copy of the list
+                  that had not — so a days monitor opened here read "2
+                  percentage points" and saving it submitted a unit the
+                  server refuses. */}
+              <option value="days">A lag, in days</option>
             </select>
           </div>
-          {/* The unit is a claim about what this metric MEASURES, and the
-              platform is the authority on that. Said here so a refusal
-              reads as an answer to a question the control asked, rather
-              than as a validation error. */}
+          {/* The unit is a claim about what this metric MEASURES, and Revi
+              is the authority on that. Said here so a refusal reads as an
+              answer to a question the control asked, rather than as a
+              validation error. */}
           <p className="text-micro leading-snug text-muted-foreground">
-            Percentage points suit a rate, cents suit money, days suit a lag. If this measure
-            is not stated in the unit you pick, the platform refuses the monitor and names the
-            units it does take.
+            Pick the unit this measure is kept in. If it is not the one you picked, Revi
+            refuses the monitor and names the units this measure does take.
           </p>
         </div>
       )}
@@ -162,18 +205,18 @@ export function MonitorSensitivityForm({
         </legend>
         {DIRECTIONS.map((option) => (
           <button
-            key={option.value}
+            key={option}
             type="button"
-            aria-pressed={direction === option.value}
-            onClick={() => setDirection(option.value)}
+            aria-pressed={direction === option}
+            onClick={() => setDirection(option)}
             className={cn(
               "focus-ring rounded-full border px-2 py-0.5 text-micro transition-colors duration-150",
-              direction === option.value
+              direction === option
                 ? "border-ring/60 bg-accent font-medium text-foreground"
                 : "text-muted-foreground hover:text-foreground",
             )}
           >
-            {option.label}
+            {DIRECTION_LABELS[option]}
           </button>
         ))}
       </fieldset>
@@ -189,11 +232,11 @@ export function MonitorSensitivityForm({
           placeholder="Anything over a point on this payer is worth my morning."
           className="focus-ring w-full rounded-md border bg-background px-2 py-1 text-meta"
         />
-        {/* Recorded so a threshold is a decision somebody made rather than
-            a setting nobody remembers — it rides on the brief entry the
-            threshold produces. */}
+        {/* Recorded so a level is a decision somebody made rather than a
+            setting nobody remembers — it rides on the brief entry the
+            level produces. */}
         <span className="block text-micro leading-snug text-muted-foreground">
-          Shown on every brief entry this threshold produces.
+          Shown on every brief entry this monitor produces.
         </span>
       </label>
 
@@ -258,31 +301,147 @@ export function MonitorSensitivityForm({
   );
 }
 
-const MODES: ReadonlyArray<{ mode: MonitorMode; label: string; detail: string }> = [
-  {
-    mode: "governed_default",
-    label: "It moves enough to matter",
-    detail: "The pack's own threshold for this kind of measure. The default, and the quietest.",
-  },
-  {
-    mode: "any_movement",
-    label: "It moves at all",
-    detail: "Every load it is not identical. Loud on purpose — for a cell you are actively working.",
-  },
-  {
-    mode: "delta_gte",
-    label: "It moves at least this much",
-    detail: "Your own threshold, which may be tighter or looser than the pack's.",
-  },
-  {
-    mode: "crosses",
-    label: "It crosses this level",
-    detail: "Measured against the level, not against the last load.",
-  },
-];
+/**
+ * THE DEFAULT OPTION NAMES NO THRESHOLD, BECAUSE EVERY NAME FOR IT FAILED.
+ *
+ * It read "The pack's own threshold for this kind of measure", and the
+ * owner's response to that sentence was "what the fuck does that even
+ * mean? That sounds like nonsense to me." The repair that renamed it "the
+ * standard threshold" failed on a second and worse ground: "I would never
+ * trust that." Both failures are the same failure. A NAME for a gate the
+ * reader cannot see is either jargon (it names a thing they have never
+ * heard of) or an authority claim (it asks them to take a number on
+ * faith), and neither is the rule.
+ *
+ * So the default option states the RULE, with the number and the unit
+ * inside it — "Tell me when it moves more than 0.5 points". Nothing to
+ * decode, nothing to disbelieve, and a reader who thinks the level is
+ * wrong can see exactly what they disagree with before they change it.
+ *
+ * AND WHEN NO NUMBER IS PUBLISHED, IT SAYS SO BY SAYING LESS. No metric
+ * carries a structured recommended value on the wire today (see the
+ * `recommended` prop), so this is the branch every metric currently
+ * renders. "Tell me about meaningful changes" is vaguer than the sentence
+ * above it and it is TRUE, which the alternative — a plausible-looking
+ * 0.5 composed here — would not be.
+ */
+export function recommendedRuleLabel(recommended?: { value: number; unit: MonitorUnit }): string {
+  if (recommended === undefined || !Number.isFinite(recommended.value)) {
+    return "Tell me about meaningful changes";
+  }
+  return `Tell me when it moves more than ${thresholdPhrase(recommended.value, recommended.unit)}`;
+}
 
-const DIRECTIONS: ReadonlyArray<{ value: MonitorModel["direction"]; label: string }> = [
-  { value: "any", label: "either way" },
-  { value: "up", label: "only up" },
-  { value: "down", label: "only down" },
-];
+/**
+ * The level as a phrase somebody reads aloud, in the unit it was stated
+ * in. Plural-correct: "1 points" is the seam that makes a reader stop
+ * trusting the sentence around it, and this sentence is the whole reason
+ * the default option no longer has a name.
+ *
+ * The unit is not decoration. `points`, `cents` and `days` are three
+ * different questions about the same-looking number, and a threshold
+ * rendered in the wrong one is a monitor that fires on the wrong thing.
+ */
+function thresholdPhrase(value: number, unit: MonitorUnit): string {
+  switch (unit) {
+    case "points":
+      return `${decimal(value)} ${Math.abs(value) === 1 ? "point" : "points"}`;
+    case "relative_pct":
+      return `${decimal(value)}% of the current value`;
+    // Money arrives in cents and is read in dollars. Whole dollars when it
+    // is whole — "$1,000.00" implies a precision a recommended level does
+    // not have — and the exact figure when it is not.
+    case "cents":
+      return Math.round(value) % 100 === 0 ? formatWholeDollars(value) : formatCents(value);
+    case "days":
+      return `${decimal(value)} ${Math.abs(value) === 1 ? "day" : "days"}`;
+  }
+}
+
+const DECIMAL = new Intl.NumberFormat("en-US", { maximumFractionDigits: 3 });
+
+function decimal(value: number): string {
+  return DECIMAL.format(value);
+}
+
+/**
+ * The measure's noun in the plural, for "Revi's recommended level for
+ * denial rates". A recommendation is about a KIND of measure rather than
+ * about this one cell, and the singular ("for denial rate") reads as a
+ * typo — which is enough to make a reader doubt the sentence.
+ */
+function pluralMetric(label: string): string {
+  const trimmed = label.trim();
+  if (trimmed === "" || /s$/i.test(trimmed)) return trimmed;
+  if (/[^aeiou]y$/i.test(trimmed)) return `${trimmed.slice(0, -1)}ies`;
+  if (/(ch|sh|x|z)$/i.test(trimmed)) return `${trimmed}es`;
+  return `${trimmed}s`;
+}
+
+/**
+ * The four options, in the owner's register: first person, present tense,
+ * one sentence each, and not one word a first-time reader has to have been
+ * told. The two that need a number end in an ellipsis, because they open
+ * something rather than decide something.
+ */
+function modeOptions(
+  recommended: { value: number; unit: MonitorUnit } | undefined,
+  metricLabel: string | undefined,
+): ReadonlyArray<{ mode: MonitorMode; label: string; detail: string }> {
+  const subject =
+    metricLabel === undefined || metricLabel.trim() === "" ? "this metric" : pluralMetric(metricLabel);
+  return [
+    {
+      mode: "governed_default",
+      label: recommendedRuleLabel(recommended),
+      // WHOSE recommendation, and that it is not binding. The owner
+      // distrusted an unattributed "standard"; a recommendation with a
+      // name on it and an exit beside it is a different offer.
+      detail: `Revi's recommended level for ${subject}. You can change it anytime.`,
+    },
+    {
+      mode: "any_movement",
+      label: "Tell me about any movement",
+      detail:
+        "Every change, however small. Loud on purpose — for a cell you are actively working.",
+    },
+    {
+      mode: "delta_gte",
+      label: "Set my own level…",
+      detail: "You choose how big a change has to be before it reaches you.",
+    },
+    {
+      mode: "crosses",
+      // A DIFFERENT KIND OF QUESTION, and the detail has to say so in
+      // words. This one is measured against a fixed level rather than
+      // against the previous reading, so the same movement can brief on
+      // one day and not the next — which is surprising unless it is said.
+      label: "Tell me when it crosses a level…",
+      detail: "Measured against the level you set, not against what it read last time.",
+    },
+  ];
+}
+
+/**
+ * DIRECTION IS NOT GOOD OR BAD, AND THIS CONTROL REFUSES TO GUESS.
+ *
+ * A rising denial rate is bad news; rising collections are good news; this
+ * form does not know which measure it is sitting on. So the labels say
+ * only what the monitor WATCHES, never what the movement would mean — no
+ * colour, no arrows, no "worsens". A judgement rendered here would be
+ * wrong on half the metrics in the product.
+ *
+ * KEYED BY THE WIRE VALUE, as a total `Record`, so a wire value can never
+ * render verbatim: adding a fourth direction upstream stops this map
+ * compiling before it can reach a reader. The previous list rendered
+ * "either way / only up / only down" — lowercase fragments that read, in
+ * the owner's words, as "amateur hour", because they are the enum with a
+ * space in it.
+ */
+const DIRECTION_LABELS: Readonly<Record<MonitorModel["direction"], string>> = {
+  any: "Any direction",
+  up: "Only when it rises",
+  down: "Only when it falls",
+};
+
+const DIRECTIONS: ReadonlyArray<MonitorModel["direction"]> = ["any", "up", "down"];

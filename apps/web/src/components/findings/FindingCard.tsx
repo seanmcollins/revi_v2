@@ -15,6 +15,7 @@ import { statementBeyondTitle } from "@/lib/findingText";
 import { useSessionStore } from "@/lib/store";
 import type { Finding } from "@/lib/types";
 import { useCountUp } from "@/lib/useCountUp";
+import { capitalizeOpening } from "@/lib/prose";
 import { cn } from "@/lib/utils";
 
 const TONE_TEXT = {
@@ -216,7 +217,9 @@ export function FindingCard({ finding, turnId }: { finding: Finding; turnId: str
                 emitRefinement(s.refinement, { turnId, referent: finding.referent.value })
               }
             >
-              {s.label}
+              {/* "drill into F1", as the engine writes it, is the whole
+                  of a chip. A control label opens a reading. */}
+              {capitalizeOpening(s.label)}
             </Button>
           ))}
         </div>

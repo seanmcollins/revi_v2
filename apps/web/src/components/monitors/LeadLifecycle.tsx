@@ -161,7 +161,10 @@ function confirmationStreak(lead: LeadRow): string | null {
   const live = lead.live;
   if (!live || live.confirmationsRequired <= 0) return null;
   if (lead.status !== "resolved_claimed" && lead.status !== "resolved_confirmed") return null;
-  return `${live.confirmingWatermarks.length} of the ${live.confirmationsRequired} consecutive loads the governed rule requires`;
+  // "the governed rule requires" is platform vocabulary on the one line
+  // that tells somebody whether their fix has held. What a reader needs is
+  // the count and what it is counting towards.
+  return `${live.confirmingWatermarks.length} of the ${live.confirmationsRequired} consecutive loads Revi checks before it calls a fix confirmed`;
 }
 
 const GROUPS: ReadonlyArray<{ id: string; label: string; statuses: LeadStatus[] }> = [

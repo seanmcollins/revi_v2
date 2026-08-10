@@ -109,8 +109,10 @@ export function MonitorThis({
       >
         <Check aria-hidden className="size-3 shrink-0" />
         Monitoring
+        {/* The same fragment `MonitorDeclarationNote` renders, spelled the
+            same way: one product, one spelling of "Baseline 12.4%". */}
         {monitor.baselineValueText !== "" && (
-          <span className="text-muted-foreground">· baseline {monitor.baselineValueText}</span>
+          <span className="text-muted-foreground">· Baseline {monitor.baselineValueText}</span>
         )}
       </span>
     );

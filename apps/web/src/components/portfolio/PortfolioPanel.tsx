@@ -30,6 +30,7 @@ import {
   rankingVersionLabel,
 } from "@/lib/format";
 import { humanizeInline } from "@/lib/humanize";
+import { readableLabel, readableStatement } from "@/lib/prose";
 import {
   PORTFOLIO_ITEMS,
   PORTFOLIO_META,
@@ -495,8 +496,13 @@ export function PortfolioCard({
           {item.rank}
         </span>
         <div className="min-w-0 flex-1">
+          {/* A CARD TITLE OPENS IN CAPITALS. Through the shared repair
+              rather than by hand, so a detector that starts publishing
+              lower-case titles cannot reopen the defect one component at a
+              time. The raw title stays on the `title` attribute and in
+              every export. */}
           <p className="truncate text-meta font-medium leading-snug" title={item.title}>
-            {item.title}
+            {readableLabel(item.title)}
           </p>
 
           {/* Impact and what of it is actually recoverable — the second
@@ -524,9 +530,16 @@ export function PortfolioCard({
               )}
             </p>
           )}
+          {/* ON ITS OWN LINE this label OPENS a sentence, and the
+              detector writes it in lower case ("highly recoverable",
+              "compliance-mandatory"). One line up it is a continuation of
+              "~$169,306 recoverable — …" and must NOT be capitalized: the
+              same string, two positions, two correct renderings. That is
+              why the repair is positional rather than applied to the
+              value. */}
           {recoverable === undefined && item.actionabilityLabel && (
             <p className="mt-0.5 text-micro leading-snug text-muted-foreground">
-              <ActionabilityLabel item={item} />
+              <ActionabilityLabel item={item} sentenceStart />
             </p>
           )}
 
@@ -565,7 +578,7 @@ export function PortfolioCard({
               way a warehouse does ("since 2026-05"). Same repair the fact
               rows make: spell the date, touch nothing else. */}
           <p className="mt-1 line-clamp-2 text-micro leading-snug text-muted-foreground">
-            {humanizeIsoDates(item.detail)}
+            {readableStatement(humanizeIsoDates(item.detail))}
           </p>
 
           {/* Where this lead stands with the humans working it, and the
@@ -900,10 +913,26 @@ function DimensionRepointDisclosure({ repoint }: { repoint: DrillDimensionRepoin
   );
 }
 
-/** The label, with the engine's rationale one hover away. */
-function ActionabilityLabel({ item }: { item: PortfolioItem }) {
+/**
+ * The label, with the engine's rationale one hover away.
+ *
+ * `sentenceStart` is the whole reason this takes a flag: the same string
+ * opens a line on one card and continues "~$169,306 recoverable — " on the
+ * next. Capitalizing it at the source would put a capital in the middle of
+ * that clause, which is the mistake a blanket repair makes.
+ */
+function ActionabilityLabel({
+  item,
+  sentenceStart = false,
+}: {
+  item: PortfolioItem;
+  sentenceStart?: boolean;
+}) {
+  const label = sentenceStart
+    ? readableLabel(item.actionabilityLabel ?? "")
+    : (item.actionabilityLabel ?? "");
   if (!item.actionabilityRationale) {
-    return <span className="font-medium">{item.actionabilityLabel}</span>;
+    return <span className="font-medium">{label}</span>;
   }
   return (
     <Tooltip>
@@ -912,7 +941,7 @@ function ActionabilityLabel({ item }: { item: PortfolioItem }) {
           type="button"
           className="rounded font-medium underline decoration-dotted underline-offset-2 hover:text-foreground focus-ring"
         >
-          {item.actionabilityLabel}
+          {label}
         </button>
       </TooltipTrigger>
       <TooltipContent side="right" className="max-w-80 text-meta leading-snug">
