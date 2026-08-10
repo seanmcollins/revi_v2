@@ -77,6 +77,7 @@ from revi_presentation import (
     build_chart_specs,
     build_narrative_facts,
     build_narrative_prompt,
+    compose_narrative,
     empty_narrative,
     mandatory_disclosures,
     reconciliation_disclosure,
@@ -696,7 +697,7 @@ async def _compose_narrative(
         # ``narrative: null`` beside a fully-populated ranked list, so the
         # client wrote "No findings for this question" over the answer.
         # Nothing is generated here and no model is called.
-        stated = " ".join([*lead, worklist.statement, *trail])
+        stated, _ = compose_narrative(lead, worklist.statement, trail)
         if on_event is not None:
             await on_event("narrative_delta", {"delta": stated})
         return stated
@@ -848,7 +849,8 @@ async def _compose_narrative(
     # The refusal LEADS: a statement that the question was not answered
     # cannot sit beneath two paragraphs about what was found instead. The
     # bounding disclosures follow the prose, where a caveat belongs.
-    return " ".join([*lead, validation.text, *trail])
+    narrative_text, _repeated = compose_narrative(lead, validation.text, trail)
+    return narrative_text
 
 
 def _debug_payload(outcome: TurnOutcome, trace: TraceRecord | None) -> DebugTracePayload | None:

@@ -53,6 +53,17 @@ class NarrativeFacts(BaseModel):
     #: when redaction removes the narrative's opening and leaves a pronoun
     #: with no antecedent (R3-12).
     topic_sentence: str | None = None
+    #: What this answer CAN certify about its own leader, put in the place
+    #: of a superlative the guard removes (round-9 R9-09). "Who is my worst
+    #: payer on denial rate right now" returned 402 words in which the words
+    #: worst, highest and top never appeared: the guard was right to refuse
+    #: a superlative over a truncated list, and deleting the answering
+    #: sentence left a hole where the answer went. The substitute states the
+    #: relation that IS certified — the leading finding is the highest
+    #: MEASURED figure — and says out loud why that is not the same claim.
+    #: ``None`` when the answer has no leader to name, in which case
+    #: deletion stands.
+    superlative_substitute: str | None = None
     #: The anomaly id at rank 1 of the worklist this answer carries, when
     #: the worklist IS the answer (round-3 R3-10). A prose sentence that
     #: names a DIFFERENT first action is a contradiction of the ranked list

@@ -13,6 +13,8 @@ from revi_presentation.charts import (
     provisional_bucket,
 )
 from revi_presentation.narrative import (
+    DOUBLED_SPAN_CHARS,
+    DUPLICATE_SENTENCE_REASON,
     LEAD_DISCLOSURE_CODES,
     MANDATORY_DISCLOSURE_CODES,
     NARRATIVE_TEMPLATE,
@@ -25,6 +27,9 @@ from revi_presentation.narrative import (
     apply_metric_display,
     build_narrative_facts,
     build_narrative_prompt,
+    compose_narrative,
+    dedupe_sentences,
+    doubled_span,
     empty_narrative,
     ends_on_abbreviation,
     mandatory_disclosures,
@@ -36,6 +41,8 @@ from revi_presentation.narrative import (
 )
 
 __all__ = [
+    "DOUBLED_SPAN_CHARS",
+    "DUPLICATE_SENTENCE_REASON",
     "LEAD_DISCLOSURE_CODES",
     "MANDATORY_DISCLOSURE_CODES",
     "NARRATIVE_TEMPLATE",
@@ -54,6 +61,9 @@ __all__ = [
     "build_header_payload",
     "build_narrative_facts",
     "build_narrative_prompt",
+    "compose_narrative",
+    "dedupe_sentences",
+    "doubled_span",
     "empty_narrative",
     "ends_on_abbreviation",
     "mandatory_disclosures",

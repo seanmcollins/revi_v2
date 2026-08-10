@@ -1116,3 +1116,60 @@ describe("a restored turn keeps its answer in the calm layout", () => {
     expect(said).toHaveLength(1);
   });
 });
+
+/* ------------------------------------------------------------------ */
+/* CONDITION — the fold may never delete the answer                     */
+/* ------------------------------------------------------------------ */
+
+/**
+ * ROUND-9 P0, on the default layout and the demo's opening question.
+ *
+ * On a provisional window the composer opens with the SETTLED reading and
+ * the engine publishes the same paragraph as the body of
+ * `ADJUDICATION_INCOMPLETE`. Byte-identical, so `foldComposedDisclosures`
+ * deleted it — and `ADJUDICATION_INCOMPLETE` is not a verdict code, so the
+ * only surviving copy sat inside "things to know", collapsed by default.
+ * The first screen then read 12.8% three times and 9.1% not at all.
+ *
+ * Asserted end to end through the card the analyst actually gets, not on
+ * `answer.narrative`, which is the string BEFORE the fold and was never
+ * the thing at fault.
+ */
+describe("a provisional answer still says the settled figure out loud", () => {
+  const SETTLED =
+    "Through June 2026 — the last period that has finished settling — denial rate reads 9.1%.";
+  const PROVISIONAL =
+    "July 2026 is 26.3% settled, so the 12.8% it reports is provisional and will move.";
+
+  function provisionalTurn(): TurnRecord {
+    return turn({
+      narrative: `${SETTLED} ${PROVISIONAL} Summit Peak and Lakewood carry most of it.`,
+      warnings: [
+        {
+          type: "warning",
+          code: "ADJUDICATION_INCOMPLETE",
+          severity: "caution",
+          message: `adjudication_incomplete: ${SETTLED} ${PROVISIONAL}`,
+          structured: true,
+        },
+      ],
+    });
+  }
+
+  it("keeps the settled sentence in the prose, uncollapsed, on the default layout", () => {
+    setAnswerVariant("b");
+    const { container } = renderCard(provisionalTurn());
+    const prose = container.querySelector("[data-answer-prose]") ?? container;
+    expect(prose.textContent).toContain("9.1%");
+    expect(prose.textContent).toContain(SETTLED);
+  });
+
+  it("keeps it on every layout, not only the default one", () => {
+    for (const variant of ["a", "b", "current"] as const) {
+      cleanup();
+      setAnswerVariant(variant);
+      const { container } = renderCard(provisionalTurn());
+      expect(container.textContent, `variant ${variant}`).toContain(SETTLED);
+    }
+  });
+});

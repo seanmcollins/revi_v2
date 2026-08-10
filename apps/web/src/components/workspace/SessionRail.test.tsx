@@ -85,7 +85,7 @@ describe("SessionRail — the session list is the server's, or nothing", () => {
       listingDriver({
         sessions: [
           row(),
-          row({ sessionId: "sess_b", title: "COB investigation", turnCount: 0 }),
+          row({ sessionId: "sess_b", title: "COB investigation", turnCount: 4 }),
         ],
         total: 2,
       }),
@@ -114,7 +114,7 @@ describe("SessionRail — the session list is the server's, or nothing", () => {
           resumeSession,
         ),
       );
-    useSessionStore.setState({ sessionId: "sess_a" });
+    useSessionStore.setState({ sessionId: "sess_a", sessionLive: true });
 
     renderRail();
     const current = await screen.findByRole("button", {
@@ -135,7 +135,7 @@ describe("SessionRail — the session list is the server's, or nothing", () => {
         total: 2,
       }),
     );
-    useSessionStore.setState({ sessionId: "sess_a" });
+    useSessionStore.setState({ sessionId: "sess_a", sessionLive: true });
 
     renderRail();
     const current = await screen.findByRole("button", {
@@ -207,6 +207,73 @@ describe("SessionRail — the session list is the server's, or nothing", () => {
     renderRail();
 
     expect(await screen.findByText("HTTP 503")).toBeInTheDocument();
+  });
+
+  /**
+   * A session nobody asked anything in.
+   *
+   * The live tenant opens with fourteen consecutive "New session — 0
+   * turns" rows: one is written whenever a session is created, so every
+   * abandoned New chat and every reviewer's probe leaves one behind. They
+   * sort to the top, they push real work off the fifty-row page, and not
+   * one of them opens onto anything.
+   */
+  it("lists no session that has no question in it, and says how many it held back", async () => {
+    useSessionStore.getState().setDriver(
+      listingDriver({
+        sessions: [
+          row({ sessionId: "sess_empty_1", title: "New session", turnCount: 0 }),
+          row(),
+          row({ sessionId: "sess_empty_2", title: "New session", turnCount: 0 }),
+        ],
+        total: 40,
+      }),
+    );
+
+    renderRail();
+
+    expect(await screen.findByText("Why did cash decline last week?")).toBeInTheDocument();
+    expect(screen.queryByText("New session")).not.toBeInTheDocument();
+    // Hidden, never silently: the rail and `GET /v1/sessions` still
+    // reconcile on screen.
+    expect(
+      screen.getByText(
+        /Showing the 1 most recent of 40 — 2 of the 3 read had no question in them and are not listed\./,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  /**
+   * "New chat" abandons the session and the server mints the next one on
+   * the first question, so between the two there is no session at all —
+   * and no row in this list is the one you are in.
+   */
+  it("selects no row once New chat has left the browser without a session", async () => {
+    useSessionStore
+      .getState()
+      .setDriver(
+        listingDriver({
+          sessions: [row(), row({ sessionId: "sess_b", title: "COB investigation" })],
+          total: 2,
+        }),
+      );
+    useSessionStore.setState({ sessionId: "sess_a", sessionLive: true });
+
+    renderRail();
+    const current = await screen.findByRole("button", {
+      name: /Why did cash decline last week\?/,
+    });
+    expect(current).toHaveAttribute("aria-current", "true");
+
+    // What `newChat()` sets, and what every session-scoped surface gates
+    // on. The abandoned id stays in the store until a turn replaces it.
+    useSessionStore.setState({ sessionLive: false });
+
+    await waitFor(() =>
+      expect(
+        screen.getByRole("button", { name: /Why did cash decline last week\?/ }),
+      ).not.toHaveAttribute("aria-current"),
+    );
   });
 });
 

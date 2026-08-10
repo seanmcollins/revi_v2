@@ -264,6 +264,22 @@ _ABBREVIATION_TAIL = re.compile(
 )
 
 
+#: A sentence terminator with no space after it, between two words. Round-9
+#: R9-04: a live narrative's tail repeated four caution sentences verbatim
+#: and the seam where the repeat began carried no space at all —
+#: "…has matured.prior month — the true value…". Two consequences, both
+#: bad: the prose is unreadable at exactly the point it starts repeating
+#: itself, and the naive ``\\s+`` split cannot see a sentence boundary
+#: there, so the dedupe below had nothing to compare.
+#:
+#: Three word characters (or a closing bracket) of left context keep it off
+#: "e.g."/"i.e." — the letter before the stop there has a dot in front of it,
+#: not two more letters — and the letter lookahead keeps it off decimals,
+#: money and dates. Anything it over-splits ("Inc." opening a name) the
+#: abbreviation rejoin below puts straight back.
+_UNSPACED_SEAM = re.compile(r"(\w{3,}|[)\]\"'])([.!?])(?=[A-Za-z])")
+
+
 def split_sentences(text: str) -> list[str]:
     """Split prose into sentences without shredding it at an abbreviation.
 
@@ -275,9 +291,10 @@ def split_sentences(text: str) -> list[str]:
 
     Whitespace between rejoined fragments is normalised to a single space —
     the validator emits ``" ".join(kept)`` anyway, so no published text
-    changes shape because of it.
+    changes shape because of it. A terminator with NO whitespace after it
+    is repaired the same way, for the same reason (R9-04).
     """
-    stripped = text.strip()
+    stripped = _UNSPACED_SEAM.sub(r"\1\2 ", text.strip())
     if not stripped:
         return []
     parts: list[str] = []
@@ -577,6 +594,10 @@ def build_narrative_facts(
         published_cautions=published_cautions,
         truncated=any(_TRUNCATION_MARKER in line.lower() for line in disclosures),
         topic_sentence=_topic_sentence(findings, header),
+        # What goes in the place of a superlative the guard removes, so the
+        # demo's opening question is answered rather than left with a hole
+        # where its answer was (R9-09).
+        superlative_substitute=_superlative_substitute(findings, disclosures),
         # The ranked list's first item, when this question routed to the
         # worklist: no prose instruction may name a different one (R3-10).
         worklist_first_action=worklist_first_action,
@@ -634,6 +655,163 @@ def _population_counts(lines: Sequence[str]) -> list[int]:
             except ValueError:  # pragma: no cover - the regex only matches digits
                 continue
     return sorted(set(out))
+
+
+#: The engine's own frame-level count, recognised so this module does not
+#: publish a second one beside it (R3-18). The phrase is
+#: ``revi_investigation.application.execution.TOO_SMALL_TO_MEASURE``, held
+#: as a literal because a presentation package may not import an
+#: investigation one — the pair is pinned by a test on both sides.
+_CENSUS_CLAUSE = "too small to measure exactly"
+
+#: The engine's own census sentence, as it composes it: "4 of 12 groups
+#: here are too small to measure exactly". Matched — rather than recomputed
+#: — for the same reason ``_CENSUS_CLAUSE`` is: this package may not import
+#: the engine, and two derivations of one census is the defect (R3-18).
+#: Both sides are pinned by tests.
+_BOUNDED_CENSUS = re.compile(
+    r"(\d[\d,]*)\s+of\s+(\d[\d,]*)\s+([A-Za-z ]+?)\s+(?:here\s+)?are\s+"
+    + re.escape(_CENSUS_CLAUSE),
+    re.IGNORECASE,
+)
+_FURTHER_WITHHELD = re.compile(r"A further (\d[\d,]*) could not be published", re.IGNORECASE)
+#: One named ceiling out of the disclosure's list: "Northgate Choice
+#: (denial rate ≤ 76.9% over 13 entities)".
+_NAMED_CEILING = re.compile(r"([^;:()]+?)\s*\([^)]*?≤\s*([\d.]+)%[^)]*\)")
+_LEADING_PERCENT = re.compile(r"([\d.]+)%")
+
+
+def _int(token: str) -> int:
+    return int(token.replace(",", ""))
+
+
+def _superlative_substitute(
+    findings: Sequence[FindingPayload], disclosures: Sequence[str]
+) -> str | None:
+    """The statement this answer CAN make about its leader (R9-09).
+
+    The superlative guard is right: a "worst" over a truncated or partly
+    bounded list is a claim about rows the answer did not publish. Deleting
+    the sentence is the wrong remedy — live, on the demo's opening question
+    ("Who is my worst payer on denial rate right now…"), it removed the only
+    sentence that answered it and left 402 words of movement findings in
+    which the words worst, highest and top never appear.
+
+    So the guard substitutes instead of deleting, and what it substitutes is
+    the relation the evidence certifies: the leading finding is the highest
+    figure this answer MEASURED, which is a different claim from "your
+    worst" precisely because of the ceilings — and saying so out loud is the
+    same honesty, delivered as an answer.
+
+    Every figure comes from material already certified on this turn: the
+    leading finding's own title, and the engine's own census sentence (see
+    :data:`_BOUNDED_CENSUS`). Where the census cannot be read the sentence
+    degrades to words rather than inventing arithmetic.
+    """
+    lead = _measured_leader(findings)
+    if lead is None:
+        # Every published row is a ceiling. There is no measured leader to
+        # name, so there is no substitute to make and the deletion stands:
+        # inventing one would be the overclaim the guard exists to stop.
+        return None
+    bounded = total = withheld = None
+    noun = "groups"
+    for line in disclosures:
+        match = _BOUNDED_CENSUS.search(line)
+        if match is not None:
+            bounded, total = _int(match.group(1)), _int(match.group(2))
+            # The engine says "groups" in one disclosure and "payers" in
+            # the next; the reader's own word wins wherever it is offered.
+            candidate = match.group(3).strip().lower()
+            if candidate and (noun == "groups" or candidate != "groups"):
+                noun = candidate
+        further = _FURTHER_WITHHELD.search(line)
+        if further is not None:
+            withheld = _int(further.group(1))
+    # What the ranking is OVER, read off the leader's own values: a turn
+    # that compared ranks movements, and calling a movement "the highest
+    # figure" would be a second superlative in place of the one just
+    # redacted.
+    ranked = "movement" if _has_delta(lead) else "figure"
+    if bounded is not None and total is not None:
+        measurable = max(total - bounded - (withheld or 0), 0)
+        opening = (
+            f"Of the {measurable} {noun} measurable this window, the largest {ranked} is "
+            f"{lead.title} ({lead.referent})."
+        )
+        qualifier = f"I can't call it your worst outright: {bounded} publish only a ceiling"
+    else:
+        opening = f"The largest {ranked} this answer measured is {lead.title} ({lead.referent})."
+        qualifier = (
+            "I can't call it your worst outright: some of these groups publish only a ceiling"
+        )
+    above = _ceiling_above(lead, disclosures)
+    tail = (
+        f", and {above} sits above it"
+        if above
+        else ", and a ceiling can sit above a measured figure without being a larger number"
+    )
+    return f"{opening} {qualifier}{tail}."
+
+
+#: The value name a finding carries when its figure is a CEILING rather than
+#: a measurement (``revi_investigation.application.findings._bound_values``).
+#: A bounded row cannot be called the highest anything: its true value is
+#: unknown, which is the whole reason the guard fired.
+_BOUND_SUFFIX = "__is_bound"
+_DELTA_SUFFIX = "__delta"
+
+
+def _measured_leader(findings: Sequence[FindingPayload]) -> FindingPayload | None:
+    """The first published finding whose figure is a MEASUREMENT.
+
+    Live on the demo opener with a comparison, F1 is *"Veritas Comp Fund
+    denial rate at most ≤ 76.9%"* — a ceiling over 13 entities, ranked
+    first by its own delta. Naming it as the highest measured figure would
+    replace a redacted superlative with a false one.
+    """
+    for finding in findings:
+        if not any(
+            value.name.endswith(_BOUND_SUFFIX) and bool(value.value)
+            for value in finding.values
+        ):
+            return finding
+    return None
+
+
+def _has_delta(finding: FindingPayload) -> bool:
+    return any(value.name.endswith(_DELTA_SUFFIX) for value in finding.values)
+
+
+def _ceiling_above(lead: FindingPayload, disclosures: Sequence[str]) -> str | None:
+    """The named ceiling that could exceed the leader, if the census has one.
+
+    "Veritas Comp Fund's (≤76.9%) sits above it" is the half of the honesty
+    a reader can act on: it names the row that would overturn the ranking if
+    its population were big enough to measure.
+    """
+    top = _LEADING_PERCENT.search(lead.title)
+    if top is None:
+        return None
+    try:
+        level = Decimal(top.group(1))
+    except InvalidOperation:  # pragma: no cover - the regex yields digits only
+        return None
+    best: tuple[Decimal, str] | None = None
+    for line in disclosures:
+        if _CENSUS_CLAUSE not in line:
+            continue
+        for match in _NAMED_CEILING.finditer(line):
+            try:
+                bound = Decimal(match.group(2))
+            except InvalidOperation:  # pragma: no cover - digits only
+                continue
+            name = match.group(1).strip(" —-,;")
+            if bound > level and (best is None or bound > best[0]):
+                best = (bound, name)
+    if best is None:
+        return None
+    return f"{best[1]}'s (≤{best[0]}%)"
 
 
 def _topic_sentence(
@@ -720,6 +898,17 @@ LEAD_DISCLOSURE_CODES: tuple[str, ...] = (
     # period, this sentence carries that figure — so the answer leads with
     # what has settled and names the provisional one as provisional.
     "ADJUDICATION_INCOMPLETE",
+    # A stored clarification answer that was APPLIED rather than asked
+    # about (round-9 R9-02). Where the engine legitimately applies one — a
+    # binding it derived itself from governed content, with genuinely one
+    # answer available — the analyst is being handed the answer to a
+    # slightly different question, and that sentence cannot live only in
+    # ``warnings_v2`` where the client's caution fold can hide it. Live,
+    # "Give me a payer scorecard for July 2026" came back as one payer's
+    # A/R with the refusal demoted into a warning and 8 of 10 narrative
+    # sentences folded away, so the prose never said the scorecard could
+    # not be built.
+    "CLARIFICATION_ANSWER_APPLIED",
 )
 
 #: Codes that must be said, after the prose, in this order. These bound how
@@ -772,13 +961,6 @@ MANDATORY_DISCLOSURE_CODES: tuple[str, ...] = (
 #: needs (the suppressed-cell count) or does not exist as prose at all (the
 #: card/answer reconciliation).
 _COMPOSED_CODES = frozenset({"SUPPRESSION_APPLIED", "RECONCILIATION_FAILED"})
-
-#: The engine's own frame-level count, recognised so this module does not
-#: publish a second one beside it (R3-18). The phrase is
-#: ``revi_investigation.application.execution.TOO_SMALL_TO_MEASURE``, held
-#: as a literal because a presentation package may not import an
-#: investigation one — the pair is pinned by a test on both sides.
-_CENSUS_CLAUSE = "too small to measure exactly"
 
 #: Every code whose message carries that count. It used to be checked on
 #: SUPPRESSION_BOUNDED alone, so a ranking that refused itself — and stated
@@ -1237,6 +1419,104 @@ def _first_action_conflict(sentence: str, first_action: str) -> str | None:
     )
 
 
+#: How much repeated prose is a repetition rather than a coincidence. Two
+#: sentences may legitimately share a clause ("over 2026-07-01..2026-07-31
+#: on the service basis"); 120 consecutive characters is a paragraph saying
+#: itself twice.
+DOUBLED_SPAN_CHARS = 120
+
+#: The reason a sentence is dropped for repeating one already published.
+DUPLICATE_SENTENCE_REASON = (
+    "repeats a sentence this narrative has already published, word for word"
+)
+
+
+def _normalized(text: str) -> str:
+    """Casefolded, whitespace-collapsed text, for comparing prose to prose."""
+    return " ".join(text.split()).casefold()
+
+
+def doubled_span(text: str, minimum: int = DOUBLED_SPAN_CHARS) -> str | None:
+    """The longest run of ``minimum`` characters this text contains twice.
+
+    The render-time half of R9-04. The deduper below works on sentences,
+    which is the right unit and not the guarantee that matters: what a
+    reader sees is a string, and the invariant the answer owes them is that
+    no paragraph of it appears twice. This is that invariant, checkable
+    from outside, on the final bytes.
+
+    ``None`` — the only acceptable answer for published prose — when
+    nothing that long repeats.
+    """
+    flat = _normalized(text)
+    for start in range(0, len(flat) - minimum + 1):
+        window = flat[start : start + minimum]
+        if flat.find(window, start + 1) != -1:
+            return window
+    return None
+
+
+def dedupe_sentences(text: str) -> tuple[str, list[str]]:
+    """``(prose, dropped)`` with every repeated sentence removed.
+
+    Round-9 R9-04, live on the demo's opening question: a 1,436-character
+    narrative whose tail repeated four caution sentences verbatim, glued
+    mid-word at the seam, directly beneath the product's own note saying
+    those sentences "are not printed twice". The note was composed from the
+    match set and the string that shipped was the undeduplicated one, so
+    the answer contradicted itself in the largest body copy on the page.
+    Intermittent, which is worse in a room: a second identical run came
+    back clean.
+
+    So the note may only ever be composed from the EMITTED text — which is
+    what returning the dropped sentences alongside the prose is for — and
+    the emitted text is deduplicated here rather than described as if it
+    were. A sentence is dropped when its normalized form has already been
+    kept, or when :data:`DOUBLED_SPAN_CHARS` characters of it already
+    appear in what has been kept: the second rule catches a caution
+    restated with a comma moved, which byte equality does not.
+    """
+    kept: list[str] = []
+    dropped: list[str] = []
+    seen: set[str] = set()
+    running = ""
+    for sentence in split_sentences(text):
+        stripped = sentence.strip()
+        if not stripped:
+            continue
+        flat = _normalized(stripped)
+        repeated = flat in seen or (
+            len(flat) >= DOUBLED_SPAN_CHARS and flat[:DOUBLED_SPAN_CHARS] in running
+        )
+        if repeated:
+            dropped.append(stripped)
+            continue
+        seen.add(flat)
+        kept.append(stripped)
+        running = f"{running} {flat}".strip()
+    return " ".join(kept), dropped
+
+
+def compose_narrative(
+    lead: Sequence[str], body: str, trail: Sequence[str]
+) -> tuple[str, list[str]]:
+    """Join a refusal, the composer's prose and the bounding caveats.
+
+    ``(narrative, repeated)`` — the second half being every sentence the
+    join would otherwise have printed twice, for whatever note the caller
+    composes ABOUT the emitted text (R9-04: a note derived from anything
+    else can, and did, describe a string that never shipped).
+
+    The join itself is the other half of that defect. The mandatory
+    disclosures are put in front of the model as constraints, so a
+    conscientious composer restates them — and then they are published
+    again, around it. Deduplicating the assembled string is what makes the
+    refusal lead and the caveats bound without either being said twice.
+    """
+    joined, repeated = dedupe_sentences(" ".join([*lead, body.strip(), *trail]).strip())
+    return joined, repeated
+
+
 def validate_narrative(text: str, facts: NarrativeFacts) -> NarrativeValidation:
     """Sentence-level grounding check.
 
@@ -1245,6 +1525,12 @@ def validate_narrative(text: str, facts: NarrativeFacts) -> NarrativeValidation:
     ``warnings`` entry (count + distinct reasons, for the operator). The
     returned ``text`` contains only sentences that validated, so a customer
     never reads a redaction marker — see the module docstring.
+
+    A sentence the composer printed twice is dropped the same way and
+    recorded with its own reason (R9-04). It is not a grounding failure —
+    the repeated sentence is usually a mandatory caution the composer was
+    shown and dutifully copied — but publishing it twice is still publishing
+    something the answer does not mean to say.
     """
     allowed: set[Decimal] = set()
     for value in facts.numeric_values:
@@ -1265,11 +1551,16 @@ def validate_narrative(text: str, facts: NarrativeFacts) -> NarrativeValidation:
 
     kept: list[str] = []
     redactions: list[NarrativeRedaction] = []
+    #: The substitute goes in ONCE, where the first redacted superlative
+    #: stood: a composer that reaches for "worst" three times gets one
+    #: certifiable statement in its place, not three (R9-09).
+    substitute_owed = False
 
     for sentence in split_sentences(text):
         if not sentence.strip():
             continue
         reason: str | None = None
+        substituted = False
         numbers = [
             tok for tok in _NUMBER_TOKEN.findall(sentence) if _token_value(tok) is not None
         ]
@@ -1313,6 +1604,7 @@ def validate_narrative(text: str, facts: NarrativeFacts) -> NarrativeValidation:
                     f"leading finding ({leading_referent or 'none'}) — the relation is certified "
                     "only over the full computed population"
                 )
+                substituted = True
         if reason is None:
             claim = _population_claim_allowed(sentence, certified_counts)
             if claim is not None:
@@ -1329,6 +1621,12 @@ def validate_narrative(text: str, facts: NarrativeFacts) -> NarrativeValidation:
             kept.append(sentence.strip())
         else:
             redactions.append(NarrativeRedaction(sentence=sentence.strip(), reason=reason))
+            if substituted and facts.superlative_substitute and not substitute_owed:
+                # Never a silent hole where the answer was (R9-09): the
+                # certifiable statement goes in, in the redacted sentence's
+                # own place, and says why it is not the superlative.
+                substitute_owed = True
+                kept.append(facts.superlative_substitute)
 
     # An analysis whose opening pronoun lost its antecedent is not an
     # analysis (round-3 R3-12). When redaction took the first sentence and
@@ -1345,6 +1643,15 @@ def validate_narrative(text: str, facts: NarrativeFacts) -> NarrativeValidation:
     ):
         kept.insert(0, facts.topic_sentence)
 
+    # …and nothing survives here twice (R9-04). Last, so that a sentence
+    # dropped for grounding is reported as a grounding failure and only a
+    # genuine repetition is reported as one.
+    emitted, repeats = dedupe_sentences(" ".join(kept))
+    redactions.extend(
+        NarrativeRedaction(sentence=sentence, reason=DUPLICATE_SENTENCE_REASON)
+        for sentence in repeats
+    )
+
     warnings: list[str] = []
     if redactions:
         # One note, not one per sentence: this is an operator signal about
@@ -1356,4 +1663,4 @@ def validate_narrative(text: str, facts: NarrativeFacts) -> NarrativeValidation:
             f"from the narrative ({'; '.join(reasons)})"
         )
 
-    return NarrativeValidation(text=" ".join(kept), redactions=redactions, warnings=warnings)
+    return NarrativeValidation(text=emitted, redactions=redactions, warnings=warnings)

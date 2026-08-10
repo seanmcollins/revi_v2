@@ -561,7 +561,7 @@ class SelectionCensus:
         }
 
 
-def _row_noun(dimension_columns: Sequence[str]) -> str:
+def row_noun(dimension_columns: Sequence[str]) -> str:
     """What the rows of this answer ARE, in the analyst's vocabulary.
 
     "24 of 30 plans are too small to measure exactly" is a sentence a
@@ -3231,7 +3231,7 @@ class EvaluateFindingsService:
                     # The reader's own noun for the rows in front of them —
                     # "plans", "payers", "providers" — rather than "cells",
                     # which is the engine's word for its own arithmetic.
-                    noun=_row_noun(shape.dimension_columns),
+                    noun=row_noun(shape.dimension_columns),
                 )
             )
         truncation = _truncation_warning(

@@ -4339,14 +4339,24 @@ export type WatchMode = "governed_default" | "any_movement" | "delta_gte" | "cro
 /**
  * `RoundsWatchUnit` — how a threshold is STATED, which is not the metric's
  * own unit. `points` for a rate (0.5 = half a percentage point), `cents`
- * for money, `relative_pct` for a fraction of the reference value.
+ * for money, `days` for a lag, `relative_pct` for a fraction of the
+ * reference value.
  *
  * The server refuses a threshold in an illegal unit AT CREATION and names
  * the legal alternatives; the client sends what was chosen and prints the
  * refusal. Pre-empting it here by hiding the option would replace a
  * sentence that teaches with a control that quietly cannot be wrong.
+ *
+ * `days` was the third copy of this enum to learn it. The engine
+ * (`WATCH_THRESHOLD_UNITS`) and the wire (`RoundsWatchUnit`) were pinned
+ * equal in CI after round 8; this file was not, so a stored days watch
+ * reached a settings control that could not name its unit — the editor
+ * rendered a 2-days threshold as "2 percentage points" and Save submitted
+ * `points`, which the server correctly refused, leaving the VC's signed
+ * condition-precedent watch uneditable. {@link WATCH_UNITS} is now pinned
+ * against the API's own list in `contract-watch-units.test.ts`.
  */
-export type WatchUnit = "points" | "relative_pct" | "cents";
+export type WatchUnit = "points" | "relative_pct" | "cents" | "days";
 
 /** `RoundsWatchModel` — one watch's own sensitivity, overriding the pack. */
 export interface WatchModel {
@@ -4365,10 +4375,12 @@ const WATCH_MODES: ReadonlySet<string> = new Set<WatchMode>([
   "delta_gte",
   "crosses",
 ]);
-const WATCH_UNITS: ReadonlySet<string> = new Set<WatchUnit>([
+/** Exported so CI can assert it IS the API's enum, rather than resembling it. */
+export const WATCH_UNITS: ReadonlySet<string> = new Set<WatchUnit>([
   "points",
   "relative_pct",
   "cents",
+  "days",
 ]);
 
 export function mapWatchModel(raw: unknown): WatchModel | undefined {

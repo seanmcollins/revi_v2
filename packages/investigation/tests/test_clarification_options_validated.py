@@ -127,11 +127,22 @@ class TestPhantomValuesAreDroppedBeforeTheyAreOffered:
                 ),
             )
         )
-        assert outcome.clarification is None
-        applied = [w for w in outcome.warnings if w.startswith("clarification_answer_applied:")]
-        assert applied, outcome.warnings
-        assert REAL_FACILITY in applied[0]
-        assert PHANTOM_FACILITY not in applied[0]
+        # Round-9 R9-02 changed the verdict on the survivor, deliberately.
+        # The drop is unchanged and still the point: the phantom is gone
+        # before anything renders it. What the survivor no longer buys is an
+        # ANSWER — a collapse to one option is a fact about this warehouse,
+        # not a choice the analyst made, and treating it as one is how "Give
+        # me a payer scorecard for July 2026" came back as one payer's A/R
+        # with the refusal demoted into a warning.
+        assert outcome.clarification is not None
+        assert outcome.clarification.options == (
+            f"Walk through the spike at {REAL_FACILITY}",
+        )
+        assert PHANTOM_FACILITY not in outcome.clarification.question.split("survives")[-1]
+        assert "CLARIFICATION_SOLE_SURVIVOR" in (outcome.clarification.reason or "")
+        assert not [
+            w for w in outcome.warnings if w.startswith("clarification_answer_applied:")
+        ]
 
     async def test_a_real_value_survives_untouched(self) -> None:
         """The check must not cost the analyst the options that are right:
@@ -187,8 +198,12 @@ class TestPhantomValuesAreDroppedBeforeTheyAreOffered:
                 ),
             )
         )
-        assert outcome.clarification is None
-        applied = [w for w in outcome.warnings if w.startswith("clarification_answer_applied:")]
-        assert applied, outcome.warnings
-        assert "CARC code" not in applied[0]
-        assert REAL_FACILITY in applied[0]
+        # The illegal cut is dropped (the point of this test) and the
+        # survivor is STATED rather than run on the analyst's behalf
+        # (round-9 R9-02 — see the sibling test above).
+        assert outcome.clarification is not None
+        assert outcome.clarification.options == (
+            f"Walk through the spike at {REAL_FACILITY}",
+        )
+        assert "CARC code" not in " ".join(outcome.clarification.options)
+        assert "CLARIFICATION_SOLE_SURVIVOR" in (outcome.clarification.reason or "")

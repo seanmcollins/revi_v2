@@ -101,7 +101,19 @@ export default function Workspace({
   // typed or a gesture; the server's title covers a rejoined session, and
   // one with no turns at all is honestly nameless.
   const firstTurn = turns[0];
-  const serverTitle = sessions.find((s) => s.sessionId === sessionId)?.title;
+  /**
+   * Gated on `pinned` — i.e. on a session existing at all.
+   *
+   * "New chat" clears the thread but leaves the abandoned session's id in
+   * the store until the next turn mints a replacement, so this lookup kept
+   * FINDING the discarded session in the rail's list and putting its
+   * question back in the H1 over an empty composer. The line beneath it
+   * said "New chat — the data load pins when you ask your first question"
+   * at the same time. One of them was wrong and it was this one.
+   */
+  const serverTitle = pinned
+    ? sessions.find((s) => s.sessionId === sessionId)?.title
+    : undefined;
   const sessionTitle = firstTurn
     ? (firstTurn.submission.utterance ?? untitledTurnLabel(firstTurn.submission))
     : serverTitle

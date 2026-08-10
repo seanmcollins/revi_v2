@@ -523,6 +523,25 @@ function sentencesOf(paragraph: string): string[] {
  * and trailing punctuation), or is a whole sentence of one. Nothing is
  * paraphrased, nothing is summarized, and a narrative that shares no
  * sentence with any banner comes back byte-identical.
+ *
+ * THE LEAD SENTENCE IS NEVER FOLDED, and that is unconditional.
+ *
+ * Round-9 P0. On a provisional window the composer opens the write-up with
+ * the SETTLED reading — "Through June 2026 — the last period that has
+ * finished settling — denial rate reads 9.1%…" — and the engine also
+ * publishes that same paragraph as the body of `ADJUDICATION_INCOMPLETE`.
+ * Byte-identical, so this function deleted it: the default layout's first
+ * screen then carried the provisional 12.8% three times (lead sentence,
+ * finding card, unmarked bar) and the settled 9.1% zero times, because the
+ * warning it had been folded onto is not a verdict code and renders inside
+ * a "things to know" disclosure that is collapsed by default.
+ *
+ * The fold's contract is that the PROSE defers to the banner on a caution.
+ * A sentence the composer wrote as the ANSWER is not a caution, and the
+ * opening sentence of the write-up is the one sentence this function can
+ * identify as the answer without reading it. So it is exempt whatever it
+ * happens to match — a fact stated twice costs a reader a repeated
+ * sentence; a fact stated zero times costs them the answer.
  */
 export function foldComposedDisclosures(
   narrative: string,
@@ -549,15 +568,22 @@ export function foldComposedDisclosures(
   let folded = 0;
   const paragraphs = narrative.split(/\n{2,}/);
   const kept: string[] = [];
-  for (const paragraph of paragraphs) {
+  // Where the write-up's opening sentence is, wherever leading blank
+  // lines put it: the first paragraph that has a sentence at all. Held out
+  // of the fold by POSITION, so no wording rule is involved and a
+  // paragraph further down that happens to open with the same words is
+  // still an ordinary repeat.
+  const leadParagraph = paragraphs.findIndex((p) => sentencesOf(p).length > 0);
+  paragraphs.forEach((paragraph, p) => {
     const sentences = sentencesOf(paragraph);
-    const keptSentences = sentences.filter((sentence) => {
+    const keptSentences = sentences.filter((sentence, i) => {
+      if (p === leadParagraph && i === 0) return true;
       if (!banner.has(normalizeSentence(sentence))) return true;
       folded += 1;
       return false;
     });
     if (keptSentences.length > 0) kept.push(keptSentences.join(" "));
-  }
+  });
 
   if (folded === 0) return { text: narrative, folded: 0 };
   return { text: kept.join("\n\n").trim(), folded };

@@ -562,6 +562,32 @@ export function InvestigationChart({
     return `${prefix}${short}${suffix}`;
   };
 
+  /**
+   * FEW CATEGORIES, REAL BARS.
+   *
+   * `maxBarSize` and a 34% category gap are written for the dense case —
+   * twelve payers, and at the far end 150 providers — where an uncapped
+   * bar becomes a slab and the eye reads a fence instead of heights. At
+   * two or three categories the same two numbers ARE the defect: a
+   * two-bar comparison in a ~700px plot drew 8–14px hairlines with three
+   * hundred pixels of nothing between them, which on a projector reads as
+   * a chart that failed to render rather than as data.
+   *
+   * So the band share has a floor as well as a ceiling. Below five
+   * categories the gap closes to 20% and the cap opens to 64px — wide
+   * enough to be a bar, still capped so a single category cannot paint a
+   * quarter of the card. Nothing about the SCALE changes: this is the
+   * width of the mark, never its height.
+   */
+  const fewCategories = data.length > 0 && data.length <= 4;
+  const barCap = fewCategories
+    ? 64
+    : stackId
+      ? 26
+      : spec.series.length > 1
+        ? 14
+        : 22;
+
   // The room the FIRST tick needs to the left of the plot — it is the one
   // a rotated axis pushes past the card's edge, and it is the tick that
   // says which entity the first bar is.
@@ -759,7 +785,7 @@ export function InvestigationChart({
                   : { top: 12, right: 14, bottom: 0, left: 0 }
               }
               barGap={3}
-              barCategoryGap="34%"
+              barCategoryGap={fewCategories ? "20%" : "34%"}
             >
               <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
               {/* `interval={0}` forced every one of 150 provider ticks to
@@ -823,7 +849,7 @@ export function InvestigationChart({
                   // other value is drawn larger than it is (and never on a
                   // stack, where Recharts cannot honour it cleanly).
                   {...(stackId ? {} : { minPointSize: (value: number | undefined | null) => (value === 0 ? 2 : 0) })}
-                  maxBarSize={stackId ? 26 : spec.series.length > 1 ? 14 : 22}
+                  maxBarSize={barCap}
                   className="cursor-pointer"
                   onClick={handleBarClick}
                   {...drawIn}

@@ -15,7 +15,7 @@
 
 import { describe, expect, it } from "vitest";
 
-import { partitionWarnings, publicWarningBody } from "@/lib/warnings";
+import { foldComposedDisclosures, partitionWarnings, publicWarningBody } from "@/lib/warnings";
 
 const PROBE_FAMILIES_EMPTY =
   "probe_families_empty: 8 metric famil(ies) on this plan were read and produced no " +
@@ -127,5 +127,68 @@ describe("partitionWarnings — the verdict is never one of the others", () => {
     const { rest } = partitionWarnings(warnings);
     const firstNote = rest.findIndex((w) => w.severity !== "caution");
     expect(rest.slice(0, firstNote).every((w) => w.severity === "caution")).toBe(true);
+  });
+});
+
+/**
+ * ROUND-9 P0 — the fold deleted the answer.
+ *
+ * On a provisional window the composer opens the write-up with the SETTLED
+ * reading, and the engine publishes the same paragraph as the body of
+ * `ADJUDICATION_INCOMPLETE`. Byte-identical, so this function dropped it:
+ * live, the default layout's first screen carried the provisional 12.8%
+ * three times and the settled 9.1% zero times, the latter reachable only
+ * by opening a disclosure that is collapsed by default.
+ *
+ * The sentences below are the shape of that live turn, shortened.
+ */
+describe("foldComposedDisclosures — the lead sentence is not a caution", () => {
+  const SETTLED =
+    "Through June 2026 — the last period that has finished settling — denial rate reads 9.1%.";
+  const REST =
+    "July 2026 is 26.3% settled, so the 12.8% it reports is provisional and will move.";
+  const WARNING = {
+    code: "ADJUDICATION_INCOMPLETE",
+    message: `adjudication_incomplete: ${SETTLED} ${REST}`,
+  };
+
+  it("keeps the settled figure in the prose that is actually rendered", () => {
+    const { text } = foldComposedDisclosures(
+      `${SETTLED} ${REST} Two payers account for most of the movement.`,
+      [WARNING],
+    );
+    // The assertion the review asked for by name: the FOLDED prose, not
+    // the narrative the server sent.
+    expect(text).toContain("9.1%");
+    expect(text).toContain(SETTLED);
+  });
+
+  it("still folds the caution sentences that follow it", () => {
+    const { text, folded } = foldComposedDisclosures(
+      `${SETTLED} ${REST} Two payers account for most of the movement.`,
+      [WARNING],
+    );
+    expect(text).not.toContain(REST);
+    expect(text).toContain("Two payers account for most of the movement.");
+    expect(folded).toBe(1);
+  });
+
+  it("exempts the lead by POSITION, not by wording", () => {
+    // The same sentence, further down, is an ordinary repeat of a banner
+    // and folds — otherwise "never fold this string" would leak into
+    // every paragraph that happens to open the same way.
+    const { text } = foldComposedDisclosures(
+      `Denial rate is concentrated in the tail.\n\n${REST}`,
+      [WARNING],
+    );
+    expect(text).toBe("Denial rate is concentrated in the tail.");
+  });
+
+  it("leaves a narrative that shares nothing with a banner byte-identical", () => {
+    const narrative = "Denial rate is concentrated in the tail. Two payers drive it.";
+    expect(foldComposedDisclosures(narrative, [WARNING])).toEqual({
+      text: narrative,
+      folded: 0,
+    });
   });
 });

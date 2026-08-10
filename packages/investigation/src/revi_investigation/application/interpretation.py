@@ -47,6 +47,7 @@ from __future__ import annotations
 import re
 from collections.abc import Sequence
 from dataclasses import dataclass, replace
+from datetime import timedelta
 from decimal import Decimal, InvalidOperation
 from enum import StrEnum
 
@@ -402,6 +403,41 @@ def last_full_period(
 #: no full period worth anchoring to (yesterday is not a reporting period),
 #: so day and week "nows" land on the month the rest of the product assumes.
 _PERIOD_UNITS: tuple[TimeUnit, ...] = (TimeUnit.MONTH, TimeUnit.QUARTER, TimeUnit.YEAR)
+
+
+def _open_period_clause(
+    literal: AbsoluteRange, full_period: AbsoluteRange, watermark: DataWatermark
+) -> str:
+    """How much of the literal window sits in the period still open (R9-10).
+
+    The clause used the literal window's LENGTH as its operand, so a
+    trailing-31-day "right now" straddling a month boundary published *"31
+    day(s) of the period that is still open"* over 2026-07-03..2026-08-02 —
+    of which exactly two days, Aug 1-2, are in the open month. The sentence
+    exists to say how little settled data the literal reading would have
+    rested on, and stating the whole window made it meaningless: by its own
+    arithmetic every day of July was unsettled too.
+
+    The operand is the INTERSECTION of the literal window with the open
+    partial period — everything after the last full period this load can
+    see, up to the newest data date. A differently-phrased run whose literal
+    window was 2026-08-01..2026-08-02 printed "2 day(s)" correctly, because
+    there the two happened to coincide; this makes them coincide by
+    construction.
+    """
+    open_start = full_period.end + timedelta(days=1)
+    open_end = min(literal.end, watermark.newest_data_date)
+    start = max(literal.start, open_start)
+    days = (open_end - start).days + 1 if open_end >= start else 0
+    if days <= 0:
+        # The literal reading runs past the newest data date without
+        # touching a partial period — there is no open period to count.
+        return f"a window this load has no settled data for beyond {open_start.isoformat()}"
+    if days == literal.day_length:
+        return f"all {days} day(s) of it inside the period that is still open"
+    return (
+        f"{days} of its {literal.day_length} day(s) inside the period that is still open"
+    )
 
 
 def _period_names_prior_window(
@@ -1339,10 +1375,10 @@ class InterpretQuestionService:
                     f"{window.range.end.isoformat()} on the {basis.id} basis (newest data "
                     f"date {session.watermark.newest_data_date.isoformat()}). Taken "
                     f"literally it would have been {stale.start.isoformat()}.."
-                    f"{stale.end.isoformat()} — {stale.day_length} day(s) of the period "
-                    "that is still open, which is the least settled data in this load and "
-                    "is not comparable to a whole one. Name a period to read a different "
-                    "one."
+                    f"{stale.end.isoformat()} — "
+                    + _open_period_clause(stale, target.range, session.watermark)
+                    + ", which is the least settled data in this load and is not comparable "
+                    "to a whole one. Name a period to read a different one."
                 )
         # A period the analyst NAMED is checked against the data this load
         # holds before anything is computed over it. Saying "the question

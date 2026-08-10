@@ -118,7 +118,7 @@ from __future__ import annotations
 
 import difflib
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import dataclass, replace
 
 from revi_calculation_contracts.contract import (
@@ -437,6 +437,75 @@ class PlanValidationService:
         self._check_limits(plan)  # step 8
 
         return ValidatedPlan(plan=plan, grades=tuple(grades), warnings=tuple(warnings))
+
+    # ------------------------------------ capability checks on free text
+
+    def unexecutable_cut(
+        self, text: str, metric_ids: Sequence[str]
+    ) -> tuple[str, str] | None:
+        """``(dimension id, metric id)`` this sentence asks for and cannot have.
+
+        Round-9 R9-07. "Why did it go up?" was answered with a clarification
+        whose own option read *"Yes — re-group the figure F1 result by denial
+        reason"*; tapping it produced ``outcome: error``,
+        ``GRAIN_INCOMPATIBLE: denial_category is not a scope dimension of
+        denial_rate``, a bracketed internal predicate and a correlation id on
+        screen — the product offering a breakdown it already knew it could
+        not run, and the circuit breaker firing on its own suggestion three
+        turns later.
+
+        The predicate that refuses it is ``MetricContract.allows_dimension``,
+        the same one :meth:`_check_grain` applies, so the check the OPTION
+        COMPOSER needs is that predicate reached one turn earlier. Free text
+        resolves through the catalog's own synonym index — "denial reason"
+        is how an analyst says ``denial_category``, and an option composer
+        writing in the analyst's vocabulary is the point.
+
+        Deliberately one-sided:
+
+        * ``None`` when the text names no catalog dimension at all (a
+          platform recovery chip is not a query, and guessing at one is how
+          a good option gets dropped);
+        * ``None`` when the text names a cut these metrics DO declare, even
+          if it also names one they do not — the option is answerable and
+          the composer chose imprecise words;
+        * a pair only when every dimension the text names is refused by
+          every metric supplied, which is exactly the tap that errors.
+        """
+        contracts = [c for c in (self._pack.metric(m) for m in metric_ids) if c is not None]
+        if not contracts:
+            return None
+        named = self._dimensions_named(text)
+        if not named:
+            return None
+        refused: tuple[str, str] | None = None
+        for dimension_id in named:
+            ref = DimensionRef(dimension_id)
+            allowing = [c for c in contracts if c.allows_dimension(ref)]
+            if allowing:
+                return None
+            if refused is None:
+                refused = (dimension_id, contracts[0].id)
+        return refused
+
+    def _dimensions_named(self, text: str) -> tuple[str, ...]:
+        """Catalog dimensions this free text asks to cut by.
+
+        Read off the catalog's synonym index rather than a word list here:
+        "denial reason category", "denial bucket" and "root cause category"
+        are all ``denial_category`` because ``dimensions.yaml`` says so, and
+        a second vocabulary in this file would drift from it by the next
+        pack release.
+        """
+        words = re.findall(r"[a-z0-9_]+", text.casefold())
+        found: dict[str, None] = {}
+        for size in (4, 3, 2, 1):
+            for start in range(len(words) - size + 1):
+                phrase = " ".join(words[start : start + size])
+                for dimension in self._catalog.dimensions_for_synonym(phrase):
+                    if dimension.certified:
+                        found.setdefault(dimension.id)
+        return tuple(found)
 
     # -------------------------------------------- refusals with a way out
 

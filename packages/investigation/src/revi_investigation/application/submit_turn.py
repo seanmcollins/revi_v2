@@ -68,6 +68,7 @@ from revi_investigation.application.comparison import (
     window_mismatch_warning,
 )
 from revi_investigation.application.execution import (
+    BoundedCell,
     ExecutedProbe,
     ExecuteInvestigationService,
     SuppressionCensus,
@@ -80,6 +81,7 @@ from revi_investigation.application.findings import (
     FindingsResult,
     find_primary_compare,
     published_window_note,
+    row_noun,
 )
 from revi_investigation.application.findings import (
     as_number as _as_number,
@@ -105,6 +107,7 @@ from revi_investigation.application.planning import (
     DiffPlanService,
     InvestigationPlan,
     PlanDiff,
+    frame_window,
     resolved_orderings,
 )
 from revi_investigation.application.ports import (
@@ -691,7 +694,39 @@ _PRIOR_COLUMN_SUFFIX = "__prior"
 _DELTA_COLUMN_SUFFIX = "__delta"
 
 
-def _finding_money(finding: Finding) -> tuple[int | None, int | None]:
+#: Resolves a metric id to its contract unit, or ``None`` when this
+#: reconciliation was handed no pack to ask. Supplied by the turn service,
+#: which holds the pinned snapshot; defaulted so the pure function stays
+#: callable from a test with nothing but two findings.
+MetricUnitLookup = Callable[[str], str | None]
+
+
+def _is_money_metric(metric_id: str, metric_unit: MetricUnitLookup | None) -> bool:
+    """Does ``metric_id`` publish CENTS?
+
+    Round-9 R9-03. ``int(Decimal("0.295082"))`` is ``0``, so a denial-rate
+    finding read through the money path published "a figure of zero" rather
+    than "no figure", and the drill launched off the product's own "drill
+    into F1" chip reported ``RECONCILIATION_FAILED … parent F1=$0.00;
+    child=$31,174.49 (+311744900.0%)`` in a red alert — two numbers that
+    were never in the same unit. :func:`_parent_whole` had the mitigation
+    (match on the child's own measure) and this readback did not.
+
+    So the unit is ASKED FOR rather than inferred from the value's Python
+    type. Where the pack can be reached that is the contract's own
+    ``unit``; where it cannot, the structural rule stands in for it — money
+    is cents-as-int everywhere in this system, so a Decimal carrying a
+    fraction of a cent is, whatever else it is, not money.
+    """
+    if metric_unit is None:
+        return True
+    unit = metric_unit(metric_id)
+    return unit is None or unit == _MONEY_UNIT_NAME
+
+
+def _finding_money(
+    finding: Finding, metric_unit: MetricUnitLookup | None = None
+) -> tuple[int | None, int | None]:
     """``(level, movement)`` a parent finding published, in cents.
 
     ``impact_cents`` alone cannot answer this: on a movement finding it is
@@ -701,6 +736,10 @@ def _finding_money(finding: Finding) -> tuple[int | None, int | None]:
     ``current_cents``/``delta_cents``, a compared scalar carries
     ``<metric>``/``<metric>__delta``, and a level-only finding carries
     neither delta.
+
+    ``metric_unit`` makes the read UNIT-AWARE (R9-03): a metric whose
+    contract does not publish cents has no money figure here, and reading
+    one out of it by truncation is how a rate parent became ``$0.00``.
     """
     named = dict(finding.values)
 
@@ -708,11 +747,17 @@ def _finding_money(finding: Finding) -> tuple[int | None, int | None]:
         value = named.get(key)
         if value is None or isinstance(value, bool) or not isinstance(value, (int, Decimal)):
             return None
+        if isinstance(value, Decimal) and value != value.to_integral_value():
+            # Cents are whole. A fraction of one is another unit wearing
+            # the same Python type, and int() would silently truncate it.
+            return None
         return int(value)
 
     level = cents("current_cents")
     delta = cents("delta_cents")
     for ref in finding.metric_refs:
+        if not _is_money_metric(ref.id, metric_unit):
+            continue
         if level is None:
             level = cents(ref.id)
         if delta is None:
@@ -774,9 +819,30 @@ def _parent_finding(
     path was added (FN-10): which finding a child descends from is a
     question about the THREAD, and it has the same answer whether the
     quantity being tied out is dollars or a ratio.
+
+    **Matched on the child's own measure, on every branch** (R9-03). The
+    immediate-parent branch matched on the referent alone, so drilling F1
+    "State Medicaid MCO: 29.5% denial rate" from a money child located F1,
+    read its ratio back through the money path as ``$0.00`` and published a
+    red ``+311,744,900.0%`` disagreement between a rate and a pile of
+    dollars. ``_parent_whole`` has carried this predicate since FN-10 and
+    documents exactly this trap; the drill branch is the half that never
+    got it. A parent that published no figure of the child's kind does not
+    contain the child — it is a different measurement, and the caller says
+    so as ``not_applicable``.
     """
     targets = {op.target.value for op in operators if isinstance(op, DrillInto)}
-    finding = next((f for f in parent.findings if f.referent.value in targets), None)
+    finding = next(
+        (
+            f
+            for f in parent.findings
+            if f.referent.value in targets
+            and measure is not None
+            and measure in {ref.id for ref in f.metric_refs}
+            and has_figure(f)
+        ),
+        None,
+    )
     if finding is None and targets:
         # A thread drills what is ON SCREEN, and what is on screen is every
         # handle the session has published — not only the last turn's
@@ -797,6 +863,7 @@ def _parent_finding(
                 if f.referent.value in targets
                 and measure is not None
                 and measure in {ref.id for ref in f.metric_refs}
+                and has_figure(f)
             ),
             None,
         )
@@ -1000,6 +1067,10 @@ def containment_reconciliation(
     #: against the threshold that produced it, and a ceiling summed as a
     #: numerator is the FN-10 fix reintroducing the round-5 A-02a defect.
     suppression_threshold: int | None = None,
+    #: The pinned pack's unit for a metric id (R9-03). Without it a rate
+    #: finding's ``Decimal("0.295082")`` truncates to ``0`` and reconciles
+    #: as a dollar figure of nothing.
+    metric_unit: MetricUnitLookup | None = None,
 ) -> Containment | None:
     """Reconcile a drill against the PARENT FINDING it was launched from.
 
@@ -1070,14 +1141,14 @@ def containment_reconciliation(
         measure,
         spec,
         session_findings,
-        lambda f: any(value is not None for value in _finding_money(f)),
+        lambda f: any(value is not None for value in _finding_money(f, metric_unit)),
     )
     if located is None:
         return _rate_containment(
             parent, calculation, operators, spec, session_findings, suppression_threshold
         )
     finding, breakdown = located
-    parent_level, parent_delta = _finding_money(finding)
+    parent_level, parent_delta = _finding_money(finding, metric_unit)
     if parent_level is None and parent_delta is None:
         # The handle on screen published no dollar figure. A turn carrying
         # both a money column and a rate one still has a rate to tie out,
@@ -1086,7 +1157,7 @@ def containment_reconciliation(
             parent, calculation, operators, spec, session_findings, suppression_threshold
         )
     same_measure = measure is not None and measure in {ref.id for ref in finding.metric_refs}
-    if not same_measure:
+    if not same_measure:  # pragma: no cover - _parent_finding now matches on measure
         scope = f"{measure or 'this turn'} against {finding.referent.value}"
     elif breakdown:
         cells = max((len(frame.rows) for _, frame in calculation.frames), default=0)
@@ -1136,6 +1207,46 @@ def containment_reconciliation(
             if same_measure and parent_level is not None
             else None
         ),
+    )
+
+
+def measure_mismatch_reason(
+    findings: Sequence[Finding],
+    operators: tuple[Refinement, ...],
+    measure: str | None,
+) -> str | None:
+    """Why a drill had nothing to tie out: the handle measures something else.
+
+    Round-9 R9-03. The thread is real — the analyst clicked a chip this
+    product put on that finding — and there is still nothing to reconcile:
+    F1 published a denial RATE and the drill published dollars, so neither
+    contains the other. Before the measure predicate on
+    :func:`_parent_finding` this case produced a red ``failed`` banner
+    asserting that two figures for one cell disagreed
+    (``parent F1=$0.00; child=$31,174.49; +311,744,900.0%``) over two
+    quantities that were never the same kind. It now produces nothing at
+    all, and the caller's generic "this turn produced no compared money
+    frame" is false on a turn that plainly holds one — so this is the
+    sentence that goes in its place.
+
+    ``None`` when no drilled handle is on screen, or when the handle does
+    publish the child's measure: those are the caller's other verdicts.
+    """
+    targets = {op.target.value for op in operators if isinstance(op, DrillInto)}
+    if not targets or measure is None:
+        return None
+    finding = next((f for f in findings if f.referent.value in targets), None)
+    if finding is None:
+        return None
+    published = sorted({ref.id for ref in finding.metric_refs})
+    if measure in published:
+        return None
+    named = ", ".join(published) or "no metric of its own"
+    return (
+        f"the finding this turn drilled ({finding.referent.value}) published {named}, and "
+        f"this answer publishes {measure} — two different measurements of that cell rather "
+        "than a part and its whole, so neither contains the other. Ask for "
+        f"{measure} over the parent population to tie the two out."
     )
 
 
@@ -1562,16 +1673,38 @@ def _with_resumed_context(
             "answer."
         )
     constrained = {p.dimension.id for p in iter_predicates(context.scope)}
+    # A dimension this turn CUTS BY is a dimension it is asking about across
+    # its whole population, and pinning it to the thread's one value answers
+    # a different question under the asked question's heading (round-9
+    # R9-02). Live: "Give me a payer scorecard for July 2026" inherited
+    # ``payer eq [Atlas Commercial]`` from the thread it interrupted and
+    # published one payer's A/R as the scorecard.
+    cut_by = {ref.id for ref in spec.dimensions}
     inherited = [
         predicate
         for predicate in iter_predicates(resume.context.scope)
-        if predicate.dimension.id not in constrained
+        if predicate.dimension.id not in constrained and predicate.dimension.id not in cut_by
+    ]
+    declined = [
+        predicate
+        for predicate in iter_predicates(resume.context.scope)
+        if predicate.dimension.id not in constrained and predicate.dimension.id in cut_by
     ]
     if inherited:
         context = replace(context, scope=and_merge(context.scope, *inherited))
         notes.append(
             "resumed_context: the filters the interrupted thread was scoped by are carried onto "
             "this answer — " + "; ".join(_predicate_label(p) for p in inherited) + "."
+        )
+    if declined:
+        # Said, not silently dropped: the analyst can see which scope the
+        # thread had and that this answer deliberately widened past it.
+        notes.append(
+            "resumed_context: the interrupted thread was scoped by "
+            + "; ".join(_predicate_label(p) for p in declined)
+            + ", and this question breaks out BY that same cut — so the filter is NOT carried "
+            "and the figures below cover the whole population. Name it again if you wanted "
+            "just that one."
         )
     if context.cohort is None and resume.context.cohort is not None:
         context = replace(context, cohort=resume.context.cohort)
@@ -1955,6 +2088,40 @@ def _bindings_from_trace(payload: Mapping[str, Any]) -> tuple[ClarificationBindi
     return tuple(out)
 
 
+def _bounds_by_window(
+    plan: InvestigationPlan,
+    executed: Sequence[ExecutedProbe],
+    spec: AnalysisSpec | None,
+) -> tuple[tuple[BoundedCell, ...], tuple[BoundedCell, ...]]:
+    """Split this turn's ceilings into ``(this window, the one compared)``.
+
+    Round-9 R9-06. The disclosure was composed from every probe the plan
+    ran, so a comparison turn published the prior window's ceilings inside
+    the current window's census: five rows under a count of four, with
+    Veritas Comp Fund named twice — once at ≤4.7% over 214 (July) and once
+    at ≤9.0% over 111 (June, the figure the answer had already quoted as
+    the prior month).
+
+    The probe knows its own window (:func:`frame_window`), so this asks it
+    rather than guessing from node order. A probe whose window this spec
+    does not name is context, not answer; a plan with no windows at all —
+    every probe a snapshot — is all current, which is what an as-of answer
+    is.
+    """
+    current: list[BoundedCell] = []
+    prior: list[BoundedCell] = []
+    asked = spec.context.window.range if spec is not None else None
+    for item in executed:
+        if not item.bounded_cells:
+            continue
+        window = frame_window(plan, item.node_id)
+        if asked is not None and window is not None and window.range != asked:
+            prior.extend(item.bounded_cells)
+        else:
+            current.extend(item.bounded_cells)
+    return tuple(current), tuple(prior)
+
+
 def _turn_census(
     calculation: CalculationResult, threshold: int
 ) -> SuppressionCensus | None:
@@ -2113,6 +2280,60 @@ def _no_options_card(clarification: ClarificationRequest) -> ClarificationReques
 #: matched — narrowed where the reply narrowed it, and named as a repeat
 #: either way, so the second ask is never mistaken for the first.
 CLARIFICATION_REPEATED_REASON = "CLARIFICATION_REPEATED"
+
+#: Marks a clarification whose option set the DATA reduced to one. The
+#: option is stated and offered; it is never selected on the analyst's
+#: behalf (round-9 R9-02).
+CLARIFICATION_SOLE_SURVIVOR_REASON = "CLARIFICATION_SOLE_SURVIVOR"
+
+#: Markers for the two places this ENGINE authors the single option rather
+#: than being left with it. A commitment to the subject already on screen is
+#: not a survivor of a cull — nothing was dropped to reach it — so the
+#: R9-02 "state, never select" rule does not apply to it, and applying it is
+#: exactly what stops "why did it go up" going round again (R9-07).
+CLARIFICATION_CONVERGED_REASON = "CLARIFICATION_CONVERGED"
+CLARIFICATION_MEASURE_SETTLED_REASON = "CLARIFICATION_MEASURE_SETTLED"
+_COMMITTED_REASONS = (CLARIFICATION_CONVERGED_REASON, CLARIFICATION_MEASURE_SETTLED_REASON)
+
+#: A clarification asking the analyst to name the measure. Narrow on
+#: purpose: it fires on the question this engine composes for that, never
+#: on a question that merely contains the word "metric" (R9-07).
+_ASKS_WHICH_MEASURE = re.compile(
+    r"\bwhich\s+(?:\w+\s+){0,2}?(?:metric|measure|figure|number)\b"
+    r"|\bwhat\s+(?:metric|measure)\s+(?:are|do|did|would)\b",
+    re.IGNORECASE,
+)
+
+
+def _state_the_survivor(
+    clarification: ClarificationRequest, lone: ClarificationBinding
+) -> ClarificationRequest:
+    """Say that one option survived, without answering as if it were chosen.
+
+    Round-9 R9-02. The refusal keeps the lead — it is the first thing in the
+    question text and the first thing the analyst reads — and the surviving
+    option is named as what this warehouse could answer INSTEAD, with the
+    difference said out loud. What the previous behaviour published was the
+    survivor's answer under the original question's heading, with the
+    refusal moved into a warning; a reader who trusted the heading was
+    reading the wrong number.
+    """
+    reason = clarification.reason or ""
+    return replace(
+        clarification,
+        question=(
+            f"{clarification.question} Only one of the options I could offer survives what "
+            f"this data holds at this watermark: “{lone.option}”. That answers less than you "
+            "asked for, so I have not run it on your behalf — say it and I will, or say what "
+            "you want in your own words."
+        ),
+        reason=(
+            f"{reason}; {CLARIFICATION_SOLE_SURVIVOR_REASON}: one option left after value and "
+            "plan validation; stated rather than applied"
+            if reason
+            else f"{CLARIFICATION_SOLE_SURVIVOR_REASON}: one option left after validation"
+        ),
+    )
 
 
 def _no_replay(
@@ -3934,10 +4155,22 @@ class SubmitTurnService:
         # surfaces published three different numbers for one control, and
         # in one case the narrator invented the population outright.
         census = _turn_census(calculation, self._executor.suppression_threshold)
+        # …and composed from the CURRENT window's cells (R9-06). A plan that
+        # compares reads two windows, and folding the prior window's
+        # ceilings into one list put the same payer in the disclosure twice
+        # — the second row being the figure quoted three sentences earlier
+        # as the prior month — under a count that said four over a list of
+        # five.
+        current_bounds, prior_bounds = _bounds_by_window(validated.plan, executed, spec)
         bounds = bounded_cells_warning(
-            tuple(cell for item in executed for cell in item.bounded_cells),
+            current_bounds,
             self._executor.suppression_threshold,
             census=census,
+            comparison_cells=prior_bounds,
+            # The reader's own word for these rows, so this sentence and the
+            # ranking's own ("4 of 12 payers…") cannot describe one set of
+            # cells with two nouns.
+            noun=row_noun(tuple(ref.id for ref in spec.dimensions) if spec else ()),
         )
         if bounds is not None:
             extra_warnings.append(bounds)
@@ -4253,9 +4486,103 @@ class SubmitTurnService:
             options=(option.option,),
             bindings=(option,),
             reason=(
-                f"{clarification.reason}; CLARIFICATION_CONVERGED: "
+                f"{clarification.reason}; {CLARIFICATION_CONVERGED_REASON}: "
                 f"{state.pending.streak + 1} consecutive clarifications with nothing to "
                 "choose from, so this turn commits to the subject already on screen"
+            ),
+        )
+
+    async def _grammatical_options(
+        self, session: Session, clarification: ClarificationRequest
+    ) -> ClarificationRequest:
+        """Drop every option this engine's own grammar would refuse.
+
+        Round-9 R9-07, three personas and one root cause. An option that
+        carries a binding is dry-run against the planner
+        (:meth:`_option_answerable`); an option that is only a SENTENCE —
+        which is every option ``classify_turn`` and ``emit_refinements``
+        propose — was published unchecked. So the platform offered "Yes —
+        re-group the figure F1 result by denial reason" on a denial-rate
+        thread, refused it with ``GRAIN_INCOMPATIBLE`` the moment it was
+        tapped, and fired its own circuit breaker two turns later on the
+        loop that made.
+
+        The capability predicate is the validator's
+        (:meth:`PlanValidationService.unexecutable_cut`) — the same
+        ``allows_dimension`` check that produces the refusal — so an option
+        cannot survive here and fail there. Options are only ever removed,
+        and the set is never emptied by this rule: an imperfect suggestion
+        beats a blank row of buttons, and the funnel's own
+        "dropped everything" card exists for the case where it is right to
+        show nothing.
+        """
+        if not clarification.options:
+            return clarification
+        parent = await self._latest_investigation(session, analytical=True)
+        if parent is None:
+            return clarification
+        metrics = tuple(ref.id for ref in parent.spec.measures)
+        if not metrics:
+            return clarification
+        kept: list[str] = []
+        refused: list[tuple[str, str, str]] = []
+        for option in clarification.options:
+            bad = self._validator.unexecutable_cut(option, metrics)
+            if bad is None:
+                kept.append(option)
+            else:
+                refused.append((option, *bad))
+        if not refused or not kept:
+            return clarification
+        surviving = tuple(kept)
+        named = ", ".join(f"{dimension} is not a cut of {metric}" for _, dimension, metric in refused)
+        return replace(
+            clarification,
+            options=surviving,
+            bindings=_bindings_for(clarification, surviving),
+            reason=(
+                f"{clarification.reason}; {len(refused)} option(s) dropped before offer: "
+                f"{named}"
+            ),
+        )
+
+    async def _settled_measure(
+        self, session: Session, clarification: ClarificationRequest
+    ) -> ClarificationRequest:
+        """Never ask which measure of a session that holds exactly one.
+
+        Round-9 R9-07(a). "Why did it go up?" → clarification → the analyst
+        clicked the platform's own option → a SECOND clarification asking
+        *which metric are you asking about* in a session whose every answer
+        had measured one thing over one window → the analyst clicked again
+        → "We're going in circles". The question was answerable from what
+        was on screen at every step.
+
+        Where the session's subject is unambiguous, the measure question is
+        replaced by the subject itself as a deterministic ``metric_cut``
+        option — the same commitment :meth:`_converge_on_subject` makes,
+        one turn earlier and without waiting for a streak.
+        """
+        if not _ASKS_WHICH_MEASURE.search(clarification.question):
+            return clarification
+        parent = await self._latest_investigation(session, analytical=True)
+        if parent is None or len(parent.spec.measures) != 1:
+            return clarification
+        option = _subject_option(parent)
+        if option is None:  # pragma: no cover - a single measure always yields one
+            return clarification
+        return replace(
+            clarification,
+            question=(
+                f"This session has measured one thing — {parent.spec.measures[0].id} over "
+                f"{_period_phrase(parent.spec.context.window.range)} — so I have not asked "
+                "you which. Say a different metric if you meant one."
+            ),
+            options=(option.option,),
+            bindings=(option,),
+            reason=(
+                f"{clarification.reason}; {CLARIFICATION_MEASURE_SETTLED_REASON}: the session "
+                "holds exactly one measure and one window, so which-measure is not a question"
             ),
         )
 
@@ -4661,6 +4988,9 @@ class SubmitTurnService:
             spec,
             session_findings=lambda: elsewhere,
             suppression_threshold=self._executor.suppression_threshold,
+            # The pinned snapshot's own unit for each metric (R9-03), so a
+            # ratio finding is never read back through the money path.
+            metric_unit=self._metric_unit,
         )
         if containment is not None:
             if not containment.passed:
@@ -4675,8 +5005,17 @@ class SubmitTurnService:
             return containment.summary
         shape = find_primary_compare(plan, calculation)
         if shape is None:
+            # A drill whose handle measures something else says so (R9-03):
+            # "no compared money frame" is a true sentence about the wrong
+            # question on a turn that published dollars off a rate finding.
+            mismatch = measure_mismatch_reason(
+                (*parent.findings, *elsewhere),
+                operators,
+                _frame_money_totals(calculation.frames)[2],
+            )
             return _not_applicable(
-                "this turn produced no compared money frame to reconcile against the parent"
+                mismatch
+                or "this turn produced no compared money frame to reconcile against the parent"
             )
         measure = shape.money_measure
         parent_totals: EvidenceFrame | None = None
@@ -4709,6 +5048,17 @@ class SubmitTurnService:
         if not verdict.passed:
             await self._fail_reconciliation(verdict.summary, warnings, state)
         return verdict.summary
+
+    def _metric_unit(self, metric_id: str) -> str | None:
+        """The pinned pack's declared unit for a metric id, or ``None``.
+
+        One lookup, one authority. The reconciliation asks it before it
+        reads a figure out of a finding, because "is this cents?" is a
+        contract question and answering it from the Python type of the
+        value is what published ``parent F1=$0.00`` over a 29.5% rate.
+        """
+        contract = self._pack.metric(metric_id)
+        return None if contract is None else str(contract.unit)
 
     async def _fail_reconciliation(
         self, summary: str, warnings: list[str], state: _TurnState
@@ -5250,9 +5600,22 @@ class SubmitTurnService:
         )
         # 2. …then the warehouse and the planner (R3-17)…
         clarification = await self._validated_options(session, clarification)
+        # 2b. …then the plan grammar, applied to the option's WORDS as well
+        #     as to its ids (round-9 R9-07). ``_validated_options`` above
+        #     dry-runs an option that carries a binding and waves through
+        #     one that does not — which is every option the classifier
+        #     writes in free text. "Why did it go up?" was answered with the
+        #     platform's own "Yes — re-group the figure F1 result by denial
+        #     reason", and tapping it produced GRAIN_INCOMPATIBLE with the
+        #     engine's internal predicate on screen.
+        clarification = await self._grammatical_options(session, clarification)
         # 3. …then the subject: a clarification about rendering-provider
         #    denial rates must not offer payer options (R4-12 defect 3).
         clarification = await self._on_subject(session, clarification, state.question)
+        # 3a. …and a question this session has already answered is not a
+        #     question (R9-07): asking WHICH measure of a session holding
+        #     exactly one is how "why did it go up" burned its second turn.
+        clarification = await self._settled_measure(session, clarification)
         # 3b. …then the one thing a dialogue may never do: ask the question
         #     it has just asked, word for word, of an analyst who answered
         #     it (round-6 A-04). This branch covers the clarifications the
@@ -5284,17 +5647,37 @@ class SubmitTurnService:
         #    refusal path, so a model-requested clarification whose options
         #    validation had reduced to exactly one still charged a turn to
         #    ask it (defect 5, measured at $0.146).
-        reduced = offered > len(clarification.options) or (
-            OPTIONS_DROPPED_MARKER in (clarification.reason or "")
-        )
+        reason_so_far = clarification.reason or ""
+        reduced = (
+            offered > len(clarification.options) or OPTIONS_DROPPED_MARKER in reason_so_far
+        ) and not any(marker in reason_so_far for marker in _COMMITTED_REASONS)
         lone = self._lone_binding(clarification, reduced=reduced)
-        if lone is not None and not state.applied_bindings:
+        if lone is not None and reduced:
+            # …but a COLLAPSE is not an answer (round-9 R9-02, the exec's
+            # demo blocker #2). "Give me a payer scorecard for July 2026"
+            # mid-session came back as ``outcome: answer`` over a single
+            # finding — "F5 | Atlas Commercial: 179.5 days in ar", a payer
+            # the turn never named — with the refusal demoted into a
+            # CLARIFICATION_ANSWER_APPLIED warning that the client's caution
+            # fold then hid. The engine had asked a real question, watched
+            # the data drop every option but one, and treated the survivor
+            # as though the analyst had chosen it.
+            #
+            # Nobody chose it. A collapse to one surviving option is a fact
+            # about this warehouse, and the honest move is to SAY it: the
+            # refusal keeps the lead, the survivor is stated, and the
+            # analyst decides whether it answers what they asked. Bindings
+            # this platform DERIVED from governed content are untouched —
+            # there the single answer is the pack's, not the data's, and
+            # asking about it is the round-3 R3-07 defect.
+            clarification = _state_the_survivor(clarification, lone)
+        elif lone is not None and not state.applied_bindings:
             state.applied_bindings.append(lone.option)
             state.assumptions.append(
-                f"clarification_answer_applied: {lone.option} — this was the only answer left "
-                f"to '{clarification.question}' once the ones this data cannot support were "
-                "dropped, so it was applied rather than asked about, and your question was run "
-                "with it. Say so if you wanted something else and I will re-run it."
+                f"clarification_answer_applied: {lone.option} — this was the only answer "
+                f"available to '{clarification.question}', so it was applied rather than "
+                "asked about, and your question was run with it. Say so if you wanted "
+                "something else and I will re-run it."
             )
             return await self._apply_binding(session, state, classified, lone)
         clarification = _no_options_card(clarification)

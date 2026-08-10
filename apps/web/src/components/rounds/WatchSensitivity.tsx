@@ -134,6 +134,14 @@ export function WatchSensitivityForm({
               <option value="points">percentage points</option>
               <option value="relative_pct">% of the current value</option>
               <option value="cents">cents</option>
+              {/* A LAG IS ITS OWN UNIT. "days in A/R moved 2 days" is not
+                  two percentage points and not two cents; the engine, the
+                  pack and the wire have all taken `days` since round 8,
+                  and this control was the last copy of the list that had
+                  not — so a days watch opened here read "2 percentage
+                  points" and saving it submitted a unit the server
+                  refuses. */}
+              <option value="days">days</option>
             </select>
           </div>
           {/* The unit is a claim about what this metric MEASURES, and the
@@ -141,8 +149,9 @@ export function WatchSensitivityForm({
               reads as an answer to a question the control asked, rather
               than as a validation error. */}
           <p className="text-micro leading-snug text-muted-foreground">
-            Percentage points suit a rate, cents suit money. If this measure is not stated in
-            the unit you pick, the platform refuses the watch and names the units it does take.
+            Percentage points suit a rate, cents suit money, days suit a lag. If this measure
+            is not stated in the unit you pick, the platform refuses the watch and names the
+            units it does take.
           </p>
         </div>
       )}

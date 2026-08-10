@@ -3,7 +3,7 @@
 import { AlertTriangle, ArrowLeft } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
+import { useEffect, useMemo, useRef, useSyncExternalStore, type ReactNode } from "react";
 
 import { WarningList } from "@/components/banners/WarningBanner";
 import { BriefPanel } from "@/components/rounds/BriefPanel";
@@ -249,6 +249,15 @@ export function RoundsSurface() {
 
   return (
     <div className="relative h-dvh overflow-hidden bg-background">
+      {/* FIRST IN THE DOCUMENT, because a skip link anywhere else is not
+          one. Measured before this: "Skip to your watches" sat in the
+          main header, which is the 152nd of 224 tab stops — behind the
+          rail's fifty session rows and both of each row's controls — so
+          the control that exists to save a keyboard reader those stops was
+          reachable only by taking them. It is the first focusable element
+          on the page now, and `Rounds.test.tsx` asserts exactly that
+          rather than asserting it exists. */}
+      {live && <SkipLinks />}
       <div aria-hidden className="page-glow pointer-events-none absolute inset-0" />
       <div className="relative grid h-full grid-cols-[16.5rem_minmax(0,1fr)] min-[1440px]:grid-cols-[17.5rem_minmax(0,1fr)]">
         <SessionRail />
@@ -270,23 +279,6 @@ export function RoundsSurface() {
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2.5">
-              {/* PAST THE BRIEF IN ONE STOP. Twenty watches is three
-                  screens and, before the tile became a single tab stop,
-                  roughly a hundred of them; even at one each, a keyboard
-                  reader who wants the grid should not cross the brief to
-                  reach it. */}
-              <a
-                href="#watches-heading"
-                onClick={(event) => {
-                  event.preventDefault();
-                  const heading = document.getElementById("watches-heading");
-                  heading?.focus();
-                  heading?.scrollIntoView({ block: "start" });
-                }}
-                className="focus-ring sr-only rounded-md border bg-surface-sunken px-2 py-1 text-micro font-medium focus:not-sr-only focus:relative"
-              >
-                Skip to your watches
-              </a>
               <Link
                 href="/"
                 className="focus-ring inline-flex items-center gap-1 rounded-md border bg-surface-sunken/70 px-2 py-1 text-micro font-medium text-muted-foreground transition-colors duration-200 hover:border-ring/40 hover:text-foreground"
@@ -316,7 +308,14 @@ export function RoundsSurface() {
                 <NoDeployment />
               ) : (
                 <>
-                  <div className="max-w-4xl">
+                  {/* The skip link's landing place, and it is the ZONE
+                      rather than the brief's own heading: the brief has
+                      three states (walked, still walking, could not be
+                      read) and only one of them has that heading, so
+                      aiming at it would give the reader a dead control on
+                      exactly the two loads where the page is hardest to
+                      use. */}
+                  <div id="brief-zone" tabIndex={-1} className="max-w-4xl outline-none">
                     <BriefZone query={brief} leads={leadHandles} />
                   </div>
                   <WatchZone query={rounds} pinsById={pinsById} />
@@ -332,6 +331,50 @@ export function RoundsSurface() {
         </main>
       </div>
     </div>
+  );
+}
+
+/**
+ * The two jumps worth offering a keyboard reader on this page, in the
+ * order the page is read.
+ *
+ * They are anchors with an `onClick` rather than bare `href="#…"` because
+ * a fragment navigation scrolls without moving FOCUS in every browser that
+ * has not shipped the fix — so the next Tab would resume from the link,
+ * behind the fifty rail rows the reader just skipped, which is the bug
+ * wearing a fix's clothes. Both targets carry `tabIndex={-1}` so they can
+ * take it.
+ *
+ * Visually hidden until focused, then drawn over the page rather than in
+ * it: a control that reflows the layout of a page nobody has interacted
+ * with yet is worse than one that is invisible.
+ */
+function SkipLinks() {
+  return (
+    <nav
+      aria-label="Skip links"
+      className="absolute left-2 top-2 z-50 flex gap-1.5 [&:not(:focus-within)]:pointer-events-none"
+    >
+      <SkipLink target="brief-zone">Skip to this load&apos;s brief</SkipLink>
+      <SkipLink target="watches-heading">Skip to your watches</SkipLink>
+    </nav>
+  );
+}
+
+function SkipLink({ target, children }: { target: string; children: ReactNode }) {
+  return (
+    <a
+      href={`#${target}`}
+      onClick={(event) => {
+        event.preventDefault();
+        const heading = document.getElementById(target);
+        heading?.focus();
+        heading?.scrollIntoView({ block: "start" });
+      }}
+      className="focus-ring sr-only rounded-md border bg-surface-sunken px-2 py-1 text-micro font-medium shadow-sm focus:not-sr-only focus:relative"
+    >
+      {children}
+    </a>
   );
 }
 

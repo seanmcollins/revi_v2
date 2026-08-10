@@ -312,7 +312,7 @@ function ReplayDemoButton({
  * panel used to do, and every one of them was a dead button.
  */
 function SessionList() {
-  const allSessions = useSessionStore((s) => s.sessions);
+  const listed = useSessionStore((s) => s.sessions);
   const total = useSessionStore((s) => s.sessionsTotal);
   const state = useSessionStore((s) => s.sessionsState);
   const error = useSessionStore((s) => s.sessionsError);
@@ -325,8 +325,41 @@ function SessionList() {
   const streaming = useSessionStore((s) => s.streamingTurnId !== null);
   const replaying = useSessionStore((s) => s.replaying);
   const newChatPending = useSessionStore((s) => s.newChatPending);
+  const sessionLive = useSessionStore((s) => s.sessionLive);
+  const mode = useSessionStore((s) => s.connection.mode);
   const [confirmingArchiveId, setConfirmingArchiveId] = useState<string | null>(null);
   const [query, setQuery] = useState("");
+
+  /**
+   * A SESSION WITH NO QUESTION IN IT IS NOT SOMEBODY'S WORK.
+   *
+   * The live tenant's list opens with fourteen consecutive rows reading
+   * "New session — 0 turns": a session row is written when a session is
+   * created, and every abandoned "New chat", every reviewer's probe and
+   * every reload that minted one and never asked anything leaves one
+   * behind. They are the first thing in the rail, they push real work off
+   * the fifty-row page, and not one of them can be opened onto anything.
+   *
+   * Hidden here rather than dropped from the store: the count under the
+   * list is drawn from the same numbers and says how many were held back,
+   * so the rail never quietly disagrees with `GET /v1/sessions`.
+   */
+  const allSessions = listed.filter((session) => session.turnCount > 0);
+  const emptyRows = listed.length - allSessions.length;
+
+  /**
+   * WHICH ROW IS "YOU ARE HERE", and after "New chat" the answer is none.
+   *
+   * `newChat()` clears the thread and abandons the driver's session — the
+   * server mints the next one when the first question arrives — so there
+   * is a real interval with no session at all. The store keeps the old id
+   * in `sessionId` through it (nothing to replace it with yet), and this
+   * rail was reading that id: the discarded thread stayed selected, with
+   * its question still in the header, over an empty composer. `sessionLive`
+   * is the flag that says a session exists, and every other surface that
+   * shows a session-scoped fact already gates on it.
+   */
+  const selectedSessionId = mode !== "api" || sessionLive ? currentSessionId : null;
   /**
    * A filter over the sessions THIS RAIL HAS, and it says so.
    *
@@ -402,7 +435,9 @@ function SessionList() {
         <p className="px-1 text-micro leading-snug text-muted-foreground">Loading sessions…</p>
       ) : allSessions.length === 0 ? (
         <p className="px-1 text-micro leading-snug text-muted-foreground">
-          No sessions yet. Ask a question and this one appears here.
+          {emptyRows > 0
+            ? "No questions asked yet. Ask one and this session appears here."
+            : "No sessions yet. Ask a question and this one appears here."}
         </p>
       ) : sessions.length === 0 ? (
         // Never "no sessions match": this searched the 50 rows the rail
@@ -415,7 +450,7 @@ function SessionList() {
       ) : (
         <ul className="space-y-0.5">
           {sessions.map((session) => {
-            const active = session.sessionId === currentSessionId;
+            const active = session.sessionId === selectedSessionId;
             const pending = session.sessionId === switchingSessionId;
             const title = displaySessionTitle(session.title);
             const confirming = session.sessionId === confirmingArchiveId;
@@ -477,7 +512,12 @@ function SessionList() {
                       It is a scanning aid, not a column of data; the
                       exact instant and the turn count are on the row's
                       accessible name and its title. */}
-                  <span className="num flex shrink-0 items-center gap-1 text-micro text-muted-foreground/70">
+                  {/* Quiet, not unreadable. At 70% this measured 2.82:1
+                      on the rail's own translucent panel light-theme —
+                      below AA for 12px text by some distance; solid
+                      muted ink is 5.04:1 there and still reads as the
+                      quietest thing on the row. */}
+                  <span className="num flex shrink-0 items-center gap-1 text-micro text-muted-foreground">
                     {pending ? (
                       <Loader2 className="size-2.5 animate-spin" />
                     ) : (
@@ -513,8 +553,13 @@ function SessionList() {
       )}
 
       {state === "ready" && total > allSessions.length && needle === "" && (
-        <p className="num px-1 pt-1 text-micro text-muted-foreground/70">
-          Showing the {allSessions.length} most recent of {total}.
+        // Solid muted ink: at 70% it measured 2.9:1 light-theme on the
+        // rail at 12px, under the 4.5:1 floor for body text.
+        <p className="num px-1 pt-1 text-micro text-muted-foreground">
+          Showing the {allSessions.length} most recent of {total}
+          {emptyRows > 0 &&
+            ` — ${emptyRows} of the ${listed.length} read had no question in them and are not listed`}
+          .
         </p>
       )}
     </section>

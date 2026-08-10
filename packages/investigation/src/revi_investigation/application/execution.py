@@ -164,11 +164,51 @@ class SuppressionCensus:
 TOO_SMALL_TO_MEASURE = "too small to measure exactly"
 
 
+def _distinct_cells(cells: Sequence[BoundedCell]) -> list[BoundedCell]:
+    """One row per bounded cell, in a stable order.
+
+    Keyed on ``(metric_id, label)`` — the cell, not the probe that produced
+    it. A plan that reads one window through two nodes hands the same cell
+    in twice, and the disclosure then names a payer twice as if two
+    different groups of theirs had been suppressed (R9-06).
+    """
+    by_key: dict[tuple[str, str], BoundedCell] = {}
+    for cell in sorted(cells, key=lambda c: (c.metric_id, c.label)):
+        by_key.setdefault((cell.metric_id, cell.label), cell)
+    return list(by_key.values())
+
+
+def _named_bounds(cells: Sequence[BoundedCell]) -> str:
+    named = "; ".join(
+        f"{cell.label or 'the whole population'} "
+        f"({metric_label(cell.metric_id)} ≤ {ratio_pct(cell.bound)} "
+        f"over {cell.population:,} entities)"
+        for cell in cells[:_MAX_NAMED_BOUNDS]
+    )
+    if len(cells) > _MAX_NAMED_BOUNDS:
+        # Naming every bounded cell put 147 parenthesised figures into one
+        # mandatory disclosure — a sentence nobody finishes is a disclosure
+        # nobody reads. The full set is on the frame and in the chart.
+        named += (
+            f"; and {len(cells) - _MAX_NAMED_BOUNDS} more, each shown as a bound in the chart"
+        )
+    return named
+
+
 def bounded_cells_warning(
     cells: Sequence[BoundedCell],
     threshold: int,
     *,
     census: SuppressionCensus | None = None,
+    #: Ceilings from a window this turn read as CONTEXT rather than as the
+    #: answer. They belong in the disclosure and not in its count — see
+    #: below.
+    comparison_cells: Sequence[BoundedCell] = (),
+    #: What the rows ARE, in the analyst's word ("payers"). The generic
+    #: fallback is what a reader gets when the answer has no cut to name.
+    #: Two sentences on one card calling the same four rows "groups" and
+    #: "payers" is the same class of contradiction R9-06 is about.
+    noun: str = "groups",
 ) -> str | None:
     """The sentence a bounded answer owes its reader, or ``None``.
 
@@ -182,39 +222,70 @@ def bounded_cells_warning(
     "Every other figure here is measured" was published on a frame where
     147 of 150 values were bounds and the remaining 3 were zeros; and the
     count was stated without the withheld cells beside it, so a reader
-    adding the two disclosures got a population that does not exist. When a
-    :class:`SuppressionCensus` is supplied the count is stated from it —
-    ONCE, in words — and nothing is claimed about rows the census does not
-    cover.
+    adding the two disclosures got a population that does not exist.
+
+    **The sentence must agree with itself** (round-9 R9-06). On the demo
+    opener it did not, three ways at once, and the contradiction was legible
+    to any CFO because the ``SUPPRESSION_APPLIED`` caution two lines below
+    stated the real rule correctly:
+
+    * *"4 of 12 groups"* over a list of **five** rows — the count came from
+      the census and the list came from every probe the plan ran. The count
+      is now derived from the list it introduces, so the two cannot drift.
+    * *Veritas Comp Fund twice*, the second row being the same payer's cell
+      in the COMPARISON window (≤9.0% over 111 — the prior-month figure
+      quoted three sentences earlier). Cells are deduplicated by cell key,
+      and a window this turn read as context gets its own labelled clause
+      instead of being folded into the answer's own census.
+    * *"fewer than 11 things sit behind each of those numbers"* printed over
+      a row of **214** entities. The §15 rule suppresses the NUMERATOR — the
+      events being counted — over a population that is published in full;
+      the population floor is a different rule, and stating it here refuted
+      the very figures beside it.
     """
-    if not cells:
+    current = _distinct_cells(cells)
+    prior = _distinct_cells(comparison_cells)
+    if not current and not prior:
         return None
-    ordered = sorted(cells, key=lambda c: (c.metric_id, c.label))
-    shown = ordered[:_MAX_NAMED_BOUNDS]
-    named = "; ".join(
-        f"{cell.label or 'the whole population'} "
-        f"({metric_label(cell.metric_id)} ≤ {ratio_pct(cell.bound)} "
-        f"over {cell.population:,} entities)"
-        for cell in shown
-    )
-    if len(ordered) > len(shown):
-        # Naming every bounded cell put 147 parenthesised figures into one
-        # mandatory disclosure — a sentence nobody finishes is a disclosure
-        # nobody reads. The full set is on the frame and in the chart.
-        named += f"; and {len(ordered) - len(shown)} more, each shown as a bound in the chart"
-    bounded = census.bounded if census is not None else len(cells)
-    total = census.total if census is not None else len(cells)
-    group = "group" if total == 1 else "groups"
     withheld = (
         f" A further {census.withheld} could not be published at all."
         if census is not None and census.withheld
         else ""
     )
+    # The comparison window is a second population and never enters the
+    # answer's own arithmetic — it is named, labelled and left there.
+    context = (
+        ""
+        if not prior
+        else (
+            f" In the comparison window {len(prior)} of them are bounded the same way: "
+            f"{_named_bounds(prior)} — those ceilings bound the prior period, not this one."
+        )
+    )
+    #: What a ceiling MEANS, in the terms the policy actually applies.
+    rule = (
+        f"fewer than {threshold} of the events being counted landed in each, over a "
+        "population this answer publishes in full"
+    )
+    if not current:
+        return (
+            f"suppression_bounded: every figure this answer publishes for the current window "
+            f"is measured. The comparison window is not: {len(prior)} of its "
+            f"cells are {TOO_SMALL_TO_MEASURE} — {rule} — so each shows a ceiling instead of "
+            f"a figure: {_named_bounds(prior)}. The true value is at or below the ceiling and "
+            f"is not a measurement.{withheld}"
+        )
+    # Stated from the list this sentence prints. The census supplies the
+    # population the count is taken OUT of, and can never contradict it: a
+    # denominator smaller than its own numerator is not a census.
+    bounded = len(current)
+    total = max(census.total if census is not None else bounded, bounded)
+    group = noun[:-1] if total == 1 and noun.endswith("s") else noun
     return (
         f"suppression_bounded: {bounded} of {total} {group} here are {TOO_SMALL_TO_MEASURE} — "
-        f"fewer than {threshold} things sit behind each of those numbers — so each shows a "
-        f"ceiling instead of a figure: {named}. The true value is at or below the ceiling and "
-        f"is not a measurement.{withheld}"
+        f"{rule} — so each shows a ceiling instead of a figure: {_named_bounds(current)}. "
+        f"The true value is at or below the ceiling and is not a measurement."
+        f"{withheld}{context}"
     )
 
 

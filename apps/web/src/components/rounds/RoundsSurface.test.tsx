@@ -126,7 +126,50 @@ describe("Rounds speaks while it works", () => {
     draw();
     expect(screen.getByRole("link", { name: /Skip to your watches/ })).toBeInTheDocument();
   });
+
+  /**
+   * A SKIP LINK THAT IS NOT FIRST IS NOT A SKIP LINK.
+   *
+   * Measured on the live surface: "Skip to your watches" was the 152nd of
+   * 224 tab stops, because it sat in the main header and the session rail
+   * — fifty rows, two controls each — is earlier in the document. The one
+   * control whose entire purpose is to save those stops could only be
+   * reached by taking them.
+   *
+   * Asserted as `focusable[0]` rather than "is in the document", which is
+   * what the previous test asserted and what let this ship.
+   */
+  it("puts the skip links first in the document, ahead of the rail", () => {
+    const { container } = draw();
+    const focusable = [...container.querySelectorAll<HTMLElement>(FOCUSABLE)].filter(
+      (el) => !el.hasAttribute("disabled") && el.getAttribute("tabindex") !== "-1",
+    );
+    expect(focusable.length).toBeGreaterThan(3);
+    expect(focusable[0]).toHaveAccessibleName("Skip to this load's brief");
+    expect(focusable[1]).toHaveAccessibleName("Skip to your watches");
+  });
+
+  it("lands each skip link on something that can take focus", () => {
+    draw();
+    for (const [name, id] of [
+      ["Skip to this load's brief", "brief-zone"],
+      ["Skip to your watches", "watches-heading"],
+    ] as const) {
+      const link = screen.getByRole("link", { name });
+      expect(link).toHaveAttribute("href", `#${id}`);
+      // The target exists AND is focusable — a fragment that scrolls
+      // without moving focus resumes tabbing from the link, i.e. from
+      // behind the rail the reader just skipped.
+      const target = document.getElementById(id);
+      expect(target, `#${id} must exist for "${name}" to land on`).not.toBeNull();
+      expect(target).toHaveAttribute("tabindex", "-1");
+    }
+  });
 });
+
+/** Everything the browser will stop on, in document order. */
+const FOCUSABLE =
+  'a[href], button, input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
 /**
  * THE WHOLE PATH, against the API driver: does a tile actually GET the
