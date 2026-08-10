@@ -112,6 +112,14 @@ class Investigation:
     created_at: datetime
     frame_refs: tuple[str, ...] = ()  # trace-store keys of persisted frames
     warnings: tuple[str, ...] = ()
+    #: The prose this turn PUBLISHED, stored so a shared link carries the
+    #: analysis (round-10 R10-4). It is written after the fact — the engine
+    #: saves this record before the API composes the write-up — by the same
+    #: best-effort second write that already persists published warnings.
+    #: ``None`` on every turn that composed no prose, and on every turn
+    #: written before this field existed; a reader must treat absence as
+    #: "not stored", never as "the turn said nothing".
+    narrative: str | None = None
 
 
 @dataclass(frozen=True, slots=True)

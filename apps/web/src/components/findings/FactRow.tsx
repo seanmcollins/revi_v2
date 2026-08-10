@@ -18,6 +18,7 @@ import {
   titleCarriesValue,
   titleLabelOnly,
 } from "@/lib/findingText";
+import { readableStatement } from "@/lib/prose";
 import { useSessionStore } from "@/lib/store";
 import type { Finding } from "@/lib/types";
 import { cn } from "@/lib/utils";
@@ -108,12 +109,18 @@ export function FactRow({
   // On an echoed verdict the TITLE is most of the duplicate: the engine
   // writes the whole clause into it behind a short heading. The heading
   // is what the row keeps.
+  // …and the same discipline for the two mechanical defects in `lib/prose`:
+  // a rank over a set of ONE ("Silverline Medicare Advantage ranks #1 of 1
+  // measured by denied dollars") is grammar the payload does not support,
+  // and a doubled stop is a defect where two sentence builders met.
   const title = humanizeIsoDates(
-    (echo ? titleLabelOnly(finding.title) : undefined) ?? finding.title,
+    readableStatement((echo ? titleLabelOnly(finding.title) : undefined) ?? finding.title),
   );
   const detail = echo
     ? undefined
-    : humanizeIsoDates(statementBeyondTitle(finding.title, finding.statement));
+    : humanizeIsoDates(
+        readableStatement(statementBeyondTitle(finding.title, finding.statement)),
+      );
 
   return (
     <li
@@ -193,9 +200,10 @@ export function FactRow({
 
       {/* The row's two forward gestures, on one line: go deeper into this
           fact, or ask to be told when it changes. Both are quiet and both
-          appear on hover and on keyboard focus — a fact row is a scanning
-          surface, and a permanently visible pair of controls on every one
-          of thirty rows is the density this layout exists to remove. */}
+          are PRESENT — "Watch this" used to fade in on hover, which on a
+          touch screen, in a screenshot and on a projector means the one
+          gesture that starts proactive monitoring was not there at all.
+          Lower contrast is the density control; invisibility is not. */}
       {(drill || investigationId) && (
         <div className="mt-1 flex flex-wrap items-center gap-1 pl-8">
           {drill && (

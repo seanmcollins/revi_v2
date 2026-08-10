@@ -95,7 +95,12 @@ export function AnswerBodyDetailed({
       {a.rehydrated &&
         !model.streaming &&
         a.narrative.trim() === "" &&
-        a.findings.length > 0 && <RestoredWithoutProse />}
+        a.findings.length > 0 && (
+          <RestoredWithoutProse
+            charts={model.charts.length}
+            hasEvidence={a.evidence !== undefined}
+          />
+        )}
 
       {/* Everything that is not the verdict, in one group under the
           writing. Eight amber banners, stated once, counted honestly. */}

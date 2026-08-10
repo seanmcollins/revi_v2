@@ -541,6 +541,54 @@ class TestEveryOfferedOptionIsOneTheEngineCanRun:
             is None
         )
 
+    def test_a_playbook_this_engine_cannot_answer_is_refused_before_offer(
+        self, validator
+    ) -> None:  # type: ignore[no-untyped-def]
+        """Round-10 R10-6, the live option verbatim. "Who is my worst
+        payer?" offered "Run a full payer scorecard across all measures";
+        asking for that elsewhere returns ``PLAYBOOK_TRANSFORM_UNAVAILABLE:
+        payer_scorecard answers by 'pivot'``."""
+        assert validator.unanswerable_playbook(
+            "Run a full payer scorecard across all measures"
+        ) == ("payer_scorecard", "pivot")
+
+    def test_the_hero_chip_advertising_an_unimplemented_forecast_is_caught(
+        self, validator
+    ) -> None:  # type: ignore[no-untyped-def]
+        """Guide chip 5 at the source: ``cash_outlook`` answers by
+        ``project_lagged_realization``, which this engine does not
+        implement, and the chip is on the hero."""
+        assert validator.unanswerable_playbook("Will my cash increase next month?") == (
+            "cash_outlook",
+            "project_lagged_realization",
+        )
+
+    def test_a_playbook_this_engine_CAN_answer_survives(
+        self, validator
+    ) -> None:  # type: ignore[no-untyped-def]
+        assert validator.unanswerable_playbook("Show me AR aging") is None
+        assert validator.unanswerable_playbook("Break denial rate down by payer") is None
+
+    def test_an_option_naming_a_measure_is_a_direct_query_however_it_is_phrased(
+        self, validator
+    ) -> None:  # type: ignore[no-untyped-def]
+        """One-sided, exactly like ``unexecutable_cut``. ``payer_scorecard``
+        declares the trigger "rank payers", and "Rank payers by denial rate"
+        is a question this engine answers in one probe — dropping it would
+        cost the analyst a real route to keep a rule tidy."""
+        for option in (
+            "Rank payers by denial rate",
+            "Score each payer on days_in_ar",
+            "Payer scorecard: just the denial rate column",
+        ):
+            assert validator.unanswerable_playbook(option) is None, option
+
+    def test_an_option_naming_no_playbook_at_all_survives(
+        self, validator
+    ) -> None:  # type: ignore[no-untyped-def]
+        assert validator.unanswerable_playbook("Raise the per-turn cost ceiling") is None
+        assert validator.unanswerable_playbook("") is None
+
     def test_which_measure_is_recognised_however_it_is_phrased(self) -> None:
         for question in (
             "Which metric are you asking about?",

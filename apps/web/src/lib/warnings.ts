@@ -28,6 +28,7 @@
 
 import { humanizeIsoDates } from "@/lib/format";
 import { humanizeInline } from "@/lib/humanize";
+import { tidyProse } from "@/lib/prose";
 
 /** The code the server publishes for a sentence matching no known family. */
 export const UNCLASSIFIED = "UNCLASSIFIED";
@@ -334,6 +335,12 @@ export function publicWarningBody(code: string, message: string): PublicWarningB
   // Collapse a double space or an orphaned separator left where a census
   // was: "…rate; cash…" not "…rate ; cash…".
   text = text.replace(/\s+([;,.])/g, "$1").replace(/\s{2,}/g, " ").trim();
+  // And the fourth mechanical repair, on the same terms as the other
+  // three: a stop printed twice where two sentence builders met. Live,
+  // the maturity guard ships "Ask again once the thinner side matures.."
+  // into the PREMISE_UNVERIFIABLE banner. The engine's exact wording
+  // still travels on `verbatim`, one tap away.
+  text = tidyProse(text);
   const redacted = text !== verbatim;
   return { text: redacted ? text : verbatim, redacted, verbatim };
 }

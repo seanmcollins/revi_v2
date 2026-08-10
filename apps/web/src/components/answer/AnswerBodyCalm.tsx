@@ -10,7 +10,7 @@ import { EmptyResult } from "@/components/answer/EmptyResult";
 import { IntegrityLine } from "@/components/answer/IntegrityLine";
 import { InterpretationPanel } from "@/components/answer/InterpretationPanel";
 import { NarrativeText } from "@/components/answer/NarrativeText";
-import { FoldNote } from "@/components/answer/AnswerBodyCurrent";
+import { FoldNote, RestoredWithoutProse } from "@/components/answer/AnswerBodyCurrent";
 import { verificationClause, type AnswerModel } from "@/components/answer/useAnswerModel";
 import { VerdictLead } from "@/components/answer/VerdictLead";
 import { AnomalyReconciliationStrip } from "@/components/banners/AnomalyReconciliationStrip";
@@ -186,11 +186,16 @@ export function AnswerBodyCalm({
 
       {factsInline && (
         <>
+          {/* ONE note, one component. This layout carried its own copy of
+              the sentence, so the two drifted the moment the other one
+              learned to count what actually restored — and this is the
+              default surface, which is the one that was understating the
+              answer on a page a buyer forwards. */}
           {a.rehydrated && (
-            <p className="text-meta leading-snug text-muted-foreground">
-              The written analysis was not stored for this turn — these are the findings the
-              server kept, and the context they were measured under.
-            </p>
+            <RestoredWithoutProse
+              charts={model.charts.length}
+              hasEvidence={a.evidence !== undefined}
+            />
           )}
           {/* HOISTED, above the rows. The caveat count is on the first
               screen on this path too, which is the condition this layout

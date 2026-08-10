@@ -12,7 +12,6 @@ import { LeadLifecyclePanel, type LeadRow } from "@/components/rounds/LeadLifecy
 import { WatchTile } from "@/components/rounds/WatchTile";
 import { ConnectionPill } from "@/components/workspace/ConnectionPill";
 import { SessionRail } from "@/components/workspace/SessionRail";
-import { ThemeToggle } from "@/components/theme/ThemeToggle";
 import { announce } from "@/lib/announce";
 import { ApiDriver, fetchHealthDetail, resolveDriverKind } from "@/lib/apiDriver";
 import { envDriverKind, type DriverKind, type TurnDriver } from "@/lib/driver";
@@ -287,7 +286,12 @@ export function RoundsSurface() {
                 Ask a question
               </Link>
               <ConnectionPill />
-              <ThemeToggle />
+              {/* NO SECOND THEME TOGGLE. The rail already carries one on
+                  every route, and this header put an identical moon icon
+                  with an identical accessible name on the same screen —
+                  two controls a screen reader announces the same way,
+                  with nothing to tell them apart. The workspace header
+                  never had one; this page now matches it. */}
             </div>
           </header>
 

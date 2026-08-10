@@ -5,6 +5,7 @@ import { useMemo } from "react";
 import { selectPrimaryChart, selectRenderableCharts } from "@/lib/contract";
 import { caveatLines } from "@/lib/export";
 import { chartWindowLabel } from "@/lib/format";
+import { tidyProse } from "@/lib/prose";
 import type { TurnRecord } from "@/lib/store";
 import type { ChartSpec, EvidenceGrade, Finding, WarningEvent } from "@/lib/types";
 import { foldComposedDisclosures, partitionWarnings, publicWarningBody } from "@/lib/warnings";
@@ -251,10 +252,14 @@ export function useAnswerModel(turn: TurnRecord): AnswerModel {
   // and this card independently renders the same `warnings_v2`. The
   // banner is kept as the structured surface and the prose defers to it —
   // warnings survive a reload and composed prose does not.
-  const prose = useMemo(
-    () => foldComposedDisclosures(a.narrative, warnings),
-    [a.narrative, warnings],
-  );
+  // The doubled stop is repaired AFTER the fold, never before it: the
+  // fold matches composed sentences against the warnings they duplicate,
+  // and repairing punctuation first would change the strings being
+  // compared and silently stop folding the pair it was written for.
+  const prose = useMemo(() => {
+    const folded = foldComposedDisclosures(a.narrative, warnings);
+    return { ...folded, text: tidyProse(folded.text) };
+  }, [a.narrative, warnings]);
 
   // Ceilings are separated from measurements, and the separation is
   // stated. A stable partition: within each block the engine's order

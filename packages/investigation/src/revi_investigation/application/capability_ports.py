@@ -65,6 +65,12 @@ class PlaybookSpec:
     transforms: tuple[TransformStepSpec, ...] = ()
     conclusion_policies: tuple[str, ...] = ()
     ranking_policy: str | None = None
+    #: How the pack author says an analyst asks for this playbook. Carried
+    #: through the port (round-10 R10-6) so the OFFER-TIME option validator
+    #: can recognise a button that routes to a playbook this engine refuses
+    #: at plan time, in the pack's vocabulary rather than in one kept beside
+    #: it. Empty is legitimate: a playbook reached only by interpretation.
+    triggers: tuple[str, ...] = ()
 
 
 @dataclass(frozen=True, slots=True)

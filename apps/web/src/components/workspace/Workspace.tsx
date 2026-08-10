@@ -1,6 +1,6 @@
 "use client";
 
-import { Command, Settings2 } from "lucide-react";
+import { Command, Link as LinkIcon, Settings2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 
@@ -12,6 +12,7 @@ import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { ConnectionPill, DegradedModeBadge } from "@/components/workspace/ConnectionPill";
 import { ContextPanel } from "@/components/workspace/ContextPanel";
 import { SessionRail } from "@/components/workspace/SessionRail";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ApiDriver, fetchHealthDetail, resolveDriverKind } from "@/lib/apiDriver";
 import { envDriverKind } from "@/lib/driver";
@@ -21,6 +22,7 @@ import { sessionLinkFor } from "@/lib/links";
 import { REFERENCE_QUESTIONS } from "@/lib/mock/reference";
 import { MockDriver } from "@/lib/mockDriver";
 import { hasUnseenLoad, noteRoundsRedirect } from "@/lib/roundsVisit";
+import { sessionLinkDisclosure } from "@/lib/shareDisclosure";
 import { useSessionStore } from "@/lib/store";
 
 /**
@@ -405,25 +407,111 @@ export default function Workspace({
 }
 
 /**
- * The permalink, and the honest thing to say about it.
+ * The permalink, and the honest thing to say about it — BEFORE it is
+ * copied.
  *
  * `/s/{session_id}` is a link to a session, not to a snapshot: it re-joins
  * the session and rebuilds it from what the server kept, so it shows the
  * thread as it stands when it is opened — including turns asked after the
- * link was sent. That is stated on the tooltip rather than left for the
- * recipient to discover, because "here is the investigation" and "here is
- * the investigation as it was on Tuesday" are different promises.
+ * link was sent.
+ *
+ * That much was already on a tooltip. What was not is the half that
+ * decides whether the link is worth sending: what the server kept is not
+ * what the live turn published. Measured live, a shared answer opened cold
+ * renders "The written analysis was not stored for this turn" in place of
+ * the two thousand words everyone in the room had just read — and the
+ * operator learned that from the CFO. A tooltip is also the wrong carrier
+ * for it: it needs a hover, so on a touch screen and for a keyboard reader
+ * the disclosure did not exist.
+ *
+ * So the button opens the disclosure and the disclosure copies the link:
+ * two clicks, and the second one is informed. The lists are derived — see
+ * `sessionLinkDisclosure`, which reports what this browser has watched
+ * come back from the server rather than what this build believes the
+ * server stores.
  */
-function SessionLink({ sessionId }: { sessionId: string }) {
+export function SessionLink({ sessionId }: { sessionId: string }) {
+  const turns = useSessionStore((s) => s.turns);
+  const disclosure = useMemo(
+    () =>
+      sessionLinkDisclosure(
+        turns.map((turn) => ({
+          rehydrated: turn.answer.rehydrated === true,
+          narrative: turn.answer.narrative,
+          findings: turn.answer.findings.length,
+          charts: turn.answer.charts.length,
+          hasEvidence: turn.answer.evidence !== undefined,
+        })),
+      ),
+    [turns],
+  );
+
   return (
-    <Tooltip>
-      <TooltipTrigger asChild>
-        <span>
+    <Popover>
+      <PopoverTrigger asChild>
+        <button
+          type="button"
+          className="focus-ring flex h-5 items-center gap-1 rounded-full px-2 text-micro font-medium text-muted-foreground transition-colors duration-150 hover:text-foreground"
+        >
+          <LinkIcon aria-hidden className="size-3" />
+          Copy link
+        </button>
+      </PopoverTrigger>
+      <PopoverContent align="end" className="w-[24rem] max-w-[calc(100vw-2rem)] p-3.5">
+        <p className="text-micro font-semibold uppercase tracking-wide text-muted-foreground">
+          What this link opens
+        </p>
+        <p className="mt-1.5 text-meta leading-snug">{disclosure.lead}</p>
+
+        <p className="mt-2.5 text-micro font-semibold uppercase tracking-wide text-muted-foreground">
+          It carries
+        </p>
+        <ul className="mt-1 space-y-1">
+          {disclosure.included.map((line) => (
+            <li
+              key={line}
+              className="flex gap-1.5 text-meta leading-snug text-foreground/85"
+            >
+              <span aria-hidden className="text-muted-foreground">
+                ·
+              </span>
+              <span>{line}</span>
+            </li>
+          ))}
+        </ul>
+
+        <p className="mt-2.5 text-micro font-semibold uppercase tracking-wide text-muted-foreground">
+          It does not carry
+        </p>
+        <ul className="mt-1 space-y-1">
+          {disclosure.omitted.map((line) => (
+            <li key={line} className="flex gap-1.5 text-meta leading-snug text-muted-foreground">
+              <span aria-hidden>·</span>
+              <span>{line}</span>
+            </li>
+          ))}
+        </ul>
+
+        {/* Where the two lists came from. A disclosure that cannot say
+            whether it measured or assumed is the same shape as the
+            round-9 note this replaces, which reported that answers
+            restore with their prose — read in the tab that created them,
+            where the client store still held it. */}
+        <p
+          data-disclosure-basis={disclosure.basis}
+          className="mt-2.5 text-micro leading-snug text-muted-foreground"
+        >
+          {disclosure.basis === "observed"
+            ? "Measured: this is what came back when a turn in this session was re-read from the server."
+            : "Not yet measured on this session — every turn here was watched live, and this browser still holds what the server may not."}
+        </p>
+
+        <div className="mt-2.5 border-t pt-2.5">
           <CopyTextButton
-            label="Copy link"
+            label="Copy the link"
             doneLabel="Link copied"
             title="Copy a link to this session"
-            className="h-5 px-2 text-micro"
+            className="h-6 px-2 text-meta"
             text={() =>
               sessionLinkFor(
                 sessionId,
@@ -431,12 +519,8 @@ function SessionLink({ sessionId }: { sessionId: string }) {
               )
             }
           />
-        </span>
-      </TooltipTrigger>
-      <TooltipContent side="bottom" className="max-w-72 text-meta leading-snug">
-        Opens this session and rebuilds its answers from what the server kept. It is a link
-        to the session, not a snapshot — a turn asked after you send it will be there too.
-      </TooltipContent>
-    </Tooltip>
+        </div>
+      </PopoverContent>
+    </Popover>
   );
 }

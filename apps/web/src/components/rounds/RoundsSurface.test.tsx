@@ -149,6 +149,21 @@ describe("Rounds speaks while it works", () => {
     expect(focusable[1]).toHaveAccessibleName("Skip to your watches");
   });
 
+  /**
+   * TWO CONTROLS, ONE NAME.
+   *
+   * `document.querySelectorAll('button[aria-label="Toggle theme"]')`
+   * returned 2 on this route — the rail's and the page header's — so a
+   * screen reader announced the same control twice with nothing to tell
+   * them apart, and a sighted reader saw two identical moon icons on one
+   * screen. The workspace header never had one; this page now matches it,
+   * and the rail's is the one that survives because it is on every route.
+   */
+  it("offers exactly one theme toggle, as every other route does", () => {
+    draw();
+    expect(screen.getAllByRole("button", { name: "Toggle theme" })).toHaveLength(1);
+  });
+
   it("lands each skip link on something that can take focus", () => {
     draw();
     for (const [name, id] of [

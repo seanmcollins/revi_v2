@@ -124,8 +124,15 @@ export function WatchThis({
       aria-label={label ? `Watch ${label}` : "Watch this"}
       className={cn(
         "h-5 gap-1 px-1.5 text-micro font-normal text-muted-foreground hover:text-foreground",
-        size === "inline" &&
-          "opacity-0 transition-opacity duration-150 focus-visible:opacity-100 group-hover:opacity-100",
+        // PERSISTENT, not hover-revealed. The compact form defaulted to
+        // `opacity-0 group-hover:opacity-100`, and `FactRow` passes no
+        // size — so on every finding card, the control that starts the
+        // proactive monitoring this product is sold on did not exist for
+        // a touch user, in a screenshot, or on a projector. It is drawn
+        // in the muted ink instead, which is the volume that was wanted;
+        // invisible is not a volume. Not an opacity step on that token —
+        // `contrast.test.ts` bans those, and correctly. Filed rounds 7-10.
+        size === "inline" && "transition-colors duration-150",
         className,
       )}
     >

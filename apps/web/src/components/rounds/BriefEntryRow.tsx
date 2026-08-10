@@ -11,6 +11,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { formatWholeDollars } from "@/lib/format";
 import { humanizeColumn } from "@/lib/humanize";
 import { investigationLinkFor } from "@/lib/links";
+import { readableStatement, tidyProse } from "@/lib/prose";
 import type { BriefEntry, LeadStatus } from "@/lib/rounds";
 import { cn } from "@/lib/utils";
 
@@ -125,7 +126,7 @@ export function BriefEntryRow({
           </TooltipTrigger>
           <TooltipContent side="bottom" className="max-w-80 text-meta leading-snug">
             {/* How this entry was decided, in the server's own sentence. */}
-            {entry.provenance.method}
+            {tidyProse(entry.provenance.method)}
             {entry.provenance.formulaVersion && (
               <span className="mt-1 block text-micro text-muted-foreground">
                 ranked by {entry.provenance.formulaVersion}
@@ -137,9 +138,12 @@ export function BriefEntryRow({
 
       {/* THE SENTENCE. Composed from the payload server-side and never by
           a model — and never re-worded here, because every figure in it is
-          a figure the platform measured. */}
+          a figure the platform measured. The two mechanical repairs in
+          `lib/prose` are not a re-wording: a doubled stop is a defect in
+          a join, and a rank over a set of one is grammar the payload
+          does not support. */}
       <p className="mt-0.5 max-w-[68ch] text-body leading-relaxed text-foreground">
-        {entry.statement}
+        {readableStatement(entry.statement)}
       </p>
 
       {entry.delta && <DeltaLine delta={entry.delta} className="mt-1" />}
@@ -200,8 +204,11 @@ export function BriefEntryRow({
             />
           </button>
         ) : lead?.unavailableReason ? (
+          // Composed here from a server sentence, so the join is this
+          // client's to keep clean: the reason arrives with its own stop
+          // and this clause supplies the colon before it.
           <span className="text-muted-foreground">
-            Cannot be opened: {lead.unavailableReason}
+            Cannot be opened: {tidyProse(lead.unavailableReason)}
           </span>
         ) : null}
       </p>

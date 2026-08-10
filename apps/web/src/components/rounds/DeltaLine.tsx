@@ -1,8 +1,9 @@
 "use client";
 
-import { ArrowDownRight, ArrowUpRight, Minus } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight } from "lucide-react";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { tidyProse } from "@/lib/prose";
 import type { RoundsDelta } from "@/lib/rounds";
 import { cn } from "@/lib/utils";
 
@@ -27,6 +28,17 @@ import { cn } from "@/lib/utils";
  *     charges — not a movement in the business. It is drawn without a
  *     direction arrow for exactly that reason: an arrow is a claim about
  *     the world, and this is a claim about the data catching up.
+ *
+ * THE MARK IS NOT A SIGN. The refusal above used to be drawn as lucide
+ * `Minus` — `path d="M5 12h14"` — which at 10px beside a numeral is a
+ * minus sign, not the absence of an arrow. Every watch on the demo tenant
+ * is `sameWindow: true`, so the exec's marquee tile read "— 7.3 points
+ * from 22.2%" on a denial rate that got 7.3 points WORSE, twelve pixels
+ * under brief prose saying "up 7.3 points". Withholding an arrow and
+ * painting a minus are not the same act: one declines to claim a
+ * direction, the other claims the wrong one. The neutral mark is now an
+ * unsigned middot, and the direction the payload DOES carry is stated in
+ * the word the brief beside it already uses.
  */
 export function DeltaLine({
   delta,
@@ -37,32 +49,45 @@ export function DeltaLine({
 }) {
   if (!delta.comparable) {
     return (
-      <p className={cn("text-micro leading-snug text-muted-foreground", className)}>
-        {delta.notComparableReason ??
-          "No movement is published for this watch — the two loads are not two measurements of one thing."}
+      <p
+        data-delta-direction={delta.direction}
+        data-delta-mark="none"
+        className={cn("text-micro leading-snug text-muted-foreground", className)}
+      >
+        {tidyProse(
+          delta.notComparableReason ??
+            "No movement is published for this watch — the two loads are not two measurements of one thing.",
+        )}
       </p>
     );
   }
 
   const flat = delta.direction === "flat" || delta.delta === 0;
-  const Arrow =
-    delta.sameWindow || flat
-      ? Minus
-      : delta.direction === "up"
-        ? ArrowUpRight
-        : delta.direction === "down"
-          ? ArrowDownRight
-          : Minus;
+  const mark = deltaMark(delta);
+  const word = flat ? "" : directionWord(delta);
 
   return (
     <p
       data-delta-direction={delta.direction}
+      data-delta-mark={mark}
       data-same-window={delta.sameWindow ? "true" : "false"}
       className={cn("num flex flex-wrap items-baseline gap-x-1.5 text-micro leading-snug", className)}
     >
       <span className="inline-flex items-baseline gap-1 text-foreground/80">
-        <Arrow aria-hidden className="size-2.5 translate-y-0.5" />
-        {flat ? "no change" : delta.deltaText}
+        {mark === "up" ? (
+          <ArrowUpRight aria-hidden className="size-2.5 translate-y-0.5" />
+        ) : mark === "down" ? (
+          <ArrowDownRight aria-hidden className="size-2.5 translate-y-0.5" />
+        ) : (
+          // Unsigned, and deliberately not an icon: every glyph in the
+          // lucide set that reads as "flat" also reads as "minus", which
+          // is the defect. A middot is a separator — it says a mark
+          // belongs here and claims nothing about which way anything went.
+          <span aria-hidden className="text-muted-foreground">
+            ·
+          </span>
+        )}
+        {flat ? "no change" : word === "" ? delta.deltaText : `${word} ${delta.deltaText}`}
       </span>
       <span className="text-muted-foreground">
         {delta.reference === "baseline"
@@ -88,6 +113,38 @@ export function DeltaLine({
       )}
     </p>
   );
+}
+
+/**
+ * WHAT MAY BE PAINTED for this movement: an arrow, or nothing signed.
+ *
+ * Exported so the guard in `Rounds.test.tsx` can assert the property that
+ * matters — a movement that went up shares no mark with one that went
+ * down — rather than asserting one particular icon.
+ */
+export type DeltaMark = "up" | "down" | "neutral";
+
+export function deltaMark(delta: RoundsDelta): DeltaMark {
+  // No movement at all, and a re-measurement of one period, are both
+  // claims about the data rather than about the world. Neither earns an
+  // arrow, and neither may be given a sign.
+  if (delta.direction === "flat" || delta.delta === 0) return "neutral";
+  if (delta.sameWindow) return "neutral";
+  if (delta.direction === "up") return "up";
+  if (delta.direction === "down") return "down";
+  // `unknown` is the server declining to name a direction. So does this.
+  return "neutral";
+}
+
+/**
+ * The direction word the payload carries, for the cases where it carries
+ * one. Empty for `flat` (the text is "no change", which is the direction)
+ * and for `unknown` (there is nothing to say).
+ */
+export function directionWord(delta: RoundsDelta): string {
+  if (delta.direction === "up") return "up";
+  if (delta.direction === "down") return "down";
+  return "";
 }
 
 /**
@@ -121,8 +178,10 @@ export function ThresholdNote({ delta }: { delta: RoundsDelta }) {
       <TooltipContent side="bottom" className="max-w-80 text-meta leading-snug">
         {/* The server's own sentence: which rule decided and what it
             compared against, so the gate is checkable rather than
-            trusted. */}
-        {delta.materialityNote}
+            trusted. Its stacked stop is repaired and nothing else — the
+            note quotes the analyst's own reason, which arrives with its
+            own full stop inside a sentence that already has one. */}
+        {tidyProse(delta.materialityNote)}
       </TooltipContent>
     </Tooltip>
   );

@@ -149,7 +149,12 @@ export function AnswerBodyCurrent({
       {a.rehydrated &&
         !model.streaming &&
         a.narrative.trim() === "" &&
-        a.findings.length > 0 && <RestoredWithoutProse />}
+        a.findings.length > 0 && (
+          <RestoredWithoutProse
+            charts={model.charts.length}
+            hasEvidence={a.evidence !== undefined}
+          />
+        )}
     </>
   );
 }
@@ -183,12 +188,42 @@ export function FoldNote({ folded }: { folded: number }) {
  * a reader up at a chip row and away from the cards underneath it — the
  * same defect as the fold note beside it, which is why that one has said
  * "this answer carries" since the day it was written.
+ *
+ * AND IT COUNTS WHAT SURVIVED. The note used to name findings and context
+ * and stop there, on a turn whose charts and evidence bundle had restored
+ * three inches below it — so the one sentence a reader has for judging
+ * how much of the answer is left understated the answer, on exactly the
+ * page a buyer forwards. It now names what is actually on the page and
+ * nothing else: a turn that restored no charts does not have charts
+ * claimed for it, which is the mirror of the same defect and the one the
+ * server's own restoration note still commits.
  */
-export function RestoredWithoutProse() {
+export function RestoredWithoutProse({
+  charts = 0,
+  hasEvidence = false,
+}: {
+  /** How many charts this restore actually rebuilt. */
+  charts?: number;
+  /** Whether its evidence bundle came back with it. */
+  hasEvidence?: boolean;
+} = {}) {
+  const kept = [
+    "the findings",
+    ...(charts > 0 ? [charts === 1 ? "the chart" : `the ${charts} charts`] : []),
+    ...(hasEvidence ? ["the evidence behind them"] : []),
+  ];
+  const list =
+    kept.length === 1
+      ? kept[0]
+      : `${kept.slice(0, -1).join(", ")} and ${kept[kept.length - 1]}`;
+
   return (
-    <p className="rounded-md border border-dashed bg-card/60 px-3 py-2 text-meta leading-snug text-muted-foreground">
-      The written analysis was not stored for this turn — these are the findings the server
-      kept, and the context they were measured under.
+    <p
+      data-restored-without-prose
+      className="rounded-md border border-dashed bg-card/60 px-3 py-2 text-meta leading-snug text-muted-foreground"
+    >
+      The written analysis was not stored for this turn. What the server kept is here: {list},
+      with the context they were measured under.
     </p>
   );
 }

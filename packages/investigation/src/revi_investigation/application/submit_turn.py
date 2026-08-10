@@ -1828,7 +1828,7 @@ _EXPORT_REQUEST = re.compile(
 )
 
 
-def _export_request_refusal(question: str) -> str | None:
+def _export_refusal_sentence(question: str) -> str | None:
     """Refuse an export by name rather than re-answering (FIX-12(b)).
 
     Live: "Export this" came back ``turn_class: presentation_only`` with a
@@ -1847,17 +1847,27 @@ def _export_request_refusal(question: str) -> str | None:
     match = _EXPORT_REQUEST.search(question)
     if match is None:
         return None
+    # "export" and "download" are bare verbs and want an object; "give me a
+    # spreadsheet" already has one, and appending another produced "you
+    # asked to give me a spreadsheet this" on a demo surface.
+    asked = match.group(0).lower()
+    asked = f"{asked} this" if " " not in asked else asked
     return (
-        f"refinement_not_applied: you asked to {match.group(0).lower()} this, and I cannot "
-        "hand you a file from here — nothing I return is a document. The export is on the "
-        "answer itself: 'Copy answer' puts the findings, the analysis and every caveat on "
-        "your clipboard, and the CSV download saves the rows with their provisional marks "
-        "and the data load in the filename. The answer below is the previous one re-served, "
-        "unchanged; nothing was exported by this turn."
+        f"you asked to {asked}, and I cannot hand you a file from here — nothing I return "
+        "is a document. The export is on the answer itself: 'Copy answer' puts the "
+        "findings, the analysis and every caveat on your clipboard, and the CSV download "
+        "saves the rows with their provisional marks and the data load in the filename. "
+        "There is no new answer here and nothing was exported by this turn."
     )
 
 
-def _unapplied_presentation_request(question: str) -> str | None:
+def _export_request_refusal(question: str) -> str | None:
+    """The export refusal as a warning code, for the turn's own record."""
+    sentence = _export_refusal_sentence(question)
+    return None if sentence is None else f"refinement_not_applied: {sentence}"
+
+
+def _unapplied_presentation_sentence(question: str) -> str | None:
     """Name what a re-presentation was asked to change and did not do.
 
     ``REFINEMENT_NOT_APPLIED`` has been registered since round 4 and had no
@@ -1869,10 +1879,53 @@ def _unapplied_presentation_request(question: str) -> str | None:
     if match is None:
         return None
     return (
-        f"refinement_not_applied: you asked to {match.group(0).lower()} — this answer re-serves "
-        "the previous turn's rows in the order they were already in, and that request was not "
-        "applied to them. Name the column to order by (or ask for the cut you want) and I will "
-        "re-run it."
+        f"you asked to {match.group(0).lower()} — and I could not resolve that against the "
+        "rows on screen, so nothing was re-ordered and no new answer was produced. Name the "
+        "column to order by (or ask for the cut you want) and I will re-run it."
+    )
+
+
+def _unapplied_presentation_request(question: str) -> str | None:
+    """The unapplied-presentation note as a warning code."""
+    sentence = _unapplied_presentation_sentence(question)
+    return None if sentence is None else f"refinement_not_applied: {sentence}"
+
+
+#: Marks the turn that asked this platform to re-present something and got
+#: nothing new for it. The turn is a REFUSAL, not an answer (round-10
+#: R10-5): a re-served paragraph under ``outcome: answer`` is what made
+#: "Export this" the demo battery's only outright fail, three rounds
+#: running, and by round 10 the payload was carrying
+#: ``REFINEMENT_NOT_APPLIED`` beside ``outcome: answer`` — the engine
+#: recording that the instruction changed nothing while shipping it as
+#: though it had.
+PRESENTATION_PRODUCED_NOTHING_REASON = "PRESENTATION_PRODUCED_NOTHING"
+
+
+def _presentation_refusal(question: str) -> ClarificationRequest | None:
+    """The refusal card for a re-presentation that produced no artifact.
+
+    One shape for both dead ends this path can reach — an export asked for
+    in words, and an ordering that resolves against no column the rows
+    carry. Neither produces a file, a chart or a row that was not already
+    on screen, and this platform's word for that is a refusal.
+
+    No options on purpose: there is nothing to tap. The control is NAMED in
+    the sentence, which is what the reader needs, and
+    ``_no_options_card`` labels the card so a renderer draws a statement
+    rather than a question above an empty row of buttons.
+    """
+    sentence = _export_refusal_sentence(question) or _unapplied_presentation_sentence(question)
+    if sentence is None:
+        return None
+    return ClarificationRequest(
+        question=sentence[0].upper() + sentence[1:],
+        options=(),
+        reason=(
+            f"{PRESENTATION_PRODUCED_NOTHING_REASON}: this turn re-presented an existing "
+            "answer and produced no new artifact, so it is refused rather than served as a "
+            "second answer over the same rows"
+        ),
     )
 
 
@@ -4515,34 +4568,46 @@ class SubmitTurnService:
         beats a blank row of buttons, and the funnel's own
         "dropped everything" card exists for the case where it is right to
         show nothing.
+
+        Round-10 R10-6 adds the second half of answerability. A cut is one
+        way an option can dead-end; the other is the PLAYBOOK it routes to.
+        "Who is my worst payer?" offered *"Run a full payer scorecard
+        across all measures"*, which lands on ``payer_scorecard``, which
+        answers by ``pivot``, which this engine refuses at plan time — so
+        the first basics question of the demo handed the room a button the
+        engine had already decided it could not press. That check needs no
+        parent, which is why this method no longer returns early without
+        one: a first-turn clarification is exactly where it fires.
         """
         if not clarification.options:
             return clarification
         parent = await self._latest_investigation(session, analytical=True)
-        if parent is None:
-            return clarification
-        metrics = tuple(ref.id for ref in parent.spec.measures)
-        if not metrics:
-            return clarification
+        metrics = tuple(ref.id for ref in parent.spec.measures) if parent is not None else ()
         kept: list[str] = []
-        refused: list[tuple[str, str, str]] = []
+        refused: list[str] = []
         for option in clarification.options:
-            bad = self._validator.unexecutable_cut(option, metrics)
-            if bad is None:
-                kept.append(option)
-            else:
-                refused.append((option, *bad))
+            cut = self._validator.unexecutable_cut(option, metrics)
+            if cut is not None:
+                refused.append(f"{cut[0]} is not a cut of {cut[1]}")
+                continue
+            playbook = self._validator.unanswerable_playbook(option)
+            if playbook is not None:
+                refused.append(
+                    f"the {playbook[0]!r} playbook answers by {playbook[1]!r}, which this "
+                    "engine does not implement"
+                )
+                continue
+            kept.append(option)
         if not refused or not kept:
             return clarification
         surviving = tuple(kept)
-        named = ", ".join(f"{dimension} is not a cut of {metric}" for _, dimension, metric in refused)
         return replace(
             clarification,
             options=surviving,
             bindings=_bindings_for(clarification, surviving),
             reason=(
                 f"{clarification.reason}; {len(refused)} option(s) dropped before offer: "
-                f"{named}"
+                f"{', '.join(refused)}"
             ),
         )
 
@@ -5164,11 +5229,23 @@ class SubmitTurnService:
             # generic "that request was not applied" (round-8 FIX-12(b)):
             # the reader needs to know where the export is, not only that
             # this turn did not do it.
-            not_applied = _export_request_refusal(
-                state.question
-            ) or _unapplied_presentation_request(state.question)
-            if not_applied is not None:
-                warnings = (*warnings, not_applied)
+            #
+            # …and it is refused as a REFUSAL (round-10 R10-5). Returning
+            # ``outcome: answer`` while ``REFINEMENT_NOT_APPLIED`` sits in
+            # the same payload is the engine recording that the instruction
+            # changed nothing and shipping it as though it had — the
+            # battery's only outright fail, filed in three consecutive
+            # rounds, and the last sentence of every demo before "can you
+            # send me that?".
+            refusal = _presentation_refusal(state.question)
+            if refusal is not None:
+                return await self._clarification_outcome(
+                    session,
+                    state,
+                    classified,
+                    refusal,
+                    extra={"presentation_of": parent.id},
+                )
         investigation = replace(
             self._minimal_investigation(session, state, InvestigationStatus.COMPLETE, classified),
             spec=parent.spec,

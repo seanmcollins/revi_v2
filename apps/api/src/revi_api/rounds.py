@@ -664,8 +664,20 @@ class RoundsService:
         # whether it is a like-for-like comparison (round-7 FN-2, FN-9).
         if baseline is not None:
             try:
+                # Against the pin's OWN newest earlier evaluation, not against
+                # nothing (round-10 R10-2). Hard-coding ``None`` here was
+                # right for the only case it was written for — a watch minted
+                # fresh has no history — and wrong for the case the demo
+                # curation creates: a re-minted watch whose history was
+                # restored publishes "first reading — nothing to compare"
+                # from this line while the brief, one screen above, back-walks
+                # the same history and says "down 3.0 points".
                 await self._store_tile(
-                    pin, watermark, await self._tile_from_outcome(pin, outcome, watermark, None)
+                    pin,
+                    watermark,
+                    await self._tile_from_outcome(
+                        pin, outcome, watermark, await self._prior_result(pin, watermark)
+                    ),
                 )
             except Exception:  # pragma: no cover - defensive; the watch still stands
                 logger.warning(
@@ -1156,7 +1168,9 @@ class RoundsService:
         for pin in pins:
             existing = await self._components.rounds_results.get(pin.id, watermark.id)
             if existing is not None and not force and pin.id not in repaired:
-                stale = _stale_result_reason(pin, existing)
+                stale = _stale_result_reason(pin, existing) or await self._stale_prior_reason(
+                    pin, existing, watermark
+                )
                 if stale is None:
                     continue
                 logger.info(
@@ -1290,6 +1304,41 @@ class RoundsService:
             if _utc(result.watermark_loaded_at) < _utc(watermark.loaded_at):
                 return RoundsTilePayload.model_validate(result.payload)
         return None
+
+    async def _stale_prior_reason(
+        self, pin: RoundsPin, stored: RoundsPinResult, watermark: DataWatermark
+    ) -> str | None:
+        """Was this tile's delta measured against the prior it would get now?
+
+        Round-10 R10-2, the second half of :func:`_stale_result_reason`. That
+        one asks whether a stored tile still describes THIS WATCH; this one
+        asks whether it still describes the right PAIR OF LOADS. The two
+        surfaces disagreed on ``pin_b616b7b89bde`` — the JOC watch the demo
+        is built around — because its tile was written at creation time,
+        before its history existed, and nothing afterwards noticed that the
+        history had since arrived: the tile said "first reading — nothing to
+        compare against" while the brief one screen above said "down 3.0
+        points from 25.9%", both on one load, both about one pin.
+
+        A watch's history is not append-only in practice — a restoration
+        re-walk backfills earlier loads, and a pin created between loads gets
+        its first neighbour after its own tile was stored — so the prior a
+        stored delta names is checked against the prior this pin resolves to
+        now, and a disagreement costs one re-derivation.
+        """
+        try:
+            tile = RoundsTilePayload.model_validate(stored.payload)
+        except Exception:  # pragma: no cover - _stale_result_reason ran first
+            return "its stored tile can no longer be read in the current tile shape"
+        prior = await self._prior_result(pin, watermark)
+        measured_against = tile.delta.prior_watermark_id if tile.delta is not None else ""
+        resolves_to = prior.watermark_id if prior is not None else ""
+        if measured_against == resolves_to:
+            return None
+        return (
+            f"its stored tile was measured against {measured_against or 'no earlier load'} and "
+            f"this watch's newest earlier evaluation is now {resolves_to or 'no earlier load'}"
+        )
 
     async def _rounds_session(self, tenant: str, watermark: DataWatermark) -> Session:
         """The session a load's evaluations run in, pinned AT that load.
@@ -1779,7 +1828,7 @@ class RoundsService:
         # wm_001..wm_003 containing an entry measured wm_002..wm_003 — and
         # "I was away for a week" is the highest-value read of a proactive
         # surface (round-7 FN-9).
-        census = await self._movement_entries(tenant, watermark, pins, prior)
+        census = await self._movement_entries(tenant, watermark, pins, prior, named=since is not None)
         entries.extend(census.entries)
         entries.extend(self._verification_entries(load, watermark))
 
@@ -1978,6 +2027,8 @@ class RoundsService:
         watermark: DataWatermark,
         pins: Mapping[str, RoundsPin],
         prior_load: RoundsLoad | None,
+        *,
+        named: bool = True,
     ) -> _WatchCensus:
         """Every active watch, diffed against the load this brief is FOR.
 
@@ -1988,6 +2039,13 @@ class RoundsService:
         of eighteen watches at one live load were neither briefed nor
         counted as held back, on a surface whose stated discipline is
         "withheld visibly, never silently" (round-7 FN-12).
+
+        ``named`` says whether the caller asked for a specific ``since``.
+        When they did, the reference frame is theirs and a watch with no
+        evaluation at that load has nothing to say (round-7 FN-9). When they
+        did not, this brief and the tile grid are two renderings of one
+        default view, and they must count each pin once and identically —
+        see :meth:`_delta_against`.
         """
         out: list[RoundsBriefEntry] = []
         census = _WatchCensus(entries=out)
@@ -2005,7 +2063,7 @@ class RoundsService:
             if tile.status != "ok" or tile.value is None:
                 census.unavailable += 1
                 continue
-            delta = await self._delta_against(pin, tile, prior_watermark)
+            delta = await self._delta_against(pin, tile, prior_watermark, named=named)
             if delta is None:
                 census.not_yet_comparable += 1
                 continue
@@ -2050,7 +2108,12 @@ class RoundsService:
         return census
 
     async def _delta_against(
-        self, pin: RoundsPin, tile: RoundsTilePayload, prior_watermark_id: str | None
+        self,
+        pin: RoundsPin,
+        tile: RoundsTilePayload,
+        prior_watermark_id: str | None,
+        *,
+        named: bool = True,
     ) -> RoundsDeltaPayload | None:
         """This tile's movement since the NAMED load, not since last night.
 
@@ -2058,6 +2121,15 @@ class RoundsService:
         first reading, or a watch created after it. The tile's own stored
         delta is reused when it already measures the right pair, so the
         common case (``since`` absent) costs no extra read.
+
+        When no load was named (``named=False``) the tile's stored delta is
+        also the FALL-BACK, not just the fast path (round-10 R10-2). The
+        default brief and the tile grid are one view rendered twice; a watch
+        with a gap in its history — no evaluation at last night's load, one
+        at the load before — otherwise reads "down 3.0 points" on the tile
+        and "nothing to compare against yet" in the brief, on one screen. The
+        tile is the stored evaluation, so the tile wins, and the payload
+        carries the ``prior_watermark_id`` it was actually measured against.
         """
         if prior_watermark_id is None:
             return None
@@ -2065,7 +2137,9 @@ class RoundsService:
             return tile.delta if tile.delta.prior_value is not None else None
         stored = await self._components.rounds_results.get(pin.id, prior_watermark_id)
         if stored is None:
-            return None
+            if named or tile.delta is None or tile.delta.prior_value is None:
+                return None
+            return tile.delta
         prior_tile = RoundsTilePayload.model_validate(stored.payload)
         if prior_tile.status != "ok" or prior_tile.value is None:
             return None

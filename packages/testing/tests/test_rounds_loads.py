@@ -992,6 +992,119 @@ class TestOneReferenceFrame:
         assert "first reading" in (tile.delta.not_comparable_reason or "")
 
 
+class TestTheTileAndTheBriefTellOneStory:
+    """Round-10 R10-2. ``pin_b616b7b89bde`` — the JOC account the demo is
+    built around — was briefed "down 3.0 points from 25.9%" while its own
+    tile, one screen below on the same load, said "first reading — nothing
+    to compare against". The brief back-walked ``wm_002`` live; the tile
+    served a cached evaluation written before that history existed, and
+    nothing re-derived it, because staleness was judged on the WATCH and
+    never on the PAIR OF LOADS.
+
+    Fresh-eyes has now filed five defects of this one shape — a read path
+    and a write path drifting apart — so the contract is asserted rather
+    than the symptom: for one pin at one load, the two surfaces say the
+    same thing or the suite fails.
+    """
+
+    @staticmethod
+    async def _tiles(service: ApiService, watermark: DataWatermark) -> dict[str, object]:
+        surface = await service.rounds.rounds_at(CALLER, watermark)
+        return {tile.pin_id: tile for tile in surface.tiles}
+
+    async def test_a_tile_written_before_its_history_is_re_derived(self) -> None:
+        """The live sequence, reproduced through the public routes: the
+        newest load is evaluated first (as a watch created after a load is),
+        the earlier load arrives afterwards (as the restoration re-walk
+        backfills it), and the tile must not keep publishing the answer it
+        gave before its own past existed."""
+        service = _service()
+        _first, second, third = await _watermarks(service)
+        created = await service.rounds.create_pin(
+            CALLER, CreateRoundsPinRequest(spec=_moving_spec(), label="denied dollars by payer")
+        )
+        # Evaluated at the newest load with no history at all: "first
+        # reading — baseline set at this load".
+        before = (await self._tiles(service, third))[created.pin_id]
+        assert not before.delta.comparable
+
+        # …and now the history arrives underneath it.
+        await service.rounds.rounds_at(CALLER, second)
+
+        after = (await self._tiles(service, third))[created.pin_id]
+        assert after.delta is not None
+        assert after.delta.prior_watermark_id == second.id, (
+            "the tile still names the prior it was written against, not the one it has"
+        )
+        assert after.delta.comparable
+        assert "first reading" not in (after.delta.not_comparable_reason or "")
+
+    async def test_one_pin_is_one_fact_on_both_surfaces(self) -> None:
+        """The contract itself, over every watch on the default brief: same
+        pin, same load, same delta text, same comparability."""
+        service = _service()
+        first, second, third = await _watermarks(service)
+        await service.rounds.create_pin(
+            CALLER, CreateRoundsPinRequest(spec=_moving_spec(), label="denied dollars by payer")
+        )
+        # One watch with a HOLE in its history — evaluated at the first and
+        # the third load and never at the second — which is the population
+        # the two surfaces used to disagree about even when nothing was
+        # stale.
+        gapped = await service.rounds.create_pin(
+            CALLER,
+            CreateRoundsPinRequest(
+                spec=TypedInvestigationSpec(
+                    metric_ids=["denial_rate"],
+                    window=WindowSpecModel(quantity="1", unit="month", mode="full_periods"),
+                ),
+                label="denial rate",
+            ),
+        )
+        await service.rounds.rounds_at(CALLER, first)
+        await service.rounds.rounds_at(CALLER, second)
+        await service.rounds.rounds_at(CALLER, third)
+
+        tiles = await self._tiles(service, third)
+        brief = await service.rounds.brief_at(CALLER, third)
+
+        assert gapped.pin_id in tiles
+        briefed = {
+            entry.pin_id: entry
+            for entry in brief.entries
+            if entry.pin_id is not None and entry.delta is not None
+        }
+        assert briefed, "the brief must have something to say for this to prove anything"
+        for pin_id, entry in briefed.items():
+            tile = tiles[pin_id]
+            assert tile.delta is not None, pin_id
+            assert entry.delta.prior_watermark_id == tile.delta.prior_watermark_id, pin_id
+            assert entry.delta.comparable == tile.delta.comparable, pin_id
+            assert entry.delta.delta_text == tile.delta.delta_text, pin_id
+            assert entry.delta.direction == tile.delta.direction, pin_id
+            assert entry.delta.prior_value == tile.delta.prior_value, pin_id
+
+    async def test_a_watch_the_brief_cannot_compare_has_a_tile_that_agrees(self) -> None:
+        """The other half of counting each pin once: a watch the brief puts
+        in "nothing to compare against yet" may not be showing a movement on
+        its tile."""
+        service = _service()
+        _first, _second, third = await _watermarks(service)
+        await service.rounds.create_pin(
+            CALLER, CreateRoundsPinRequest(spec=_moving_spec(), label="denied dollars by payer")
+        )
+
+        tiles = await self._tiles(service, third)
+        brief = await service.rounds.brief_at(CALLER, third)
+
+        assert brief.immaterial.not_yet_comparable >= 1
+        briefed = {entry.pin_id for entry in brief.entries if entry.pin_id is not None}
+        for pin_id, tile in tiles.items():
+            if pin_id in briefed or tile.delta is None:
+                continue
+            assert not tile.delta.comparable or not tile.delta.material, pin_id
+
+
 class TestTheBriefSpeaksHumanWords:
     """Round-7 FN-8. The first sentence on the surface read "4 thing(s)
     changed between wm_002 and wm_003: 2 new lead, 1 pin movement, 1 self

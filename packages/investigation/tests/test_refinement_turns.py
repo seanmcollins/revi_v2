@@ -17,7 +17,11 @@ from revi_investigation.application.llm.schemas import (
     RankByModel,
     SetDimensionsModel,
 )
-from revi_investigation.application.submit_turn import SubmitTurnRequest, TurnOutcome
+from revi_investigation.application.submit_turn import (
+    PRESENTATION_PRODUCED_NOTHING_REASON,
+    SubmitTurnRequest,
+    TurnOutcome,
+)
 from revi_investigation.domain.context import PackVersionRef
 from revi_investigation.domain.records import InvestigationStatus, Session
 from revi_investigation.domain.refinements import SetDimensions
@@ -363,6 +367,124 @@ class TestZeroProbeTurns:
             key.partition(":")[2] for key in t1.investigation.frame_refs
         ]
         assert outcome.findings == t1.findings
+
+    async def test_a_re_presentation_that_produces_nothing_refuses(
+        self, small_warehouse_path: Path
+    ) -> None:
+        """Round-10 R10-5, third round running. "Export this" came back
+        ``outcome: answer``, ``turn_class: presentation_only``, narrative and
+        findings byte-identical to the turn above it — and by round 10 the
+        same payload carried ``REFINEMENT_NOT_APPLIED``, the engine recording
+        that the instruction changed nothing while shipping it as though it
+        had. It is the last sentence of every demo before "can you send me
+        that?", and it was the battery's only outright fail.
+
+        A re-presentation that produces no new artifact is a refusal.
+        """
+        llm = MockLanguageModel()
+        _canned_t1(llm)
+        llm.respond(
+            "classify_turn",
+            {"turn_class": "presentation_only", "confidence": 0.95, "clarification_question": None},
+            matcher=lambda p: "Export this" in p,
+        )
+        engine = _engine(small_warehouse_path, llm)
+        t1 = await _run_t1(engine)
+        outcome = await engine.submit.submit(
+            SubmitTurnRequest(tenant="demo", question="Export this", session_id=t1.session.id)
+        )
+
+        assert outcome.investigation.status is InvestigationStatus.CLARIFICATION_REQUIRED
+        assert outcome.clarification is not None
+        # …and it refuses BY NAME, pointing at the control that does exist.
+        question = outcome.clarification.question
+        assert "cannot hand you a file" in question
+        assert "Copy answer" in question and "CSV" in question
+        assert "nothing was exported by this turn" in question
+        assert PRESENTATION_PRODUCED_NOTHING_REASON in (outcome.clarification.reason or "")
+        # No second answer over the same rows, and no warning pretending the
+        # re-served paragraph was a result.
+        assert not outcome.findings
+        assert not [w for w in outcome.warnings if w.startswith("refinement_not_applied")]
+
+    async def test_a_re_presentation_that_DOES_something_still_answers(
+        self, small_warehouse_path: Path
+    ) -> None:
+        """The refusal is scoped to turns that produce nothing. An ordering
+        the served rows can actually be put in is applied, and applying it is
+        the whole of what a presentation turn is for (round-6 A-01)."""
+        llm = MockLanguageModel()
+        _canned_t1(llm)
+        llm.respond(
+            "classify_turn",
+            {"turn_class": "presentation_only", "confidence": 0.95, "clarification_question": None},
+            matcher=lambda p: "sort them" in p,
+        )
+        engine = _engine(small_warehouse_path, llm)
+        t1 = await _run_t1(engine)
+        outcome = await engine.submit.submit(
+            SubmitTurnRequest(
+                tenant="demo",
+                question="sort them by payer alphabetically",
+                session_id=t1.session.id,
+            )
+        )
+
+        assert outcome.investigation.status is InvestigationStatus.COMPLETE
+        assert outcome.clarification is None
+        assert outcome.findings
+        assert any(w.startswith("presentation_applied:") for w in outcome.warnings)
+
+    async def test_an_option_dead_ending_in_a_playbook_refusal_is_never_offered(
+        self, small_warehouse_path: Path
+    ) -> None:
+        """Round-10 R10-6, the live option verbatim on the live question.
+        "Who is my worst payer?" — the first basics question anyone asks —
+        offered "Run a full payer scorecard across all measures", and asking
+        for that elsewhere returned ``PLAYBOOK_TRANSFORM_UNAVAILABLE:
+        payer_scorecard answers by 'pivot'``.
+
+        The options are free TEXT, which is the whole difficulty: an option
+        carrying a binding has been dry-run against the planner since round
+        9, and an option that is only a sentence was published unchecked
+        against everything except the cut it names.
+        """
+        llm = MockLanguageModel()
+        _canned_t1(llm)
+        llm.respond(
+            "classify_turn",
+            {
+                "turn_class": "new_investigation",
+                "confidence": 0.5,
+                "clarification_question": "Worst by what? Denial rate and days in A/R disagree.",
+                "clarification_options": [
+                    "Rank payers by denial rate",
+                    "Run a full payer scorecard across all measures",
+                    "Will my cash increase next month?",
+                ],
+            },
+            matcher=lambda p: "worst payer" in p,
+        )
+        engine = _engine(small_warehouse_path, llm)
+        t1 = await _run_t1(engine)
+        outcome = await engine.submit.submit(
+            SubmitTurnRequest(
+                tenant="demo", question="Who is my worst payer?", session_id=t1.session.id
+            )
+        )
+
+        assert outcome.clarification is not None
+        offered = list(outcome.clarification.options)
+        assert "Run a full payer scorecard across all measures" not in offered
+        # …and the hero chip advertising the unimplemented forecast, at the
+        # same source.
+        assert "Will my cash increase next month?" not in offered
+        # The set is never emptied by this rule: an imperfect suggestion
+        # beats a blank row of buttons.
+        assert "Rank payers by denial rate" in offered
+        reason = outcome.clarification.reason or ""
+        assert "option(s) dropped before offer" in reason
+        assert "payer_scorecard" in reason and "pivot" in reason
 
     async def test_meta_turn_cites_recorded_provenance_with_zero_probes(
         self, small_warehouse_path: Path

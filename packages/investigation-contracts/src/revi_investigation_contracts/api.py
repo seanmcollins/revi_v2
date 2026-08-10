@@ -810,10 +810,15 @@ class InvestigationResponse(ClosedModel):
     metric: MetricProvenancePayload | None = None
     #: Rebuilt from the frames this turn persisted, so a restored turn
     #: renders its charts rather than findings alone. Empty when the
-    #: frames are gone or the turn charted nothing. There is deliberately
-    #: no ``narrative`` here: the composed prose is not stored anywhere,
-    #: and a restored turn says what it kept instead of inventing it.
+    #: frames are gone or the turn charted nothing.
     chart_specs: list[ChartSpec] = Field(default_factory=list)
+    #: The prose this turn PUBLISHED, when the record kept it (round-10
+    #: R10-4). ``None`` says the analysis was not stored for this turn —
+    #: every turn written before the narrative column existed, and every
+    #: turn that composed no prose. Nothing is ever reconstructed into it:
+    #: a restored turn shows the sentences that were published or says it
+    #: does not have them, and :attr:`restoration_notes` says which.
+    narrative: str | None = None
     #: Governed display names for the metric ids this turn's findings cite
     #: (round-2 FN-5). Published here as well as on :class:`TurnAnswer`:
     #: without it, replay and export carried a title the reader had no way

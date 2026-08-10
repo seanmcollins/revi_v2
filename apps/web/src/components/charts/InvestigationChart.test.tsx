@@ -17,9 +17,13 @@ import {
   axisTickLabels,
   boundedLegend,
   ChartTooltipContent,
+  flatTickBudget,
+  FLAT_TICK_FLOOR,
   InvestigationChart,
+  MIN_AXIS_HEIGHT,
   orderNote,
   rotatedAxisGutter,
+  rotatedAxisHeight,
 } from "@/components/charts/InvestigationChart";
 import type { ChartSpec } from "@/lib/types";
 
@@ -461,6 +465,78 @@ describe("axis labels name one entity each", () => {
     // Two names that can only be told apart whole (`axisTickLabels` prints
     // them in full) must not take half the figure with them.
     expect(rotatedAxisGutter("A".repeat(200))).toBe(72);
+  });
+
+  /**
+   * …AND THE ROOM BELOW, which was still the constant the left gutter used
+   * to be.
+   *
+   * Swept across every chart spec in the captured fixtures at the four
+   * container widths the product draws them in — the Evidence rail at
+   * 1280 and 1440, the answer column at its 3xl measure and at 1512 —
+   * BEFORE this existed: 421 x-axis tick labels rendered with their tails
+   * cut off by the SVG's own bottom edge, worst 16px, on every payer
+   * ranking at every width. AFTER: zero, at all four.
+   */
+  it("gives a rotated axis the depth its own longest name needs", () => {
+    const ticks = axisTickLabels(LIVE_PAYERS, 18);
+    const rendered = LIVE_PAYERS.map((p) => ticks.get(p)!);
+    const longest = rendered.reduce((n, t) => Math.max(n, t.length), 0);
+    // drop = width × sin(35°), plus one rotated line box, plus the tick
+    // margin — the geometry the fixed 74px did not have.
+    const needed = Math.ceil(longest * 6.3 * 0.574 + 14 * 0.82) + 6;
+    expect(rotatedAxisHeight(rendered)).toBeGreaterThanOrEqual(needed);
+    expect(rotatedAxisHeight(rendered)).toBeGreaterThan(MIN_AXIS_HEIGHT);
+  });
+
+  it("keeps the old constant as the floor for a short axis", () => {
+    expect(rotatedAxisHeight(["Jul", "Aug", "Sep"])).toBe(MIN_AXIS_HEIGHT);
+    expect(rotatedAxisHeight([])).toBe(MIN_AXIS_HEIGHT);
+  });
+
+  it("caps the axis before the figure becomes an axis with a chart on it", () => {
+    expect(rotatedAxisHeight(["A".repeat(200)])).toBeLessThanOrEqual(116);
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* A flat tick has to fit its own band                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * THE OTHER HALF OF THE SAME MEASUREMENT.
+ *
+ * The rotate-or-not rule counts characters and categories and knows
+ * nothing about width, so the same five-payer chart was comfortable in
+ * the answer column and unreadable in the Evidence rail: measured at
+ * 308px, five flat labels drew on top of one another with 111px of
+ * overlap. Twenty of the corpus's charts did it at one width or another.
+ *
+ * The budget is what the BAND can hold, so the same chart shortens its
+ * labels where there is room to read them and rotates where there is not.
+ */
+describe("InvestigationChart — a flat tick is budgeted against its band", () => {
+  it("is unbounded until the container has actually been measured", () => {
+    // The first paint, and any environment without ResizeObserver: an
+    // unmeasured chart keeps exactly the behaviour it had before, rather
+    // than shortening labels against a width nobody measured.
+    expect(flatTickBudget(0, 5)).toBe(Number.POSITIVE_INFINITY);
+    expect(flatTickBudget(720, 0)).toBe(Number.POSITIVE_INFINITY);
+  });
+
+  it("gives the answer column's five-payer chart room for a real name", () => {
+    // 720px container, five categories: a band of ~134px holds a name.
+    expect(flatTickBudget(720, 5)).toBeGreaterThanOrEqual(FLAT_TICK_FLOOR);
+  });
+
+  it("says the Evidence rail cannot hold five flat names at all", () => {
+    // 308px, five categories: a band of ~52px. Below the floor, so the
+    // axis rotates instead of drawing five names over each other.
+    expect(flatTickBudget(308, 5)).toBeLessThan(FLAT_TICK_FLOOR);
+  });
+
+  it("shrinks as the categories multiply, in the same container", () => {
+    expect(flatTickBudget(720, 12)).toBeLessThan(flatTickBudget(720, 5));
   });
 });
 

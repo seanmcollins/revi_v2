@@ -74,11 +74,13 @@ export function LeadStatusControl({
             aria-label={`Change where ${anomalyId} stands`}
             className={cn(
               "h-5 gap-0.5 rounded px-1.5 text-micro font-normal text-muted-foreground hover:text-foreground",
-              // Quiet until wanted, like the drill affordance beside it —
-              // but always reachable from the keyboard, which is the
-              // failure mode every hover-only control has.
-              status === "open" &&
-                "opacity-0 transition-opacity duration-150 focus-visible:opacity-100 group-hover:opacity-100",
+              // Quiet, and PRESENT. It was `opacity-0` until hover, which
+              // is not quiet on a touch screen or a projector — it is
+              // absent. The same repair as the two watch affordances on
+              // this page: the muted ink, not a hidden control (and not
+              // an opacity step on that token — `contrast.test.ts` bans
+              // those, because they drop 12px text under the AA floor).
+              status === "open" && "transition-colors duration-150",
             )}
           >
             {pending ? "Saving…" : status === "open" ? "Set where this stands" : "Change"}

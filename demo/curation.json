@@ -1,0 +1,33 @@
+{
+  "_readme": [
+    "The curated demo tenant, as data. Read by scripts/demo_curate.py:",
+    "  make demo-curate ARGS='--manifest demo/curation.json --clean-rail'",
+    "",
+    "pins: the seven watches the monitors surface is built around. An eighth,",
+    "pin_5adb19e075f6 ('Atlas Commercial - days in ar'), was minted by a review",
+    "battery and measures the same metric as pin_df42253af604 ('days in A/R by",
+    "payer') under a different spelling; it is absent from this list on purpose",
+    "and the command archives it. Archiving is soft - the tile's evaluated",
+    "history stays readable and its permalink does not 404.",
+    "",
+    "sessions: empty on purpose. This demo is walked LIVE - the presenter types",
+    "the questions - so there is nothing to pre-stage and an empty rail is the",
+    "goal, which is what --clean-rail produces. Pre-staging a walk? Put the",
+    "session ids here and drop --clean-rail; the command will then keep exactly",
+    "these and archive the rest.",
+    "",
+    "This file is not a seed. Nothing here creates a watch; it names the ones",
+    "that must survive a curation pass, so the pass can be run again."
+  ],
+  "expected_pins": 7,
+  "sessions": [],
+  "pins": [
+    "pin_f48564be9b31",
+    "pin_c33dd751c688",
+    "pin_0bf06e1b3505",
+    "pin_a1390d4ffe95",
+    "pin_df42253af604",
+    "pin_13d7f5687ae2",
+    "pin_b616b7b89bde"
+  ]
+}

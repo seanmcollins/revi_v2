@@ -1093,6 +1093,40 @@ describe("a restored turn keeps its answer in the calm layout", () => {
     expect(screen.getByText(/Pinnacle HMO F1: 47.2% denial rate/)).toBeInTheDocument();
   });
 
+  /**
+   * THE NOTE COUNTS WHAT SURVIVED.
+   *
+   * It named the findings and the context and stopped there — on a turn
+   * whose two charts and whose evidence bundle had restored three inches
+   * below it. The one sentence a reader has for judging how much of the
+   * answer is left was understating the answer, on exactly the page a
+   * buyer forwards to a CFO. (The server's own restoration note commits
+   * the mirror of this and claims charts while shipping `chart_specs:
+   * []`; that half is the API's.)
+   */
+  it("names the charts and the evidence when they DID come back", () => {
+    setAnswerVariant("b");
+    const { container } = renderCard(
+      turn({ rehydrated: true, narrative: "", header: undefined }),
+    );
+    const note = container.querySelector("[data-restored-without-prose]");
+    expect(note).not.toBeNull();
+    expect(note).toHaveTextContent(/The written analysis was not stored for this turn/);
+    expect(note).toHaveTextContent(/2 charts/);
+    expect(note).toHaveTextContent(/the evidence behind them/);
+  });
+
+  it("claims neither when neither came back", () => {
+    setAnswerVariant("b");
+    const { container } = renderCard(
+      turn({ rehydrated: true, narrative: "", header: undefined, charts: [], evidence: undefined }),
+    );
+    const note = container.querySelector("[data-restored-without-prose]");
+    expect(note).toHaveTextContent(/the findings/);
+    expect(note).not.toHaveTextContent(/chart/);
+    expect(note).not.toHaveTextContent(/evidence/);
+  });
+
   it("says it was restored exactly once", () => {
     setAnswerVariant("current");
     const { container } = renderCard(

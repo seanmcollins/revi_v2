@@ -1855,7 +1855,7 @@ def _unverifiable_sentence(
     )
 
 
-def movement_forms(delta: Scalar, pct: Scalar, unit: str | None) -> str:
+def movement_forms(delta: Scalar, pct: Scalar, unit: str | None, *, bounded: bool = False) -> str:
     """A movement in BOTH of its readings, each named.
 
     Round-6 answer-surface review. "denial rate rose 11.5%" printed beside
@@ -1867,9 +1867,17 @@ def movement_forms(delta: Scalar, pct: Scalar, unit: str | None) -> str:
 
     Money needs no such care — dollars and percentages do not look alike —
     so it keeps the shorter form with the relative change parenthesised.
+
+    ``bounded`` suppresses the relative reading entirely (round-10 R10-1,
+    riding along with the splice fix). A percentage change is a division by
+    a number, and when either side of the comparison is a CEILING there is
+    no such number: the live payload published "a 753.8% relative change"
+    off Veritas Comp Fund's 13-claim upper bound. The absolute form
+    survives because the title already says "at most"; the ratio does not,
+    because a ratio of a bound is not a bound on the ratio.
     """
     absolute = magnitude(delta, unit)
-    if not isinstance(pct, Decimal):
+    if bounded or not isinstance(pct, Decimal):
         return absolute
     relative = ratio_pct(abs(pct))
     if unit == _RATIO_UNIT:
@@ -1879,7 +1887,12 @@ def movement_forms(delta: Scalar, pct: Scalar, unit: str | None) -> str:
 
 def _movement_text(premise: PremiseCheck) -> str:
     """The movement a premise verdict states, in both of its readings."""
-    return movement_forms(premise.delta, premise.pct, premise.unit)
+    return movement_forms(
+        premise.delta,
+        premise.pct,
+        premise.unit,
+        bounded=premise.current_bound is not None or premise.prior_bound is not None,
+    )
 
 
 def _asserted_change_text(spec: AnalysisSpec) -> str:
@@ -2593,7 +2606,7 @@ class EvaluateFindingsService:
         # Both readings, each named. "up 0.8 points, a 11.5% relative
         # change" — never the bare "11.5%" beside "7.1% → 7.9%", which a
         # director reads as points (round-6 answer-surface review).
-        movement = movement_forms(delta, pct, shape.unit)
+        movement = movement_forms(delta, pct, shape.unit, bounded=bound is not None)
         statement = (
             f"{label}: {measure_label} moved from {format_value(prior, shape.unit)} to "
             f"{current_text} ({direction} {movement} {period_phrase})."
@@ -2810,7 +2823,11 @@ class EvaluateFindingsService:
             # answer-surface review).
             # The direction is already in ``movement`` ("up from"), so the
             # parenthesis carries only the SIZE — in both of its readings.
-            moved = f" ({movement_forms(delta, pct, shape.unit)})" if delta is not None else ""
+            moved = (
+                f" ({movement_forms(delta, pct, shape.unit, bounded=bound is not None)})"
+                if delta is not None
+                else ""
+            )
             statement = (
                 f"{label} is {current_text} {period_text}, {movement} {prior_text} "
                 f"{period_phrase}{moved}."

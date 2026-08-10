@@ -384,9 +384,20 @@ class TestApiContract:
         assert investigation.context_header.display == answer.context_header.display
         assert investigation.watermark_id == answer.context_header.watermark_id
         assert investigation.newest_data_date == session.newest_data_date
-        # …and says, in words, what restoring could not recover.
+        # …and says, in words, exactly what this link carries.
         assert any("Restored context" in note for note in investigation.restoration_notes)
-        assert any("narrative is not stored" in note for note in investigation.restoration_notes)
+        # Round-10 R10-4: the analysis IS the artifact a buyer forwards, so
+        # the shared link carries it and the note says so. Every claim in
+        # that inventory is checked against the payload it describes —
+        # claiming charts over `chart_specs: []` is the defect this closes.
+        assert investigation.narrative == answer.narrative
+        assert investigation.narrative
+        inventory = next(
+            note for note in investigation.restoration_notes if "this turn restores" in note.lower()
+        )
+        assert "the written analysis exactly as it was published" in inventory
+        assert ("the charts" in inventory) is bool(investigation.chart_specs)
+        assert "was not stored for this turn" not in inventory
 
 
 class TestHttpOnly:

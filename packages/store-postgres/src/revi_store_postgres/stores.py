@@ -322,6 +322,7 @@ def _row_to_investigation(row: sa.RowMapping) -> Investigation:
         created_at=row["created_at"],
         frame_refs=tuple(row["frame_refs"]),
         warnings=tuple(row["warnings"]),
+        narrative=row["narrative"],
     )
 
 
@@ -355,6 +356,7 @@ class PostgresInvestigationStore:
             "findings": to_stored(investigation.findings),
             "frame_refs": list(investigation.frame_refs),
             "warnings": list(investigation.warnings),
+            "narrative": investigation.narrative,
             "created_at": _utc(investigation.created_at),
         }
         inv_stmt = pg_insert(t.investigations).values(values)

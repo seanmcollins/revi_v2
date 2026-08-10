@@ -139,6 +139,7 @@ from revi_catalog_contracts.model import (
 from revi_investigation.application.capability_ports import PackPort
 from revi_investigation.application.date_basis import basis_bound_at
 from revi_investigation.application.planning import (
+    ANSWERING_TRANSFORMS,
     InvestigationPlan,
     ProbeNode,
     TransformPlan,
@@ -487,6 +488,87 @@ class PlanValidationService:
             if refused is None:
                 refused = (dimension_id, contracts[0].id)
         return refused
+
+    def unanswerable_playbook(self, text: str) -> tuple[str, str] | None:
+        """``(playbook id, transform)`` this sentence asks for and cannot have.
+
+        Round-10 R10-6, the same defect class as R9-07 one question to the
+        left. "Who is my worst payer?" — the first basics question anyone
+        asks — offered clarification option 4 verbatim *"Run a full payer
+        scorecard across all measures"*, and asking for that elsewhere
+        produced ``PLAYBOOK_TRANSFORM_UNAVAILABLE: payer_scorecard answers
+        by 'pivot'``. Wave G's offer-time validator dry-runs an option
+        against the plan grammar (:meth:`unexecutable_cut`), which is the
+        DIMENSION half of answerability; this is the other half, and the
+        knowledge it needs has been sitting in
+        :meth:`_playbook_transform_alternative` since round 8.
+
+        ``ANSWERING_TRANSFORMS`` are the transforms a playbook answers WITH
+        rather than decorates with — ``pivot`` makes a scorecard a
+        scorecard — so a playbook declaring one is a playbook this engine
+        refuses at plan time. Offering a button that reaches it is offering
+        a button the engine has already decided it cannot press.
+
+        Matching is on the pack's OWN triggers and on the playbook id read
+        as words, never on a vocabulary kept here: a trigger phrase is the
+        pack author's declaration that this is how an analyst asks for this
+        playbook, and it is the same declaration the interpreter routes on.
+
+        One-sided in the same way :meth:`unexecutable_cut` is, and for the
+        same reason — dropping a good option costs the analyst a real route.
+        An option that names a METRIC this pack holds is a direct query
+        whatever playbook words it also contains: ``payer_scorecard``
+        declares the trigger "rank payers", and *"Rank payers by denial
+        rate"* is a question this engine answers in one probe. So a text
+        that names a governed measure is never refused here.
+        """
+        folded = " ".join(text.casefold().split())
+        if not folded or self._names_a_metric(folded):
+            return None
+        best: tuple[tuple[int, bool], str, str] | None = None
+        for playbook_id, _description in self._pack.playbook_summaries():
+            playbook = self._pack.playbook(playbook_id)
+            if playbook is None:  # pragma: no cover - summaries come from the pack
+                continue
+            unavailable = next(
+                (
+                    step.operator
+                    for step in playbook.transforms
+                    if step.operator in ANSWERING_TRANSFORMS
+                ),
+                None,
+            )
+            if unavailable is None:
+                continue
+            named = playbook_id.replace("_", " ")
+            phrases = (
+                named,
+                *(trigger.casefold().strip() for trigger in playbook.triggers),
+            )
+            matched = max(
+                (len(phrase) for phrase in phrases if phrase and phrase in folded), default=0
+            )
+            # The LONGEST match wins, and where two playbooks declare the
+            # same trigger the one the text NAMES wins: "payer scorecard" is
+            # a trigger of both ``payer_scorecard`` and the generic
+            # ``dimension_scorecard``, and a refusal that names the generic
+            # one tells the reader about a playbook they did not ask for.
+            score = (matched, named in folded)
+            if matched and (best is None or score > best[0]):
+                best = (score, playbook_id, unavailable)
+        return None if best is None else (best[1], best[2])
+
+    def _names_a_metric(self, folded: str) -> bool:
+        """Does this text name a governed measure, by id or as words?
+
+        Both spellings, because both reach a reader: the pack's own
+        ``denial_rate`` (which the composer still leaks) and the "denial
+        rate" an analyst writes.
+        """
+        return any(
+            metric_id in folded or metric_id.replace("_", " ") in folded
+            for metric_id, _description in self._pack.metric_summaries()
+        )
 
     def _dimensions_named(self, text: str) -> tuple[str, ...]:
         """Catalog dimensions this free text asks to cut by.

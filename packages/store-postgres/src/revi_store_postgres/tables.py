@@ -100,6 +100,10 @@ investigations = sa.Table(
     sa.Column("findings", JSONB, nullable=False),
     sa.Column("frame_refs", JSONB, nullable=False),
     sa.Column("warnings", JSONB, nullable=False),
+    # Nullable and never backfilled: a turn that ran before 0006 did not
+    # keep its prose, and writing an empty string there would say it
+    # published none (round-10 R10-4).
+    sa.Column("narrative", sa.Text, nullable=True),
     sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
     sa.Index("ix_revi_trace_investigations_session_id", "session_id"),
     schema=TRACE_SCHEMA,

@@ -195,7 +195,7 @@ class TestMigrations:
     def test_migrated_to_head(self, engine: Engine) -> None:
         with engine.connect() as conn:
             version = conn.execute(sa.text("SELECT version_num FROM alembic_version")).scalar_one()
-        assert version == "0005"
+        assert version == "0006"
 
     def test_rounds_tables_exist(self, engine: Engine) -> None:
         """Migration 0005. Rounds is a capability, so it gets a
@@ -281,6 +281,23 @@ class TestMigrations:
                 ).scalars()
             )
         assert "ix_revi_session_sessions_tenant" in names
+
+    def test_investigations_carry_their_narrative_column(self, engine: Engine) -> None:
+        """Migration 0006. "Copy link" shipped a page with the analysis
+        removed because nothing stored the composed prose (round-10 R10-4).
+        Nullable and never backfilled: a turn written before the column
+        existed did not keep its prose, and an empty string there would
+        claim it published none."""
+        with engine.connect() as conn:
+            row = conn.execute(
+                sa.text(
+                    "SELECT is_nullable, data_type FROM information_schema.columns "
+                    "WHERE table_schema = 'revi_trace' AND table_name = 'investigations' "
+                    "AND column_name = 'narrative'"
+                )
+            ).one()
+        assert row.is_nullable == "YES"
+        assert row.data_type == "text"
 
     def test_sessions_carry_their_settings_column(self, engine: Engine) -> None:
         """Migration 0002. Nullable, and never backfilled: a session written

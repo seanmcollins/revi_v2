@@ -2315,6 +2315,17 @@
             "title": "Metric Display",
             "type": "array"
           },
+          "narrative": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Narrative"
+          },
           "newest_data_date": {
             "anyOf": [
               {

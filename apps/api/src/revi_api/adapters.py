@@ -104,6 +104,7 @@ class PackSnapshotPort:
                     ),
                     conclusion_policies=playbook.conclusion_policies,
                     ranking_policy=playbook.ranking_policy,
+                    triggers=playbook.triggers,
                 )
         return None
 

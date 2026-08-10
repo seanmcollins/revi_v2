@@ -10,6 +10,7 @@ import { WatchSensitivityForm } from "@/components/rounds/WatchSensitivity";
 import { Button } from "@/components/ui/button";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { investigationLinkFor } from "@/lib/links";
+import { readableStatement, tidyProse } from "@/lib/prose";
 import type { RoundsPin, RoundsTile, WatchModel } from "@/lib/rounds";
 import { useSessionStore } from "@/lib/store";
 import { isoRangeLabel } from "@/lib/format";
@@ -178,7 +179,9 @@ export function WatchTile({ tile, pin }: { tile: RoundsTile; pin?: RoundsPin }) 
               redeploy — and a tile that went blank without saying so would
               look like a zero. */}
           {tile.unavailableReason && (
-            <p className="text-micro leading-snug text-warning">{tile.unavailableReason}</p>
+            <p className="text-micro leading-snug text-warning">
+              {tidyProse(tile.unavailableReason)}
+            </p>
           )}
         </>
       ) : (
@@ -203,10 +206,15 @@ export function WatchTile({ tile, pin }: { tile: RoundsTile; pin?: RoundsPin }) 
           {baseline && <DeltaLine delta={baseline} />}
           {/* The headline finding's own sentence — what the number is
               ABOUT. Two lines at most: this is a tile, and the whole
-              statement is one tap away on the investigation. */}
+              statement is one tap away on the investigation.
+
+              Two mechanical repairs and no re-wording: a rank over a set
+              of ONE is not a rank ("ranks #1 of 1" — two of this tenant's
+              tiles publish it, one of them the JOC account), and a stop
+              printed twice is a defect in a join. See `lib/prose`. */}
           {tile.headlineStatement && (
             <p className="line-clamp-2 text-micro leading-snug text-muted-foreground">
-              {tile.headlineStatement}
+              {readableStatement(tile.headlineStatement)}
             </p>
           )}
         </>
@@ -242,6 +250,19 @@ export function WatchTile({ tile, pin }: { tile: RoundsTile; pin?: RoundsPin }) 
 function TileMenu({ tile, pin }: { tile: RoundsTile; pin?: RoundsPin }) {
   const [open, setOpen] = useState(false);
   const [editing, setEditing] = useState(false);
+  /**
+   * "Stop watching this" is ARMED before it fires.
+   *
+   * It was one click from ending a watch's history, with the reassurance
+   * copy sitting UNDER the button — read on the way past rather than
+   * acknowledged. The two-step makes that sentence the thing the analyst
+   * agrees to, which is what it was written to be, and it costs one
+   * keystroke on the one control here that cannot be undone from this
+   * surface: re-registering a watch resets the baseline "since you
+   * started watching" is measured from, so an undo would silently be a
+   * different watch.
+   */
+  const [armed, setArmed] = useState(false);
   const createWatch = useSessionStore((s) => s.createWatch);
   const removeWatch = useSessionStore((s) => s.removeWatch);
   const pendingKey = useSessionStore((s) => s.watchPendingKey);
@@ -308,7 +329,10 @@ function TileMenu({ tile, pin }: { tile: RoundsTile; pin?: RoundsPin }) {
       open={open}
       onOpenChange={(next) => {
         setOpen(next);
-        if (!next) setEditing(false);
+        if (!next) {
+          setEditing(false);
+          setArmed(false);
+        }
       }}
     >
       <PopoverTrigger asChild>
@@ -316,7 +340,16 @@ function TileMenu({ tile, pin }: { tile: RoundsTile; pin?: RoundsPin }) {
           variant="ghost"
           size="xs"
           aria-label={`Settings for the watch ${tile.label}`}
-          className="size-5 shrink-0 rounded p-0 text-muted-foreground opacity-0 transition-opacity duration-150 hover:text-foreground focus-visible:opacity-100 group-hover:opacity-100"
+          // PERSISTENT, not hover-revealed. It was `opacity-0
+          // group-hover:opacity-100`, which is no control at all on a
+          // touch screen, in a screenshot or on a projector — and the
+          // only way into a watch's own settings. Quiet is the right
+          // volume for it; invisible is not a volume. Filed four rounds
+          // running by three reviewers. Solid `text-muted-foreground`,
+          // not an opacity step: `contrast.test.ts` bans those on this
+          // token because they drop 12px text under the AA floor, and a
+          // control quiet enough to miss is the bug being fixed.
+          className="size-5 shrink-0 rounded p-0 text-muted-foreground transition-colors duration-150 hover:text-foreground"
         >
           <MoreHorizontal className="size-3" />
         </Button>
@@ -427,22 +460,57 @@ function TileMenu({ tile, pin }: { tile: RoundsTile; pin?: RoundsPin }) {
                   : "Read this watch's settings again"}
               </Button>
             )}
-            <Button
-              variant="ghost"
-              size="xs"
-              disabled={pending}
-              onClick={() => {
-                void removeWatch(key, tile.pinId);
-                setOpen(false);
-              }}
-              className="w-full justify-start text-meta font-normal text-muted-foreground hover:text-foreground"
-            >
-              Stop watching this
-            </Button>
-            <p className="text-micro leading-snug text-muted-foreground">
-              Nothing is deleted. The loads this watch has already been briefed on stay
-              readable, and its investigations keep their links.
-            </p>
+            {/* THE TWO-STEP. The reassurance sentence is above the
+                confirming button rather than below the firing one, so it
+                is what the analyst acknowledges instead of what they read
+                on the way past. "Keep watching" is the wider target and
+                comes first, because the reversible choice should be the
+                easy one. */}
+            {armed ? (
+              <div data-stop-watch-armed className="space-y-1.5 rounded-md border p-2">
+                <p className="text-meta font-medium leading-snug">
+                  Stop watching {tile.label}?
+                </p>
+                <p className="text-micro leading-snug text-muted-foreground">
+                  Nothing is deleted. The loads this watch has already been briefed on stay
+                  readable, and its investigations keep their links. Starting it again later
+                  measures “since you started watching” from that day, not from this one.
+                </p>
+                <div className="flex gap-1.5 pt-0.5">
+                  <Button
+                    variant="outline"
+                    size="xs"
+                    onClick={() => setArmed(false)}
+                    className="flex-1 justify-center text-meta font-normal"
+                  >
+                    Keep watching
+                  </Button>
+                  <Button
+                    variant="ghost"
+                    size="xs"
+                    disabled={pending}
+                    onClick={() => {
+                      void removeWatch(key, tile.pinId);
+                      setArmed(false);
+                      setOpen(false);
+                    }}
+                    className="flex-1 justify-center text-meta font-normal text-negative hover:text-negative"
+                  >
+                    {pending ? "Stopping…" : "Yes, stop watching"}
+                  </Button>
+                </div>
+              </div>
+            ) : (
+              <Button
+                variant="ghost"
+                size="xs"
+                disabled={pending}
+                onClick={() => setArmed(true)}
+                className="w-full justify-start text-meta font-normal text-muted-foreground hover:text-foreground"
+              >
+                Stop watching this
+              </Button>
+            )}
             {refusal && (
               <p role="alert" className="text-micro leading-snug text-negative">
                 {refusal}

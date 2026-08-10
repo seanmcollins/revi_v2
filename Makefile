@@ -38,6 +38,13 @@ migrate: ## Apply Postgres migrations
 sweep: ## Run one cohort TTL sweep (drop expired cohort tables; --dry-run supported)
 	uv run python -m revi_scheduler.sweep
 
+demo-curate: ## Curate + verify the demo tenant, then print a readiness checklist
+	@# Idempotent and re-runnable — the last pre-demo step, not a one-time
+	@# seed. Names to keep come from --keep-session/--keep-pin or a manifest;
+	@# with none named it archives nothing and prints the tenant as it stands.
+	@# Pass args with ARGS="--manifest demo/curation.json".
+	uv run python scripts/demo_curate.py $(ARGS)
+
 api: ## Run the FastAPI app (dev; open auth — see REVI_AUTH_DEV_TENANT)
 	REVI_AUTH_DEV_TENANT=$${REVI_AUTH_DEV_TENANT:-demo} \
 	  uv run uvicorn revi_api.main:app --reload --port 8000

@@ -1,0 +1,89 @@
+/**
+ * PRESENTATION HYGIENE — the two repairs a surface is allowed to make to
+ * a sentence the platform composed.
+ *
+ * The rule everywhere else in this client is that prose is passed through
+ * and never rewritten: every figure in a statement is a figure the engine
+ * measured, and a client that re-words them is a second author nobody can
+ * audit. These two functions do not re-word anything. They repair a
+ * MECHANICAL defect in the join — a stop printed twice where two builders
+ * met, and a rank grammar applied to a set of one — and both are
+ * conservative by construction: a string carrying neither defect comes
+ * back byte-identical.
+ *
+ * The same discipline `humanizeIsoDates` and `publicWarningBody` already
+ * follow: change only what can be proven wrong, leave everything else,
+ * and keep the engine's exact wording reachable on the surfaces that
+ * exist to reproduce a query (the exports, the decision trace, the CSV
+ * preamble) — none of which route through here.
+ */
+
+/**
+ * A parenthetical that brought its own full stop into a sentence that
+ * already had one: "…anything over a point.)." → "…anything over a
+ * point.)".
+ *
+ * Live on `/rounds`, in the materiality note of the JOC account's tile —
+ * the reviewer's own note was rewritten twice and the stacked stop
+ * survived both rewrites, because it is not in either half. It is made
+ * where they join.
+ */
+const STACKED_STOP = /\.\)([.,;:])/g;
+
+/**
+ * Exactly two dots, next to neither a third dot nor a digit.
+ *
+ * The digit guard is the whole reason this is a regex and not a
+ * `replace("..", ".")`: `2026-07-01..2026-07-31` is an ISO range and the
+ * dots are its operator. The dot guard keeps an ellipsis whole — "Ask
+ * again once the thinner side matures.." is a defect and "Reading this
+ * watch's settings..." is not.
+ */
+const DOUBLED_STOP = /(?<![.\d])\.\.(?![.\d])/g;
+
+/**
+ * The sentence with its doubled punctuation collapsed, and nothing else
+ * touched.
+ *
+ * Applied where a composed sentence reaches a reader — a tile statement,
+ * a brief line, a warning body, a finding row. Not applied to anything
+ * whose job is reproducibility.
+ */
+export function tidyProse(text: string): string {
+  if (text === "") return text;
+  return text.replace(STACKED_STOP, ")$1").replace(DOUBLED_STOP, ".");
+}
+
+/**
+ * "#1 of 1" is not a rank.
+ *
+ * A breakdown narrowed to a single payer keeps the ranking grammar the
+ * breakdown builder writes — "Pinnacle Health Plan ranks #1 of 1 measured
+ * by denial rate over 2026-07-01..2026-07-31: 22.9%" — and a rank over a
+ * set of one is a claim about an order that was never measured. Two of
+ * the demo tenant's own tiles publish it, one of them the JOC account
+ * named in the curated note.
+ *
+ * The repair keeps every word the engine wrote except the rank clause
+ * itself, which is replaced with what the payload actually supports: this
+ * was the only cell there was. `#1 of 12` is untouched — the boundary
+ * after the second `1` is what distinguishes them.
+ */
+export function scalarizeRankOfOne(text: string): string {
+  return text.replace(
+    /\branks\s+#1\s+of\s+1\b(\s+measured\s+by\b)?/gi,
+    (_match, measuredBy: string | undefined) =>
+      measuredBy === undefined
+        ? "is the only cell measured here"
+        : "is the only cell measured here —",
+  );
+}
+
+/**
+ * Both repairs, in the order they have to run: the rank clause first (it
+ * rewrites words), the punctuation second (it repairs joins, including
+ * any the first repair produced).
+ */
+export function readableStatement(text: string): string {
+  return tidyProse(scalarizeRankOfOne(text));
+}

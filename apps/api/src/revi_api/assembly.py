@@ -289,17 +289,35 @@ def restored_context_header(
     )
 
 
+def _and_list(items: Sequence[str]) -> str:
+    """"a, b and c" — an inventory a reader can check item by item."""
+    if not items:  # pragma: no cover - callers always pass at least two
+        return "nothing"
+    if len(items) == 1:  # pragma: no cover - callers always pass at least two
+        return items[0]
+    return f"{', '.join(items[:-1])} and {items[-1]}"
+
+
 def _restoration_notes(
     investigation: Investigation,
     trace: TraceRecord | None,
     header: ContextHeaderPayload | None,
+    *,
+    chart_specs: Sequence[ChartSpec] = (),
 ) -> list[str]:
     """What restoring this turn recovered, and what it could not.
 
     Written from facts about the record in hand — never a guess about why
-    something is missing. The narrative note is unconditional because
-    nothing stores composed prose; the others fire only on the evidence
-    that they happened.
+    something is missing, and never a claim about something not in hand.
+
+    Round-10 R10-4 fixed both halves of this note. It used to end *"Its
+    findings, warnings and charts are its own record"* unconditionally, on
+    a response that shipped ``chart_specs: []`` — false on every lineage
+    node, where charts are not looked up at all, and false again whenever
+    the frames behind a turn had been swept. And it opened by asserting the
+    prose was gone, which stopped being true the moment the narrative was
+    persisted. Both sentences are now composed from what this response
+    actually carries.
     """
     notes: list[str] = []
     if header is not None:
@@ -314,11 +332,26 @@ def _restoration_notes(
             "This turn stored no analysable context (no measures and no scope), so there "
             "is no effective-context header to restore for it."
         )
-    notes.append(
-        "The composed narrative is not stored anywhere — the narrative trace keeps its "
-        "template, redactions and length, not its sentences — so this turn restores "
-        "without prose. Its findings, warnings and charts are its own record."
-    )
+    # What this link actually carries, item by item, and nothing else. A
+    # restored turn is read by someone who was not in the room, so an
+    # inventory that overstates by one noun is worse than no inventory.
+    kept = ["the findings", "their warnings and caveats"]
+    if chart_specs:
+        kept.append("the charts")
+    if investigation.narrative:
+        kept.insert(0, "the written analysis exactly as it was published")
+        notes.append(
+            "This turn restores with " + _and_list(kept) + ". Nothing here was re-computed "
+            "or re-written: these are the sentences and figures this turn published when it "
+            "ran."
+        )
+    else:
+        notes.append(
+            "The written analysis was not stored for this turn — the narrative trace keeps "
+            "its template, redactions and length, not its sentences — so this turn restores "
+            "without prose. What this link carries is " + _and_list(kept) + "."
+            + ("" if chart_specs else " Its charts are not part of this record.")
+        )
     if any(w.startswith(_VALUE_CORRECTED_PREFIX) for w in investigation.warnings):
         notes.append(
             "This turn corrected at least one filter value at validation time (see its "
@@ -381,11 +414,13 @@ def investigation_response(
     implying the turn ran nothing.
 
     ``chart_specs`` are rebuilt from the turn's persisted frames by
-    :func:`restored_chart_specs`. There is no equivalent for the
-    narrative: nothing stores the composed prose (the narrative trace
-    record keeps its template, its redactions and its length, not its
-    text), so a restored turn shows its findings and charts and does not
-    pretend to have kept the sentences.
+    :func:`restored_chart_specs`, and are what the restoration note counts
+    when it says what this link carries — the note used to claim charts
+    while the same response shipped ``[]`` (round-10 R10-4).
+
+    The narrative is the turn's OWN, read off the stored record and never
+    reconstructed. A turn that ran before the narrative was persisted, or
+    that composed no prose, publishes ``None`` here and a note saying so.
 
     The governed-provenance block rides on the same ``trace``, for the
     same reason: a restored turn that lost its badge would read as an
@@ -399,7 +434,7 @@ def investigation_response(
     header = restored_context_header(investigation, snapshot_metric_ids)
     watermark = getattr(getattr(investigation.spec, "context", None), "watermark", None)
     benchmarks = _restored_benchmarks(investigation, benchmarks_for_metric)
-    notes = _restoration_notes(investigation, trace, header)
+    notes = _restoration_notes(investigation, trace, header, chart_specs=chart_specs)
     stored_pack = getattr(getattr(investigation.spec, "context", None), "pack_version", None)
     if (
         benchmarks
@@ -439,6 +474,10 @@ def investigation_response(
         watermark_id=watermark.id if watermark is not None else "",
         newest_data_date=watermark.newest_data_date if watermark is not None else None,
         restoration_notes=notes,
+        # The prose this turn published, when the record kept it. Read, not
+        # rebuilt: an empty stored narrative publishes ``None`` so the note
+        # above and this field can never contradict each other.
+        narrative=investigation.narrative or None,
         # Governed peer ranges, restored with the finding that cited them —
         # ``finding_payload`` keeps only the ones whose metric the finding
         # actually names, exactly as on the live turn.

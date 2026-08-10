@@ -1,7 +1,7 @@
 "use client";
 
 import { Maximize2 } from "lucide-react";
-import { useMemo } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bar,
   BarChart,
@@ -321,6 +321,98 @@ export function rotatedAxisGutter(firstTick: string | undefined): number {
 }
 
 /**
+ * …AND HOW MUCH ROOM IT NEEDS BELOW, which is the other half of the same
+ * geometry and was still a constant.
+ *
+ * The left gutter fix covered the label that leaves the figure sideways.
+ * A −35° label also runs DOWN, by `width × sin(35°)`, and the axis was
+ * given a fixed `height: 74` — so the moment the tick shortener let a name
+ * through at its full 18 characters (plus a "≤ " ceiling mark and a " †"
+ * withheld mark, which is 22), the bottom of the name was cut off by the
+ * SVG's own edge.
+ *
+ * Measured across the captured corpus at all four container widths before
+ * this existed: 421 clipped tick labels, worst 16px — "Northbridge
+ * Comme…", "Summit Peak Medic…" and "Lakewood Medicaid…" on every payer
+ * ranking the product draws, at every width including the widest. It is
+ * the defect the owner saw.
+ *
+ *   drop   = width × sin(35°) ≈ 0.574 × width, the vertical run;
+ *   line   = one 12px line box (~14px) × cos(35°), the tick's own depth;
+ *   margin = the 6px `tickMargin` between the axis line and the text.
+ *
+ * The figure GROWS to hold it rather than the plot shrinking: the drawing
+ * keeps the same 214px of vertical room it had at the old constant, and a
+ * chart whose names need 100px of axis is 26px taller than one whose names
+ * need 74. A ranking squeezed to fit its own labels is the fix that
+ * produces the next screenshot.
+ */
+const TICK_ROTATION_SIN = 0.574;
+const TICK_LINE_PX = 14;
+const AXIS_TICK_MARGIN = 6;
+/** The height the axis had as a constant — and still the floor. */
+export const MIN_AXIS_HEIGHT = 74;
+const MAX_AXIS_HEIGHT = 116;
+/** Vertical room the drawing itself keeps, whatever the axis costs. */
+export const PLOT_ROOM_PX = 214;
+
+export function rotatedAxisHeight(ticks: readonly string[]): number {
+  const longest = ticks.reduce((n, tick) => Math.max(n, tick.length), 0);
+  if (longest === 0) return MIN_AXIS_HEIGHT;
+  const drop = longest * TICK_CHAR_PX * TICK_ROTATION_SIN + TICK_LINE_PX * TICK_ROTATION_COS;
+  // The 8px is not slack, it is measurement error paid for: 6.3px is the
+  // AVERAGE advance, and a name of capitals and an ellipsis ("Northbridge
+  // Comme…", "Summit Peak Medic…") runs wider than its average. At +4 the
+  // sweep still cut 1-3px off those three labels; at +8 the corpus is
+  // clean at every width with room to spare inside the cap.
+  return Math.max(
+    MIN_AXIS_HEIGHT,
+    Math.min(MAX_AXIS_HEIGHT, Math.ceil(drop) + AXIS_TICK_MARGIN + 8),
+  );
+}
+
+/**
+ * A HORIZONTAL axis has two defects of its own, and one number fixes
+ * both: how many characters a FLAT tick may take before its own band
+ * cannot hold it.
+ *
+ * A flat tick is centred on its band. When the label is wider than the
+ * band it collides with its neighbours — measured on the five-payer
+ * underpayment chart in the Evidence rail: four colliding pairs, 111px of
+ * overlap, one illegible smear where the payer names should be — and when
+ * it is wider than the LAST band it also runs past the plot's right edge,
+ * which is how "Veritas Comp Fund †" lost its dagger by 22px and
+ * "Northbridge Commerc…" lost 14.
+ *
+ * Both are the same fact: the label does not fit the room it is drawn in.
+ * A budget measured from the band ends both, and it ends them by
+ * shortening the label rather than by buying room from the drawing — and
+ * where the band cannot hold a NAME at all, `rotateTicks` takes over,
+ * which is what rotation is for.
+ *
+ * `Infinity` when the container has not been measured yet (the first
+ * paint, and any environment without `ResizeObserver`): an unmeasured
+ * chart keeps exactly the behaviour it had before this existed, and the
+ * observer corrects it on the next frame. A budget that guessed would be
+ * worse than one that waits.
+ *
+ *   band  = the plot's width, less the y-axis, over the category count;
+ *   pad   = 6px of air between two neighbouring labels;
+ *   marks = the four characters `categoryTick` can add on top of the
+ *           shortened name ("≤ " and " †").
+ */
+const TICK_BAND_PAD = 6;
+const TICK_MARK_PAD = 4;
+/** Below this a name is no longer a name, so the axis rotates instead. */
+export const FLAT_TICK_FLOOR = 8;
+
+export function flatTickBudget(plotWidth: number, categories: number): number {
+  if (plotWidth <= 0 || categories <= 0) return Number.POSITIVE_INFINITY;
+  const band = (plotWidth - AXIS_Y_WIDTH) / categories;
+  return Math.floor((band - TICK_BAND_PAD) / TICK_CHAR_PX) - TICK_MARK_PAD;
+}
+
+/**
  * The mark treatment for a cell the engine published as a ceiling.
  *
  * Desaturated fill plus a dashed outline: the bar reads as an EDGE rather
@@ -536,15 +628,49 @@ export function InvestigationChart({
     (longest, row) => Math.max(longest, humanizeCategory(row.label).length),
     0,
   );
+  /**
+   * …AND THE SAME RULE, MEASURED AGAINST THE CONTAINER IT IS DRAWN IN.
+   *
+   * The rule above counts characters and categories and knows nothing
+   * about width, so the same five-payer chart is comfortable in the answer
+   * column and unreadable in the Evidence rail: measured at 308px, five
+   * flat labels up to 20 characters each drew on top of one another —
+   * 111px of overlap, four colliding pairs, one illegible grey smear where
+   * the payer names should be. Twenty of the corpus's charts did it at one
+   * width or another, and three of them did it at every width.
+   *
+   * So the tick budget is the BAND's, and it is measured: a flat label
+   * that cannot fit its own band is shortened to fit, and when the band is
+   * too narrow to hold a name at all (below eight characters, where a
+   * payer is no longer identifiable) the axis rotates, which is what
+   * rotation is for.
+   */
+  const plotRef = useRef<HTMLDivElement>(null);
+  const [plotWidth, setPlotWidth] = useState(0);
+  useEffect(() => {
+    const node = plotRef.current;
+    if (node === null || typeof ResizeObserver === "undefined") return;
+    setPlotWidth(node.getBoundingClientRect().width);
+    const observer = new ResizeObserver((entries) => {
+      for (const entry of entries) setPlotWidth(entry.contentRect.width);
+    });
+    observer.observe(node);
+    return () => observer.disconnect();
+  }, []);
+  const tickBudget = flatTickBudget(plotWidth, data.length);
   const rotateTicks =
-    spec.kind !== "line" && data.length > 6 && !(longestLabel <= 12 && data.length <= 12);
+    spec.kind !== "line" &&
+    ((data.length > 6 && !(longestLabel <= 12 && data.length <= 12)) ||
+      (longestLabel > tickBudget && tickBudget < FLAT_TICK_FLOOR));
   const tickText = useMemo(
     () =>
       axisTickLabels(
         spec.rows.map((row) => row.label),
-        rotateTicks ? 18 : data.length > 8 ? 12 : 20,
+        rotateTicks
+          ? 18
+          : Math.max(4, Math.min(data.length > 8 ? 12 : 20, tickBudget)),
       ),
-    [spec.rows, rotateTicks, data.length],
+    [spec.rows, rotateTicks, data.length, tickBudget],
   );
   // Composed rather than exclusive: on a comparison one category can hold
   // a ceiling on one window and no figure at all on the other, and an
@@ -594,6 +720,16 @@ export function InvestigationChart({
   const leftGutter = rotateTicks
     ? rotatedAxisGutter(data[0] === undefined ? undefined : categoryTick(String(data[0].label)))
     : MIN_AXIS_GUTTER;
+  // …and the room it needs BELOW, measured from the same labels. Both
+  // gutters read the tick AS RENDERED — `categoryTick` adds the "≤"
+  // ceiling mark and the "†"/"‡"/"*" marks, and those characters are the
+  // ones that were being cut off.
+  const renderedTicks = useMemo(
+    () => data.map((row) => categoryTick(String(row.label))),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [data, tickText, boundedLabels, withheldLabels, absentLabels, provisionalLabels],
+  );
+  const axisHeight = rotateTicks ? rotatedAxisHeight(renderedTicks) : MIN_AXIS_HEIGHT;
 
   const tooltipContent = (props: unknown) => (
     <ChartTooltipContent
@@ -693,7 +829,17 @@ export function InvestigationChart({
       // height at which a twelve-bar ranking became a picket fence; 14
       // gives the plot the same air the wider category gap gives it
       // across.
-      <div className={cn("w-full", rotateTicks ? "h-72" : "h-56")}>
+      //
+      // A ROTATED axis is measured, not fixed: the figure keeps the same
+      // 214px of drawing room and GROWS by whatever its own names need
+      // below them (`rotatedAxisHeight`). At the old `h-72` the axis was a
+      // constant 74px and 421 tick labels across the captured corpus were
+      // cut off at the bottom — up to 16px, at every container width.
+      <div
+        ref={plotRef}
+        className={cn("w-full", !rotateTicks && "h-56")}
+        {...(rotateTicks ? { style: { height: PLOT_ROOM_PX + axisHeight } } : {})}
+      >
         <ResponsiveContainer width="100%" height="100%">
           {spec.kind === "line" ? (
             // BUG 2 — the figure keeps its own padding. `preserveStartEnd`
@@ -799,11 +945,17 @@ export function InvestigationChart({
                 interval={data.length <= 24 ? 0 : "preserveStartEnd"}
                 tickFormatter={categoryTick}
                 {...(rotateTicks
-                  ? // Taller than before because the ticks are now 12px
-                    // rather than 10px: at -35° a label needs about 1.75×
-                    // its own length in vertical room, and the old 58px
-                    // clipped the descender off every long name.
-                    { angle: -35, textAnchor: "end" as const, height: 74, tickMargin: 6 }
+                  ? // MEASURED from the labels, not a constant. At the
+                    // fixed 74px every name longer than about fifteen
+                    // characters had its tail cut off by the SVG's own
+                    // bottom edge — 421 of them across the captured
+                    // corpus, worst 16px. See `rotatedAxisHeight`.
+                    {
+                      angle: -35,
+                      textAnchor: "end" as const,
+                      height: axisHeight,
+                      tickMargin: AXIS_TICK_MARGIN,
+                    }
                   : {})}
               />
               <YAxis {...axisProps} tickFormatter={formatTick} width={48} />
@@ -1159,6 +1311,13 @@ export function ChartTooltipContent({
   seriesLabel?: (key: string) => string;
   seriesColor?: (key: string) => string;
 }) {
+  // NARROWER THAN THE NARROWEST CHART IT CAN OPEN OVER. Recharts keeps a
+  // tooltip inside the chart's own box, so a tooltip wider than the box
+  // is one that has to hang out of it: the Evidence rail's chart measures
+  // 280px at a 1280px viewport (21rem rail, less the panel's and the
+  // figure's padding) and the sheet was capped at `max-w-72` — 288. At
+  // `max-w-64` it is 256 and clears the narrowest surface it can be
+  // opened on by 24px.
   if (!active || !payload || payload.length === 0) return null;
   const row = payload[0]?.payload;
   const referent = row?.referent;
@@ -1200,7 +1359,7 @@ export function ChartTooltipContent({
       { key: comparison.priorKey, value: prior, absent: priorAbsent },
     ];
     return (
-      <div className="max-w-72 rounded-lg border border-border/70 bg-popover/95 px-3 py-2.5 text-xs shadow-lg backdrop-blur-sm">
+      <div className="max-w-64 rounded-lg border border-border/70 bg-popover/95 px-3 py-2.5 text-xs shadow-lg backdrop-blur-sm">
         <p className="mb-1 flex items-center gap-1.5 font-medium">
           {humanizeIsoDates(humanizeCategory(String(label)))}
           {referent && (
@@ -1290,7 +1449,7 @@ export function ChartTooltipContent({
     // inside the cap instead of being truncated — a half-read identity on
     // the one surface an analyst goes to for an exact number is worse than
     // two lines — and the number itself never wraps away from its label.
-    <div className="max-w-72 rounded-lg border border-border/70 bg-popover/95 px-3 py-2.5 text-xs shadow-lg backdrop-blur-sm">
+    <div className="max-w-64 rounded-lg border border-border/70 bg-popover/95 px-3 py-2.5 text-xs shadow-lg backdrop-blur-sm">
       <p className="mb-1 flex items-center gap-1.5 font-medium">
         {humanizeIsoDates(humanizeCategory(String(label)))}
         {referent && (

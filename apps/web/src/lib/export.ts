@@ -320,7 +320,15 @@ export function answerToText(input: AnswerCopyInput): string {
     out.push(
       "ANALYSIS",
       RULE,
-      "The written analysis was not stored for this turn — the findings above and the context they were measured under are what the server kept.",
+      // Names what is in this file rather than only what is missing from
+      // it. The DATA sections below are the charts the restore rebuilt,
+      // and a note that stops at "the findings above" tells a reader who
+      // scrolls that the rows underneath are not part of the record.
+      `The written analysis was not stored for this turn. What the server kept is in this file: the findings above${
+        (input.charts?.length ?? 0) > 0
+          ? ", the chart data below"
+          : ""
+      }, and the context they were measured under.`,
       // The server's own sentences about the restore, verbatim. A reader
       // who receives this file is owed the difference between an answer
       // that had nothing to say and an answer whose sentences were not

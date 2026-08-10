@@ -973,18 +973,35 @@ class ApiService:
         extra read, and the structured refusal rides on a supplementary
         record because a refusal is a shape rather than a sentence.
 
+        The composed NARRATIVE rides the same write (round-10 R10-4). The
+        engine has already stored this investigation by the time the prose
+        exists — it is composed here, one layer up, from the outcome the
+        engine returned — so the turn's own record could never carry it, and
+        "Copy link" shipped a page with the analysis removed: a cold open
+        rendered "The written analysis was not stored for this turn" where
+        the live turn published two thousand characters, and a mid-demo
+        refresh did it to every turn at once. What is stored is the
+        POST-VALIDATION text — the sentences that survived grounding — so a
+        restored turn shows what was published and never what was composed
+        and then redacted.
+
         Best-effort. The analyst has their answer; a store hiccup here costs
         a restore, never the turn.
         """
         investigation = outcome.investigation
         stored = list(investigation.warnings)
         added = [w for w in response.warnings if w and w not in stored]
-        if not added and response.watch_refused is None:
+        prose = response.narrative.strip() if response.narrative else ""
+        narrative = prose or investigation.narrative
+        if not added and narrative == investigation.narrative and response.watch_refused is None:
             return
         try:
-            if added:
+            if added or narrative != investigation.narrative:
                 await self._components.investigations.save(
-                    replace(investigation, warnings=(*stored, *added)), None
+                    replace(
+                        investigation, warnings=(*stored, *added), narrative=narrative
+                    ),
+                    None,
                 )
             if response.watch_refused is not None:
                 await self._components.traces.save(

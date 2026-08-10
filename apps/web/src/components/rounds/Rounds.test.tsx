@@ -34,6 +34,7 @@ import { WatchTile } from "@/components/rounds/WatchTile";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import live from "@/lib/__fixtures__/live-rounds.json";
 import { mapTimeToImpact, parsePortfolioSnapshot } from "@/lib/contract";
+import { readableStatement } from "@/lib/prose";
 import {
   mapLeadState,
   mapRoundsPin,
@@ -167,6 +168,125 @@ describe("a movement is stated in the metric's own unit", () => {
 });
 
 /* ------------------------------------------------------------------ */
+/* The mark a movement is allowed to paint                             */
+/* ------------------------------------------------------------------ */
+
+/**
+ * EVERY DELTA CHIP PAINTED A MINUS SIGN — on the ones that went up as
+ * well as the ones that went down.
+ *
+ * Measured live on all six `p[data-delta-direction]` elements of the
+ * page: every one rendered lucide `Minus` (`path d="M5 12h14"`), because
+ * every watch on the demo tenant is `sameWindow: true` and the same-window
+ * branch drew `Minus` for "no arrow". At 10px beside a numeral that is not
+ * the absence of a sign, it is a sign — so the exec's marquee tile read
+ * "— 7.3 points from 22.2%" on a denial rate that got 7.3 points WORSE,
+ * twelve pixels under brief prose saying "up 7.3 points".
+ *
+ * The refusal to draw an arrow on a re-measure is right and is kept. What
+ * changed is that the neutral case is drawn UNSIGNED, and the direction
+ * the payload does carry is stated in the word the brief beside it uses.
+ *
+ * Asserted as a property rather than as an icon: no mark may be shared
+ * between a movement that went up and one that went down.
+ */
+describe("a delta chip never paints a sign the payload did not carry", () => {
+  const MINUS_PATH = 'path[d="M5 12h14"]';
+
+  /** The live rate tile's delta, re-pointed at one direction. */
+  function tileWith(over: Partial<import("@/lib/rounds").RoundsDelta>) {
+    const tile = (ROUNDS.value?.tiles ?? []).find((t) => t.delta !== undefined)!;
+    return { ...tile, delta: { ...tile.delta!, ...over } };
+  }
+
+  function markOf(container: HTMLElement): string | null {
+    return container.querySelector("[data-delta-mark]")?.getAttribute("data-delta-mark") ?? null;
+  }
+
+  it("says UP in the word the server sent, on a movement that went up", () => {
+    const { container } = draw(
+      <WatchTile tile={tileWith({ direction: "up", sameWindow: false, delta: 0.035823 })} />,
+    );
+    expect(screen.getByText(/up 3\.6 points/)).toBeInTheDocument();
+    expect(markOf(container)).toBe("up");
+  });
+
+  it("says DOWN on a movement that went down, and shares no mark with up", () => {
+    const down = draw(
+      <WatchTile tile={tileWith({ direction: "down", sameWindow: false, delta: -0.035823 })} />,
+    );
+    expect(screen.getByText(/down 3\.6 points/)).toBeInTheDocument();
+    expect(markOf(down.container)).toBe("down");
+    cleanup();
+    const up = draw(
+      <WatchTile tile={tileWith({ direction: "up", sameWindow: false, delta: 0.035823 })} />,
+    );
+    expect(markOf(up.container)).not.toBe("down");
+  });
+
+  it("draws the same-window re-measure UNSIGNED, and still says which way it went", () => {
+    // The demo tenant's entire grid. The glyph claims nothing; the word
+    // carries the direction, exactly as the brief prose beside it does.
+    const { container } = draw(
+      <WatchTile tile={tileWith({ direction: "up", sameWindow: true, delta: 0.035823 })} />,
+    );
+    expect(markOf(container)).toBe("neutral");
+    expect(screen.getByText(/up 3\.6 points/)).toBeInTheDocument();
+    expect(container.querySelector(MINUS_PATH)).toBeNull();
+  });
+
+  it("draws no change as no change — unsigned, and with no direction word", () => {
+    const { container } = draw(
+      <WatchTile tile={tileWith({ direction: "flat", delta: 0, deltaText: "$0.00" })} />,
+    );
+    expect(markOf(container)).toBe("neutral");
+    // Scoped to the chip: the tile also carries a baseline movement, and
+    // that one DID go somewhere.
+    const chip = container.querySelector("[data-delta-mark]");
+    expect(chip?.textContent).toMatch(/no change/);
+    expect(chip?.textContent).not.toMatch(/\b(up|down) /);
+  });
+
+  it("names no direction when the server named none", () => {
+    const { container } = draw(
+      <WatchTile tile={tileWith({ direction: "unknown", sameWindow: false, delta: 0.01 })} />,
+    );
+    expect(markOf(container)).toBe("neutral");
+    const chip = container.querySelector("[data-delta-mark]");
+    expect(chip?.textContent).not.toMatch(/\b(up|down) /);
+  });
+
+  it("paints a minus sign on nothing, anywhere on the live grid", () => {
+    // The measurement that opened this: 6 of 6 chips drew `M5 12h14`.
+    const { container } = draw(
+      <ul>
+        {(ROUNDS.value?.tiles ?? []).map((tile) => (
+          <WatchTile key={tile.pinId} tile={tile} />
+        ))}
+      </ul>,
+    );
+    expect(container.querySelectorAll(MINUS_PATH).length).toBe(0);
+    // …and every chip that IS drawn carries a mark that can be read back.
+    for (const chip of container.querySelectorAll("[data-delta-mark]")) {
+      expect(["up", "down", "neutral", "none"]).toContain(chip.getAttribute("data-delta-mark"));
+    }
+  });
+
+  it("keeps the refusal itself: a non-comparable delta paints no mark at all", () => {
+    const { container } = draw(
+      <WatchTile
+        tile={tileWith({
+          comparable: false,
+          notComparableReason: "first reading — baseline set at this load.",
+        })}
+      />,
+    );
+    expect(markOf(container)).toBe("none");
+    expect(container.querySelector(MINUS_PATH)).toBeNull();
+  });
+});
+
+/* ------------------------------------------------------------------ */
 /* The brief                                                            */
 /* ------------------------------------------------------------------ */
 
@@ -177,14 +297,40 @@ describe("the brief is a list of sentences, not of metrics", () => {
     expect(BRIEF.value?.entries.length).toBe(live.brief.entries.length);
   });
 
-  it("renders every entry's statement verbatim", () => {
+  it("renders every entry's statement word for word", () => {
+    // WORD for word, not byte for byte, and the difference is exactly two
+    // mechanical repairs: a stop printed twice where two sentence
+    // builders met, and a rank grammar over a set of one. Every figure,
+    // every clause and every ordering is the server's — see `lib/prose`,
+    // and the assertion below that nothing else moved.
     draw(<BriefPanel brief={BRIEF.value!} />);
     for (const entry of BRIEF.value?.entries ?? []) {
       expect(
-        screen.getByText(entry.statement),
-        `the brief must print ${entry.kind} verbatim`,
+        screen.getByText(readableStatement(entry.statement)),
+        `the brief must print ${entry.kind} as the server wrote it`,
       ).toBeInTheDocument();
+      // Nothing but punctuation and the rank clause may move: every
+      // figure, every name and every date in the payload's own sentence
+      // is still on the page, in order.
+      const words = entry.statement
+        .replace(/ranks #1 of 1 measured by/g, "")
+        .match(/[\w$%.,–-]*\d[\w$%.,–-]*/g) ?? [];
+      const rendered = readableStatement(entry.statement);
+      for (const word of words) {
+        expect(rendered, `${entry.kind} dropped "${word}"`).toContain(word);
+      }
     }
+  });
+
+  it("prints no stacked stop and no rank over a set of one", () => {
+    // The two residues, asserted on the rendered page rather than on the
+    // helper: `.).` is live in the JOC account's brief line, where the
+    // curated reviewer note is quoted inside a sentence that carries on.
+    const { container } = draw(<BriefPanel brief={BRIEF.value!} />);
+    const text = container.textContent ?? "";
+    expect(text).not.toContain(".).");
+    expect(text).not.toContain("#1 of 1");
+    expect(text).toContain("worth my morning). Since you started watching");
   });
 
   it("renders the entries in the SERVER's order and re-sorts nothing", () => {
@@ -579,6 +725,117 @@ describe("a tile whose settings could not be read says so", () => {
     expect(
       await screen.findByRole("button", { name: /Save and restart this watch/ }),
     ).toBeInTheDocument();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* The controls that end a watch, and the ones that start one          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * "STOP WATCHING THIS" WAS ONE IRREVERSIBLE CLICK.
+ *
+ * The reassurance copy landed and is good — "Nothing is deleted. The loads
+ * this watch has already been briefed on stay readable" — but it sat UNDER
+ * the button, read on the way past rather than acknowledged. Filed rounds
+ * 8, 9 and 10.
+ *
+ * There is no undo to offer instead: re-registering a watch resets the
+ * baseline "since you started watching" measures from, so an undo would
+ * quietly hand back a different watch. The two-step is the honest control.
+ */
+describe("ending a watch is armed before it fires", () => {
+  const tile = () => (ROUNDS.value?.tiles ?? [])[0];
+  const openMenu = (label: string) =>
+    fireEvent.click(screen.getByRole("button", { name: `Settings for the watch ${label}` }));
+
+  it("does not remove the watch on the first click", async () => {
+    const deleteRoundsPin = vi.fn().mockResolvedValue(undefined);
+    useSessionStore.setState({
+      driver: { submit: async () => {}, deleteRoundsPin } as unknown as never,
+    });
+    const t = tile();
+    draw(<WatchTile tile={t} />);
+    openMenu(t.label);
+    fireEvent.click(await screen.findByRole("button", { name: /Stop watching this/ }));
+    expect(deleteRoundsPin).not.toHaveBeenCalled();
+
+    // The reassurance is now the thing being acknowledged, above the
+    // confirming control rather than below the firing one.
+    const armed = document.querySelector("[data-stop-watch-armed]");
+    expect(armed).not.toBeNull();
+    expect(armed).toHaveTextContent(/Nothing is deleted/);
+    expect(armed).toHaveTextContent(new RegExp(escapeRe(t.label)));
+  });
+
+  it("removes it on the second, and the reversible choice is offered first", async () => {
+    const deleteRoundsPin = vi.fn().mockResolvedValue(undefined);
+    useSessionStore.setState({
+      driver: { submit: async () => {}, deleteRoundsPin } as unknown as never,
+    });
+    const t = tile();
+    draw(<WatchTile tile={t} />);
+    openMenu(t.label);
+    fireEvent.click(await screen.findByRole("button", { name: /Stop watching this/ }));
+
+    const keep = await screen.findByRole("button", { name: /Keep watching/ });
+    const stop = screen.getByRole("button", { name: /Yes, stop watching/ });
+    // Reversible first in the DOM, so it is first for a keyboard too.
+    expect(keep.compareDocumentPosition(stop) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    fireEvent.click(keep);
+    expect(document.querySelector("[data-stop-watch-armed]")).toBeNull();
+    expect(deleteRoundsPin).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: /Stop watching this/ }));
+    fireEvent.click(await screen.findByRole("button", { name: /Yes, stop watching/ }));
+    expect(deleteRoundsPin).toHaveBeenCalledWith(t.pinId);
+  });
+});
+
+/**
+ * THE WATCH AFFORDANCES ARE PRESENT, not hovered into existence.
+ *
+ * Filed rounds 7-10 by three reviewers: `WatchThis` defaults to the
+ * compact size and rendered `opacity-0 group-hover:opacity-100`, and
+ * `FactRow` passes no size — so on every finding card, the one gesture
+ * that starts the proactive monitoring this product is sold on did not
+ * exist for a touch user, in a screenshot, or on a projector. The tile's
+ * own settings trigger had the same class.
+ *
+ * Quiet is the right volume and `text-muted-foreground` is quiet — it
+ * measures 4.57–5.24:1 in light and 6.92–7.31 in dark. Invisible is not a
+ * volume.
+ */
+describe("watch affordances are visible without a pointer", () => {
+  it("draws the tile's settings trigger at full opacity", () => {
+    const { container } = draw(<WatchTile tile={(ROUNDS.value?.tiles ?? [])[0]} />);
+    const trigger = container.querySelector<HTMLElement>('[aria-label^="Settings for the watch"]')!;
+    expect(trigger).not.toBeNull();
+    expect(trigger.className).not.toMatch(/\bopacity-0\b/);
+    expect(trigger.className).not.toMatch(/group-hover:opacity/);
+  });
+
+  it("draws the compact Watch this at full opacity", () => {
+    useSessionStore.setState({
+      driver: {
+        submit: async () => {},
+        createRoundsPin: async () => ({}),
+        listRoundsPins: async () => [],
+      } as unknown as never,
+    });
+    const { container } = draw(
+      <WatchThis
+        artifactKey="inv_1:F1"
+        investigationId="inv_1"
+        referent="F1"
+        presentation="finding"
+      />,
+    );
+    const button = container.querySelector<HTMLElement>("button")!;
+    expect(button).not.toBeNull();
+    expect(button.className).not.toMatch(/\bopacity-0\b/);
+    expect(button.className).not.toMatch(/group-hover:opacity/);
   });
 });
 

@@ -315,6 +315,59 @@ def ends_on_abbreviation(sentence: str) -> bool:
     """
     return bool(_ABBREVIATION_TAIL.search(sentence.strip()))
 
+
+#: The two shapes a SPLICE leaves behind — a sentence dropped into a slot
+#: that wanted a noun phrase (R10-1).
+#:
+#: * an interior full stop whose continuation is not a new sentence: a
+#:   lower-case word or an opening bracket. "…once the thinner side
+#:   matures. (F2)." is the live one;
+#: * a copula whose complement opens a clause: "the largest movement **is
+#:   Premise cannot** be verified".
+#:
+#: Both are checked against ISO-safe text: ``2026-07-01..2026-07-31`` has no
+#: ". " in it, so the ranges the product prints are never candidates.
+_INTERIOR_SENTENCE_BREAK = re.compile(r"[.!?]\s+(?=[a-z(\[])")
+_SPLICED_CLAUSE = re.compile(
+    r"\b(?:is|was|are|were)\s+[A-Z][a-z]+\s+(?:cannot|could not|did not)\b"
+)
+#: A "sentence" that is only the citation left behind when the text before
+#: it ended in a full stop of its own: "(F2)." after "…matures."
+_ORPHANED_CITATION = re.compile(r"^[(\[]")
+
+
+def spliced_sentence(text: str) -> str | None:
+    """The first sentence of ``text`` that reads as a splice, if any (R10-1).
+
+    Wave G's redacted-superlative substitution replaced the OBJECT of a
+    superlative clause with a two-sentence verdict, and the demo's second
+    answer rendered *"Of the 8 payers measurable this window, the largest
+    movement is Premise cannot be verified: You asked about an increase in
+    denial rate. Ask again once the thinner side matures. (F2)."*
+
+    Three shapes, all of them that sentence's:
+
+    * a copula whose complement opens a clause ("**is Premise cannot**");
+    * an interior full stop continued in lower case — a second sentence
+      hiding inside one, after :func:`split_sentences` has had its say;
+    * a fragment that is nothing but a citation, which is what a nested
+      full stop strands ("(F2).").
+
+    Exported so the composer (which refuses to publish a substitute that
+    trips it) and the narrative-integrity suite (which asserts it over
+    every emitted string) apply exactly one predicate.
+    """
+    for index, sentence in enumerate(split_sentences(text)):
+        body = sentence.strip()
+        if not body:
+            continue
+        if _SPLICED_CLAUSE.search(body) or _INTERIOR_SENTENCE_BREAK.search(body):
+            return body
+        if index and _ORPHANED_CITATION.match(body):
+            return body
+    return None
+
+
 #: Month and weekday names. ``_PROPER_NAME`` cannot tell "July" from a payer,
 #: so a run made only of these is a date phrase, not an entity claim.
 _DATE_WORDS = frozenset(
@@ -707,7 +760,31 @@ def _superlative_substitute(
     leading finding's own title, and the engine's own census sentence (see
     :data:`_BOUNDED_CENSUS`). Where the census cannot be read the sentence
     degrades to words rather than inventing arithmetic.
+
+    Round-10 R10-1 — a substitution that replaces the OBJECT of a
+    superlative clause has to replace the whole clause. This one used to
+    drop the leading finding's title into a noun slot, and on the demo's
+    second question that title was the turn's premise VERDICT: *"Of the 8
+    payers measurable this window, the largest movement is Premise cannot
+    be verified: You asked about an increase in denial rate. Ask again once
+    the thinner side matures. (F2)."* — a subject-verb collision with a
+    nested full stop, read out loud in a room. A verdict is never a row, so
+    it never enters the noun slot; where the verdict is that nothing can be
+    certified, the certifiable statement is emitted as its own complete
+    sentence instead.
     """
+    uncertified = _uncertified_premise(findings)
+    if uncertified is not None:
+        # The engine has said, in data, that it cannot certify the movement
+        # this question assumes ("Nothing below may be called an increase
+        # or offered as evidence against it"). Naming a largest anything
+        # over those cells would be exactly the overclaim the guard fired
+        # on — so the whole clause is replaced by what IS true.
+        ranked = "movement" if _has_delta(uncertified) else "figure"
+        return (
+            f"The largest {ranked} cannot be named: the premise itself is unverified "
+            f"({uncertified.referent})."
+        )
     lead = _measured_leader(findings)
     if lead is None:
         # Every published row is a ceiling. There is no measured leader to
@@ -751,7 +828,14 @@ def _superlative_substitute(
         if above
         else ", and a ceiling can sit above a measured figure without being a larger number"
     )
-    return f"{opening} {qualifier}{tail}."
+    substitute = f"{opening} {qualifier}{tail}."
+    # Last line of defence for R10-1: whatever went into the noun slot, the
+    # sentence that comes out has to read as one. A substitute that splices
+    # is not published at all — the deletion the guard would otherwise have
+    # made is a worse answer but never a broken one.
+    if spliced_sentence(substitute) is not None:  # pragma: no cover - guarded above
+        return None
+    return substitute
 
 
 #: The value name a finding carries when its figure is a CEILING rather than
@@ -761,6 +845,40 @@ def _superlative_substitute(
 _BOUND_SUFFIX = "__is_bound"
 _DELTA_SUFFIX = "__delta"
 
+#: The premise verdict as DATA, published by
+#: ``revi_investigation.application.findings._build_premise_finding``. A
+#: finding carrying it is the turn's verdict on the question's own
+#: assumption, not a row of the population — held as literals here for the
+#: same reason :data:`_CENSUS_CLAUSE` is, and pinned on both sides by a test.
+_PREMISE_HOLDS_VALUE = "premise_holds"
+_PREMISE_UNVERIFIABLE_VALUE = "premise_unverifiable"
+
+
+def _is_premise_verdict(finding: FindingPayload) -> bool:
+    """Is this finding a VERDICT about the question rather than a row?
+
+    Its title is a sentence — *"Premise cannot be verified: You asked about
+    an increase in denial rate. Ask again once the thinner side matures."* —
+    and a sentence cannot stand where a row label stands (R10-1).
+    """
+    return any(value.name == _PREMISE_HOLDS_VALUE for value in finding.values)
+
+
+def _uncertified_premise(findings: Sequence[FindingPayload]) -> FindingPayload | None:
+    """The premise verdict that says this turn could certify nothing.
+
+    ``premise_unverifiable: true`` is the engine's own statement that the
+    movement under the question was not measurable — two ceilings, an
+    immature panel, a size nobody parsed. Every cell published beneath such
+    a verdict is a composition of a movement the answer cannot certify, so
+    there is no largest anything to name.
+    """
+    for finding in findings:
+        for value in finding.values:
+            if value.name == _PREMISE_UNVERIFIABLE_VALUE and bool(value.value):
+                return finding
+    return None
+
 
 def _measured_leader(findings: Sequence[FindingPayload]) -> FindingPayload | None:
     """The first published finding whose figure is a MEASUREMENT.
@@ -769,8 +887,14 @@ def _measured_leader(findings: Sequence[FindingPayload]) -> FindingPayload | Non
     denial rate at most ≤ 76.9%"* — a ceiling over 13 entities, ranked
     first by its own delta. Naming it as the highest measured figure would
     replace a redacted superlative with a false one.
+
+    A premise verdict is skipped for a second reason (R10-1): it is not a
+    row at all, and its title is a two-sentence judgement that cannot be
+    dropped into "the largest movement is ___".
     """
     for finding in findings:
+        if _is_premise_verdict(finding):
+            continue
         if not any(
             value.name.endswith(_BOUND_SUFFIX) and bool(value.value)
             for value in finding.values
