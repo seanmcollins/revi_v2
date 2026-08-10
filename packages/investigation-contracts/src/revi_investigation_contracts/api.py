@@ -644,6 +644,14 @@ class TurnAnswer(ClosedModel):
     #: the baseline the watch starts from. See
     #: :class:`WatchDeclarationPayload`. ``None`` on every ordinary turn.
     watch: WatchDeclarationPayload | None = None
+    #: Present when this turn read as a watch declaration and NO watch was
+    #: created — the threshold was illegal against the metric's contract,
+    #: the sensitivity clause could not be read, or the store refused it.
+    #: Published here, beside :attr:`watch`, so the refusal lands exactly
+    #: where the confirmation would have: a refusal that only reached
+    #: :attr:`warnings` was rendered nowhere, and the analyst walked away
+    #: believing they were being watched (round-7 FN-3, FN-6).
+    watch_refused: WatchRefusedPayload | None = None
     reconciliation: str | None = None
     plan_hash: str | None = None
     watermark_stale: bool = False
@@ -686,6 +694,19 @@ class TurnClarification(ClosedModel):
     #: governed routing to read.
     worklist: WorklistPayload | None = None
     watermark_stale: bool = False
+    #: What the platform has to say about the turn it could not answer.
+    #:
+    #: A clarification used to carry no warnings channel at all, which made
+    #: it the one outcome where a fact about the turn had nowhere to go —
+    #: and the fact that fell through the gap was "I read this as a watch".
+    #: In a pack that refuses any imprecise payer name BY DESIGN, a
+    #: clarification is the MODAL branch of the watch-declaration path, so a
+    #: declaration that clarified was destroyed by the question it triggered
+    #: (round-7 FN-5). The declaration is now carried across the boundary
+    #: and registered from the resolved answer; this says so while the
+    #: question is on screen.
+    warnings: list[str] = Field(default_factory=list)
+    warnings_v2: list[WarningPayload] = Field(default_factory=list)
     usage: UsageSummary = Field(default_factory=UsageSummary)
     #: See :attr:`TurnAnswer.debug`. A clarification is the outcome whose
     #: trace matters most: it names which stage stopped and why.
@@ -718,6 +739,13 @@ TurnResponse = Annotated[
 
 
 class InvestigationResponse(ClosedModel):
+    #: A watch declaration this turn refused, restored with it.
+    #:
+    #: A refusal that only lives on the live response is a refusal that
+    #: disappears the moment somebody re-opens the session or follows the
+    #: permalink — and "nothing is being watched" is the one statement whose
+    #: value is entirely in being read later (round-7 FN-3).
+    watch_refused: WatchRefusedPayload | None = None
     investigation_id: str
     session_id: str
     parent_id: str | None = None
@@ -886,6 +914,12 @@ class PortfolioLanePayload(ClosedModel):
     label: str
     #: What the lane means, in the words a section header should use.
     description: str
+    #: Which PARTITION this lane belongs to. ``governance`` is the
+    #: must-do/by-value split that decides render order; ``cash_timing`` is
+    #: the orthogonal one a director asks for — "how much can we still
+    #: catch?" — and the two must never be concatenated into one list, or a
+    #: card is counted twice under two headers (round-7 FN-16).
+    kind: Literal["governance", "cash_timing"] = "governance"
     anomaly_ids: list[str] = Field(default_factory=list)
     item_count: int = 0
     #: Σ|detector figure| over the lane's members — the detection system's
@@ -900,6 +934,27 @@ class PortfolioLanePayload(ClosedModel):
     #: Σ the governed recoverable estimates of the lane's members, on the
     #: same figure that ranked each one.
     recoverable_cents_estimate: int = 0
+    #: The soonest STILL-OPEN dated limit inside this lane, and how many
+    #: days off it is. Only ever a date the detector published (a filing
+    #: limit, an appeal window) — never a projection, because an estimate
+    #: rendered beside a filing deadline is indistinguishable from one.
+    #: ``None`` when no member carries an open dated limit.
+    #:
+    #: Still-open rather than simply soonest, because the soonest limit
+    #: across a real worklist is usually one that closed months ago, and
+    #: "closes in -94 days" is not a horizon — it is a passed deadline
+    #: wearing a countdown's clothes. The passed ones are not hidden; they
+    #: are counted on :attr:`passed_deadline_count`, which is the fact a
+    #: director actually needs from them.
+    soonest_deadline_date: date | None = None
+    soonest_deadline_days: int | None = None
+    #: How many members carry a real dated limit at all. A horizon computed
+    #: from three of thirty-one cards is a fact about three cards, and the
+    #: header says so.
+    dated_item_count: int = 0
+    #: How many of those limits have already passed. The pack's own rule is
+    #: that a closed window is shown as closed rather than suppressed.
+    passed_deadline_count: int = 0
 
 
 class DrillDimensionRepoint(ClosedModel):
@@ -1018,6 +1073,45 @@ class WatchDeclarationPayload(ClosedModel):
     #: The lead-in the analyst used, verbatim ("keep an eye on"), so the
     #: platform can show what it read rather than asserting it read intent.
     matched_phrase: str = ""
+    #: A second honest reading of the analyst's own threshold words, when
+    #: the words admit one. "more than 2%" against a RATE is either two
+    #: percentage points or two percent of the current value; the platform
+    #: commits to the reading that is legal against every contract and says
+    #: what the other one would have been, rather than leaving a watch
+    #: gated four times tighter than anybody asked for (round-7 FN-6).
+    threshold_alternative: str = ""
+
+
+class WatchRefusedPayload(ClosedModel):
+    """A watch declaration that was read and NOT registered.
+
+    The worst outcome available to this feature is silence: an analyst says
+    "watch this and tell me when it moves", the platform cannot honour the
+    instruction, and the screen shows an ordinary answer. They walk away
+    believing they are being watched, and nothing is watching.
+
+    So a refusal is a payload, not a sentence appended to a list — it
+    renders where the confirmation would have gone, it carries what the
+    platform DID understand (so the analyst can see how close they were),
+    and it names the phrasings that would work. Everything here is also
+    published as a classified warning (``WATCH_NOT_CREATED``) so the
+    integrity line counts it.
+    """
+
+    #: ``threshold_illegal`` (a legal grammar, an illegal unit for this
+    #: metric's contract), ``threshold_unreadable`` (a sensitivity clause
+    #: this grammar cannot read — never silently replaced by the governed
+    #: default), or ``not_stored`` (the Rounds store refused it).
+    reason_code: Literal["threshold_illegal", "threshold_unreadable", "not_stored"]
+    #: The platform's own sentence for why, verbatim.
+    reason: str
+    #: What WAS understood: the subject the declaration reduced to, and the
+    #: sensitivity words that could not be read.
+    subject: str = ""
+    threshold_phrase: str = ""
+    #: Phrasings that would be accepted for this metric, in the analyst's
+    #: own idiom. Never empty — a refusal with no way forward is a wall.
+    legal_alternatives: list[str] = Field(default_factory=list)
 
 
 class TimeToImpactPayload(ClosedModel):
@@ -1276,6 +1370,18 @@ class PortfolioResponse(ClosedModel):
     #: should render them. Never a second ordering of the same cards: the
     #: array stays authoritative and each lane names its members by id.
     lanes: list[PortfolioLanePayload] = Field(default_factory=list)
+    #: The SAME cards split by cash timing instead of by governance:
+    #: ``pre_cash`` (the money still catchable), ``already_hit`` (the cash
+    #: effect has landed; a recovery window may still be open), ``unknown``
+    #: (no honest basis, with the reason on each card).
+    #:
+    #: A second partition rather than more entries in :attr:`lanes`,
+    #: because every card is in exactly one of each and concatenating them
+    #: would double-count the worklist. The derivation already existed
+    #: per card (:class:`TimeToImpactPayload.lane`) and no surface totalled
+    #: it, so "how much money has not hit cash yet?" could not be answered
+    #: from a payload that contained the answer (round-7 FN-16).
+    cash_timing_lanes: list[PortfolioLanePayload] = Field(default_factory=list)
     #: The compliance floor actually applied in this build, and where it
     #: came from (``relative_median`` | ``governed_absolute``). Since
     #: ``anomaly_priority@2`` the floor is the median score of the

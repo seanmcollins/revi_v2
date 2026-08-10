@@ -71,13 +71,17 @@ export type {
   WatchDeclaration,
   WatchModel,
   WatchMode,
+  WatchRefusal,
   WatchUnit,
 } from "@/lib/contract";
 export {
   HUMAN_LEAD_STATUSES,
+  WATCH_NOT_CREATED,
   mapTimeToImpact,
   mapWatchDeclaration,
+  mapWatchRefusal,
   mapWatchModel,
+  readWatchRefusal,
   watchToWire,
 } from "@/lib/contract";
 
@@ -192,6 +196,17 @@ export interface RoundsDelta {
   /** Measured from the prior load, or from the watch's creation baseline. */
   reference: "prior_load" | "baseline";
   /**
+   * WHICH CELL each side measured, in the reader's words.
+   *
+   * A watch over a ranked breakdown headlines whatever ranks first at that
+   * load, so two loads can be two measurements of two different payers —
+   * and a percentage between them looks exactly like a movement. When
+   * these disagree the server publishes no delta and says why; the client
+   * renders the pair so the reason is checkable rather than trusted.
+   */
+  subjectLabel?: string;
+  priorSubjectLabel?: string;
+  /**
    * Both loads resolved to the SAME dates. The number is right either way;
    * what changes is what it means — a same-window change is late-arriving
    * data settling, not a movement in the business.
@@ -231,6 +246,12 @@ export function mapRoundsDelta(raw: unknown): RoundsDelta | undefined {
       ? { notComparableReason: optionalString(raw.not_comparable_reason) }
       : {}),
     reference: raw.reference === "baseline" ? "baseline" : "prior_load",
+    ...(optionalString(raw.subject_label) !== undefined
+      ? { subjectLabel: optionalString(raw.subject_label) }
+      : {}),
+    ...(optionalString(raw.prior_subject_label) !== undefined
+      ? { priorSubjectLabel: optionalString(raw.prior_subject_label) }
+      : {}),
     sameWindow: asBool(raw.same_window),
     material: asBool(raw.material),
     thresholdSource: raw.threshold_source === "watch" ? "watch" : "governed",
@@ -254,6 +275,18 @@ export interface RoundsPin {
   windowMode: RoundsWindowMode;
   /** What re-running THIS window means, in the server's one sentence. */
   windowNote: string;
+  /**
+   * The stored spec in the reader's own nouns — "Denial rate, broken down
+   * by payer, filtered to Pinnacle Health Plan — last full month (service
+   * basis)". The panel headed "What this watch measures" is the one
+   * control that lets somebody catch a watch measuring the wrong cell, and
+   * it was rendering the window note alone while this rode on the wire.
+   */
+  specSummary: string;
+  /** What happened to the request at creation — a narrowing, a duplicate. */
+  notes: string[];
+  /** This create returned a watch that already existed rather than a second one. */
+  alreadyExisted: boolean;
   createdFromKind: "artifact" | "intent" | "spec";
   createdFromInvestigationId?: string;
   createdFromReferent?: string;
@@ -287,6 +320,9 @@ export function mapRoundsPin(raw: unknown): RoundsPin | null {
       ? (raw.window_mode as RoundsWindowMode)
       : "relative",
     windowNote: asString(raw.window_note),
+    specSummary: asString(raw.spec_summary),
+    notes: asStringList(raw.notes),
+    alreadyExisted: asBool(raw.already_existed),
     createdFromKind:
       raw.created_from_kind === "artifact" || raw.created_from_kind === "intent"
         ? raw.created_from_kind
@@ -325,6 +361,15 @@ export interface RoundsTile {
   investigationId?: string;
   headlineTitle: string;
   headlineStatement: string;
+  /**
+   * WHICH CELL this tile's number is about, as one human phrase
+   * ("Pinnacle Health Plan"). Empty for a watch with no dimension at all.
+   *
+   * The field that makes "the tile measures the cell that was pinned"
+   * checkable by a reader rather than eyeballed against the label — which
+   * is exactly the pair that disagreed on the tile that gated round 7.
+   */
+  headlineSubjectLabel: string;
   /** The headline number, rendered in its contract unit (with any `≤`). */
   valueText: string;
   value?: number;
@@ -394,6 +439,7 @@ export function mapRoundsTile(raw: unknown, index: number, drift: string[]): Rou
       : {}),
     headlineTitle: asString(raw.headline_title),
     headlineStatement: asString(raw.headline_statement),
+    headlineSubjectLabel: asString(raw.headline_subject_label),
     valueText: asString(raw.value_text),
     ...(asNumber(raw.value) !== undefined ? { value: asNumber(raw.value) } : {}),
     ...(optionalString(raw.unit) !== undefined ? { unit: optionalString(raw.unit) } : {}),
@@ -414,6 +460,70 @@ export function mapRoundsTile(raw: unknown, index: number, drift: string[]): Rou
       ? { unavailableReason: optionalString(raw.unavailable_reason) }
       : {}),
   };
+}
+
+/* ------------------------------------------------------------------ */
+/* Ordering the grid                                                    */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The bands a tile grid is ordered and counted in.
+ *
+ * Twenty tiles in creation order is a wall: nothing puts the watches that
+ * MOVED first, nothing separates them from the ones that held still, and a
+ * watch that moved below its own threshold appears in neither the brief
+ * nor any visible zone. The bands are derived from the server's own
+ * `material` flag and the delta it published — what counts as movement is
+ * a governed decision, and no part of it is re-derived here.
+ */
+export const TILE_BANDS = {
+  material: 0,
+  moved: 1,
+  flat: 2,
+  noComparison: 3,
+  unavailable: 4,
+} as const;
+
+export function tileBand(tile: RoundsTile): number {
+  if (tile.status !== "ok") return TILE_BANDS.unavailable;
+  const delta = tile.delta;
+  if (delta === undefined || !delta.comparable) return TILE_BANDS.noComparison;
+  if (delta.material) return TILE_BANDS.material;
+  if (delta.direction === "flat" || delta.delta === 0) return TILE_BANDS.flat;
+  return TILE_BANDS.moved;
+}
+
+/**
+ * Moved first, and the rest in an order somebody chose.
+ *
+ * A STABLE sort: within a band the platform's own order survives, because
+ * it is the only sequencing the payload carries and re-ranking it here
+ * would be this client inventing a priority.
+ */
+export function orderTilesForGrid(tiles: readonly RoundsTile[]): RoundsTile[] {
+  return [...tiles]
+    .map((tile, index) => ({ tile, index, band: tileBand(tile) }))
+    .sort((a, b) => a.band - b.band || a.index - b.index)
+    .map((entry) => entry.tile);
+}
+
+/** The grid, counted in the same bands it is ordered by. */
+export function tileCensus(tiles: readonly RoundsTile[]): string[] {
+  const counts = new Map<number, number>();
+  for (const tile of tiles) {
+    const band = tileBand(tile);
+    counts.set(band, (counts.get(band) ?? 0) + 1);
+  }
+  const moved = (counts.get(TILE_BANDS.material) ?? 0) + (counts.get(TILE_BANDS.moved) ?? 0);
+  const flat = counts.get(TILE_BANDS.flat) ?? 0;
+  const none = counts.get(TILE_BANDS.noComparison) ?? 0;
+  const unavailable = counts.get(TILE_BANDS.unavailable) ?? 0;
+  const parts: string[] = [];
+  if (moved > 0) parts.push(`${moved} moved`);
+  if (flat > 0) parts.push(`${flat} unchanged`);
+  if (none > 0) parts.push(`${none} with nothing to compare`);
+  if (unavailable > 0) parts.push(`${unavailable} the platform could not measure`);
+  return parts;
 }
 
 /** `RoundsResponse` — the surface at one load. */
@@ -463,20 +573,39 @@ export function parseRounds(raw: unknown): RoundsParse {
 /* The brief                                                            */
 /* ------------------------------------------------------------------ */
 
-/** The closed set of things one load can change. */
-export type BriefEntryKind =
+/**
+ * The things one load can change, as the server names them.
+ *
+ * `rank_flip` is NOT a movement and never carries a delta: it is the fact
+ * that the cell a ranked watch headlines is a different cell from the one
+ * it headlined last load ("State Medicaid MCO overtook Pinnacle as your
+ * worst payer"). It is listed here because a client that did not know the
+ * kind would have DROPPED the entry — see `mapBriefEntry`, which no longer
+ * drops one for that reason.
+ */
+export type KnownBriefEntryKind =
   | "new_lead"
   | "pin_movement"
   | "self_resolved"
   | "resolution_confirmed"
-  | "resolution_regressed";
+  | "resolution_regressed"
+  | "rank_flip";
 
-const ENTRY_KINDS: ReadonlySet<string> = new Set<BriefEntryKind>([
+/**
+ * The kind as published. Widened on purpose: an entry whose kind this
+ * build has never seen is a real change at this load, and the one thing a
+ * brief may not do is lose it. Unknown kinds render (with the server's own
+ * sentence, under a label derived from the id) and are reported as drift.
+ */
+export type BriefEntryKind = KnownBriefEntryKind | (string & {});
+
+export const KNOWN_ENTRY_KINDS: ReadonlySet<string> = new Set<KnownBriefEntryKind>([
   "new_lead",
   "pin_movement",
   "self_resolved",
   "resolution_confirmed",
   "resolution_regressed",
+  "rank_flip",
 ]);
 
 /** `RoundsProvenancePayload` — where one line came from. On every entry. */
@@ -527,6 +656,21 @@ export interface BriefImmaterial {
   newLeads: number;
   selfResolved: number;
   entriesWithheldByCap: number;
+  /**
+   * Watches with nothing to compare against at the load this brief diffs
+   * from — a first reading, or a watch created after that load.
+   *
+   * The count that makes the census CLOSE. Live, 18 watches were evaluated
+   * against a brief carrying one movement and one held-back movement; the
+   * other sixteen were first readings, and they were neither briefed nor
+   * counted — a total that does not reconcile to its parts, on the surface
+   * whose whole claim is "withheld visibly, never silently".
+   */
+  notYetComparable: number;
+  /** Watches whose stored spec could not be answered at this load. */
+  unavailable: number;
+  /** What the cap dropped, BY KIND — "12 further entries" hides a regression. */
+  withheldByKind: Record<string, number>;
   /** The line the brief owes its reader, composed server-side. */
   note: string;
 }
@@ -547,6 +691,15 @@ export interface BriefData {
   watermarkId: string;
   newestDataDate?: string;
   priorWatermarkId?: string;
+  /**
+   * The data date of the load this brief diffs AGAINST.
+   *
+   * The brief speaks in dates, not in warehouse ids: "since the Aug 1
+   * load" is a sentence a VP reads and `wm_002` is one they forward to
+   * somebody else to explain. The ids stay in provenance, where an auditor
+   * can still reach them.
+   */
+  priorNewestDataDate?: string;
   /** One sentence, composed from the counts. The thing read before anything else. */
   headline: string;
   entries: BriefEntry[];
@@ -572,13 +725,20 @@ function mapBriefEntry(raw: unknown, index: number, drift: string[]): BriefEntry
     drift.push(`entries[${index}]`);
     return null;
   }
-  const kind = typeof raw.kind === "string" && ENTRY_KINDS.has(raw.kind)
-    ? (raw.kind as BriefEntryKind)
-    : undefined;
+  // A KIND THIS BUILD DOES NOT KNOW IS STILL A CHANGE AT THIS LOAD.
+  //
+  // It used to be dropped, which made the client's vocabulary a filter on
+  // the server's facts: the load `rank_flip` shipped, every brief carrying
+  // one would have rendered without it and the census would not have
+  // closed. The drift is still reported — the mismatch is real and worth
+  // seeing — but the entry renders, because the statement is the server's
+  // and it is the part a reader needs.
+  const kind = typeof raw.kind === "string" && raw.kind !== "" ? raw.kind : undefined;
   if (kind === undefined) {
     drift.push(`entries[${index}].kind`);
     return null;
   }
+  if (!KNOWN_ENTRY_KINDS.has(kind)) drift.push(`entries[${index}].kind:${kind}`);
   const statement = optionalString(raw.statement);
   if (statement === undefined) {
     // The statement IS the entry. A line with a title and no sentence
@@ -637,6 +797,17 @@ function mapBriefEntry(raw: unknown, index: number, drift: string[]): BriefEntry
   };
 }
 
+/** A `{name: count}` map, keeping only the entries that are counts. */
+function mapCounts(raw: unknown): Record<string, number> {
+  if (!isRecord(raw)) return {};
+  const out: Record<string, number> = {};
+  for (const [key, value] of Object.entries(raw)) {
+    const numeric = asNumber(value);
+    if (numeric !== undefined) out[key] = numeric;
+  }
+  return out;
+}
+
 function mapUnitKinds(raw: unknown): Record<string, Record<string, number>> {
   if (!isRecord(raw)) return {};
   const out: Record<string, Record<string, number>> = {};
@@ -679,6 +850,9 @@ export function parseBrief(raw: unknown): BriefParse {
       ...(optionalString(raw.prior_watermark_id) !== undefined
         ? { priorWatermarkId: optionalString(raw.prior_watermark_id) }
         : {}),
+      ...(optionalString(raw.prior_newest_data_date) !== undefined
+        ? { priorNewestDataDate: optionalString(raw.prior_newest_data_date) }
+        : {}),
       headline: asString(raw.headline),
       entries,
       entriesTotal: asNumber(raw.entries_total) ?? entries.length,
@@ -687,6 +861,9 @@ export function parseBrief(raw: unknown): BriefParse {
         newLeads: asNumber(immaterialRaw.new_leads) ?? 0,
         selfResolved: asNumber(immaterialRaw.self_resolved) ?? 0,
         entriesWithheldByCap: asNumber(immaterialRaw.entries_withheld_by_cap) ?? 0,
+        notYetComparable: asNumber(immaterialRaw.not_yet_comparable) ?? 0,
+        unavailable: asNumber(immaterialRaw.unavailable) ?? 0,
+        withheldByKind: mapCounts(immaterialRaw.entries_withheld_by_kind),
         note: asString(immaterialRaw.note),
       },
       fatigue: {

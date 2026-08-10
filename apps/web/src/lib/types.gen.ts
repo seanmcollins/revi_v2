@@ -943,6 +943,8 @@ export interface components {
              * Format: date
              */
             window_end: string;
+            /** Window Note */
+            window_note?: string | null;
             /**
              * Window Start
              * Format: date
@@ -1521,6 +1523,7 @@ export interface components {
             warnings?: string[];
             /** Warnings V2 */
             warnings_v2?: components["schemas"]["WarningPayload"][];
+            watch_refused?: components["schemas"]["WatchRefusedPayload"] | null;
             /**
              * Watermark Id
              * @default
@@ -1688,6 +1691,11 @@ export interface components {
         PortfolioLanePayload: {
             /** Anomaly Ids */
             anomaly_ids?: string[];
+            /**
+             * Dated Item Count
+             * @default 0
+             */
+            dated_item_count: number;
             /** Description */
             description: string;
             /** Id */
@@ -1702,8 +1710,19 @@ export interface components {
              * @default 0
              */
             item_count: number;
+            /**
+             * Kind
+             * @default governance
+             * @enum {string}
+             */
+            kind: "governance" | "cash_timing";
             /** Label */
             label: string;
+            /**
+             * Passed Deadline Count
+             * @default 0
+             */
+            passed_deadline_count: number;
             /**
              * Ranked Impact Cents
              * @default 0
@@ -1714,12 +1733,18 @@ export interface components {
              * @default 0
              */
             recoverable_cents_estimate: number;
+            /** Soonest Deadline Date */
+            soonest_deadline_date?: string | null;
+            /** Soonest Deadline Days */
+            soonest_deadline_days?: number | null;
         };
         /**
          * PortfolioResponse
          * @description Detected anomalies at the pinned watermark, governed-priority ranked.
          */
         PortfolioResponse: {
+            /** Cash Timing Lanes */
+            cash_timing_lanes?: components["schemas"]["PortfolioLanePayload"][];
             /**
              * Compliance Floor Basis
              * @default
@@ -1915,7 +1940,12 @@ export interface components {
          *       information, and because the alternative is an analyst chasing a
          *       card that is gone;
          *     * ``resolution_confirmed`` / ``resolution_regressed`` — the platform's
-         *       verdict on a claimed resolution.
+         *       verdict on a claimed resolution;
+         *     * ``rank_flip`` — the cell a ranked watch headlines is not the cell it
+         *       headlined last load. This is NOT a movement and never carries a
+         *       delta: it is the fact that "your worst payer" is now a different
+         *       payer, which is the headline the movement it replaced was pretending
+         *       to be (round-7 FN-2).
          */
         RoundsBriefEntry: {
             /** Anomaly Id */
@@ -1933,7 +1963,7 @@ export interface components {
              * Kind
              * @enum {string}
              */
-            kind: "new_lead" | "pin_movement" | "self_resolved" | "resolution_confirmed" | "resolution_regressed";
+            kind: "new_lead" | "pin_movement" | "self_resolved" | "resolution_confirmed" | "resolution_regressed" | "rank_flip";
             /** Lane */
             lane?: string | null;
             /** Lead Status */
@@ -1990,6 +2020,8 @@ export interface components {
              * @default 0
              */
             pins_evaluated: number;
+            /** Prior Newest Data Date */
+            prior_newest_data_date?: string | null;
             /** Prior Watermark Id */
             prior_watermark_id?: string | null;
             /**
@@ -2071,6 +2103,11 @@ export interface components {
             materiality_rule: string;
             /** Not Comparable Reason */
             not_comparable_reason?: string | null;
+            /**
+             * Prior Subject Label
+             * @default
+             */
+            prior_subject_label: string;
             /** Prior Value */
             prior_value?: number | null;
             /**
@@ -2094,6 +2131,11 @@ export interface components {
              * @default false
              */
             same_window: boolean;
+            /**
+             * Subject Label
+             * @default
+             */
+            subject_label: string;
             /**
              * Threshold Source
              * @default governed
@@ -2170,11 +2212,20 @@ export interface components {
              * @default 0
              */
             entries_withheld_by_cap: number;
+            /** Entries Withheld By Kind */
+            entries_withheld_by_kind?: {
+                [key: string]: number;
+            };
             /**
              * New Leads
              * @default 0
              */
             new_leads: number;
+            /**
+             * Not Yet Comparable
+             * @default 0
+             */
+            not_yet_comparable: number;
             /**
              * Note
              * @default
@@ -2190,6 +2241,11 @@ export interface components {
              * @default 0
              */
             self_resolved: number;
+            /**
+             * Unavailable
+             * @default 0
+             */
+            unavailable: number;
         };
         /**
          * RoundsLeadPatchRequest
@@ -2292,11 +2348,15 @@ export interface components {
              * @default 0
              */
             max_entries: number;
+            /** Never Capped */
+            never_capped?: string[];
             /**
              * New Lead Min Impact Cents
              * @default 0
              */
             new_lead_min_impact_cents: number;
+            /** Priority Order */
+            priority_order?: string[];
             /**
              * Source
              * @default
@@ -2333,6 +2393,11 @@ export interface components {
          *     decides what the tile measures every morning.
          */
         RoundsPinPayload: {
+            /**
+             * Already Existed
+             * @default false
+             */
+            already_existed: boolean;
             /** Archived At */
             archived_at?: string | null;
             /** Baseline Unit */
@@ -2363,6 +2428,8 @@ export interface components {
             created_from_referent?: string | null;
             /** Label */
             label: string;
+            /** Notes */
+            notes?: string[];
             /** Pin Id */
             pin_id: string;
             /**
@@ -2377,6 +2444,11 @@ export interface components {
              */
             scope: "tenant";
             spec: components["schemas"]["TypedInvestigationSpec"];
+            /**
+             * Spec Summary
+             * @default
+             */
+            spec_summary: string;
             /** Tenant */
             tenant: string;
             watch?: components["schemas"]["RoundsWatchModel"] | null;
@@ -2524,6 +2596,15 @@ export interface components {
              * @default
              */
             headline_statement: string;
+            /** Headline Subject */
+            headline_subject?: {
+                [key: string]: string;
+            };
+            /**
+             * Headline Subject Label
+             * @default
+             */
+            headline_subject_label: string;
             /**
              * Headline Title
              * @default
@@ -2956,6 +3037,7 @@ export interface components {
             /** Warnings V2 */
             warnings_v2?: components["schemas"]["WarningPayload"][];
             watch?: components["schemas"]["WatchDeclarationPayload"] | null;
+            watch_refused?: components["schemas"]["WatchRefusedPayload"] | null;
             /**
              * Watermark Stale
              * @default false
@@ -2982,6 +3064,10 @@ export interface components {
             /** Session Id */
             session_id: string;
             usage?: components["schemas"]["UsageSummary"];
+            /** Warnings */
+            warnings?: string[];
+            /** Warnings V2 */
+            warnings_v2?: components["schemas"]["WarningPayload"][];
             /**
              * Watermark Stale
              * @default false
@@ -3222,9 +3308,51 @@ export interface components {
             spec: components["schemas"]["TypedInvestigationSpec"];
             /** Statement */
             statement: string;
+            /**
+             * Threshold Alternative
+             * @default
+             */
+            threshold_alternative: string;
             /** Threshold Statement */
             threshold_statement: string;
             watch: components["schemas"]["RoundsWatchModel"];
+        };
+        /**
+         * WatchRefusedPayload
+         * @description A watch declaration that was read and NOT registered.
+         *
+         *     The worst outcome available to this feature is silence: an analyst says
+         *     "watch this and tell me when it moves", the platform cannot honour the
+         *     instruction, and the screen shows an ordinary answer. They walk away
+         *     believing they are being watched, and nothing is watching.
+         *
+         *     So a refusal is a payload, not a sentence appended to a list — it
+         *     renders where the confirmation would have gone, it carries what the
+         *     platform DID understand (so the analyst can see how close they were),
+         *     and it names the phrasings that would work. Everything here is also
+         *     published as a classified warning (``WATCH_NOT_CREATED``) so the
+         *     integrity line counts it.
+         */
+        WatchRefusedPayload: {
+            /** Legal Alternatives */
+            legal_alternatives?: string[];
+            /** Reason */
+            reason: string;
+            /**
+             * Reason Code
+             * @enum {string}
+             */
+            reason_code: "threshold_illegal" | "threshold_unreadable" | "not_stored";
+            /**
+             * Subject
+             * @default
+             */
+            subject: string;
+            /**
+             * Threshold Phrase
+             * @default
+             */
+            threshold_phrase: string;
         };
         /**
          * WindowSpecModel

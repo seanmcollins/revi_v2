@@ -115,7 +115,27 @@ class MaterialityPolicy:
     self_resolved_min_impact_cents: int = 0
     max_entries: int = 12
     max_entries_per_kind: int = 5
+    #: Which kinds the cap drops LAST, worst-to-lose first. Governed rather
+    #: than implicit in assembly order: the cap used to truncate the tail of
+    #: whatever order the engine happened to build entries in, which put the
+    #: platform's verdicts on the team's own work first in the queue to be
+    #: deleted (round-7 FN-11).
+    priority_order: tuple[str, ...] = ()
+    #: Kinds the overall cap may never drop.
+    never_capped: frozenset[str] = frozenset()
     fatigue: FatiguePolicy = field(default_factory=FatiguePolicy)
+
+    def rank_of(self, kind: str) -> int:
+        """Where ``kind`` sits in the drop order; unlisted kinds sort last.
+
+        Unlisted rather than refused: a pack that has not been updated for a
+        new entry kind should keep briefing, with the new kind at the back
+        of the queue, rather than crashing the surface it governs.
+        """
+        try:
+            return self.priority_order.index(kind)
+        except ValueError:
+            return len(self.priority_order)
 
 
 @dataclass(frozen=True, slots=True)
@@ -195,6 +215,8 @@ class RoundsPolicy:
             new_lead_min_impact_cents=self.materiality.new_lead_min_impact_cents,
             always_material_lanes=sorted(self.materiality.always_material_lanes),
             max_entries=self.materiality.max_entries,
+            priority_order=list(self.materiality.priority_order),
+            never_capped=sorted(self.materiality.never_capped),
             content_hash=self.content_hash,
             source=self.source,
         )
@@ -263,6 +285,8 @@ def load_rounds_policy(path: str | Path) -> RoundsPolicy:
         self_resolved_min_impact_cents=int(self_resolved.get("min_impact_cents", 0)),
         max_entries=int(brief.get("max_entries", 12)),
         max_entries_per_kind=int(brief.get("max_entries_per_kind", 5)),
+        priority_order=tuple(str(kind) for kind in (brief.get("priority_order") or [])),
+        never_capped=frozenset(str(kind) for kind in (brief.get("never_capped") or [])),
         fatigue=FatiguePolicy(
             consecutive_loads=int(fatigue_doc.get("consecutive_loads", 0)),
             message=" ".join(str(fatigue_doc.get("message", "")).split()),
@@ -508,6 +532,8 @@ def _threshold_in_metric_unit(
         return watch.value / 100 if unit == RATIO_UNIT else None
     if watch.unit == "cents":
         return watch.value if unit == MONEY_UNIT else None
+    if watch.unit == "days":
+        return watch.value if unit == DAYS_UNIT else None
     if watch.unit == "relative_pct":
         if reference is None or not reference:
             return None
@@ -534,6 +560,8 @@ def format_threshold(watch: RoundsWatch, unit: str | None) -> str:
         return f"{float(watch.value):.2f} points".replace(".00 ", " ")
     if watch.unit == "cents":
         return magnitude(int(watch.value), MONEY_UNIT)
+    if watch.unit == "days":
+        return magnitude(watch.value, DAYS_UNIT)
     if watch.unit == "relative_pct":
         return f"{float(watch.value):.1f}% of the reference value"
     return magnitude(watch.value, unit)
@@ -598,18 +626,25 @@ def validate_watch(watch: RoundsWatch, *, units: Sequence[str | None]) -> str | 
             "as relative_pct, or watch one metric at a time"
         )
     unit = next(iter(distinct))
-    expected = {"points": RATIO_UNIT, "cents": MONEY_UNIT}[watch.unit]
+    expected = {"points": RATIO_UNIT, "cents": MONEY_UNIT, "days": DAYS_UNIT}[watch.unit]
     if unit != expected:
+        advice = {
+            "points": (
+                "Percentage points describe a rate's movement; for money state the threshold "
+                "in cents, for a lag in days, or as relative_pct."
+            ),
+            "cents": (
+                "Cents describe money; for a rate state the threshold in points, for a lag in "
+                "days, or as relative_pct."
+            ),
+            "days": (
+                "Days describe a lag metric; for a rate state the threshold in points, for "
+                "money in cents, or as relative_pct."
+            ),
+        }[watch.unit]
         return (
             f"a threshold in {watch.unit!r} is only honest for a {expected!r} contract, and "
-            f"this watch measures {unit!r}. "
-            + (
-                "Percentage points describe a rate's movement; for money state the threshold "
-                "in cents, or as relative_pct."
-                if watch.unit == "points"
-                else "Cents describe money; for a rate state the threshold in points, or as "
-                "relative_pct."
-            )
+            f"this watch measures {unit!r}. " + advice
         )
     return None
 

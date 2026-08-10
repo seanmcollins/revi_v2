@@ -31,6 +31,7 @@ metric contract's ``unit``) rather than from a guess at the call site.
 
 from __future__ import annotations
 
+import re
 from collections.abc import Mapping, Sequence
 from decimal import Decimal
 from typing import Protocol
@@ -153,6 +154,65 @@ def magnitude(value: Scalar, unit: str | None) -> str:
 
 def metric_label(metric_id: str) -> str:
     return metric_id.replace("_", " ")
+
+
+def unit_word(unit: str | None) -> str | None:
+    """The word a rendered value of this unit ends on, or ``None``.
+
+    **Derived from the renderer rather than tabulated**, so the two can
+    never drift: whatever :func:`format_value` appends after a space is by
+    definition the token a value of that unit carries. ``days`` yields
+    ``"days"``; money's ``$`` and a ratio's ``%`` are attached to the digits
+    and a count carries nothing, so all three yield ``None`` — which is
+    exactly right, because none of them can collide with a metric label.
+    """
+    if unit is None:
+        return None
+    head, sep, tail = format_value(Decimal(1), unit).rpartition(" ")
+    return tail if sep and head else None
+
+
+def measure_phrase(amount: str, label: str, unit: str | None) -> str:
+    """``<amount> <metric label>`` with the unit token said exactly once.
+
+    Round-5 P2, unfixed through two waves and promoted by M23 onto a tile a
+    user reads every morning: ``"Atlas Commercial: 179.5 days days in ar"``.
+    The amount already renders its unit (:func:`days` appends "days") and
+    the measure's own display name *is* "days in ar", so juxtaposing them
+    states the unit twice. The ungrouped scalar path escaped it only because
+    it happens to put the label first and the value after a colon.
+
+    So the juxtaposition itself is the seam, and every published title that
+    puts a figure next to a measure name goes through here rather than
+    through an f-string that cannot see the collision:
+
+    * ``"179.5 days" + "days in ar"`` → ``"179.5 days in ar"`` — the label
+      opens on the unit, so the amount's token *is* the label's first word
+      and the two are spliced;
+    * ``"179.5 days" + "average days in ar"`` → ``"179.5 average days in
+      ar"`` — the label carries the token elsewhere, so the amount drops
+      its suffix and the label keeps its wording;
+    * ``"$4,199.21" + "denied dollars"``, ``"12.8%" + "denial rate"``,
+      ``"1,204" + "appeal volume"`` → unchanged. Money, ratio and count
+      carry no trailing word (see :func:`unit_word`), so there is nothing
+      to collide and nothing is touched.
+    """
+    word = unit_word(unit)
+    if word is None:
+        return f"{amount} {label}"
+    token = word.casefold()
+    if not amount.casefold().endswith(f" {token}"):
+        return f"{amount} {label}"
+    lowered = label.casefold()
+    if lowered == token or lowered.startswith(f"{token} "):
+        # The label opens on the unit: the amount's own token is the
+        # label's first word, so one word serves both.
+        return f"{amount}{label[len(word) :]}"
+    if re.search(rf"(?<!\w){re.escape(token)}(?!\w)", lowered):
+        # The label carries the unit somewhere else in its wording. The
+        # label is governed content and the suffix is ours, so ours goes.
+        return f"{amount[: -(len(word) + 1)]} {label}"
+    return f"{amount} {label}"
 
 
 # ---------------------------------------------------------------------------

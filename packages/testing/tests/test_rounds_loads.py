@@ -24,6 +24,8 @@ proactive surface and a notification feed:
 from __future__ import annotations
 
 import shutil
+from dataclasses import replace
+from decimal import Decimal
 from pathlib import Path
 
 import pytest
@@ -33,6 +35,7 @@ from revi_api.rounds import typed_spec_from_analysis
 from revi_api.scripted_llm import demo_language_model
 from revi_api.service import ApiService
 from revi_api.wiring import build_components
+from revi_investigation.application.ports import RoundsPin
 from revi_investigation_contracts.api import (
     OpenSessionRequest,
     RoundsWatchModel,
@@ -721,3 +724,538 @@ class TestTimeToImpact:
             for c in portfolio.items
         ]
         assert ranked == sorted(ranked), "time-to-impact silently re-ranked the worklist"
+
+
+class TestAWatchMeasuresTheCellThatWasPinned:
+    """Round-7 FN-1 and FN-2 — the two P0s the buyers gated on.
+
+    Both are the same mistake seen from two ends. A pin taken from one
+    finding of a ranked breakdown stored the WHOLE ranking, and the tile
+    then headlined whatever ranked first at each load under the pinned
+    cell's title. Live, on the buyer's own screen, against these very
+    loads: a tile reading "Pinnacle Health Plan: 22.9% denial rate" over
+    State Medicaid MCO's 29.5%, certified ``grade: direct``; and a brief
+    entry reporting Pinnacle "up 3.6 points" on a load where Pinnacle had
+    FALLEN, with the fabricated rise explained as adjudication run-out.
+
+    The suite below is deliberately the exec's own repro: pin the
+    SECOND-ranked payer, walk all three loads, and check that the label and
+    the number never name different subjects.
+    """
+
+    @staticmethod
+    def _rate_by_payer() -> TypedInvestigationSpec:
+        return TypedInvestigationSpec(
+            metric_ids=["denial_rate"],
+            dimensions=["payer"],
+            window=WindowSpecModel(quantity="1", unit="month", mode="full_periods"),
+            basis="service",
+        )
+
+    async def _ranked_answer(self, service: ApiService) -> TurnAnswer:
+        session = await service.open_session(CALLER, OpenSessionRequest())
+        answer = await service.submit_turn(
+            CALLER, session.session_id, TurnRequest(spec=self._rate_by_payer())
+        )
+        assert isinstance(answer, TurnAnswer), answer
+        assert len(answer.findings) >= 2, "the repro needs a ranking to pin the #2 of"
+        return answer
+
+    async def test_pinning_a_non_first_finding_narrows_the_spec_to_that_cell(
+        self,
+    ) -> None:
+        service = _service()
+        answer = await self._ranked_answer(service)
+        second = answer.findings[1]
+
+        pin = await service.rounds.create_pin(
+            CALLER,
+            CreateRoundsPinRequest(
+                investigation_id=answer.investigation_id,
+                referent=second.referent,
+                presentation="finding",
+            ),
+        )
+
+        # The cell is on the SPEC now, not merely in the provenance.
+        assert [(f.dimension, list(f.values)) for f in pin.spec.filters] == [
+            ("payer", [second.title.split(":")[0]])
+        ]
+        # And the label is composed from that spec rather than copied from a
+        # finding title, which carries the value it had on the load it was
+        # written and goes stale on the tile's most prominent line.
+        assert pin.label.startswith(second.title.split(":")[0])
+        assert "%" not in pin.label
+        # The panel headed "What this watch measures" now has something to
+        # render (FN-18).
+        assert "denial rate" in pin.spec_summary.lower()
+        assert "filtered to" in pin.spec_summary
+        assert any("narrowed at creation" in note for note in pin.notes)
+
+    async def test_the_tile_names_the_pinned_payer_at_every_load(self) -> None:
+        """The gate, stated as the exec stated it: the tile must read
+        Pinnacle's own number, on every load, including the one where
+        somebody else took the top of the ranking."""
+        service = _service()
+        answer = await self._ranked_answer(service)
+        second = answer.findings[1]
+        subject = second.title.split(":")[0]
+        pin = await service.rounds.create_pin(
+            CALLER,
+            CreateRoundsPinRequest(
+                investigation_id=answer.investigation_id, referent=second.referent
+            ),
+        )
+
+        for watermark in await _watermarks(service):
+            surface = await service.rounds.rounds_at(CALLER, watermark)
+            [tile] = [t for t in surface.tiles if t.pin_id == pin.pin_id]
+            assert tile.status == "ok", tile.unavailable_reason
+            assert tile.headline_subject == {"payer": subject}, watermark.id
+            assert subject in tile.headline_title, watermark.id
+            assert subject in tile.label
+
+    async def test_a_narrowed_watch_keeps_reporting_movement_across_a_rank_flip(
+        self,
+    ) -> None:
+        """The other half of the exec's gate: the fix must not make the
+        watch go quiet. A watch narrowed to its own cell is unaffected by
+        what happens to the ranking above it."""
+        service = _service()
+        answer = await self._ranked_answer(service)
+        pin = await service.rounds.create_pin(
+            CALLER,
+            CreateRoundsPinRequest(
+                investigation_id=answer.investigation_id, referent=answer.findings[1].referent
+            ),
+        )
+        first, second, third = await _watermarks(service)
+
+        for watermark in (first, second, third):
+            await service.rounds.rounds_at(CALLER, watermark)
+        surface = await service.rounds.rounds_at(CALLER, third)
+        [tile] = [t for t in surface.tiles if t.pin_id == pin.pin_id]
+
+        assert tile.delta is not None
+        assert tile.delta.comparable, tile.delta.not_comparable_reason
+        assert tile.delta.subject_label == tile.delta.prior_subject_label
+
+    async def test_a_breakdown_watch_refuses_a_delta_across_a_rank_flip(self) -> None:
+        """An un-narrowed breakdown watch is a legitimate thing to watch,
+        and it is the one whose headline subject can change. When it does,
+        the delta is refused BY NAME — and no same-window run-out
+        attribution can ride on a movement that does not exist."""
+        service = _service()
+        answer = await self._ranked_answer(service)
+        pin = await service.rounds.create_pin(
+            CALLER,
+            CreateRoundsPinRequest(
+                investigation_id=answer.investigation_id,
+                presentation="chart",
+                label="Denial rate by payer",
+            ),
+        )
+        watermarks = await _watermarks(service)
+
+        flips = []
+        for watermark in watermarks:
+            surface = await service.rounds.rounds_at(CALLER, watermark)
+            [tile] = [t for t in surface.tiles if t.pin_id == pin.pin_id]
+            delta = tile.delta
+            if (
+                delta is not None
+                and delta.prior_subject_label
+                and delta.subject_label
+                and delta.prior_subject_label != delta.subject_label
+            ):
+                flips.append((watermark.id, tile, delta))
+
+        assert flips, (
+            "the reference warehouse's third load flips the top payer — that is the "
+            "condition this whole finding is about"
+        )
+        for _, _, delta in flips:
+            assert not delta.comparable
+            assert delta.delta is None and delta.delta_text == ""
+            assert not delta.material, "a phantom movement may not clear the gate"
+            assert not delta.same_window, "and may not carry run-out attribution"
+            assert delta.prior_subject_label in (delta.not_comparable_reason or "")
+            assert delta.subject_label in (delta.not_comparable_reason or "")
+
+    async def test_the_flip_is_briefed_as_a_flip(self) -> None:
+        """"State Medicaid MCO overtook Pinnacle as your worst payer" is the
+        headline the fabricated movement was standing in for — two reviewers
+        said so independently. It is its own entry kind, it names both
+        subjects, and it carries no delta."""
+        service = _service()
+        answer = await self._ranked_answer(service)
+        await service.rounds.create_pin(
+            CALLER,
+            CreateRoundsPinRequest(
+                investigation_id=answer.investigation_id,
+                presentation="chart",
+                label="Denial rate by payer",
+            ),
+        )
+        watermarks = await _watermarks(service)
+        for watermark in watermarks[:-1]:
+            await service.rounds.rounds_at(CALLER, watermark)
+
+        brief = await service.rounds.brief_at(CALLER, watermarks[-1])
+
+        flips = [entry for entry in brief.entries if entry.kind == "rank_flip"]
+        assert flips, brief.headline
+        [flip] = flips
+        assert "overtook" in flip.statement
+        assert flip.delta is None
+        assert "run-out" not in flip.statement and "late-arriving" not in flip.statement
+
+
+class TestOneReferenceFrame:
+    """Round-7 FN-9. ``since=`` governed the lead census and not the watch
+    movements, so a week-long brief carried overnight deltas inside it — and
+    "I was away for a week" is the highest-value read of a proactive
+    surface. The route's own docstring states the invariant it broke."""
+
+    async def test_every_entry_diffs_against_the_load_the_brief_names(self) -> None:
+        service = _service()
+        first, second, third = await _watermarks(service)
+        await service.rounds.create_pin(
+            CALLER, CreateRoundsPinRequest(spec=_moving_spec(), label="denied dollars by payer")
+        )
+        for watermark in (first, second, third):
+            await service.rounds.rounds_at(CALLER, watermark)
+
+        brief = await service.rounds.brief_at(CALLER, third, since=first.id)
+
+        assert brief.prior_watermark_id == first.id
+        assert brief.prior_newest_data_date == first.newest_data_date
+        for entry in brief.entries:
+            if entry.delta is not None:
+                assert entry.delta.prior_watermark_id == first.id, entry.statement
+
+    async def test_the_census_reconciles_to_its_parts(self) -> None:
+        """Round-7 FN-12. Eighteen watches were evaluated, one was briefed,
+        two were counted as held back, and the other sixteen were neither —
+        on a surface whose stated discipline is "withheld visibly, never
+        silently"."""
+        service = _service()
+        first, _second, third = await _watermarks(service)
+        await service.rounds.create_pin(
+            CALLER, CreateRoundsPinRequest(spec=_moving_spec(), label="denied dollars by payer")
+        )
+        await service.rounds.rounds_at(CALLER, first)
+        # A watch created between loads: it has no evaluation at the load
+        # the brief diffs from, which is exactly the population that went
+        # uncounted.
+        await service.rounds.create_pin(
+            CALLER,
+            CreateRoundsPinRequest(
+                spec=TypedInvestigationSpec(
+                    metric_ids=["denial_rate"],
+                    window=WindowSpecModel(quantity="1", unit="month", mode="full_periods"),
+                ),
+                label="denial rate",
+            ),
+        )
+
+        brief = await service.rounds.brief_at(CALLER, third, since=first.id)
+
+        briefed = sum(
+            1 for entry in brief.entries if entry.kind in ("pin_movement", "rank_flip")
+        )
+        withheld = brief.immaterial.entries_withheld_by_kind
+        capped = withheld.get("pin_movement", 0) + withheld.get("rank_flip", 0)
+        assert brief.pins_evaluated == (
+            briefed
+            + capped
+            + brief.immaterial.pin_movements
+            + brief.immaterial.not_yet_comparable
+            + brief.immaterial.unavailable
+        ), brief.immaterial
+
+    async def test_a_first_reading_is_stated_rather_than_rendered_as_flat(self) -> None:
+        """A tile with no prior sent ``null`` and the renderer drew nothing,
+        so "never compared" and "did not move" looked identical — nine of
+        twelve tiles on one live surface."""
+        service = _service()
+        first, _, _ = await _watermarks(service)
+        await service.rounds.create_pin(
+            CALLER, CreateRoundsPinRequest(spec=_moving_spec(), label="denied dollars by payer")
+        )
+
+        surface = await service.rounds.rounds_at(CALLER, first)
+
+        [tile] = surface.tiles
+        assert tile.delta is not None, "absence is read as absence only if something says so"
+        assert not tile.delta.comparable
+        assert "first reading" in (tile.delta.not_comparable_reason or "")
+
+
+class TestTheBriefSpeaksHumanWords:
+    """Round-7 FN-8. The first sentence on the surface read "4 thing(s)
+    changed between wm_002 and wm_003: 2 new lead, 1 pin movement, 1 self
+    resolved" — raw enum ids, no pluralisation, warehouse handles, and
+    "pin", a word this product's own naming rule bans. Nothing in it is
+    wrong and a VP does not read past it."""
+
+    async def test_no_warehouse_handle_or_machine_plural_reaches_the_surface(
+        self,
+    ) -> None:
+        service = _service()
+        first, second, third = await _watermarks(service)
+        await service.rounds.create_pin(
+            CALLER, CreateRoundsPinRequest(spec=_moving_spec(), label="denied dollars by payer")
+        )
+        for watermark in (first, second):
+            await service.rounds.rounds_at(CALLER, watermark)
+
+        brief = await service.rounds.brief_at(CALLER, third)
+
+        surfaces = [brief.headline, brief.immaterial.note, *(e.statement for e in brief.entries)]
+        for text in surfaces:
+            assert "wm_" not in text, text
+            assert "(s)" not in text and "(es)" not in text, text
+            assert "pin movement" not in text.lower(), text
+            assert " tile " not in text.lower(), text
+        # And the load is named the way a reader names it.
+        assert brief.prior_newest_data_date == second.newest_data_date
+        assert f"{second.newest_data_date:%b}" in brief.headline
+
+    async def test_the_held_back_line_is_not_printed_inside_the_headline(self) -> None:
+        service = _service()
+        first, second, _ = await _watermarks(service)
+        await service.rounds.create_pin(
+            CALLER, CreateRoundsPinRequest(spec=_moving_spec(), label="denied dollars by payer")
+        )
+        await service.rounds.rounds_at(CALLER, first)
+
+        brief = await service.rounds.brief_at(CALLER, second)
+
+        assert "Held back" not in brief.headline
+
+
+class TestOneWatchPerSpec:
+    """Round-7 FN-18. Nothing anywhere checked for a duplicate spec, and the
+    client asserted the opposite as the reason its affordance could fail
+    open. Live: nine to eleven tiles rendering the identical figure, four to
+    six on the byte-identical spec — every one re-evaluated every load, and
+    able to brief one movement six times."""
+
+    async def test_the_same_spec_returns_the_watch_that_exists(self) -> None:
+        service = _service()
+        first = await service.rounds.create_pin(
+            CALLER, CreateRoundsPinRequest(spec=_moving_spec(), label="denied dollars")
+        )
+
+        second = await service.rounds.create_pin(
+            CALLER, CreateRoundsPinRequest(spec=_moving_spec(), label="the same thing again")
+        )
+
+        assert second.pin_id == first.pin_id
+        assert second.already_existed
+        assert any("already watching" in note for note in second.notes)
+        assert (await service.rounds.list_pins(CALLER)).total == 1
+
+    async def test_two_different_cells_are_two_watches(self) -> None:
+        service = _service()
+        session = await service.open_session(CALLER, OpenSessionRequest())
+        answer = await service.submit_turn(
+            CALLER,
+            session.session_id,
+            TurnRequest(
+                spec=TypedInvestigationSpec(
+                    metric_ids=["denial_rate"],
+                    dimensions=["payer"],
+                    window=WindowSpecModel(quantity="1", unit="month", mode="full_periods"),
+                    basis="service",
+                )
+            ),
+        )
+        assert isinstance(answer, TurnAnswer), answer
+
+        one = await service.rounds.create_pin(
+            CALLER,
+            CreateRoundsPinRequest(
+                investigation_id=answer.investigation_id, referent=answer.findings[0].referent
+            ),
+        )
+        other = await service.rounds.create_pin(
+            CALLER,
+            CreateRoundsPinRequest(
+                investigation_id=answer.investigation_id, referent=answer.findings[1].referent
+            ),
+        )
+
+        assert one.pin_id != other.pin_id
+        assert one.spec.filters != other.spec.filters
+
+    async def test_an_archived_watch_does_not_block_a_new_one(self) -> None:
+        service = _service()
+        first = await service.rounds.create_pin(
+            CALLER, CreateRoundsPinRequest(spec=_moving_spec(), label="denied dollars")
+        )
+        await service.rounds.archive_pin(CALLER, first.pin_id)
+
+        second = await service.rounds.create_pin(
+            CALLER, CreateRoundsPinRequest(spec=_moving_spec(), label="denied dollars")
+        )
+
+        assert second.pin_id != first.pin_id and not second.already_existed
+
+
+    async def test_a_different_sensitivity_over_the_same_spec_is_refused_by_name(
+        self,
+    ) -> None:
+        """Returning the existing watch would apply a threshold the caller
+        did not ask for, and creating a second one would brief the same
+        movement twice. Neither is silent."""
+        service = _service()
+        existing = await service.rounds.create_pin(
+            CALLER,
+            CreateRoundsPinRequest(
+                spec=_moving_spec(),
+                label="denied dollars",
+                watch=RoundsWatchModel(mode="delta_gte", value=10.0, unit="relative_pct"),
+            ),
+        )
+
+        with pytest.raises(PolicyDeniedError) as refusal:
+            await service.rounds.create_pin(
+                CALLER,
+                CreateRoundsPinRequest(
+                    spec=_moving_spec(),
+                    watch=RoundsWatchModel(mode="any_movement"),
+                ),
+            )
+
+        assert existing.label in refusal.value.message
+        assert refusal.value.details["pin_id"] == existing.pin_id
+        assert (await service.rounds.list_pins(CALLER)).total == 1
+
+    async def test_an_illegal_threshold_is_refused_even_when_the_spec_exists(
+        self,
+    ) -> None:
+        service = _service()
+        await service.rounds.create_pin(
+            CALLER, CreateRoundsPinRequest(spec=_moving_spec(), label="denied dollars")
+        )
+
+        with pytest.raises(PolicyDeniedError) as refusal:
+            await service.rounds.create_pin(
+                CALLER,
+                CreateRoundsPinRequest(
+                    spec=_moving_spec(),
+                    watch=RoundsWatchModel(mode="delta_gte", value=0.5, unit="points"),
+                ),
+            )
+
+        assert "cannot be applied honestly" in refusal.value.message
+
+class TestRepairingWatchesPinnedBeforeTheCellRule:
+    """A fix to the create path does not fix the rows already in the store,
+    and leaving them is leaving the defect in production under a fix's name
+    (round-7 FN-1, the re-migration half)."""
+
+    async def test_a_repairable_watch_is_narrowed_and_its_baseline_reset(self) -> None:
+        service = _service()
+        session = await service.open_session(CALLER, OpenSessionRequest())
+        answer = await service.submit_turn(
+            CALLER,
+            session.session_id,
+            TurnRequest(
+                spec=TypedInvestigationSpec(
+                    metric_ids=["denial_rate"],
+                    dimensions=["payer"],
+                    window=WindowSpecModel(quantity="1", unit="month", mode="full_periods"),
+                    basis="service",
+                )
+            ),
+        )
+        assert isinstance(answer, TurnAnswer), answer
+        second = answer.findings[1]
+        # The shape the store held before this change: the whole ranking,
+        # titled with one cell's finding, and a baseline captured from
+        # whatever ranked first.
+        broken = replace(
+            await _stored_pin(
+                service,
+                answer.investigation_id,
+                second.referent,
+            ),
+            spec=TypedInvestigationSpec(
+                metric_ids=["denial_rate"],
+                dimensions=["payer"],
+                window=WindowSpecModel(quantity="1", unit="month", mode="full_periods"),
+                basis="service",
+            ),
+            label=second.title,
+            baseline_watermark_id="wm_001",
+            baseline_value=Decimal("0.295082"),
+            baseline_unit="ratio",
+        )
+        await service.components.rounds_pins.save(broken)
+
+        report = await service.rounds.repair_pins(TENANT)
+
+        assert report["repaired"] == [broken.id]
+        repaired = await service.components.rounds_pins.get(broken.id)
+        assert repaired is not None
+        assert [(f.dimension, list(f.values)) for f in repaired.spec.filters] == [
+            ("payer", [second.title.split(":")[0]])
+        ]
+        assert repaired.baseline_value is None, (
+            "the old baseline was another cell's number; keeping it would measure this cell "
+            "against that one"
+        )
+        assert "%" not in repaired.label
+
+    async def test_an_unrepairable_watch_is_stopped_and_says_why(self) -> None:
+        service = _service()
+        pin = await service.rounds.create_pin(
+            CALLER,
+            CreateRoundsPinRequest(
+                spec=TypedInvestigationSpec(
+                    metric_ids=["denial_rate"],
+                    dimensions=["payer"],
+                    window=WindowSpecModel(quantity="1", unit="month", mode="full_periods"),
+                    basis="service",
+                ),
+                label="Pinnacle Health Plan: 22.9% denial rate",
+            ),
+        )
+        # A referent whose investigation is gone — the un-resolvable case.
+        stored = await service.components.rounds_pins.get(pin.pin_id)
+        assert stored is not None
+        await service.components.rounds_pins.save(
+            replace(stored, created_from_referent="F2", created_from_investigation_id="inv_gone")
+        )
+
+        report = await service.rounds.repair_pins(TENANT)
+
+        assert report["archived"] == [pin.pin_id]
+        archived = await service.components.rounds_pins.get(pin.pin_id)
+        assert archived is not None and archived.archived_at is not None
+        assert (await service.rounds.list_pins(CALLER)).total == 0
+
+    async def test_repair_is_idempotent(self) -> None:
+        service = _service()
+        await service.rounds.create_pin(
+            CALLER, CreateRoundsPinRequest(spec=_moving_spec(), label="denied dollars")
+        )
+
+        assert await service.rounds.repair_pins(TENANT) == {"repaired": [], "archived": []}
+        assert await service.rounds.repair_pins(TENANT) == {"repaired": [], "archived": []}
+
+
+async def _stored_pin(
+    service: ApiService, investigation_id: str, referent: str
+) -> RoundsPin:
+    """A watch created from a referent, read back as the store holds it."""
+    created = await service.rounds.create_pin(
+        CALLER,
+        CreateRoundsPinRequest(investigation_id=investigation_id, referent=referent),
+    )
+    stored = await service.components.rounds_pins.get(created.pin_id)
+    assert stored is not None
+    return stored

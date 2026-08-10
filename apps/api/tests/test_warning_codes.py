@@ -10,7 +10,13 @@ from __future__ import annotations
 
 import pytest
 
-from revi_api.warning_codes import UNCLASSIFIED, WARNING_CODES, classify, structured_warnings
+from revi_api.warning_codes import (
+    UNCLASSIFIED,
+    WARNING_CODES,
+    classify,
+    structured_warnings,
+    unconserved,
+)
 
 # One live example per family the platform emits, copied from the emitting
 # site rather than paraphrased — a rule that only matches a paraphrase is a
@@ -192,6 +198,42 @@ FAMILIES: list[tuple[str, str, str]] = [
         "probe_families_empty: 8 metric famil(ies) on this plan were read and produced no "
         "published finding, so nothing above speaks for them: ar_over_90_pct "
         "(portfolio_ar_health, 12 row(s))",
+    ),
+    (
+        # Round-7 FN-4, from revi_investigation/application/comparison.py.
+        "NOT_COMPARABLE_WINDOWS",
+        "caution",
+        "not_comparable_windows: the governed contract for denial_rate declares that these "
+        "two windows may not be differenced as levels — claims still awaiting their first "
+        "remittance are excluded from both sides. A movement between them is a settlement "
+        "artifact of the newer window rather than a change in the business, so no figure on "
+        "this turn is published at high confidence and the difference is not a result. Ask "
+        "over two settled windows, or read each window on its own, to get a comparison this "
+        "platform will stand behind.",
+    ),
+    (
+        # Round-7 FN-10, from revi_investigation/application/submit_turn.py.
+        "PARENT_LEVEL",
+        "info",
+        "parent_level: this answer decomposes a population this session already measured — "
+        "denied dollars over the parent population is $493,266.10 (F1). The cells below are "
+        "parts of that $493,266.10: they recombine to it by addition, and none of them is a "
+        "second measurement of the whole.",
+    ),
+    (
+        "WATCH_NOT_CREATED",
+        "caution",
+        "watch_not_created: this turn read as a watch declaration and no watch was created: "
+        "this watch's threshold cannot be applied honestly — a threshold in 'cents' is only "
+        "honest for a 'money_cents' contract, and this watch measures 'ratio'. The answer "
+        "above stands on its own; nothing is being watched.",
+    ),
+    (
+        "WATCH_PENDING_CLARIFICATION",
+        "caution",
+        "watch_pending_clarification: this turn read as a watch declaration and the question "
+        "above has to be answered first. Nothing is being watched yet; answer it and the "
+        "watch is registered from the answer.",
     ),
     (
         "SNAPSHOT_AS_OF",
@@ -449,3 +491,42 @@ def test_same_code_different_text_stays_two_entries() -> None:
 def test_order_is_preserved_and_blanks_dropped() -> None:
     payload = structured_warnings([FAMILIES[0][2], "   ", FAMILIES[1][2]])
     assert [w.code for w in payload] == ["SUPPRESSION_APPLIED", "POPULATION_CAVEAT"]
+
+
+class TestConservation:
+    """Round-7 FN-3: what reaches ``warnings`` must reach ``warnings_v2``.
+
+    Every client renders the structured list whenever it is non-empty and
+    never falls back to the prose, so a sentence appended to ``warnings``
+    alone is a sentence nobody sees. The API appended one there — the
+    refusal of a watch declaration, the single warning whose absence lets
+    somebody walk away believing they are being watched.
+    """
+
+    def test_a_sentence_with_no_classified_twin_is_named(self) -> None:
+        warnings = [FAMILIES[0][2], "watch_not_created: nothing is being watched"]
+        structured = structured_warnings([FAMILIES[0][2]])
+
+        assert unconserved(warnings, structured) == (
+            "watch_not_created: nothing is being watched",
+        )
+
+    def test_deduplication_is_not_a_drop(self) -> None:
+        """The obvious assertion — ``len(v2) >= len(warnings)`` — is FALSE
+        for honest payloads, because identical sentences collapse into one
+        entry with a count. An assertion that fires on correct behaviour is
+        an assertion somebody deletes."""
+        warnings = [FAMILIES[0][2]] * 4
+        structured = structured_warnings(warnings)
+
+        assert len(structured) == 1 and structured[0].count == 4
+        assert unconserved(warnings, structured) == ()
+
+    def test_an_unclassified_sentence_still_counts_as_conserved(self) -> None:
+        """Nothing is dropped: a sentence matching no family is published
+        under UNCLASSIFIED rather than swallowed."""
+        odd = "something nobody wrote a rule for"
+        structured = structured_warnings([odd])
+
+        assert structured[0].code == UNCLASSIFIED
+        assert unconserved([odd], structured) == ()

@@ -2,34 +2,42 @@
 
 import { AlertTriangle, ArrowLeft } from "lucide-react";
 import Link from "next/link";
-import { useEffect } from "react";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useSyncExternalStore } from "react";
 
 import { WarningList } from "@/components/banners/WarningBanner";
 import { BriefPanel } from "@/components/rounds/BriefPanel";
+import type { BriefLeadHandle } from "@/components/rounds/BriefEntryRow";
+import { LeadLifecyclePanel, type LeadRow } from "@/components/rounds/LeadLifecycle";
 import { WatchTile } from "@/components/rounds/WatchTile";
 import { ConnectionPill } from "@/components/workspace/ConnectionPill";
 import { SessionRail } from "@/components/workspace/SessionRail";
 import { ThemeToggle } from "@/components/theme/ThemeToggle";
+import { announce } from "@/lib/announce";
 import { ApiDriver, fetchHealthDetail, resolveDriverKind } from "@/lib/apiDriver";
 import { envDriverKind, type DriverKind, type TurnDriver } from "@/lib/driver";
 import { mediumDate } from "@/lib/format";
+import type { PortfolioItem } from "@/lib/mock/portfolio";
 import { MockDriver } from "@/lib/mockDriver";
-import { markRoundsSeen } from "@/lib/roundsVisit";
-import { useBriefQuery, useRoundsQuery } from "@/lib/queries";
+import { consumeRoundsRedirect, markRoundsSeen } from "@/lib/roundsVisit";
+import { useBriefQuery, usePortfolioQuery, useRoundsQuery } from "@/lib/queries";
 import { useSessionStore } from "@/lib/store";
-import { useMemo, useSyncExternalStore } from "react";
+import { orderTilesForGrid, tileCensus } from "@/lib/rounds";
 
 const noopSubscribe = () => () => {};
 
 /**
  * ROUNDS — the surface Revi walks for you.
  *
- * Two zones and one argument. THE BRIEF is what changed at this load, in
+ * Three zones and one argument. THE BRIEF is what changed at this load, in
  * sentences, gated by governed materiality and capped so it can be
  * finished. THE WATCHES are the things somebody asked to be told about,
  * each re-run at this load through the ordinary governed pipeline — every
  * tile is a real investigation with a real trace and a real permalink, not
- * a number computed off to the side.
+ * a number computed off to the side. THE LEADS are the other axis: not
+ * what changed, but what is being worked and whether the fixes stuck,
+ * which is the standing question a director has every morning and the one
+ * a surface made only of diffs cannot answer.
  *
  * The argument is that a proactive surface earns its place by being QUIET.
  * Everything here is built so a morning with nothing in it looks like an
@@ -41,6 +49,13 @@ const noopSubscribe = () => () => {};
  * Rounds is where the analyst starts and the thread is where they go; two
  * different chromes for two halves of one product would make the second
  * feel like somewhere else.
+ *
+ * WHAT IT SAYS OUT LOUD. This route is genuinely slow the first time a
+ * load is opened — it re-runs every watch and verifies every claimed fix —
+ * and it is also the one place the app navigates on the analyst's behalf.
+ * Both are announced: the pending states are live regions, the brief
+ * announces itself when it lands, and a cold-start redirect moves focus to
+ * the heading of the page it just opened.
  */
 export function RoundsSurface() {
   const driverKind = useSyncExternalStore<DriverKind>(
@@ -63,10 +78,25 @@ export function RoundsSurface() {
   const setDriver = useSessionStore((s) => s.setDriver);
   const newestWatermarkId = useSessionStore((s) => s.connection.newestWatermarkId);
   const live = driverKind === "api";
+  const router = useRouter();
+  const headingRef = useRef<HTMLHeadingElement>(null);
 
   useEffect(() => {
     setDriver(driver);
   }, [driver, setDriver]);
+
+  /**
+   * ARRIVED HERE WITHOUT ASKING. The cold start pushes `/` → `/rounds`,
+   * and a client-side navigation moves no focus and announces nothing —
+   * so a screen-reader user's focus stays on a composer that is no longer
+   * mounted while the app becomes a different app. Focus goes to this
+   * page's own heading, and one sentence says where they are.
+   */
+  useEffect(() => {
+    if (!consumeRoundsRedirect()) return;
+    headingRef.current?.focus();
+    announce("Opened Rounds: this data load has not been briefed yet.");
+  }, []);
 
   // The deployment's newest load, which is what Rounds is about. It also
   // keys both queries: a brief is a statement about ONE data load, so a new
@@ -100,10 +130,16 @@ export function RoundsSurface() {
   const enabled = live && watermarkKey !== "";
   const brief = useBriefQuery(enabled, watermarkKey);
   const rounds = useRoundsQuery(enabled, watermarkKey);
+  // The load's own worklist: where every lead stands, and the typed spec
+  // that opens it. Rounds' brief entries carry neither, so without this a
+  // $17,677 lead is a sentence with nothing behind it.
+  const portfolio = usePortfolioQuery(live);
   // What each watch IS (spec, window mode, threshold) — a different
   // question from what it read, and the one the sensitivity editor needs.
   const loadWatches = useSessionStore((s) => s.loadWatches);
   const knownWatches = useSessionStore((s) => s.knownWatches);
+  const leadStates = useSessionStore((s) => s.leadStates);
+  const submit = useSessionStore((s) => s.submit);
   useEffect(() => {
     void loadWatches();
   }, [loadWatches, driver]);
@@ -116,7 +152,100 @@ export function RoundsSurface() {
     if (brief.data) markRoundsSeen(brief.data.watermarkId);
   }, [brief.data]);
 
+  /**
+   * THE BRIEF LANDED. Announced once, politely, with the two facts a
+   * reader needs before they decide whether to read on: what it says, and
+   * how much was walked to say it. Everything else on this page is
+   * reachable by heading; this is the part that arrives after the wait.
+   */
+  const announced = useRef<string | null>(null);
+  useEffect(() => {
+    if (!brief.data) return;
+    if (announced.current === brief.data.watermarkId) return;
+    announced.current = brief.data.watermarkId;
+    const tiles = rounds.data ? `, ${rounds.data.tiles.length} watches re-run` : "";
+    announce(`Your Rounds brief: ${brief.data.headline}${tiles}`);
+  }, [brief.data, rounds.data]);
+
   const pinsById = new Map(knownWatches.map((pin) => [pin.pinId, pin]));
+
+  /**
+   * A LEAD'S DESTINATION, and the state it is in.
+   *
+   * The drill exists — the platform re-derives it every load to verify
+   * claimed resolutions — and the worklist card carries the typed spec
+   * that opens it. Submitting it opens a real investigation in the thread,
+   * which is where an answer belongs, so the navigation follows the turn.
+   */
+  const openLead = useMemo(
+    () =>
+      (item: PortfolioItem): (() => void) | undefined => {
+        if (!item.drillable || !item.drillSpec) return undefined;
+        return () => {
+          void submit({ spec: item.drillSpec!, anomalyRef: item.referent });
+          router.push("/");
+        };
+      },
+    [submit, router],
+  );
+
+  const leadHandles = useMemo(() => {
+    const handles = new Map<string, BriefLeadHandle>();
+    for (const item of portfolio.data?.items ?? []) {
+      // What this browser changed a minute ago beats the snapshot, which
+      // was composed when the load landed — and it is the only record that
+      // carries what the platform MEASURED about the claim.
+      const liveState = leadStates[item.referent];
+      const open = openLead(item);
+      handles.set(item.referent, {
+        ...(liveState?.status ?? item.leadStatus
+          ? { status: liveState?.status ?? item.leadStatus! }
+          : {}),
+        ...(liveState?.verificationNote || liveState?.note || item.leadStatusNote
+          ? { note: liveState?.verificationNote || liveState?.note || item.leadStatusNote! }
+          : {}),
+        ...(open ? { open } : {}),
+        ...(!open && item.drillUnavailableReason
+          ? { unavailableReason: item.drillUnavailableReason }
+          : {}),
+      });
+    }
+    return handles;
+  }, [portfolio.data, leadStates, openLead]);
+
+  const leadRows = useMemo<LeadRow[]>(() => {
+    const rows: LeadRow[] = [];
+    for (const item of portfolio.data?.items ?? []) {
+      const liveState = leadStates[item.referent];
+      const status = liveState?.status ?? item.leadStatus ?? "open";
+      if (status === "open") continue;
+      const open = openLead(item);
+      rows.push({
+        anomalyId: item.referent,
+        title: item.title,
+        status,
+        note: liveState?.verificationNote || liveState?.note || item.leadStatusNote || "",
+        ...(item.impactCents !== undefined ? { impactCents: item.impactCents } : {}),
+        ...(open ? { open } : {}),
+        ...(liveState ? { live: liveState } : {}),
+      });
+    }
+    // Anything this browser changed on a lead the snapshot does not carry
+    // still belongs here — a status set on a card that has since left the
+    // feed is exactly the kind of work that goes missing.
+    for (const [anomalyId, state] of Object.entries(leadStates)) {
+      if (state.status === "open") continue;
+      if (rows.some((row) => row.anomalyId === anomalyId)) continue;
+      rows.push({
+        anomalyId,
+        title: "No longer on this load's worklist",
+        status: state.status,
+        note: state.verificationNote || state.note,
+        live: state,
+      });
+    }
+    return rows;
+  }, [portfolio.data, leadStates, openLead]);
 
   return (
     <div className="relative h-dvh overflow-hidden bg-background">
@@ -127,7 +256,13 @@ export function RoundsSurface() {
         <main className="flex h-full min-h-0 flex-col">
           <header className="flex shrink-0 items-center justify-between gap-4 border-b bg-background/55 px-6 py-2.5 backdrop-blur-md">
             <div className="min-w-0">
-              <h1 className="truncate text-body font-semibold tracking-tight">Rounds</h1>
+              <h1
+                ref={headingRef}
+                tabIndex={-1}
+                className="truncate text-body font-semibold tracking-tight outline-none"
+              >
+                Rounds
+              </h1>
               <p className="num truncate text-micro text-muted-foreground">
                 {brief.data?.newestDataDate
                   ? `Walked on the data through ${safeDate(brief.data.newestDataDate)}`
@@ -135,6 +270,23 @@ export function RoundsSurface() {
               </p>
             </div>
             <div className="flex shrink-0 items-center gap-2.5">
+              {/* PAST THE BRIEF IN ONE STOP. Twenty watches is three
+                  screens and, before the tile became a single tab stop,
+                  roughly a hundred of them; even at one each, a keyboard
+                  reader who wants the grid should not cross the brief to
+                  reach it. */}
+              <a
+                href="#watches-heading"
+                onClick={(event) => {
+                  event.preventDefault();
+                  const heading = document.getElementById("watches-heading");
+                  heading?.focus();
+                  heading?.scrollIntoView({ block: "start" });
+                }}
+                className="focus-ring sr-only rounded-md border bg-surface-sunken px-2 py-1 text-micro font-medium focus:not-sr-only focus:relative"
+              >
+                Skip to your watches
+              </a>
               <Link
                 href="/"
                 className="focus-ring inline-flex items-center gap-1 rounded-md border bg-surface-sunken/70 px-2 py-1 text-micro font-medium text-muted-foreground transition-colors duration-200 hover:border-ring/40 hover:text-foreground"
@@ -152,14 +304,27 @@ export function RoundsSurface() {
                 column. Rounds is read as a document — the brief's own
                 measure is the reading measure, and centring it would put
                 the first word of every sentence in a different place from
-                the page's own title. */}
-            <div className="max-w-4xl space-y-10 px-6 py-8">
+                the page's own title.
+
+                The measure belongs to the PROSE. It was wrapped around the
+                whole page, so the tile grid inherited a reading measure
+                and rendered two fixed columns across 848 of 1232 available
+                pixels. Each zone now takes the width its own content
+                wants. */}
+            <div className="space-y-10 px-6 py-8">
               {!live ? (
                 <NoDeployment />
               ) : (
                 <>
-                  <BriefZone query={brief} />
+                  <div className="max-w-4xl">
+                    <BriefZone query={brief} leads={leadHandles} />
+                  </div>
                   <WatchZone query={rounds} pinsById={pinsById} />
+                  <LeadLifecyclePanel
+                    leads={leadRows}
+                    totalLeads={portfolio.data?.items.length ?? 0}
+                    headingId="leads-heading"
+                  />
                 </>
               )}
             </div>
@@ -171,8 +336,14 @@ export function RoundsSurface() {
 }
 
 /** The brief zone, including the two states that are not a brief. */
-function BriefZone({ query }: { query: ReturnType<typeof useBriefQuery> }) {
-  if (query.data) return <BriefPanel brief={query.data} />;
+function BriefZone({
+  query,
+  leads,
+}: {
+  query: ReturnType<typeof useBriefQuery>;
+  leads: ReadonlyMap<string, BriefLeadHandle>;
+}) {
+  if (query.data) return <BriefPanel brief={query.data} leads={leads} />;
   if (query.isPending) {
     return (
       <section className="space-y-2">
@@ -182,8 +353,14 @@ function BriefZone({ query }: { query: ReturnType<typeof useBriefQuery> }) {
         {/* Named work, not a spinner. This route re-runs every watch and
             verifies every claimed fix on request, so it is genuinely slow
             the first time a load is opened — and a surface that said
-            nothing about that would look broken rather than busy. */}
-        <p className="text-body leading-relaxed text-muted-foreground">
+            nothing about that would look broken rather than busy. It is a
+            live region for the same reason: over a 30-second wait, silence
+            is indistinguishable from a broken page. */}
+        <p
+          role="status"
+          aria-live="polite"
+          className="text-body leading-relaxed text-muted-foreground"
+        >
           Walking your Rounds at this load — re-running each watch and checking the fixes
           anyone claimed.
         </p>
@@ -193,7 +370,19 @@ function BriefZone({ query }: { query: ReturnType<typeof useBriefQuery> }) {
   return <ReadFailed what="brief" error={query.error} />;
 }
 
-/** The tile grid. */
+/**
+ * The tile grid.
+ *
+ * TWO THINGS IT DOES THAT A GRID OF CARDS DOES NOT. It ORDERS — the
+ * watches that moved come first, then the ones that held still, then the
+ * ones with nothing to compare, then the ones the platform could not
+ * measure — and it SAYS SO, because an order nobody declared is an order
+ * nobody can trust. Within each band the server's own order is kept.
+ *
+ * And it publishes a CENSUS, so the count in the heading reconciles to
+ * what is on screen. "12 watches" over a grid where nine are silent is a
+ * number that raises a question the surface then refuses to answer.
+ */
 function WatchZone({
   query,
   pinsById,
@@ -201,19 +390,28 @@ function WatchZone({
   query: ReturnType<typeof useRoundsQuery>;
   pinsById: Map<string, import("@/lib/rounds").RoundsPin>;
 }) {
+  const ordered = useMemo(
+    () => (query.data ? orderTilesForGrid(query.data.tiles) : []),
+    [query.data],
+  );
+  const census = useMemo(() => tileCensus(ordered), [ordered]);
+
   return (
     <section aria-labelledby="watches-heading" className="space-y-3">
       <header className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <h2
           id="watches-heading"
-          className="text-micro font-semibold uppercase tracking-widest text-muted-foreground"
+          tabIndex={-1}
+          className="text-micro font-semibold uppercase tracking-widest text-muted-foreground outline-none"
         >
           Your watches
         </h2>
         {query.data && query.data.tiles.length > 0 && (
           <span className="num text-micro text-muted-foreground">
-            {query.data.tiles.length} watch{query.data.tiles.length === 1 ? "" : "es"}, re-run at{" "}
-            {query.data.watermarkId}
+            {query.data.tiles.length} watch{query.data.tiles.length === 1 ? "" : "es"}
+            {query.data.newestDataDate
+              ? `, re-run on the data through ${safeDate(query.data.newestDataDate)}`
+              : ", re-run at this data load"}
           </span>
         )}
       </header>
@@ -233,15 +431,38 @@ function WatchZone({
             <WarningList
               warnings={query.data.warnings.map((w) => ({ ...w, type: "warning" as const }))}
             />
-            <ul className="grid grid-cols-1 gap-3 md:grid-cols-2">
-              {query.data.tiles.map((tile) => (
-                <WatchTile key={tile.pinId} tile={tile} {...(pinsById.get(tile.pinId) ? { pin: pinsById.get(tile.pinId) } : {})} />
+            {/* The census and the ordering rule, in one line. Both are
+                claims this surface has to make out loud: the counts
+                because a grid of twenty tiles cannot be counted by eye,
+                and the order because "first" is the strongest statement a
+                list makes and it was being made by creation date. */}
+            <p data-tile-census className="num max-w-[64ch] text-micro text-muted-foreground">
+              {census.join(" · ")}. Moved first, then unchanged, then nothing to compare, then
+              unavailable — within each, the order the platform published.
+            </p>
+            <p id="rounds-tile-hint" className="sr-only">
+              Each watch is one tab stop. Press Enter to reach its controls and Escape to leave
+              it.
+            </p>
+            <ul className="grid grid-cols-1 gap-3 md:grid-cols-2 lg:grid-cols-3 2xl:grid-cols-4">
+              {ordered.map((tile) => (
+                <WatchTile
+                  key={tile.pinId}
+                  tile={tile}
+                  {...(pinsById.get(tile.pinId) ? { pin: pinsById.get(tile.pinId) } : {})}
+                />
               ))}
             </ul>
           </>
         )
       ) : query.isPending ? (
-        <p className="text-meta leading-snug text-muted-foreground">Re-running your watches…</p>
+        <p
+          role="status"
+          aria-live="polite"
+          className="text-meta leading-snug text-muted-foreground"
+        >
+          Re-running your watches…
+        </p>
       ) : (
         <ReadFailed what="watches" error={query.error} />
       )}

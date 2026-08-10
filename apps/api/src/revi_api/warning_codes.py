@@ -96,6 +96,13 @@ _RULES: tuple[_Rule, ...] = (
     _rule("SUPPRESSION_BOUNDED", CAUTION, r"^suppression_bounded:"),
     _rule("WINDOW_OUT_OF_RANGE", CAUTION, r"^window_out_of_range:"),
     _rule("COMPARISON_ASSUMED", INFO, r"^comparison_assumed:"),
+    # Round-7 FN-4: two windows the governed contract itself declares may
+    # not be differenced as levels. The engine refuses the difference and
+    # says why in the pack author's own words; without a rule the sentence
+    # that carries the refusal landed UNCLASSIFIED, which is the code for
+    # "we have no handle for this" on the one warning that changes whether a
+    # number on the turn may be read as a comparison at all.
+    _rule("NOT_COMPARABLE_WINDOWS", CAUTION, r"^not_comparable_windows:"),
     # Round-4 R4-08: a comparison cell whose prior side was never retrieved
     # (it fell outside a top-N). UNKNOWN is published; $0.00 never is.
     _rule("COMPARISON_PRIOR_UNKNOWN", CAUTION, r"^comparison_prior_unknown:"),
@@ -145,12 +152,30 @@ _RULES: tuple[_Rule, ...] = (
     # chose. Emitted by :func:`revi_api.portfolio.dimension_repointed_warning`.
     _rule("DIMENSION_REPOINTED", CAUTION, r"^dimension_repointed:"),
     # -- what the platform did with the answer (does not change it) -------
+    # Round-7 FN-10: a breakdown or drill naming the parent figure its cells
+    # are parts of. Information rather than a caution — the cells are right
+    # either way; this says what they add up to, so nobody reads one of them
+    # as a measurement of the whole.
+    _rule("PARENT_LEVEL", INFO, r"^parent_level:"),
     _rule("SUPPRESSION_APPLIED", INFO, r"^suppression: cells counting fewer than"),
     _rule("NARRATIVE_REDACTED", INFO, r"^narrative sentence redacted:"),
     _rule("NARRATIVE_NOT_COMPOSED", INFO, r"^narrative not composed:"),
     _rule("PROBE_TEMPLATE_SKIPPED", INFO, r"^probe template '.+' skipped:"),
     _rule("TRANSFORM_NOT_EXECUTABLE", INFO, r"^transform '?.+'? is not executable"),
     _rule("TRANSFORM_SKIPPED", INFO, r"^transform '?.+'? skipped:"),
+    # -- the watch a turn declared, and what became of it ------------------
+    # Round-7 FN-3. A refused watch declaration was appended to `warnings`
+    # AFTER `warnings_v2` had been built, so the one sentence that mattered
+    # — "nothing is being watched" — was classified nowhere, counted by no
+    # integrity line, and rendered on no screen. It was also mis-coded as a
+    # `population_caveat`, which is a statement about who is in a number and
+    # not about whether a watch exists.
+    _rule("WATCH_NOT_CREATED", CAUTION, r"^watch_not_created:"),
+    # Round-7 FN-5. The declaration is held across the clarification it
+    # triggered and registered from the resolved answer; while the question
+    # is on screen, this says so. Silence here is the same defect wearing a
+    # different mask.
+    _rule("WATCH_PENDING_CLARIFICATION", CAUTION, r"^watch_pending_clarification:"),
     # -- worklist-level facts about the portfolio -------------------------
     _rule("PORTFOLIO_CARDS_NOT_INVESTIGABLE", CAUTION, r"detected anomalies .* are not investigable"),
     _rule("PORTFOLIO_FEED_EMPTY", INFO, r"^no detected anomalies at this watermark"),
@@ -194,6 +219,33 @@ def classify(message: str) -> tuple[str, str]:
         if rule.pattern.search(text):
             return rule.code, rule.severity
     return UNCLASSIFIED, INFO
+
+
+def unconserved(
+    warnings: Sequence[str], structured: Sequence[WarningPayload]
+) -> tuple[str, ...]:
+    """Prose warnings with no classified twin — the drop, named.
+
+    ``warnings_v2`` is what every client actually renders: the web reads the
+    structured list whenever it is non-empty and never falls back to the
+    prose. So a sentence that reaches ``warnings`` alone is a sentence
+    nobody sees, and the API has appended to ``warnings`` alone at least
+    once for every field it added after the assembler ran (round-7 FN-3: the
+    refusal of a watch declaration, which is the one warning whose absence
+    lets somebody walk away believing they are being watched).
+
+    The check is by MESSAGE and not by count. ``structured_warnings``
+    deduplicates identical sentences into one entry with a ``count``, so
+    ``len(v2) >= len(warnings)`` is false for honest payloads and would
+    train whoever hit it to delete the assertion. "Every sentence is
+    represented" is the invariant that is actually true.
+    """
+    represented = {payload.message.strip() for payload in structured}
+    return tuple(
+        message
+        for raw in warnings
+        if (message := raw.strip()) and message not in represented
+    )
 
 
 def structured_warnings(warnings: Sequence[str] | Iterable[str]) -> list[WarningPayload]:

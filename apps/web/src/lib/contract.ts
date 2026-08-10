@@ -2900,6 +2900,14 @@ export type TurnResponseData =
        * the server's, composed from the same answer.
        */
       watch?: WatchDeclaration;
+      /**
+       * `TurnAnswer.watch_refused` — this turn read as a watch declaration
+       * and NO WATCH EXISTS. The mirror of `watch`, and the half a reader
+       * cannot afford to miss: without it the screen shows an ordinary
+       * answer and the analyst walks away believing they are being
+       * watched.
+       */
+      watchRefused?: WatchRefusal;
       /** Published only when the settings in force had debug on. */
       debug?: DebugTrace;
     }
@@ -2908,6 +2916,13 @@ export type TurnResponseData =
       investigationId: string;
       sessionId: string;
       clarification: ClarificationData;
+      /**
+       * `TurnClarification.warnings_v2` — what the platform has to say
+       * about the turn it could not answer. Present since the clarification
+       * outcome gained a warnings channel; absent on every payload
+       * generation before it, which is why it is optional here.
+       */
+      warnings?: Omit<WarningEvent, "type">[];
       watermarkStale: boolean;
       /**
        * A clarification carries it too. That is the whole point of the
@@ -2966,12 +2981,23 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
     if (drift.length > 0) return { value: null, drift };
     const clarificationTrace = mapDebugTrace(raw.debug);
     const clarificationWorklist = mapWorklist(raw.worklist, drift);
+    // A CLARIFICATION CARRIES WARNINGS TOO, now that the server publishes
+    // them. It used to be the one outcome with no channel for a fact about
+    // the turn — and the fact that fell through the gap was "I read this as
+    // a watch, and I am holding it while I ask you this question". Read
+    // with the same reader as an answer's, so one classified list means one
+    // thing everywhere.
+    const clarificationWarnings = readTurnWarnings(
+      raw.warnings_v2,
+      asArray(raw.warnings).filter((w): w is string => typeof w === "string"),
+    );
     return {
       value: {
         outcome: "clarification_required",
         investigationId: asString(raw.investigation_id),
         sessionId: asString(raw.session_id),
         ...(clarificationWorklist !== undefined ? { worklist: clarificationWorklist } : {}),
+        ...(clarificationWarnings.length > 0 ? { warnings: clarificationWarnings } : {}),
         clarification: {
           question: asString(raw.question),
           options: asArray(raw.options).map((o) => String(o)),
@@ -3077,6 +3103,20 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
       // change that has happened, not offering to make one.
       ...(mapWatchDeclaration(raw.watch) !== undefined
         ? { watch: mapWatchDeclaration(raw.watch) }
+        : {}),
+      // AND THE REFUSAL, which is the half that was landing nowhere. The
+      // server appends it to `warnings` after `warnings_v2` has been
+      // built, so `readTurnWarnings` — which prefers the structured list
+      // whenever it is non-empty — dropped the one sentence that says
+      // nothing is being watched. Read from the first-class field when it
+      // is published and from the classified warning otherwise.
+      ...(readWatchRefusal(mapWatchRefusal(raw.watch_refused), turnWarnings) !== undefined
+        ? {
+            watchRefused: readWatchRefusal(
+              mapWatchRefusal(raw.watch_refused),
+              turnWarnings,
+            ),
+          }
         : {}),
       ...(trace !== null ? { debug: trace } : {}),
     },
@@ -3299,6 +3339,22 @@ export function parseInvestigationResponse(
       // fallback exists for, since investigations stored before
       // `warnings_v2` shipped carry only sentences.
       warnings: restoredTurnWarnings,
+      // A REFUSED WATCH SURVIVES THE PERMALINK, the day the store keeps
+      // it. Read defensively from both halves for the same reason the live
+      // path does: a turn that read as a watch declaration and registered
+      // nothing is a fact about the world, and a permalink that quietly
+      // drops it is the same defect the live path just closed, one route
+      // over. (Live today: `GET /v1/investigations/{iid}` publishes
+      // neither `watch_refused` nor the `WATCH_NOT_CREATED` warning, so
+      // this renders nothing — and starts rendering the moment it does.)
+      ...(readWatchRefusal(mapWatchRefusal(raw.watch_refused), restoredTurnWarnings) !== undefined
+        ? {
+            watchRefused: readWatchRefusal(
+              mapWatchRefusal(raw.watch_refused),
+              restoredTurnWarnings,
+            ),
+          }
+        : {}),
       ...(typeof raw.plan_hash === "string" ? { planHash: raw.plan_hash } : {}),
       ...(evidence !== undefined ? { evidence } : {}),
       ...(metric !== undefined ? { metric } : {}),
@@ -3489,6 +3545,14 @@ export function turnResponseToEvents(
     if (!received.hasClarification) {
       events.push({ type: "clarification", clarification: response.clarification });
     }
+    // The clarification's own warnings, as ordinary warning events, so the
+    // surfaces that already render a turn's cautions render these without
+    // learning a second shape. Emitted only for the ones the stream did not
+    // already deliver, on the same `received` bookkeeping the rest uses.
+    for (const warning of response.warnings ?? []) {
+      if (received.warningKeys.has(`${warning.code}:${warning.message}`)) continue;
+      events.push({ type: "warning", ...warning });
+    }
     events.push({
       type: "turn_complete",
       investigationId: response.investigationId,
@@ -3580,6 +3644,10 @@ export function turnResponseToEvents(
     // the declaration's baseline IS the answer, so it is not settled until
     // the answer is.
     ...(response.watch ? { watch: response.watch } : {}),
+    // And the refusal, on the same frame and for the same reason. A
+    // declaration that registered nothing is a state change the reader
+    // must be told about, so it travels wherever the confirmation does.
+    ...(response.watchRefused ? { watchRefused: response.watchRefused } : {}),
     ...(response.debug ? { debug: response.debug } : {}),
   });
   return events;
@@ -3835,6 +3903,19 @@ export interface PortfolioSnapshotData {
    * the rail then draws one list rather than inventing a division.
    */
   lanes: PortfolioLane[];
+  /**
+   * `PortfolioResponse.cash_timing_lanes` — the SAME cards split by cash
+   * timing instead of by governance: `pre_cash` (the money still
+   * catchable), `already_hit` (the cash effect has landed, though a
+   * recovery window may still be open), `unknown` (no honest basis).
+   *
+   * A second partition rather than more entries in `lanes`, because every
+   * card is in exactly one of each and concatenating them would
+   * double-count the worklist. Empty on a deployment that publishes none,
+   * and the rail then says nothing rather than totalling a split it did
+   * not make.
+   */
+  cashTimingLanes: PortfolioLane[];
 }
 
 export interface PortfolioParse {
@@ -4138,6 +4219,104 @@ export interface WatchDeclaration {
   matchedPhrase: string;
 }
 
+/**
+ * `WATCH_NOT_CREATED` — the code a refused watch declaration travels under.
+ *
+ * A refusal is NOT a `population_caveat` (which is how it first reached the
+ * wire), and it is not a note about how to read a number: it is a state
+ * change that did not happen. It has its own code so the integrity line
+ * counts it, the things-to-know sheet renders it, and this client can lift
+ * it out of the warning list and draw it where the confirmation would have
+ * gone.
+ */
+export const WATCH_NOT_CREATED = "WATCH_NOT_CREATED";
+
+/**
+ * `TurnAnswer.watch_refused` — the turn read as a watch declaration and NO
+ * WATCH EXISTS.
+ *
+ * The mirror of `WatchDeclaration`, and the more important half. The
+ * confirmation is a nicety; this is the one warning on the answer that
+ * changes what the analyst will do tomorrow morning, and it was reaching
+ * the screen as nothing at all — appended to `warnings` after
+ * `warnings_v2` had already been built, and `readTurnWarnings` prefers the
+ * structured list whenever it is non-empty.
+ *
+ * Read from EITHER shape, because the two halves of this fix ship
+ * independently: a first-class `watch_refused` object if the server
+ * publishes one, and otherwise the `WATCH_NOT_CREATED` warning lifted out
+ * of the classified list. Both carry the server's own sentence; neither is
+ * composed here.
+ */
+export interface WatchRefusal {
+  /**
+   * `threshold_illegal` (a legal grammar, an illegal unit for this
+   * metric's contract), `threshold_unreadable` (a sensitivity clause the
+   * grammar cannot read — never silently replaced by the governed
+   * default), `not_stored` (the Rounds store refused it). Absent on a
+   * refusal read out of the classified warning, which carries no code of
+   * its own.
+   */
+  reasonCode?: "threshold_illegal" | "threshold_unreadable" | "not_stored";
+  /** The server's sentence, verbatim. Never paraphrased. */
+  reason: string;
+  /** What this contract WOULD accept, in the analyst's own idiom. */
+  legalAlternatives: string[];
+  /** What the declaration DID reduce to — how close the analyst was. */
+  subject?: string;
+  /** The sensitivity words that could not be read, verbatim. */
+  thresholdPhrase?: string;
+}
+
+const REFUSAL_REASONS: ReadonlySet<string> = new Set([
+  "threshold_illegal",
+  "threshold_unreadable",
+  "not_stored",
+]);
+
+export function mapWatchRefusal(raw: unknown): WatchRefusal | undefined {
+  if (!isRecord(raw)) return undefined;
+  // Three spellings of the sentence. `reason` is the published field; the
+  // other two are read because this half of the contract and the client
+  // half ship in separate lanes, and a client that reads only one of them
+  // drops the refusal exactly as it does today.
+  const reason = asString(raw.reason) || asString(raw.message) || asString(raw.detail);
+  if (reason === "") return undefined;
+  const alternatives = asArray(raw.legal_alternatives).filter(
+    (entry): entry is string => typeof entry === "string" && entry !== "",
+  );
+  const subject = asString(raw.subject) || asString(raw.label);
+  return {
+    ...(typeof raw.reason_code === "string" && REFUSAL_REASONS.has(raw.reason_code)
+      ? { reasonCode: raw.reason_code as WatchRefusal["reasonCode"] }
+      : {}),
+    reason,
+    legalAlternatives: alternatives,
+    ...(subject !== "" ? { subject } : {}),
+    ...(asString(raw.threshold_phrase) !== ""
+      ? { thresholdPhrase: asString(raw.threshold_phrase) }
+      : {}),
+  };
+}
+
+/**
+ * The refusal this turn carries, from whichever half of the contract is
+ * live — the first-class field first, the classified warning second.
+ *
+ * Deliberately NOT derived from the prose `warnings` list by substring:
+ * that list is the pre-classification fallback, and a client matching
+ * sentences would start rendering a state change off a phrase.
+ */
+export function readWatchRefusal(
+  payloadRefusal: WatchRefusal | undefined,
+  warnings: readonly Omit<WarningEvent, "type">[],
+): WatchRefusal | undefined {
+  if (payloadRefusal) return payloadRefusal;
+  const classified = warnings.find((w) => w.code === WATCH_NOT_CREATED);
+  if (!classified) return undefined;
+  return { reason: classified.message, legalAlternatives: [] };
+}
+
 export function mapWatchDeclaration(raw: unknown): WatchDeclaration | undefined {
   if (!isRecord(raw)) return undefined;
   const pinId = asString(raw.pin_id);
@@ -4217,9 +4396,24 @@ function mapPortfolioLanes(raw: unknown): PortfolioLane[] {
       id,
       label,
       description: asString(entry.description),
+      // Defaulted to `governance`, which is what every lane was before the
+      // cash-timing partition existed. A lane whose kind the server has
+      // not stated is read as the split that decides render order rather
+      // than as the one that answers "how much can we still catch?".
+      kind: entry.kind === "cash_timing" ? "cash_timing" : "governance",
       anomalyIds,
       itemCount: asNumber(entry.item_count) ?? anomalyIds.length,
       impactCents: asNumber(entry.impact_cents) ?? 0,
+      ...(asNumber(entry.recoverable_cents_estimate) !== undefined
+        ? { recoverableCents: asNumber(entry.recoverable_cents_estimate) }
+        : {}),
+      ...(typeof entry.soonest_deadline_date === "string" && entry.soonest_deadline_date !== ""
+        ? { soonestDeadlineDate: entry.soonest_deadline_date }
+        : {}),
+      ...(asNumber(entry.soonest_deadline_days) !== undefined
+        ? { soonestDeadlineDays: asNumber(entry.soonest_deadline_days) }
+        : {}),
+      datedItemCount: asNumber(entry.dated_item_count) ?? 0,
     });
   }
   return lanes;
@@ -4481,6 +4675,7 @@ export function parsePortfolioSnapshot(raw: unknown): PortfolioParse {
       asArray(raw.warnings).filter((w): w is string => typeof w === "string"),
     ),
     lanes: mapPortfolioLanes(raw.lanes),
+    cashTimingLanes: mapPortfolioLanes(raw.cash_timing_lanes),
   };
   // PortfolioResponse spells these `watermark_id` / `formula_version`.
   const watermark =

@@ -3,6 +3,7 @@
 import {
   ArrowUpRight,
   CircleHelp,
+  Eye,
   FileSearch,
   MessageSquarePlus,
   MessageSquareText,
@@ -15,6 +16,7 @@ import {
   Sparkles,
   SunMoon,
 } from "lucide-react";
+import { useRouter } from "next/navigation";
 import { useTheme } from "next-themes";
 import { Fragment, useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Dialog as DialogPrimitive } from "radix-ui";
@@ -57,6 +59,7 @@ export function CommandPalette({
   onOpenChange: (open: boolean) => void;
 }) {
   const { resolvedTheme, setTheme } = useTheme();
+  const router = useRouter();
   const submit = useSessionStore((s) => s.submit);
   const streaming = useSessionStore((s) => s.streamingTurnId !== null);
   const newChatPending = useSessionStore((s) => s.newChatPending);
@@ -240,6 +243,43 @@ export function CommandPalette({
       });
     }
 
+    // ROUNDS HAS A ⌘K VERB. It is where an analyst starts their day and it
+    // was the only primary destination in the product with no keyboard
+    // route to it — reachable from the rail's link and nowhere else.
+    list.push({
+      id: "rounds",
+      group: "Navigate",
+      label: "Open Rounds",
+      hint: "what changed at this data load",
+      icon: <Eye className="size-3.5" />,
+      run: () => router.push("/rounds"),
+    });
+
+    // And the gesture Rounds is made of, on the answer being read. The
+    // control exists on charts, findings and worklists; the keyboard had
+    // no way to reach any of them.
+    const watchable = [...turns].reverse().find((t) => t.answer.investigationId);
+    if (watchable?.answer.investigationId) {
+      const referent = watchable.answer.findings[0]?.referent.value;
+      const label = watchable.answer.findings[0]?.title ?? "this answer";
+      list.push({
+        id: "watch-answer",
+        group: "Investigate",
+        label: "Watch this answer",
+        // What it will actually watch, named — a watch registered on
+        // something the analyst did not mean is a tile that interrupts
+        // them tomorrow about a cell they never asked about.
+        hint: referent ? `re-runs ${label} every load` : "re-runs this question every load",
+        icon: <Eye className="size-3.5" />,
+        disabled: streaming,
+        run: () =>
+          void useSessionStore.getState().createWatch(`palette:${watchable.id}`, {
+            investigationId: watchable.answer.investigationId!,
+            ...(referent ? { referent, presentation: "finding" as const } : {}),
+          }),
+      });
+    }
+
     list.push(
       {
         id: "new-chat",
@@ -321,6 +361,8 @@ export function CommandPalette({
     openSettings,
     debug,
     variant,
+    router,
+    streaming,
   ]);
 
   const filtered = useMemo(() => {

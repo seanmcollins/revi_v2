@@ -1118,6 +1118,17 @@
             "title": "Window End",
             "type": "string"
           },
+          "window_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Window Note"
+          },
           "window_start": {
             "format": "date",
             "title": "Window Start",
@@ -2386,6 +2397,16 @@
             "title": "Warnings V2",
             "type": "array"
           },
+          "watch_refused": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WatchRefusedPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "watermark_id": {
             "default": "",
             "title": "Watermark Id",
@@ -2677,6 +2698,11 @@
             "title": "Anomaly Ids",
             "type": "array"
           },
+          "dated_item_count": {
+            "default": 0,
+            "title": "Dated Item Count",
+            "type": "integer"
+          },
           "description": {
             "title": "Description",
             "type": "string"
@@ -2695,9 +2721,23 @@
             "title": "Item Count",
             "type": "integer"
           },
+          "kind": {
+            "default": "governance",
+            "enum": [
+              "governance",
+              "cash_timing"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
           "label": {
             "title": "Label",
             "type": "string"
+          },
+          "passed_deadline_count": {
+            "default": 0,
+            "title": "Passed Deadline Count",
+            "type": "integer"
           },
           "ranked_impact_cents": {
             "default": 0,
@@ -2708,6 +2748,29 @@
             "default": 0,
             "title": "Recoverable Cents Estimate",
             "type": "integer"
+          },
+          "soonest_deadline_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Soonest Deadline Date"
+          },
+          "soonest_deadline_days": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Soonest Deadline Days"
           }
         },
         "required": [
@@ -2722,6 +2785,13 @@
         "additionalProperties": false,
         "description": "Detected anomalies at the pinned watermark, governed-priority ranked.",
         "properties": {
+          "cash_timing_lanes": {
+            "items": {
+              "$ref": "#/components/schemas/PortfolioLanePayload"
+            },
+            "title": "Cash Timing Lanes",
+            "type": "array"
+          },
           "compliance_floor_basis": {
             "default": "",
             "title": "Compliance Floor Basis",
@@ -2969,7 +3039,7 @@
       },
       "RoundsBriefEntry": {
         "additionalProperties": false,
-        "description": "One line of the brief.\n\n``kind`` is the closed set of things a load can change, and each one is\na different reading:\n\n* ``new_lead`` \u2014 the detection feed fired something that was not there\n  at the prior load;\n* ``pin_movement`` \u2014 a watched spec moved materially;\n* ``self_resolved`` \u2014 a lead the feed no longer reports, nobody\n  claimed. Published because a problem that fixed itself is\n  information, and because the alternative is an analyst chasing a\n  card that is gone;\n* ``resolution_confirmed`` / ``resolution_regressed`` \u2014 the platform's\n  verdict on a claimed resolution.",
+        "description": "One line of the brief.\n\n``kind`` is the closed set of things a load can change, and each one is\na different reading:\n\n* ``new_lead`` \u2014 the detection feed fired something that was not there\n  at the prior load;\n* ``pin_movement`` \u2014 a watched spec moved materially;\n* ``self_resolved`` \u2014 a lead the feed no longer reports, nobody\n  claimed. Published because a problem that fixed itself is\n  information, and because the alternative is an analyst chasing a\n  card that is gone;\n* ``resolution_confirmed`` / ``resolution_regressed`` \u2014 the platform's\n  verdict on a claimed resolution;\n* ``rank_flip`` \u2014 the cell a ranked watch headlines is not the cell it\n  headlined last load. This is NOT a movement and never carries a\n  delta: it is the fact that \"your worst payer\" is now a different\n  payer, which is the headline the movement it replaced was pretending\n  to be (round-7 FN-2).",
         "properties": {
           "anomaly_id": {
             "anyOf": [
@@ -3051,7 +3121,8 @@
               "pin_movement",
               "self_resolved",
               "resolution_confirmed",
-              "resolution_regressed"
+              "resolution_regressed",
+              "rank_flip"
             ],
             "title": "Kind",
             "type": "string"
@@ -3184,6 +3255,18 @@
             "title": "Pins Evaluated",
             "type": "integer"
           },
+          "prior_newest_data_date": {
+            "anyOf": [
+              {
+                "format": "date",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Prior Newest Data Date"
+          },
           "prior_watermark_id": {
             "anyOf": [
               {
@@ -3311,6 +3394,11 @@
             ],
             "title": "Not Comparable Reason"
           },
+          "prior_subject_label": {
+            "default": "",
+            "title": "Prior Subject Label",
+            "type": "string"
+          },
           "prior_value": {
             "anyOf": [
               {
@@ -3345,6 +3433,11 @@
             "default": false,
             "title": "Same Window",
             "type": "boolean"
+          },
+          "subject_label": {
+            "default": "",
+            "title": "Subject Label",
+            "type": "string"
           },
           "threshold_source": {
             "default": "governed",
@@ -3428,9 +3521,21 @@
             "title": "Entries Withheld By Cap",
             "type": "integer"
           },
+          "entries_withheld_by_kind": {
+            "additionalProperties": {
+              "type": "integer"
+            },
+            "title": "Entries Withheld By Kind",
+            "type": "object"
+          },
           "new_leads": {
             "default": 0,
             "title": "New Leads",
+            "type": "integer"
+          },
+          "not_yet_comparable": {
+            "default": 0,
+            "title": "Not Yet Comparable",
             "type": "integer"
           },
           "note": {
@@ -3446,6 +3551,11 @@
           "self_resolved": {
             "default": 0,
             "title": "Self Resolved",
+            "type": "integer"
+          },
+          "unavailable": {
+            "default": 0,
+            "title": "Unavailable",
             "type": "integer"
           }
         },
@@ -3601,10 +3711,24 @@
             "title": "Max Entries",
             "type": "integer"
           },
+          "never_capped": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Never Capped",
+            "type": "array"
+          },
           "new_lead_min_impact_cents": {
             "default": 0,
             "title": "New Lead Min Impact Cents",
             "type": "integer"
+          },
+          "priority_order": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Priority Order",
+            "type": "array"
           },
           "source": {
             "default": "",
@@ -3653,6 +3777,11 @@
         "additionalProperties": false,
         "description": "One pinned spec, as stored.\n\n``spec`` is published, not hidden: a watch whose definition a reader\ncannot see is a watch they cannot check, and this is the object that\ndecides what the tile measures every morning.",
         "properties": {
+          "already_existed": {
+            "default": false,
+            "title": "Already Existed",
+            "type": "boolean"
+          },
           "archived_at": {
             "anyOf": [
               {
@@ -3744,6 +3873,13 @@
             "title": "Label",
             "type": "string"
           },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
           "pin_id": {
             "title": "Pin Id",
             "type": "string"
@@ -3766,6 +3902,11 @@
           },
           "spec": {
             "$ref": "#/components/schemas/TypedInvestigationSpec"
+          },
+          "spec_summary": {
+            "default": "",
+            "title": "Spec Summary",
+            "type": "string"
           },
           "tenant": {
             "title": "Tenant",
@@ -4035,6 +4176,18 @@
           "headline_statement": {
             "default": "",
             "title": "Headline Statement",
+            "type": "string"
+          },
+          "headline_subject": {
+            "additionalProperties": {
+              "type": "string"
+            },
+            "title": "Headline Subject",
+            "type": "object"
+          },
+          "headline_subject_label": {
+            "default": "",
+            "title": "Headline Subject Label",
             "type": "string"
           },
           "headline_title": {
@@ -4985,6 +5138,16 @@
               }
             ]
           },
+          "watch_refused": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/WatchRefusedPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "watermark_stale": {
             "default": false,
             "title": "Watermark Stale",
@@ -5060,6 +5223,20 @@
           },
           "usage": {
             "$ref": "#/components/schemas/UsageSummary"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "warnings_v2": {
+            "items": {
+              "$ref": "#/components/schemas/WarningPayload"
+            },
+            "title": "Warnings V2",
+            "type": "array"
           },
           "watermark_stale": {
             "default": false,
@@ -5542,6 +5719,11 @@
             "title": "Statement",
             "type": "string"
           },
+          "threshold_alternative": {
+            "default": "",
+            "title": "Threshold Alternative",
+            "type": "string"
+          },
           "threshold_statement": {
             "title": "Threshold Statement",
             "type": "string"
@@ -5559,6 +5741,48 @@
           "threshold_statement"
         ],
         "title": "WatchDeclarationPayload",
+        "type": "object"
+      },
+      "WatchRefusedPayload": {
+        "additionalProperties": false,
+        "description": "A watch declaration that was read and NOT registered.\n\nThe worst outcome available to this feature is silence: an analyst says\n\"watch this and tell me when it moves\", the platform cannot honour the\ninstruction, and the screen shows an ordinary answer. They walk away\nbelieving they are being watched, and nothing is watching.\n\nSo a refusal is a payload, not a sentence appended to a list \u2014 it\nrenders where the confirmation would have gone, it carries what the\nplatform DID understand (so the analyst can see how close they were),\nand it names the phrasings that would work. Everything here is also\npublished as a classified warning (``WATCH_NOT_CREATED``) so the\nintegrity line counts it.",
+        "properties": {
+          "legal_alternatives": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Legal Alternatives",
+            "type": "array"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "reason_code": {
+            "enum": [
+              "threshold_illegal",
+              "threshold_unreadable",
+              "not_stored"
+            ],
+            "title": "Reason Code",
+            "type": "string"
+          },
+          "subject": {
+            "default": "",
+            "title": "Subject",
+            "type": "string"
+          },
+          "threshold_phrase": {
+            "default": "",
+            "title": "Threshold Phrase",
+            "type": "string"
+          }
+        },
+        "required": [
+          "reason_code",
+          "reason"
+        ],
+        "title": "WatchRefusedPayload",
         "type": "object"
       },
       "WindowSpecModel": {

@@ -329,6 +329,103 @@ describe("PortfolioPanel — lanes and impact agreement", () => {
   });
 });
 
+/* ------------------------------------------------------------------ */
+/* How much of this can we still catch?                                */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The cash-timing partition — the same cards split by whether the money
+ * has landed yet.
+ *
+ * Live, every card carried `time_to_impact.lane` (12 pre-cash, 19 already
+ * hit, 2 unknown), no surface totalled it, and the question "how much has
+ * not hit cash yet and when are the deadlines?" came back with
+ * $830,501.93 across all thirty-three — the answer to a different
+ * question, presented as the answer to this one.
+ *
+ * Rendered ONLY from the server's split. `items` is a page and the lanes
+ * describe the whole population, so a client-side sum would be a fraction
+ * wearing a total's clothes.
+ */
+describe("PortfolioPanel — the still-catchable total", () => {
+  const cashLanes = [
+    {
+      id: "pre_cash",
+      label: "Not yet hit cash",
+      description: "The cash effect has not landed yet, so this money is still catchable.",
+      kind: "cash_timing",
+      anomaly_ids: ["ANM-021"],
+      item_count: 12,
+      impact_cents: 51_234_500,
+      recoverable_cents_estimate: 17_064_300,
+      soonest_deadline_date: "2026-08-19",
+      soonest_deadline_days: 17,
+      dated_item_count: 3,
+    },
+    {
+      id: "already_hit",
+      label: "Already hit cash",
+      description: "The cash effect has landed; a recovery window may still be open.",
+      kind: "cash_timing",
+      anomaly_ids: ["ANM-013"],
+      item_count: 19,
+      impact_cents: 90_000_000,
+      recoverable_cents_estimate: 12_000_000,
+      dated_item_count: 0,
+    },
+  ];
+
+  beforeEach(() => {
+    // The four-card capture, which carries the REAL governance lanes — the
+    // point being that the two partitions coexist without either one
+    // re-listing the other's cards.
+    served = parse({ ...SAMPLES.portfolio_lanes, cash_timing_lanes: cashLanes });
+  });
+
+  it("totals the money that has not hit cash yet, across the whole population", () => {
+    renderPanel();
+    expect(screen.getByText(/Still catchable/)).toBeInTheDocument();
+    expect(screen.getByText(/\$170,643 recoverable across 12 leads/)).toBeInTheDocument();
+  });
+
+  it("names the soonest REAL deadline, and how many cards carry one", () => {
+    // A projection never sets a date: an estimate rendered beside a filing
+    // limit is indistinguishable from one. And a horizon computed from
+    // three of twelve cards is a fact about three cards.
+    renderPanel();
+    expect(screen.getByText(/soonest deadline Aug 19, 2026 — 17 days, on 3 of 12 of them/)).toBeInTheDocument();
+  });
+
+  it("says a deadline that has already gone has gone, rather than '-47 days'", () => {
+    // The live lane: the soonest dated limit in the still-catchable half
+    // had passed seven weeks earlier, and a negative day count is a number
+    // nobody reads as a loss.
+    served = parse({
+      ...SAMPLES.portfolio_lanes,
+      cash_timing_lanes: [
+        { ...cashLanes[0], soonest_deadline_date: "2026-06-16", soonest_deadline_days: -47 },
+      ],
+    });
+    renderPanel();
+    expect(screen.getByText(/passed 47 days ago/)).toBeInTheDocument();
+  });
+
+  it("keeps the two partitions apart rather than concatenating them", () => {
+    // Every card is in exactly one governance lane AND one cash lane;
+    // rendering them as one list would count the worklist twice.
+    renderPanel();
+    expect(screen.getByRole("button", { name: "Must do regardless of size" })).toBeInTheDocument();
+    expect(document.querySelector("[data-cash-timing]")).not.toBeNull();
+    expect(document.querySelectorAll("[data-cash-timing] > li")).toHaveLength(2);
+  });
+
+  it("says nothing at all when the deployment publishes no cash split", () => {
+    served = snapshot();
+    renderPanel();
+    expect(document.querySelector("[data-cash-timing]")).toBeNull();
+  });
+});
+
 /**
  * One focus ring, in one place.
  *

@@ -268,6 +268,60 @@ class TestWatchThresholds:
             is None
         )
 
+    def test_a_days_threshold_is_legal_over_a_days_contract_and_nowhere_else(self) -> None:
+        """The one contract whose own unit is also how a human states a
+        threshold for it. Legal there; refused BY NAME everywhere else,
+        because "2 days" on a denial rate has no meaning and coercing it
+        into the metric's own unit would gate at 2 percentage points."""
+        assert (
+            validate_watch(
+                RoundsWatch(mode="delta_gte", value=Decimal(2), unit="days"),
+                units=["days"],
+            )
+            is None
+        )
+        for units in (["ratio"], ["money_cents"], ["count"]):
+            refusal = validate_watch(
+                RoundsWatch(mode="delta_gte", value=Decimal(2), unit="days"),
+                units=units,
+            )
+            assert refusal is not None and "'days' contract" in refusal, units
+
+    def test_a_days_threshold_gates_in_the_metrics_own_unit(self, policy) -> None:  # type: ignore[no-untyped-def]
+        """Both directions of the gate, so "more than 2 days" cannot be
+        read as anything but two days."""
+        below = assess_movement(
+            unit="days",
+            prior=Decimal("2.5"),
+            current=Decimal("4.0"),
+            policy=policy.materiality,
+            watch=RoundsWatch(mode="delta_gte", value=Decimal(2), unit="days"),
+        )
+        at_gate = assess_movement(
+            unit="days",
+            prior=Decimal("2.5"),
+            current=Decimal("4.5"),
+            policy=policy.materiality,
+            watch=RoundsWatch(mode="delta_gte", value=Decimal(2), unit="days"),
+        )
+        assert not below.material
+        assert at_gate.material and at_gate.rule == "watch_delta_gte"
+        assert "2.0 days" in at_gate.note
+
+    def test_a_days_threshold_over_a_rate_cannot_evaluate_rather_than_coerce(
+        self, policy
+    ) -> None:  # type: ignore[no-untyped-def]
+        """A stored watch whose unit no longer fits its metric degrades to
+        "cannot evaluate" and says so — it never gates on 2 points."""
+        verdict = assess_movement(
+            unit="ratio",
+            prior=Decimal("0.10"),
+            current=Decimal("0.90"),
+            policy=policy.materiality,
+            watch=RoundsWatch(mode="delta_gte", value=Decimal(2), unit="days"),
+        )
+        assert not verdict.material and verdict.rule == "watch_unit_mismatch"
+
     def test_relative_pct_is_legal_against_any_unit(self) -> None:
         """A fraction of the reference value means the same thing in every
         unit, so it needs no agreement with the contract."""

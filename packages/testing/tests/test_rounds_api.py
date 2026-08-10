@@ -25,6 +25,7 @@ import pytest
 from revi_api.app import create_app
 from revi_api.auth import Principal, TokenSigner
 from revi_api.service import ApiService
+from revi_api.warning_codes import unconserved
 from revi_api.wiring import build_components
 from revi_investigation_contracts.api import (
     OpenSessionRequest,
@@ -358,3 +359,288 @@ class TestCreateByIntent:
         assert isinstance(answer, TurnAnswer), answer
         assert answer.watch is None
         assert (await service.rounds.list_pins(caller)).pins == []
+
+
+class TestARefusedWatchReachesTheReader:
+    """Round-7 FN-3. Two reviewers scored the SAME behaviour opposite ways
+    and both were right: the server-side refusal is exemplary, and the
+    client never showed it.
+
+    ``_register_declared_watch`` appended the refusal to ``warnings`` alone,
+    after the assembler had already built ``warnings_v2`` — and every client
+    renders the structured list whenever it is non-empty. So the payload
+    carried the sentence, the integrity line counted five warnings where
+    there were six, and the screen showed an ordinary answer with no
+    indication that nothing was being watched. It was also mis-coded as a
+    ``population_caveat``, which is a statement about who is in a number.
+    """
+
+    async def test_an_illegal_threshold_lands_where_the_confirmation_would_have(
+        self,
+    ) -> None:
+        service = _service()
+        caller = Principal(tenant=TENANT, subject="rounds-suite")
+        session = await service.open_session(caller, OpenSessionRequest())
+
+        answer = await service.submit_turn(
+            caller,
+            session.session_id,
+            # rcm-exec's own utterance: dollars against a rate contract.
+            TurnRequest(utterance=f"watch {WATCH_SUBJECT}, alert me if it moves more than $5,000"),
+        )
+
+        assert isinstance(answer, TurnAnswer), answer
+        assert answer.watch is None
+        assert answer.watch_refused is not None
+        assert answer.watch_refused.reason_code == "threshold_illegal"
+        assert "'money_cents'" in answer.watch_refused.reason
+        # A refusal with no way forward is a wall.
+        assert answer.watch_refused.legal_alternatives
+        assert any("points" in phrase for phrase in answer.watch_refused.legal_alternatives)
+        assert (await service.rounds.list_pins(caller)).pins == []
+
+    async def test_the_refusal_is_classified_and_conserved(self) -> None:
+        service = _service()
+        caller = Principal(tenant=TENANT, subject="rounds-suite")
+        session = await service.open_session(caller, OpenSessionRequest())
+
+        answer = await service.submit_turn(
+            caller,
+            session.session_id,
+            TurnRequest(utterance=f"watch {WATCH_SUBJECT}, alert me if it moves more than $5,000"),
+        )
+
+        assert isinstance(answer, TurnAnswer), answer
+        codes = [w.code for w in answer.warnings_v2]
+        assert "WATCH_NOT_CREATED" in codes
+        [refusal] = [w for w in answer.warnings_v2 if w.code == "WATCH_NOT_CREATED"]
+        assert refusal.severity == "caution"
+        # Conservation: every prose sentence has a classified twin, so this
+        # whole class of drop cannot recur silently.
+        assert unconserved(answer.warnings, answer.warnings_v2) == ()
+
+    async def test_an_unreadable_sensitivity_is_refused_rather_than_defaulted(
+        self,
+    ) -> None:
+        """Round-7 FN-6. "more than half a point" registered the governed
+        default with ``value: null`` and a confirmation that never mentioned
+        the instruction — so "three points" would silently brief at 0.5."""
+        service = _service()
+        caller = Principal(tenant=TENANT, subject="rounds-suite")
+        session = await service.open_session(caller, OpenSessionRequest())
+
+        answer = await service.submit_turn(
+            caller,
+            session.session_id,
+            TurnRequest(
+                utterance=f"watch {WATCH_SUBJECT}, tell me if it moves more than a smidgen"
+            ),
+        )
+
+        assert isinstance(answer, TurnAnswer), answer
+        assert answer.watch is None
+        assert answer.watch_refused is not None
+        assert answer.watch_refused.reason_code == "threshold_unreadable"
+        assert "smidgen" in answer.watch_refused.reason
+        assert (await service.rounds.list_pins(caller)).pins == []
+
+    async def test_the_shapes_people_type_now_reach_the_watch(self) -> None:
+        """The other half of FN-6: refusing more is only honest if the
+        grammar first reads what people actually type."""
+        service = _service()
+        caller = Principal(tenant=TENANT, subject="rounds-suite")
+        session = await service.open_session(caller, OpenSessionRequest())
+
+        answer = await service.submit_turn(
+            caller,
+            session.session_id,
+            TurnRequest(
+                utterance=f"watch {WATCH_SUBJECT}, tell me if it moves more than half a point"
+            ),
+        )
+
+        assert isinstance(answer, TurnAnswer), answer
+        assert answer.watch is not None
+        assert answer.watch.watch.mode == "delta_gte"
+        assert answer.watch.watch.value == pytest.approx(0.5)
+        assert answer.watch.watch.unit == "points"
+        assert "0.50 points" in answer.watch.threshold_statement
+
+    async def test_a_bare_percent_on_a_rate_names_the_other_reading(self) -> None:
+        """"more than 2%" on a RATE compiles to a fraction of the current
+        value — about half a point on a 25.9% base, four times tighter than
+        the pack's own gate — and the governed fatigue advisory then told
+        the analyst to tighten thresholds they never loosened."""
+        service = _service()
+        caller = Principal(tenant=TENANT, subject="rounds-suite")
+        session = await service.open_session(caller, OpenSessionRequest())
+
+        answer = await service.submit_turn(
+            caller,
+            session.session_id,
+            TurnRequest(utterance=f"watch {WATCH_SUBJECT}, tell me if it moves more than 2%"),
+        )
+
+        assert isinstance(answer, TurnAnswer), answer
+        assert answer.watch is not None
+        assert answer.watch.watch.unit == "relative_pct"
+        assert answer.watch.threshold_alternative
+        assert "2 points" in answer.watch.threshold_alternative
+        assert answer.watch.threshold_alternative in answer.watch.statement
+
+
+class TestAWatchSurvivesTheQuestionItTriggered:
+    """Round-7 FN-5. ``_resolve_watch_turn`` returned early on a
+    clarification reply and nothing carried the parsed declaration across
+    the turn boundary, so a declaration that clarified registered nothing
+    and said nothing — in a pack that refuses any imprecise payer name BY
+    DESIGN, which makes clarification the MODAL branch of the flagship
+    acquisition path for the flagship surface."""
+
+    async def test_the_clarification_says_the_watch_is_not_created_yet(self) -> None:
+        service = _service()
+        caller = Principal(tenant=TENANT, subject="rounds-suite")
+        session = await service.open_session(caller, OpenSessionRequest())
+
+        outcome = await service.submit_turn(
+            caller,
+            session.session_id,
+            TurnRequest(utterance=f"watch {UNMAPPABLE_SUBJECT}"),
+        )
+
+        assert isinstance(outcome, TurnClarification), outcome
+        assert (await service.rounds.list_pins(caller)).pins == []
+        # Silence is the one unacceptable option, and a clarification had no
+        # channel to speak on until now.
+        assert any("NOTHING is being watched" in w for w in outcome.warnings)
+        assert [w.code for w in outcome.warnings_v2] == ["WATCH_PENDING_CLARIFICATION"]
+        assert unconserved(outcome.warnings, outcome.warnings_v2) == ()
+
+    async def test_the_declaration_is_registered_from_the_resolved_answer(self) -> None:
+        service = _service()
+        caller = Principal(tenant=TENANT, subject="rounds-suite")
+        session = await service.open_session(caller, OpenSessionRequest())
+        clarified = await service.submit_turn(
+            caller,
+            session.session_id,
+            TurnRequest(
+                utterance=f"watch {UNMAPPABLE_SUBJECT}, tell me if it moves more than 2 points"
+            ),
+        )
+        assert isinstance(clarified, TurnClarification), clarified
+
+        answer = await service.submit_turn(
+            caller, session.session_id, TurnRequest(clarification_response=WATCH_SUBJECT)
+        )
+
+        assert isinstance(answer, TurnAnswer), answer
+        assert answer.watch is not None, "the declaration survived the question"
+        # And the sensitivity the analyst stated survived with it.
+        assert answer.watch.watch.mode == "delta_gte"
+        assert answer.watch.watch.value == pytest.approx(2.0)
+        assert (await service.rounds.list_pins(caller)).total == 1
+
+    async def test_a_later_ordinary_turn_does_not_register_it_again(self) -> None:
+        """The record is read from the newest investigation only, which is
+        what makes it self-clearing: a declaration that registered a second
+        watch three turns later would be its own defect."""
+        service = _service()
+        caller = Principal(tenant=TENANT, subject="rounds-suite")
+        session = await service.open_session(caller, OpenSessionRequest())
+        await service.submit_turn(
+            caller, session.session_id, TurnRequest(utterance=f"watch {UNMAPPABLE_SUBJECT}")
+        )
+        await service.submit_turn(
+            caller, session.session_id, TurnRequest(clarification_response=WATCH_SUBJECT)
+        )
+
+        await service.submit_turn(
+            caller, session.session_id, TurnRequest(utterance=WATCH_SUBJECT)
+        )
+
+        assert (await service.rounds.list_pins(caller)).total == 1
+
+
+class TestARefusalSurvivesTheReload:
+    """Round-7 FN-3, restore half (reported by the web lane mid-fix).
+
+    The engine stores the investigation with the warnings IT produced. The
+    named-cut disclosure a watch declaration earns and the refusal that says
+    nothing is being watched are both appended AFTER that, by the API — so a
+    permalinked or re-opened turn restored four of six warnings and dropped
+    exactly the two whose entire value is in being read later. The same
+    class of drop, one layer down from the one this finding is about.
+    """
+
+    async def test_the_refusal_and_its_disclosure_are_still_there_on_restore(
+        self,
+    ) -> None:
+        service = _service()
+        caller = Principal(tenant=TENANT, subject="rounds-suite")
+        session = await service.open_session(caller, OpenSessionRequest())
+        answer = await service.submit_turn(
+            caller,
+            session.session_id,
+            TurnRequest(utterance=f"watch {WATCH_SUBJECT}, alert me if it moves more than $5,000"),
+        )
+        assert isinstance(answer, TurnAnswer), answer
+        assert answer.watch_refused is not None
+
+        restored = await service.get_investigation(caller, answer.investigation_id)
+
+        assert set(answer.warnings) <= set(restored.warnings), (
+            "what was published is what is stored"
+        )
+        codes = [w.code for w in restored.warnings_v2]
+        assert "WATCH_NOT_CREATED" in codes
+        assert "NAMED_CUT_APPLIED" in codes, (
+            "the disclosure of what the platform read as a watch declaration is an API "
+            "addition too, and it was going missing the same way"
+        )
+        assert unconserved(restored.warnings, restored.warnings_v2) == ()
+        # And the refusal comes back as the SHAPE it renders as, not only as
+        # a sentence a client would have to parse.
+        assert restored.watch_refused is not None
+        assert restored.watch_refused.reason_code == "threshold_illegal"
+        assert restored.watch_refused.legal_alternatives
+
+    async def test_an_ordinary_turn_stores_no_extra_record(self) -> None:
+        """The write is additive and conditional: a turn the API added
+        nothing to is saved once, by the engine, exactly as before."""
+        service = _service()
+        caller = Principal(tenant=TENANT, subject="rounds-suite")
+        session = await service.open_session(caller, OpenSessionRequest())
+        answer = await service.submit_turn(
+            caller,
+            session.session_id,
+            TurnRequest(
+                spec=TypedInvestigationSpec(
+                    metric_ids=["denied_dollars"],
+                    window=WindowSpecModel(quantity="1", unit="month", mode="full_periods"),
+                )
+            ),
+        )
+        assert isinstance(answer, TurnAnswer), answer
+
+        restored = await service.get_investigation(caller, answer.investigation_id)
+
+        assert restored.watch_refused is None
+        assert set(answer.warnings) <= set(restored.warnings)
+
+    async def test_the_watch_confirmation_disclosure_survives_too(self) -> None:
+        """A successful declaration earns a NAMED_CUT_APPLIED sentence
+        saying what the platform read. It is the analyst's evidence that the
+        rewrite happened, and it was dropped on restore for the same
+        reason."""
+        service = _service()
+        caller = Principal(tenant=TENANT, subject="rounds-suite")
+        session = await service.open_session(caller, OpenSessionRequest())
+        answer = await service.submit_turn(
+            caller, session.session_id, TurnRequest(utterance=f"watch {WATCH_SUBJECT}")
+        )
+        assert isinstance(answer, TurnAnswer), answer
+
+        restored = await service.get_investigation(caller, answer.investigation_id)
+
+        assert any("watch declaration" in w for w in restored.warnings)
+        assert "NAMED_CUT_APPLIED" in [w.code for w in restored.warnings_v2]

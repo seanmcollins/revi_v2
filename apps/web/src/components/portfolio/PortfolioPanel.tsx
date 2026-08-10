@@ -19,7 +19,7 @@ import { TimeToImpactLine } from "@/components/rounds/TimeToImpactLine";
 import { Button } from "@/components/ui/button";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { portfolioToCsv } from "@/lib/export";
-import { formatSignedPct, formatWholeDollars } from "@/lib/format";
+import { formatSignedPct, formatWholeDollars, mediumDate } from "@/lib/format";
 import {
   PORTFOLIO_ITEMS,
   PORTFOLIO_META,
@@ -82,6 +82,7 @@ export function PortfolioPanel() {
   let items: PortfolioItem[] = PORTFOLIO_ITEMS;
   let warnings: Omit<WarningEvent, "type">[] = [];
   let lanes: PortfolioLane[] = [];
+  let cashTimingLanes: PortfolioLane[] = [];
   // "Watermark" is the engine's word for the pinned data load; the panel
   // says "data as of", which is the same fact in the analyst's words.
   let footer = `Computed on the data as of ${PORTFOLIO_META.watermark} · drilling in asks an ordinary question against that same data`;
@@ -92,6 +93,7 @@ export function PortfolioPanel() {
       items = query.data.items;
       warnings = query.data.warnings;
       lanes = query.data.lanes;
+      cashTimingLanes = query.data.cashTimingLanes;
       const at = query.data.watermark;
       footer = at
         ? `Computed on the data as of ${at} · drilling in asks an ordinary question against that same data`
@@ -188,6 +190,11 @@ export function PortfolioPanel() {
           caution about un-openable cards is styled apart from a note. */}
       <WarningList warnings={warnings.map((w) => ({ ...w, type: "warning" as const }))} />
 
+      {/* HOW MUCH OF THIS IS STILL CATCHABLE. The one total a director
+          asks for before they allocate a morning, and it is not the
+          ranking — it is the same cards split by cash timing. */}
+      <CashTimingSummary lanes={cashTimingLanes} />
+
       {emptyNote ? (
         <p className="px-1 text-micro leading-snug text-muted-foreground">{emptyNote}</p>
       ) : (
@@ -252,6 +259,115 @@ export function PortfolioPanel() {
       {footer && <p className="num text-micro leading-snug text-muted-foreground">{footer}</p>}
     </section>
   );
+}
+
+/**
+ * STILL CATCHABLE — the worklist split by cash timing rather than by
+ * governance.
+ *
+ * The question this answers is "how much money have we not lost yet?", and
+ * until the server published this split it could not be answered from a
+ * payload that contained the answer: every card carried its own
+ * `time_to_impact.lane`, no surface totalled it, and the one figure on
+ * screen was $830,501.93 of governed recoverable estimate across all
+ * thirty-three — a number that reads like a reply to the question and is
+ * not one.
+ *
+ * Three rules it keeps.
+ *
+ *   IT RENDERS ONLY WHAT THE SERVER SPLIT. No client-side summing over
+ *     whatever cards happen to be on this page: `items` is a PAGE and the
+ *     lanes describe the whole population, so a total derived here would
+ *     be a fraction wearing a total's clothes.
+ *   IT NAMES WHICH DOLLARS. The recoverable estimate when the lane
+ *     publishes one (what is left to save), the detected impact otherwise
+ *     (what went wrong) — never the two silently interchanged.
+ *   A DEADLINE IS A REAL DATE OR IT IS NOTHING. `soonest_deadline_date`
+ *     is only ever a limit the detector published; a projection never
+ *     sets one, because an estimate rendered beside a filing deadline is
+ *     indistinguishable from one. And the count of cards that carry a date
+ *     travels with it, so a horizon computed from three of thirty-one is
+ *     read as a fact about three.
+ */
+function CashTimingSummary({ lanes }: { lanes: PortfolioLane[] }) {
+  if (lanes.length === 0) return null;
+  const order = ["pre_cash", "already_hit", "unknown"];
+  const sorted = [...lanes].sort(
+    (a, b) =>
+      (order.indexOf(a.id) === -1 ? order.length : order.indexOf(a.id)) -
+      (order.indexOf(b.id) === -1 ? order.length : order.indexOf(b.id)),
+  );
+  return (
+    <ul data-cash-timing className="space-y-0.5 px-0.5">
+      {sorted.map((lane) => {
+        const recoverable = lane.recoverableCents;
+        const total = recoverable ?? lane.impactCents;
+        return (
+          <li key={lane.id} className="num text-micro leading-snug">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <button
+                  type="button"
+                  className="focus-ring rounded text-left underline decoration-dotted underline-offset-2"
+                >
+                  <span
+                    className={cn(
+                      "font-medium",
+                      lane.id === "pre_cash" ? "text-foreground" : "text-muted-foreground",
+                    )}
+                  >
+                    {lane.id === "pre_cash" ? "Still catchable" : lane.label}
+                  </span>
+                  <span className="text-muted-foreground">
+                    : {formatWholeDollars(total)}
+                    {recoverable !== undefined ? " recoverable" : " detected"} across{" "}
+                    {lane.itemCount} lead{lane.itemCount === 1 ? "" : "s"}
+                  </span>
+                </button>
+              </TooltipTrigger>
+              <TooltipContent side="right" className="max-w-80 text-meta leading-snug">
+                {lane.description}
+              </TooltipContent>
+            </Tooltip>
+            {/* The soonest REAL dated limit in this lane, and how many of
+                its cards carry one at all. */}
+            {lane.soonestDeadlineDate !== undefined && (
+              <span
+                className={cn(
+                  "block text-micro",
+                  // A deadline in the PAST is not a horizon, it is a loss —
+                  // and "-47 days" is a number nobody reads as one. Live,
+                  // the soonest dated limit in the still-catchable lane had
+                  // already passed by seven weeks.
+                  (lane.soonestDeadlineDays ?? 0) < 0 ? "text-warning" : "text-muted-foreground",
+                )}
+              >
+                soonest deadline {safeMediumDate(lane.soonestDeadlineDate)}
+                {lane.soonestDeadlineDays !== undefined &&
+                  (lane.soonestDeadlineDays < 0
+                    ? ` — passed ${Math.abs(lane.soonestDeadlineDays)} day${
+                        lane.soonestDeadlineDays === -1 ? "" : "s"
+                      } ago`
+                    : ` — ${lane.soonestDeadlineDays} day${
+                        lane.soonestDeadlineDays === 1 ? "" : "s"
+                      }`)}
+                {lane.datedItemCount > 0 &&
+                  `, on ${lane.datedItemCount} of ${lane.itemCount} of them`}
+              </span>
+            )}
+          </li>
+        );
+      })}
+    </ul>
+  );
+}
+
+function safeMediumDate(iso: string): string {
+  try {
+    return mediumDate(iso);
+  } catch {
+    return iso;
+  }
 }
 
 /** One rendered section of the rail: a published lane, or the leftovers. */

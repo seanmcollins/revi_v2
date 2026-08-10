@@ -35,6 +35,7 @@ from revi_api.worklist import (
     worklist_warning,
 )
 from revi_investigation.application.capability_ports import BenchmarkSpec
+from revi_investigation.application.findings import published_window_note
 from revi_investigation.application.llm.guard import assert_safe_payload
 from revi_investigation.application.ports import (
     LlmCallPolicy,
@@ -63,6 +64,7 @@ from revi_investigation_contracts.api import (
     TurnAnswer,
     TurnClarification,
     UsageSummary,
+    WatchRefusedPayload,
     WorklistPayload,
 )
 from revi_investigation_contracts.header import build_header_payload
@@ -249,6 +251,12 @@ def restored_context_header(
       when the turn recorded a correction warning, the response says so in
       ``restoration_notes`` rather than letting the chip imply it queried
       the analyst's spelling.
+    * ``window_note`` is rebuilt from the stored FINDINGS rather than from
+      a plan (a stored turn holds a ``plan_hash``, not a plan). Every
+      finding whose probe read its own window publishes that window as
+      named values — ``<measure>__window_start`` / ``__window_end``, the
+      same shape ``__is_bound`` uses — precisely so this and every other
+      consumer can ask rather than parse a sentence.
 
     ``None`` when the turn stored no measures and no scope at all — a
     minimal record (a clarification, a context-control turn) has no
@@ -273,6 +281,10 @@ def restored_context_header(
         cohort=context.cohort,
         watermark_id=context.watermark.id,
         as_of=as_of,
+        # The SAME composer the live turn uses, over the same named values
+        # on the same findings — so a restored header and the live one it
+        # restores say the identical sentence about the identical answer.
+        window_note=published_window_note(getattr(investigation, "findings", ())),
     )
 
 
@@ -355,6 +367,7 @@ def investigation_response(
     snapshot_metric_ids: frozenset[str] = frozenset(),
     benchmarks_for_metric: BenchmarksForMetric | None = None,
     pack_version: str | None = None,
+    watch_refused: WatchRefusedPayload | None = None,
 ) -> InvestigationResponse:
     """A stored investigation on the wire.
 
@@ -404,6 +417,11 @@ def investigation_response(
             "current figures, not a snapshot of what was shown at the time."
         )
     return InvestigationResponse(
+        # A watch declaration this turn refused. Restored beside the
+        # warnings that say the same thing in prose, because a refusal
+        # renders where the confirmation would have gone and a client that
+        # only had the sentence had nowhere to put it (round-7 FN-3).
+        watch_refused=watch_refused,
         investigation_id=investigation.id,
         session_id=investigation.session_id,
         parent_id=investigation.parent_id,

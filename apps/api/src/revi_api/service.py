@@ -23,8 +23,10 @@ from __future__ import annotations
 
 import logging
 import uuid
+from collections.abc import Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
+from decimal import Decimal
 from typing import Any
 
 from pydantic import TypeAdapter
@@ -58,7 +60,12 @@ from revi_api.rederive import (
 from revi_api.rounds import RoundsService, annotate_time_to_impact
 from revi_api.settings_policy import DEBUG_TRACE_ENV
 from revi_api.usage_ledger import bind_ledger, unbind_ledger
-from revi_api.watch_intent import WatchDeclaration, parse_watch_declaration
+from revi_api.warning_codes import structured_warnings
+from revi_api.watch_intent import (
+    WatchDeclaration,
+    legal_threshold_phrases,
+    parse_watch_declaration,
+)
 from revi_api.wiring import ApiComponents
 from revi_api.worklist import (
     WorklistReference,
@@ -67,7 +74,7 @@ from revi_api.worklist import (
     worklist_reference_warning,
 )
 from revi_investigation.application.dto_mapping import refinement_to_dto
-from revi_investigation.application.ports import AnomalyRecord, TraceRecord
+from revi_investigation.application.ports import AnomalyRecord, RoundsWatch, TraceRecord
 from revi_investigation.application.submit_turn import SubmitTurnRequest, TurnOutcome
 from revi_investigation.domain.records import Investigation, Session
 from revi_investigation.domain.settings import SessionSettings
@@ -90,6 +97,7 @@ from revi_investigation_contracts.api import (
     TurnError,
     TurnRequest,
     TurnResponse,
+    WatchRefusedPayload,
     WorklistPayload,
     WorklistQuery,
 )
@@ -110,6 +118,51 @@ _TURN_RESULT_ADAPTER: TypeAdapter[TurnResult] = TypeAdapter(TurnResponse)
 #: of the ranked worklist it published, so a later "open the top item"
 #: resolves against the rows the analyst was actually shown (round-3 R3-09).
 WORKLIST_TRACE_SUFFIX = ":worklist"
+
+#: Suffix of the supplementary record a turn writes when a watch DECLARATION
+#: ended in a clarification, so the declaration survives the question it
+#: triggered (round-7 FN-5).
+#:
+#: The engine returns early on a clarification reply and nothing carried the
+#: parsed declaration across the boundary, so "watch denied dollars for
+#: Meridian HMO Care and tell me if it moves more than 2%" — answered
+#: correctly, clarified correctly, resolved correctly — registered no watch
+#: and said nothing about it. In a pack that refuses any imprecise payer
+#: name BY DESIGN, that is not an edge case: clarification is the MODAL
+#: branch of the flagship acquisition path for the flagship surface.
+#:
+#: Written the same way the worklist context is, and for the same reason:
+#: the engine finishes its own trace before the API knows any of this, and
+#: rewriting somebody else's finished record is how two writers come to
+#: disagree about one row.
+WATCH_TRACE_SUFFIX = ":watch"
+
+#: Suffix of the record carrying what the API added to the published answer
+#: AFTER the engine saved its own (round-7 FN-3, restore half).
+#:
+#: The engine stores the investigation with the warnings IT produced. Four
+#: of the six sentences on one live answer came from there; the other two —
+#: the named-cut disclosure a watch declaration earns, and the refusal that
+#: says nothing is being watched — were appended by this module afterwards.
+#: A restored or permalinked turn therefore lost exactly the warnings whose
+#: whole purpose is to survive being read later, which is the same class of
+#: drop FN-3 exists to kill, one layer down.
+#:
+#: The SENTENCES are merged back onto the investigation record itself, so
+#: every restore path gets them with no extra read. This record carries the
+#: structured payload beside them — a refusal is a shape, not a sentence.
+API_TRACE_SUFFIX = ":api"
+
+#: Every supplementary record's suffix. The decision trace is the one with
+#: none of them, and this is the single list that decides it — a rule spread
+#: across call sites breaks the next time a writer is added, which is
+#: precisely how it broke before.
+_SUPPLEMENTARY_SUFFIXES = (
+    NARRATIVE_TRACE_SUFFIX,
+    WORKLIST_TRACE_SUFFIX,
+    WATCH_TRACE_SUFFIX,
+    API_TRACE_SUFFIX,
+)
 
 #: How far back a worklist reference looks for the list it names. Three
 #: turns: the list, a question about it, and a follow-up to that. Beyond
@@ -181,6 +234,62 @@ def _resolve_watch_turn(request: TurnRequest) -> tuple[TurnRequest, WatchDeclara
     if declaration is None:
         return request, None
     return request.model_copy(update={"utterance": declaration.subject}), declaration
+
+
+def _declaration_payload(declaration: WatchDeclaration) -> dict[str, Any]:
+    """The parsed declaration, flattened for the supplementary record."""
+    watch = declaration.watch
+    return {
+        "matched_phrase": declaration.matched_phrase,
+        "subject": declaration.subject,
+        "threshold_phrase": declaration.threshold_phrase,
+        "threshold_unreadable": declaration.threshold_unreadable,
+        "watch": None
+        if watch is None
+        else {
+            "mode": watch.mode,
+            "value": None if watch.value is None else str(watch.value),
+            "unit": watch.unit,
+            "direction": watch.direction,
+            "note": watch.note,
+        },
+    }
+
+
+def _declaration_from_payload(raw: Mapping[str, Any]) -> WatchDeclaration | None:
+    """The declaration a clarification interrupted, read back."""
+    subject = str(raw.get("subject") or "")
+    if not subject:
+        return None
+    watch_raw = raw.get("watch")
+    watch = None
+    if isinstance(watch_raw, dict):
+        value = watch_raw.get("value")
+        watch = RoundsWatch(
+            mode=str(watch_raw.get("mode", "governed_default")),
+            value=None if value is None else Decimal(str(value)),
+            unit=watch_raw.get("unit"),
+            direction=str(watch_raw.get("direction", "any")),
+            note=str(watch_raw.get("note", "")),
+        )
+    return WatchDeclaration(
+        matched_phrase=str(raw.get("matched_phrase") or ""),
+        subject=subject,
+        watch=watch,
+        threshold_phrase=str(raw.get("threshold_phrase") or ""),
+        threshold_unreadable=bool(raw.get("threshold_unreadable")),
+    )
+
+
+#: What the platform says while a watch declaration is waiting on a
+#: clarification. Silence is the one unacceptable option here: the analyst
+#: has said "watch this", and an ordinary-looking question with no mention
+#: of the watch is how somebody walks away believing they are being watched.
+WATCH_PENDING_WARNING = (
+    "watch_pending_clarification: this turn read as a watch declaration ({phrase!r}), and the "
+    "question above has to be answered before it can be. NOTHING is being watched yet — "
+    "answer it and Revi answers {subject!r} once and starts watching that."
+)
 
 
 def watch_declaration_warning(declaration: WatchDeclaration) -> str:
@@ -406,6 +515,12 @@ class ApiService:
         # turn: same classification, same interpretation, same §6.6 pass.
         # The watch is registered from the answer, not from the words.
         request, declaration = _resolve_watch_turn(request)
+        if declaration is None and request.clarification_response:
+            # A watch this session declared, whose question is being
+            # answered right now. Picked up here — before the turn runs —
+            # so the resolved answer registers it through exactly the same
+            # path a declaration that never clarified goes through.
+            declaration = await self._pending_watch_declaration(session_id)
         default_question = (
             "(typed investigation)" if request.spec is not None else "(typed gesture)"
         )
@@ -502,6 +617,19 @@ class ApiService:
                 response = await self._register_declared_watch(
                     principal, declaration, outcome, response
                 )
+            elif declaration is not None and isinstance(response, TurnClarification):
+                # The declaration outlives the question it triggered, and
+                # the question says so while it is on screen (round-7 FN-5).
+                response = await self._defer_declared_watch(
+                    declaration, outcome, response
+                )
+            if isinstance(response, TurnAnswer):
+                # What was PUBLISHED is what is STORED. Everything above
+                # this line can add to the answer after the engine has
+                # already written its own record, and a permalink that
+                # restores four of six warnings drops precisely the two
+                # this module added (round-7 FN-3, restore half).
+                await self._persist_published_extras(outcome, response)
         except ReviError as exc:
             # The engine's own sentence, always, in the log: the plain
             # message below is for the analyst, and this is the copy an
@@ -561,6 +689,34 @@ class ApiService:
         """
         label = declaration.subject.strip() or (response.findings[0].title
                                                 if response.findings else "Watched spec")
+        units = self._units_for_answer(outcome)
+        if declaration.threshold_unreadable:
+            # A stated sensitivity this grammar could not read is NEVER
+            # silently replaced by the pack's (round-7 FN-6). "more than
+            # half a point" registered `governed_default` and the
+            # confirmation sentence did not mention the instruction — so
+            # "three points" would have briefed at 0.5, forever, silently.
+            logger.info(
+                "watch declaration not registered: unreadable threshold %r",
+                declaration.threshold_phrase,
+            )
+            return self._watch_refused(
+                response,
+                WatchRefusedPayload(
+                    reason_code="threshold_unreadable",
+                    reason=(
+                        f"I could not read {declaration.threshold_phrase.strip()!r} as a "
+                        "sensitivity, and I will not quietly substitute the governed "
+                        "threshold for one you stated — say it again in one of the forms "
+                        "below and the watch is created from this same answer"
+                    ),
+                    subject=declaration.subject,
+                    threshold_phrase=declaration.threshold_phrase,
+                    legal_alternatives=legal_threshold_phrases(
+                        units[0] if units else None
+                    ),
+                ),
+            )
         try:
             payload = await self._rounds.register_intent_pin(
                 principal,
@@ -571,29 +727,199 @@ class ApiService:
             )
         except ReviError as exc:
             logger.warning("watch declaration refused: %s", exc.message)
-            return response.model_copy(
-                update={
-                    "warnings": [
-                        *response.warnings,
-                        f"population_caveat: this turn read as a watch declaration, and the "
-                        f"watch was NOT created: {exc.message}. The answer above stands on "
-                        "its own; nothing is being watched.",
-                    ]
-                }
+            return self._watch_refused(
+                response,
+                WatchRefusedPayload(
+                    reason_code="threshold_illegal",
+                    reason=exc.message,
+                    subject=declaration.subject,
+                    threshold_phrase=declaration.threshold_phrase,
+                    legal_alternatives=legal_threshold_phrases(units[0] if units else None),
+                ),
             )
         except Exception:  # pragma: no cover - defensive
             logger.exception("watch declaration could not be registered")
-            return response.model_copy(
-                update={
-                    "warnings": [
-                        *response.warnings,
-                        "population_caveat: this turn read as a watch declaration and the "
-                        "watch could not be stored (the attempt is recorded in the API log), "
-                        "so nothing is being watched. The answer above stands on its own.",
-                    ]
-                }
+            return self._watch_refused(
+                response,
+                WatchRefusedPayload(
+                    reason_code="not_stored",
+                    reason=(
+                        "this turn read as a watch declaration and the watch could not be "
+                        "stored (the attempt is recorded in the API log)"
+                    ),
+                    subject=declaration.subject,
+                    threshold_phrase=declaration.threshold_phrase,
+                    legal_alternatives=legal_threshold_phrases(units[0] if units else None),
+                ),
             )
         return response.model_copy(update={"watch": payload})
+
+    def _units_for_answer(self, outcome: TurnOutcome) -> list[str | None]:
+        """The declared units of the metrics this answer measured."""
+        pack = self._components.pack_port
+        units: list[str | None] = []
+        for measure in outcome.investigation.spec.measures:
+            contract = pack.metric(measure.id)
+            unit = getattr(contract, "unit", None)
+            units.append(None if unit is None else str(unit))
+        return units
+
+    @staticmethod
+    def _watch_refused(
+        response: TurnAnswer, refusal: WatchRefusedPayload
+    ) -> TurnAnswer:
+        """Publish a refused declaration where the confirmation would have gone.
+
+        Round-7 FN-3. The refusal used to be appended to ``warnings`` alone,
+        AFTER the assembler had already built ``warnings_v2`` — and every
+        client renders the structured list whenever it is non-empty. So the
+        server refused exemplarily, the payload carried the sentence, and
+        the screen showed an ordinary answer with no indication that nothing
+        was being watched. Three things now happen together, or none does:
+        the payload field, the prose warning, and its classified twin.
+        """
+        alternatives = (
+            " Phrasings that work here: "
+            + "; ".join(f"{phrase!r}" for phrase in refusal.legal_alternatives)
+            + "."
+            if refusal.legal_alternatives
+            else ""
+        )
+        sentence = (
+            f"watch_not_created: this turn read as a watch declaration and NO watch was "
+            f"created: {refusal.reason}. The answer above stands on its own; nothing is "
+            f"being watched.{alternatives}"
+        )
+        return response.model_copy(
+            update={
+                "watch_refused": refusal,
+                "warnings": [*response.warnings, sentence],
+                "warnings_v2": [
+                    *response.warnings_v2,
+                    *structured_warnings([sentence]),
+                ],
+            }
+        )
+
+    async def _defer_declared_watch(
+        self,
+        declaration: WatchDeclaration,
+        outcome: TurnOutcome,
+        response: TurnClarification,
+    ) -> TurnClarification:
+        """Hold a declaration across the clarification it triggered.
+
+        Best-effort on the STORE and never on the SPEECH: if the record
+        cannot be written the clarification still says the watch is not
+        created yet, because the failure mode this closes is silence and a
+        silent failure to defer would be the same silence one level down.
+        """
+        sentence = WATCH_PENDING_WARNING.format(
+            phrase=declaration.matched_phrase, subject=declaration.subject
+        )
+        try:
+            await self._components.traces.save(
+                TraceRecord(
+                    trace_id=f"{outcome.trace_id}{WATCH_TRACE_SUFFIX}",
+                    session_id=outcome.session.id,
+                    investigation_id=outcome.investigation.id,
+                    turn_id=outcome.investigation.turn_id,
+                    created_at=datetime.now(UTC),
+                    payload={"watch_declaration": _declaration_payload(declaration)},
+                )
+            )
+        except Exception:  # pragma: no cover - defensive
+            logger.warning("pending watch declaration not recorded", exc_info=True)
+            sentence = (
+                "watch_pending_clarification: this turn read as a watch declaration and the "
+                "watch was NOT created; the declaration could not be held across this "
+                "question either (the attempt is recorded in the API log), so repeat it once "
+                "you have answered."
+            )
+        return response.model_copy(
+            update={
+                "warnings": [*response.warnings, sentence],
+                "warnings_v2": [
+                    *response.warnings_v2,
+                    *structured_warnings([sentence]),
+                ],
+            }
+        )
+
+    async def _persist_published_extras(
+        self, outcome: TurnOutcome, response: TurnAnswer
+    ) -> None:
+        """Make the stored turn carry what the published turn carried.
+
+        Round-7 FN-3, restore half. The engine saves the investigation with
+        the warnings IT produced; this module then appends the ones only it
+        can know — the named-cut disclosure a watch declaration earns, the
+        worklist reference it resolved, the refusal that says nothing is
+        being watched. None of those reached the record, so a permalinked or
+        re-opened turn restored four of six warnings and lost the two whose
+        entire purpose is to be readable later. The same drop FN-3 exists to
+        kill, one layer down.
+
+        Two writes and both are additive: the SENTENCES merge onto the
+        investigation itself, so every restore path picks them up with no
+        extra read, and the structured refusal rides on a supplementary
+        record because a refusal is a shape rather than a sentence.
+
+        Best-effort. The analyst has their answer; a store hiccup here costs
+        a restore, never the turn.
+        """
+        investigation = outcome.investigation
+        stored = list(investigation.warnings)
+        added = [w for w in response.warnings if w and w not in stored]
+        if not added and response.watch_refused is None:
+            return
+        try:
+            if added:
+                await self._components.investigations.save(
+                    replace(investigation, warnings=(*stored, *added)), None
+                )
+            if response.watch_refused is not None:
+                await self._components.traces.save(
+                    TraceRecord(
+                        trace_id=f"{outcome.trace_id}{API_TRACE_SUFFIX}",
+                        session_id=investigation.session_id,
+                        investigation_id=investigation.id,
+                        turn_id=investigation.turn_id,
+                        created_at=datetime.now(UTC),
+                        payload={
+                            "watch_refused": response.watch_refused.model_dump(mode="json")
+                        },
+                    )
+                )
+        except Exception:  # pragma: no cover - defensive
+            logger.warning(
+                "published warnings could not be persisted for %s",
+                investigation.id,
+                exc_info=True,
+            )
+
+    async def _pending_watch_declaration(self, session_id: str) -> WatchDeclaration | None:
+        """The watch declaration the outstanding clarification interrupted.
+
+        Read from the MOST RECENT investigation in the session only. That is
+        what makes it self-clearing: once the resolving turn writes its own
+        investigation, the record is no longer the newest and cannot be
+        applied twice — a declaration that registered a second watch three
+        turns later would be its own defect.
+        """
+        try:
+            lineage = await self._components.investigations.lineage(session_id)
+        except Exception:  # pragma: no cover - defensive
+            logger.warning("session lineage unreadable for %s", session_id, exc_info=True)
+            return None
+        if lineage is None or not lineage.investigations:
+            return None
+        newest = max(lineage.investigations, key=lambda inv: inv.created_at)
+        for record in await self._components.traces.for_investigation(newest.id):
+            raw = record.payload.get("watch_declaration")
+            if isinstance(raw, dict):
+                return _declaration_from_payload(raw)
+        return None
 
     async def _anomaly_reconciliation(
         self, request: TurnRequest, outcome: TurnOutcome
@@ -767,6 +1093,7 @@ class ApiService:
         # session, and without them every restored turn showed an evidence
         # drawer saying nothing was ever read, next to no charts at all.
         trace = await self._primary_trace(investigation_id)
+        extras = await self._api_extras(investigation_id)
         return investigation_response(
             investigation,
             trace,
@@ -796,29 +1123,40 @@ class ApiService:
             # losing the context its narrative quoted.
             benchmarks_for_metric=self._components.pack_port.benchmarks_for_metric,
             pack_version=self._components.pack_port.pack_version,
+            # The refusal, restored as the shape it is. Its prose twin rode
+            # back on the investigation's own warnings, which is why the
+            # lineage listing needs no second read to stay honest.
+            watch_refused=(
+                WatchRefusedPayload.model_validate(extras["watch_refused"])
+                if isinstance(extras.get("watch_refused"), dict)
+                else None
+            ),
         )
 
     async def _primary_trace(self, investigation_id: str) -> TraceRecord | None:
         """The turn's decision trace, if one was recorded.
 
         Supplementary records persist against the same investigation — the
-        narrative validator's, and the worklist page this turn published —
-        and are excluded by suffix. The decision trace is the one with no
-        suffix at all; picking "the first one that is not the narrative"
-        was already a rule that would break the next time a second writer
-        appeared, which is what happened.
+        narrative validator's, the worklist page this turn published, the
+        declaration a clarification is holding, the API's own additions to
+        the published answer — and are excluded by suffix. The decision
+        trace is the one with no suffix at all; picking "the first one that
+        is not the narrative" was already a rule that would break the next
+        time a second writer appeared, which is what happened.
         """
         records = await self._components.traces.for_investigation(investigation_id)
         return next(
-            (
-                r
-                for r in records
-                if not r.trace_id.endswith(
-                    (NARRATIVE_TRACE_SUFFIX, WORKLIST_TRACE_SUFFIX)
-                )
-            ),
+            (r for r in records if not r.trace_id.endswith(_SUPPLEMENTARY_SUFFIXES)),
             None,
         )
+
+    async def _api_extras(self, investigation_id: str) -> Mapping[str, Any]:
+        """What the API added to the published answer after the engine
+        finished, read back for a restore. Empty when it added nothing."""
+        for record in await self._components.traces.for_investigation(investigation_id):
+            if record.trace_id.endswith(API_TRACE_SUFFIX):
+                return record.payload
+        return {}
 
     async def get_trace(
         self, principal: Principal, investigation_id: str

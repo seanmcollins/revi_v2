@@ -9,7 +9,7 @@ import { useAnswerModel } from "@/components/answer/useAnswerModel";
 import { ClarificationPrompt } from "@/components/clarification/ClarificationPrompt";
 import { DebugTracePanel } from "@/components/debug/DebugTracePanel";
 import { FeedbackTriage } from "@/components/feedback/FeedbackTriage";
-import { WatchDeclarationNote } from "@/components/rounds/WatchDeclarationNote";
+import { WatchDeclarationNote, WatchRefusedNote } from "@/components/rounds/WatchDeclarationNote";
 import { StageRail } from "@/components/chat/StageRail";
 import { AnswerWorklist } from "@/components/worklist/AnswerWorklist";
 import { Button } from "@/components/ui/button";
@@ -141,6 +141,16 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
           this person tomorrow morning, and that belongs where they will
           see it before they scroll. */}
       {a.watch && <WatchDeclarationNote watch={a.watch} />}
+
+      {/* AND THE REFUSAL, in the same slot. A watch declaration has two
+          outcomes and only one of them was reaching the screen: the
+          confirmation rendered here, and the refusal — the sentence saying
+          NOTHING is being watched — was appended to the prose warning list
+          after the classified list had been built, so no surface drew it.
+          A reader saw an ordinary answer and walked away believing a watch
+          existed. Whichever outcome happened is stated in the same place,
+          at the same weight. */}
+      {a.watchRefused && <WatchRefusedNote refusal={a.watchRefused} />}
 
       {variant === "b" ? (
         <AnswerBodyCalm

@@ -724,6 +724,18 @@ TRAILING_DISCLOSURE_CODES: tuple[str, ...] = (
     # measurement (R3-06): "up 5.5 points" over a month that is 23%
     # adjudicated is the claims run-out, not the business.
     "ADJUDICATION_INCOMPLETE",
+    # …and the same fact where the CONTRACT declares it rather than a panel
+    # count revealing it (round-7 FN-4). "Net collection rate 72.5% →
+    # 18.5%, fell 53.9 points" was published at direct/high beside the same
+    # payload's caution that two windows of unequal maturity are not
+    # comparable as levels. A delta the governing contract forbids is not a
+    # caveat on a result; it is the reason there is no result.
+    "NOT_COMPARABLE_WINDOWS",
+    # The whole this answer is a part of, restated on the part (FN-10). A
+    # breakdown that never says what it broke down leaves a reader who
+    # landed on it believing denial rates run 19-29% when the population
+    # they descend from is at 12.8%.
+    "PARENT_LEVEL",
     # What the answer did NOT publish (R3-04). An omission the reader
     # cannot see is the one that makes a superlative false.
     "FINDINGS_TRUNCATED",

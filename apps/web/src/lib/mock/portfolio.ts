@@ -116,9 +116,34 @@ export interface PortfolioLane {
   id: string;
   label: string;
   description: string;
+  /**
+   * Which PARTITION this lane belongs to. `governance` is the
+   * must-do/by-value split that decides render order; `cash_timing` is the
+   * orthogonal one a director asks for — "how much can we still catch?" —
+   * and the two are never concatenated into one list, or a card is counted
+   * twice under two headings.
+   */
+  kind: "governance" | "cash_timing";
   anomalyIds: string[];
   itemCount: number;
   impactCents: number;
+  /**
+   * Σ the governed recoverable estimates of the lane's members. On a
+   * still-catchable lane this is the number the question is actually
+   * about: the detected impact is what went wrong, and this is what is
+   * left to save.
+   */
+  recoverableCents?: number;
+  /**
+   * The soonest REAL dated limit inside this lane and how far off it is —
+   * never a projection, because an estimate rendered beside a filing
+   * deadline is indistinguishable from one. `datedItemCount` says how many
+   * members carry such a date, so a horizon computed from three of
+   * thirty-one cards is read as a fact about three cards.
+   */
+  soonestDeadlineDate?: string;
+  soonestDeadlineDays?: number;
+  datedItemCount: number;
 }
 
 export interface PortfolioItem {

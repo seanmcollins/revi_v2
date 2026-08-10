@@ -115,9 +115,19 @@ export function IntegrityAtom({
               <span title={integrity.caveatCodes.join(", ")}>{thingsToKnowLabel(shown)}</span>
             )}
             {/* The severity, beside the count and not behind it, in the
-                same words the answer's integrity line uses. */}
+                same words the answer's integrity line uses — and behind
+                its own separator, which `IntegrityLine.tsx` has and this
+                did not: the accessible string read "…·7 things to know6
+                change how a number here should be read", i.e. two counts
+                run together into one number nobody can parse. */}
             {openable && (
-              <span className="text-muted-foreground">{thingsToKnowSeverity(caveats)}</span>
+              // The separator travels INSIDE the clause it separates, so a
+              // wrap cannot leave a bare dot dangling at the end of a line
+              // — this line wraps on a tile at every width.
+              <span className="inline-flex items-baseline gap-x-1.5 text-muted-foreground">
+                <Dot />
+                {thingsToKnowSeverity(caveats)}
+              </span>
             )}
           </>
         )}
@@ -192,10 +202,23 @@ const GRADE_CLAUSES: Readonly<
   },
 };
 
+/**
+ * The separator between two clauses of the atom — a middle dot for the eye
+ * and a comma for a screen reader.
+ *
+ * Both halves are load-bearing here. The dot alone is `aria-hidden`, so the
+ * accessible string ran two counts together into one unparseable number:
+ * "…·7 things to know6 change how a number here should be read". The
+ * sr-only comma is what makes the spoken line the same line as the drawn
+ * one.
+ */
 function Dot() {
   return (
-    <span aria-hidden className="text-muted-foreground/60">
-      ·
-    </span>
+    <>
+      <span aria-hidden className="text-muted-foreground/60">
+        ·
+      </span>
+      <span className="sr-only">, </span>
+    </>
   );
 }

@@ -8,7 +8,7 @@
 import { create } from "zustand";
 
 import type { CreatePinRequest } from "@/lib/apiDriver";
-import type { LeadStatus, WatchDeclaration, WorklistData } from "@/lib/contract";
+import type { LeadStatus, WatchDeclaration, WatchRefusal, WorklistData } from "@/lib/contract";
 import type { LeadState, RoundsPin } from "@/lib/rounds";
 import { envDriverKind } from "@/lib/driver";
 import type {
@@ -114,6 +114,18 @@ export interface AnswerState {
    * one, because every figure in it is a fact from the answer beside it.
    */
   watch?: WatchDeclaration;
+  /**
+   * `TurnAnswer.watch_refused` — this turn read as a watch declaration and
+   * the watch was NOT created.
+   *
+   * The one warning on this answer that changes what the analyst does
+   * tomorrow, and until now it reached the screen as nothing: the server
+   * appends the refusal to `warnings` after `warnings_v2` is built, and
+   * the client prefers the structured list. It is carried here as its own
+   * field so the card can render it where the confirmation would have been
+   * rather than hoping it survives a warning list.
+   */
+  watchRefused?: WatchRefusal;
   /**
    * The governed display-name corrections this turn's measures carry.
    * Already applied to finding titles and chart titles at the seam; kept
@@ -235,6 +247,7 @@ export function applyEventToAnswer(answer: AnswerState, event: TurnEvent): Answe
         anomalyReconciliation: event.anomalyReconciliation ?? answer.anomalyReconciliation,
         worklist: event.worklist ?? answer.worklist,
         watch: event.watch ?? answer.watch,
+        watchRefused: event.watchRefused ?? answer.watchRefused,
         metricDisplay: event.metricDisplay ?? answer.metricDisplay,
         status:
           event.status === "clarification_required"

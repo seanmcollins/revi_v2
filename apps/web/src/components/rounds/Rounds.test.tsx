@@ -20,19 +20,28 @@
  */
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, render, screen, within } from "@testing-library/react";
-import { afterEach, beforeEach, describe, expect, it } from "vitest";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { BriefPanel } from "@/components/rounds/BriefPanel";
 import { BriefEntryRow } from "@/components/rounds/BriefEntryRow";
+import { LeadLifecyclePanel } from "@/components/rounds/LeadLifecycle";
 import { LeadStatusControl } from "@/components/rounds/LeadStatus";
 import { TimeToImpactLine } from "@/components/rounds/TimeToImpactLine";
+import { WatchSensitivityForm } from "@/components/rounds/WatchSensitivity";
 import { WatchThis } from "@/components/rounds/WatchThis";
 import { WatchTile } from "@/components/rounds/WatchTile";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import live from "@/lib/__fixtures__/live-rounds.json";
 import { mapTimeToImpact, parsePortfolioSnapshot } from "@/lib/contract";
-import { mapLeadState, mapRoundsPin, parseBrief, parseRounds } from "@/lib/rounds";
+import {
+  mapLeadState,
+  mapRoundsPin,
+  orderTilesForGrid,
+  parseBrief,
+  parseRounds,
+  tileCensus,
+} from "@/lib/rounds";
 import { useSessionStore } from "@/lib/store";
 
 function draw(node: React.ReactNode) {
@@ -363,6 +372,345 @@ describe("Watch this", () => {
     );
     expect(screen.getByText("Watching")).toBeInTheDocument();
     expect(screen.queryByText("Watch this")).not.toBeInTheDocument();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Absence is said, not drawn as flatness                              */
+/* ------------------------------------------------------------------ */
+
+describe("a watch with nothing to compare says so", () => {
+  const silent = () => (ROUNDS.value?.tiles ?? []).find((t) => t.delta === undefined)!;
+
+  it("renders a sentence where a tile has no published movement", () => {
+    // Live, 9 of 12 tiles rendered empty space beside the ones that moved,
+    // so "did not move" and "there was nothing to compare" were the same
+    // pixel. This states a fact about the payload and invents no reason
+    // for it.
+    const tile = silent();
+    expect(tile, "the live capture must contain a tile with no delta").toBeDefined();
+    const { container } = draw(<WatchTile tile={tile} />);
+    expect(container.querySelector("[data-delta-absent]")).not.toBeNull();
+  });
+
+  it("prefers the server's own reason when it publishes a non-comparable delta", () => {
+    // The fix's other half: once the server sends a delta with
+    // `comparable: false` and a sentence, that sentence renders instead of
+    // the client's line, and the client says nothing of its own.
+    const tile = silent();
+    const reason = "first reading at this load: there is nothing to compare against yet.";
+    const { container } = draw(
+      <WatchTile
+        tile={{
+          ...tile,
+          delta: {
+            priorWatermarkId: "wm_002",
+            priorValueText: "",
+            valueText: tile.valueText,
+            deltaText: "",
+            direction: "unknown",
+            comparable: false,
+            notComparableReason: reason,
+            reference: "prior_load",
+            sameWindow: false,
+            material: false,
+            thresholdSource: "governed",
+            belowGovernedGate: false,
+            materialityRule: "",
+            materialityNote: "",
+          },
+        }}
+      />,
+    );
+    expect(screen.getByText(reason)).toBeInTheDocument();
+    expect(container.querySelector("[data-delta-absent]")).toBeNull();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* The grid at Rounds scale                                            */
+/* ------------------------------------------------------------------ */
+
+describe("the tile grid is ordered, and says how", () => {
+  it("puts the watches that moved first and keeps the server's order inside each band", () => {
+    const tiles = ROUNDS.value?.tiles ?? [];
+    const ordered = orderTilesForGrid(tiles);
+    // The live capture: one material movement, one flat, two with no
+    // comparison at all. Creation order put the flat one second and the
+    // silent pair last only by luck; this makes it a rule.
+    expect(ordered[0].delta?.material).toBe(true);
+    expect(ordered[1].delta?.delta).toBe(0);
+    expect(ordered.slice(2).every((t) => t.delta === undefined)).toBe(true);
+    // Nothing is lost and nothing is duplicated by the sort.
+    expect(ordered.map((t) => t.pinId).sort()).toEqual(tiles.map((t) => t.pinId).sort());
+  });
+
+  it("counts the grid in the same bands it orders it by", () => {
+    expect(tileCensus(ROUNDS.value?.tiles ?? [])).toEqual([
+      "1 moved",
+      "1 unchanged",
+      "2 with nothing to compare",
+    ]);
+  });
+});
+
+describe("a tile is one tab stop, with its controls reachable inside it", () => {
+  it("keeps a tile's own controls out of the tab order until it is entered", () => {
+    // ~5 focusable controls per tile is ~100 tab stops across a 20-watch
+    // surface. The tile is the stop; Enter enters it.
+    const tile = (ROUNDS.value?.tiles ?? [])[0];
+    const { container } = draw(<WatchTile tile={tile} />);
+    const item = container.querySelector<HTMLElement>("[data-tile-pin]")!;
+    expect(item.tabIndex).toBe(0);
+    const inner = [...item.querySelectorAll<HTMLElement>("a[href], button")];
+    expect(inner.length).toBeGreaterThan(1);
+    expect(inner.every((el) => el.tabIndex === -1)).toBe(true);
+
+    fireEvent.keyDown(item, { key: "Enter", target: item });
+    expect(item).toHaveAttribute("data-tile-entered", "true");
+    expect(
+      [...item.querySelectorAll<HTMLElement>("a[href], button")].every((el) => el.tabIndex === 0),
+    ).toBe(true);
+  });
+
+  it("names what the tile is, so the one stop is not an unlabelled box", () => {
+    const tile = (ROUNDS.value?.tiles ?? [])[0];
+    const { container } = draw(<WatchTile tile={tile} />);
+    const item = container.querySelector("[data-tile-pin]")!;
+    expect(item.getAttribute("aria-label")).toContain(tile.label);
+    expect(item.getAttribute("aria-label")).toContain(tile.valueText);
+    expect(item).toHaveAttribute("aria-describedby", "rounds-tile-hint");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* An entry a reader cannot open is a notification                     */
+/* ------------------------------------------------------------------ */
+
+describe("every brief entry has somewhere to go", () => {
+  const newLead = () => (BRIEF.value?.entries ?? []).find((e) => e.kind === "new_lead")!;
+
+  it("offers the lead's own drill when the entry carries no investigation", () => {
+    // Live, 3 of 4 brief rows carried `investigation_id: null` — including
+    // both four-figure new leads. The drill exists; the row now hands it
+    // over.
+    const entry = newLead();
+    expect(entry.investigationId).toBeUndefined();
+    const open = vi.fn();
+    draw(<BriefEntryRow entry={entry} lead={{ open }} />);
+    fireEvent.click(screen.getByRole("button", { name: /Open this lead/ }));
+    expect(open).toHaveBeenCalledOnce();
+  });
+
+  it("says why there is nothing to open rather than ending in silence", () => {
+    const reason = "no governed contract covers this detector's cell at this pack version";
+    draw(<BriefEntryRow entry={newLead()} lead={{ unavailableReason: reason }} />);
+    expect(screen.getByText(new RegExp(escapeRe(reason)))).toBeInTheDocument();
+  });
+
+  it("says a four-figure sum with no grade is the detector's own figure", () => {
+    const entry = newLead();
+    expect(entry.integrity).toBeUndefined();
+    expect(entry.impactCents).toBeGreaterThan(0);
+    draw(<BriefEntryRow entry={entry} />);
+    expect(screen.getByText(/not re-measured at this load/)).toBeInTheDocument();
+  });
+
+  it("says on the eyebrow when somebody has already claimed the lead", () => {
+    // The compounding failure: PATCH ANM-029 → resolved_claimed, and the
+    // brief still rendered it as an untouched "New lead". Two people work
+    // the same $17k lead on the same morning.
+    draw(<BriefEntryRow entry={newLead()} lead={{ status: "resolved_claimed" }} />);
+    expect(screen.getByText(/already claimed fixed/)).toBeInTheDocument();
+    expect(screen.getByText("Fixed — checking the data")).toBeInTheDocument();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* A kind this build has never seen is still a change                  */
+/* ------------------------------------------------------------------ */
+
+describe("the brief's vocabulary is not a filter on the server's facts", () => {
+  function withKind(kind: string) {
+    return parseBrief({
+      ...live.brief,
+      entries: [{ ...live.brief.entries[0], kind }],
+    });
+  }
+
+  it("renders a rank flip as the fact it is, not as a movement", () => {
+    const parsed = withKind("rank_flip");
+    expect(parsed.drift).toEqual([]);
+    expect(parsed.value?.entries).toHaveLength(1);
+    draw(<BriefEntryRow entry={parsed.value!.entries[0]} />);
+    expect(screen.getByText(/A different cell now leads/)).toBeInTheDocument();
+  });
+
+  it("keeps an unknown kind, and reports the mismatch", () => {
+    const parsed = withKind("something_new_entirely");
+    expect(parsed.value?.entries).toHaveLength(1);
+    expect(parsed.drift).toContain("entries[0].kind:something_new_entirely");
+    draw(<BriefEntryRow entry={parsed.value!.entries[0]} />);
+    // The server's sentence — the part that carries the fact — is intact.
+    expect(screen.getByText(parsed.value!.entries[0].statement)).toBeInTheDocument();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* The walk's census closes, and speaks in dates                       */
+/* ------------------------------------------------------------------ */
+
+describe("the work behind the brief reconciles to its parts", () => {
+  it("names the loads by data date, not by warehouse id", () => {
+    const { container } = draw(
+      <BriefPanel
+        brief={{
+          ...BRIEF.value!,
+          newestDataDate: "2026-08-02",
+          priorNewestDataDate: "2026-07-26",
+        }}
+      />,
+    );
+    const census = container.querySelector("[data-walk-census]")!;
+    expect(census.textContent).toContain("Aug 2, 2026");
+    expect(census.textContent).toContain("Jul 26, 2026");
+    expect(census.textContent).not.toContain("wm_00");
+  });
+
+  it("splits the watches it walked, and says so when they do not add up", () => {
+    // 4 evaluated: 1 briefed movement, 1 held back, and — before the
+    // server published `not_yet_comparable` — two that were counted
+    // nowhere at all.
+    const brief = { ...BRIEF.value!, pinsEvaluated: 4 };
+    const { container, unmount } = draw(<BriefPanel brief={brief} />);
+    expect(container.querySelector("[data-walk-census]")?.textContent).toContain(
+      "2 not accounted for",
+    );
+    unmount();
+
+    const closed = {
+      ...brief,
+      immaterial: { ...brief.immaterial, notYetComparable: 2 },
+    };
+    const second = draw(<BriefPanel brief={closed} />);
+    const census = second.container.querySelector("[data-walk-census]")!;
+    expect(census.textContent).toContain("2 with nothing to compare against yet");
+    expect(census.textContent).not.toContain("not accounted for");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* What we claimed we fixed, and whether it stuck                      */
+/* ------------------------------------------------------------------ */
+
+describe("the lead lifecycle zone", () => {
+  const rows = [
+    {
+      anomalyId: "ANM-001",
+      title: "Timely-filing exposure",
+      status: "resolved_claimed" as const,
+      note: "resolution claimed; this platform re-runs the lead's own drill at each load.",
+      impactCents: 17064300,
+      live: {
+        anomalyId: "ANM-001",
+        status: "resolved_claimed" as const,
+        note: "",
+        baselineBasis: "",
+        confirmingWatermarks: ["wm_003"],
+        confirmationsRequired: 2,
+        verificationNote: "",
+      },
+    },
+    {
+      anomalyId: "ANM-021",
+      title: "Held general-surgery accounts",
+      status: "working" as const,
+      note: "Coding is clearing the 22 held accounts this week.",
+      impactCents: 16930598,
+    },
+  ];
+
+  it("groups leads by where they stand and leads with the ones that came back", () => {
+    draw(<LeadLifecyclePanel leads={rows} totalLeads={33} headingId="leads-heading" />);
+    expect(screen.getByText(/Claimed fixed/)).toBeInTheDocument();
+    expect(screen.getByText(/Being worked/)).toBeInTheDocument();
+    // The census says what is NOT here: the untouched leads are the
+    // worklist, and a lifecycle view listing them would be the worklist.
+    expect(screen.getByText("2 of 33 leads have somebody on them")).toBeInTheDocument();
+  });
+
+  it("shows how far along a claimed fix is, from the record that carries it", () => {
+    draw(<LeadLifecyclePanel leads={rows} totalLeads={33} headingId="leads-heading" />);
+    expect(
+      screen.getByText("1 of the 2 consecutive loads the governed rule requires"),
+    ).toBeInTheDocument();
+  });
+
+  it("says nothing has been picked up rather than rendering an empty box", () => {
+    draw(<LeadLifecyclePanel leads={[]} totalLeads={33} headingId="leads-heading" />);
+    expect(screen.getByText(/Nobody has picked up a lead yet/)).toBeInTheDocument();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* Reachable controls, legible ink                                     */
+/* ------------------------------------------------------------------ */
+
+describe("the sensitivity dialog's primary action cannot fall below the fold", () => {
+  it("pins the submit row to the bottom of the scrolling panel", () => {
+    // Measured before this: the popover was 662px tall at y=150 on a 772px
+    // viewport, so "Save and restart this watch" sat 2px past the bottom
+    // with no scroll container and nothing under it to scroll to.
+    draw(
+      <WatchSensitivityForm
+        submitLabel="Save and restart this watch"
+        pending={false}
+        onSubmit={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    const submit = screen.getByRole("button", { name: "Save and restart this watch" });
+    const row = submit.closest("div")?.parentElement;
+    expect(row?.className).toContain("sticky");
+    expect(row?.className).toContain("bottom-0");
+  });
+
+  it("keeps the server's refusal beside the control that produced it", () => {
+    const refusal = "a threshold in 'cents' is only honest for a 'money_cents' contract";
+    draw(
+      <WatchSensitivityForm
+        submitLabel="Start watching"
+        pending={false}
+        refusal={refusal}
+        onSubmit={() => {}}
+        onCancel={() => {}}
+      />,
+    );
+    const alert = screen.getByRole("alert");
+    expect(alert.textContent).toContain(refusal);
+    expect(alert.parentElement?.className).toContain("sticky");
+  });
+});
+
+describe("the integrity atom reads as two counts, not one number", () => {
+  it("separates the caveat count from its severity", () => {
+    // Measured accessible string before this: "…·7 things to know6 change
+    // how a number here should be read".
+    const tile = (ROUNDS.value?.tiles ?? []).find((t) => t.warnings.length > 0)!;
+    expect(tile, "the live capture must contain a tile with caveats").toBeDefined();
+    const { container } = draw(<WatchTile tile={tile} />);
+    const atom = container.querySelector("[data-integrity-atom]")!;
+    expect(atom.textContent).not.toMatch(/things to know\d/);
+  });
+
+  it("draws the measured window in solid muted ink, not at 80%", () => {
+    // `--muted-foreground` at 80% measures 3.48:1 on card, 3.27:1 on the
+    // page and 3.16:1 on sunken — below the 4.5:1 floor at 12px. Solid:
+    // 5.24 / 4.80 / 4.57.
+    const tile = (ROUNDS.value?.tiles ?? []).find((t) => t.windowStart !== undefined)!;
+    const { container } = draw(<WatchTile tile={tile} />);
+    const html = container.innerHTML;
+    expect(html).not.toContain("text-muted-foreground/80");
   });
 });
 

@@ -2,7 +2,7 @@
 
 import { MoreHorizontal } from "lucide-react";
 import Link from "next/link";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import { DeltaLine, ThresholdNote } from "@/components/rounds/DeltaLine";
 import { IntegrityAtom, ValueMarks } from "@/components/rounds/IntegrityAtom";
@@ -15,6 +15,9 @@ import { useSessionStore } from "@/lib/store";
 import { isoRangeLabel } from "@/lib/format";
 import { cn } from "@/lib/utils";
 
+/** Everything inside a tile that the browser would give its own tab stop. */
+const FOCUSABLE = 'a[href], button:not([disabled]), input, select, textarea, [tabindex]';
+
 /**
  * ONE WATCH, at this load.
  *
@@ -25,7 +28,7 @@ import { cn } from "@/lib/utils";
  * has not published and cannot defend, and this surface's whole argument
  * is that a quiet morning should look quiet.
  *
- * Three rules the tile follows and the review round asked for by name:
+ * Four rules the tile follows and the review rounds asked for by name:
  *
  *   THE INTEGRITY ATOM IS NOT OPTIONAL. It is rendered on every tile
  *     including an unavailable one, because "no value at this load" is
@@ -38,6 +41,16 @@ import { cn } from "@/lib/utils";
  *   A TAP OPENS THE REAL INVESTIGATION. Every tile IS an investigation
  *     with a real trace, so the label is a link to its permalink rather
  *     than a drawer of pre-computed rows.
+ *   ABSENCE IS SAID, NOT DRAWN AS FLATNESS. A tile that genuinely did not
+ *     move renders "— no change from $176,112.25"; a tile with no
+ *     comparison rendered nothing at all, so absence and stability were
+ *     the same empty space. Measured live: 9 of 12 tiles silent.
+ *
+ * ONE TAB STOP, INTERNALS REACHABLE WITHIN. Five focusable controls per
+ * tile is ~100 tab stops to cross a 20-watch surface. The tile is a single
+ * stop; Enter enters it and Escape leaves, which is the grid pattern and
+ * the only one that keeps a dense surface crossable from the keyboard
+ * without hiding anything from it.
  */
 export function WatchTile({ tile, pin }: { tile: RoundsTile; pin?: RoundsPin }) {
   const unavailable = tile.status !== "ok";
@@ -56,39 +69,104 @@ export function WatchTile({ tile, pin }: { tile: RoundsTile; pin?: RoundsPin }) 
       ? tile.baselineDelta
       : undefined;
 
+  const tileRef = useRef<HTMLLIElement>(null);
+  const [entered, setEntered] = useState(false);
+
+  /**
+   * The tile's own controls are out of the tab order until the tile is
+   * entered. Applied to the DOM rather than threaded through every child,
+   * because the children are three different components (a link, a menu
+   * trigger, the atom's count button) and none of them should have to know
+   * it is inside a grid.
+   *
+   * Deliberately no dependency array: the set of controls changes with the
+   * tile's own state (a refusal appears, a menu mounts), and re-applying
+   * on every render of five nodes is cheaper than watching for it.
+   */
+  useEffect(() => {
+    const node = tileRef.current;
+    if (!node) return;
+    for (const el of node.querySelectorAll<HTMLElement>(FOCUSABLE)) {
+      el.tabIndex = entered ? 0 : -1;
+    }
+  });
+
   return (
     <li
+      ref={tileRef}
       data-tile-pin={tile.pinId}
+      data-tile-entered={entered ? "true" : "false"}
+      tabIndex={0}
+      aria-label={`${tile.label}: ${unavailable ? "no value at this load" : tile.valueText}`}
+      aria-describedby="rounds-tile-hint"
+      onKeyDown={(event) => {
+        if (event.key === "Enter" && event.target === tileRef.current) {
+          event.preventDefault();
+          setEntered(true);
+          // The first control is the label's own link to the
+          // investigation, so Enter-then-Enter is "open this watch" — the
+          // gesture a pointer user gets from one click.
+          const first = tileRef.current?.querySelector<HTMLElement>(FOCUSABLE);
+          window.setTimeout(() => first?.focus(), 0);
+        } else if (event.key === "Escape" && entered) {
+          event.stopPropagation();
+          setEntered(false);
+          tileRef.current?.focus();
+        }
+      }}
+      onFocus={(event) => {
+        if (event.target !== tileRef.current) setEntered(true);
+      }}
+      onBlur={(event) => {
+        if (!tileRef.current?.contains(event.relatedTarget as Node | null)) setEntered(false);
+      }}
       // A LOOKED-AFTER SURFACE, not a monitored one. The warmth here is
       // three cheap things and no new visual language: a softer corner
       // (`xl`, the radius scale's top step, matching the answer card), a
-      // hairline shadow so the tile sits ON the page rather than being cut
-      // out of it, and a 180ms border transition — long enough to feel
-      // like a response, short enough not to be an effect.
+      // raised surface with a MEASURED elevation token (the hardcoded
+      // `shadow-[0_1px_2px_rgba(0,0,0,0.03)]` it replaces computed to
+      // 1.002:1 over the dark page — no shadow at all — and 1.068:1 in
+      // light), and a 180ms border transition: long enough to feel like a
+      // response, short enough not to be an effect.
       className={cn(
-        "group relative flex flex-col gap-2 rounded-xl border bg-card p-3.5",
-        "shadow-[0_1px_2px_rgba(0,0,0,0.03)] transition-[border-color,box-shadow] duration-200",
-        "hover:border-ring/40 hover:shadow-[0_2px_8px_rgba(0,0,0,0.05)] focus-within:border-ring/40",
+        "group relative flex flex-col gap-2 rounded-xl border bg-surface-raised p-3.5",
+        "raised raised-hover transition-[border-color,box-shadow] duration-200",
+        "hover:border-ring/40 focus-within:border-ring/40",
+        "focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-[var(--ring)]",
         unavailable && "border-dashed shadow-none",
       )}
     >
       <div className="flex items-start justify-between gap-2">
-        {tile.investigationId ? (
-          <Link
-            href={investigationLinkFor(tile.investigationId, "")}
-            title={`Open the investigation behind ${tile.label}`}
-            // A PERSISTENT underline, not one that appears on hover. A
-            // hover state does not exist on a touch screen or in a
-            // screenshot, and this is the tile's only path to the
-            // investigation behind its number — a link nobody can
-            // identify is a link that did not happen.
-            className="focus-ring min-w-0 rounded text-meta font-medium leading-snug underline decoration-foreground/30 underline-offset-[3px] transition-colors duration-150 hover:decoration-foreground"
-          >
-            {tile.label}
-          </Link>
-        ) : (
-          <p className="min-w-0 text-meta font-medium leading-snug">{tile.label}</p>
-        )}
+        <div className="min-w-0">
+          {tile.investigationId ? (
+            <Link
+              href={investigationLinkFor(tile.investigationId, "")}
+              title={`Open the investigation behind ${tile.label}`}
+              // A PERSISTENT underline, not one that appears on hover. A
+              // hover state does not exist on a touch screen or in a
+              // screenshot, and this is the tile's only path to the
+              // investigation behind its number — a link nobody can
+              // identify is a link that did not happen.
+              className="focus-ring min-w-0 rounded text-meta font-medium leading-snug underline decoration-foreground/30 underline-offset-[3px] transition-colors duration-150 hover:decoration-foreground"
+            >
+              {tile.label}
+            </Link>
+          ) : (
+            <p className="min-w-0 text-meta font-medium leading-snug">{tile.label}</p>
+          )}
+          {/* WHICH CELL the number is about, resolved to dimension members
+              rather than read off the title. A tile whose label names one
+              payer and whose value is another payer's is the defect that
+              gated round 7; this is the line that makes the pair
+              checkable. Drawn only when it says something the label does
+              not already contain. */}
+          {tile.headlineSubjectLabel !== "" &&
+            !tile.label.includes(tile.headlineSubjectLabel) && (
+              <p className="text-micro leading-snug text-muted-foreground">
+                measuring {tile.headlineSubjectLabel}
+              </p>
+            )}
+        </div>
         <TileMenu tile={tile} pin={pin} />
       </div>
 
@@ -109,7 +187,19 @@ export function WatchTile({ tile, pin }: { tile: RoundsTile; pin?: RoundsPin }) 
             {tile.valueText}
             <ValueMarks integrity={tile.integrity} />
           </p>
-          {tile.delta && <DeltaLine delta={tile.delta} />}
+          {tile.delta ? (
+            <DeltaLine delta={tile.delta} />
+          ) : (
+            // NO COMPARISON PUBLISHED — said in words rather than left as
+            // white space beside the tiles that did move. This states a
+            // fact about the payload and invents no reason for it: when
+            // the server publishes a non-comparable delta with its own
+            // sentence ("first reading at this load"), that sentence is
+            // what renders instead of this one.
+            <p data-delta-absent className="text-micro leading-snug text-muted-foreground">
+              No movement is published for this watch at this load.
+            </p>
+          )}
           {baseline && <DeltaLine delta={baseline} />}
           {/* The headline finding's own sentence — what the number is
               ABOUT. Two lines at most: this is a tile, and the whole
@@ -124,7 +214,12 @@ export function WatchTile({ tile, pin }: { tile: RoundsTile; pin?: RoundsPin }) 
 
       <IntegrityAtom integrity={tile.integrity} warnings={tile.warnings} className="pt-0.5" />
 
-      <p className="num flex flex-wrap items-baseline gap-x-1.5 text-micro text-muted-foreground/80">
+      {/* The MEASURED WINDOW — the fact that decides what the number means,
+          since two relative windows can resolve to the same dates. In
+          solid muted ink: at 80% it measured 3.48:1 on card, 3.27:1 on the
+          page and 3.16:1 on sunken, all below the 4.5:1 floor at 12px.
+          Solid it is 5.24 / 4.80 / 4.57. */}
+      <p className="num flex flex-wrap items-baseline gap-x-1.5 text-micro text-muted-foreground">
         {tile.windowStart && tile.windowEnd && (
           <span>{isoRangeLabel(tile.windowStart, tile.windowEnd)}</span>
         )}
@@ -213,6 +308,15 @@ function TileMenu({ tile, pin }: { tile: RoundsTile; pin?: RoundsPin }) {
               <p className="text-micro font-semibold uppercase tracking-wide text-muted-foreground">
                 What this watch measures
               </p>
+              {/* THE SPEC, in the reader's own nouns. This panel is the one
+                  control that lets somebody catch a watch measuring the
+                  wrong cell, and it was rendering the window note alone
+                  while the summary rode on the wire unread. */}
+              {pin?.specSummary && (
+                <p className="mt-1 text-micro leading-snug text-foreground/80">
+                  {pin.specSummary}
+                </p>
+              )}
               {/* The window mode in the server's own sentence: a moving
                   period (a real movement) or fixed dates (late-arriving
                   data). It decides how every delta on this tile should be
@@ -220,6 +324,20 @@ function TileMenu({ tile, pin }: { tile: RoundsTile; pin?: RoundsPin }) {
               <p className="mt-1 text-micro leading-snug text-muted-foreground">
                 {pin?.windowNote || "This watch's window is published on its pin."}
               </p>
+              {/* What happened to the request at creation — the cell it was
+                  narrowed to, a duplicate returned instead of a second
+                  watch. Facts about THIS watch that no other line carries. */}
+              {pin?.notes.map((note) => (
+                <p key={note} className="mt-1 text-micro leading-snug text-muted-foreground">
+                  {note}
+                </p>
+              ))}
+              {pin?.alreadyExisted && (
+                <p className="mt-1 text-micro leading-snug text-muted-foreground">
+                  This watch already existed — the platform returned it rather than creating a
+                  second one over the same spec.
+                </p>
+              )}
               {pin?.watch?.note && (
                 <p className="mt-1 text-micro leading-snug text-muted-foreground">
                   Your reason: {pin.watch.note}

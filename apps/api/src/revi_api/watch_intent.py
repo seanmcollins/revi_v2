@@ -103,10 +103,53 @@ _ANY_MOVEMENT = re.compile(
     r"\b(?:on\s+)?any\s+(?:movement|change|move)\b|\bwhenever\s+it\s+(?:moves|changes)\b",
     re.IGNORECASE,
 )
+#: Number words this grammar reads, so a stated threshold is not lost to
+#: the analyst having typed it the way people speak. "half a point" was a
+#: real utterance from a real buyer and it registered the governed default
+#: silently — the confirmation sentence never mentioned the instruction
+#: (round-7 FN-6). Small and closed, like every other vocabulary here: this
+#: is not a number parser, it is the dozen words an RCM analyst types.
+_NUMBER_WORDS: dict[str, str] = {
+    "half": "0.5",
+    "a half": "0.5",
+    "one": "1",
+    "a": "1",
+    "an": "1",
+    "two": "2",
+    "three": "3",
+    "four": "4",
+    "five": "5",
+    "six": "6",
+    "seven": "7",
+    "eight": "8",
+    "nine": "9",
+    "ten": "10",
+    "fifteen": "15",
+    "twenty": "20",
+    "twenty five": "25",
+    "thirty": "30",
+    "fifty": "50",
+    "a hundred": "100",
+    "one hundred": "100",
+}
+
+#: ``half a point`` / ``three points`` / ``a quarter of a point``: the
+#: number word, then optionally the article the phrase carries ("half A
+#: point"), then the unit.
+_WORD_VALUE = "|".join(
+    re.escape(word) for word in sorted(_NUMBER_WORDS, key=len, reverse=True)
+)
+#: Every unit a threshold may be stated in. ``days`` was absent entirely,
+#: so "tell me when it moves more than 2 days" on a metric the pack governs
+#: with `min_absolute_days` fell to the governed default with no warning. It
+#: is now read here AND legal in :data:`WATCH_THRESHOLD_UNITS` — over a
+#: ``days`` contract only, refused by name over any other.
+_UNIT_ALTERNATIVES = r"percentage points?|points?|pts?|%|percent|dollars?|\$|days?"
+
 _DELTA = re.compile(
     r"\b(?:more than|at least|over|by|>=?)\s*"
-    r"(?P<value>\d+(?:\.\d+)?)\s*"
-    r"(?P<unit>points?|pts?|%|percent|percentage points?|dollars?|\$)",
+    r"(?:(?P<value>\d+(?:\.\d+)?)|(?P<word>" + _WORD_VALUE + r")(?:\s+an?)?)\s*"
+    r"(?P<unit>" + _UNIT_ALTERNATIVES + r")",
     re.IGNORECASE,
 )
 _DELTA_DOLLARS = re.compile(
@@ -115,7 +158,28 @@ _DELTA_DOLLARS = re.compile(
 )
 _CROSSES = re.compile(
     r"\b(?:cross(?:es)?|goes? (?:above|over)|rises? above|hits?|reaches?)\s*"
-    r"\$?\s*(?P<value>[\d,]+(?:\.\d+)?)\s*(?P<unit>%|percent|points?|pts?)?",
+    r"\$?\s*(?:(?P<value>[\d,]+(?:\.\d+)?)|(?P<word>" + _WORD_VALUE + r")(?:\s+an?)?)\s*"
+    r"(?P<unit>%|percent|percentage points?|points?|pts?|days?)?",
+    re.IGNORECASE,
+)
+
+#: Does this clause state a SIZE or a LEVEL?
+#:
+#: The difference between two honest outcomes and one dishonest one. "tell
+#: me if it rises" states a direction and nothing about size, so completing
+#: it with the pack's magnitude is honest. "tell me if it moves more than
+#: half a smidgen" states a size this grammar cannot read, and resolving
+#: THAT to the governed default is a silent substitution of the platform's
+#: number for the analyst's.
+#:
+#: Deliberately excludes bare movement verbs — "if it moves", "when it
+#: changes" — which are instructions about WHETHER, not about how much.
+_STATES_A_THRESHOLD = re.compile(
+    r"\b(?:more than|at least|greater than|no less than|under|below|above|>=?|<=?|"
+    r"cross(?:es)?|goes? (?:above|over|below|under)|rises? above|falls? below|"
+    r"hits?|reaches?)\b"
+    r"|\d"
+    r"|\b(?:" + _WORD_VALUE + r")\s+(?:an?\s+)?(?:" + _UNIT_ALTERNATIVES + r")\b",
     re.IGNORECASE,
 )
 _DIRECTION_UP = re.compile(r"\b(?:rises?|goes? up|increases?|worsens?|climbs?)\b", re.IGNORECASE)
@@ -147,6 +211,15 @@ class WatchDeclaration:
     watch: RoundsWatch | None
     #: The sensitivity clause verbatim, when there was one.
     threshold_phrase: str = ""
+    #: True when the analyst STATED a sensitivity and this grammar could
+    #: not read it. The caller must refuse or clarify — never register the
+    #: governed default, because a watch that silently gates at 0.5 points
+    #: when somebody typed "three points" briefs the wrong number every
+    #: morning and says nothing about it (round-7 FN-6).
+    #:
+    #: Distinct from ``watch is None`` on its own, which is the ordinary
+    #: and honest "no sensitivity was stated, so the pack's applies".
+    threshold_unreadable: bool = False
 
 
 def parse_watch_declaration(utterance: str) -> WatchDeclaration | None:
@@ -177,12 +250,72 @@ def parse_watch_declaration(utterance: str) -> WatchDeclaration | None:
     if not subject:
         return None
     watch = _watch_from_clause(threshold_phrase) if threshold_phrase else None
+    # A clause that says something about SIZE and that this grammar could
+    # not read is reported as unreadable, never resolved to the governed
+    # default. The direction-only branch of `_watch_from_clause` is not
+    # this case: "tell me if it rises" is a complete instruction about
+    # direction and says nothing about size, so the governed magnitude is
+    # the honest completion of it rather than a substitution for something
+    # the analyst asked for.
+    unreadable = bool(
+        threshold_phrase
+        and (watch is None or watch.mode == "governed_default")
+        and _STATES_A_THRESHOLD.search(threshold_phrase) is not None
+    )
     return WatchDeclaration(
         matched_phrase=match.group(1),
         subject=subject,
         watch=watch,
         threshold_phrase=threshold_phrase.strip(),
+        threshold_unreadable=unreadable,
     )
+
+
+#: What a threshold may legally be stated as, per unit kind — the sentence
+#: a refusal owes the analyst. Governed by the metric's own contract unit,
+#: which is the thing that makes "$5,000" illegal on a rate and legal on a
+#: money measure.
+LEGAL_THRESHOLD_PHRASES: dict[str, tuple[str, ...]] = {
+    "ratio": (
+        "more than 2 points",
+        "more than half a point",
+        "when it crosses 15%",
+        "on any movement",
+    ),
+    "money_cents": (
+        "more than $5,000",
+        "more than 10%",
+        "on any movement",
+    ),
+    # A lag metric is the one contract whose own unit is also the natural
+    # way a human states a threshold for it, so "more than 2 days" is read,
+    # carried as a `days` threshold and applied in the metric's own unit.
+    # It stays illegal over every other contract, refused by name — "2 days"
+    # on a denial rate has no meaning.
+    "days": (
+        "more than 2 days",
+        "more than 10% (a fraction of the current value)",
+        "on any movement",
+        "nothing at all, and this watch uses the pack's governed gate for days",
+    ),
+    "count": (
+        "more than 10% (a fraction of the current value)",
+        "on any movement",
+        "nothing at all, and this watch uses the pack's governed gate for counts",
+    ),
+}
+
+#: The fallback list, for a metric whose unit this module has no phrasing
+#: table for. Still concrete: a refusal with no way forward is a wall.
+GENERIC_THRESHOLD_PHRASES: tuple[str, ...] = (
+    "more than 10%",
+    "on any movement",
+)
+
+
+def legal_threshold_phrases(unit: str | None) -> list[str]:
+    """The phrasings this platform accepts for a metric in ``unit``."""
+    return list(LEGAL_THRESHOLD_PHRASES.get(unit or "", GENERIC_THRESHOLD_PHRASES))
 
 
 def _split_clause(text: str) -> tuple[str, str]:
@@ -214,7 +347,7 @@ def _watch_from_clause(clause: str) -> RoundsWatch | None:
 
     crosses = _CROSSES.search(clause)
     if crosses is not None:
-        value = _number(crosses.group("value"))
+        value = _magnitude(crosses)
         if value is not None:
             unit = _threshold_unit(crosses.group("unit"), clause)
             # A crossing is a LEVEL, and a level cannot be relative to
@@ -249,7 +382,7 @@ def _watch_from_clause(clause: str) -> RoundsWatch | None:
 
     delta = _DELTA.search(clause)
     if delta is not None:
-        value = _number(delta.group("value"))
+        value = _magnitude(delta)
         if value is not None:
             unit = _threshold_unit(delta.group("unit"), clause)
             if unit == "cents":
@@ -288,15 +421,35 @@ def _threshold_unit(raw: str | None, clause: str) -> str:
     as ``relative_pct``, the reading that is legal against every contract
     and cannot silently become points. When the analyst says "points" they
     get points.
+
+    The reading is COMMITTED to here and disclosed at the confirmation:
+    against a rate, ``relative_pct`` gates on a fraction of the current
+    value, which on a 25.9% base makes "2%" about half a point — four times
+    tighter than the pack's own gate. That is a legal reading of the words
+    and it is not the only one, so :func:`revi_api.rounds._watch_confirmation`
+    names the alternative rather than leaving the analyst to discover the
+    difference from the brief (round-7 FN-6).
     """
     text = (raw or "").lower()
     if text.startswith(("point", "pt", "percentage point")):
         return "points"
+    if text.startswith("day"):
+        return "days"
     if text in ("%", "percent"):
         return "relative_pct"
     if text.startswith("dollar") or text == "$" or "$" in clause:
         return "cents"
     return "relative_pct"
+
+
+def _magnitude(match: re.Match[str]) -> Decimal | None:
+    """The stated size, whether it was typed as digits or as words."""
+    digits = match.group("value")
+    if digits:
+        return _number(digits)
+    word = (match.group("word") or "").lower().strip()
+    spelled = _NUMBER_WORDS.get(" ".join(word.split()))
+    return None if spelled is None else _number(spelled)
 
 
 def _number(raw: str) -> Decimal | None:

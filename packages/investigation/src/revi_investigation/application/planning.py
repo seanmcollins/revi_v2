@@ -284,6 +284,66 @@ class PlanDiff:
     unchanged: tuple[ProbeNode, ...]
 
 
+#: How deep a transform chain may be walked back to the probe that fed it.
+#: A plan is a DAG a few steps deep; this exists so a malformed plan cannot
+#: spin rather than to express a real limit.
+_WINDOW_WALK_LIMIT = 32
+
+
+def frame_window(plan: InvestigationPlan, frame_id: str) -> TimeWindow | None:
+    """The window the probe behind ``frame_id`` actually read.
+
+    A playbook probe template may declare its OWN window — ``daily_portfolio``
+    measures denial rate over ``{quantity: 4, unit: week, mode: full_periods}``
+    — which the planner resolves and applies instead of the investigation
+    window whenever the analyst named no window of their own
+    (:meth:`PlanBuilder._build_playbook`). That resolution was correct and
+    completely undisclosed: the findings layer titled every cell with
+    ``spec.context.window``, so "denial rate: 14.3% (2026-07-01..2026-07-31)"
+    named a month over a figure computed across 2026-07-06..2026-08-02.
+
+    The probe knows its window. This is how a finding gets to ask.
+
+    ``None`` means "no window applies" — a snapshot probe reads a balance at
+    the watermark and applies no ``start..end`` predicate at all, which the
+    findings layer already renders as "as of". Transform outputs are walked
+    back to their first input, because every operator in this engine
+    preserves the window of the frame it was given; a ``compare`` output is
+    keyed to its CURRENT side, which is the first input by construction.
+    """
+    seen: set[str] = set()
+    current = frame_id
+    steps = {step.id: step for step in plan.transforms.steps}
+    for _ in range(_WINDOW_WALK_LIMIT):
+        if current in seen:
+            return None  # pragma: no cover - a cyclic plan cannot be built
+        seen.add(current)
+        for node in plan.nodes:
+            if node.id == current:
+                return getattr(node.probe, "window", None)
+        step = steps.get(current)
+        if step is None or not step.inputs:
+            return None
+        current = step.inputs[0]
+    return None  # pragma: no cover - defensive
+
+
+def declared_probe_windows(plan: InvestigationPlan) -> tuple[tuple[str, TimeWindow], ...]:
+    """``(node id, window)`` for every probe whose window is its own.
+
+    "Its own" is decided against the other probes on the plan rather than
+    against the spec, because the plan is what this module owns; the caller
+    compares against the investigation window. Ordered by node id so the
+    disclosure a header renders is stable across runs.
+    """
+    out: list[tuple[str, TimeWindow]] = []
+    for node in plan.nodes:
+        window = getattr(node.probe, "window", None)
+        if window is not None:
+            out.append((node.id, window))
+    return tuple(out)
+
+
 def resolved_orderings(plan: InvestigationPlan) -> tuple[tuple[str, str, bool], ...]:
     """``(frame id, column, descending)`` for every frame this plan ordered.
 

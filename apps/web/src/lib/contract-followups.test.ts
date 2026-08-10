@@ -132,6 +132,74 @@ describe("structured warnings", () => {
     expect(answer.warnings[0].message).toBe(SAMPLES.anomaly_drill_turn_complete.warnings[0]);
   });
 
+  /**
+   * A REFUSED WATCH DECLARATION IS A STATE CHANGE, NOT A CAVEAT.
+   *
+   * The live drop this closes: the server appends the refusal to
+   * `warnings` after `warnings_v2` has been built, and this client prefers
+   * the structured list whenever it is non-empty — so the one sentence
+   * saying that nothing is being watched reached no surface at all. It is
+   * read here from whichever half of the contract is live: the first-class
+   * `watch_refused` object, or the classified `WATCH_NOT_CREATED` warning.
+   */
+  describe("a refused watch declaration", () => {
+    const REFUSAL =
+      "this turn read as a watch declaration, and the watch was NOT created: a threshold in " +
+      "'cents' is only honest for a 'money_cents' contract, and this watch measures 'ratio'.";
+
+    it("is lifted out of the classified warnings when there is no field for it", () => {
+      const answer = answerOf({
+        ...SAMPLES.anomaly_drill_turn_complete,
+        warnings_v2: [
+          ...SAMPLES.anomaly_drill_turn_complete.warnings_v2,
+          { code: "WATCH_NOT_CREATED", severity: "caution", message: REFUSAL },
+        ],
+      });
+      if (answer.outcome !== "answer") throw new Error("not an answer");
+      expect(answer.watchRefused?.reason).toBe(REFUSAL);
+      // And it stays in the warning list as well: the integrity line counts
+      // it and the sheet renders it. Lifting it out is an ADDITIONAL
+      // surface, never a relocation that leaves the count short.
+      expect(answer.warnings.map((w) => w.code)).toContain("WATCH_NOT_CREATED");
+    });
+
+    it("prefers the first-class field, with the alternatives it names", () => {
+      const answer = answerOf({
+        ...SAMPLES.anomaly_drill_turn_complete,
+        watch_refused: {
+          reason_code: "threshold_illegal",
+          reason: REFUSAL,
+          legal_alternatives: ["more than half a point", "more than 5%"],
+          subject: "Pinnacle Health Plan denial rate",
+          threshold_phrase: "moves more than $5,000",
+        },
+      });
+      if (answer.outcome !== "answer") throw new Error("not an answer");
+      expect(answer.watchRefused).toEqual({
+        reasonCode: "threshold_illegal",
+        reason: REFUSAL,
+        legalAlternatives: ["more than half a point", "more than 5%"],
+        subject: "Pinnacle Health Plan denial rate",
+        thresholdPhrase: "moves more than $5,000",
+      });
+    });
+
+    it("is absent on an ordinary turn, and is never guessed from prose", () => {
+      // The prose list is the pre-classification fallback. A client that
+      // matched sentences would start rendering a state change off a
+      // phrase, which is a different defect from the one being fixed.
+      const answer = answerOf({
+        ...SAMPLES.anomaly_drill_turn_complete,
+        warnings: [
+          ...SAMPLES.anomaly_drill_turn_complete.warnings,
+          `population_caveat: ${REFUSAL}`,
+        ],
+      });
+      if (answer.outcome !== "answer") throw new Error("not an answer");
+      expect(answer.watchRefused).toBeUndefined();
+    });
+  });
+
   it("believes the prose over an EMPTY warnings_v2 beside non-empty warnings", () => {
     // The server never drops a warning while classifying, so an empty
     // structured list next to real sentences means this payload predates

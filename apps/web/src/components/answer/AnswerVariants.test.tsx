@@ -20,11 +20,20 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { AnswerCard } from "@/components/answer/AnswerCard";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import typedTurns from "@/lib/__fixtures__/live-typed-turns.json";
+import RAW_SAMPLES from "@/lib/__fixtures__/wire-samples.json";
 import { resetAnswerVariantCache, setAnswerVariant } from "@/lib/answerVariant";
-import { mapWorklist } from "@/lib/contract";
+import { mapWorklist, parseTurnResponse, turnResponseToEvents } from "@/lib/contract";
 import { DEFAULT_SETTINGS } from "@/lib/settings";
-import { emptyAnswer, useSessionStore, type TurnRecord } from "@/lib/store";
+import {
+  applyEventToAnswer,
+  emptyAnswer,
+  useSessionStore,
+  type TurnRecord,
+} from "@/lib/store";
 import type { ChartSpec, Finding, WarningEvent } from "@/lib/types";
+
+/* eslint-disable-next-line @typescript-eslint/no-explicit-any */
+const SAMPLES = RAW_SAMPLES as any;
 
 beforeAll(() => {
   // jsdom implements no layout, so it ships no `scrollIntoView` — and a
@@ -357,6 +366,148 @@ describe("every warning survives the move — calm layout", () => {
       within(dialog).getByText(/the question named no period, so I used/),
     ).toBeInTheDocument();
     expect(within(dialog).getByText("Small cells were suppressed")).toBeInTheDocument();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* The watch path — the one warning that was landing nowhere            */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A REFUSED WATCH DECLARATION REACHES THE READER.
+ *
+ * Live, "Watch Pinnacle Health Plan denial rate and alert me if it moves
+ * more than $5,000" came back with `outcome: answer`, `watch: null`, six
+ * prose `warnings` and five `warnings_v2`. The missing sixth was the
+ * refusal — a threshold in cents over a metric measured as a ratio — and
+ * it was appended to `warnings` AFTER `warnings_v2` had been built, so
+ * `readTurnWarnings` (which prefers the structured list whenever it is
+ * non-empty) dropped it. On screen: an ordinary answer, no confirmation,
+ * no warning, and an analyst who walks away believing they are being
+ * watched.
+ *
+ * The conservation rule this file already enforces is what would have
+ * caught it, so it is extended here to the shape that broke it: whatever
+ * the payload classified, the reader can reach — on the answer, in the
+ * sheet, or in the refusal note that renders where the confirmation would
+ * have gone.
+ */
+describe("a refused watch declaration is not silently dropped", () => {
+  const REFUSAL =
+    "this turn read as a watch declaration, and the watch was NOT created: a threshold in " +
+    "'cents' is only honest for a 'money_cents' contract, and this watch measures 'ratio'. " +
+    "State it in percentage points or as a relative percentage.";
+
+  const refusalWarning: WarningEvent = {
+    type: "warning",
+    code: "WATCH_NOT_CREATED",
+    severity: "caution",
+    message: REFUSAL,
+    structured: true,
+  };
+
+  const refusedTurn = () =>
+    turn({
+      warnings: [...WARNINGS, refusalWarning],
+      watchRefused: { reason: REFUSAL, legalAlternatives: ["percentage points", "relative %"] },
+    });
+
+  it("renders the refusal where the confirmation would have gone", () => {
+    setAnswerVariant("b");
+    const { container } = renderCard(refusedTurn());
+
+    const note = container.querySelector("[data-watch-refused]");
+    expect(note, "a refused declaration must render its own note").not.toBeNull();
+    // The server's sentence, verbatim — it names the units this contract
+    // WOULD take, which is the only part that tells the analyst how to ask
+    // again.
+    expect(note?.textContent).toContain(REFUSAL);
+    // And the fact that decides tomorrow morning, in words.
+    expect(screen.getByText(/Nothing is being watched/)).toBeInTheDocument();
+    // It is an alert, not a footnote: a state the reader was expecting did
+    // not happen.
+    expect(note).toHaveAttribute("role", "alert");
+  });
+
+  it("conserves every classified warning — rendered + sheet ≥ the payload", async () => {
+    setAnswerVariant("b");
+    const record = refusedTurn();
+    const payload = record.answer.warnings;
+    const { container } = renderCard(record);
+
+    const onAnswer = codesIn(container);
+    await userEvent.click(screen.getByRole("button", { name: /things to know/ }));
+    const dialog = await screen.findByRole("dialog");
+    const inSheet = codesIn(dialog);
+
+    // THE ASSERTION THE DROP WOULD HAVE FAILED. Not equality — the refusal
+    // is deliberately said twice, once as a caveat and once as the note
+    // above the answer — but nothing the payload classified may reach the
+    // reader zero times.
+    expect(onAnswer.length + inSheet.length).toBeGreaterThanOrEqual(payload.length);
+    const reachable = new Set([...onAnswer, ...inSheet]);
+    for (const warning of payload) {
+      expect(reachable.has(warning.code), `${warning.code} must reach the reader`).toBe(true);
+    }
+    expect(reachable.has("WATCH_NOT_CREATED")).toBe(true);
+  });
+
+  it("says nothing about watching on an ordinary answer", () => {
+    setAnswerVariant("b");
+    const { container } = renderCard();
+    expect(container.querySelector("[data-watch-refused]")).toBeNull();
+    expect(container.querySelector("[data-watch-declaration]")).toBeNull();
+  });
+
+  /**
+   * THE LIVE PAYLOAD, THROUGH THE REAL SEAM.
+   *
+   * `wire-samples.json#watch_refused_turn` is the exec's own repro — "Watch
+   * Pinnacle Health Plan denial rate and alert me if it moves more than
+   * $5,000" — captured verbatim from a running deployment: `outcome:
+   * answer`, `watch: null`, six warnings, six classified warnings, and the
+   * `watch_refused` payload naming the four phrasings that would work.
+   */
+  it("renders the live refusal end to end, from the wire", async () => {
+    setAnswerVariant("b");
+    const parsed = parseTurnResponse(SAMPLES.watch_refused_turn, {
+      watermark: { id: "wm_003", loadedAt: "2026-08-03 04:10", newestDataDate: "2026-08-02" },
+      pack: { packId: "base-rcm", version: "1.0.0" },
+    });
+    expect(parsed.drift).toEqual([]);
+    if (parsed.value?.outcome !== "answer") throw new Error("not an answer");
+
+    let answer = emptyAnswer();
+    for (const event of turnResponseToEvents(parsed.value)) {
+      answer = applyEventToAnswer(answer, event);
+    }
+    const { container } = renderCard({
+      id: "turn_live",
+      index: 0,
+      submission: {
+        utterance: "Watch Pinnacle Health Plan denial rate and alert me if it moves more than $5,000.",
+      },
+      answer,
+    });
+
+    // The note, where the confirmation would have been.
+    const note = container.querySelector("[data-watch-refused]");
+    expect(note).not.toBeNull();
+    expect(note?.textContent).toContain("Pinnacle Health Plan denial rate");
+    expect(note?.textContent).toContain("only honest for a 'money_cents' contract");
+    // The phrasings that WOULD work — a refusal with no way forward is a
+    // wall, and these are the server's own words for the way through it.
+    expect(note?.textContent).toContain("more than half a point");
+
+    // And the conservation rule holds on the live payload: every code the
+    // server classified is reachable.
+    const payload = SAMPLES.watch_refused_turn.warnings_v2 as Array<{ code: string }>;
+    const onAnswer = codesIn(container);
+    await userEvent.click(screen.getByRole("button", { name: /things to know/ }));
+    const dialog = await screen.findByRole("dialog");
+    const reachable = new Set([...onAnswer, ...codesIn(dialog)]);
+    expect(onAnswer.length + codesIn(dialog).length).toBeGreaterThanOrEqual(payload.length);
+    for (const warning of payload) expect(reachable.has(warning.code)).toBe(true);
   });
 });
 

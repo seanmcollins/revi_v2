@@ -15,7 +15,7 @@
 // hand-mirrored domain record like the rest of this file. Importing the
 // type here (instead of re-declaring it) is what keeps the event union and
 // the parser from drifting apart.
-import type { WatchDeclaration, WorklistData } from "@/lib/contract";
+import type { WatchDeclaration, WatchRefusal, WorklistData } from "@/lib/contract";
 
 /* ------------------------------------------------------------------ */
 /* Grades (revi_kernel.grades)                                         */
@@ -1246,6 +1246,12 @@ export interface TurnCompleteEvent {
    * server-side.
    */
   watch?: WatchDeclaration;
+  /**
+   * `TurnAnswer.watch_refused` — the same turn class, refused. The watch
+   * was NOT created and nothing is being watched; the answer stands on its
+   * own. Rendered where the confirmation would have been.
+   */
+  watchRefused?: WatchRefusal;
   /** Present only when the settings in force for the turn had debug on. */
   debug?: DebugTrace;
 }

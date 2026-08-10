@@ -108,6 +108,33 @@ materiality:
     # Per kind, so one noisy category cannot fill the brief and push every
     # other kind of change off the end of it.
     max_entries_per_kind: 5
+    # WHAT THE CAP DROPS FIRST — which is a content decision, not an
+    # accident of the order the engine happens to assemble entries in.
+    #
+    # It was an accident: entries were built new_leads -> self_resolved ->
+    # pin_movements -> verifications and the cap truncated the TAIL, so the
+    # platform's own verdicts on the team's work — a regression, a
+    # confirmed fix — were appended last and deleted first. That is exactly
+    # backwards from the rule stated a few lines below under `resolution`:
+    # the cost of missing a regression is higher than the cost of one extra
+    # line. On today's four-entry demo it never bites; on a real tenant
+    # with a dozen watches it bites every morning.
+    #
+    # Worst-to-lose first. Within a kind, entries are ordered by
+    # consequence — money for a lead, how far past its own gate a watch
+    # moved — so the cap takes the smallest of the least important kind.
+    priority_order:
+      - resolution_regressed   # somebody believes this is fixed. It is not.
+      - resolution_confirmed   # the platform's verdict on work that was done
+      - rank_flip              # the worst cell is now a different cell
+      - new_lead               # money the feed has just found
+      - pin_movement           # a watched cell moved past its gate
+      - self_resolved          # a problem that went away on its own
+    # Kinds the overall cap may never drop, whatever else is competing for
+    # the screen. Exactly one, and it is the one whose absence lets an
+    # analyst close a lead that came back.
+    never_capped:
+      - resolution_regressed
 
   # A watch may set its OWN threshold, and it may set one LOOSER than the
   # gates above. That is deliberate: somebody watching one specific cell

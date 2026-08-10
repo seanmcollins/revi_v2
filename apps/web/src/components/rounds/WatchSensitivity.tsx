@@ -30,6 +30,10 @@ import { cn } from "@/lib/utils";
  * does not. That is allowed and it is paid for: entries briefed on a loose
  * threshold say so, and the brief names the pattern once per load if it
  * keeps happening.
+ *
+ * MOUNTED IN A `p-3` SCROLLPORT. Both call sites are a `PopoverContent`
+ * with that padding, and the action row bleeds through it (`-mx-3 -mb-3`)
+ * so the pinned footer spans the panel rather than floating inside it.
  */
 export function WatchSensitivityForm({
   initial,
@@ -190,39 +194,52 @@ export function WatchSensitivityForm({
         </p>
       )}
 
-      {refusal && (
-        // The platform's own sentence. It names the legal units for this
-        // contract, and paraphrasing it would drop the only part worth
-        // reading.
-        <p
-          role="alert"
-          data-watch-refusal
-          className="flex items-start gap-1.5 text-micro leading-snug text-negative"
-        >
-          <AlertTriangle aria-hidden className="mt-0.5 size-3 shrink-0" />
-          {refusal}
-        </p>
-      )}
+      {/* THE ACTION ROW IS PINNED, and the refusal is pinned with it.
+          Measured before this: the form was 662px tall inside a popover
+          with no height cap, so "Save and restart this watch" rendered two
+          pixels below the fold on a 772px viewport — the marquee gesture's
+          primary action, unreachable, with nothing under it to scroll to.
+          The popover now scrolls internally (see `ui/popover.tsx`) and
+          this row stays on the bottom edge of that scrollport.
 
-      <div className="flex gap-1.5">
-        <Button
-          type="submit"
-          size="xs"
-          variant="secondary"
-          disabled={pending || !valueOk}
-          className="h-6 flex-1 text-meta font-medium"
-        >
-          {pending ? "Saving…" : submitLabel}
-        </Button>
-        <Button
-          type="button"
-          size="xs"
-          variant="ghost"
-          onClick={onCancel}
-          className="h-6 flex-1 text-meta font-normal"
-        >
-          Cancel
-        </Button>
+          The refusal travels INSIDE the pinned row rather than above it:
+          it is the answer to the button that was just pressed, and a
+          server sentence naming this contract's legal units is worth
+          nothing if it scrolls away from the control that produced it. */}
+      <div className="sticky bottom-0 -mx-3 -mb-3 space-y-1.5 border-t bg-popover px-3 pb-3 pt-2">
+        {refusal && (
+          // The platform's own sentence. It names the legal units for this
+          // contract, and paraphrasing it would drop the only part worth
+          // reading.
+          <p
+            role="alert"
+            data-watch-refusal
+            className="flex items-start gap-1.5 text-micro leading-snug text-negative"
+          >
+            <AlertTriangle aria-hidden className="mt-0.5 size-3 shrink-0" />
+            {refusal}
+          </p>
+        )}
+        <div className="flex gap-1.5">
+          <Button
+            type="submit"
+            size="xs"
+            variant="secondary"
+            disabled={pending || !valueOk}
+            className="h-6 flex-1 text-meta font-medium"
+          >
+            {pending ? "Saving…" : submitLabel}
+          </Button>
+          <Button
+            type="button"
+            size="xs"
+            variant="ghost"
+            onClick={onCancel}
+            className="h-6 flex-1 text-meta font-normal"
+          >
+            Cancel
+          </Button>
+        </div>
       </div>
     </form>
   );

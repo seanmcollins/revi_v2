@@ -2562,5 +2562,161 @@
     "chart_specs": [],
     "metric_display": [],
     "created_at": "2026-08-09T19:26:40.002402Z"
+  },
+  "watch_refused_turn": {
+    "outcome": "answer",
+    "session_id": "sess_3394a3b4485e",
+    "investigation_id": "inv_82f6309a515f",
+    "turn_class": "new_investigation",
+    "context_header": {
+      "window_start": "2026-07-01",
+      "window_end": "2026-07-31",
+      "basis": "service",
+      "comparison_kind": null,
+      "comparison_start": null,
+      "comparison_end": null,
+      "filters": [
+        "payer eq [Pinnacle Health Plan]"
+      ],
+      "filter_chips": [
+        {
+          "dimension": "payer",
+          "op": "eq",
+          "values": [
+            "Pinnacle Health Plan"
+          ],
+          "requested_values": [],
+          "origin_turn": "turn_489ce2c0dd8b",
+          "pinned": false
+        }
+      ],
+      "cohort": null,
+      "cohort_size": null,
+      "watermark_id": "wm_003",
+      "as_of": null,
+      "display": "2026-07-01..2026-07-31 (service) · filters: payer eq [Pinnacle Health Plan] · watermark wm_003"
+    },
+    "findings": [
+      {
+        "referent": "F1",
+        "title": "denial rate: 22.9% (2026-07-01..2026-07-31)",
+        "statement": "denial rate is 22.9% over 2026-07-01..2026-07-31.",
+        "metric_ids": [
+          "denial_rate"
+        ],
+        "values": [
+          {
+            "name": "denial_rate",
+            "value": 0.229167
+          }
+        ],
+        "grade": "direct",
+        "impact_cents": null,
+        "confidence": "qualified",
+        "suggested_refinements": [
+          "drill into F1"
+        ],
+        "benchmarks": [
+          {
+            "id": "benchmark.denial_rate.marketplace_kff",
+            "metric_id": "denial_rate",
+            "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
+            "value_low": "19",
+            "value_high": "20",
+            "unit": "percent of in-network claims denied",
+            "period": "2023-2024",
+            "authority": "independent analysis of CMS transparency data",
+            "review_status": "machine_researched",
+            "cautions": [
+              "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
+              "Plan-reported data with no initial/final distinction"
+            ],
+            "sources": [
+              "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
+            ]
+          }
+        ],
+        "metric_caveats": []
+      }
+    ],
+    "narrative": "For Pinnacle Health Plan over 1–31 July 2026 on a service basis, the denial rate was 22.9% (F1), which sits above the benchmark range of 19–20 percent of in-network claims denied reported by ACA marketplace (HealthCare.gov) issuers for 2023–2024 in an independent analysis of CMS transparency data (F1). That benchmark is machine-researched plan-reported context rather than a like-for-like comparison, so treat the gap as a signal to investigate rather than a settled finding (F1). One definitional point matters for reading this figure: claims still awaiting their first remittance are excluded from both the numerator and the denominator, because an unadjudicated claim carries a clean flag for lack of evidence, not because a payer denied it (F1). The denial rate is therefore measured only across claims that have received a remittance, and its confidence is qualified (F1). This answer's window (2026-07-01..2026-07-31, service basis) has not finished settling. Across this whole load it holds 1,544 settled record(s) where a window of this length normally holds about 5,878 — 26.3% of it. What HAS settled is not a random sample of what has not: the fastest cases reach a decision first, so a total measured here is understated and a rate measured here is skewed. The count is the one 'clean_claim_rate' declares, and the norm is the median month of this load. Ask again over the last settled period, or on a basis whose events are already recorded, to read this without the caveat.",
+    "warnings": [
+      "window_assumed: the question named no period, so I used 2026-07-01..2026-07-31 on the service basis — the last full month this load can see (newest data date 2026-08-02).",
+      "alternate_basis_used: 'denial_rate' is computed on the 'service' basis — its primary 'remit' basis is not available at the 'claim' grain in this warehouse",
+      "population_caveat: denial_rate — claims still awaiting their first remittance (status OPEN) are excluded from both sides — an unadjudicated claim carries a false clean flag for want of evidence, not because a payer denied it, so including it would report the data edge as a denial.",
+      "adjudication_incomplete: this answer's window (2026-07-01..2026-07-31, service basis) has not finished settling. Across this whole load it holds 1,544 settled record(s) where a window of this length normally holds about 5,878 — 26.3% of it. What HAS settled is not a random sample of what has not: the fastest cases reach a decision first, so a total measured here is understated and a rate measured here is skewed. The count is the one 'clean_claim_rate' declares, and the norm is the median month of this load. Ask again over the last settled period, or on a basis whose events are already recorded, to read this without the caveat.",
+      "named_cut_applied: read 'Watch' as a watch declaration and investigated the rest of the sentence — 'Pinnacle Health Plan denial rate' — as an ordinary question, so this watch is defined by a spec that was planned, validated and answered rather than by the phrasing. Sensitivity read from 'and alert me if it moves more than $5,000.'.",
+      "watch_not_created: this turn read as a watch declaration and NO watch was created: this watch's threshold cannot be applied honestly: a threshold in 'cents' is only honest for a 'money_cents' contract, and this watch measures 'ratio'. Cents describe money; for a rate state the threshold in points, or as relative_pct.. The answer above stands on its own; nothing is being watched. Phrasings that work here: 'more than 2 points'; 'more than half a point'; 'when it crosses 15%'; 'on any movement'."
+    ],
+    "warnings_v2": [
+      {
+        "code": "WINDOW_ASSUMED",
+        "severity": "caution",
+        "message": "window_assumed: the question named no period, so I used 2026-07-01..2026-07-31 on the service basis — the last full month this load can see (newest data date 2026-08-02).",
+        "count": 1
+      },
+      {
+        "code": "ALTERNATE_BASIS_USED",
+        "severity": "caution",
+        "message": "alternate_basis_used: 'denial_rate' is computed on the 'service' basis — its primary 'remit' basis is not available at the 'claim' grain in this warehouse",
+        "count": 1
+      },
+      {
+        "code": "POPULATION_CAVEAT",
+        "severity": "caution",
+        "message": "population_caveat: denial_rate — claims still awaiting their first remittance (status OPEN) are excluded from both sides — an unadjudicated claim carries a false clean flag for want of evidence, not because a payer denied it, so including it would report the data edge as a denial.",
+        "count": 1
+      },
+      {
+        "code": "ADJUDICATION_INCOMPLETE",
+        "severity": "caution",
+        "message": "adjudication_incomplete: this answer's window (2026-07-01..2026-07-31, service basis) has not finished settling. Across this whole load it holds 1,544 settled record(s) where a window of this length normally holds about 5,878 — 26.3% of it. What HAS settled is not a random sample of what has not: the fastest cases reach a decision first, so a total measured here is understated and a rate measured here is skewed. The count is the one 'clean_claim_rate' declares, and the norm is the median month of this load. Ask again over the last settled period, or on a basis whose events are already recorded, to read this without the caveat.",
+        "count": 1
+      },
+      {
+        "code": "NAMED_CUT_APPLIED",
+        "severity": "info",
+        "message": "named_cut_applied: read 'Watch' as a watch declaration and investigated the rest of the sentence — 'Pinnacle Health Plan denial rate' — as an ordinary question, so this watch is defined by a spec that was planned, validated and answered rather than by the phrasing. Sensitivity read from 'and alert me if it moves more than $5,000.'.",
+        "count": 1
+      },
+      {
+        "code": "WATCH_NOT_CREATED",
+        "severity": "caution",
+        "message": "watch_not_created: this turn read as a watch declaration and NO watch was created: this watch's threshold cannot be applied honestly: a threshold in 'cents' is only honest for a 'money_cents' contract, and this watch measures 'ratio'. Cents describe money; for a rate state the threshold in points, or as relative_pct.. The answer above stands on its own; nothing is being watched. Phrasings that work here: 'more than 2 points'; 'more than half a point'; 'when it crosses 15%'; 'on any movement'.",
+        "count": 1
+      }
+    ],
+    "watch": null,
+    "watch_refused": {
+      "reason_code": "threshold_illegal",
+      "reason": "this watch's threshold cannot be applied honestly: a threshold in 'cents' is only honest for a 'money_cents' contract, and this watch measures 'ratio'. Cents describe money; for a rate state the threshold in points, or as relative_pct.",
+      "subject": "Pinnacle Health Plan denial rate",
+      "threshold_phrase": "and alert me if it moves more than $5,000.",
+      "legal_alternatives": [
+        "more than 2 points",
+        "more than half a point",
+        "when it crosses 15%",
+        "on any movement"
+      ]
+    },
+    "watermark_stale": false,
+    "metric": {
+      "primary": {
+        "id": "denial_rate",
+        "contract_version": 2
+      },
+      "metrics": [
+        {
+          "id": "denial_rate",
+          "contract_version": 2
+        }
+      ],
+      "playbook_id": null,
+      "pack_id": "base-rcm",
+      "pack_version": "1.0.0",
+      "pack_snapshot_id": "8e5f979b791b1d69a0084d7f962469469f414785666fda0f6ae4e5bfb6994a85"
+    },
+    "plan_hash": "bf40c935e55d3c78be67e7e467dd0b9b0010259bcfd50bbd4a992f1db6faefbb",
+    "reconciliation": "status=not_applicable; reason=this is a first turn; there is no parent answer to reconcile to"
   }
 }

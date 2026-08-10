@@ -107,7 +107,7 @@ class TestABreakdownTiesOutToTheWhole:
         )
 
         assert result is not None
-        summary, passed = result
+        summary, passed = result.summary, result.passed
         assert passed is True
         assert summary.startswith("status=passed; scope=breakdown (level vs level);")
         assert "parent F1=$1,193,126.92" in summary
@@ -127,7 +127,7 @@ class TestABreakdownTiesOutToTheWhole:
         )
 
         assert result is not None
-        summary, passed = result
+        summary, passed = result.summary, result.passed
         assert passed is False
         assert summary.startswith("status=failed;")
 
@@ -144,7 +144,7 @@ class TestABreakdownTiesOutToTheWhole:
 
         result = containment_reconciliation(parent, calculation, (), child)
 
-        assert result is not None and result[1] is True
+        assert result is not None and result.passed is True
 
     def test_an_already_cut_parent_has_no_whole_to_reconcile_against(
         self, make_spec
@@ -190,7 +190,7 @@ class TestADrillFindsItsCellWhereverTheSessionPublishedIt:
         )
 
         assert result is not None
-        summary, passed = result
+        summary, passed = result.summary, result.passed
         assert passed is True
         assert "parent F2=$176,112.25" in summary
 

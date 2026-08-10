@@ -96,6 +96,7 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import date
 from decimal import Decimal
 from enum import StrEnum
 
@@ -109,7 +110,10 @@ from revi_investigation.application.capability_ports import PackPort, PlaybookSp
 from revi_investigation.application.comparison import (
     ComparisonMaturity,
     ComparisonRendering,
+    DeclaredNonComparability,
     comparison_maturity,
+    comparison_range_for,
+    declared_non_comparability,
     render_comparison,
 )
 from revi_investigation.application.execution import (
@@ -120,7 +124,7 @@ from revi_investigation.application.execution import (
     suppression_census,
 )
 from revi_investigation.application.gestures import suggested_refinements_for
-from revi_investigation.application.planning import InvestigationPlan
+from revi_investigation.application.planning import InvestigationPlan, frame_window
 from revi_investigation.application.ports import ReferentRegistryStore, RegisteredReferent
 from revi_investigation.application.rendering import (
     COUNT_UNIT as _COUNT_UNIT,
@@ -135,6 +139,7 @@ from revi_investigation.application.rendering import (
     format_value,
     magnitude,
     magnitude_money,
+    measure_phrase,
     metric_label,
     ratio_pct,
     render_row_label,
@@ -165,6 +170,7 @@ from revi_kernel.refs import (
     ReferentId,
     ReferentKind,
 )
+from revi_kernel.scope import AbsoluteRange, TimeWindow
 
 _TIME_BUCKET_PREFIX = "time_bucket:"
 
@@ -188,7 +194,144 @@ def _is_snapshot(pack: PackPort, measure: str) -> bool:
     return contract is not None and str(contract.kind) == _SNAPSHOT_KIND
 
 
-def _period_phrase(spec: AnalysisSpec, pack: PackPort, measure: str, frame: EvidenceFrame) -> str:
+def _measured_range(spec: AnalysisSpec, window: TimeWindow | None) -> AbsoluteRange:
+    """The range a published figure was actually computed over.
+
+    ``window`` is the probe's own resolved window when it declared one (see
+    :func:`~revi_investigation.application.planning.frame_window`); ``None``
+    means the probe read the investigation window, which is the ordinary
+    case and the only one before playbooks with their own probe windows.
+    """
+    return (window or spec.context.window).range
+
+
+def probe_window_disclosure(spec: AnalysisSpec, window: TimeWindow | None) -> str | None:
+    """Why this finding's period is not the one in the context header.
+
+    ``None`` when the probe read the investigation window — the ordinary
+    case, and one that must stay silent: a sentence explaining that a
+    number was computed over the window the header names would be noise on
+    every answer this engine gives.
+    """
+    if window is None or window.range == spec.context.window.range:
+        return None
+    header = spec.context.window.range
+    own = window.range
+    return (
+        f"This check runs on its own period ({own.start.isoformat()}.."
+        f"{own.end.isoformat()}), not the answer's "
+        f"({header.start.isoformat()}..{header.end.isoformat()}): the playbook declares the "
+        "period this measure is read over, and the figure above is stated over the period it "
+        "was computed on."
+    )
+
+
+def _window_values(
+    measure: str, spec: AnalysisSpec, window: TimeWindow | None
+) -> list[tuple[str, Scalar]]:
+    """The period this figure was computed over, as NAMED VALUES.
+
+    The same move ``_bound_values`` makes, for the same reason: prose is
+    not a contract. A card, a CSV, a restored header and an independent
+    re-derivation all need to ask "which period is this number over?" and
+    get one answer, and parsing it back out of a sentence is not asking.
+
+    Empty when the probe read the investigation window — which the context
+    header already publishes, and which is every finding on every answer
+    that carries no playbook probe window of its own. Two names rather than
+    one range object because every other value on a finding is a scalar,
+    and a consumer that can read ``denial_rate__bound_population`` can read
+    these without learning a second shape.
+    """
+    if window is None or window.range == spec.context.window.range:
+        return []
+    out: list[tuple[str, Scalar]] = [
+        (f"{measure}{WINDOW_START_SUFFIX}", window.range.start),
+        (f"{measure}{WINDOW_END_SUFFIX}", window.range.end),
+    ]
+    comparison = spec.context.comparison
+    if comparison is not None:
+        prior = comparison_range_for(comparison, window, spec.context.window)
+        if prior != comparison.window.range:
+            out.extend(
+                [
+                    (f"{measure}{PRIOR_WINDOW_START_SUFFIX}", prior.start),
+                    (f"{measure}{PRIOR_WINDOW_END_SUFFIX}", prior.end),
+                ]
+            )
+    return out
+
+
+#: Suffixes of the named values above, so a consumer can read them back.
+WINDOW_START_SUFFIX = "__window_start"
+WINDOW_END_SUFFIX = "__window_end"
+#: …and the range the comparison on this finding was taken against, when the
+#: probe's own window moved it. The planner pairs a probe with a prior twin
+#: derived from the PROBE's window, so a six-month probe under a one-month
+#: question is differenced against the six months before it — which the
+#: comparison phrase now names, and which this publishes as data.
+PRIOR_WINDOW_START_SUFFIX = "__prior_window_start"
+PRIOR_WINDOW_END_SUFFIX = "__prior_window_end"
+
+
+def published_window_note(findings: Sequence[Finding]) -> str | None:
+    """What the context header owes a reader, read off the FINDINGS.
+
+    A playbook probe template may declare its own window, which the planner
+    resolves and applies whenever the analyst named none of their own
+    (``daily_portfolio``'s denial-rate probe reads ``{4, week,
+    full_periods}``). Every figure it produced is correct over THAT period
+    while the header names the investigation window, so the answer
+    published one period over numbers computed across another — 104 of the
+    corpus audit's 156 divergences, and the largest single class in it.
+
+    Composed from the published findings rather than from the plan for two
+    reasons. It names only periods a reader can actually see a number
+    over — a probe that published nothing is not something to warn about —
+    and it is the identical computation on a live turn and on a RESTORED
+    one, which holds a ``plan_hash`` rather than a plan. Both read the same
+    named values off the same findings and produce the same sentence.
+
+    ``None`` when every finding was measured over the investigation window,
+    which is every answer that runs no playbook probe window of its own.
+    Nothing is re-scoped to make this go away: the window the probe read is
+    the window the pack authored.
+    """
+    ranges: set[tuple[date, date]] = set()
+    for finding in findings:
+        starts: dict[str, date] = {}
+        ends: dict[str, date] = {}
+        for name, value in finding.values:
+            if name.endswith(WINDOW_START_SUFFIX) and isinstance(value, date):
+                starts[name[: -len(WINDOW_START_SUFFIX)]] = value
+            elif name.endswith(WINDOW_END_SUFFIX) and isinstance(value, date):
+                ends[name[: -len(WINDOW_END_SUFFIX)]] = value
+        for measure, start in starts.items():
+            end = ends.get(measure)
+            if end is not None:
+                ranges.add((start, end))
+    if not ranges:
+        return None
+    text = "; ".join(f"{start.isoformat()}..{end.isoformat()}" for start, end in sorted(ranges))
+    return (
+        "some checks here use their own periods, declared by the playbook rather than by this "
+        f"question ({text}) — each result states the period it was computed over"
+    )
+
+
+def _with_window_note(statement: str, spec: AnalysisSpec, window: TimeWindow | None) -> str:
+    """Append the probe's own-window disclosure, when there is one to make."""
+    note = probe_window_disclosure(spec, window)
+    return f"{statement} {note}" if note else statement
+
+
+def _period_phrase(
+    spec: AnalysisSpec,
+    pack: PackPort,
+    measure: str,
+    frame: EvidenceFrame,
+    window: TimeWindow | None = None,
+) -> str:
     """"over 2026-07-01..2026-07-31" — or "as of 2026-08-02" for a snapshot.
 
     Eight contracts here are ``kind: snapshot``: they read the balance at
@@ -199,19 +342,31 @@ def _period_phrase(spec: AnalysisSpec, pack: PackPort, measure: str, frame: Evid
     $5,565,290.35, and the two are not the same claim. The window is not
     removed from the answer (the cohort and charts are scoped by it); it is
     removed from the sentence that says what the number measures.
+
+    ``window`` is the same rule applied to the other axis. A playbook probe
+    may declare its own window, which the planner resolves and applies; the
+    period said here is then the PROBE's, because a figure computed over
+    2026-07-06..2026-08-02 and titled ``(2026-07-01..2026-07-31)`` is the
+    identical defect wearing a different mask.
     """
     if _is_snapshot(pack, measure):
         return f"as of {frame.watermark.newest_data_date.isoformat()}"
-    window = spec.context.window.range
-    return f"over {window.start.isoformat()}..{window.end.isoformat()}"
+    measured = _measured_range(spec, window)
+    return f"over {measured.start.isoformat()}..{measured.end.isoformat()}"
 
 
-def _period_paren(spec: AnalysisSpec, pack: PackPort, measure: str, frame: EvidenceFrame) -> str:
+def _period_paren(
+    spec: AnalysisSpec,
+    pack: PackPort,
+    measure: str,
+    frame: EvidenceFrame,
+    window: TimeWindow | None = None,
+) -> str:
     """The same period, parenthesized for a title."""
     if _is_snapshot(pack, measure):
         return f"(as of {frame.watermark.newest_data_date.isoformat()})"
-    window = spec.context.window.range
-    return f"({window.start.isoformat()}..{window.end.isoformat()})"
+    measured = _measured_range(spec, window)
+    return f"({measured.start.isoformat()}..{measured.end.isoformat()})"
 _PRIOR_SUFFIX = "__prior"
 _QUALIFIED_GRADES = (EvidenceGrade.PROXY, EvidenceGrade.DISCOVERY, EvidenceGrade.UNAVAILABLE)
 
@@ -554,6 +709,9 @@ class CompareShape:
     frame: EvidenceFrame
     dimension_columns: tuple[str, ...]
     money_measure: str
+    #: The window the probe behind this frame actually read, when it
+    #: declared one of its own. ``None`` is the investigation window.
+    window: TimeWindow | None = None
 
 
 def find_primary_compare(
@@ -572,7 +730,11 @@ def find_primary_compare(
         money = _money_measure(frame)
         if dims and money is not None:
             return CompareShape(
-                frame_id=step.id, frame=frame, dimension_columns=dims, money_measure=money
+                frame_id=step.id,
+                frame=frame,
+                dimension_columns=dims,
+                money_measure=money,
+                window=frame_window(plan, step.id),
             )
     return None
 
@@ -605,6 +767,9 @@ class MovementShape:
     measure: str
     #: the metric contract's declared unit, as stamped on the frame column
     unit: str | None
+    #: The window the probe behind this frame actually read, when it
+    #: declared one of its own. ``None`` is the investigation window.
+    window: TimeWindow | None = None
 
     @property
     def is_money(self) -> bool:
@@ -643,6 +808,7 @@ def find_primary_movement(
             dimension_columns=dims,
             measure=measure,
             unit=_unit_of(frame, measure),
+            window=frame_window(plan, step.id),
         )
     return None
 
@@ -673,6 +839,9 @@ class ConcentrationShape:
     is_money: bool
     #: the metric contract's declared unit, as stamped on the frame column
     unit: str | None
+    #: The window the probe behind this frame actually read, when it
+    #: declared one of its own. ``None`` is the investigation window.
+    window: TimeWindow | None = None
 
 
 def find_primary_concentration(
@@ -710,6 +879,7 @@ def find_primary_concentration(
             share_column=share_column if share_column in frame.schema.names else None,
             is_money=unit == _MONEY_UNIT,
             unit=unit,
+            window=frame_window(plan, step.id),
         )
     return None
 
@@ -732,6 +902,9 @@ class ScalarShape:
     prior_column: str | None
     delta_column: str | None
     pct_column: str | None
+    #: The window the probe behind this frame actually read, when it
+    #: declared one of its own. ``None`` is the investigation window.
+    window: TimeWindow | None = None
 
     @property
     def is_money(self) -> bool:
@@ -791,6 +964,7 @@ def find_scalar_shapes(
                     prior_column=prior if compared else None,
                     delta_column=delta if compared else None,
                     pct_column=pct if pct in names else None,
+                    window=frame_window(plan, frame_id),
                 )
             )
     return tuple(shapes)
@@ -831,6 +1005,9 @@ class TrendShape:
     bucket_column: str
     measure: str
     unit: str | None
+    #: The window the probe behind this frame actually read, when it
+    #: declared one of its own. ``None`` is the investigation window.
+    window: TimeWindow | None = None
 
     @property
     def is_money(self) -> bool:
@@ -949,6 +1126,7 @@ def find_trend_shapes(
                     bucket_column=bucket,
                     measure=column.name,
                     unit=column.unit,
+                    window=frame_window(plan, node.id),
                 )
             )
     return tuple(shapes)
@@ -1069,6 +1247,24 @@ class PremiseCheck:
     immature: ComparisonMaturity | None = None
     #: The question asserted a SIZE nothing could parse (round-5 A-02c).
     size_asserted_unparsed: bool = False
+    #: The metric CONTRACT declares these two windows non-comparable
+    #: (round-7 FN-4). The third leg of the integrity read: bounds and panel
+    #: maturity are signals measured off the frame, and a pack author can
+    #: also simply declare that a delta between two windows of this metric
+    #: is not a result. See
+    #: :class:`~...comparison.DeclaredNonComparability`.
+    not_comparable: DeclaredNonComparability | None = None
+    #: The two windows are materially different LENGTHS and the measure is
+    #: additive (round-7 FN-4, same leg). ``comparison.py`` already withholds
+    #: the impact and qualifies every finding for this; the premise verdict
+    #: was the one surface that still said "confirmed" over it.
+    length_mismatched: ComparisonRendering | None = None
+    #: The window the premise probe actually read, when it declared one of
+    #: its own. ``None`` is the investigation window. A premise probe is
+    #: cloned from the playbook probe whose breakdown the findings layer
+    #: publishes, so it inherits that probe's window — and the verdict
+    #: sentence has to state the period it was checked over.
+    window: TimeWindow | None = None
 
     @property
     def magnitude_short(self) -> bool:
@@ -1085,9 +1281,19 @@ class PremiseCheck:
         return self.current_bound is not None or self.prior_bound is not None
 
     @property
+    def not_comparable_windows(self) -> bool:
+        """Are the two windows declared, or measured, not a delta at all?"""
+        return self.not_comparable is not None or self.length_mismatched is not None
+
+    @property
     def unverifiable(self) -> bool:
         """Nothing here can confirm OR refute what the question asserted."""
-        return self.bounded or self.immature is not None or self.size_asserted_unparsed
+        return (
+            self.bounded
+            or self.immature is not None
+            or self.not_comparable_windows
+            or self.size_asserted_unparsed
+        )
 
     @property
     def is_money(self) -> bool:
@@ -1203,6 +1409,19 @@ def verify_premise(
     * **Unparsed size.** ``premise_holds: true`` beside
       ``premise_magnitude: "unverifiable"``, rendered "Premise confirmed",
       over a question that said HALVE.
+    * **Comparability** (round-7 FN-4, the third leg). The two above are
+      *signals measured off the frame*; whether two windows may be
+      differenced at all is a third, separate question, and the payload was
+      already answering it — in the metric contract's own governed caveat
+      and in the length-mismatch machinery — on a surface the verdict never
+      read. Live: "Premise confirmed: net collection rate 72.5% → 18.5%,
+      fell 53.9 points", ``direct``/``high``, three times on one payload,
+      beside that payload's own caution that "two windows of unequal
+      maturity are not comparable as levels". No panel guard fired and none
+      should have: ``net_collection_rate``'s denominator is contract-
+      expected DOLLARS, so there is no adjudicated-record asymmetry to see.
+      The contract was the only thing on the turn that knew, and nothing
+      asked it.
     """
     if not spec.direction_asserted or spec.direction is None:
         return None
@@ -1211,7 +1430,15 @@ def verify_premise(
     # two windows a settlement artifact, whether or not the frame the
     # premise was measured on carries a denominator of its own.
     immature = next(iter(comparison_maturity(calculation.frames)), None)
+    # …and the length of the two windows, which the rest of the engine
+    # already refuses to net (see comparison.py) while this verdict went on
+    # confirming premises over it.
     for frame_id, frame in _premise_frames(plan, calculation, premise_prefix):
+        # Per FRAME, not per turn: a premise probe cloned from a playbook
+        # probe carries that probe's window, and the pairing it was checked
+        # against was derived from THAT window (round-E2, class C).
+        window = frame_window(plan, frame_id)
+        rendering = render_comparison(spec, window=window)
         compared = _compared_measures(frame)
         measure = _premise_measure(spec, compared)
         if measure is None:
@@ -1228,27 +1455,45 @@ def verify_premise(
         pct_col = f"{measure}__pct_change"
         current = row[frame.schema.index_of(measure)]
         prior = row[frame.schema.index_of(f"{measure}__prior")]
+        unit = _unit_of(frame, measure)
         directional = (delta > 0) if wanted > 0 else (delta < 0)
         current_bound, prior_bound = _premise_bounds(frame, measure, suppression_threshold)
         bounded = current_bound is not None or prior_bound is not None
+        # The third leg: is the difference between these two windows a
+        # result at all? Asked of the metric's own contract, and of the two
+        # windows' lengths — the same per-unit rule the finding paths use,
+        # because a ratio over a window does not scale with the window.
+        not_comparable = declared_non_comparability(pack, measure)
+        length_mismatched = (
+            rendering
+            if rendering is not None
+            and rendering.material_length_mismatch
+            and _is_additive(unit)
+            else None
+        )
+        blocked = any(
+            (bounded, immature is not None, not_comparable is not None, length_mismatched)
+        )
         # Direction is necessary and not sufficient. "Doubled" asserts a
         # SIZE, and the movement has to land inside a band around what was
         # claimed — on either side of it — before the claim is confirmed.
         magnitude = MagnitudeVerdict.UNVERIFIABLE
         actual_multiple: Decimal | None = None
-        if directional and spec.asserted_multiple is not None and not bounded and immature is None:
+        if directional and spec.asserted_multiple is not None and not blocked:
             magnitude, actual_multiple = _magnitude_verdict(
                 prior, current, spec.asserted_multiple
             )
-        # A movement between two ceilings is not a movement, and a movement
-        # between two unequally-settled panels is not a business change:
-        # neither can confirm OR refute what was asserted.
-        unverifiable = bounded or immature is not None or spec.size_asserted_unparsed
+        # A movement between two ceilings is not a movement, a movement
+        # between two unequally-settled panels is not a business change, and
+        # a movement the governing contract says may not be taken is not a
+        # movement either: none of the three can confirm OR refute what was
+        # asserted.
+        unverifiable = blocked or spec.size_asserted_unparsed
         return PremiseCheck(
             frame_id=frame_id,
             frame=frame,
             measure=measure,
-            unit=_unit_of(frame, measure),
+            unit=unit,
             current=current,
             prior=prior,
             delta=delta,
@@ -1266,6 +1511,9 @@ def verify_premise(
             prior_bound=prior_bound,
             immature=immature,
             size_asserted_unparsed=spec.size_asserted_unparsed,
+            not_comparable=not_comparable,
+            length_mismatched=length_mismatched,
+            window=window,
         )
     return None
 
@@ -1485,6 +1733,28 @@ def _unverifiable_sentence(
             "by how much of the newer window has come back rather than by anything that "
             "happened. Ask again once the thinner side matures."
         )
+    if premise.not_comparable is not None:
+        # The arithmetic OUT LOUD, like every other arm: withholding the two
+        # figures would leave a reader believing the platform could not
+        # measure them, when what it cannot do is DIFFERENCE them.
+        return (
+            f"You asked about {noun} in {label}. It cannot be checked here — the governed "
+            f"contract for {label} declares these two windows non-comparable as levels: "
+            f"{premise.not_comparable.caveat} Both figures are real ({figures} {phrase}) and the "
+            "difference between them is a settlement artifact of the newer window, not a "
+            f"movement in {label}. Nothing on this answer confirms or refutes the claim; ask "
+            "over two settled windows and I will verify it."
+        )
+    if premise.length_mismatched is not None:
+        mismatch = premise.length_mismatched
+        return (
+            f"You asked about {noun} in {label}. It cannot be checked here — the two windows are "
+            f"not the same length ({mismatch.comparison_days}d against "
+            f"{mismatch.current_days}d) and {label} is an additive measure, so the difference "
+            f"between {figures} {phrase} is dominated by the length ratio rather than by "
+            "anything that happened. Nothing is length-normalized on this answer. Ask over two "
+            "windows of equal length and I will verify it."
+        )
     return (
         f"You asked about {noun} in {label}. The SIZE that names is not one this platform can "
         f"read, so it was not checked: {label} did move {figures} {phrase}, and whether that is "
@@ -1531,6 +1801,23 @@ def _asserted_change_text(spec: AnalysisSpec) -> str:
     if multiple is None:  # pragma: no cover - only reached with a multiple
         return "movement"
     return ratio_pct(abs(multiple - Decimal(1)))
+
+
+def _unverifiable_reason(premise: PremiseCheck) -> str:
+    """Which of the five things stopped the verdict, as a closed token.
+
+    Read in the same order the sentence arms are, so the value and the prose
+    can never name different reasons.
+    """
+    if premise.bounded:
+        return "bounded_endpoint"
+    if premise.immature is not None:
+        return "immature_panel"
+    if premise.not_comparable is not None:
+        return "contract_not_comparable"
+    if premise.length_mismatched is not None:
+        return "window_length_mismatch"
+    return "size_unparsed"
 
 
 def _premise_warning(
@@ -1714,7 +2001,7 @@ class EvaluateFindingsService:
         )
 
         qualified = self._requires_qualification(shape.frame.evidence_grade, pack, playbook)
-        comparison = render_comparison(spec)
+        comparison = render_comparison(spec, window=shape.window)
 
         # Referent handles are session-monotonic (design §7.6): F2 keeps
         # meaning the finding it named when it was shown — later turns mint
@@ -1959,7 +2246,7 @@ class EvaluateFindingsService:
         shape numbers itself after it — the alternative was threading a
         "reserve one handle" flag through four independent branches.
         """
-        comparison = render_comparison(spec)
+        comparison = render_comparison(spec, window=premise.window)
         existing = await self._registry.list_for_session(session_id)
         offset = sum(1 for e in existing if e.referent.kind is ReferentKind.FINDING)
         finding, referent = self._build_premise_finding(
@@ -2029,6 +2316,7 @@ class EvaluateFindingsService:
                 "assumes, so the movements below are the exceptions inside it rather than the "
                 "story."
             )
+        statement = _with_window_note(statement, spec, premise.window)
         values: list[tuple[str, Scalar]] = [
             (premise.measure, premise.current),
             (f"{premise.measure}__prior", premise.prior),
@@ -2052,14 +2340,12 @@ class EvaluateFindingsService:
             ("premise_unverifiable", premise.unverifiable),
         ]
         if premise.unverifiable:
-            values.append(
-                (
-                    "premise_unverifiable_reason",
-                    "bounded_endpoint"
-                    if premise.bounded
-                    else ("immature_panel" if premise.immature is not None else "size_unparsed"),
-                )
-            )
+            values.append(("premise_unverifiable_reason", _unverifiable_reason(premise)))
+        if premise.not_comparable is not None:
+            # The declaration as data, so a client (and the invariant test)
+            # can branch on it without parsing prose, and so the metric that
+            # carries it is named rather than inferred.
+            values.append(("premise_not_comparable_metric", premise.not_comparable.measure))
         if premise.current_bound is not None:
             values.extend(_bound_values(premise.measure, premise.current_bound))
         if premise.prior_bound is not None:
@@ -2077,6 +2363,7 @@ class EvaluateFindingsService:
             values.append(("premise_asserted_verb", _asserted_claim(spec)[1]))
         if premise.actual_multiple is not None:
             values.append(("actual_multiple", premise.actual_multiple))
+        values.extend(_window_values(premise.measure, spec, premise.window))
         referent = ReferentId(value=referent_value, kind=ReferentKind.FINDING)
         finding = Finding(
             referent=referent,
@@ -2234,6 +2521,8 @@ class EvaluateFindingsService:
                 "asked for the whole set, not as an instance of what was asked."
             )
 
+        statement = _with_window_note(statement, spec, shape.window)
+
         delta_value: Scalar = int(delta) if shape.is_money else delta
         values: list[tuple[str, Scalar]] = [
             ("current_cents" if shape.is_money else measure, current),
@@ -2242,6 +2531,7 @@ class EvaluateFindingsService:
             ("pct_change", pct),
         ]
         values.extend(_bound_values(measure, bound))
+        values.extend(_window_values(measure, spec, shape.window))
         referent = ReferentId(value=referent_value, kind=ReferentKind.FINDING)
         finding = Finding(
             referent=referent,
@@ -2308,7 +2598,6 @@ class EvaluateFindingsService:
         investigation_id: str,
     ) -> FindingsResult:
         """Findings from ungrouped metric cells — the direct answer."""
-        comparison = render_comparison(spec)
         existing = await self._registry.list_for_session(session_id)
         finding_offset = sum(1 for e in existing if e.referent.kind is ReferentKind.FINDING)
 
@@ -2324,6 +2613,11 @@ class EvaluateFindingsService:
             if value is None:
                 continue
             qualified = self._requires_qualification(shape.frame.evidence_grade, pack, playbook)
+            # Per SHAPE: one playbook answer can carry a 4-week denial-rate
+            # probe beside a 3-month underpayment probe, and a comparison
+            # phrase rendered once for the turn would name the wrong prior
+            # range on at least one of them.
+            comparison = render_comparison(spec, window=shape.window)
             n = finding_offset + len(findings) + 1
             finding, referent = self._build_scalar_finding(
                 f"F{n}",
@@ -2372,8 +2666,8 @@ class EvaluateFindingsService:
         row = shape.frame.rows[0]
         label = metric_label(shape.measure)
         current_text = bound_text(value, shape.unit, bounded=bound is not None)
-        period_text = _period_phrase(spec, pack, shape.measure, shape.frame)
-        period_paren = _period_paren(spec, pack, shape.measure, shape.frame)
+        period_text = _period_phrase(spec, pack, shape.measure, shape.frame, shape.window)
+        period_paren = _period_paren(spec, pack, shape.measure, shape.frame, shape.window)
 
         values: list[tuple[str, Scalar]] = [(shape.measure, value)]
         prior: Scalar = None
@@ -2429,7 +2723,9 @@ class EvaluateFindingsService:
                 f"suppressed over a population of {bound.population:,}, so the true figure is "
                 "at or below this one."
             )
+        statement = _with_window_note(statement, spec, shape.window)
         values.extend(_bound_values(shape.measure, bound))
+        values.extend(_window_values(shape.measure, spec, shape.window))
 
         referent = ReferentId(value=referent_value, kind=ReferentKind.FINDING)
         finding = Finding(
@@ -2570,7 +2866,7 @@ class EvaluateFindingsService:
         high = max(settled, key=lambda point: point[1])
         delta = last_value - first_value
         label = metric_label(shape.measure)
-        window = spec.context.window.range
+        window = _measured_range(spec, shape.window)
         noun = _bucket_noun(shape.frame, shape.bucket_column)
         direction = "down" if delta < 0 else ("up" if delta > 0 else "flat")
         bounded_ends = first_bound is not None or last_bound is not None
@@ -2602,6 +2898,7 @@ class EvaluateFindingsService:
             f"{bound_text(low[1], shape.unit, bounded=low[2] is not None)} in "
             f"{_bucket_text(low[0], noun)}."
         )
+        statement = _with_window_note(statement, spec, shape.window)
         values: list[tuple[str, Scalar]] = [
             ("first", first_value),
             ("last", last_value),
@@ -2647,6 +2944,7 @@ class EvaluateFindingsService:
                     ("terminal_provisional", True),
                 ]
             )
+        values.extend(_window_values(shape.measure, spec, shape.window))
         return Finding(
             referent=ReferentId(value=referent_value, kind=ReferentKind.FINDING),
             title=title,
@@ -2895,7 +3193,7 @@ class EvaluateFindingsService:
         share = row[schema.index_of(shape.share_column)] if shape.share_column else None
         label = self._row_label(row, shape.frame, shape.dimension_columns, pack)
         measure_label = metric_label(shape.measure)
-        period_text = _period_phrase(spec, pack, shape.measure, shape.frame)
+        period_text = _period_phrase(spec, pack, shape.measure, shape.frame, shape.window)
 
         amount = _as_int(value)
         # The unit is the metric contract's, carried on the frame column —
@@ -2921,12 +3219,18 @@ class EvaluateFindingsService:
         # "best" against the contract's sign) and the sentence names it; when
         # none was, nothing is claimed about what first means.
         order_text = f" ({spec.order.phrase}, as asked)" if spec.order is not None else ""
-        title = f"{label}: {magnitude} {measure_label}{share_text}"
+        # The figure and the measure name, said with the unit ONCE. "179.5
+        # days" beside a measure whose display name is "days in ar" is how
+        # "Atlas Commercial: 179.5 days days in ar" became a permanent tile
+        # headline; the collision is invisible to an f-string and visible
+        # to :func:`measure_phrase` (FN-14).
+        measured_text = measure_phrase(magnitude, measure_label, shape.unit)
+        title = f"{label}: {measured_text}{share_text}"
         if bound is not None:
             # No ordinal, in either field. A bound cannot hold a position in
             # an order it was not measured for, and "ranks #1" over a
             # ceiling is the sentence this whole branch exists to delete.
-            title = f"{label}: ≤ {magnitude} {measure_label} (upper bound){share_text}"
+            title = f"{label}: ≤ {measured_text} (upper bound){share_text}"
             statement = (
                 f"{label}: {measure_label} is AT MOST {magnitude} {period_text} — the numerator "
                 f"was suppressed over a population of {bound.population:,}, so this is a ceiling "
@@ -2936,7 +3240,7 @@ class EvaluateFindingsService:
         elif urgency_position is not None:
             place, total = urgency_position
             statement = (
-                f"{label}: {magnitude} {measure_label}{share_text} {period_text}. This is band "
+                f"{label}: {measured_text}{share_text} {period_text}. This is band "
                 f"{place} of {total} in the catalog's declared order for "
                 f"{shape.dimension_columns[0]}, which runs most urgent first — it is sequenced "
                 "by urgency, not by size."
@@ -2949,10 +3253,11 @@ class EvaluateFindingsService:
             )
         else:
             statement = (
-                f"{label}: {magnitude} {measure_label}{share_text} {period_text}. No position is "
+                f"{label}: {measured_text}{share_text} {period_text}. No position is "
                 "claimed for it — too much of this population carries suppressed numerators for "
                 "an order to mean anything."
             )
+        statement = _with_window_note(statement, spec, shape.window)
 
         values: list[tuple[str, Scalar]] = [(shape.measure, value)]
         if bound is None:
@@ -2960,6 +3265,7 @@ class EvaluateFindingsService:
         if share is not None:
             values.append(("share_of_total", share))
         values.extend(_bound_values(shape.measure, bound))
+        values.extend(_window_values(shape.measure, spec, shape.window))
 
         referent = ReferentId(value=referent_value, kind=ReferentKind.FINDING)
         finding = Finding(

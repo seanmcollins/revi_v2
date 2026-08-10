@@ -51,6 +51,23 @@
   --surface-sunken: #f1efeb;
   --surface-overlay: #ffffff;
 
+  /* ELEVATION, as a MEASURED token rather than a hardcoded shadow.
+     `shadow-[0_1px_2px_rgba(0,0,0,0.03)]` was written into the tile itself
+     and measured as nothing: its darkest pixel is 1.064:1 against the light
+     page and 1.000:1 against the dark one — i.e. in dark there was no
+     shadow at all, and at twenty tiles the only thing between one watch's
+     number and the next watch's caveat sentence was 12px of gap.
+
+     Light: a two-layer drop shadow. Edge over the page measures 1.144:1
+     (was 1.064:1), and the card face itself is 1.092:1 over the page.
+     Dark: a drop shadow cannot exist over #0b0a09, so the elevation is a
+     TOP HIGHLIGHT plus a lighter face — `--surface-raised #161514` is
+     1.085:1 over the page (the card at #131211 was 1.057:1), the highlight
+     line reads 1.213:1 against the page, and the hairline border over the
+     raised face reads 1.323:1 against it. */
+  --elevation-raised: 0 1px 2px rgba(0, 0, 0, 0.06), 0 1px 3px rgba(0, 0, 0, 0.04);
+  --elevation-raised-hover: 0 2px 6px rgba(0, 0, 0, 0.08), 0 1px 3px rgba(0, 0, 0, 0.05);
+
   /* Both of these are read ON THEIR OWN 10% TINT — the accent chip, the
      caution banner, the reconciliation strip — which is the surface that
      decides whether they pass, and the surface nobody measured. Computed
@@ -175,6 +192,14 @@
   --surface-raised: #161514;
   --surface-sunken: #0e0d0c;
   --surface-overlay: #1b1a18;
+
+  /* The dark half of the elevation token. A drop shadow over #0b0a09 is
+     invisible by construction (black on near-black), so depth here is a
+     1px top highlight — the same device the physical world gives a raised
+     edge — over the lighter `--surface-raised` face. Measured above. */
+  --elevation-raised: inset 0 1px 0 rgba(255, 255, 255, 0.045);
+  --elevation-raised-hover:
+    inset 0 1px 0 rgba(255, 255, 255, 0.07), 0 2px 10px rgba(0, 0, 0, 0.5);
 
   --verified: #2dd4bf;
   --positive: #34d399;
@@ -464,6 +489,23 @@ body {
       transparent 100%
     )
     1;
+}
+
+/* ---------------------------------------------------------------------------
+   A RAISED SURFACE — one class, both themes, measured.
+
+   The warmth pass's centrepiece ("a hairline shadow so the tile sits ON the
+   page rather than being cut out of it") was a hardcoded light-mode shadow,
+   so in dark it did not exist. This is the same intent expressed as a
+   theme-aware token: a drop shadow where a drop shadow can be seen, a top
+   highlight where it cannot. Ratios are published beside the tokens.
+--------------------------------------------------------------------------- */
+.raised {
+  box-shadow: var(--elevation-raised);
+}
+.raised-hover:hover,
+.raised-hover:focus-within {
+  box-shadow: var(--elevation-raised-hover);
 }
 
 /* Thin, quiet scrollbars */

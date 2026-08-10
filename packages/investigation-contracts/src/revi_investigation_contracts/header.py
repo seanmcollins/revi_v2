@@ -66,6 +66,17 @@ class ContextHeaderPayload(BaseModel):
     #: of", because a header that announces a range the metric never
     #: applied is a claim about the number that is not true.
     as_of: date | None = None
+    #: Set when at least one probe on this turn read a window OTHER than the
+    #: one named above — a playbook probe template may declare its own
+    #: (``daily_portfolio``'s denial-rate probe reads four full weeks), and
+    #: the planner applies it whenever the analyst named no window.
+    #: ``window_start``/``window_end`` stay the investigation window (the
+    #: cohort, the charts and every drill are scoped by it); this sentence
+    #: says that not every figure below was computed over it, and each
+    #: finding states the period it WAS computed over. Without it, "denial
+    #: rate: 14.3% (2026-07-01..2026-07-31)" sat over a number derived
+    #: across 2026-07-06..2026-08-02.
+    window_note: str | None = None
     display: str = ""
 
 
@@ -115,6 +126,7 @@ def build_header_payload(
     cohort: CohortRef | None = None,
     watermark_id: str,
     as_of: date | None = None,
+    window_note: str | None = None,
     corrections: Mapping[str, Mapping[str, object]] | None = None,
 ) -> ContextHeaderPayload:
     """Assemble the canonical header from kernel scope objects.
@@ -123,6 +135,13 @@ def build_header_payload(
     those contracts read a balance standing at the watermark and apply no
     window at all, so announcing ``2026-07-01..2026-07-31`` beside the
     number states a scoping that did not happen (round-2 FN-2).
+
+    ``window_note`` is set when a probe on this turn read a window other
+    than the one this header names — a playbook probe may declare its own,
+    and a header that announces one period over figures computed across
+    another is the same claim-that-is-not-true in the other axis. It rides
+    on the display string as well as the field, because the display string
+    is what the trace, the export and every stored answer carry.
 
     ``corrections`` carries the §6.6 value resolutions so the chips state
     the predicate that RAN (round-2 FN-9).
@@ -149,6 +168,8 @@ def build_header_payload(
     if cohort is not None:
         parts.append(f"cohort: {cohort.id} ({cohort.size} claims)")
     parts.append(f"watermark {watermark_id}")
+    if window_note:
+        parts.append(window_note)
 
     return ContextHeaderPayload(
         window_start=window.range.start,
@@ -163,5 +184,6 @@ def build_header_payload(
         cohort_size=cohort.size if cohort is not None else None,
         watermark_id=watermark_id,
         as_of=as_of,
+        window_note=window_note,
         display=" · ".join(parts),
     )

@@ -20,7 +20,7 @@ import { displaySessionTitle, mediumDate, untitledTurnLabel } from "@/lib/format
 import { sessionLinkFor } from "@/lib/links";
 import { REFERENCE_QUESTIONS } from "@/lib/mock/reference";
 import { MockDriver } from "@/lib/mockDriver";
-import { hasUnseenLoad } from "@/lib/roundsVisit";
+import { hasUnseenLoad, noteRoundsRedirect } from "@/lib/roundsVisit";
 import { useSessionStore } from "@/lib/store";
 
 /**
@@ -211,6 +211,11 @@ export default function Workspace({
     if (window.location.pathname !== "/") return;
     if (!hasUnseenLoad(newestWatermarkId)) return;
     redirected.current = true;
+    // Recorded before the push so the destination can announce itself and
+    // move focus: a navigation nobody asked for is silent to a screen
+    // reader otherwise, and this is the one navigation this app makes on
+    // the analyst's behalf.
+    noteRoundsRedirect();
     // `router.push`, not `location.assign`: a client-side navigation keeps
     // the store, the driver and the health poll this component just set
     // up, so Rounds opens without re-bootstrapping everything it needs.

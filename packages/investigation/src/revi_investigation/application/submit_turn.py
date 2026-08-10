@@ -63,12 +63,14 @@ from revi_investigation.application.capability_ports import BenchmarkSpec, PackP
 from revi_investigation.application.cohorts import PinCohortService
 from revi_investigation.application.comparison import (
     comparison_maturity,
+    declared_non_comparabilities,
     window_mismatch_warning,
 )
 from revi_investigation.application.execution import (
     ExecutedProbe,
     ExecuteInvestigationService,
     SuppressionCensus,
+    bound_index,
     bounded_cells_warning,
     suppression_census,
 )
@@ -76,6 +78,7 @@ from revi_investigation.application.findings import (
     EvaluateFindingsService,
     FindingsResult,
     find_primary_compare,
+    published_window_note,
 )
 from revi_investigation.application.findings import (
     as_number as _as_number,
@@ -127,7 +130,8 @@ from revi_investigation.application.refinement_llm import (
     to_domain_operators,
 )
 from revi_investigation.application.rendering import MONEY_UNIT as _MONEY_UNIT_NAME
-from revi_investigation.application.rendering import money
+from revi_investigation.application.rendering import RATIO_UNIT as _RATIO_UNIT_NAME
+from revi_investigation.application.rendering import metric_label, money, points, ratio_pct
 from revi_investigation.application.validation import (
     PlanClarificationNeeded,
     PlanValidationService,
@@ -183,7 +187,14 @@ from revi_kernel.errors import (
     ReviError,
     UnsupportedConceptError,
 )
-from revi_kernel.filters import EMPTY_SCOPE, Predicate, PredicateOp, and_merge, iter_predicates
+from revi_kernel.filters import (
+    EMPTY_SCOPE,
+    Predicate,
+    PredicateOp,
+    Scalar,
+    and_merge,
+    iter_predicates,
+)
 from revi_kernel.frame import EvidenceFrame, primary_measure
 from revi_kernel.probes import AggregationProbe, EvidenceProbe, SnapshotProbe
 from revi_kernel.refs import SERVICE, DimensionRef, EntityGrain, Grain, MetricRef, ReferentId
@@ -449,8 +460,16 @@ def build_context_header(
     pack: PackPort | None = None,
     corrections: Mapping[str, Mapping[str, str]] | None = None,
     measure_ids: Sequence[str] = (),
+    findings: Sequence[Finding] = (),
 ) -> ContextHeaderPayload:
-    """Delegate to the canonical contracts builder (§7.2 single source)."""
+    """Delegate to the canonical contracts builder (§7.2 single source).
+
+    ``findings`` is read only for :func:`published_window_note` — the
+    sentence that says not every figure below was computed over the window
+    this header names. It is composed from the findings rather than from
+    the plan so that a live turn and a RESTORED one (which has no plan)
+    produce the identical string from the identical facts.
+    """
     context = spec.context
     return build_header_payload(
         window=context.window,
@@ -460,6 +479,7 @@ def build_context_header(
         cohort=context.cohort,
         watermark_id=session.watermark.id,
         as_of=snapshot_as_of(spec, session, pack, measure_ids),
+        window_note=published_window_note(findings),
         corrections=corrections,
     )
 
@@ -650,102 +670,56 @@ def _finding_money(finding: Finding) -> tuple[int | None, int | None]:
     return level, delta
 
 
-def _parent_whole(parent: Investigation, measure: str | None) -> Finding | None:
+def _parent_whole(
+    parent: Investigation,
+    measure: str | None,
+    has_figure: Callable[[Finding], bool],
+) -> Finding | None:
     """The parent finding that speaks for the WHOLE population, if any.
 
     Only an undimensioned parent has one: an answer already cut by payer
     published twelve cells and no total, and calling any one of them "the
-    whole" would reconcile a breakdown against a slice. One money finding
-    over a spec with no cuts is the figure a breakdown of it must sum to.
+    whole" would reconcile a breakdown against a slice. One finding over a
+    spec with no cuts is the figure a breakdown of it must recompose to.
 
-    Matched on the child's OWN money measure, which is load-bearing rather
-    than tidy: money is cents-as-int on a finding and ``_finding_money``
+    Matched on the child's OWN measure, which is load-bearing rather than
+    tidy: money is cents-as-int on a finding and ``_finding_money``
     truncates, so a RATE finding carrying ``Decimal("0.294")`` reads back as
     ``0`` — "a figure of zero" rather than "no figure" — and a breakdown
     reconciled against it would publish ``RECONCILIATION_FAILED … parent
-    F1=$0.00`` about two numbers that were never comparable.
+    F1=$0.00`` about two numbers that were never comparable. ``has_figure``
+    is therefore supplied by the caller that knows which KIND of quantity
+    this child holds, and money and rate never answer for each other.
     """
     if parent.spec.dimensions or measure is None:
         return None
-    monied = [
+    speaking = [
         finding
         for finding in parent.findings
-        if measure in {ref.id for ref in finding.metric_refs}
-        and any(value is not None for value in _finding_money(finding))
+        if measure in {ref.id for ref in finding.metric_refs} and has_figure(finding)
     ]
-    return monied[0] if len(monied) == 1 else None
+    return speaking[0] if len(speaking) == 1 else None
 
 
-def _splits_parent(spec: AnalysisSpec | None, parent: Investigation) -> bool:
-    """Did this turn cut the parent's population along a new dimension?
-
-    Read off the SPECS, not off the operator names (round-6 E-02). "Break
-    that out by payer" reached the engine as a ``set_dimensions`` on one
-    session and as something else on another, and the second reported
-    ``this turn neither split nor drilled the parent's population`` about a
-    turn that plainly had. A turn that gained a cut split the population,
-    whichever operator got it there.
-    """
-    if spec is None:
-        return False
-    gained = {d.id for d in spec.dimensions} - {d.id for d in parent.spec.dimensions}
-    return bool(gained)
-
-
-def containment_reconciliation(
+def _parent_finding(
     parent: Investigation,
-    calculation: CalculationResult,
     operators: tuple[Refinement, ...],
-    spec: AnalysisSpec | None = None,
-    #: The session's published findings, as a THUNK: only a drill whose
-    #: handle is not on the immediate parent reads it, and on a breakdown —
-    #: the shape this function was extended for — the store round trip it
-    #: costs would buy nothing.
-    session_findings: Callable[[], Sequence[Finding]] = tuple,
-) -> tuple[str, bool] | None:
-    """Reconcile a drill against the PARENT FINDING it was launched from.
+    measure: str | None,
+    spec: AnalysisSpec | None,
+    session_findings: Callable[[], Sequence[Finding]],
+    has_figure: Callable[[Finding], bool],
+) -> tuple[Finding, bool] | None:
+    """The published figure this child descends from, and how it got there.
 
-    Round-2 FN-4. Clicking "drill into DNFB accumulation: Northgate
-    general-surgery discharges" published ``dnfb_dollars = $195,873.92``;
-    clicking the platform's own "drill into F1" chip on that same answer
-    published ``$178,216.82`` — same metric id, same contract version, same
-    pack, same window, same scope, both graded direct, neither warning —
-    and the child's reconciliation read ``not_applicable; this turn
-    produced no compared money frame to reconcile against the parent``.
-    The predicate was true and beside the point: it asked whether there was
-    a *compare* frame and an *undimensioned parent total*, when what the
-    reader had in front of them was one finding's figure and one drill's.
+    Returns ``(finding, breakdown)`` — ``breakdown`` true when this turn cut
+    an undimensioned parent rather than drilling a named handle. ``None``
+    when nothing on screen contains this child's population.
 
-    The mirror-image symptom, same predicate: a drill decomposing a
-    parent's $410,166.15 into nine categories that sum to $410,166.15
-    exactly reported ``not_applicable; the parent investigation holds no
-    undimensioned 'denied_dollars' total`` — a perfect tie-out available
-    and withheld.
-
-    So a child scoped to a parent finding's cell reconciles against that
-    finding's own published figure, and publishes both numbers, the delta
-    and the percentage **even when they agree**: "we checked and it agreed"
-    is the verdict this whole grammar exists to be able to say.
-
-    Returns ``(summary, passed)``, or ``None`` when this turn drilled no
-    parent finding that published a money figure — in which case the
-    caller's existing verdicts stand.
-
-    **The two sides must be the same KIND of quantity** (round-5 A-03).
-    ``impact_cents`` on a comparison finding is a MOVEMENT and the child
-    frame's total is a LEVEL, so every drill of a top mover — the single
-    most common action in a close — reported ``RECONCILIATION_FAILED``
-    against numbers that agreed perfectly: parent F5 "$82,623.40 vs prior
-    period" against a child of $102,409.87, whose residual $19,786.47 was
-    exactly the prior side the parent had differenced away. So the quantity
-    is chosen before it is compared: movement against movement when both
-    sides compare, level against level otherwise, and ``not_applicable``
-    naming the mismatch when they cannot be matched at all — never
-    ``failed``, which is a claim that two figures for one cell disagree.
+    Lifted out of :func:`containment_reconciliation` unchanged when the rate
+    path was added (FN-10): which finding a child descends from is a
+    question about the THREAD, and it has the same answer whether the
+    quantity being tied out is dollars or a ratio.
     """
-    child_level, child_delta, measure = _frame_money_totals(calculation.frames)
-    if child_level is None:
-        return None
     targets = {op.target.value for op in operators if isinstance(op, DrillInto)}
     finding = next((f for f in parent.findings if f.referent.value in targets), None)
     if finding is None and targets:
@@ -771,23 +745,291 @@ def containment_reconciliation(
             ),
             None,
         )
-    breakdown = False
-    if finding is None:
-        # Round-6 E-02: a BREAKDOWN of a whole is the same containment
-        # question a drill asks, and it was never asked. "Break that out by
-        # payer" off a $1,193,126.92 July total published twelve cells that
-        # sum to $1,193,126.92 and said ``not_applicable; this turn produced
-        # no compared money frame`` — the arithmetic every reader of a
-        # breakdown does by hand, available and withheld.
-        if targets or not _splits_parent(spec, parent):
+    if finding is not None:
+        return finding, False
+    # Round-6 E-02: a BREAKDOWN of a whole is the same containment question
+    # a drill asks, and it was never asked. "Break that out by payer" off a
+    # $1,193,126.92 July total published twelve cells that sum to
+    # $1,193,126.92 and said ``not_applicable; this turn produced no
+    # compared money frame`` — the arithmetic every reader of a breakdown
+    # does by hand, available and withheld.
+    if targets or not _splits_parent(spec, parent):
+        return None
+    whole = _parent_whole(parent, measure, has_figure)
+    return None if whole is None else (whole, True)
+
+
+def _splits_parent(spec: AnalysisSpec | None, parent: Investigation) -> bool:
+    """Did this turn cut the parent's population along a new dimension?
+
+    Read off the SPECS, not off the operator names (round-6 E-02). "Break
+    that out by payer" reached the engine as a ``set_dimensions`` on one
+    session and as something else on another, and the second reported
+    ``this turn neither split nor drilled the parent's population`` about a
+    turn that plainly had. A turn that gained a cut split the population,
+    whichever operator got it there.
+    """
+    if spec is None:
+        return False
+    gained = {d.id for d in spec.dimensions} - {d.id for d in parent.spec.dimensions}
+    return bool(gained)
+
+
+#: Component-column suffixes a ratio contract carries beside its value.
+_NUMERATOR_COLUMN_SUFFIX = "__num"
+_DENOMINATOR_COLUMN_SUFFIX = "__den"
+
+
+@dataclass(frozen=True, slots=True)
+class _RateTotals:
+    """A rate child's cells, ready to be recombined into their parent.
+
+    A rate does not sum. ``29.5% + 22.9% + 18.8%`` is not a number, which is
+    why the money reconciliation could not simply be pointed at a ratio and
+    why rate breakdowns had no seam at all (FN-10). What DOES recompose is
+    the pair of components every ratio cell carries: the parent rate is
+    ``Σ numerator / Σ denominator`` across the cells, weighted by each
+    cell's own population without anybody having to say so.
+    """
+
+    measure: str
+    numerator: Decimal
+    denominator: Decimal
+    cells: int
+    #: Cells the §15 policy left without a usable numerator — nulled, or
+    #: CLAMPED to a ceiling, which is the same fact wearing a number. Their
+    #: population is known and their numerator is not, so they cannot enter
+    #: the recomposition, and their denominator is carried here rather than
+    #: dropped because it is exactly the slack that makes a gap honest.
+    withheld_cells: int
+    withheld_denominator: Decimal
+    #: The tightest cap the policy itself puts on those numerators' SUM.
+    #: A cell is bounded because its numerator is under the §15 threshold,
+    #: so ``cells * (threshold - 1)`` is knowledge, not a guess — and it is
+    #: the difference between an interval a reader can act on and one so
+    #: wide a real disagreement could hide inside it.
+    withheld_ceiling: Decimal
+
+    @property
+    def rate(self) -> Decimal | None:
+        return self.numerator / self.denominator if self.denominator > 0 else None
+
+    @property
+    def bounds(self) -> tuple[Decimal, Decimal] | None:
+        """What the parent rate COULD be, given the cells that were withheld.
+
+        Every withheld numerator lies in ``[0, min(its denominator, the §15
+        threshold - 1)]``, so the whole population's true rate lies between
+        the two extremes of putting all of that slack, or none of it, in the
+        numerator. With nothing withheld the interval collapses to the
+        recomposed point and the ordinary tolerance decides.
+        """
+        total_den = self.denominator + self.withheld_denominator
+        if total_den <= 0:
             return None
-        finding = _parent_whole(parent, measure)
-        if finding is None:
-            return None
-        breakdown = True
+        return (
+            self.numerator / total_den,
+            (self.numerator + self.withheld_ceiling) / total_den,
+        )
+
+
+def _frame_rate_totals(
+    frames: tuple[tuple[str, EvidenceFrame], ...],
+    threshold: int | None,
+) -> _RateTotals | None:
+    """Recompose the last ratio-bearing frame's cells into one rate.
+
+    "Last" for the same reason the money reader uses it: frames are listed
+    in creation order, so the final one is the frame the findings stage
+    read. Nothing is inferred where the components do not exist — a ratio
+    published without its numerator and denominator columns cannot be
+    recomposed, and saying so is the honest outcome.
+
+    **A ceiling is not a numerator** (the round-5 A-02a rule, one layer up).
+    The §15 policy publishes a small numerator as ``threshold - 1`` rather
+    than dropping the cell, so a bounded cell arrives carrying the integer
+    ``10`` and reads exactly like a measurement. Summing those tens gave
+    12 live payer cells recomposing to 13.5% against a parent of 12.8% and
+    a ``RECONCILIATION_FAILED`` about a gap that was entirely the policy's.
+    So bounded cells are recognised by :func:`bound_index` — the same
+    governed definition the findings and charts use — and contribute their
+    population, never their ceiling.
+    """
+    for _, frame in reversed(frames):
+        bounded = bound_index(frame, threshold) if threshold is not None else {}
+        for column in frame.schema.columns:
+            if column.unit != _RATIO_UNIT_NAME or "__" in column.name:
+                continue
+            num_col = f"{column.name}{_NUMERATOR_COLUMN_SUFFIX}"
+            den_col = f"{column.name}{_DENOMINATOR_COLUMN_SUFFIX}"
+            names = frame.schema.names
+            if num_col not in names or den_col not in names:
+                continue
+            idx_num, idx_den = frame.schema.index_of(num_col), frame.schema.index_of(den_col)
+            numerator = denominator = withheld_den = Decimal(0)
+            cells = withheld = 0
+            for index, row in enumerate(frame.rows):
+                den = _as_decimal(row[idx_den])
+                if den is None or den <= 0:
+                    continue
+                num = _as_decimal(row[idx_num])
+                if num is None or column.name in bounded.get(index, {}):
+                    withheld += 1
+                    withheld_den += den
+                    continue
+                numerator += num
+                denominator += den
+                cells += 1
+            if cells == 0 and withheld == 0:
+                continue
+            cap = withheld_den
+            if threshold is not None:
+                cap = min(cap, Decimal(withheld * (threshold - 1)))
+            measure = column.ref.id if isinstance(column.ref, MetricRef) else column.name
+            return _RateTotals(
+                measure=measure,
+                numerator=numerator,
+                denominator=denominator,
+                cells=cells,
+                withheld_cells=withheld,
+                withheld_denominator=withheld_den,
+                withheld_ceiling=cap,
+            )
+    return None
+
+
+def _as_decimal(value: Scalar) -> Decimal | None:
+    if value is None or isinstance(value, bool) or not isinstance(value, (int, Decimal)):
+        return None
+    return Decimal(value)
+
+
+def _finding_rate(finding: Finding, measure: str) -> Decimal | None:
+    """The ratio a parent finding published for ``measure``, if any."""
+    for name, value in finding.values:
+        if name != measure:
+            continue
+        return _as_decimal(value)
+    return None
+
+
+@dataclass(frozen=True, slots=True)
+class Containment:
+    """A child's tie-out against the whole it descends from.
+
+    ``anchor`` is the half of FN-10 the summary cannot carry: the parent's
+    own level, restated ON THE CHILD as a mandatory disclosure. The exec's
+    live t2 stated 29.5%, 22.9% and 18.8% by payer and never once said the
+    12.8% it descends from, so "a reader who lands on the breakdown — which
+    is exactly what a Rounds tile links to — comes away believing denial
+    rates run 19-29%". ``None`` when there is no parent LEVEL to anchor to
+    (a movement tied out against a movement anchors nothing).
+    """
+
+    summary: str
+    passed: bool
+    anchor: str | None = None
+
+
+def containment_reconciliation(
+    parent: Investigation,
+    calculation: CalculationResult,
+    operators: tuple[Refinement, ...],
+    spec: AnalysisSpec | None = None,
+    #: The session's published findings, as a THUNK: only a drill whose
+    #: handle is not on the immediate parent reads it, and on a breakdown —
+    #: the shape this function was extended for — the store round trip it
+    #: costs would buy nothing.
+    session_findings: Callable[[], Sequence[Finding]] = tuple,
+    #: The §15 threshold this turn ran under. A ceiling is only recognisable
+    #: against the threshold that produced it, and a ceiling summed as a
+    #: numerator is the FN-10 fix reintroducing the round-5 A-02a defect.
+    suppression_threshold: int | None = None,
+) -> Containment | None:
+    """Reconcile a drill against the PARENT FINDING it was launched from.
+
+    Round-2 FN-4. Clicking "drill into DNFB accumulation: Northgate
+    general-surgery discharges" published ``dnfb_dollars = $195,873.92``;
+    clicking the platform's own "drill into F1" chip on that same answer
+    published ``$178,216.82`` — same metric id, same contract version, same
+    pack, same window, same scope, both graded direct, neither warning —
+    and the child's reconciliation read ``not_applicable; this turn
+    produced no compared money frame to reconcile against the parent``.
+    The predicate was true and beside the point: it asked whether there was
+    a *compare* frame and an *undimensioned parent total*, when what the
+    reader had in front of them was one finding's figure and one drill's.
+
+    The mirror-image symptom, same predicate: a drill decomposing a
+    parent's $410,166.15 into nine categories that sum to $410,166.15
+    exactly reported ``not_applicable; the parent investigation holds no
+    undimensioned 'denied_dollars' total`` — a perfect tie-out available
+    and withheld.
+
+    So a child scoped to a parent finding's cell reconciles against that
+    finding's own published figure, and publishes both numbers, the delta
+    and the percentage **even when they agree**: "we checked and it agreed"
+    is the verdict this whole grammar exists to be able to say.
+
+    Returns a :class:`Containment`, or ``None`` when this turn drilled no
+    parent finding that published a figure of the child's own kind — in
+    which case the caller's existing verdicts stand.
+
+    **Rates recompose; they do not sum** (round-7 FN-10, exec gate G6). The
+    money seam above is verified closed and holds. The rate seam did not
+    exist: "For July 2026 on a service basis, the denial rate came in at
+    12.8% (F1)" followed by "Break that down by payer" reported *"this turn
+    produced no compared money frame to reconcile against the parent, so
+    reconciliation is not applicable"*, published 29.5% / 22.9% / 18.8% plus
+    four ceilings, and never restated the 12.8% it descends from. "The seam
+    is closed on money and open on rates, which is the drill an RCM director
+    performs every single day."
+
+    A rate breakdown therefore ties out through its COMPONENTS: each cell
+    carries its own numerator and denominator, and ``Σ num / Σ den`` is the
+    parent rate weighted by each cell's population. Where the §15 policy
+    withheld a numerator the cell cannot enter that sum, so the verdict
+    states the interval its population could move the parent inside, and
+    calls a gap inside that interval what it is — the suppression, not a
+    disagreement.
+
+    **The two sides must be the same KIND of quantity** (round-5 A-03).
+    ``impact_cents`` on a comparison finding is a MOVEMENT and the child
+    frame's total is a LEVEL, so every drill of a top mover — the single
+    most common action in a close — reported ``RECONCILIATION_FAILED``
+    against numbers that agreed perfectly: parent F5 "$82,623.40 vs prior
+    period" against a child of $102,409.87, whose residual $19,786.47 was
+    exactly the prior side the parent had differenced away. So the quantity
+    is chosen before it is compared: movement against movement when both
+    sides compare, level against level otherwise, and ``not_applicable``
+    naming the mismatch when they cannot be matched at all — never
+    ``failed``, which is a claim that two figures for one cell disagree.
+    """
+    child_level, child_delta, measure = _frame_money_totals(calculation.frames)
+    if child_level is None:
+        return _rate_containment(
+            parent, calculation, operators, spec, session_findings, suppression_threshold
+        )
+    located = _parent_finding(
+        parent,
+        operators,
+        measure,
+        spec,
+        session_findings,
+        lambda f: any(value is not None for value in _finding_money(f)),
+    )
+    if located is None:
+        return _rate_containment(
+            parent, calculation, operators, spec, session_findings, suppression_threshold
+        )
+    finding, breakdown = located
     parent_level, parent_delta = _finding_money(finding)
     if parent_level is None and parent_delta is None:
-        return None
+        # The handle on screen published no dollar figure. A turn carrying
+        # both a money column and a rate one still has a rate to tie out,
+        # so the rate path gets its turn rather than the seam closing here.
+        return _rate_containment(
+            parent, calculation, operators, spec, session_findings, suppression_threshold
+        )
     same_measure = measure is not None and measure in {ref.id for ref in finding.metric_refs}
     if not same_measure:
         scope = f"{measure or 'this turn'} against {finding.referent.value}"
@@ -806,15 +1048,15 @@ def containment_reconciliation(
     else:
         # The parent published a movement and this turn published only a
         # level. Nothing disagrees; there is simply nothing to tie out.
-        return (
-            _not_applicable(
+        return Containment(
+            summary=_not_applicable(
                 f"the parent finding {finding.referent.value} published a movement "
                 f"({money(parent_delta or 0)} vs its prior period) and this turn published a "
                 f"level ({money(child_level)}) — two different kinds of quantity, so neither "
                 "contains the other. Compare this turn against the same prior period to tie "
                 "the two out."
             ),
-            True,
+            passed=True,
         )
     delta = child_cents - parent_cents
     fraction = Decimal(delta) / Decimal(abs(parent_cents) or 1)
@@ -825,7 +1067,200 @@ def containment_reconciliation(
         f"parent {finding.referent.value}={money(parent_cents)}; child={money(child_cents)}; "
         f"delta={money(delta)} ({float(fraction):+.1%}); basis={scope}"
     )
-    return summary, passed
+    return Containment(
+        summary=summary,
+        passed=passed,
+        anchor=(
+            _parent_anchor(
+                finding,
+                measure,
+                money(parent_level),
+                breakdown=breakdown,
+                recombines="by addition",
+            )
+            if same_measure and parent_level is not None
+            else None
+        ),
+    )
+
+
+def _parent_anchor(
+    finding: Finding,
+    measure: str | None,
+    figure: str,
+    *,
+    breakdown: bool,
+    recombines: str,
+) -> str:
+    """The parent's own level, restated on the child (FN-10).
+
+    The reconciliation summary states it too, and that is not enough: a
+    reader who lands on a breakdown from a Rounds tile reads the cells, and
+    the seam verdict is a line they have to go looking for. This sentence is
+    a MANDATORY disclosure — composed here from a figure the parent already
+    certified, published verbatim ahead of whatever the composer writes, and
+    exempt from the grounding pass for the same reason every other mandatory
+    disclosure is (it carries no number that is not already certified).
+    """
+    opening = (
+        "decomposes a population this session already measured"
+        if breakdown
+        else "drills into a cell of a population this session already measured"
+    )
+    label = metric_label(measure) if measure else "that measure"
+    return (
+        f"parent_level: this answer {opening} — {label} over the parent population is "
+        f"{figure} ({finding.referent.value}). The cells below are parts of that {figure}: they "
+        f"recombine to it {recombines}, and none of them is a second measurement of the whole."
+    )
+
+
+def _rate_containment(
+    parent: Investigation,
+    calculation: CalculationResult,
+    operators: tuple[Refinement, ...],
+    spec: AnalysisSpec | None,
+    session_findings: Callable[[], Sequence[Finding]],
+    suppression_threshold: int | None,
+) -> Containment | None:
+    """Recompose a RATE child into the rate it was cut out of (FN-10).
+
+    The money path answers "do the parts sum to the whole". A rate has no
+    such question — ``29.5% + 22.9% + 18.8%`` is not a number — so the
+    question asked here is the one an analyst actually asks: *given these
+    cells, what is the population rate, and is it the one the parent
+    published?* Answered from each cell's own numerator and denominator,
+    which is a weighted recomposition without anybody having to weight
+    anything.
+
+    Suppression is stated rather than absorbed. A cell whose numerator the
+    §15 policy withheld keeps its population and loses its contribution, so
+    the recomposed figure is one point in an interval — and a parent inside
+    that interval AGREES with these cells, while one outside it does not.
+    Calling the first case ``failed`` would publish a disagreement between
+    two figures that are both correct.
+    """
+    totals = _frame_rate_totals(calculation.frames, suppression_threshold)
+    if totals is None:
+        return None
+    located = _parent_finding(
+        parent,
+        operators,
+        totals.measure,
+        spec,
+        session_findings,
+        lambda f: _finding_rate(f, totals.measure) is not None,
+    )
+    if located is None:
+        return None
+    finding, breakdown = located
+    parent_rate = _finding_rate(finding, totals.measure)
+    recomposed = totals.rate
+    if parent_rate is None:
+        return None
+    if recomposed is None:
+        # Every cell's numerator was withheld: the components exist and
+        # none of them may be read, so there is no recomposition to state.
+        return Containment(
+            summary=_not_applicable(
+                f"every one of the {totals.withheld_cells} cell(s) this turn published for "
+                f"{totals.measure} had its numerator withheld by the small-cell policy, so the "
+                f"parent rate cannot be recomposed from them. The parent figure "
+                f"{finding.referent.value}={ratio_pct(parent_rate)} stands as published."
+            ),
+            passed=True,
+            anchor=_parent_anchor(
+                finding,
+                totals.measure,
+                ratio_pct(parent_rate),
+                breakdown=breakdown,
+                recombines="through their own denominators, not by addition",
+            ),
+        )
+    interval = totals.bounds
+    delta = recomposed - parent_rate
+    fraction = delta / (abs(parent_rate) or Decimal(1))
+    within_tolerance = abs(fraction) <= _CONTAINMENT_TOLERANCE
+    explained = (
+        interval is not None
+        and totals.withheld_cells > 0
+        and interval[0] <= parent_rate <= interval[1]
+    )
+    passed = within_tolerance or explained
+    cells_text = (
+        f"the {totals.cells} measurable cell(s) this "
+        f"{'breakdown' if breakdown else 'drill'} published, recombined through their own "
+        f"denominators, against the whole {finding.referent.value} measured"
+    )
+    withheld_text = ""
+    if totals.withheld_cells:
+        assert interval is not None
+        withheld_text = (
+            f"; withheld={totals.withheld_cells} cell(s) over "
+            f"{totals.withheld_denominator:,f} population whose numerator the small-cell policy "
+            f"suppressed, so the population rate lies in "
+            f"{ratio_pct(interval[0])}..{ratio_pct(interval[1])}"
+        )
+        if explained and not within_tolerance:
+            # Said, not left to be inferred: a reader looking at a passing
+            # verdict beside a 1.1-point delta is owed the reason it is not
+            # a disagreement, in the same line.
+            withheld_text += (
+                " — the parent sits inside that interval, so the gap is the suppression "
+                "and not a disagreement"
+            )
+    # ``passed_with_suppression`` is the grammar's own third state
+    # (:class:`revi_calculation.operators.reconcile.ReconciliationStatus`),
+    # and it is exactly this case: the two figures do not meet at a point
+    # and they do not disagree, because the §15 policy is standing between
+    # them. Calling it plain ``passed`` would overstate the tie-out;
+    # ``failed`` would invent a conflict.
+    status = "failed"
+    if within_tolerance:
+        status = "passed"
+    elif explained:
+        status = "passed_with_suppression"
+    summary = (
+        f"status={status}; "
+        f"scope={'breakdown' if breakdown else 'containment'} (rate recomposition); "
+        f"parent {finding.referent.value}={ratio_pct(parent_rate)}; "
+        f"child recomposed={ratio_pct(recomposed)} "
+        f"({totals.numerator:,f}/{totals.denominator:,f}); "
+        # Signed: ``points`` is unsigned by design (a rate's movement is
+        # said with a direction word beside it), and a reconciliation delta
+        # has no such word — an unsigned "1.5 points" beside "-11.6%" reads
+        # as two different answers to one question.
+        f"delta={'-' if delta < 0 else '+'}{points(delta)} ({float(fraction):+.1%})"
+        f"{withheld_text}; basis={cells_text}"
+    )
+    return Containment(
+        summary=summary,
+        passed=passed,
+        anchor=_parent_anchor(
+            finding,
+            totals.measure,
+            ratio_pct(parent_rate),
+            breakdown=breakdown,
+            recombines="through their own denominators, not by addition",
+        ),
+    )
+
+
+def _qualify_every_finding(findings: FindingsResult) -> FindingsResult:
+    """Drop every finding on the turn out of ``high`` confidence.
+
+    What an integrity guard does once it has spoken, in one place: a turn
+    whose comparison is not a comparison has no high-confidence finding on
+    it, whichever guard established that. Lowered, never raised — a finding
+    already ``qualified`` for another reason keeps the stronger caveat.
+    """
+    return replace(
+        findings,
+        findings=tuple(
+            finding if finding.confidence != "high" else replace(finding, confidence="qualified")
+            for finding in findings.findings
+        ),
+    )
 
 
 #: How a refuted value is recorded on the turn that refuted it. Parsed back
@@ -3325,6 +3760,13 @@ class SubmitTurnService:
         findings_result = self._guard_comparison_maturity(
             findings_result, calculation, extra_warnings
         )
+        # …and to the leg neither of those can measure: a metric whose own
+        # contract declares two windows non-comparable (FN-4). The panel
+        # rule keys on adjudicated-record counts and is structurally blind
+        # to a metric whose denominator is dollars.
+        findings_result = self._guard_declared_comparability(
+            findings_result, calculation, extra_warnings
+        )
         # …and the same guard applied to the shape neither the series rule
         # nor the comparison rule can see: ONE window, one number (E-01).
         findings_result = await self._guard_window_maturity(
@@ -3378,6 +3820,7 @@ class SubmitTurnService:
             # playbook turn carries no spec.measures and its snapshot
             # contracts were rendering under a start..end window (R3-15).
             measure_ids=plan_measure_ids(validated.plan),
+            findings=findings_result.findings,
         )
         frame_refs = await self._persist_frames(state, calculation)
         # A refinement's parent is the answer it edits; a clarification
@@ -3721,11 +4164,44 @@ class SubmitTurnService:
         if not verdicts:
             return findings
         warnings.extend(v.warning for v in verdicts)
-        qualified = tuple(
-            finding if finding.confidence != "high" else replace(finding, confidence="qualified")
-            for finding in findings.findings
-        )
-        return replace(findings, findings=qualified)
+        return _qualify_every_finding(findings)
+
+    def _guard_declared_comparability(
+        self,
+        findings: FindingsResult,
+        calculation: CalculationResult,
+        warnings: list[str],
+    ) -> FindingsResult:
+        """Apply the adjudication guard to what the CONTRACT declares (FN-4).
+
+        The two guards above are signals measured off the frame: a panel
+        share, a settling curve. Both are structurally blind to a metric
+        whose immaturity is not expressed as a record count — and
+        ``net_collection_rate``'s denominator is contract-expected DOLLARS,
+        so nothing fired while the pack's own caveat, published as a caution
+        on the same payload, said in so many words that "two windows of
+        unequal maturity are not comparable as levels".
+
+        What shipped: "Premise confirmed: net collection rate 72.5% →
+        18.5%, fell 53.9 points", ``grade: direct``, ``confidence: high``,
+        stated three times on one answer — the finding title, the narrative
+        lead and the ``PREMISE_VERIFIED`` warning — over a 53.9-point
+        collapse that did not happen.
+
+        So the declaration is read as an integrity input, exactly like the
+        measured ones, and it has the same two effects: the reason is
+        stated, and nothing on the turn survives at ``high``. Confidence is
+        lowered, never raised.
+
+        Scoped to metrics this turn actually DIFFERENCED. A caveat about
+        comparing two windows says nothing about reading one, and demoting
+        an uncompared level for it would be a caution that is not true.
+        """
+        verdicts = declared_non_comparabilities(self._pack, calculation.frames)
+        if not verdicts:
+            return findings
+        warnings.extend(v.warning for v in verdicts)
+        return _qualify_every_finding(findings)
 
     async def _guard_window_maturity(
         self,
@@ -3847,13 +4323,24 @@ class SubmitTurnService:
                 if entry.finding is not None
             )
         containment = containment_reconciliation(
-            parent, calculation, operators, spec, session_findings=lambda: elsewhere
+            parent,
+            calculation,
+            operators,
+            spec,
+            session_findings=lambda: elsewhere,
+            suppression_threshold=self._executor.suppression_threshold,
         )
         if containment is not None:
-            summary, passed = containment
-            if not passed:
-                await self._fail_reconciliation(summary, warnings, state)
-            return summary
+            if not containment.passed:
+                await self._fail_reconciliation(containment.summary, warnings, state)
+            # The parent's own level, restated on the child as a mandatory
+            # disclosure (FN-10). The seam verdict states it too and that is
+            # a line a reader has to go looking for; this one is published
+            # ahead of the prose, so a breakdown can never again publish
+            # 29.5% / 22.9% / 18.8% without saying what they are parts of.
+            if containment.anchor is not None:
+                warnings.append(containment.anchor)
+            return containment.summary
         shape = find_primary_compare(plan, calculation)
         if shape is None:
             return _not_applicable(

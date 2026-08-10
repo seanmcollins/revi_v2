@@ -426,7 +426,15 @@ WATCH_MODES: tuple[str, ...] = ("governed_default", "any_movement", "delta_gte",
 
 #: The units a threshold may be STATED in. A rate threshold in dollars and
 #: a money threshold in points are both nonsense; see :class:`RoundsWatch`.
-WATCH_THRESHOLD_UNITS: tuple[str, ...] = ("points", "relative_pct", "cents")
+#:
+#: ``days`` is here because a lag metric is the one contract whose unit is
+#: also the natural way a human states a threshold for it — "tell me if
+#: posting lag stretches by more than 2 days". It is legal ONLY over a
+#: ``days`` contract, refused by name everywhere else, for the same reason
+#: ``cents`` is refused over a rate: "2 days" on a denial rate has no
+#: meaning, and coercing it into the metric's own unit would produce a
+#: watch that fires for a reason nobody can see.
+WATCH_THRESHOLD_UNITS: tuple[str, ...] = ("points", "relative_pct", "cents", "days")
 
 
 @dataclass(frozen=True, slots=True)
@@ -450,7 +458,8 @@ class RoundsWatch:
 
     ``unit`` is how the threshold is *stated*, not the metric's own unit:
     ``points`` for a rate (0.5 = half a percentage point), ``cents`` for
-    money, ``relative_pct`` for a fraction of the reference value (legal for
+    money, ``days`` for a lag metric, ``relative_pct`` for a fraction of the
+    reference value (legal for
     any metric). Validated against the pinned spec's own contracts when the
     watch is created — a dishonest pairing is refused with the reason, never
     coerced into the nearest legal one, because a threshold in the wrong

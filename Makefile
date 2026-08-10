@@ -5,7 +5,7 @@ SHELL := /bin/bash
 
 WAREHOUSE_PATH ?= data/revi_warehouse.duckdb
 
-.PHONY: help bootstrap warehouse db-up db-down migrate sweep api web dev \
+.PHONY: help bootstrap warehouse warehouse-diff db-up db-down migrate sweep api web dev \
         test reference lint fmt typecheck openapi token clean
 
 help: ## List targets
@@ -17,6 +17,14 @@ bootstrap: ## Install Python workspace + frontend deps
 
 warehouse: ## Generate the mock DuckDB warehouse + answer key (deterministic)
 	uv run python -m revi_warehouse.generate --out $(WAREHOUSE_PATH)
+
+warehouse-diff: ## FN-17: recompute every published finding value by an independent SQL path
+	@# Reads ONLY metric contract YAML, the catalog, and each answer's own
+	@# published context; emits plain SQL against the warehouse and diffs it
+	@# against what the product published. Exits non-zero on any divergence.
+	@# Needs `make warehouse` and the stored corpus (docker compose Postgres).
+	@# Pass flags through ARGS, e.g. ARGS="--limit 50 --json /tmp/diff.json".
+	uv run python -m revi_warehouse_diff $(ARGS)
 
 db-up: ## Start Postgres (docker compose)
 	docker compose up -d postgres

@@ -153,6 +153,24 @@ class RoundsPinPayload(ClosedModel):
     created_from_kind: Literal["artifact", "intent", "spec"] = "spec"
     created_from_investigation_id: str | None = None
     created_from_referent: str | None = None
+    #: The stored spec in the reader's own nouns — "Denial rate, broken
+    #: down by payer, filtered to Pinnacle Health Plan — last full month
+    #: (service basis)". The panel headed "What this watch measures" is the
+    #: one control that lets somebody catch a watch that is measuring the
+    #: wrong cell, and it had every part of this on the wire and rendered
+    #: none of it (round-7 FN-18).
+    spec_summary: str = ""
+    #: What could not be carried onto this watch, and anything the platform
+    #: did to the spec at creation — the cell it narrowed to, a duplicate it
+    #: returned instead of creating. Published as a list rather than folded
+    #: into :attr:`window_note`, because a reader needs to tell "this is how
+    #: the window works" from "here is what happened to your request".
+    notes: list[str] = Field(default_factory=list)
+    #: True when this create returned a watch that already existed on the
+    #: same tenant with the same spec, rather than making a second one. A
+    #: duplicate re-evaluates every load and can brief one movement N times,
+    #: which is the alert fatigue the pack spends 300 lines preventing.
+    already_existed: bool = False
     watch: RoundsWatchModel | None = None
     #: What this watch read at the load it was created on — the reference
     #: point a baseline delta is measured from. ``None`` until the first
@@ -255,12 +273,27 @@ class RoundsDeltaPayload(ClosedModel):
     #: creation-load baseline. Both are published when they differ
     #: materially — see :class:`RoundsWatchModel` for why.
     reference: Literal["prior_load", "baseline"] = "prior_load"
+    #: WHICH CELL each side measured, in the reader's words. A watch over a
+    #: ranked breakdown headlines whatever ranks first at that load, so two
+    #: loads can be two measurements of two different payers — and a
+    #: percentage between them looks exactly like a movement. When these
+    #: disagree the delta is not comparable and no delta is published
+    #: (round-7 FN-2: a brief reported a payer's denial rate "up 3.6 points"
+    #: when that payer had FALLEN 6.6, and explained the phantom rise as
+    #: adjudication run-out).
+    subject_label: str = ""
+    prior_subject_label: str = ""
     #: True when BOTH loads resolved to the same dates. The number is right
     #: either way; what changes is what it means. A same-window change is
     #: late-arriving data settling — adjudication run-out, back-dated
     #: charges — and reporting it as a movement in the business would be the
     #: claims run-out plotted as deterioration, which is a defect this
     #: platform has already fixed once on the trend path.
+    #:
+    #: Always false when :attr:`comparable` is false: this qualifies a
+    #: movement, and a payload with no movement has nothing for it to
+    #: qualify. It was true beside a withheld delta once, and a run-out
+    #: sentence rode out on a rank flip that never moved anything.
     same_window: bool = False
     #: Did this movement clear the materiality gate?
     material: bool = False
@@ -319,6 +352,20 @@ class RoundsTilePayload(ClosedModel):
     headline_referent: str | None = None
     headline_title: str = ""
     headline_statement: str = ""
+    #: WHICH CELL this tile's number is about, resolved to dimension
+    #: members (``{"payer": "Pinnacle Health Plan"}``) rather than read off
+    #: a display title. Empty for a watch with no dimension at all.
+    #:
+    #: Load-bearing twice over. A tile whose LABEL names one payer and
+    #: whose VALUE is another payer's is the defect that gated round 7, and
+    #: this is the field that makes it checkable rather than eyeballed; and
+    #: a load-over-load delta between two different subjects is not a
+    #: movement at all, which is what :attr:`RoundsDeltaPayload.subject_label`
+    #: guards on.
+    headline_subject: dict[str, str] = Field(default_factory=dict)
+    #: The same cell as one human phrase ("Pinnacle Health Plan"), rendered
+    #: with the pack's own code titles where a dimension carries codes.
+    headline_subject_label: str = ""
     #: The headline number, rendered in its contract unit (with the ``≤``
     #: a bounded cell earns), and raw for a client that formats its own.
     value_text: str = ""
@@ -449,7 +496,12 @@ class RoundsBriefEntry(ClosedModel):
       information, and because the alternative is an analyst chasing a
       card that is gone;
     * ``resolution_confirmed`` / ``resolution_regressed`` — the platform's
-      verdict on a claimed resolution.
+      verdict on a claimed resolution;
+    * ``rank_flip`` — the cell a ranked watch headlines is not the cell it
+      headlined last load. This is NOT a movement and never carries a
+      delta: it is the fact that "your worst payer" is now a different
+      payer, which is the headline the movement it replaced was pretending
+      to be (round-7 FN-2).
     """
 
     kind: Literal[
@@ -458,6 +510,7 @@ class RoundsBriefEntry(ClosedModel):
         "self_resolved",
         "resolution_confirmed",
         "resolution_regressed",
+        "rank_flip",
     ]
     title: str
     #: The line itself, composed from the payload — never by a model.
@@ -501,6 +554,14 @@ class RoundsMaterialityPayload(ClosedModel):
     new_lead_min_impact_cents: int = 0
     always_material_lanes: list[str] = Field(default_factory=list)
     max_entries: int = 0
+    #: The order the cap drops entries in, worst-to-lose first. The cap used
+    #: to bite in INSERTION order, which put verified regressions and
+    #: confirmations — the verdicts about the team's own work — at the front
+    #: of the queue to be deleted (round-7 FN-11).
+    priority_order: list[str] = Field(default_factory=list)
+    #: Kinds the overall cap may never drop. A regression an analyst does
+    #: not see is an analyst who believes something is fixed.
+    never_capped: list[str] = Field(default_factory=list)
     #: Content hash of the governed file, so a brief can be tied to the
     #: exact thresholds that produced it.
     content_hash: str = ""
@@ -519,6 +580,21 @@ class RoundsImmaterialSummary(ClosedModel):
     new_leads: int = 0
     self_resolved: int = 0
     entries_withheld_by_cap: int = 0
+    #: Watches that were evaluated and have nothing to compare against at
+    #: the load this brief diffs from — a first reading, or a watch created
+    #: after that load. Counted rather than dropped so the census CLOSES:
+    #: ``pins_evaluated == briefed + pin_movements + not_yet_comparable +
+    #: unavailable``. A total that does not reconcile to its parts is the
+    #: one thing a surface whose whole claim is "withheld visibly, never
+    #: silently" cannot publish (round-7 FN-12).
+    not_yet_comparable: int = 0
+    #: Watches whose stored spec could not be answered at this load. They
+    #: are neither material nor immaterial; they are unmeasured, and the
+    #: tile says why.
+    unavailable: int = 0
+    #: What the cap dropped, BY KIND. "12 further entries" does not tell a
+    #: reader whether a confirmed fix was among them.
+    entries_withheld_by_kind: dict[str, int] = Field(default_factory=dict)
     note: str = ""
 
 
@@ -571,6 +647,12 @@ class RoundsBriefResponse(ClosedModel):
     watermark_id: str = ""
     newest_data_date: date | None = None
     prior_watermark_id: str | None = None
+    #: The data date of the load this brief diffs AGAINST. Published because
+    #: the brief speaks in dates and not in warehouse ids: "since the Aug 1
+    #: load" is a sentence a VP reads, and ``wm_002`` is one they forward to
+    #: somebody else to explain (round-7 FN-8). The ids stay on
+    #: :attr:`prior_watermark_id` and in provenance, where they belong.
+    prior_newest_data_date: date | None = None
     #: One sentence, composed from the counts below. The thing a person
     #: reads before anything else.
     headline: str = ""

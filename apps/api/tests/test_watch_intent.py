@@ -23,7 +23,8 @@ from decimal import Decimal
 
 import pytest
 
-from revi_api.watch_intent import parse_watch_declaration
+from revi_api.watch_intent import legal_threshold_phrases, parse_watch_declaration
+from revi_investigation.application.ports import WATCH_THRESHOLD_UNITS
 
 
 class TestRecognition:
@@ -177,3 +178,140 @@ class TestStatedSensitivity:
         assert declaration is not None and declaration.watch is not None
         assert "2 points" in declaration.watch.note
         assert declaration.threshold_phrase
+
+
+class TestAStatedSensitivityIsNeverSilentlyReplaced:
+    """Round-7 FN-6.
+
+    Three real utterances from three reviewers each registered the GOVERNED
+    default with ``value=null``, and the confirmation sentence never
+    mentioned the instruction the analyst had typed: "half a point" gated at
+    the pack's 0.5 by coincidence, and "three points" would have gated at
+    0.5 too — silently, forever. The module's own docstring names the
+    failure: "a watch registered against a spec nobody confirmed briefs the
+    wrong number every morning, silently, forever."
+
+    The fix has two halves, and both are here: read the shapes people
+    actually type, and REFUSE the ones that cannot be read rather than
+    quietly substituting a number nobody stated.
+    """
+
+    @pytest.mark.parametrize(
+        ("utterance", "value", "unit"),
+        [
+            # rcm-exec's own words, verbatim from the live session.
+            ("watch denial rate, tell me if it moves more than half a point", "0.5", "points"),
+            ("watch denial rate, tell me if it moves more than three points", "3", "points"),
+            ("watch denial rate, tell me if it moves more than a point", "1", "points"),
+            ("watch denial rate, tell me if it moves more than two percent", "2", "relative_pct"),
+            # vc-investor's: a metric the pack governs with min_absolute_days.
+            ("watch days in AR, tell me when it moves more than 2 days", "2", "days"),
+        ],
+    )
+    def test_the_shapes_people_actually_type_are_read(
+        self, utterance: str, value: str, unit: str
+    ) -> None:
+        declaration = parse_watch_declaration(utterance)
+        assert declaration is not None and declaration.watch is not None, utterance
+        assert declaration.watch.value == Decimal(value)
+        assert declaration.watch.unit == unit
+        assert not declaration.threshold_unreadable
+
+    def test_a_days_threshold_is_read_and_is_a_legal_stated_unit(self) -> None:
+        """``days`` is in the closed set a threshold may be STATED in, because
+        a lag metric's own unit is also the natural way a human states a
+        threshold for it. The shipped behaviour read the number, dropped it,
+        and briefed on the pack's gate without saying so; the interim
+        behaviour refused it by name. Neither was the answer — over a ``days``
+        contract, "more than 2 days" means exactly one thing."""
+        declaration = parse_watch_declaration(
+            "watch days in AR, tell me when it moves more than 2 days"
+        )
+        assert declaration is not None and declaration.watch is not None
+        assert declaration.watch.unit == "days"
+        assert declaration.watch.unit in WATCH_THRESHOLD_UNITS
+
+    @pytest.mark.parametrize(
+        "utterance",
+        [
+            "watch denial rate, tell me if it moves more than a smidgen",
+            "watch denial rate, tell me if it moves more than 2 baskets",
+            # A LEVEL was stated and only the direction was read: the
+            # direction-only branch would have returned governed_default and
+            # thrown the 10% away.
+            "watch denial rate, tell me if it drops below 10%",
+        ],
+    )
+    def test_a_size_this_grammar_cannot_read_is_reported_not_defaulted(
+        self, utterance: str
+    ) -> None:
+        declaration = parse_watch_declaration(utterance)
+        assert declaration is not None
+        assert declaration.threshold_unreadable, utterance
+        assert declaration.threshold_phrase
+
+    @pytest.mark.parametrize(
+        "utterance",
+        [
+            # No size stated at all: the governed magnitude is the honest
+            # completion of these, not a substitution for something asked.
+            "watch denial rate, tell me if it rises",
+            "watch denial rate, tell me if it moves",
+            "watch denial rate, tell me on any movement",
+            "keep an eye on Silverline denial rate",
+            "watch denial rate, alert me if it rises more than 2 points",
+        ],
+    )
+    def test_saying_nothing_about_size_is_not_an_unreadable_size(
+        self, utterance: str
+    ) -> None:
+        declaration = parse_watch_declaration(utterance)
+        assert declaration is not None
+        assert not declaration.threshold_unreadable, utterance
+
+    def test_no_watch_registers_the_governed_default_over_a_stated_number(self) -> None:
+        """The reviewer's own test, stated as they wrote it: no watch may
+        register ``governed_default`` when the utterance contained a numeric
+        threshold clause."""
+        for utterance in (
+            "watch denial rate, tell me if it moves more than 2 baskets",
+            "watch denial rate, tell me if it drops below 10%",
+        ):
+            declaration = parse_watch_declaration(utterance)
+            assert declaration is not None
+            silently_defaulted = (
+                declaration.watch is not None
+                and declaration.watch.mode == "governed_default"
+                and not declaration.threshold_unreadable
+            )
+            assert not silently_defaulted, utterance
+
+
+class TestLegalAlternatives:
+    """A refusal with no way forward is a wall. Every refusal names
+    phrasings that would be accepted for the metric in hand."""
+
+    def test_a_rate_is_offered_points_and_a_crossing(self) -> None:
+        phrases = legal_threshold_phrases("ratio")
+        assert any("points" in phrase for phrase in phrases)
+        assert any("crosses" in phrase for phrase in phrases)
+
+    def test_money_is_offered_dollars(self) -> None:
+        assert any("$" in phrase for phrase in legal_threshold_phrases("money_cents"))
+
+    def test_days_are_offered_a_days_threshold(self) -> None:
+        """``days`` is a legal stated unit over a days contract, so the
+        refusal names it first — a refusal that omitted the one phrasing
+        that fits the metric would be sending the analyst the long way
+        round."""
+        phrases = legal_threshold_phrases("days")
+        assert any("2 days" in phrase for phrase in phrases)
+
+    def test_a_days_threshold_is_never_offered_for_another_unit(self) -> None:
+        """"2 days" on a rate or a money measure has no meaning, so no
+        refusal over those contracts may name it as a way forward."""
+        for unit in ("ratio", "money_cents", "count", None):
+            assert not any("days" in phrase for phrase in legal_threshold_phrases(unit)), unit
+
+    def test_an_unknown_unit_still_gets_concrete_phrasings(self) -> None:
+        assert legal_threshold_phrases(None)

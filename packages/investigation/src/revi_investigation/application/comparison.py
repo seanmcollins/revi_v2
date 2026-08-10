@@ -53,16 +53,21 @@ hiding it.
 
 from __future__ import annotations
 
+import re
 from dataclasses import dataclass
 from decimal import Decimal
 
+from revi_investigation.application.capability_ports import PackPort
+from revi_investigation.application.validation import population_caveat
 from revi_investigation.domain.context import AnalysisSpec
 from revi_kernel.frame import EvidenceFrame
+from revi_kernel.refs import MetricRef
 from revi_kernel.scope import (
     AbsoluteRange,
     Comparison,
     ComparisonKind,
     TimeWindow,
+    derive_comparison,
     whole_month_span,
 )
 
@@ -184,13 +189,44 @@ def _base_label(comparison: Comparison, window: TimeWindow) -> str | None:
     return "vs prior period"
 
 
-def render_comparison(spec: AnalysisSpec) -> ComparisonRendering | None:
-    """Describe the spec's comparison, or ``None`` when there is none."""
+def comparison_range_for(
+    comparison: Comparison, window: TimeWindow, spec_window: TimeWindow
+) -> AbsoluteRange:
+    """The prior range a probe reading ``window`` was actually paired against.
+
+    The planner derives a flow probe's prior twin from the probe's OWN
+    window (``PlanBuilder._comparison_range``), so a playbook probe that
+    declared ``{4, week, full_periods}`` is compared against the four weeks
+    before *those* four weeks — not against the range the investigation
+    window derives. Describing that pairing with the spec's comparison
+    range is how a "vs prior period (2026-06-01..2026-06-30)" phrase came
+    to sit over a difference taken against 2026-06-08..2026-07-05.
+
+    Stated here, once, in exactly the form the planner uses, so the two
+    cannot drift: a CUSTOM comparison names dates the analyst chose and is
+    never re-derived for anybody.
+    """
+    if window.range == spec_window.range or comparison.kind is ComparisonKind.CUSTOM:
+        return comparison.window.range
+    return derive_comparison(window, comparison.kind).window.range
+
+
+def render_comparison(
+    spec: AnalysisSpec, *, window: TimeWindow | None = None
+) -> ComparisonRendering | None:
+    """Describe the spec's comparison, or ``None`` when there is none.
+
+    ``window`` is the window of the PROBE this rendering will be published
+    beside, when that probe declared one of its own. It defaults to the
+    investigation window, which is what every direct query and every
+    playbook run under an explicit analyst window uses.
+    """
     comparison = spec.context.comparison
     if comparison is None:
         return None
-    window = spec.context.window
-    cmp_range = comparison.window.range
+    spec_window = spec.context.window
+    window = window if window is not None else spec_window
+    cmp_range = comparison_range_for(comparison, window, spec_window)
     range_text = f"{cmp_range.start.isoformat()}..{cmp_range.end.isoformat()}"
     current_days = window.range.day_length
     comparison_days = cmp_range.day_length
@@ -335,6 +371,131 @@ def comparison_maturity(
                     ),
                 )
             )
+    return tuple(out)
+
+
+#: How a metric CONTRACT declares that its own two windows may not be
+#: differenced. The population caveat is governed prose the pack author
+#: wrote and the engine already publishes verbatim on every answer that
+#: reads the metric; this is the one assertion inside it the integrity layer
+#: has to be able to act on rather than merely repeat.
+#:
+#: Matched on the assertion, not on the metric: ``net_collection_rate`` and
+#: ``first_pass_yield`` carry it today and any pack may add it tomorrow, and
+#: a hard-coded metric list would go stale silently — which is exactly the
+#: failure mode FN-4 is about, one layer up.
+_NOT_COMPARABLE_ASSERTION = re.compile(
+    r"(?:are|is)\s+not\s+(?:directly\s+)?comparable|"
+    r"(?:cannot|can\s*not|may\s+not)\s+be\s+compared",
+    re.IGNORECASE,
+)
+
+
+@dataclass(frozen=True, slots=True)
+class DeclaredNonComparability:
+    """A metric whose own contract says these two windows are not a delta.
+
+    Round-7 FN-4, the third leg of the integrity read. ``verify_premise``
+    consulted bounded endpoints and adjudicated PANEL share, and both are
+    *signals measured off the frame*. A pack author can also simply
+    **declare** non-comparability — "two windows of unequal maturity are not
+    comparable as levels", published as a caution on the same payload — and
+    a verdict that reads only the signals is blind to the declaration.
+
+    Live, that blindness published "Premise confirmed: net collection rate
+    72.5% → 18.5%, fell 53.9 points" at ``grade: direct``,
+    ``confidence: high``, three times on one payload, beside the payload's
+    own ``POPULATION_CAVEAT`` saying those two windows cannot be compared.
+    A 53.9-point collapse in net collection rate is a board-level event that
+    did not happen.
+
+    The signal guards did not fire and were not wrong to stay silent:
+    ``net_collection_rate``'s denominator is contract-expected DOLLARS, not
+    a count of adjudicated records, so there is no panel asymmetry to see.
+    The contract is the only thing on the turn that knows.
+    """
+
+    #: The metric id whose contract carries the declaration.
+    measure: str
+    #: The pack author's own sentence, lifted verbatim — a paraphrase
+    #: generated here would be a second, ungoverned statement of the
+    #: population (see :func:`~...validation.population_caveat`).
+    caveat: str
+
+    @property
+    def warning(self) -> str:
+        return (
+            f"not_comparable_windows: the governed contract for {self.measure} declares that "
+            "these two windows may not be differenced as levels — "
+            f"{self.caveat} A movement between them is a settlement artifact of the newer "
+            "window rather than a change in the business, so no figure on this turn is "
+            "published at high confidence and the difference is not a result. Ask over two "
+            "settled windows, or read each window on its own, to get a comparison this "
+            "platform will stand behind."
+        )
+
+
+def declares_non_comparability(description: str) -> str | None:
+    """The contract's own non-comparability sentence, or ``None``.
+
+    Read out of the governed ``Population caveat:`` paragraph and nowhere
+    else. The rest of a description is explanatory prose in which "not
+    comparable" can appear about something other than the two windows of
+    this comparison; the caveat is the field the pack promises is a
+    statement about the population, and it is the field the answer already
+    publishes as a caution.
+    """
+    caveat = population_caveat(description)
+    if caveat is None or _NOT_COMPARABLE_ASSERTION.search(caveat) is None:
+        return None
+    return caveat
+
+
+def declared_non_comparability(
+    pack: PackPort, measure: str
+) -> DeclaredNonComparability | None:
+    """Does this metric's contract forbid differencing its two windows?"""
+    contract = pack.metric(measure)
+    if contract is None:
+        return None
+    caveat = declares_non_comparability(contract.description)
+    return None if caveat is None else DeclaredNonComparability(measure=measure, caveat=caveat)
+
+
+def compared_measures(frames: tuple[tuple[str, EvidenceFrame], ...]) -> tuple[str, ...]:
+    """Every metric this turn actually DIFFERENCED, in frame order.
+
+    A metric read on one window is not a comparison and carries no
+    comparability question; the declaration only bites where a prior side
+    exists. Read off the compare frames' own columns for the same reason
+    :func:`comparison_maturity` is — the frame is what the findings stage
+    saw, whatever the plan intended.
+    """
+    seen: dict[str, None] = {}
+    for frame_id, frame in frames:
+        if "__compare" not in frame_id:
+            continue
+        names = set(frame.schema.names)
+        for column in frame.schema.columns:
+            # A METRIC column, not one of the compare operator's derived
+            # ones: ``<m>__num`` also has a ``__prior`` sibling and is not a
+            # metric anybody declared a caveat about.
+            if not isinstance(column.ref, MetricRef) or "__" in column.name:
+                continue
+            if f"{column.name}{_PRIOR_SUFFIX}" in names:
+                seen.setdefault(column.name)
+    return tuple(seen)
+
+
+def declared_non_comparabilities(
+    pack: PackPort, frames: tuple[tuple[str, EvidenceFrame], ...]
+) -> tuple[DeclaredNonComparability, ...]:
+    """Every compared metric on this turn whose contract forbids the delta."""
+    out: list[DeclaredNonComparability] = []
+    for measure in compared_measures(frames):
+        declared = declared_non_comparability(pack, measure)
+        if declared is not None:
+            out.append(declared)
     return tuple(out)
 
 

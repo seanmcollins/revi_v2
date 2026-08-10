@@ -3,9 +3,9 @@
 import { AlertTriangle } from "lucide-react";
 
 import { WarningList } from "@/components/banners/WarningBanner";
-import { BriefEntryRow } from "@/components/rounds/BriefEntryRow";
+import { BriefEntryRow, type BriefLeadHandle } from "@/components/rounds/BriefEntryRow";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { formatWholeDollars } from "@/lib/format";
+import { formatWholeDollars, mediumDate } from "@/lib/format";
 import type { BriefData } from "@/lib/rounds";
 
 /**
@@ -30,7 +30,19 @@ import type { BriefData } from "@/lib/rounds";
  * hidden. Suppressing a movement silently and suppressing it visibly are
  * different products: the first is a filter the analyst cannot audit.
  */
-export function BriefPanel({ brief }: { brief: BriefData }) {
+export function BriefPanel({
+  brief,
+  leads,
+}: {
+  brief: BriefData;
+  /**
+   * The leads this load's worklist carries, by anomaly id — where each one
+   * stands and how to open it. Absent in mock mode and in a test that
+   * renders the panel alone, which is why every row degrades to the entry's
+   * own fields.
+   */
+  leads?: ReadonlyMap<string, BriefLeadHandle>;
+}) {
   const quiet = brief.status !== "material_changes";
 
   return (
@@ -74,7 +86,13 @@ export function BriefPanel({ brief }: { brief: BriefData }) {
           <p className="max-w-[64ch] text-lead leading-snug text-foreground">{brief.headline}</p>
           <ol className="brief-spine space-y-5 border-l pl-4">
             {brief.entries.map((entry, index) => (
-              <BriefEntryRow key={`${entry.kind}:${entry.anomalyId ?? entry.pinId ?? index}`} entry={entry} />
+              <BriefEntryRow
+                key={`${entry.kind}:${entry.anomalyId ?? entry.pinId ?? index}`}
+                entry={entry}
+                {...(entry.anomalyId && leads?.get(entry.anomalyId)
+                  ? { lead: leads.get(entry.anomalyId)! }
+                  : {})}
+              />
             ))}
           </ol>
         </>
@@ -87,16 +105,91 @@ export function BriefPanel({ brief }: { brief: BriefData }) {
           counts rather than under thirty lines nobody scrolled to. */}
       <WarningList warnings={brief.warnings.map((w) => ({ ...w, type: "warning" as const }))} />
 
-      <p className="num text-micro leading-snug text-muted-foreground/80">
-        {brief.pinsEvaluated} watch{brief.pinsEvaluated === 1 ? "" : "es"} re-run
-        {brief.leadsVerified > 0 && `, ${brief.leadsVerified} claimed fix${
-          brief.leadsVerified === 1 ? "" : "es"
-        } verified`}{" "}
-        at {brief.watermarkId}
-        {brief.priorWatermarkId ? `, against ${brief.priorWatermarkId}` : ""}.
-      </p>
+      <WalkCensus brief={brief} />
     </section>
   );
+}
+
+/**
+ * THE WORK BEHIND THE BRIEF, AND WHETHER IT ADDS UP.
+ *
+ * Two defects, one line. The first is vocabulary: this line used to end
+ * "at wm_003, against wm_002" — the two warehouse ids, on the surface a
+ * champion screenshots, in the sentence that is the entire evidence for
+ * the claim to have walked anything. The brief speaks in dates now, and
+ * the ids stay in provenance where an auditor can still reach them.
+ *
+ * The second is arithmetic. "18 watches re-run" was printed above a brief
+ * carrying one movement and one held-back movement, with the other
+ * sixteen — first readings, nothing to compare against — neither briefed
+ * nor counted. On a surface whose stated discipline is "withheld visibly,
+ * never silently", a total that does not reconcile to its parts is the one
+ * number it may not publish. So the parts are named, and if they do not
+ * close, the remainder is named too rather than absorbed.
+ */
+function WalkCensus({ brief }: { brief: BriefData }) {
+  const held = brief.immaterial;
+  // Movements this brief actually printed, plus any the cap dropped —
+  // the server publishes what it withheld by kind, so a capped movement is
+  // still accounted for rather than vanishing from the census.
+  const briefedPins =
+    brief.entries.filter((e) => e.kind === "pin_movement" || e.kind === "rank_flip").length +
+    (held.withheldByKind.pin_movement ?? 0) +
+    (held.withheldByKind.rank_flip ?? 0);
+  const accounted =
+    briefedPins + held.pinMovements + held.notYetComparable + held.unavailable;
+  const remainder = brief.pinsEvaluated - accounted;
+
+  const parts: string[] = [];
+  if (briefedPins > 0) parts.push(`${briefedPins} briefed`);
+  if (held.pinMovements > 0) parts.push(`${held.pinMovements} moved too little to brief`);
+  if (held.notYetComparable > 0) {
+    parts.push(`${held.notYetComparable} with nothing to compare against yet`);
+  }
+  if (held.unavailable > 0) parts.push(`${held.unavailable} the platform could not measure`);
+
+  return (
+    <p data-walk-census className="num text-micro leading-snug text-muted-foreground">
+      {brief.pinsEvaluated} watch{brief.pinsEvaluated === 1 ? "" : "es"} re-run
+      {brief.leadsVerified > 0 &&
+        `, ${brief.leadsVerified} claimed fix${
+          brief.leadsVerified === 1 ? "" : "es"
+        } verified`}
+      {brief.newestDataDate
+        ? ` on the data through ${safeDate(brief.newestDataDate)}`
+        : " at this data load"}
+      {/* NO WAREHOUSE IDS ON THIS SURFACE. When the prior load's data date
+          is published the brief names it; when it is not, it says "the
+          previous load" rather than reaching for `wm_002`. The ids are
+          still one hover away on every entry's provenance, which is where
+          an auditor looks and a champion does not. */}
+      {brief.priorNewestDataDate
+        ? `, against the ${safeDate(brief.priorNewestDataDate)} load`
+        : brief.priorWatermarkId
+          ? ", against the previous load"
+          : ""}
+      .
+      {parts.length > 0 && ` Of those: ${parts.join(", ")}.`}
+      {/* The parts do not close. Said rather than absorbed: a census that
+          silently rounds is the filter this surface exists not to be. */}
+      {remainder !== 0 && brief.pinsEvaluated > 0 && (
+        <span className="text-warning">
+          {" "}
+          {Math.abs(remainder)} {remainder > 0 ? "not accounted for" : "counted twice"} in that
+          split.
+        </span>
+      )}
+    </p>
+  );
+}
+
+/** A data date in the reader's words, or the ISO string if it will not parse. */
+function safeDate(iso: string): string {
+  try {
+    return mediumDate(iso);
+  } catch {
+    return iso;
+  }
 }
 
 /**
@@ -110,7 +203,16 @@ export function BriefPanel({ brief }: { brief: BriefData }) {
 function ImmaterialLine({ brief }: { brief: BriefData }) {
   const held = brief.immaterial;
   const total =
-    held.pinMovements + held.newLeads + held.selfResolved + held.entriesWithheldByCap;
+    held.pinMovements +
+    held.newLeads +
+    held.selfResolved +
+    held.entriesWithheldByCap +
+    // Counted here too, so a load whose only held-back facts are first
+    // readings still renders the server's own sentence about them. The
+    // note is composed server-side from every bucket; gating it on four of
+    // six would hide it exactly when the census needs it most.
+    held.notYetComparable +
+    held.unavailable;
   if (total === 0 || held.note === "") return null;
   return (
     <p data-immaterial-summary className="max-w-[64ch] text-meta leading-snug text-muted-foreground">
@@ -122,6 +224,21 @@ function ImmaterialLine({ brief }: { brief: BriefData }) {
           {" "}
           {brief.entriesTotal} cleared the gate and this brief shows{" "}
           {brief.entries.length}, because a brief nobody finishes is a brief nobody opens.
+          {/* WHAT the cap dropped, not just how many. "12 further entries"
+              does not tell a reader whether a confirmed fix or a
+              regression was among them — which is the only question worth
+              asking about a dropped line. */}
+          {Object.keys(held.withheldByKind).length > 0 && (
+            <>
+              {" "}
+              Dropped:{" "}
+              {Object.entries(held.withheldByKind)
+                .filter(([, count]) => count > 0)
+                .map(([kind, count]) => `${count} ${KIND_NOUNS[kind] ?? kind.replace(/_/g, " ")}`)
+                .join(", ")}
+              .
+            </>
+          )}
         </>
       )}
     </p>
@@ -191,6 +308,20 @@ function MaterialityNote({ brief }: { brief: BriefData }) {
     </Tooltip>
   );
 }
+
+/**
+ * Entry kinds in the reader's nouns, for the one place a COUNT of them is
+ * printed. The row itself takes its label from `BriefEntryRow.KINDS`; this
+ * is the plural form that reads inside a sentence.
+ */
+const KIND_NOUNS: Readonly<Record<string, string>> = {
+  new_lead: "new leads",
+  pin_movement: "watch movements",
+  self_resolved: "gone on their own",
+  resolution_confirmed: "confirmed fixes",
+  resolution_regressed: "fixes that came back",
+  rank_flip: "changes of leading cell",
+};
 
 /** The pack's unit kinds, in the reader's nouns. */
 const UNIT_NOUNS: Readonly<Record<string, string>> = {
