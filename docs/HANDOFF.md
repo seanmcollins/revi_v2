@@ -82,6 +82,26 @@ composition sites.
 - Also: random-input walk; fix obvious defects; log what was deliberately
   left alone.
 
+## 2b. Composer UX (owner-decided 2026-08-11 morning; first post-merge web lane)
+
+- **Deep research becomes a toggle on the LEFT of the chat box** — a mode
+  toggle, not a fire-button: toggled on, the composer's own chrome shows the
+  deep-research state and submitting any question routes to the plan preview
+  instead of a quick answer; the toggle auto-clears after launch (a
+  per-question decision, never a sticky mode). This replaces the current
+  beside-Send button placement.
+- **"Talk about this" on monitor cards → an attachment chip**, exactly the
+  ChatGPT-file pattern: clicking drops a labeled bubble above the composer
+  (the monitor's name with an ×); the user types any question freely and it
+  submits with the monitor attached as context. Mechanics: the attachment
+  rides the EXISTING context-carry machinery (the monitor's spec/cell as a
+  resume parent — one additive submit field if needed), and the answer openly
+  states the carry in its disclosure line via the RESUMED_CONTEXT family
+  ("scope carried from the monitor you attached") — visible chip going in,
+  stated carry coming out, nothing hidden at either end. The × removes it;
+  it clears after the question sends. The existing prefilled-question
+  affordance remains as the fallback inside the expanded tile.
+
 ## 3. Digestibility pass (behavior-frozen), then push
 
 The owner's words: "a human has to review this shit — clean out all the
