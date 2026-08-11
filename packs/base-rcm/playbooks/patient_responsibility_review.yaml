@@ -21,8 +21,9 @@ probes:
     window: {quantity: 6, unit: month, mode: full_periods}
     scope_note: >-
       Patient-responsibility dollars against contract-expected reimbursement
-      by payer type, service basis. Expected is the whole allowed quantity,
-      so it includes the patient's share; the difference is payer-expected.
+      by payer type, on the service date. Expected is the whole allowed
+      quantity, so it includes the patient's share; the difference is
+      payer-expected.
   - id: pr_share
     metric_ids: [patient_responsibility_rate]
     dimensions: [payer_type]
@@ -40,16 +41,16 @@ probes:
     metric_ids: [patient_cash_posted]
     window: {quantity: 6, unit: month, mode: full_periods}
     scope_note: >-
-      Patient cash posted monthly, POST basis. In this warehouse patient
+      Patient cash posted monthly, on the posting date. In your data patient
       payments post only after adjudication establishes responsibility, so no
-      point-of-service split is supportable (see pack NOTES).
+      point-of-service split is supportable.
   - id: patient_cash_by_class
     metric_ids: [patient_cash_posted]
     dimensions: [financial_class]
     window: {quantity: 6, unit: month, mode: full_periods}
     scope_note: >-
       Collected side by the same cut as the billed-out side. The two are
-      different entities and different date bases, so they are compared as
+      different rows reported on different dates, so they are compared as
       trends, never divided cell by cell into a collection rate.
 transforms:
   - operator: compare

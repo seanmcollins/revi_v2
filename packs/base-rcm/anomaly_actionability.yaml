@@ -50,10 +50,10 @@ drill_repoints:
   denial_rate:
     metric_id: denied_dollars
     rationale: >-
-      The detector published a dollar impact under a ratio metric that is
-      also unprobeable at its own grain (REMIT is not bound for the claim
-      entity). denied_dollars measures the same population in the unit the
-      card actually reports.
+      The detection system reported dollars under a rate, and a rate cannot
+      produce dollars — nor can this one be read on the remittance date at
+      claim level. Denied dollars measures the same population in the unit
+      the card actually reports.
 
 # --- Drill dimension repoints: when the detector's CUT is not a legal
 # scope dimension of the contract that must answer it --------------------
@@ -92,20 +92,22 @@ drill_dimension_repoints:
   proc_group:
     dimension_id: primary_proc_group
     rationale: >-
-      Procedures bind at claim_line, so a claim-grain contract cannot be
-      cut by `proc_group` at all. `primary_proc_group` is the claim's
-      dominant procedure group (largest share of billed charges, ties
-      broken by name), certified at the claim and transaction grains. Read
-      the drill as an attribution of whole claims, not a decomposition of
-      lines: the detector counted lines in this group, and the drill counts
-      claims whose largest procedure group is this one.
+      Procedure group lives at line level, so a claim-level measure cannot
+      be broken out by it at all. Primary procedure group is the claim's
+      dominant procedure group — the one carrying the largest share of its
+      billed charges, ties broken by name — and it is a standard cut at
+      claim and transaction level. Read the result as an attribution of
+      whole claims, not a breakdown of lines: the detection system counted
+      lines in this group, and this counts claims whose largest procedure
+      group is this one.
 
 default:
   mode: fraction
   fraction: 0.50
   rationale: >-
-    No category-specific assessment exists; assume half the impact is
-    workable until the category gains governed rules.
+    No assessment exists for this category yet, so Revi assumes half the
+    impact is workable — a placeholder until a rule for the category is
+    written.
 categories:
   TIMELY_FILING:
     mode: open_share
@@ -116,12 +118,11 @@ categories:
       Only claims still inside their filing limit can be recovered; dollars
       on claims past the deadline are gone (0 when everything has expired,
       the full share of still-open claims otherwise). The open/expired split
-      comes from the DETECTOR's own evidence facts, which is the only place
-      deadline state exists today: the platform's own
-      timely_filing_at_risk_dollars contract applies no deadline predicate
-      and cannot supply it (see ../metric_display.yaml and NOTES.md). So
-      this rule prices a deadline the detector observed, never one this
-      platform derived.
+      comes from the detection system's own evidence, which is the only
+      place deadline state exists today: Revi's unbilled open inventory on a
+      running filing clock applies no deadline test of its own and cannot
+      supply the split. So this prices a deadline the detection system
+      observed, never one Revi worked out.
   UNDERPAYMENT:
     mode: fraction
     fraction: 0.85
@@ -196,11 +197,11 @@ categories:
       An unsubmitted claim is recovered by submitting it, so nearly all of
       the billed value is in play. Lower than DNFB because a submission gap
       is a claim already past its intended drop date and closer to its
-      filing limit; where the deadline evidence exists the detector files
-      the record under TIMELY_FILING instead, and that category prices the
-      deadline directly. Deadline pricing is therefore not duplicated here:
-      neither DNFB nor SUBMISSION_GAP carries days_to_deadline facts, so
-      neither can use the open_share mode.
+      filing limit; where the deadline evidence exists the detection system
+      files the record under TIMELY_FILING instead, and that category prices
+      the deadline directly. Deadline pricing is therefore not duplicated
+      here: neither DNFB nor SUBMISSION_GAP carries days-to-deadline
+      evidence, so neither can split still-open claims from expired ones.
   UNWORKED_DENIALS:
     mode: flag_share
     numerator_fact: appealable_claims
@@ -209,23 +210,22 @@ categories:
     rationale: >-
       Recovery on a never-worked denial is gated first on whether an appeal
       is still possible at all, so the assessment reads the record's own
-      appealable share — the same fact pair and mode DENIAL_SPIKE uses on
-      the same evidence. The 0.45 above is now only the fallback for a
-      record that publishes neither fact. Why the flat fraction it replaces
-      was rejected: it could not see zero. ANM-004 (14 denials, every one
-      past its 60-day appeal window, appealable_claims = 0) was priced at
-      45% of $62,035 — $27,916 of "partially recoverable" money that no
-      appeal can reach, on a card that also reports the expiry. Under
-      flag_share it assesses at 0 and is labeled not recoverable, while
-      ANM-027 (17 of 29 still appealable) prices at 58.6% and ANM-028 (17
-      of 17) at the ceiling. Read the result as an UPPER BOUND, not an
-      expectation: an appealable share gates recovery, it does not predict
-      it, and a record whose denials are all still in window prices at 100%
-      even though this pack's own appeal_overturn_rate puts a win near half.
-      Composing the gate with the win probability needs a `product` mode
-      the rule language does not have (recorded as deferred in NOTES.md).
-      Until it exists, a gate that is exactly right at the zero end beats a
-      flat fraction that is indefensibly wrong there.
+      appealable share — the same evidence, read the same way, as a denial
+      spike. The 0.45 above is only the fallback for a record that publishes
+      neither count. A flat fraction was rejected because it could not see
+      zero: ANM-004 (14 denials, every one past its 60-day appeal window,
+      none still appealable) priced at 45% of $62,035 — $27,916 of
+      "partially recoverable" money no appeal can reach, on a card that also
+      reports the expiry. Reading the appealable share instead, it assesses
+      at 0 and is labeled not recoverable, while ANM-027 (17 of 29 still
+      appealable) prices at 58.6% and ANM-028 (17 of 17) at the ceiling.
+      Read the result as an UPPER BOUND, not an expectation: an appealable
+      share gates recovery, it does not predict it, and a record whose
+      denials are all still in window prices at 100% even though Revi's own
+      appeal overturn rate puts a win near half. Combining the gate with the
+      win rate is not something Revi can express yet; until it can, a gate
+      that is exactly right at the zero end beats a flat fraction that is
+      indefensibly wrong there.
   ELIGIBILITY_CLUSTER:
     mode: fraction
     fraction: 0.75
@@ -261,8 +261,8 @@ categories:
     rationale: >-
       Accounts sitting without charges are missing revenue, not delayed
       revenue, so more is genuinely at stake than in CHARGE_ENTRY_LAG. The
-      fraction is middling rather than high because the detector cannot
-      value what was never entered — it publishes claims_without_charges and
-      a zero billed_cents_known, so any dollar estimate on this category is
-      the weakest in the portfolio and the priority it earns should reflect
-      that.
+      fraction is middling rather than high because the detection system
+      cannot value what was never entered — it publishes a count of claims
+      without charges and no known billed value, so any dollar estimate on
+      this category is the weakest in the portfolio and the priority it
+      earns should reflect that.

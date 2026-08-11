@@ -110,6 +110,20 @@ ALLOWLIST: tuple[re.Pattern[str], ...] = (
     # "e.g." / "i.e." contain no ban but do contain dots that confuse the
     # key=value shape when they precede an equals sign in prose.
     re.compile(r"\b(?:e\.g\.|i\.e\.)"),
+    # --- genuine regulatory English, in the knowledge cards -------------
+    # "Certified IDR entity" is the STATUTORY name of the arbiter under the
+    # No Surprises Act (45 CFR 149.510). It is a term of art an RCM analyst
+    # reads on a federal notice, not this repo's `certified` grade, and
+    # renaming it would misquote the regulation.
+    re.compile(r"\bCertified IDR entit(?:y|ies)\b"),
+    # "governed by this regulation", "governed by state contracts",
+    # "ACA-governed plans" — the ordinary English verb, describing a law
+    # that actually governs something. §2.1 bans `governed` as a stand-in
+    # for an authority the reader cannot inspect ("the governed
+    # threshold"), which is a different sentence shape entirely: nothing
+    # here is redacted from "gated by the governed pack".
+    re.compile(r"\bgoverned by\b", re.I),
+    re.compile(r"\b(?:ACA|ERISA|CMS|HIPAA)-governed\b"),
 )
 
 #: A warning's leading machine code, which clients branch on and
@@ -329,6 +343,350 @@ def _pack_prose_strings() -> Iterator[tuple[str, str]]:
                 yield f"metrics/{path.name}::{field}", value
 
 
+# --------------------------------------------------------------------------
+# The rest of the pack that reaches a reader.
+#
+# The metric contracts above were the first pack file walked here, and for a
+# while the only one — which left ~220 other pack prose values, most of the
+# words on a definition card, unguarded. Each collector below names the
+# fields that reach a CLIENT surface and no others; the operator-only
+# neighbours are listed in :func:`test_the_operator_only_pack_fields_are_a_
+# deliberate_omission` so the line between them is visible rather than
+# implied.
+
+
+def _yaml(path: Path) -> dict[str, object]:
+    if not path.exists():  # pragma: no cover - a pack without this artifact
+        return {}
+    document = yaml.safe_load(path.read_text())
+    return document if isinstance(document, dict) else {}
+
+
+def _strings(value: object) -> Iterator[str]:
+    """A field that is one string, or a list of them."""
+    if isinstance(value, str):
+        yield value
+    elif isinstance(value, list):
+        for item in value:
+            if isinstance(item, str):
+                yield item
+
+
+def _source_titles(entry: object) -> Iterator[str]:
+    """A `sources:` block's titles — printed beside a definition as its
+    citation. Publisher and URL stay verbatim and are not walked: an
+    attribution is the source's own words, not ours."""
+    if not isinstance(entry, dict):
+        return
+    for source in entry.get("sources") or ():
+        if isinstance(source, dict):
+            yield from _strings(source.get("title"))
+
+
+def _deep_research_strings() -> Iterator[tuple[str, str]]:
+    """Every sentence a deep-research report says out loud.
+
+    The module holds the report's copy as constants and pure formatters, so
+    both are walked: the constants directly, and the formatters INVOKED over
+    representative figures. Invoking them is the point — a template that
+    reads cleanly and interpolates a snake_case label or a raw ratio only
+    fails once it is called.
+    """
+    from decimal import Decimal
+
+    from revi_investigation.application.deep_research import copy as words
+
+    for name in dir(words):
+        if name.startswith("_"):
+            continue
+        value = getattr(words, name)
+        if isinstance(value, str):
+            yield f"deep_research.copy.{name}", value
+
+    yield (
+        "deep_research.copy.headline_statement",
+        words.headline_statement(
+            expected=116_766_888,
+            low=87_405_242,
+            high=151_869_369,
+            open_dollars=574_949_512,
+            open_denials=2865,
+        ),
+    )
+    yield (
+        "deep_research.copy.split_statement",
+        words.split_statement(
+            catchable=283_100_286, passed=291_849_226, unknown=1_000_000
+        ),
+    )
+    yield (
+        "deep_research.copy.unpriced_statement",
+        words.unpriced_statement(
+            unpriced=243_076_530, share=Decimal("0.4227"), populations=26
+        ),
+    )
+    yield (
+        "deep_research.copy.thin_rollup_statement",
+        words.thin_rollup_statement(
+            populations=6, denials=41, cents=8_871_252, floor=11
+        ),
+    )
+    yield (
+        "deep_research.copy.contrast_statement",
+        words.contrast_statement(
+            subject="Payer",
+            strong_label="Northbridge Commercial",
+            strong_rate=Decimal("0.5675"),
+            strong_n=148,
+            weak_label="Lakewood Medicaid MCO",
+            weak_rate=Decimal("0.2905"),
+            weak_n=117,
+            difference=Decimal("0.2770"),
+        ),
+    )
+    for p_value in (Decimal("0.0000066"), Decimal("0.004"), Decimal("0.03"), Decimal("0.4")):
+        yield (
+            f"deep_research.copy.separation_statement[{p_value}]",
+            words.separation_statement(
+                p_value=p_value, low=Decimal("0.158"), high=Decimal("0.384")
+            ),
+        )
+    yield (
+        "deep_research.copy.contrast_refused_statement",
+        words.contrast_refused_statement(
+            subject="Payer",
+            floor_sentence=(
+                "A rate is published only where at least 30 of these denials have a "
+                "final answer from the payer — Revi's recommended level for recovery "
+                "rates. You can change this anytime."
+            ),
+        ),
+    )
+    yield (
+        "deep_research.copy.timeliness_statement",
+        words.timeliness_statement(
+            fast_band="0-14",
+            fast_rate=Decimal("0.5435"),
+            slow_band="61+",
+            slow_rate=Decimal("0.1424"),
+        ),
+    )
+    yield (
+        "deep_research.copy.timeliness_implication",
+        words.timeliness_implication(fast_band="0-14", drop=Decimal("0.4011")),
+    )
+    yield (
+        "deep_research.copy.median_delay_statement",
+        words.median_delay_statement(label="Coding", median=Decimal("9")),
+    )
+    yield (
+        "deep_research.copy.deadline_statement",
+        words.deadline_statement(
+            within_rate=Decimal("0.4419"),
+            within_n=2454,
+            past_rate=Decimal("0.0379"),
+            past_n=79,
+        ),
+    )
+    yield (
+        "deep_research.copy.zero_rate_bound_statement",
+        words.zero_rate_bound_statement(high=Decimal("0.0896"), n=39),
+    )
+    yield (
+        "deep_research.copy.pursuit_statement",
+        words.pursuit_statement(label="Coding", rate=Decimal("0.768"), n=697),
+    )
+    yield (
+        "deep_research.copy.angle_refused_statement",
+        words.angle_refused_statement(
+            title="Speed and what it is worth",
+            reason="the content defines no delay bands to read a curve along",
+        ),
+    )
+    for statement in words.censoring_statements(
+        considered=5398,
+        in_denominator=2533,
+        open_undecided=212,
+        not_pursued=2653,
+        immature=583,
+        data_edge="Aug 2, 2026",
+    ):
+        yield "deep_research.copy.censoring_statements", statement
+    for kind, values in (
+        ("all_open", ()),
+        ("payer", ("Northbridge Commercial",)),
+        ("recovery_class", ("CODING",)),
+        ("facility", ("Northgate Regional Hospital",)),
+    ):
+        yield (
+            f"deep_research.copy.population_label[{kind}]",
+            words.population_label(kind, values),
+        )
+    yield (
+        "deep_research.copy.data_load_label",
+        words.data_load_label("Aug 2, 2026"),
+    )
+    yield (
+        "deep_research.copy.header_display",
+        words.header_display(
+            population="every open denial",
+            floor_sentence=(
+                "A rate is published only where at least 30 of these denials have a "
+                "final answer from the payer — Revi's recommended level for recovery "
+                "rates. You can change this anytime."
+            ),
+            load="the load through Aug 2, 2026",
+        ),
+    )
+
+
+def _deep_research_content_strings() -> Iterator[tuple[str, str]]:
+    """The governed deep-research content a reader sees: titles, progress
+    lines, population labels and the sentences the report reuses."""
+    document = _yaml(PACK_ROOT / "deep_research.yaml")
+    estimation = document.get("estimation") or {}
+    for field in ("min_cohort_label", "min_cohort_recommender"):
+        for text in _strings(estimation.get(field)):
+            yield f"deep_research.yaml::estimation.{field}", text
+    for text in _strings((document.get("population") or {}).get("description")):
+        yield "deep_research.yaml::population.description", text
+    for group in ("stratifier_labels", "class_context", "copy"):
+        for key, value in (document.get(group) or {}).items():
+            for text in _strings(value):
+                yield f"deep_research.yaml::{group}.{key}", text
+    for stratifier, values in (document.get("value_labels") or {}).items():
+        for key, value in (values or {}).items():
+            for text in _strings(value):
+                yield f"deep_research.yaml::value_labels.{stratifier}.{key}", text
+    for name, node in (document.get("angles") or {}).items():
+        if not isinstance(node, dict):
+            continue
+        for field in ("title", "progress", "purpose"):
+            for text in _strings(node.get(field)):
+                yield f"deep_research.yaml::angles.{name}.{field}", text
+
+
+def _pack_concept_strings() -> Iterator[tuple[str, str]]:
+    """concepts.yaml — the concept lookup ("what is COB?").
+
+    ``name`` titles the definition card and ``definition`` is its body;
+    both travel through ``PackSnapshotPort.resolve_term``. ``description``
+    is NOT here: no surface reads it (see the omissions test).
+    """
+    for entry in _yaml(PACK_ROOT / "concepts.yaml").get("concepts") or ():
+        if not isinstance(entry, dict):
+            continue
+        cid = entry.get("id", "?")
+        for field in ("name", "definition"):
+            for text in _strings(entry.get(field)):
+                yield f"concepts.yaml::{cid}.{field}", text
+        for title in _source_titles(entry):
+            yield f"concepts.yaml::{cid}.sources[].title", title
+
+
+def _pack_code_strings() -> Iterator[tuple[str, str]]:
+    """codes.yaml — the group-code and CARC panels on a definition card."""
+    for entry in _yaml(PACK_ROOT / "codes.yaml").get("codes") or ():
+        if not isinstance(entry, dict):
+            continue
+        code = entry.get("code", "?")
+        for field in ("title", "definition_paraphrase"):
+            for text in _strings(entry.get(field)):
+                yield f"codes.yaml::{code}.{field}", text
+        for title in _source_titles(entry):
+            yield f"codes.yaml::{code}.sources[].title", title
+
+
+def _pack_knowledge_strings() -> Iterator[tuple[str, str]]:
+    """knowledge.yaml — the card body.
+
+    ``summary`` is what ``resolve_term`` serves today. ``key_points`` and
+    ``cautions`` are the same authored card and ship the moment one is
+    rendered in full, so they are held to the same bar: splitting a card's
+    body between a guarded field and unguarded ones is how the vocabulary
+    comes back.
+    """
+    for entry in _yaml(PACK_ROOT / "knowledge.yaml").get("knowledge_cards") or ():
+        if not isinstance(entry, dict):
+            continue
+        cid = entry.get("id", "?")
+        for field in ("title", "summary", "key_points", "cautions"):
+            for text in _strings(entry.get(field)):
+                yield f"knowledge.yaml::{cid}.{field}", text
+        for title in _source_titles(entry):
+            yield f"knowledge.yaml::{cid}.sources[].title", title
+
+
+def _pack_benchmark_strings() -> Iterator[tuple[str, str]]:
+    """benchmarks.yaml — every field ``BenchmarkPayload`` puts on the wire.
+
+    A benchmark quoted without its population, period and authority is a
+    different claim from the one its source made, so all three ride along
+    and all three are read. ``authority`` here is the SOURCE's description
+    of itself ("national provider survey"), which is why it is walked as
+    prose rather than treated as an enum.
+    """
+    for entry in _yaml(PACK_ROOT / "benchmarks.yaml").get("benchmarks") or ():
+        if not isinstance(entry, dict):
+            continue
+        bid = entry.get("id", "?")
+        for field in ("cohort_label", "unit", "period", "authority", "cautions"):
+            for text in _strings(entry.get(field)):
+                yield f"benchmarks.yaml::{bid}.{field}", text
+        for title in _source_titles(entry):
+            yield f"benchmarks.yaml::{bid}.sources[].title", title
+
+
+def _pack_playbook_strings() -> Iterator[tuple[str, str]]:
+    """playbooks/*.yaml — the prose behind a routed answer.
+
+    ``description`` is clipped into the interpretation model's vocabulary
+    and travels on ``PlaybookSpec``; ``triggers`` are the pack author's own
+    phrasings, shown to the model beside it; ``scope_note`` becomes a
+    probe node's stated purpose and reaches the reader through evidence.
+    """
+    for path in sorted((PACK_ROOT / "playbooks").glob("*.yaml")):
+        document = _yaml(path)
+        for field in ("description", "triggers"):
+            for text in _strings(document.get(field)):
+                yield f"playbooks/{path.name}::{field}", text
+        for probe in document.get("probes") or ():
+            if isinstance(probe, dict):
+                for text in _strings(probe.get("scope_note")):
+                    yield f"playbooks/{path.name}::{probe.get('id', '?')}.scope_note", text
+
+
+def _pack_actionability_strings() -> Iterator[tuple[str, str]]:
+    """anomaly_actionability.yaml — the recoverability rationales.
+
+    Every one of these is published verbatim: on a worklist card as
+    ``actionability_rationale`` / ``drill_repoint_rationale``, and inside
+    the turn-level repoint disclosure. The pack author's words are the
+    point — a substitution stated in the platform's own words would be a
+    second explanation of a decision the pack already made — which is
+    exactly why they have to be the reader's words too.
+    """
+    document = _yaml(PACK_ROOT / "anomaly_actionability.yaml")
+    for text in _strings((document.get("default") or {}).get("rationale")):
+        yield "anomaly_actionability.yaml::default.rationale", text
+    for block in ("categories", "drill_repoints", "drill_dimension_repoints"):
+        entries = document.get(block)
+        if not isinstance(entries, dict):
+            continue
+        for key, rule in entries.items():
+            if isinstance(rule, dict):
+                for text in _strings(rule.get("rationale")):
+                    yield f"anomaly_actionability.yaml::{block}.{key}.rationale", text
+
+
+def _pack_worklist_strings() -> Iterator[tuple[str, str]]:
+    """worklist.yaml — the label and blurb on the ranked worklist itself."""
+    document = _yaml(PACK_ROOT / "worklist.yaml")
+    for field in ("label", "description"):
+        for text in _strings(document.get(field)):
+            yield f"worklist.yaml::{field}", text
+
+
 def _openapi_client_strings() -> Iterator[tuple[str, str]]:
     """Wire fixture strings: schema DATA that can reach a screen.
 
@@ -380,6 +738,15 @@ def client_strings() -> list[tuple[str, str]]:
         _definitional_strings,
         _metric_display_strings,
         _pack_prose_strings,
+        _pack_concept_strings,
+        _pack_code_strings,
+        _pack_knowledge_strings,
+        _pack_benchmark_strings,
+        _pack_playbook_strings,
+        _pack_actionability_strings,
+        _pack_worklist_strings,
+        _deep_research_strings,
+        _deep_research_content_strings,
     )
     out: list[tuple[str, str]] = []
     for collector in collectors:
@@ -397,6 +764,93 @@ def test_the_guard_has_something_to_guard() -> None:
     assert len(strings) > 100, f"only {len(strings)} client strings collected"
     sources = {where.split("::")[0].split("[")[0] for where, _ in strings}
     assert len(sources) >= 6, f"only {sorted(sources)} sources walked"
+
+
+def test_every_pack_file_that_reaches_a_reader_is_walked() -> None:
+    """The pack half of the registry, named file by file.
+
+    The metric contracts were guarded alone for a while, which read as "the
+    pack is covered" while the concept dictionary, the code paraphrases, the
+    knowledge cards, the benchmark context, the playbook prose and the
+    worklist rationales — most of the words on a definition card — were not.
+    Naming the files here makes an unwalked one a failure rather than an
+    oversight.
+    """
+    walked = {where.split("::")[0].split("/")[0] for where, _ in client_strings()}
+    for filename in (
+        "concepts.yaml",
+        "codes.yaml",
+        "knowledge.yaml",
+        "benchmarks.yaml",
+        "metrics",
+        "metric_display.yaml",
+        "playbooks",
+        "anomaly_actionability.yaml",
+        "worklist.yaml",
+    ):
+        assert filename in walked, f"{filename} reaches a reader and nothing reads it here"
+
+
+def test_the_operator_only_pack_fields_are_a_deliberate_omission() -> None:
+    """The pack fields this guard does NOT walk, and why — checked, not assumed.
+
+    Each field below is pack prose written for whoever maintains the pack:
+    it is loaded, and it stops at the domain model. Nothing serializes it
+    onto a payload and no surface renders it, so holding it to the client
+    contract would cost the maintainer their own vocabulary for no reader's
+    benefit. The test is here because that argument is only true while the
+    field stays unserialized — the day one of these is published, this
+    fails and the field moves into a collector above.
+
+    ``concepts[].description`` — a one-line gloss beside the definition;
+    ``resolve_term`` sends ``name`` and ``definition``, never this.
+    ``bindings[].rationale`` — why a concept maps to a field.
+    ``conclusion_policies[].claim`` / ``ranking_policies[].description`` /
+    ``detector_policies[].description`` — only ids, grades and thresholds
+    are read off these.
+    ``recipes[].notes`` — ``RecipeSpec`` carries it and nothing reads it.
+    ``metric_display[].rationale`` — the authoring note recording why an
+    entry exists, so a later reader can retire it; the client renders
+    ``display_name`` and ``caveat`` only.
+    """
+    #: ``(pack field, the attribute access that would publish it)``. A pack
+    #: artifact becomes a payload in the composition root and in the
+    #: presentation layer; an access appearing in either is the moment the
+    #: field stops being operator-only.
+    operator_only = {
+        "bindings[].rationale": "binding.rationale",
+        "conclusion_policies[].claim": "policy.claim",
+        "ranking_policies[].description": "ranking_policy.description",
+        "recipes[].notes": "recipe.notes",
+        "metric_display[].rationale": "entry.rationale",
+    }
+    consumers = "\n".join(
+        path.read_text()
+        for root in (
+            REPO_ROOT / "apps/api/src/revi_api",
+            REPO_ROOT / "packages/presentation/src",
+            REPO_ROOT / "packages/investigation/src",
+        )
+        for path in sorted(root.rglob("*.py"))
+    )
+    leaked = [
+        pack_field
+        for pack_field, access in operator_only.items()
+        if access in consumers
+    ]
+    assert not leaked, (
+        f"{leaked} now reach a reader. Add each to a collector above and write "
+        "it for the reader — see docs/client-language.md."
+    )
+    # ``concepts[].description`` needs a sharper look than a substring: the
+    # definitional path reads ``.description`` off a METRIC contract in the
+    # branch next door. Read the concept branch alone.
+    adapters = (REPO_ROOT / "apps/api/src/revi_api/adapters.py").read_text()
+    concept_branch = adapters.split("isinstance(match, Concept)")[1].split("elif")[0]
+    assert ".description" not in concept_branch, (
+        "concepts[].description now reaches a definition card; add it to "
+        "_pack_concept_strings and hold it to docs/client-language.md."
+    )
 
 
 @pytest.mark.parametrize(

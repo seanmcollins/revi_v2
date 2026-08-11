@@ -1,10 +1,10 @@
 id: denial_spike
 description: >-
-  Investigate a denial-rate spike: trend the claim-grain denial rate,
+  Investigate a denial-rate spike: trend the claim-level denial rate,
   decompose denied dollars by group code + CARC pair (the denial keying
   rule), and locate concentration in payer-by-service-line cells. Code-level
-  cuts run on denial-entity denied_dollars because carc is not a legal scope
-  dimension for the claim-grain rate.
+  cuts run on denied dollars at denial level, because a claim-level rate
+  cannot be broken out by CARC.
 triggers:
   - denials are up
   - why are denials increasing
@@ -17,7 +17,8 @@ probes:
   - id: denial_trend
     metric_ids: [denial_rate]
     window: {quantity: 12, unit: week, mode: full_periods}
-    scope_note: Weekly denial rate on the REMIT basis with prior-period compare.
+    scope_note: >-
+      Weekly denial rate on the remittance date with a prior-period compare.
   - id: denial_code_mix
     metric_ids: [denied_dollars]
     dimensions: [group_code, carc]
@@ -32,8 +33,8 @@ probes:
     window: {quantity: 8, unit: week, mode: full_periods}
     top_n: 10
     scope_note: >-
-      Payer-by-service-line concentration; the planted scenario concentrates
-      CO-197 denials in one payer-by-imaging cell.
+      Payer-by-service-line concentration; in your data the CO-197 denials
+      concentrate in one payer-by-imaging cell.
   - id: denial_category_rollup
     metric_ids: [denied_dollars]
     dimensions: [denial_category]

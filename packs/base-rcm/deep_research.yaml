@@ -1,0 +1,195 @@
+# Governed content for deep research — the recoverability mode.
+#
+# Deep research answers one question over a tenant's own denial history:
+# of the denials still open right now, how much is realistically coming
+# back, and where. Every number it publishes is measured on this tenant's
+# own cohorts. Nothing here supplies a prior, an industry average, or a
+# fallback rate: a population too thin to measure is reported as thin and
+# left out of the total.
+#
+# This file is pack-adjacent governed content, loaded and content-hashed by
+# the API composition root (apps/api/src/revi_api/deep_research_policy.py),
+# exactly as anomaly_actionability.yaml and metric_display.yaml are. It is
+# governed CONTENT, never code: changing a floor or a band here changes what
+# the product publishes without changing a line of Python.
+
+version: 1
+
+# ---------------------------------------------------------------------------
+# Estimation policy — the decisions that must be made before any number can
+# be published, stated once, here, where they can be inspected and changed.
+# ---------------------------------------------------------------------------
+estimation:
+  # The cohort floor. A recovery rate over a handful of denials is noise
+  # wearing a percent sign, so a population with fewer than this many
+  # DECIDED denials publishes its count and its dollars and no rate at all.
+  # Stated to the reader as the rule it is, with its number and its owner.
+  min_cohort: 30
+  min_cohort_label: >-
+    at least 30 of these denials have a final answer from the payer
+  min_cohort_recommender: >-
+    Revi's recommended level for recovery rates
+  confidence: "0.95"
+
+  # Half-open bands, [lower, upper). A band edge is a judgement about the
+  # business, not a fact about arithmetic — so it lives here.
+  delay_bands:
+    - { label: "0-14", lower: 0, upper: 15 }
+    - { label: "15-30", lower: 15, upper: 31 }
+    - { label: "31-60", lower: 31, upper: 61 }
+    - { label: "61+", lower: 61 }
+  dollar_bands:
+    - { label: "under $500", lower: 0, upper: 50000 }
+    - { label: "$500-$5k", lower: 50000, upper: 500000 }
+    - { label: "over $5k", lower: 500000 }
+  age_bands:
+    - { label: "0-30 days", lower: 0, upper: 31 }
+    - { label: "31-60 days", lower: 31, upper: 61 }
+    - { label: "61-90 days", lower: 61, upper: 91 }
+    - { label: "91-180 days", lower: 91, upper: 181 }
+    - { label: "over 180 days", lower: 181 }
+
+  # How long to wait before a denial's silence means anything. A denial
+  # nobody has resubmitted yet is not the same claim as a denial nobody will
+  # ever resubmit, and the only thing separating them is age. These are the
+  # ages by which a denial of each kind that was ever going to be worked has
+  # historically been worked — the 90th percentile of how long it takes to
+  # go back out. They are a claim about how this organization works, so they
+  # are stated here rather than inferred from data that cannot see the
+  # difference.
+  maturity_days:
+    CODING: 18
+    REGISTRATION: 26
+    ROUTING: 44
+    CLINICAL: 73
+    FINAL: 95
+
+# ---------------------------------------------------------------------------
+# The population deep research measures over. Recovery history exists only
+# for denials that were never formally appealed — an appealed denial's
+# outcome lives on the remit, on a different feed, and summing the two
+# without saying so would double-count the same claim.
+# ---------------------------------------------------------------------------
+population:
+  earliest_service_date: "2025-01-01"
+  exclude_appealed: true
+  description: >-
+    Denials from Jan 1, 2025 onward with no formal appeal on the remit.
+    Appealed denials carry their outcome on the remittance and are counted
+    on that feed, not this one.
+
+# ---------------------------------------------------------------------------
+# What each stratum is called on a client surface. Deep research cuts
+# populations by these and nothing else, and the reader sees these words.
+# ---------------------------------------------------------------------------
+stratifier_labels:
+  payer: "Payer"
+  plan: "Plan"
+  recovery_class: "Denial type"
+  age_band: "Age of the denial"
+  dollar_band: "Denied amount"
+  delay_band: "Days to resubmission"
+  filing_position: "Filing deadline position"
+  filing_rule: "Filing limit authority"
+
+value_labels:
+  filing_position:
+    within_deadline: "inside the filing deadline"
+    past_deadline: "past the filing deadline"
+    unknown: "no filing limit on file"
+  filing_rule:
+    confirmed: "limit confirmed"
+    requires_confirmation: "limit needs confirming"
+  recovery_class:
+    CODING: "coding"
+    REGISTRATION: "registration and eligibility"
+    ROUTING: "routing and coordination of benefits"
+    CLINICAL: "clinical / medical necessity"
+    FINAL: "final — non-appealable"
+
+# ---------------------------------------------------------------------------
+# CONTEXT ONLY. These sentences describe what a denial type usually takes to
+# fix. They are never blended into a number: they do not adjust a rate, they
+# do not price a thin population, and they never appear beside a figure as
+# if they had produced it. They exist so a reader knows what the work is.
+# ---------------------------------------------------------------------------
+class_context:
+  CODING: >-
+    Coding denials are usually correctable — a modifier, a code pair, or a
+    unit count that can be fixed and sent back.
+  REGISTRATION: >-
+    Registration and eligibility denials usually trace to demographics or
+    coverage captured at the front end, and are correctable once the right
+    coverage is found.
+  ROUTING: >-
+    Routing and COB denials usually mean the claim went to the wrong payer
+    or in the wrong order; the fix is a rebill to the right one.
+  CLINICAL: >-
+    Clinical denials rest on medical necessity and need documentation, not
+    a correction — they are worked more slowly and won less often.
+  FINAL: >-
+    Denials in this group are effectively final: the contract or the
+    program leaves nothing to resubmit.
+
+# ---------------------------------------------------------------------------
+# The angle catalogue. Deep research runs angles from THIS list and no
+# other; the wording here is what the reader sees while a run is in flight
+# and in the report's own account of what it looked at.
+# ---------------------------------------------------------------------------
+angles:
+  outcome_by_stratum:
+    title: "Recovery rates by population"
+    progress: "Measuring recovery rates"
+    purpose: >-
+      How often resubmitting works, cut by the populations that matter, with
+      the size of the group behind every rate.
+  payer_contrast:
+    title: "Strongest and weakest payer"
+    progress: "Comparing payers"
+    purpose: >-
+      The payer that gives the most back against the one that gives the
+      least, and whether the gap is real or just how few denials sit behind it.
+  class_contrast:
+    title: "Strongest and weakest denial type"
+    progress: "Comparing denial types"
+    purpose: >-
+      The kind of denial most worth working against the kind least worth
+      working, tested the same way.
+  timeliness_curve:
+    title: "Speed and what it is worth"
+    progress: "Measuring the cost of delay"
+    purpose: >-
+      Recovery rate by how many days passed before the denial went back
+      out — the price of a slow queue, in points.
+  deadline_interaction:
+    title: "The filing deadline"
+    progress: "Checking filing deadlines"
+    purpose: >-
+      What crossing a filing deadline costs, separated by whether the limit
+      is confirmed or still needs confirming.
+  expected_recovery:
+    title: "What the open inventory is worth"
+    progress: "Pricing the open denials"
+    purpose: >-
+      Expected recoverable dollars over the denials still open, priced only
+      where this organization's own history supports a rate.
+
+# ---------------------------------------------------------------------------
+# Sentences the report reuses verbatim so they read the same everywhere.
+# ---------------------------------------------------------------------------
+copy:
+  thin_population: >-
+    not estimable from your data yet
+  thin_explanation: >-
+    These populations are counted and their dollars are shown, but no rate
+    is published for them and they are left out of the total above.
+  no_prior_substituted: >-
+    Every rate here is measured on your own denials. Nothing is filled in
+    from an industry average.
+  independence_caveat: >-
+    The range around the total is the sum of each population's own range.
+    Populations that share payers, staffing and seasons move together, so
+    read it as a spread, not a guarantee.
+  deadline_unknown: >-
+    These plans carry no filing limit on file. That is not evidence the
+    claim is still filable, so these dollars are shown on their own line.

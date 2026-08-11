@@ -2,11 +2,11 @@ id: volume_mix_shift
 description: >-
   Separate "we did more business" from "we did different business" from "the
   same business is worth less". Volume, charge value and contracted richness
-  are probed together at claim and at procedure grain, then cut by payer,
+  are read together at claim and at procedure level, then cut by payer,
   service line and procedure group, because any two of the three cannot tell
   mix from rate: charges up with volume flat is intensity or price, charges
   up with net-to-gross down is a mix shift toward leaner contracts, and both
-  flat with cash down is a collection problem this playbook does not claim.
+  flat with cash down is a collection problem this review does not claim.
 triggers:
   - volume is down
   - why did charges change
@@ -24,7 +24,7 @@ probes:
     window: {quantity: 12, unit: month, mode: full_periods}
     scope_note: >-
       Monthly claim volume, gross charges and contract-expected
-      reimbursement on the service basis with a prior-period compare. Twelve
+      reimbursement on the service date with a prior-period compare. Twelve
       months so seasonality is visible rather than mistaken for a trend.
   - id: mix_by_payer
     metric_ids: [claim_volume, charges]
@@ -32,10 +32,9 @@ probes:
     window: {quantity: 6, unit: month, mode: full_periods}
     top_n: 12
     scope_note: >-
-      Volume and charge value by payer; the share-of-total transform over
-      charges turns this into payer mix. Mix is a share view, never a
-      standalone metric — payer_mix resolves to this shape by governed
-      binding.
+      Volume and charge value by payer; each payer's share of total charges
+      is what makes this payer mix. Mix is a share view, never a standalone
+      measure — a question about payer mix resolves to exactly this shape.
   - id: mix_by_service_line
     metric_ids: [claim_volume, charges]
     dimensions: [service_line]
@@ -60,9 +59,9 @@ probes:
     window: {quantity: 6, unit: month, mode: full_periods}
     top_n: 13
     scope_note: >-
-      Procedure-level intensity. Line grain because proc_group binds at
-      claim_line only; lines per claim varies by service line, so this series
-      is read against claim_volume rather than instead of it.
+      Procedure-level intensity. Line level, because procedure group lives
+      on the line only; lines per claim varies by service line, so this
+      series is read against claim volume rather than instead of it.
   - id: patient_share_context
     metric_ids: [patient_responsibility_rate]
     dimensions: [payer_type]

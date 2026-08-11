@@ -42,7 +42,7 @@ probes:
       unworked share is denials never touched at all (denominator is workable
       denials), given both counted and dollar-weighted because the money left
       on the table is rarely proportional to the records left alone. Recent
-      cohorts read high on the share metrics by construction.
+      populations read high on both shares by construction.
   - id: recovery_dollars
     metric_ids: [overturned_denied_dollars, denied_dollars]
     dimensions: [payer]

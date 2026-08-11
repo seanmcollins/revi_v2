@@ -1,12 +1,11 @@
 id: dimension_scorecard
 description: >-
-  Generic multi-metric assessment across ANY certified dimension — one
-  playbook powers "assess each facility financially", payer scorecards, and
-  service-line reviews alike. The dimension is a parameter (referenced as
-  $dimension in probe dimensions and bound at plan time to a certified
-  catalog dimension); no per-dimension playbooks exist. Small cells are
-  suppressed per catalog policy, and each metric's grade and basis ride
-  along per column.
+  Generic multi-metric assessment across ANY standard breakdown — one shape
+  powers "assess each facility financially", payer scorecards, and
+  service-line reviews alike. The breakdown is chosen when the question is
+  asked and has to be one your data standardizes; there is no separate
+  review per breakdown. Small cells are suppressed, and every measure
+  carries its own evidence strength and reporting date in its column.
 triggers:
   - assess the performance of each facility
   - payer scorecard
@@ -21,12 +20,12 @@ probes:
     dimensions: ["$dimension"]
     window: {quantity: 3, unit: month, mode: full_periods}
     scope_note: >-
-      Flow metrics over the last three full months, one row per dimension
-      value; each metric keeps its own primary basis and the header says so.
+      Flow measures over the last three full months, one row per value;
+      each keeps its own reporting date and the header says which.
   - id: scorecard_ar
     metric_ids: [ar_balance, ar_over_90_pct, days_in_ar]
     dimensions: ["$dimension"]
-    scope_note: Snapshot A/R health per dimension value, aged to the newest data date.
+    scope_note: Point-in-time A/R health per value, aged to the newest data date.
   - id: scorecard_leakage
     metric_ids: [underpayment_variance, denial_write_off_dollars]
     dimensions: ["$dimension"]

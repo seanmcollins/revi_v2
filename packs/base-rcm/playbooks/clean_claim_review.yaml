@@ -5,8 +5,8 @@ description: >-
   root-cause categories and to billing timing. The two rates read the same
   outcome flag with opposite polarity but over DIFFERENT populations, so
   they do not sum to one and the gap between them is a finding rather than
-  a discrepancy — see the clean_by_payer scope note. Honesty note carried
-  throughout: this warehouse has no scrubber events, so "clean" is
+  a discrepancy — the per-payer step below says why. Honesty note carried
+  throughout: your data has no scrubber events, so "clean" is
   outcome-derived (resolved with zero denials) rather than an edit-pass
   measurement — the number answers "did it land cleanly", not "did it pass
   our edits".
@@ -23,7 +23,7 @@ probes:
     metric_ids: [clean_claim_rate]
     window: {quantity: 12, unit: week, mode: full_periods}
     scope_note: >-
-      Weekly clean-claim rate on the SUBMISSION basis with a prior-period
+      Weekly clean-claim rate on the submission date with a prior-period
       compare. Adjudicated claims only — claims still awaiting a first remit
       are excluded from both sides, or the data edge reads as a quality drop.
   - id: clean_by_payer
@@ -34,8 +34,8 @@ probes:
     scope_note: >-
       Clean rate and initial denial rate per payer. They read the same
       outcome flag with opposite polarity but over DIFFERENT denominators,
-      so they do NOT sum to one: clean_claim_rate removes claims still
-      awaiting a first remit (status OPEN), while initial_denial_rate
+      so they do NOT sum to one: the clean claim rate removes claims still
+      awaiting a first remit (status OPEN), while the initial denial rate
       divides by every claim in the window per the Task Force convention.
       The shortfall from 100% is exactly the un-adjudicated tail, so it
       measures how much of a payer's recent business is still undecided —
@@ -43,10 +43,10 @@ probes:
       over 2026-05-01..2026-08-02 the pair sums to 98.38% portfolio-wide
       (13,725/15,068 + 1,343/18,410) and to between 97.5% and 99.2% per
       payer; the payers at the low end are the slow adjudicators. For the
-      pair that genuinely partitions one population, read clean_claim_rate
-      against denial_rate — both carry the OPEN exclusion, and over this
-      window their numerators sum to the shared denominator exactly
-      (13,725 + 1,343 = 15,068).
+      pair that genuinely splits one population in two, read the clean claim
+      rate against the denial rate — both leave out claims still awaiting a
+      first remit, and over this window their numerators sum to the shared
+      denominator exactly (13,725 + 1,343 = 15,068).
   - id: first_pass_detail
     metric_ids: [first_pass_yield]
     dimensions: [payer]

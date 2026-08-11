@@ -9,13 +9,13 @@ id: daily_portfolio
 description: >-
   What to work on first, and what is realistically recoverable: the ranked
   worklist of detected issues, plus denial, cash, underpayment,
-  filing-risk, A/R and unbilled measures. Answers carry the platform's
-  ranked anomaly cards with their lanes, recoverable estimates and
-  reconciliation state (governed routing in worklist.yaml), over
-  pre-materialized branches whose candidate findings the governed ranking
-  policy orders by dollar impact with recency and evidence-grade weights —
-  dollar-impact-first worklisting without black-box scoring. Drill-downs
-  continue as ordinary session turns at the portfolio watermark.
+  filing-risk, A/R and unbilled measures. Answers carry Revi's ranked
+  worklist cards with their lanes, recoverable estimates and reconciliation
+  state, over prepared branches whose candidate findings are ordered by
+  dollar impact, weighted by how recent the problem is and how strong the
+  evidence behind it is — biggest money first, with the arithmetic published
+  instead of a black-box score. Drilling in continues in the same
+  conversation, against the same data load.
 triggers:
   - top issues
   - what are my top 5 issues
@@ -40,7 +40,7 @@ probes:
   - id: portfolio_denial_trend
     metric_ids: [denial_rate]
     window: {quantity: 4, unit: week, mode: full_periods}
-    scope_note: Weekly denial rate; detector denial_rate_spike screens for spikes.
+    scope_note: Weekly denial rate; the detection system screens it for spikes.
   - id: portfolio_denied_dollars
     metric_ids: [denied_dollars]
     dimensions: [payer]
@@ -50,27 +50,28 @@ probes:
   - id: portfolio_cash_trend
     metric_ids: [cash_posted]
     window: {quantity: 4, unit: week, mode: full_periods}
-    scope_note: Weekly posted cash; detector cash_decline_detector screens for drops.
+    scope_note: Weekly posted cash; the detection system screens it for drops.
   - id: portfolio_underpayment
     metric_ids: [underpayment_variance]
     dimensions: [payer]
     window: {quantity: 3, unit: month, mode: full_periods}
     top_n: 5
-    scope_note: Largest never-netted variance payers; detector underpayment_detector.
+    scope_note: >-
+      Largest never-netted variance payers; the detection system screens
+      these for underpayment.
   - id: portfolio_filing_risk
     metric_ids: [timely_filing_at_risk_dollars]
     dimensions: [plan]
     top_n: 5
     scope_note: >-
       Largest UNBILLED OPEN inventories by plan. Ranked on the POPULATION,
-      not on exposure: this probe takes no runway cut, so a claim with a
-      year of runway ranks beside one whose deadline has already passed.
-      Since 2026-08-09 the runway is expressible — `filing_runway_bucket`
-      is certified and legal on this contract — and the portfolio view
-      deliberately stays at plan level for one row per plan; the split that
-      turns this into exposure is `timely_filing_watch`'s
-      `filing_runway_profile` probe, one drill away, where 47% of these
-      dollars turn out to be already expired.
+      not on exposure: this step takes no runway cut, so a claim with a
+      year of runway sits beside one whose deadline has already passed.
+      Filing runway is now a standard cut on this measure, and the portfolio
+      view deliberately stays at plan level for one row per plan. The split
+      that makes this an exposure is the filing runway profile in the
+      timely-filing watch, one drill away, where 47% of these dollars are
+      already expired.
   - id: portfolio_ar_health
     metric_ids: [ar_over_90_pct]
     dimensions: [payer]
@@ -87,7 +88,9 @@ probes:
     metric_ids: [avg_days_to_pay]
     dimensions: [payer]
     window: {quantity: 6, unit: week, mode: full_periods}
-    scope_note: Payment-lag stretch screen; detector posting_lag_stretch.
+    scope_note: >-
+      Payment-lag stretch screen; the detection system watches this for
+      posting lag.
 transforms:
   - operator: compare
     args: {kind: prior_period}

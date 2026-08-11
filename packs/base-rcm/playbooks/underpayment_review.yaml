@@ -1,11 +1,11 @@
 id: underpayment_review
 description: >-
   Locate and size contract underpayment: trend the never-netted variance,
-  rank payers by variance dollars, and corroborate with realization
-  (net_collection_rate) by payer. Line-level allowed-versus-expected detail
-  is claim-grain in this warehouse, so procedure-group attribution proceeds
-  by drilling the affected payer cohort (the planted scenario pays 92
-  percent of expected on one payer-times-ORTHO-SURG cell from May 2026).
+  rank payers by variance dollars, and corroborate with the net collection
+  rate by payer. Allowed-versus-expected detail sits at claim level in your
+  data, not line level, so procedure-group attribution proceeds by drilling
+  into the affected payer's population. In your data one payer pays 92
+  percent of expected on Orthopedic Surgery from May 2026.
 triggers:
   - are we being underpaid
   - underpayment review
@@ -29,8 +29,8 @@ probes:
     dimensions: [payer]
     window: {quantity: 6, unit: month, mode: full_periods}
     scope_note: >-
-      Payer cash against contract-expected for the same cohorts; persistent
-      sub-expected realization corroborates the variance signal.
+      Payer cash against contract-expected over the same populations;
+      persistent sub-expected realization corroborates the variance signal.
   - id: variance_service_mix
     metric_ids: [underpayment_variance]
     dimensions: [payer, service_line]
@@ -38,7 +38,7 @@ probes:
     top_n: 10
     scope_note: >-
       Concentration by payer and service line; drill the winning cell's
-      cohort for line evidence.
+      population for line evidence.
 transforms:
   - operator: compare
     args: {kind: prior_period}

@@ -3,9 +3,9 @@ description: >-
   Investigate a posted-cash decline: establish the weekly cash trend against
   the prior period, decompose the change by payer, separate volume effects
   (submission trend) from timing effects (payment-lag distribution shift),
-  and rank payer-level drivers by dollar impact. The planted warehouse
-  scenario pairs a payer submission-volume drop with another payer's
-  remit-to-post lag stretch.
+  and rank payer-level drivers by dollar impact. In your data one payer's
+  submission volume drops while another payer's remit-to-post lag stretches
+  — two different declines at once.
 triggers:
   - why did cash decline
   - cash is down
@@ -19,7 +19,7 @@ probes:
     metric_ids: [cash_posted]
     window: {quantity: 8, unit: week, mode: full_periods}
     scope_note: >-
-      Weekly buckets on the POST basis with a prior-period comparison; the
+      Weekly buckets on the posting date with a prior-period comparison; the
       decline week is identified here.
   - id: cash_by_payer
     metric_ids: [cash_posted]
@@ -27,8 +27,8 @@ probes:
     window: {quantity: 2, unit: week, mode: full_periods}
     top_n: 12
     scope_note: >-
-      Decline week versus prior week by payer; the decomposition input.
-      Complete payer set — top_n covers the full cardinality.
+      Decline week versus prior week by payer; the input to the breakdown.
+      Every payer is shown — the row limit is above the number of payers.
   - id: submission_volume_by_payer
     metric_ids: [claim_volume]
     dimensions: [payer]

@@ -4,12 +4,12 @@ description: >-
   inventory, splits it by how much filing runway each claim has left
   against the limit its own plan configures, and confirms whether limits
   are already being breached (CARC 29 denials). The runway split is the
-  point — at wm_003 it says 47% of the inventory is already EXPIRED and
+  point — on this load it says 47% of the inventory is already EXPIRED and
   4.6% is inside 30 days, where the ungrouped total said only "this is
-  large". Deadlines come from the claim -> plan -> filing-rule join
-  (delivered 2026-08-09, see ../NOTES.md); only 7 of 30 plans match a rule
-  needing no confirmation, so for the rest the limit is a planning default
-  to confirm against the payer contract, and answers say which.
+  large". Deadlines come from each claim's own plan and the filing rule that
+  plan matches; only 7 of 30 plans match a rule needing no confirmation, so
+  for the rest the limit is a planning default to confirm against the payer
+  contract, and answers say which.
 triggers:
   - timely filing risk
   - claims about to miss filing
@@ -39,8 +39,9 @@ probes:
       Unsubmitted OPEN dollars cut by how much filing runway each claim has
       left: `expired` (the deadline has passed and the dollars are gone),
       `0-30`, `31-60`, `61-90`, `90+`. The limit comes from the claim's own
-      plan record via the pack's filing-rule ladder. This is the cut a
-      deadline question is asking for — how urgent, not where it sits — so
+      plan, matched against the filing rules in your definitions library.
+      This is the cut a deadline question is asking for — how urgent, not
+      where it sits — so
       it leads. Two things any answer over it must carry: `expired` is not
       workable inventory, it is loss already taken; and a plan whose matched
       rule requires confirmation is on a PLANNING DEFAULT, not a known
@@ -51,20 +52,21 @@ probes:
     top_n: 10
     scope_note: >-
       The same unsubmitted OPEN dollars by plan and facility — WHERE the
-      inventory sits, not how urgent it is. Read with filing_runway_profile
-      above, which is these dollars aged against each plan's own limit:
-      this probe's totals are a population, and a conclusion of filing risk
-      drawn from them alone is the upper-bound claim the runway cut exists
-      to replace. The planted scenario clusters July services on a 90-day
-      service-basis Medicaid HMO plan at one facility.
+      inventory sits, not how urgent it is. Read it with the runway profile
+      above, which is these dollars aged against each plan's own limit: the
+      totals here are a population, and a conclusion of filing risk drawn
+      from them alone is the upper-bound claim the runway cut exists to
+      replace. In your data they cluster on July services under a 90-day
+      Medicaid HMO plan at one facility, where the limit runs from the
+      service date.
   - id: unbilled_aging_profile
     metric_ids: [ar_balance]
     dimensions: [ar_age_bucket]
     scope_note: >-
-      Aging profile of the unbilled population (scope: submission date null).
-      A/R age is not filing runway — the buckets age from the A/R clock, not
-      from each plan's filing basis and limit — so this indicates where to
-      look, and cannot yet say how much runway remains.
+      Aging profile of the unbilled population — claims with no submission
+      date. A/R age is not filing runway: these buckets age on the A/R
+      clock, not from each plan's own filing start date and limit. So this
+      indicates where to look, and cannot yet say how much runway remains.
   - id: breach_confirmation
     metric_ids: [denied_dollars]
     dimensions: [group_code, carc, plan]
@@ -73,7 +75,7 @@ probes:
     scope_note: >-
       CO-29 denied dollars confirm limits already breached — the lagging
       indicator the at-risk view exists to prevent. Cut by the group code +
-      CARC pair, never the CARC alone: 14 of the 20 CARCs in this warehouse
+      CARC pair, never the CARC alone: 14 of the 20 CARCs in your data
       appear under more than one group, and a merged row is a different
       number from either of the rows it merged.
 transforms:

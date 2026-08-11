@@ -1,13 +1,13 @@
 id: cob_investigation
 description: >-
-  Answer "do I have a COB problem?" with graded evidence. The direct branch
-  scopes claim volume over the certified cob_mismatch_flag binding (claims
-  billed primary while other insurance exists) — DIRECT-grade evidence. The
-  proxy branch reads COB-typed code concentration (OA/CARC 22, 23, 109) on
-  denied dollars — PROXY-grade evidence that suggests but does not prove a
-  COB problem. The grade law keeps the branches distinct: proxy evidence
-  alone can only support qualified language (cob_suspected_claim), while the
-  certified conclusion (cob_confirmed_claim) requires the direct branch.
+  Answer "do I have a COB problem?" with graded evidence. One path measures
+  it directly: your data carries a standard COB mismatch flag marking claims
+  billed primary while other insurance exists, and claim volume over that
+  flag is a measured value. The other path estimates it from COB-typed code
+  concentration (OA/CARC 22, 23, 109) on denied dollars, which suggests a
+  COB problem without proving one. The two are kept apart on purpose: the
+  estimate alone can support only qualified language, and confirming a COB
+  problem takes the direct measurement.
 triggers:
   - do i have a cob problem
   - cob issue
@@ -21,11 +21,12 @@ probes:
     dimensions: [payer]
     window: {quantity: 4, unit: month, mode: full_periods}
     scope_note: >-
-      DIRECT branch: the certified cob_mismatch_flag binding, carried inside
-      the cob_mismatch_claims / cob_mismatch_rate contracts so the population
-      is governed meaning rather than an ad-hoc filter. Volume, rate and the
-      claim_volume denominator travel together — measures out-of-order
-      billing itself, not a payer's opinion about it.
+      MEASURED DIRECTLY: your data's standard COB mismatch flag, carried
+      inside the COB mismatch count and rate so the population comes from a
+      shared definition rather than a filter typed for one question. The
+      count, the rate and the claim-volume denominator travel together —
+      this measures out-of-order billing itself, not a payer's opinion
+      about it.
   - id: cob_code_proxy
     metric_ids: [denied_dollars]
     dimensions: [carc, group_code]
@@ -33,17 +34,17 @@ probes:
     top_n: 10
     basis_override: remit
     scope_note: >-
-      PROXY branch: concentration of COB-typed pairs (OA-22, OA-23, OA-109)
+      ESTIMATED: concentration of COB-typed pairs (OA-22, OA-23, OA-109)
       in denied dollars. Codes are payer assertions — suggestive, not
-      probative; conclusions from this probe alone stay qualified.
+      probative; a conclusion drawn from this alone stays qualified.
   - id: cob_rebill_timing
     metric_ids: [avg_days_to_pay]
     dimensions: [payer]
     window: {quantity: 4, unit: month, mode: full_periods}
     scope_note: >-
       Corroboration: COB denials that later pay via rebill stretch effective
-      days-to-pay for the affected payer (the planted scenario rebills
-      30-45 days after the first remit).
+      days-to-pay for the affected payer — in your data those rebills land
+      30-45 days after the first remit.
 transforms:
   # The DIRECT branch is transformed FIRST so it, not the proxy branch,
   # supplies the primary findings. Share-of-total turns raw mismatch counts

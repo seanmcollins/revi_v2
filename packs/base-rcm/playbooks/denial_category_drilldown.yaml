@@ -1,10 +1,10 @@
 id: denial_category_drilldown
 description: >-
   Take one root-cause family of denials apart and route it to an owner.
-  Where denial_spike asks "what changed", this asks "what IS this category,
-  where does it live, and whose problem is it" — the standing structural
-  view rather than the trend break. Rolls up by category, opens the category
-  into its group-code + CARC pairs (the category is a rollup OF those pairs,
+  Where a denial-spike investigation asks "what changed", this asks "what
+  IS this category, where does it live, and whose problem is it" — the
+  standing structural view rather than the trend break. Rolls up by
+  category, opens the category into its group-code + CARC pairs (the category is a rollup OF those pairs,
   so the owning stage follows from the pairs, never from the label), locates
   concentration, and reads the work state: how much never gets touched, how
   much wins on appeal, how much lands as a write-off.
@@ -38,8 +38,9 @@ probes:
     dimensions: [denial_category]
     window: {quantity: 3, unit: month, mode: full_periods}
     scope_note: >-
-      Root-cause category rollup in dollars and records, remittance basis.
-      Records are additive across the code cuts below; denied claims are not.
+      Root-cause category rollup in dollars and records, on the remittance
+      date. Records are additive across the code cuts below; denied claims
+      are not.
   - id: category_code_detail
     metric_ids: [denied_dollars, denial_volume]
     dimensions: [denial_category, group_code, carc]
@@ -74,10 +75,11 @@ probes:
     window: {quantity: 3, unit: month, mode: full_periods}
     top_n: 12
     scope_note: >-
-      Where denied dollars end up as non-contractual write-offs. Transaction
-      grain and no stored denial linkage, so this is scope-level attribution
-      by payer and window — never a join to the category rows above, and any
-      conclusion must say so.
+      Where denied dollars end up as non-contractual write-offs. These sit
+      at transaction level and nothing links a write-off back to the denial
+      that caused it, so this is attribution by payer and window — never a
+      row-by-row match to the categories above, and any conclusion must say
+      so.
   - id: category_prevention_context
     metric_ids: [clean_claim_rate, initial_denial_rate]
     dimensions: [service_line]

@@ -434,9 +434,9 @@ knowledge_cards:
         vendor blogs as folklore.
     cautions:
       - >-
-        Revi's days_in_ar contract is a billed-weighted aging variant, not
-        MAP FM-1's net-revenue form; compare against external figures with
-        that label attached.
+        Revi's days in A/R is a billed-weighted aging variant, not MAP
+        FM-1's net-revenue form; compare against external figures with that
+        label attached.
     authored_by: machine-researched (KB wave 1, 2026-08-07)
     review_status: machine_researched
     sources:
@@ -1007,7 +1007,7 @@ knowledge_cards:
         after 5+ adjusted claims when at least 80% of reviewed claims were
         billed in line with AMA guidelines.
       - >-
-        RCM playbook: reconcile paid vs billed CPT on every remit to catch
+        RCM practice: reconcile paid vs billed CPT on every remit to catch
         silent downcodes, aggregate by payer and policy, and batch
         documentation rebuttals.
     cautions:
@@ -1741,7 +1741,7 @@ knowledge_cards:
       coverage determinations (NCDs) and MAC-specific local coverage
       determinations (LCDs) — the same code and diagnosis can pay in one
       jurisdiction and deny in another. Diagnosis-driven medical-necessity
-      edits deny automatically, and patient liability turns on whether a
+      edits deny automatically, and patient liability depends on whether a
       valid Advance Beneficiary Notice was obtained.
     key_points:
       - >-
@@ -1863,7 +1863,7 @@ knowledge_cards:
         18 months; enrollment stood near 79 million in Oct 2024, ~10% above
         pre-pandemic.
       - >-
-        RCM playbook: real-time eligibility checks at scheduling and service,
+        RCM practice: real-time eligibility checks at scheduling and service,
         monitor for retroactive reinstatement before writing off eligibility
         denials, delay self-pay conversion until retro eligibility is ruled
         out, and use retroactive-eligibility exceptions to timely filing
@@ -2087,8 +2087,8 @@ knowledge_cards:
         CARCs/RARCs to flag NSA-subject out-of-network claims — new
         regulatory semantics layered onto 835 parsing.
       - >-
-        Revi practice: this pack paraphrases code meanings in its own words
-        and never reproduces licensed X12 text; an RCM product shipping code
+        Revi practice: Revi paraphrases code meanings in its own words and
+        never reproduces licensed X12 text; an RCM product shipping code
         descriptions should confirm its licensing posture.
     cautions:
       - >-

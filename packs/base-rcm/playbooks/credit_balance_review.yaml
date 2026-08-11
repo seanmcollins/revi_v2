@@ -3,9 +3,9 @@ description: >-
   Work the credit-balance liability: value the credits standing unrefunded by
   payer, trend the refunds actually issued, and read the two together —
   credits rising while refunds flatten is a compliance backlog, not an
-  improvement. Credit balances carry statutory return deadlines, so this
-  investigation is mandatory work regardless of dollar size and the governed
-  actionability rules floor its priority accordingly.
+  improvement. Credit balances carry statutory return deadlines, so this is
+  mandatory work regardless of dollar size, and its priority is floored
+  accordingly — a small credit never sinks below discretionary work.
 triggers:
   - credit balances
   - do we owe refunds
@@ -29,9 +29,9 @@ probes:
     window: {quantity: 6, unit: month, mode: full_periods}
     top_n: 12
     scope_note: >-
-      Refunds actually issued by payer, POST basis. These are provider-issued
-      returns of overpayment, not payer takebacks — no clawback events exist
-      in this warehouse.
+      Refunds actually issued by payer, on the posting date. These are
+      provider-issued returns of overpayment, not payer takebacks — no
+      clawback events exist in your data.
   - id: refund_trend
     metric_ids: [refund_dollars]
     window: {quantity: 6, unit: month, mode: full_periods}

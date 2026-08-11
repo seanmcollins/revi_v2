@@ -47,8 +47,8 @@ concepts:
     definition: >-
       Prior authorization is a payer's advance approval requirement for
       specific services. Rendering care without a required authorization
-      commonly produces an authorization-category denial (CARC 197 in this
-      warehouse's data). The EDI 278 transaction carries authorization
+      commonly produces an authorization-category denial (CARC 197 in your
+      data). The EDI 278 transaction carries authorization
       requests and responses; federal rule CMS-0057-F tightens decision
       timelines and transparency for government programs.
     aliases:
@@ -74,9 +74,10 @@ concepts:
       Point-of-service collections are patient payments (copays, deductibles,
       prior balances) collected at or shortly after the time of service,
       before normal statement cycles. HFMA MAP Key PA-7 tracks POS cash as a
-      share of self-pay cash. This warehouse's patient payments post only
-      after adjudication, so a POS-collection metric is not honestly
-      computable here (see pack NOTES).
+      share of self-pay cash. Your patient payments post only after
+      adjudication, so a point-of-service collection rate is not honestly
+      computable here — nothing records a payment made before the payer's
+      decision.
     aliases:
       - point of service collections
       - point-of-service cash
@@ -155,9 +156,9 @@ concepts:
     name: Late Charges
     description: Charges entered well after the service date.
     definition: >-
-      Late charges are charges entered materially after the service date
-      (this pack's late_charge_pct contract uses more than three days after
-      the line's service date, following the MAP CL-2 shape). Late charges
+      Late charges are charges entered materially after the service date —
+      Revi's late-charge share counts a charge as late more than three days
+      after the line's service date, following the MAP CL-2 shape. Late charges
       arriving after claim submission force rebills or are written off.
     aliases:
       - late charge
@@ -172,7 +173,7 @@ concepts:
       is discharged) but no final bill has been submitted, usually because of
       coding, documentation, or billing-edit holds. It is unbilled revenue
       sitting still: HFMA MAP Key PB-1 expresses it as days of gross revenue.
-      In this warehouse a DNFB claim has a discharge date and no submission
+      In your data a DNFB claim has a discharge date and no submission
       date. Epic calls the state DNB (Discharged Not Billed); Cerner uses
       Discharged Not Ready To Bill; MEDITECH reports unbilled accounts.
     aliases:
@@ -214,7 +215,7 @@ concepts:
     definition: >-
       FBNS is the state between final billing and actual submission: the
       claim exists but has not gone out the door (HFMA MAP Key PB-2; PB-3's
-      DNSP combines DNFB and FBNS). This warehouse has no intermediate
+      DNSP combines DNFB and FBNS). Your data has no intermediate
       final-bill state, so FBNS is vocabulary here, structurally folded into
       DNFB.
     aliases:
@@ -228,8 +229,8 @@ concepts:
     definition: >-
       The coding backlog is the set of discharged accounts that cannot bill
       because coding is incomplete — often reported as DNC (Discharged Not
-      Coded). It is the upstream cause of much of the DNFB inventory. This
-      warehouse carries no coding-status field, so DNC is vocabulary only.
+      Coded). It is the upstream cause of much of the DNFB inventory. Your
+      data carries no coding status, so DNC is vocabulary only.
     aliases:
       - DNC
       - discharged not coded
@@ -256,7 +257,7 @@ concepts:
     definition: >-
       The chargemaster (charge description master) is the master file of
       billable items, codes, and prices that drives gross charges. Every
-      billed amount in this warehouse is a chargemaster-style gross charge,
+      billed amount in your data is a chargemaster-style gross charge,
       distinct from contract-expected or allowed amounts.
     aliases:
       - chargemaster
@@ -275,8 +276,8 @@ concepts:
       Claim submission is the release of a completed claim to the payer,
       usually through a clearinghouse, as an EDI 837. The submission date
       starts adjudication and most timely-filing clocks. athenahealth's DROP
-      status marks claims ready to submit. In this warehouse an unsubmitted
-      claim has a null submission date.
+      status marks claims ready to submit. In your data an unsubmitted
+      claim has no submission date at all.
     aliases:
       - submission
       - claim filing
@@ -305,9 +306,10 @@ concepts:
     definition: >-
       A clean claim passes payer and clearinghouse edits and adjudicates
       without manual rework or denial. HFMA MAP Key CL-1 measures the clean
-      claim rate at the scrubber; this warehouse has no scrubber events, so
-      its clean-claim flag is outcome-derived — a claim that resolved with no
-      denial recorded (see the clean_claim_rate contract description).
+      claim rate at the scrubber; your data has no scrubber events, so the
+      clean-claim flag is derived from the outcome instead — a claim that
+      resolved with no denial recorded. The clean claim rate says the same
+      thing on every answer that reads it.
     aliases:
       - clean claims
       - no-touch claim
@@ -327,8 +329,8 @@ concepts:
       claims paid on their first adjudication with no denial, rework, or
       resubmission. It differs from the clean claim rate, which is measured
       at pre-submission edits; first-pass yield is measured at the payer
-      outcome. The first_pass_yield metric contract implements it on the
-      warehouse's first_pass_paid flag.
+      outcome. Revi measures first-pass yield on the first-pass-paid flag in
+      your data.
     aliases:
       - first pass resolution
       - first-pass resolution rate
@@ -360,9 +362,9 @@ concepts:
       completeness problems, reported on acknowledgments such as the 277CA.
       A rejected claim never entered adjudication, so it is corrected and
       resubmitted rather than appealed. This is the canonical contrast with a
-      denial, which is an adjudicated determination on the remittance. This
-      warehouse carries no clearinghouse-rejection events; the distinction is
-      governed vocabulary.
+      denial, which is an adjudicated determination on the remittance. Your
+      data carries no clearinghouse-rejection events, so the distinction is
+      vocabulary here and not a quantity anyone can measure.
     aliases:
       - rejection
       - rejected claim
@@ -401,7 +403,7 @@ concepts:
       credit, denial), athenahealth worklists and the Workflow Dashboard,
       Cerner work-queue states (Edit Failure, Pending Manual Review),
       IDX/TES workfiles and ETM tasks. Denial and follow-up workqueues are
-      where denial analytics turn into worked inventory.
+      where denial analytics become worked inventory.
     aliases:
       - WQ
       - work queue
@@ -418,16 +420,16 @@ concepts:
     definition: >-
       Work prioritization is the decision of what a follow-up, denial or
       appeals team should work NEXT, given more open work than capacity.
-      The governed answer is not "the largest number" — it is dollars
-      weighted by whether they can actually be recovered, how fresh the
-      problem is, and whether the category must be worked regardless of
-      size (credit balances and other compliance-mandatory work). Distinct
-      from a workqueue, which is where routed work sits in the EHR: this is
-      the ordering question, not the container. In Revi it resolves to the
-      ranked anomaly worklist — detected cards ordered by the versioned
-      anomaly_priority formula, each publishing its own arithmetic, its
-      recoverable estimate, and whether this platform's own re-derivation
-      agrees with the figure the detector reported.
+      The answer is not "the largest number" — it is dollars weighted by
+      whether they can actually be recovered, how fresh the problem is, and
+      whether the category must be worked regardless of size (credit
+      balances and other compliance-mandatory work). Distinct from a
+      workqueue, which is where routed work sits in the EHR: this is the
+      ordering question, not the container. In Revi it resolves to the
+      ranked worklist — detected cards ordered by a standard priority
+      formula, each publishing its own arithmetic, its recoverable
+      estimate, and whether Revi's own re-derivation agrees with the figure
+      the detection system reported.
     aliases:
       - work prioritization
       - what to work first
@@ -446,7 +448,7 @@ concepts:
       on institutional claims by frequency/bill type ending in 7 and on
       professional claims by a resubmission indicator. Industry-standard
       initial-denial denominators exclude rebills so resubmissions are not
-      double counted. In this warehouse, second remits are rebill or appeal
+      double counted. In your data, second remits are rebill or appeal
       outcomes and never carry new denials.
     aliases:
       - corrected claim
@@ -461,8 +463,8 @@ concepts:
     definition: >-
       The 837 is the EDI claim transaction: 837I for institutional claims
       (paper equivalent UB-04) and 837P for professional claims (paper
-      equivalent CMS-1500). The claim_type dimension in this warehouse
-      carries the institutional/professional split.
+      equivalent CMS-1500). The claim type breakdown in your data carries
+      the institutional/professional split.
     aliases:
       - "837"
       - 837i
@@ -530,8 +532,8 @@ concepts:
       The remittance advice is the payer's statement of how a claim
       adjudicated: what was allowed, paid, adjusted, and why. Electronically
       it is the EDI 835 (ERA). Denials, adjustments, and patient
-      responsibility arrive on the remit as group code + reason code pairs;
-      remit date is the adjudication date basis in this warehouse.
+      responsibility arrive on the remit as group code + reason code pairs.
+      The remittance date is the adjudication date in your data.
     aliases:
       - remit
       - rmt
@@ -569,8 +571,8 @@ concepts:
       CO (contractual obligation), PR (patient responsibility), OA (other
       adjustment), PI (payer initiated), and CR (correction/reversal). A
       reason code only has full meaning in combination with its group code —
-      denial analytics in this pack key on the group code + CARC pair, so
-      PR-3 (copay to the patient) and CO-45 (contractual reduction) are never
+      Revi's denial analytics key on the group code + CARC pair, so PR-3
+      (copay to the patient) and CO-45 (contractual reduction) are never
       conflated.
     aliases:
       - CAGC
@@ -592,9 +594,9 @@ concepts:
       CARCs are the standardized reason codes payers use on remittances to
       explain why a billed amount was not paid as billed. They always ride
       with a group code; the pair is the unit of denial analysis. The CARC
-      list is maintained and licensed by X12 — this pack paraphrases the
-      roughly twenty codes present in the warehouse in its own words and
-      never reproduces the licensed text.
+      list is maintained and licensed by X12 — Revi paraphrases the roughly
+      twenty codes present in your data in its own words and never
+      reproduces the licensed text.
     aliases:
       - CARC
       - claim adjustment reason code
@@ -620,10 +622,10 @@ concepts:
     definition: >-
       RARCs add supplemental detail to a CARC — clarifying documentation
       needed, appeal rights, or processing notes. They never change
-      responsibility (that is the group code's job). This warehouse carries
-      synthetic remark codes (RZ01–RZ20) on a minority of denials; they are
-      uncertified placeholders, and analysis cut by them carries discovery
-      grade.
+      responsibility (that is the group code's job). Your data carries
+      synthetic remark codes (RZ01–RZ20) on a minority of denials. They are
+      placeholders and are not standardized here, so a breakdown by them is
+      exploratory.
     aliases:
       - RARC
       - remittance advice remark code
@@ -638,7 +640,7 @@ concepts:
       The CAS segment is where an 835 carries adjustment detail — group code,
       reason code, and amount — at claim or service-line level. When analysts
       say a denial "came through on the CAS," they mean this adjustment
-      detail, which is exactly what the warehouse's denial records represent.
+      detail, which is exactly what the denial records in your data hold.
     aliases:
       - CAS
       - claim adjustment segment
@@ -677,9 +679,9 @@ concepts:
     definition: >-
       Patient responsibility is the portion of the allowed amount the payer
       assigns to the patient — deductible, copay, and coinsurance — reported
-      under the PR group code on the remittance. In this warehouse it is
-      accumulated onto the claim as patient_responsibility_cents once
-      adjudication is visible.
+      under the PR group code on the remittance. In your data it accumulates
+      onto the claim as a patient-responsibility amount once adjudication is
+      visible.
     aliases:
       - PR
       - patient resp
@@ -695,7 +697,7 @@ concepts:
     definition: >-
       A copay is the fixed dollar amount a member owes for a covered service,
       set by the benefit plan. On remittances it appears as a PR-group
-      adjustment (CARC 3 in this warehouse's data).
+      adjustment (CARC 3 in your data).
     aliases:
       - co-pay
       - copayment
@@ -707,7 +709,7 @@ concepts:
     definition: >-
       Coinsurance is the percentage of the allowed amount the member owes
       after deductible, defined by the benefit plan. It appears as a PR-group
-      adjustment on the remittance (CARC 2 in this warehouse's data).
+      adjustment on the remittance (CARC 2 in your data).
     aliases:
       - co-insurance
       - coins
@@ -718,8 +720,7 @@ concepts:
     definition: >-
       The deductible is the annual amount a member must pay out of pocket
       before plan benefits begin. Amounts applied to deductible arrive as
-      PR-group adjustments on the remittance (CARC 1 in this warehouse's
-      data).
+      PR-group adjustments on the remittance (CARC 1 in your data).
     aliases:
       - ded
       - annual deductible
@@ -737,8 +738,8 @@ concepts:
       claim or service line, communicated on the remittance through a group
       code + CARC pair. It is distinct from a rejection, which happens before
       adjudication. Denials may be claim-level (nothing pays) or line-level
-      (specific services), and each denial record in this warehouse carries
-      its pair, denied dollars, category, and appeal state.
+      (specific services), and each denial record in your data carries its
+      pair, denied dollars, category, and appeal state.
     aliases:
       - denials
       - denied claim
@@ -761,9 +762,9 @@ concepts:
       of claims). Standardized definitions dedupe to the first-chronological
       denial and exclude rebills from the denominator. Initial and final
       denial rates must never be conflated: most initial denials are worked
-      and recovered; final denials are the residue written off. In this
-      warehouse every denial is recorded on a claim's first remit, so the
-      initial_denial_rate contract's numerator is exactly first-pass denials.
+      and recovered; final denials are the residue written off. In your data
+      every denial is recorded on a claim's first remit, so the initial
+      denial rate counts exactly first-pass denials.
     aliases:
       - initial denials
       - first-pass denial
@@ -799,8 +800,8 @@ concepts:
       actionable root causes: eligibility (including COB), authorization,
       coding, medical necessity, timely filing, duplicates, contractual, and
       patient responsibility. Industry taxonomies attribute the largest share
-      of denials to front-end causes. The warehouse's denial_category
-      dimension carries this certified rollup.
+      of denials to front-end causes. The denial category breakdown in your
+      data carries this rollup as a standard cut.
     aliases:
       - denial categories
       - denial reason category
@@ -846,7 +847,7 @@ concepts:
       A clinical denial disputes the care itself — medical necessity, level
       of care, length of stay, or clinical validation of coded diagnoses —
       and generally requires clinical documentation and clinician
-      involvement to appeal (CARCs 50 and 151 in this warehouse's data).
+      involvement to appeal (CARCs 50 and 151 in your data).
     aliases:
       - clinical denials
       - medical necessity denial
@@ -885,8 +886,8 @@ concepts:
       An appeal is the formal request that a payer reconsider a denial,
       subject to payer-specific filing windows and levels (redetermination,
       reconsideration, independent review, and further levels for Medicare).
-      In this warehouse each denial carries an appeal status of NONE,
-      APPEALED, OVERTURNED, or UPHELD as visible at the snapshot watermark.
+      In your data each denial carries an appeal status of NONE, APPEALED,
+      OVERTURNED, or UPHELD as it stood at the latest data load.
     aliases:
       - appeals
       - redetermination
@@ -906,7 +907,7 @@ concepts:
     description: An appealed denial decided in the provider's favor.
     definition: >-
       An overturn is an appeal decided for the provider — the denial is
-      reversed and the claim pays. The governed overturn rate divides
+      reversed and the claim pays. The standard overturn rate divides
       overturned appeals by decided appeals (overturned plus upheld), never
       by all denials or all appeals; pending appeals sit outside the
       denominator. Published overturn rates are high (Medicare Advantage
@@ -933,7 +934,7 @@ concepts:
       A denial write-off removes denied dollars from receivables once
       recovery efforts end — the realization of a final denial. HFMA MAP Key
       AR-6 tracks denial write-offs as a share of net revenue, net of any
-      later recoveries. In this warehouse, write-offs post as non-contractual
+      later recoveries. In your data, write-offs post as non-contractual
       (OTHER_ADJ) adjustment transactions.
     aliases:
       - denial write-offs
@@ -948,9 +949,9 @@ concepts:
       Unworked (never-worked) denials are denials that receive no correction,
       appeal, or follow-up before they age into write-offs. Industry sweeps
       put the never-worked share around two-thirds of all denials — the
-      largest recoverable-dollars story in denial management. The
-      denials_unworked_pct contract measures the share of denial records with
-      appeal status NONE, excluding patient-responsibility records.
+      largest recoverable-dollars story in denial management. Revi's unworked
+      denial share measures the denial records with appeal status NONE,
+      excluding patient-responsibility records.
     aliases:
       - never worked denials
       - unworked denial
@@ -963,9 +964,9 @@ concepts:
     definition: >-
       A takeback (recoupment, clawback, offset) is a payer reclaiming money
       it previously paid — often netted out of later remittances and
-      reported at provider level on the 835's PLB segment. This warehouse
-      models refunds of credit balances but not payer-initiated recoupment
-      events; takeback is governed vocabulary here.
+      reported at provider level on the 835's PLB segment. Your data models
+      refunds of credit balances but not payer-initiated recoupment events,
+      so takeback is vocabulary here and not a measurable quantity.
     aliases:
       - recoupment
       - clawback
@@ -984,8 +985,8 @@ concepts:
       billed — most visibly on evaluation-and-management levels, and at DRG
       level as a DRG downgrade. It reduces payment without a full denial, so
       it surfaces in payment-variance analysis rather than denial counts.
-      This warehouse has no downcoding events; the term is governed
-      vocabulary for payer-behavior analytics.
+      Your data has no downcoding events, so the term is vocabulary for
+      payer-behavior analytics and not a measurable quantity here.
     aliases:
       - down code
       - down-coding
@@ -999,8 +1000,8 @@ concepts:
       An RFI denial or development request pauses adjudication pending
       medical records or documentation (Medicare's ADR is the classic form).
       Industry reporting flags growing use of records requests as a payment
-      delay tactic. No RFI events exist in this warehouse; the concept is
-      definitional vocabulary.
+      delay tactic. No RFI events exist in your data, so the concept is
+      vocabulary here and not a measurable quantity.
     aliases:
       - request for information
       - medical records request
@@ -1022,9 +1023,9 @@ concepts:
       the federal version; crossover claims move automatically from Medicare
       to supplemental payers). A COB problem exists when claims are billed in
       the wrong order; on remittances it surfaces through COB-typed reason
-      codes (CARCs 22, 23, and 109 in this warehouse). The warehouse also
-      carries an explicit cob_mismatch_flag, which is direct evidence, while
-      code concentration alone is proxy evidence.
+      codes (CARCs 22, 23, and 109 in your data). Your data also carries an
+      explicit COB mismatch flag, which is measured directly, while code
+      concentration alone is an estimate.
     aliases:
       - coordination of benefits
       - COB
@@ -1063,10 +1064,9 @@ concepts:
     definition: >-
       Cash posting applies received money — payer payments and patient
       payments — to the right accounts and lines, driven by the remittance.
-      The post date is when money movement hits the ledger, and it is the
-      primary date basis for cash metrics; remit-to-post lag is a payer
-      behavior worth watching (a planted scenario in this warehouse stretches
-      it).
+      The posting date is when money movement hits the ledger, and cash
+      measures are reported on it by default. Remit-to-post lag is a payer
+      behavior worth watching; one payer in your data stretches it.
     aliases:
       - payment posting
       - posting
@@ -1079,9 +1079,9 @@ concepts:
     description: Payments received from insurance payers.
     definition: >-
       Payer cash is money received from insurance payers, as distinct from
-      patient payments. The cash_posted contract measures payer cash on the
-      post-date basis; combined views of payer plus patient cash are
-      transforms over both contracts, not a separate governed number.
+      patient payments. Revi measures cash posted on the posting date;
+      combined views of payer plus patient cash are built from both measures
+      rather than being a separate standard number.
     aliases:
       - insurance payments
       - payer payments
@@ -1093,10 +1093,10 @@ concepts:
     description: Payments received from patients or guarantors.
     definition: >-
       Patient cash is money collected from patients and guarantors — point of
-      service, statements, or payment plans. In this warehouse patient
-      payments post only after adjudication establishes patient
-      responsibility, which is why a point-of-service collection rate is not
-      honestly computable (see pack NOTES).
+      service, statements, or payment plans. In your data patient payments
+      post only after adjudication establishes patient responsibility, which
+      is why a point-of-service collection rate is not honestly computable
+      here.
     aliases:
       - patient payments
       - patient collections
@@ -1111,8 +1111,8 @@ concepts:
       what the account should have collected — from duplicate payments,
       overpayment, or posting errors. Credit balances are liabilities:
       resolution is refund or payer offset, and regulated programs set
-      deadlines for returning overpayments. In this warehouse credit
-      balances arise from duplicate payer payments that are later refunded.
+      deadlines for returning overpayments. In your data credit balances
+      arise from duplicate payer payments that are later refunded.
     aliases:
       - credit balances
       - overpayment
@@ -1125,9 +1125,8 @@ concepts:
     description: Returning excess payment to a payer or patient.
     definition: >-
       A refund returns money — to a payer or a patient — to resolve a credit
-      balance. Refund transactions in this warehouse are the REFUND
-      transaction type, always positive amounts with direction carried by the
-      type.
+      balance. Refunds in your data post as REFUND transactions, always
+      positive amounts with the direction carried by the transaction type.
     aliases:
       - refunds
       - patient refund
@@ -1157,8 +1156,8 @@ concepts:
     definition: >-
       An administrative (other) write-off removes a balance that was in
       principle collectible — denial write-offs, small-balance cleanups,
-      courtesy adjustments, timely-filing losses. In this warehouse these
-      post as OTHER_ADJ transactions, distinct from contractual adjustments.
+      courtesy adjustments, timely-filing losses. In your data these post as
+      OTHER_ADJ transactions, distinct from contractual adjustments.
       Their rate against revenue is a leakage signal, not a cost of doing
       business.
     aliases:
@@ -1177,8 +1176,8 @@ concepts:
     definition: >-
       Unapplied (suspense, undistributed) cash is money received that has not
       been matched to an account or claim — a posting-quality problem that
-      distorts both cash and A/R views until resolved. This warehouse posts
-      all cash to claims, so unapplied cash is governed vocabulary only.
+      distorts both cash and A/R views until resolved. Your data posts all
+      cash to claims, so unapplied cash is vocabulary here only.
     aliases:
       - suspense
       - undistributed cash
@@ -1209,7 +1208,7 @@ concepts:
       Expected reimbursement is the amount contract modeling says a claim
       should yield — the fee schedule or contract terms applied to the billed
       services (adjudication simulation). It is the baseline for payment
-      variance: this warehouse stores it per claim as expected_amount_cents.
+      variance, and your data carries an expected amount on every claim.
     aliases:
       - expected pay
       - contract expected
@@ -1225,9 +1224,8 @@ concepts:
     definition: >-
       The allowed amount is what the payer approves for a service under the
       contract — the base from which payment and patient responsibility are
-      split. In this warehouse line-level allowed amounts are null until the
-      claim's first remit is visible; allowed below expected is the
-      underpayment signal.
+      split. In your data a line has no allowed amount until the claim's
+      first remit arrives; allowed below expected is the underpayment signal.
     aliases:
       - allowed
       - allowable
@@ -1239,9 +1237,9 @@ concepts:
     description: Payer paying below the contract-expected amount.
     definition: >-
       An underpayment is a payer paying (or allowing) less than the
-      contract-expected amount for a claim. Governed variance analysis floors
-      each claim's variance at zero — underpayments are never netted against
-      overpayments, because netting hides recoverable dollars. Industry
+      contract-expected amount for a claim. Revi floors each claim's variance
+      at zero — underpayments are never netted against overpayments, because
+      netting hides recoverable dollars. Industry
       reviews consistently find material underpayment rates across payers.
     aliases:
       - underpayments
@@ -1279,9 +1277,8 @@ concepts:
     definition: >-
       Accounts receivable is the outstanding value of care delivered but not
       yet resolved to cash or adjustment. Billed A/R covers submitted claims
-      awaiting resolution; total A/R adds unbilled inventory. In this
-      warehouse the ar_balance contract values open (unresolved) claims at
-      billed charges.
+      awaiting resolution; total A/R adds unbilled inventory. In your data
+      the A/R balance values open (unresolved) claims at billed charges.
     aliases:
       - AR
       - A/R
@@ -1295,12 +1292,13 @@ concepts:
     description: Distribution of receivables by age bucket.
     definition: >-
       A/R aging distributes open receivables into age buckets (0-30, 31-60,
-      61-90, 91-120, over 120 days) from an aging basis date — service or
-      submission. The aged trial balance (ATB) is the system-of-record aging
+      61-90, 91-120, over 120 days) from the date each claim ages on — the
+      service date or the submission date. The aged trial balance (ATB) is
+      the system-of-record aging
       report analytics must reconcile to. The share past ninety days is the
       quoted health number; common guidance keeps it under fifteen to twenty
-      percent of billed A/R. Age buckets here derive at probe time from the
-      snapshot's newest data date.
+      percent of billed A/R. Age buckets are worked out when a question runs,
+      from the newest date in the current data load.
     aliases:
       - aging
       - aged ar
@@ -1318,11 +1316,11 @@ concepts:
     name: A/R Age Bucket
     description: The derived aging bucket dimension.
     definition: >-
-      The A/R age bucket is a derived dimension — not a stored column —
-      computed at probe time as the snapshot's newest data date minus the
-      aging-basis date (service by default, submission as the legal
-      alternate), bucketed 0-30 through 120-plus. Cutting snapshot metrics by
-      it produces the aging profile.
+      The A/R age bucket is worked out when a question runs rather than
+      stored: the newest date in the current data load minus the aging date
+      (the service date by default, the submission date as the alternate),
+      bucketed 0-30 through 120-plus. Cutting a point-in-time measure by it
+      produces the aging profile.
     aliases:
       - aging bucket
       - ar bucket
@@ -1336,11 +1334,11 @@ concepts:
     definition: >-
       Days in A/R expresses receivable size in days. The MAP Key form (FM-1)
       divides net A/R by average daily net revenue; practice guides also
-      quote a gross-charge form — the two bases must never be conflated. This
-      warehouse has no net-revenue series, so the days_in_ar contract
-      implements the billed-weighted average age of open receivables, aged to
-      the snapshot's newest data date — an honest, clearly-labeled variant
-      (see the contract description).
+      quote a gross-charge form — the two must never be conflated. Your data
+      has no net-revenue series, so Revi reports days in A/R as the
+      billed-weighted average age of open receivables, aged to the newest
+      date in the current data load — an honest, clearly-labeled variant, and
+      every answer that reads it says so.
     aliases:
       - DAR
       - net days in ar
@@ -1364,13 +1362,13 @@ concepts:
     description: Payer deadlines for submitting claims.
     definition: >-
       Timely filing limits are payer- and plan-specific deadlines for
-      submitting (or appealing) claims, measured from a contract-defined
-      basis such as service or discharge date. Claims filed late deny under
-      timely-filing reason codes (CARC 29 here) and are rarely recoverable.
-      The governed filing rules in this pack carry per-payer limits with
-      authority levels and confirmation requirements; at-risk analysis
-      values unsubmitted inventory against those limits before the denial
-      ever happens.
+      submitting (or appealing) claims, counted from a contract-defined
+      start date such as the service or discharge date. Claims filed late
+      deny under timely-filing reason codes (CARC 29 here) and are rarely recoverable.
+      Your definitions library carries per-payer filing limits, each with the
+      authority behind it and whether it must be confirmed against the payer
+      contract before being asserted; at-risk analysis values unsubmitted
+      inventory against those limits before the denial ever happens.
     aliases:
       - TFL
       - filing limit
@@ -1385,8 +1383,9 @@ concepts:
     definition: >-
       A zero-balance account has been fully resolved — paid, adjusted, and
       closed. Zero-balance review audits resolved accounts for missed
-      underpayments and wrong write-offs; resolved_date in this warehouse
-      marks when a claim reached resolution as visible at the watermark.
+      underpayments and wrong write-offs; your data carries a resolved date
+      marking when a claim reached resolution, as it stood at the latest data
+      load.
     aliases:
       - zero balance review
       - resolved account
@@ -1402,8 +1401,8 @@ concepts:
     description: Full chargemaster value of services billed.
     definition: >-
       Gross charges are the undiscounted chargemaster value of services —
-      the billed amounts in this warehouse. They are a volume ruler, not
-      expected revenue: metrics on a gross-charge basis must never be read
+      the billed amounts in your data. They are a volume ruler, not
+      expected revenue: a measure built on gross charges must never be read
       against net-revenue benchmarks.
     aliases:
       - gross charge
@@ -1416,10 +1415,10 @@ concepts:
     description: Revenue expected after contractual and other deductions.
     definition: >-
       NPSR is patient service revenue net of contractual allowances and
-      other deductions — the denominator of most MAP financial ratios. This
-      warehouse carries no accounting net-revenue series; contracts that
-      would use NPSR either use contract-expected amounts as a labeled proxy
-      or are deferred (see pack NOTES).
+      other deductions — the denominator of most MAP financial ratios. Your
+      data carries no accounting net-revenue series, so measures that would
+      use NPSR either use contract-expected amounts as a labeled estimate or
+      are not offered at all.
     aliases:
       - net patient service revenue
       - net revenue
@@ -1445,7 +1444,7 @@ concepts:
       Cost to collect is total revenue-cycle operating cost divided by cash
       collected (MAP Keys FM-6/FM-7 split it by functional area). Typical
       performance runs a few percent of collections. No cost or labor data
-      exists in this warehouse; the concept is definitional only.
+      exists in your data, so the concept is vocabulary here only.
     aliases:
       - CTC
       - collection cost
@@ -1457,8 +1456,9 @@ concepts:
     definition: >-
       Payer mix is the share of volume, charges, or cash contributed by each
       payer or payer category. Mix shifts move blended yield even when
-      nothing else changes, so mix views are share-of-total transforms over
-      governed volume and cash metrics — scope, not separate contracts.
+      nothing else changes, so a mix view is each payer's share of the total
+      volume or cash — a different way of reading the same measures, not a
+      separate measure.
     aliases:
       - payor mix
       - mix by payer
@@ -1472,8 +1472,8 @@ concepts:
       Financial class groups payers into reporting buckets — commercial,
       Medicare, Medicare Advantage, Medicaid, Blue Cross, workers' comp,
       self-pay. IDX calls it FSC; most systems call it fin class. It is a
-      certified dimension in this warehouse, coarser than payer and finer
-      than nothing.
+      standard breakdown in your data, coarser than payer and finer than
+      nothing.
     aliases:
       - fin class
       - fc
@@ -1488,8 +1488,8 @@ concepts:
     definition: >-
       Service mix is the distribution of volume, charges, or cash across
       clinical service lines (and procedure groups below them). Like payer
-      mix, it is computed as share-of-total transforms over governed metrics
-      cut by the service_line dimension.
+      mix, it is each service line's share of the total, taken from the same
+      measures cut by service line.
     aliases:
       - service line mix
       - case mix
@@ -1502,8 +1502,8 @@ concepts:
     definition: >-
       Case mix index is the average DRG relative weight across inpatient
       discharges — a measure of clinical acuity that scales expected
-      inpatient revenue (MAP Key FM-5). This warehouse carries no DRG
-      weights, so CMI is definitional vocabulary only.
+      inpatient revenue (MAP Key FM-5). Your data carries no DRG weights, so
+      CMI is vocabulary here only.
     aliases:
       - CMI
       - drg relative weight
@@ -1517,9 +1517,9 @@ concepts:
       measures across patient access (PA), pre-billing (PB), claims (CL),
       account resolution (AR), and financial management (FM) — each published
       as an explicit numerator/denominator with points of clarification.
-      This pack's metric contracts follow the same discipline: governed
-      formula, grain, date basis, and exclusions, with paraphrased
-      definitions rather than reproduced text.
+      Revi's measures follow the same discipline — a stated formula, the
+      level the rows sit at, the date used, and what is excluded — with
+      paraphrased definitions rather than reproduced text.
     aliases:
       - MAP keys
       - hfma map keys
@@ -1539,9 +1539,9 @@ concepts:
       The HFMA Claim Integrity Task Force published standardized denial
       metrics — initial denial rates by volume and dollars, overturn
       measures, cycle times — with precise numerators, denominators, and
-      exclusions (first-chronological dedup, rebill exclusion). This pack's
-      denial contracts implement those shapes honestly against what the
-      warehouse supports and document any divergence.
+      exclusions (first-chronological dedup, rebill exclusion). Revi's denial
+      measures follow those shapes honestly against what your data supports,
+      and state any divergence.
     aliases:
       - claim integrity task force
       - standardized denial metrics
@@ -1560,9 +1560,9 @@ concepts:
       A benchmark is a published reference range for a KPI — such as clean
       claim rates around ninety-five percent, initial denial rates above
       eleven percent, or A/R over ninety days under fifteen to twenty
-      percent. Governed benchmark context in this pack is always cited with
-      source and year and presented as a range, never a single target,
-      because published figures differ by method and population.
+      percent. Benchmark context here is always cited with its source and
+      year and presented as a range, never a single target, because published
+      figures differ by method and population.
     aliases:
       - benchmarks
       - industry benchmark
@@ -1573,11 +1573,12 @@ concepts:
     name: Date Basis
     description: Which date a metric is windowed on.
     definition: >-
-      The date basis is the date field a metric's window ranges over —
-      service, post, submission, remit, or discharge in this warehouse. Cash
-      by post date and cash by service date are different, both-meaningful
-      numbers; every governed contract declares a primary basis and its
-      allowed alternates, and every answer states the basis it used.
+      The date basis is which date a measure's window ranges over — the
+      service, posting, submission, remittance, or discharge date in your
+      data. Cash by posting date and cash by service date are different,
+      both-meaningful numbers; every measure names the date it reports on by
+      default and the alternates it allows, and every answer says which one
+      it used.
     aliases:
       - date bases
       - reporting basis
@@ -1589,9 +1590,9 @@ concepts:
     description: The date care was delivered.
     definition: >-
       The date of service is when care was delivered — the from-date on
-      claims, with line dates inside institutional stays. It is the default
-      aging basis for receivables and the cohort basis for collection-rate
-      metrics in this pack.
+      claims, with line dates inside institutional stays. It is the date
+      receivables age from by default, and the date that fixes the population
+      for collection-rate measures.
     aliases:
       - DOS
       - date of service
@@ -1604,9 +1605,9 @@ concepts:
     description: The location where care was delivered.
     definition: >-
       A facility is a care-delivery location — hospital campus, surgical
-      center, outpatient site. It is a certified dimension in this
-      warehouse; facility-level scorecards run through the generic
-      dimension-scorecard playbook rather than bespoke reports.
+      center, outpatient site. It is a standard breakdown in your data, and
+      a facility scorecard runs through the same generic review that scores
+      any other breakdown rather than a bespoke report.
     aliases:
       - site
       - location
@@ -1630,10 +1631,10 @@ concepts:
       charity care, which is written off because the patient was NOT able to
       pay — the two are separated deliberately, because mixing them
       overstates uncollectible business and understates community benefit.
-      This warehouse carries no bad-debt classification on write-off
-      transactions, so bad debt is governed vocabulary here and not a
-      measurable quantity; denial_write_off_dollars covers the
-      non-contractual write-off family as a whole without splitting it.
+      Your data carries no bad-debt classification on write-off
+      transactions, so bad debt is vocabulary here and not a measurable
+      quantity; denial write-off dollars covers the non-contractual
+      write-off family as a whole without splitting it.
     aliases:
       - uncollectible balance
       - agency placement
@@ -1649,7 +1650,7 @@ concepts:
       pay. Non-profit hospitals must maintain a written policy, publicize
       it, and limit charges for eligible patients under IRS section 501(r);
       presumptive eligibility screening applies the policy without a
-      completed application. Not computable in this warehouse — no financial
+      completed application. Not computable from your data — no financial
       assistance classification exists on the write-off transaction.
     aliases:
       - financial assistance
@@ -1667,7 +1668,7 @@ concepts:
       at cost rather than at charges in community-benefit filings. It is a
       board- and community-facing figure rather than an operating metric,
       and quoting it at gross charges overstates it several-fold. Not
-      computable here: neither component is separable in this warehouse.
+      computable here: neither component is separable in your data.
     aliases:
       - uncompensated
       - community benefit
@@ -1682,9 +1683,9 @@ concepts:
       practical consequence is that under-pricing a chargemaster line caps
       collection at the billed amount forever — the contracted rate never
       applies — which makes an apparently generous contract worthless on
-      that code. It also means net_to_gross_rate moves with the chargemaster
-      as well as with the contract, so a falling ratio can be a pricing
-      change rather than a contracting failure.
+      that code. It also means the net-to-gross rate moves with the
+      chargemaster as well as with the contract, so a falling ratio can be a
+      pricing change rather than a contracting failure.
     aliases:
       - lesser of
       - lesser-of
@@ -1702,8 +1703,8 @@ concepts:
       out-of-network care delivered at in-network facilities, routing the
       remaining payment dispute to an independent dispute resolution process
       between provider and payer instead of to the patient. Out-of-network
-      status is not represented in this warehouse, so balance-billing
-      exposure is vocabulary here and not a measurable population.
+      status is not represented in your data, so balance-billing exposure is
+      vocabulary here and not a measurable population.
     aliases:
       - balance bill
       - surprise bill
@@ -1744,8 +1745,8 @@ concepts:
       starts from receipt of a claim needing no further information, which
       is why payers dispute cleanliness rather than the deadline. The
       symptom here is a stretching payment lag and rising aged A/R for one
-      payer while peers hold steady; the deadlines themselves are not
-      pack-governed.
+      payer while peers hold steady. The deadlines themselves are not held in
+      your definitions library, so Revi never asserts one.
     aliases:
       - prompt payment
       - prompt-pay statute
@@ -1800,9 +1801,9 @@ concepts:
       balance exists. Cycle length, number of statements before escalation,
       and the point of agency placement are policy choices that materially
       change how much of the patient book is ever collected. Revi observes
-      the two ends of it — patient_responsibility_dollars establishes the
-      balance, patient_cash_posted records what came in — and nothing in
-      between: no statement events exist in this warehouse.
+      the two ends of it — patient responsibility dollars establish the
+      balance, patient cash posted records what came in — and nothing in
+      between: no statement events exist in your data.
     aliases:
       - patient statement
       - billing statement
@@ -1836,10 +1837,11 @@ concepts:
     description: Public-program coverage — Medicare, Medicare Advantage, Medicaid and Medicaid MCO.
     definition: >-
       Government payers are the public programs and the private plans that
-      administer them: payer_type in MEDICARE, MEDICARE_ADVANTAGE, MEDICAID
-      and MEDICAID_MCO, so an answer can name its values rather than infer
-      the group from payer names. Vocabulary, not an executable filter — a
-      plan still builds the predicate. Mind what the grouping hides:
+      administer them — the payer types MEDICARE, MEDICARE_ADVANTAGE,
+      MEDICAID and MEDICAID_MCO — so an answer can name the values it used
+      rather than infer the group from payer names. This is vocabulary, not
+      a saved filter: each question still states the scope itself. Mind what
+      the grouping hides:
       Medicare Advantage and Medicaid MCO are commercially administered, so
       they behave like commercial payers on denials and appeals while being
       government-funded. Split them out before concluding anything about
@@ -1855,9 +1857,10 @@ concepts:
     name: Commercial Payers
     description: Commercially funded coverage — commercial carriers and Blue plans.
     definition: >-
-      Commercial payers are privately funded plans: payer_type in COMMERCIAL
-      and BCBS. Vocabulary, not an executable filter — a plan still builds
-      the predicate. The Blue plans are held as their own value rather than
+      Commercial payers are privately funded plans — the payer types
+      COMMERCIAL and BCBS. This is vocabulary, not a saved filter: each
+      question still states the scope itself. The Blue plans are held as
+      their own value rather than
       folded into COMMERCIAL because their contracting, filing rules and
       remittance behavior differ enough to change a conclusion; a question
       about "commercial" almost always means both, and any answer should say
@@ -1875,12 +1878,13 @@ concepts:
     definition: >-
       Managed care covers plans that steer utilization through networks,
       authorization and medical management, as opposed to indemnity or
-      fee-for-service coverage. Two certified scopes express it and they are
-      not identical: product_type in HMO, POS, MA and MCO reads the product,
-      payer_type in MEDICARE_ADVANTAGE and MEDICAID_MCO reads the program —
-      the product view includes commercial HMOs, the program view does not.
-      Vocabulary, not an executable filter: the choice is made when the plan
-      is built, and the answer should say which one it used.
+      fee-for-service coverage. Two standard scopes express it and they are
+      not identical: the product types HMO, POS, MA and MCO read the
+      product, while the payer types MEDICARE_ADVANTAGE and MEDICAID_MCO
+      read the program — the product view includes commercial HMOs, the
+      program view does not. This is vocabulary, not a saved filter: the
+      choice is made when the question is scoped, and the answer should say
+      which one it used.
     aliases:
       - managed care plans
       - managed medicaid
@@ -1892,9 +1896,9 @@ concepts:
     description: Medicare benefits administered by private plans under Part C.
     definition: >-
       Medicare Advantage plans deliver Medicare benefits under private
-      administration: payer_type equal to MEDICARE_ADVANTAGE, or
-      equivalently product_type equal to MA here. Vocabulary, not an
-      executable filter — a plan still builds the predicate. Operationally
+      administration — payer type MEDICARE_ADVANTAGE, or equivalently
+      product type MA here. This is vocabulary, not a saved filter: each
+      question still states the scope itself. Operationally
       MA behaves like commercial business — prior authorization, utilization
       review, its own appeal ladder — while paying against Medicare rates,
       which is why it is held apart from traditional Medicare in every
@@ -1911,9 +1915,9 @@ concepts:
     description: Fee-for-service Medicare administered by CMS contractors.
     definition: >-
       Traditional Medicare is fee-for-service coverage administered by CMS
-      through its claims contractors: payer_type equal to MEDICARE.
-      Vocabulary, not an executable filter — a plan still builds the
-      predicate. It is the low-variance comparison point in almost every
+      through its claims contractors — payer type MEDICARE. This is
+      vocabulary, not a saved filter: each question still states the scope
+      itself. It is the low-variance comparison point in almost every
       payer analysis — published rates, a statutory one-year filing limit, a
       defined appeal ladder — so a metric that looks bad on traditional
       Medicare is usually about us, while the same metric on Medicare
@@ -1929,13 +1933,13 @@ concepts:
     name: Medicaid
     description: State Medicaid programs, direct and managed.
     definition: >-
-      Medicaid scopes to payer_type in MEDICAID and MEDICAID_MCO — the state
-      program plus the managed-care organizations contracted to run it.
-      Vocabulary, not an executable filter — a plan still builds the
-      predicate. Two properties dominate its revenue-cycle behavior: filing
-      limits are the shortest of any payer class (90-95 days under this
-      pack's governed filing rules), and Medicaid is payer of last resort,
-      so coordination-of-benefits errors surface here first.
+      Medicaid covers the payer types MEDICAID and MEDICAID_MCO — the state
+      program plus the managed-care organizations contracted to run it. This
+      is vocabulary, not a saved filter: each question still states the scope
+      itself. Two properties dominate its revenue-cycle behavior: filing
+      limits are the shortest of any payer class (90-95 days under the filing
+      rules in your definitions library), and Medicaid is payer of last
+      resort, so coordination-of-benefits errors surface here first.
     aliases:
       - medicaid program
       - state medicaid program
@@ -1950,12 +1954,12 @@ concepts:
     description: Service lines whose primary activity is operative care.
     definition: >-
       Surgical services are the service lines built around operative care —
-      in this warehouse's certified service_line domain, Orthopedic Surgery
-      and General Surgery. Vocabulary, not an executable filter: a plan
-      still builds the predicate, and a tenant overlay renames the values
-      without changing the concept. Worth naming because these lines behave
-      differently from ambulatory and diagnostic business on every axis this
-      pack measures — higher charge per claim, heavier prior-authorization
+      in your data's standard service line values, Orthopedic Surgery and
+      General Surgery. This is vocabulary, not a saved filter: each question
+      still states the scope itself, and renaming those values in your own
+      data does not change the concept. Worth naming because these lines behave
+      differently from ambulatory and diagnostic business on every axis Revi
+      measures — higher charge per claim, heavier prior-authorization
       and medical-necessity exposure, longer adjudication, and a much larger
       dollar consequence per denial.
     aliases:
@@ -1970,12 +1974,12 @@ concepts:
     definition: >-
       High-dollar claims are the small share of accounts carrying a large
       share of the money — the population worth working one at a time.
-      Stated honestly, no legal filter expresses it: claim value lives in
-      measures (billed_amount_cents, expected_amount_cents), never in a
-      certified dimension, so "claims over fifty thousand dollars" has no
-      predicate here and Revi will not invent one. Ranking and
-      share-of-total over a money metric answer the adjacent question —
-      where the money is concentrated.
+      Stated honestly, no scope expresses it: claim value is a measured
+      amount — billed charges, expected reimbursement — and never a standard
+      breakdown, so "claims over fifty thousand dollars" cannot be scoped
+      here and Revi will not invent it. Ranking a money measure, and each
+      row's share of the total, answer the adjacent question — where the
+      money is concentrated.
     aliases:
       - large dollar claims
       - high dollar accounts

@@ -22,10 +22,10 @@ probes:
     window: {quantity: 12, unit: month, mode: full_periods}
     scope_note: >-
       Monthly non-contractual write-off dollars, write-offs per dollar of
-      payer cash, and the cash itself, POST basis. Trend it: write-offs post
-      30-90 days after the denial that caused them while cash posts within
-      days of adjudication, so a single short window pairs cohorts that have
-      nothing to do with each other.
+      payer cash, and the cash itself, on the posting date. Trend it:
+      write-offs post 30-90 days after the denial that caused them while cash
+      posts within days of adjudication, so a single short window pairs
+      populations that have nothing to do with each other.
   - id: write_off_by_payer
     metric_ids: [denial_write_off_dollars, write_off_rate]
     dimensions: [payer]
@@ -42,7 +42,8 @@ probes:
     window: {quantity: 6, unit: month, mode: full_periods}
     top_n: 12
     scope_note: >-
-      The contractual series beside it, same grain and basis. Contractuals
+      The contractual series beside it, at the same level and on the same
+      date. Contractuals
       are the charge-to-allowed haircut working as designed; they are never
       added to the write-off total and a rising contractual usually means
       charge growth or mix, not leakage.

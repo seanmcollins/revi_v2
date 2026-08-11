@@ -591,16 +591,32 @@ def test_playbook_descriptions_front_load_within_the_selection_clip(
     plus the authored `triggers:` (see
     `InterpretQuestionService._playbook_line`). A disambiguation past the
     clip is still a disambiguation nobody reads: `payer_scorecard`'s
-    tiebreak against the pre-existing generic `dimension_scorecard` has to
-    land inside it, because no trigger phrasing can carry it."""
+    tiebreak against the pre-existing generic scorecard has to land inside
+    it, because no trigger phrasing can carry it.
+
+    The tiebreak used to be the raw id `dimension_scorecard`, and this test
+    pinned that spelling. It is now stated in English — "the generic
+    scorecard ... any other breakdown" — because a playbook description is
+    pack prose held to `docs/client-language.md` like the rest. The
+    disambiguation is not weaker for it: the two descriptions now share the
+    words the model reads on both lines ("generic", "breakdown"), where
+    before one line named an id the other never used. What matters is that
+    the choice rule survives inside the clip, so that is what this asserts.
+    """
     clip = 160
     payer = next(p for p in snapshot.playbooks if p.id == "payer_scorecard")
     head = " ".join(payer.description.split())[:clip]
-    assert "dimension_scorecard" in head
-    assert "payer" in head.lower()
-    # the pre-existing generic playbook is untouched by this pass
     generic = next(p for p in snapshot.playbooks if p.id == "dimension_scorecard")
-    assert generic.description.startswith("Generic multi-metric assessment across ANY certified dimension")
+    generic_head = " ".join(generic.description.split())[:clip]
+    # The tiebreak: names the alternative, and says which question picks which.
+    assert "generic" in head.lower()
+    assert "payer" in head.lower()
+    assert "any other" in head.lower(), "the head must say what the OTHER one is for"
+    # ...in words the generic playbook's own clipped head also uses, so the
+    # model can join the two lines it is shown.
+    assert "generic" in generic_head.lower()
+    assert "breakdown" in head.lower() and "breakdown" in generic_head.lower()
+    assert generic.description.startswith("Generic multi-metric assessment across ANY standard breakdown")
 
 
 def test_snapshot_metrics_are_snapshot_kind(snapshot: PackSnapshot) -> None:
@@ -650,9 +666,14 @@ def test_group_codes_and_carcs_governed(snapshot: PackSnapshot) -> None:
     assert len(carcs) == 20
     rarcs = [c for c in snapshot.code_definitions if c.code_system is CodeSystem.RARC]
     assert len(rarcs) >= 8
-    # CR is honest about never appearing in the mock data.
+    # CR is honest about never appearing in this deployment's data, and says
+    # why it is defined anyway. ("never emits" became "never carries CR" when
+    # the paraphrase stopped addressing the reader as an operator of a mock
+    # warehouse — the fact is the same one.)
     cr = snapshot.code(CodeSystem.GROUP_CODE, "CR")
-    assert cr is not None and "never emits" in cr.definition_paraphrase
+    assert cr is not None
+    assert "never carries CR" in cr.definition_paraphrase
+    assert "on real remittances" in cr.definition_paraphrase
 
 
 # ---------------------------------------------------------------------------

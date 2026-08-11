@@ -47,8 +47,8 @@ codes:
     definition_paraphrase: >-
       The adjustment belongs to neither contractual obligation nor patient
       responsibility — used when no other group fits. Coordination-of-benefits
-      adjustments (for example OA-22/OA-23 in this warehouse) commonly ride
-      under this group.
+      adjustments (for example OA-22/OA-23 in your data) commonly ride under
+      this group.
     category: group
     sources:
       - id: src-x12-codes
@@ -75,9 +75,9 @@ codes:
     title: Correction / Reversal
     definition_paraphrase: >-
       Marks a correction or reversal of a prior adjudication — real 835
-      semantics used when a payer reprocesses a claim. This mock warehouse
-      never emits CR (its generator reprocesses via new remits instead), but
-      the code is governed here because analysts will encounter it on real
+      semantics used when a payer reprocesses a claim. Your data never
+      carries CR; a reprocessed claim arrives as a new remit instead. The
+      code is defined here anyway, because analysts meet it on real
       remittances.
     category: group
     sources:
@@ -206,7 +206,7 @@ codes:
     definition_paraphrase: >-
       The payer treats this line as absorbed into a companion line it has
       already priced, so no separate money attaches to it. The bundling
-      denial: an appeal turns on whether the two services are genuinely
+      denial: an appeal hinges on whether the two services are genuinely
       distinct, not on documentation.
     category: CODING
   - code_system: carc
@@ -232,8 +232,8 @@ codes:
     title: Authorization absent
     definition_paraphrase: >-
       Required precertification, prior authorization, or notification was
-      not obtained before the service — the signature authorization denial
-      (the warehouse's planted denial-spike scenario uses CO-197).
+      not obtained before the service — the signature authorization denial,
+      and the code behind the denial spike in your data (CO-197).
     category: AUTH
   - code_system: carc
     code: "204"
@@ -262,56 +262,55 @@ codes:
     code: RZ01
     title: Synthetic remark 01
     definition_paraphrase: >-
-      Synthetic placeholder remark code emitted by the mock-data generator.
-      It carries no governed real-world RARC meaning; treat any analysis
-      keyed on it as discovery-grade.
+      A placeholder remark code carried in your data. It has no real-world
+      RARC meaning, so anything cut by it is exploratory.
     category: synthetic
   - code_system: rarc
     code: RZ02
     title: Synthetic remark 02
     definition_paraphrase: >-
-      Synthetic placeholder remark code emitted by the mock-data generator.
-      No governed real-world RARC meaning; discovery-grade only.
+      A placeholder remark code carried in your data. It has no real-world
+      RARC meaning, so anything cut by it is exploratory.
     category: synthetic
   - code_system: rarc
     code: RZ03
     title: Synthetic remark 03
     definition_paraphrase: >-
-      Synthetic placeholder remark code emitted by the mock-data generator.
-      No governed real-world RARC meaning; discovery-grade only.
+      A placeholder remark code carried in your data. It has no real-world
+      RARC meaning, so anything cut by it is exploratory.
     category: synthetic
   - code_system: rarc
     code: RZ04
     title: Synthetic remark 04
     definition_paraphrase: >-
-      Synthetic placeholder remark code emitted by the mock-data generator.
-      No governed real-world RARC meaning; discovery-grade only.
+      A placeholder remark code carried in your data. It has no real-world
+      RARC meaning, so anything cut by it is exploratory.
     category: synthetic
   - code_system: rarc
     code: RZ05
     title: Synthetic remark 05
     definition_paraphrase: >-
-      Synthetic placeholder remark code emitted by the mock-data generator.
-      No governed real-world RARC meaning; discovery-grade only.
+      A placeholder remark code carried in your data. It has no real-world
+      RARC meaning, so anything cut by it is exploratory.
     category: synthetic
   - code_system: rarc
     code: RZ06
     title: Synthetic remark 06
     definition_paraphrase: >-
-      Synthetic placeholder remark code emitted by the mock-data generator.
-      No governed real-world RARC meaning; discovery-grade only.
+      A placeholder remark code carried in your data. It has no real-world
+      RARC meaning, so anything cut by it is exploratory.
     category: synthetic
   - code_system: rarc
     code: RZ07
     title: Synthetic remark 07
     definition_paraphrase: >-
-      Synthetic placeholder remark code emitted by the mock-data generator.
-      No governed real-world RARC meaning; discovery-grade only.
+      A placeholder remark code carried in your data. It has no real-world
+      RARC meaning, so anything cut by it is exploratory.
     category: synthetic
   - code_system: rarc
     code: RZ08
     title: Synthetic remark 08
     definition_paraphrase: >-
-      Synthetic placeholder remark code emitted by the mock-data generator.
-      No governed real-world RARC meaning; discovery-grade only.
+      A placeholder remark code carried in your data. It has no real-world
+      RARC meaning, so anything cut by it is exploratory.
     category: synthetic
