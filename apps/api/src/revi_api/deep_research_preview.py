@@ -78,8 +78,9 @@ def generalized_preview_payload(
         rounds_planned=preview.budget,
         # A question with one answerable half and one unanswerable one still
         # gets its readings — and still says, here, before the minute is
-        # spent, which half it cannot reach. The alternative is what this
-        # replaced: five cheerful availability statements on the card and
-        # the honesty at the far end of the transaction.
-        refusal=preview.refusal or preview.gap_note,
+        # spent, which half it cannot reach. The two travel separately:
+        # `refusal` means nothing runs, `gap_note` means the study runs and
+        # this is the half it cannot serve.
+        refusal=preview.refusal,
+        gap_note=preview.gap_note,
     )

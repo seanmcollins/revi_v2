@@ -3322,6 +3322,11 @@
             "title": "Authored By",
             "type": "string"
           },
+          "gap_note": {
+            "default": "",
+            "title": "Gap Note",
+            "type": "string"
+          },
           "knowledge_consulted": {
             "items": {
               "$ref": "#/components/schemas/ConsultedNotePayload"

@@ -292,6 +292,9 @@ export interface GeneralizedResearchPreview {
   roundsPlanned: number;
   /** Non-empty when nothing in the data can answer the question. */
   refusal: string;
+  /** Non-empty when PART of the question is unreachable while the study
+   * still runs — rendered as a note, never as a refusal. */
+  gapNote: string;
 }
 
 /** The whole dry run, as the surfaces hold it. */
@@ -707,6 +710,7 @@ export function mapGeneralizedPreview(raw: unknown): GeneralizedResearchPreview 
     authoredBy: authored === "model" ? "model" : "revi",
     roundsPlanned: count(raw.rounds_planned),
     refusal: words(raw.refusal),
+    gapNote: words(raw.gap_note),
   };
 }
 

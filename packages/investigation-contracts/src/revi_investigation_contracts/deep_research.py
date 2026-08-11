@@ -26,7 +26,7 @@ from __future__ import annotations
 from datetime import date, datetime
 from typing import Any, Literal
 
-from pydantic import Field
+from pydantic import AliasChoices, Field
 
 from revi_investigation_contracts.api import ChartSpec, FindingPayload, WarningPayload
 from revi_investigation_contracts.deep_research_offer import (
@@ -406,7 +406,18 @@ class HeadlinePayload(ClosedModel):
     severity_wins: int = 0
     severity_recovered_cents: int = 0
     severity_denied_cents: int = 0
-    range_is_summed_endpoints: bool = True
+    #: Reads (never writes) the pre-rename key so reports published before
+    #: the methods fixes still open — the one artifact-schema evolution this
+    #: store has needed. A stored report is a record; renaming a field must
+    #: not orphan it.
+    range_is_summed_endpoints: bool = Field(
+        default=True,
+        validation_alias=AliasChoices(
+            "range_is_summed_endpoints",
+            "range_assumes_independence",
+            "interval_assumes_independence",
+        ),
+    )
     amounts_treated_as_known: bool = True
 
 
@@ -694,6 +705,13 @@ class GeneralizedResearchPreviewPayload(ClosedModel):
     #: Set when nothing in the definitions library can speak to the
     #: question — a refusal naming the data gap, never a thin run.
     refusal: str = ""
+    #: Set when PART of the question is unreachable while the rest still
+    #: runs — the half-refusal, carried separately so a card can run the
+    #: study and still say, before the minute is spent, which half it
+    #: cannot reach. Conflating this with ``refusal`` made a half-
+    #: answerable question read as a full refusal on the card while the
+    #: server ran the study anyway.
+    gap_note: str = ""
 
 
 # ---------------------------------------------------------------------------

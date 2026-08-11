@@ -1433,6 +1433,12 @@ class GeneralizedResearchLoop:
         try:
             proposed, rationale = await self._planner.open(orientation, budget=budget)
         except Exception:
+            if not standing:
+                # A planner failure with no standing set to fall back on is
+                # an ENGINE failure, and must never wear the data-gap
+                # sentence — "nothing in your definitions library matches"
+                # is a claim about the reader's data that nothing verified.
+                return (), _PLANNER_FAILURE_RATIONALE, "revi", 0
             return standing, _standing_rationale(orientation), "revi", earned_rounds(standing, budget)
         legal = validate_angles(proposed, orientation)
         if not legal:
@@ -1541,6 +1547,15 @@ def validate_angles(
             replace(angle, measure=normalized, round=angle.round or round_index)
         )
     return dedupe(kept)
+
+
+#: The engine owning its own failure: a statement about Revi, never about
+#: the reader's data.
+_PLANNER_FAILURE_RATIONALE = (
+    "Revi could not put a research plan together just now. That is a "
+    "planning failure on Revi's side, not a gap in your data — try again "
+    "in a moment."
+)
 
 
 def _standing_rationale(orientation: Orientation) -> str:

@@ -2143,6 +2143,11 @@ export interface components {
              * @enum {string}
              */
             authored_by: "model" | "revi";
+            /**
+             * Gap Note
+             * @default
+             */
+            gap_note: string;
             /** Knowledge Consulted */
             knowledge_consulted?: components["schemas"]["ConsultedNotePayload"][];
             /**

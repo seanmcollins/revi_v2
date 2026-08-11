@@ -850,8 +850,14 @@ class TestTheResearchQuestionGetsItsOwnPreview:
         )
         general = preview.generalized
         assert general is not None
-        assert "satisfaction" in general.refusal
-        assert "loading a feed" in general.refusal
+        # The collections half IS answerable, so this is the half-refusal:
+        # the study runs on what it can reach and the card names, before
+        # the minute is spent, the half it cannot. The gap sentence must
+        # never wear the full-refusal costume while readings are offered —
+        # that was the conflation the gap_note field exists to end.
+        assert "satisfaction" in general.gap_note
+        assert "loading a feed" in general.gap_note
+        assert general.refusal == ""
         # And the same sentence leads the path choices, so a reader
         # skimming the card meets it before the readings.
         assert general.path_choices

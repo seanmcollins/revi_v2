@@ -389,6 +389,7 @@ function QuestionReasoning({
     rationale,
     roundsPlanned,
     refusal,
+    gapNote,
   } = preview;
 
   return (
@@ -455,6 +456,15 @@ function QuestionReasoning({
           button stays — and the card says which run it is now offering,
           because a button whose meaning changed silently is worse than no
           button. */}
+      {/* THE HALF-REFUSAL: the study still runs, and this names the half
+          of the question it cannot serve — a quiet note, never the amber
+          refusal costume, because a question the card is about to answer
+          most of has not been refused. */}
+      {gapNote !== "" && refusal === "" && (
+        <p className="mt-2 text-meta leading-snug text-muted-foreground">
+          {gapNote}
+        </p>
+      )}
       {refusal !== "" ? (
         <div className="mt-2 space-y-1">
           <p className="flex items-start gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-meta leading-snug">
