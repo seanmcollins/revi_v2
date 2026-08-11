@@ -22,9 +22,14 @@ to do, in order). The owner's standing laws that govern all of it:
   `make warehouse-diff` (must PASS), web tsc/lint/vitest/build. Commit only
   on green; every commit message states its bar.
 
-## 1. Verify and merge `wip/deep-research-methods-fixes` (FIRST — P0s live here)
+## 1. ~~Verify and merge the fix branch~~ — DONE (merged as `bad2dd3`; residuals closed in M57)
 
-The branch carries complete fixes for every finding in
+COMPLETE: the branch was verified (full bar + all live repros) and merged;
+the remote branch is deleted; three residual defects it reported were fixed
+in M57 (legacy report payloads open via a read-alias, half-refusals carry
+their own gap_note field, planner failures state they are engine failures).
+The section below is retained for the record. It documented fixes for every
+finding in
 `docs/reviews/deep-research-methods-review.md` (read it in full — it has
 file:line attributions, fix shapes, a preserved VERIFIED-CORRECT list, and
 three anchor moments whose character must survive). The wave was interrupted

@@ -14,7 +14,11 @@ never computes numbers; a deterministic calculation kernel computes numbers but
 never interprets language. Alongside the conversational surface, **Monitors** is
 the proactive surface: pinned investigation specs re-run on every data load,
 material changes surface in a per-load brief, and detected anomalies are ranked
-by recoverable dollars.
+by recoverable dollars. **Deep research** is the third mode: a research
+question, planned by the model over closed operation shapes with the pack's
+RCM knowledge and the data's own measured shape in context, executed through
+certified paths with threshold-gated iteration, reported as a determination
+whose walk shows its reasoning (see docs/agentic-resolution.md).
 
 ## Core principles
 
@@ -63,7 +67,7 @@ Default to **inflexible**. The flexible list is short and exhaustive.
 - The honesty machinery: bounds-as-data, premise verification, coded warnings
   (`warning_codes.py` families), suppression, maturity guards, reconciliation.
 - Pack-governed semantics — no hardcoded metrics, thresholds, or question paths.
-- Layer boundaries enforced by import-linter (6 contracts) — contracts packages
+- Layer boundaries enforced by import-linter (8 contracts) — contracts packages
   have no implementation dependencies; the kernel imports nothing above it.
 - Export/Evidence full fidelity, regardless of how calm the default surface gets.
 - The verification bar (below) passing before any change lands.

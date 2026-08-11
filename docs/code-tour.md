@@ -1,3 +1,10 @@
+> **Note (2026-08-11):** this tour predates the statistics plane
+> (`packages/statistics*`), the discovery API and deep-research engine
+> (`packages/investigation/.../discovery/`, `.../deep_research/`), and the
+> Monitors-into-Home consolidation. Those areas are mapped in
+> `docs/HANDOFF.md` and `docs/agentic-resolution.md`; this tour's full
+> refresh is the digestibility pass's closing deliverable.
+
 # Code tour — a reading order for a human reviewer
 
 This is a map for someone reading Revi for the first time, in chunks, in

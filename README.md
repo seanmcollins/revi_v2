@@ -46,6 +46,13 @@ These are design commitments verifiable in this repository, not market claims:
   portfolio separates what already hit cash from what is *still catchable*, with
   dollars and deadlines attached. "Nothing material changed" is a first-class message,
   not an empty state.
+- **Research runs are walked, not templated.** Deep research plans any
+  research question over closed operation shapes — orienting against the
+  data's measured shape, consulting authored RCM knowledge for what deserves
+  checking, iterating on what it finds under pack-governed significance
+  thresholds — and reports a determination with the walk shown. The model
+  chooses what is interesting; the content decides what is significant; the
+  deterministic plane computes everything.
 - **Semantics are governed content, not code.** Metrics, dimensions, playbooks,
   benchmarks, and materiality thresholds live in reviewable YAML packs — extensible per
   tenant, never hardcoded per question.
