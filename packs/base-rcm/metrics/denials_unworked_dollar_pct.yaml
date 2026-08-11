@@ -22,13 +22,13 @@ sign: higher_is_bad
 unit: ratio
 description: >-
   Denied dollars carrying no appeal activity as a share of workable denied
-  dollars in the window, remittance-date basis. Exclusion: patient-
-  responsibility category records are removed from both sides — they are
+  dollars in the window, dated by remittance. Exclusion:
+  patient-responsibility records are removed from both sides — they are
   billing instructions, not workable denials — exactly as in the record-count
-  denials_unworked_pct, so the two contracts describe the same population in
-  different units and are meant to be read side by side. Denied dollars are
-  the payer's asserted amount, NOT a recovery estimate: appeal_overturn_rate
-  is well under one, so the recoverable share of this figure is a fraction of
-  it and any dollar claim built on it must say so. Population caveat: recent
-  denials legitimately show no appeal yet, so a window near the data edge
-  overstates abandonment.
+  version, so the two describe the same population in different units and are
+  meant to be read side by side. Denied dollars are the payer's asserted
+  amount, NOT a recovery estimate: the appeal overturn rate is well under one,
+  so the recoverable share of this figure is a fraction of it, and any dollar
+  claim built on it must say so. Population caveat: recent denials
+  legitimately show no appeal yet, so a window near the data edge overstates
+  abandonment.

@@ -56,7 +56,7 @@ def test_the_contract_emits_the_same_caveat_the_display_file_carries(rules) -> N
     # the filing-rule join landed the shared claim is a POPULATION
     # statement: the total counts every unbilled open claim whatever its
     # runway, and the runway cut is what separates them.
-    for token in ("regardless of runway", "filing_runway_bucket"):
+    for token in ("regardless of runway", "filing runway bucket"):
         assert token in caveat.lower(), token
         assert token in entry.caveat.lower(), token
 

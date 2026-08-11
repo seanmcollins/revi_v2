@@ -136,7 +136,11 @@ class TestPreClaimRepair:
         assert repaired.confirming_watermarks == ()
         assert "ran BEFORE it" in repaired.verification_note
         assert "not evidence the fix worked" in repaired.verification_note
-        assert "wm_010" in repaired.verification_note  # the claim load, named
+        # The claim is the sentence's anchor — every load it counts is
+        # measured from it — and it is named as the claim rather than by the
+        # warehouse handle, which is a word no reader has seen.
+        assert "after the claim" in repaired.verification_note
+        assert "wm_" not in repaired.verification_note
         assert "Confirmed" not in repaired.verification_note
 
     def test_the_repair_runs_once_and_then_leaves_the_lead_alone(self) -> None:
@@ -217,10 +221,13 @@ class TestReappearance:
 
         assert outcome.lead.status == "regressed"
         assert outcome.lead.confirming_watermarks == ()
+        # Both facts, in one sentence. The loads are counted rather than
+        # listed: the handles ride on ``confirming_watermarks`` for a client
+        # that wants them, and a reader has never seen ``wm_002``.
         assert outcome.lead.verification_note == (
-            "Regressed: ANM-029 was confirmed fixed at wm_010 on 2 loads wm_002, wm_010; the "
-            "detector fired again at wm_011 — the confirmation is withdrawn, because a lead in "
-            "this load's own detection feed is not a fixed lead."
+            "Regressed: ANM-029 was confirmed fixed on 2 earlier loads; the detector fired "
+            "again at this load — the confirmation is withdrawn, because a lead in this load's "
+            "own detection feed is not a fixed lead."
         )
         assert outcome.entry is not None
         # `resolution_regressed` is first in the governed priority order and
@@ -238,7 +245,7 @@ class TestPayloadBuild:
         status, note = _publishable_lead_status(lead, tenant=TENANT, watermark_id="wm_011")
 
         assert status == "regressed"
-        assert "the detector fired again at wm_011" in note
+        assert "the detector fired again at this load" in note
 
     def test_every_other_status_is_published_as_stored(self) -> None:
         lead = _lead(status="working", verification_note="", note="Sarah has it")
@@ -447,7 +454,11 @@ class TestOverRealLoads:
         assert lead.confirming_watermarks == [third.id]
         assert first.id not in lead.verification_note
         assert lead.verification_note.startswith("Confirmed: ANM-031")
-        assert f"for 1 load, {third.id}" in lead.verification_note
+        # The streak's LENGTH is the sentence's claim; WHICH loads verified
+        # it is on the payload above, in the form a client can read. A
+        # warehouse handle in the prose is a name no reader has seen.
+        assert "for 1 load." in lead.verification_note
+        assert third.id not in lead.verification_note
         assert "ANM-031" in {
             e.anomaly_id for e in brief.entries if e.kind == "resolution_confirmed"
         }
@@ -482,8 +493,11 @@ class TestOverRealLoads:
         lead = await service.monitors.get_lead(CALLER, "ANM-031")
         assert lead.status == "regressed"
         assert lead.confirming_watermarks == []
-        assert lead.verification_note.startswith("Regressed: ANM-031 was confirmed fixed at wm_003")
-        assert "the detector fired again at wm_004" in lead.verification_note
+        assert lead.verification_note.startswith(
+            "Regressed: ANM-031 was confirmed fixed on 1 earlier load"
+        )
+        assert "the detector fired again at this load" in lead.verification_note
+        assert "wm_" not in lead.verification_note
         [entry] = [e for e in brief.entries if e.kind == "resolution_regressed"]
         assert entry.anomaly_id == "ANM-031"
         assert entry.statement == lead.verification_note

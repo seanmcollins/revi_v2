@@ -203,7 +203,7 @@ benchmarks:
     review_status: machine_researched
     cautions:
       - "54.3% all private payers; 52.7% Medicare Advantage; overturn typically took ~3 review rounds of 45-60 days each"
-      - Denominator is all denials, not decided appeals - Revi's appeal_overturn_rate divides by decided appeals, so compare with care
+      - Denominator is all denials, not decided appeals - Revi's appeal overturn rate divides by decided appeals, so compare with care
     sources:
       - id: premier-denials-2024
         title: "Trend Alert: Private Payers Retain Profits by Refusing or Delaying Legitimate Medical Claims"
@@ -265,7 +265,7 @@ benchmarks:
     review_status: machine_researched
     cautions:
       - "Medicare Advantage: 19% (2020) to 27% (Q3 2023); Crowe Q1 2023: 31% of commercial inpatient claims unpaid >90 days vs 12% Medicare"
-      - Commercial-payer cohort; blended-payer shares run lower
+      - Commercial payers only; blended-payer shares run lower
     sources:
       - id: kodiak-payment-delays-2023
         title: Healthcare providers face increasingly long waits for payments, worsening financial stress
@@ -286,7 +286,7 @@ benchmarks:
     review_status: machine_researched
     cautions:
       - Direction only - no authoritative public source publishes an absolute national median for net days in A/R; HFMA MAP medians are members-only
-      - Revi's days_in_ar is a billed-weighted aging variant, not MAP FM-1's net-revenue form
+      - Revi's days in A/R is a billed-weighted aging variant, not MAP FM-1's net-revenue form
     sources:
       - id: techtarget-kodiak-2024
         title: Initial claim denial rates put revenue cycle in tough spot
@@ -307,7 +307,7 @@ benchmarks:
     review_status: machine_researched
     cautions:
       - Guidance-tier figures, not measured medians; hospital vs physician-practice norms differ
-      - Revi's days_in_ar is a billed-weighted aging variant - compare against external figures with that label attached
+      - Revi's days in A/R is a billed-weighted aging variant - compare against external figures with that label attached
     sources:
       - id: techtarget-rcm-kpis
         title: Breaking Down the Top 5 Healthcare Revenue Cycle KPIs
@@ -328,7 +328,7 @@ benchmarks:
     review_status: machine_researched
     cautions:
       - HFMA does not publish the numeric target on its open MAP Keys page; figure comes via trade reporting
-      - Revi's clean_claim_rate is outcome-derived (no scrubber events in the warehouse), while MAP CL-1 measures at pre-submission edits
+      - Revi's clean claim rate is outcome-derived (your data holds no scrubber events), while MAP CL-1 measures at pre-submission edits
     sources:
       - id: techtarget-rcm-kpis
         title: Breaking Down the Top 5 Healthcare Revenue Cycle KPIs
@@ -390,7 +390,7 @@ benchmarks:
     authority: industry association guidance
     review_status: machine_researched
     cautions:
-      - Operating target, not an observed cohort; appealing above ~92% suggests fighting unwinnable cases, below range suggests under-appealing
+      - Operating target, not an observed population; appealing above ~92% suggests fighting unwinnable cases, below range suggests under-appealing
       - Presumes an effective prevention program; not a target for organizations with high preventable-denial volume
     sources:
       - id: hfma-proactive-denials
@@ -417,11 +417,11 @@ benchmarks:
     authority: professional association survey
     review_status: machine_researched
     cautions:
-      - Physician group practice cohort, not hospitals; the same report puts over 70 percent of better-performer A/R under 30 days
+      - Physician group practices, not hospitals; the same report puts over 70 percent of better-performer A/R under 30 days
       - Dated - 2021 report on 2020 data, a year when deferred care distorted aging; treat as a directional target, not a current median
       - Better-performer figure, not a median; a typical practice sits materially above it
-      - Revi's ar_over_120_pct denominator is gross-billed open A/R including unbilled claims, and the source does not state its denominator convention
-      - Never read against ar_over_90_pct - the bands are not interchangeable and the 91-120 band is often ordinary payer float
+      - Revi's over-120 share uses a gross-billed open A/R denominator including unbilled claims, and the source does not state its denominator convention
+      - Never read against the over-90 share - the bands are not interchangeable and the 91-120 band is often ordinary payer float
     sources:
       - id: mgma-data-mine
         title: "Data Mine: Measuring success - Finding the right metrics to optimize the revenue cycle"

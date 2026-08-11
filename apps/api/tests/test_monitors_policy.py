@@ -151,7 +151,13 @@ class TestMateriality:
         )
         assert not verdict.material
         assert verdict.rule == "no_governed_threshold"
-        assert "ungated alert" in verdict.note
+        # The note must still say BOTH things: the movement was counted, and
+        # it was withheld because nothing could judge its size. Only the
+        # wording moved (docs/client-language.md) — "ungated alert" named a
+        # concept no analyst has.
+        assert "counted" in verdict.note
+        assert "not briefed" in verdict.note
+        assert "no size rule" in verdict.note
 
     def test_a_first_evaluation_claims_no_movement(self, policy) -> None:  # type: ignore[no-untyped-def]
         verdict = assess_movement(
@@ -411,7 +417,10 @@ class TestTimeToImpact:
         )
         assert payload is not None
         assert payload.kind == "unknown"
-        assert payload.reason and "days_to_deadline" in payload.reason
+        # Still names what was missing — a refusal that does not is a wall —
+        # but as the fact a reader recognises rather than its column name.
+        assert payload.reason and "no filing deadline" in payload.reason
+        assert "days_to_deadline" not in payload.reason
 
     def test_an_ungoverned_category_says_the_pack_has_no_rule(self, policy) -> None:  # type: ignore[no-untyped-def]
         record = _record("brand_new_category", {"cutoff": "2026-08-02"})

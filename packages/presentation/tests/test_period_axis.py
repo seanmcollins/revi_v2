@@ -263,7 +263,12 @@ class TestChartKindFollowsTheShape:
         # The recipe still WON selection — it is named on the wire — so the
         # demotion is stated rather than leaving the two contradicting.
         assert spec.recipe_id == "denial_rate_trend"
-        assert any(a.startswith("chart type: drawn as bar") for a in spec.annotations)
+        assert any(
+            a.startswith("chart type: drawn as bars rather than a line")
+            for a in spec.annotations
+        )
+        # The demotion is stated in chart shapes, not in our recipe id.
+        assert not any("denial_rate_trend" in a for a in spec.annotations)
 
     def test_two_periods_are_paired_bars_not_a_line(self) -> None:
         recipe = RecipeSpec(

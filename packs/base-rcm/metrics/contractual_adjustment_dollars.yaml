@@ -17,17 +17,17 @@ scope_dimensions:
 sign: neutral
 unit: money_cents
 description: >-
-  Contractual adjustment dollars posted in the window on the post-date basis
-  — the difference between gross charges and the contracted allowed amount,
-  taken at adjudication. Sign is neutral on purpose: a contractual is the
-  negotiated discount, not leakage, and a rising contractual total usually
+  Contractual adjustment dollars posted in the window, dated by the posting
+  date — the difference between gross charges and the contracted allowed
+  amount, taken at adjudication. Sign is neutral on purpose: a contractual is
+  the negotiated discount, not leakage, and a rising contractual total usually
   means charge growth or mix shift rather than a problem. Read it against
-  charges and expected_reimbursement, but never by subtraction across a
-  window: charges minus contractuals equals the expected amount per
-  ADJUDICATED CLAIM only. This contract is transaction-grain on the post
-  basis while both of those are claim-grain on the service basis, and
-  contractuals post only after adjudication, so the window totals do not
-  close — over 2026-05-01..2026-08-02 the residual runs 7.8% above expected
-  on these primary bases and 40.2% above it with both sides on the service
-  basis. Never add it to denial_write_off_dollars either — that family is
+  charges and expected reimbursement, but never by subtraction across a
+  window: charges minus contractuals equals the expected amount for a single
+  adjudicated claim only. Contractuals are counted per transaction on the
+  posting date while both of those are counted per claim on the service date,
+  and a contractual posts only after adjudication, so the window totals do not
+  close — over May 1 – Aug 2, 2026 the residual runs 7.8% above expected on
+  those primary dates and 40.2% above it with both sides read on the service
+  date. Never add it to denial write-off dollars either — that family is
   non-contractual write-off and answers a different question.

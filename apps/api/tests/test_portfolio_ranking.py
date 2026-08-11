@@ -102,7 +102,7 @@ class TestRankedOn:
         # ranked on the figure the platform defends, and it says so
         assert card.ranked_on == "platform"
         assert card.ranked_impact_cents == 3_551_530
-        assert "not the detector's" in card.ranked_on_note
+        assert "not the detection system's" in card.ranked_on_note
         # the recoverable estimate follows the same figure
         fraction = assess(rules.rule_for("DENIAL_SPIKE"), record).recoverable_fraction
         assert card.recoverable_cents_estimate == int(

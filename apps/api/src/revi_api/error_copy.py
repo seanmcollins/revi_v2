@@ -38,7 +38,7 @@ from revi_kernel.errors import ErrorCode
 #: code alone does not distinguish them.
 PLAIN_MESSAGES: dict[ErrorCode, str] = {
     ErrorCode.BINDING_AMBIGUOUS: (
-        "That term matches more than one thing in this warehouse, so I can't tell which "
+        "That term matches more than one thing in your data, so I can't tell which "
         "you meant. Naming the field or the breakdown you want will settle it."
     ),
     ErrorCode.INSUFFICIENT_EVIDENCE: (
@@ -46,7 +46,7 @@ PLAIN_MESSAGES: dict[ErrorCode, str] = {
         "window, or a broader population, may have enough."
     ),
     ErrorCode.UNSUPPORTED_CONCEPT: (
-        "I couldn't map that question onto anything this warehouse measures. Try naming a "
+        "I couldn't map that question onto anything your data measures. Try naming a "
         "specific metric or breakdown, or ask what's available."
     ),
     # POLICY_DENIED is deliberately ABSENT. Its messages are already
@@ -64,7 +64,7 @@ PLAIN_MESSAGES: dict[ErrorCode, str] = {
     # The model-spend case gets its own sentence via `_SUBCODE_MESSAGES`
     # below — see :func:`budget_subcode` for why the two must not share one.
     ErrorCode.QUERY_BUDGET_EXCEEDED: (
-        "That question would read more of the warehouse than one turn is allowed to. "
+        "That question would read more of your data than one question is allowed to. "
         "Narrowing it — fewer breakdowns, a shorter window, or a top-N — brings it in range."
     ),
     ErrorCode.AMBIGUOUS_REFINEMENT: (
@@ -85,7 +85,7 @@ PLAIN_MESSAGES: dict[ErrorCode, str] = {
         "breakdown, or a metric defined at that level, will answer it."
     ),
     ErrorCode.DATE_BASIS_INVALID: (
-        "That metric can't be dated the way this question needs in this warehouse. Asking "
+        "That metric can't be dated the way this question needs in your data. Asking "
         "on a different date basis — service, submission or posting date — will answer it."
     ),
     ErrorCode.WATERMARK_STALE: (
@@ -93,7 +93,7 @@ PLAIN_MESSAGES: dict[ErrorCode, str] = {
         "to include it, or keep the current pin for a stable comparison."
     ),
     ErrorCode.DATA_LOADING: (
-        "The warehouse has no completed load to read yet. This clears once the first load "
+        "There is no completed data load to read yet. This clears once the first load "
         "finishes."
     ),
     ErrorCode.RECONCILIATION_FAILED: (
@@ -131,8 +131,8 @@ _MODEL_SPEND_KEYS = ("max_budget_usd", "cost_usd", "max_turn_cost_usd")
 #: spend stop sends them to rewrite something that was never the problem.
 _SUBCODE_MESSAGES: dict[str, str] = {
     MODEL_SPEND_BUDGET: (
-        "This turn reached its model-spend ceiling before it could finish. Nothing about "
-        "your question was too large — raising the turn's cost ceiling, choosing a "
+        "This question reached its model-spend ceiling before it could finish. Nothing "
+        "about your question was too large — raising the cost ceiling, choosing a "
         "cheaper model tier, or simply asking again will get you an answer."
     ),
 }
@@ -289,6 +289,19 @@ _CONFIDENCE = re.compile(r"\bconfidence\s+\d*\.\d+")
 #: Machine key/value pairs, e.g. ``options_dropped=2``.
 _MACHINE_PAIR = re.compile(r"\b\w+=\S+")
 
+#: Platform vocabulary that survives every filter above because it is
+#: spelled as ordinary English: "only one option survived the pack's
+#: filters" carries no enum token, no id and no machine pair, and it
+#: published the word ``pack`` under a clarification. A fragment naming any
+#: of these is about our machinery rather than the analyst's question, which
+#: is the same test the four patterns above apply — see
+#: ``docs/client-language.md``.
+_PLATFORM_NOUN = re.compile(
+    r"\b(?:packs?|playbooks?|specs?|frames?|recipes?|probes?|cohorts?|"
+    r"watermarks?|governed|un-?certified|certified|warehouses?|grains?|turns?)\b",
+    re.IGNORECASE,
+)
+
 #: The refinement operators by their wire ids, in the words a reader uses.
 #: They are governed identifiers rather than English: "drill_into takes
 #: exactly one referent id" is a sentence about this engine's schema, not
@@ -299,7 +312,7 @@ _OPERATOR_PHRASES: dict[str, str] = {
     "remove_filter": "widening the scope",
     "set_comparison": "changing the comparison",
     "set_window": "changing the period",
-    "set_grain": "changing the grain",
+    "set_grain": "changing the level of detail",
     "reset_context": "resetting the context",
     "drill_into": "drilling in",
     "rank_by": "re-ranking",
@@ -350,6 +363,7 @@ def clarification_reason_copy(reason: str | None, *, debug: bool = False) -> str
             or _INTERNAL_ID.search(text)
             or _CONFIDENCE.search(text)
             or _MACHINE_PAIR.search(text)
+            or _PLATFORM_NOUN.search(text)
         ):
             continue
         kept.append(text)

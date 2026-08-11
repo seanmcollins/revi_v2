@@ -142,6 +142,12 @@ from revi_investigation.application.planning import (
     ProbeNode,
     TransformPlan,
 )
+from revi_investigation.application.rendering import (
+    date_phrase,
+    level_phrase,
+    metric_label,
+    plural,
+)
 from revi_investigation.domain.context import AnalysisSpec
 from revi_investigation.domain.turns import ClarificationBinding, ClarificationRequest
 from revi_kernel.capabilities import AnalyticalRepository, RepositoryCapabilities
@@ -665,8 +671,13 @@ class PlanValidationService:
                 for dimension in probe.dimensions
                 if self._catalog.dimension(dimension) is not None
             )
-            label = ", ".join(metrics[:3])
-            cut = f" by {', '.join(dimensions)}" if dimensions else ""
+            label = ", ".join(metric_label(metric_id) for metric_id in metrics[:3])
+            cut_labels = [
+                other.label.lower() if (other := self._catalog.dimension(d)) is not None
+                else d.replace("_", " ")
+                for d in dimensions
+            ]
+            cut = f" by {', '.join(cut_labels)}" if cut_labels else ""
             option = f"Measure {label}{cut}"
             if option in options:
                 continue
@@ -685,11 +696,11 @@ class PlanValidationService:
             return None
         return ClarificationRequest(
             question=(
-                f"I can't build that: the {playbook_id!r} playbook answers by {transform!r}, "
-                "which this engine does not implement — so what it would have produced does "
-                "not exist here, and I won't hand you the probes underneath it as if they "
-                f"were it. These {len(options)} measurements from the same playbook I can "
-                "give you now, one at a time. Which do you want?"
+                "I can't build that. The review you asked for finishes with a step this "
+                "platform cannot run, so the thing it would have produced does not exist "
+                "here — and I won't hand you the pieces underneath it as if they were it. "
+                f"These {len(options)} measurements from the same review I can give you now, "
+                "one at a time. Which do you want?"
             ),
             options=tuple(options),
             reason=(
@@ -729,24 +740,24 @@ class PlanValidationService:
         ]
         if not available:
             return None
-        entity = contract.entity_grain.value
+        read_at = level_phrase(str(contract.entity_grain.value))
         asked = (
-            f"the {refused_basis!r} date basis"
+            f"the {date_phrase(refused_basis)}"
             if isinstance(refused_basis, str)
-            else "that date basis"
+            else "that date"
         )
-        options = tuple(f"Use the {basis.id} date basis" for basis in available)
+        options = tuple(f"Use the {date_phrase(basis.id)}" for basis in available)
         return ClarificationRequest(
             question=(
-                f"{metric_id!r} cannot be read on {asked} here — the contract and this "
-                f"warehouse between them leave "
-                f"{', '.join(repr(basis.id) for basis in available)} at the {entity} grain. "
+                f"{metric_label(metric_id)} cannot be read on {asked} here. Measured at the "
+                f"{read_at}, the dates left to read it on are "
+                f"{', '.join(date_phrase(basis.id) for basis in available)}. "
                 "Which should I use?"
             ),
             options=options,
             reason=(
                 f"DATE_BASIS_INVALID_RECOVERABLE: {metric_id} cannot be read on {asked}; "
-                f"{len(available)} bound alternative(s) offered"
+                f"{len(available)} bound {plural(len(available), 'alternative')} offered"
             ),
             # Each option carries the basis it stands for, so a reply that
             # names one resumes the question that was interrupted instead of
@@ -836,28 +847,40 @@ class PlanValidationService:
             for ref in (spec.dimensions if spec is not None else ())
             if ref.id != dimension_id
         ]
-        extra = f" and {', '.join(also)}" if also else ""
+        # Ids for the bindings, labels for the sentence: the option text is
+        # what a reader chooses from, and ``denial_category`` is not a phrase
+        # anybody says out loud.
+        also_labels = [
+            other.label.lower() if (other := self._catalog.dimension(ref_id)) is not None
+            else ref_id.replace("_", " ")
+            for ref_id in also
+        ]
+        extra = f" and {', '.join(also_labels)}" if also_labels else ""
         options = tuple(
-            f"Break {contract.id} down by {dimension_id}{extra}" for contract in offered
+            f"Break {metric_label(contract.id)} down by {dim.label.lower()}{extra}"
+            for contract in offered
         )
         total = len(candidates)
         sample = (
             ""
             if total <= len(offered)
-            else f" Showing {len(offered)} of {total} — say the metric you want if it is not here."
+            else f" Showing {len(offered)} of {total} — say the measure you want if it is not here."
         )
-        refused_label = f"{refused.id!r}" if refused is not None else "that metric"
+        refused_label = metric_label(refused.id) if refused is not None else "that measure"
+        read_at = level_phrase(
+            "claim" if refused is None else str(refused.entity_grain.value)
+        )
         return ClarificationRequest(
             question=(
-                f"{refused_label} cannot be cut by {dim.label.lower()} — its contract does not "
-                f"declare {dimension_id!r} as a legal scope dimension at the "
-                f"{'claim' if refused is None else refused.entity_grain.value} grain. "
-                f"{total} pack metric(s) can be, over the same population:{sample}"
+                f"{refused_label} cannot be cut by {dim.label.lower()}. It is measured at the "
+                f"{read_at}, and {dim.label.lower()} is not one of the breakdowns it is defined "
+                f"with. {total} other {plural(total, 'measure')} can be cut that way, over the "
+                f"same population:{sample}"
             ),
             options=options,
             reason=(
                 f"GRAIN_INCOMPATIBLE_RECOVERABLE: {dimension_id} is not a scope dimension of "
-                f"{refused_label}; {total} pack metrics declare it, {len(offered)} offered"
+                f"{refused_label}; {total} metrics declare it, {len(offered)} offered"
             ),
             bindings=tuple(
                 ClarificationBinding(
@@ -877,8 +900,8 @@ class PlanValidationService:
             return None
         return ClarificationRequest(
             question=(
-                f"I have no dimension called {dimension_id!r} in this catalog. Did you mean "
-                "one of these?"
+                f"I have nothing to break out by “{dimension_id.replace('_', ' ')}”. Did you "
+                "mean one of these?"
             ),
             options=tuple(close),
             reason=f"UNSUPPORTED_CONCEPT_NEAR_MISS: dimension {dimension_id!r}",
@@ -891,7 +914,8 @@ class PlanValidationService:
             return None
         return ClarificationRequest(
             question=(
-                f"This pack defines no metric called {metric_id!r}. Did you mean one of these?"
+                f"Your definitions library has no measure called “{metric_label(metric_id)}”. "
+                "Did you mean one of these?"
             ),
             options=tuple(close),
             reason=f"UNSUPPORTED_CONCEPT_NEAR_MISS: metric {metric_id!r}",
@@ -1034,9 +1058,9 @@ class PlanValidationService:
         total is stated.
         """
         label = dim.label.lower()
-        named = ", ".join(repr(str(value)) for value in unmatched)
+        named = ", ".join(f"“{value}”" for value in unmatched)
         # Agrees with the number it describes, not with a different one.
-        plural = "value" if len(domain) == 1 else "values"
+        value_word = plural(len(domain), "value")
         close: list[str] = []
         for value in unmatched:
             for match in difflib.get_close_matches(
@@ -1051,8 +1075,8 @@ class PlanValidationService:
         if len(domain) <= MAX_ENUMERATED_VALUES:
             options = tuple(sorted(domain))
             question = (
-                f"{opening} Here are all {len(domain)} {label} {plural} this watermark "
-                f"holds: {', '.join(repr(option) for option in options)}. Which did you mean?"
+                f"{opening} Here are all {len(domain)} {label} {value_word} this data "
+                f"holds: {', '.join(f'“{option}”' for option in options)}. Which did you mean?"
             )
         else:
             offered = tuple(close[:MAX_SUGGESTED_VALUES]) or tuple(
@@ -1064,8 +1088,8 @@ class PlanValidationService:
             )
             question = (
                 f"{opening} {heading}"
-                + ", ".join(repr(option) for option in offered)
-                + f". {len(domain)} {label} {plural} exist here — name the one you mean if "
+                + ", ".join(f"“{option}”" for option in offered)
+                + f". {len(domain)} {label} {value_word} exist here — name the one you mean if "
                 "it is not among these."
             )
         return ClarificationRequest(
@@ -1548,10 +1572,13 @@ class PlanValidationService:
         probe = node.probe
         if isinstance(probe, SnapshotProbe):
             basis: DateBasisRef = probe.aging_basis if probe.aging_basis is not None else SERVICE
-            label = "aging basis"
+            # Reads as a clause inside the sentence, not as a noun beside
+            # it: "on the service date, which is what ages it" — never "on
+            # the 'service' aging basis" (§3 bans **basis** as a token).
+            label = ", which is what ages it"
         elif isinstance(probe, AggregationProbe):
             basis = probe.window.basis
-            label = "basis"
+            label = ""
         else:  # pragma: no cover - row evidence probes are not planned yet
             return
         for contract in self._contracts_for(node):
@@ -1593,14 +1620,16 @@ class PlanValidationService:
             if primary_unbound:
                 assert entity is not None
                 warnings.append(
-                    f"alternate_basis_used: {contract.id!r} is computed on the "
-                    f"{basis.id!r} {label} — its primary {contract.primary_date_basis.id!r} "
-                    f"basis is not available at the {entity.name!r} grain in this warehouse"
+                    f"alternate_basis_used: {metric_label(contract.id)} is measured on the "
+                    f"{date_phrase(basis.id)}{label}. It normally reads on the "
+                    f"{date_phrase(contract.primary_date_basis.id)}, and your data does not "
+                    f"carry that date at the {level_phrase(entity.name)}."
                 )
             else:
                 warnings.append(
-                    f"alternate_basis_used: {contract.id!r} is read on the "
-                    f"{basis.id!r} {label} (primary is {contract.primary_date_basis.id!r})"
+                    f"alternate_basis_used: {metric_label(contract.id)} is read on the "
+                    f"{date_phrase(basis.id)}{label} rather than the "
+                    f"{date_phrase(contract.primary_date_basis.id)} it normally uses."
                 )
 
     # -------------------------------------------------- step 4: cardinality
@@ -1681,10 +1710,13 @@ class PlanValidationService:
         for contract in self._contracts_for(node):
             overlap = scope_dims & _internal_filter_dimensions(contract)
             for dim in sorted(overlap):
+                dim_label = self._catalog.dimension(dim)
                 warnings.append(
-                    f"scope on '{dim}' interacts with metric '{contract.id}' — the contract "
-                    "already constrains that dimension internally (exclusions or numerator "
-                    "filter); the result reflects both conditions"
+                    f"scope on '{dim_label.label.lower() if dim_label else dim}' interacts "
+                    f"with metric {metric_label(contract.id)}. That measure already narrows "
+                    "on the same thing as part of its own definition — through an exclusion "
+                    "or a filter on its numerator — so the figure reflects both conditions "
+                    "at once."
                 )
 
     def _publish_population_caveats(self, node: ProbeNode, warnings: list[str]) -> None:
@@ -1694,7 +1726,7 @@ class PlanValidationService:
             caveat = population_caveat(contract.description)
             if caveat is None:
                 continue
-            warning = f"population_caveat: {contract.id} — {caveat}"
+            warning = f"population_caveat: {metric_label(contract.id)} — {caveat}"
             if warning not in warnings:  # one probe per comparison side
                 warnings.append(warning)
 
@@ -1714,10 +1746,10 @@ class PlanValidationService:
         if any(self._probe_dimensions(node) for node in plan.nodes):
             threshold = self._catalog.suppression.threshold
             warnings.append(
-                f"suppression: cells counting fewer than {threshold} entities in their "
-                "POPULATION are withheld entirely before results leave the engine; a cell whose "
-                f"population is larger but whose numerator is under {threshold} keeps its place "
-                "and is published as an upper bound, never dropped"
+                f"suppression: cells counting fewer than {threshold} records in their "
+                "population are withheld entirely before any result leaves this platform. "
+                f"A cell whose population is larger but whose numerator is under {threshold} "
+                "keeps its place and is published as an upper bound, never dropped."
             )
 
     # ------------------------------------------------ step 7: capabilities

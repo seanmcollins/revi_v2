@@ -64,6 +64,7 @@ from revi_investigation.application.rendering import (
     magnitude_money,
     measure_phrase,
     metric_label,
+    plural,
     ratio_pct,
     render_row_label,
 )
@@ -174,8 +175,9 @@ class _FindingBuilders:
             kind=EmptinessKind.NO_FINDINGS,
             frame_id=candidate,
             detail=(
-                f"{rows} row(s) were retrieved across {len(calculation.frames)} frame(s) and "
-                f"no finding could be published from them ({why})"
+                f"{rows} {plural(rows, 'row')} came back across "
+                f"{len(calculation.frames)} {plural(len(calculation.frames), 'result set')}, "
+                f"and no finding could be published from them ({why})"
             ),
         )
 
@@ -271,7 +273,7 @@ class _FindingBuilders:
             )
         warning = (
             f"direction_unmatched: nothing {movement} — no cell's "
-            f"{metric_label(money_measure)} moved the way {spec.direction.value!r} asks about "
+            f"{metric_label(money_measure)} moved the way the question asks about "
             "over this window. The movements below are the opposite direction, shown as "
             "context, not as an answer to what was asked."
         )

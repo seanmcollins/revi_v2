@@ -164,25 +164,25 @@ def enforce_row_keys(
                     "rows": folded,
                     "annotations": [
                         *spec.annotations,
-                        f"folded: {len(rows)} frame rows share {len(grouped)} distinct "
-                        f"({spec.x}, {spec.series or '—'}) keys and were summed to that grain; "
-                        "drill handles are dropped where the colliders disagreed",
+                        f"folded: {len(rows)} rows landed on {len(grouped)} distinct "
+                        f"({spec.x}, {spec.series or '—'}) positions and were summed onto "
+                        "them. Drill handles are dropped where the rows disagreed.",
                     ],
                 }
             ),
-            f"chart_rows_collapsed: {spec.id} declared x={spec.x} and "
-            f"series={spec.series or 'none'} over {len(rows)} rows that share only "
-            f"{len(grouped)} distinct keys. The rows were summed to the declared grain "
-            f"(total {_total(rows)} preserved) rather than letting a renderer keep the last "
-            "one and drop the rest.",
+            f"chart_rows_collapsed: this chart plots {spec.x} against "
+            f"{spec.series or 'a single series'}, and {len(rows)} rows land on only "
+            f"{len(grouped)} positions. They were summed onto those positions "
+            f"(total {_total(rows)} preserved) rather than letting the last row win and "
+            "the rest disappear.",
         )
     return None, (
-        f"chart_rows_collapsed: {spec.id} was not published. It declared x={spec.x} and "
-        f"series={spec.series or 'none'} over {len(rows)} rows that share only {len(grouped)} "
-        f"distinct keys, so {dropped} row(s) are indistinguishable under its own axes, and "
-        f"its unit ({spec.unit or 'unknown'}) cannot be summed to fold them. The figures are "
-        "in the findings and the evidence drawer; the chart would have implied a measurement "
-        "nobody made."
+        f"chart_rows_collapsed: this chart was not published. It plots {spec.x} against "
+        f"{spec.series or 'a single series'}, and {len(rows)} rows land on only "
+        f"{len(grouped)} positions, so {dropped} of them cannot be told apart on its own "
+        f"axes — and {'this measure' if not spec.unit else 'a ' + spec.unit.replace('_', ' ') + ' measure'} "
+        "cannot be added up to combine them. The figures are in the findings and in the "
+        "evidence; the chart would have implied a measurement nobody made."
     )
 
 

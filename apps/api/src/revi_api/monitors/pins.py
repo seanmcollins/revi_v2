@@ -12,6 +12,9 @@ from typing import TYPE_CHECKING
 from revi_api.auth import AuthorizationError, Principal
 from revi_api.monitors_policy import (
     format_threshold,
+    recommended_gate_sentence,
+    recommended_gate_text,
+    recommended_threshold,
     validate_monitor,
 )
 from revi_investigation.application.ports import (
@@ -29,8 +32,10 @@ from revi_investigation.domain.records import Investigation
 from revi_investigation_contracts.api import (
     MonitorDeclarationPayload,
     MonitorModel,
+    RecommendedThresholdPayload,
     TypedInvestigationSpec,
 )
+from revi_investigation_contracts.header import basis_phrase
 from revi_investigation_contracts.monitors import (
     CreateMonitorsPinRequest,
     MonitorsPinListResponse,
@@ -71,7 +76,7 @@ class _PinApi(_MonitorsBase):
         if (request.investigation_id is None) == (request.spec is None):
             raise PolicyDeniedError(
                 "a pin names exactly one of `investigation_id` (monitor what is on screen) or "
-                "`spec` (monitor a typed spec you already hold) — a body carrying both, or "
+                "a saved definition you already hold — a request naming both, or "
                 "neither, would leave the platform guessing which was meant",
                 details={"tenant": principal.tenant},
             )
@@ -150,9 +155,9 @@ class _PinApi(_MonitorsBase):
                 # monitor to adjust — creating a second one would brief the
                 # same movement twice every morning.
                 raise PolicyDeniedError(
-                    f"you are already monitoring this spec as {existing_pin.label!r}, and this "
+                    f"you are already monitoring this as {existing_pin.label!r}, and this "
                     "request states a different sensitivity for it. A second monitor over the "
-                    "same spec would brief the same movement twice every morning, and "
+                    "same thing would brief the same movement twice every morning, and "
                     "quietly keeping the existing threshold would apply a number you did not "
                     "ask for — change that monitor's sensitivity instead",
                     details={"tenant": principal.tenant, "pin_id": existing_pin.id},
@@ -166,7 +171,7 @@ class _PinApi(_MonitorsBase):
                 existing_pin,
                 notes=[
                     f"you are already monitoring this — {existing_pin.label!r} measures the same "
-                    "spec, so this returned that monitor instead of creating a second one that "
+                    "same thing, so this returned that monitor instead of creating a second one that "
                     "would brief the same movement twice every morning"
                 ],
                 already_existed=True,
@@ -174,7 +179,7 @@ class _PinApi(_MonitorsBase):
         pin = MonitorsPin(
             id=f"pin_{uuid.uuid4().hex[:12]}",
             tenant=principal.tenant,
-            label=label or "Monitored spec",
+            label=label or "Monitored measure",
             spec=spec,
             presentation=request.presentation,
             window_mode=window_mode,
@@ -280,7 +285,19 @@ class _PinApi(_MonitorsBase):
             baseline_unit=baseline.unit if baseline is not None else None,
             baseline_captured_at=datetime.now(UTC) if baseline is not None else None,
         )
-        threshold_statement = _threshold_statement(monitor, baseline.unit if baseline else None)
+        baseline_unit = baseline.unit if baseline else None
+        materiality = self._components.monitors_policy.materiality
+        threshold_statement = _threshold_statement(
+            monitor, baseline_unit, recommended_gate_text(baseline_unit, materiality)
+        )
+        # Only when the recommendation is what actually applies: a monitor
+        # gated on the analyst's own number must not be told whose
+        # recommendation it followed.
+        recommendation_note = (
+            recommended_gate_sentence(baseline_unit, materiality)
+            if monitor is None or monitor.mode == "governed_default"
+            else ""
+        )
         alternative = _threshold_alternative(
             monitor, baseline.unit if baseline else None, baseline.value if baseline else None
         )
@@ -291,6 +308,7 @@ class _PinApi(_MonitorsBase):
             threshold_statement,
             alternative,
             resolution=_resolution_clause(stated_subject, label, spec),
+            recommendation=recommendation_note,
         )
         # Composed first, stored second: everything above can raise, and a
         # raise above this line leaves NOTHING monitoring, which is exactly
@@ -306,6 +324,9 @@ class _PinApi(_MonitorsBase):
             baseline_value_text=value_text,
             baseline_watermark_id=pin.baseline_watermark_id or "",
             matched_phrase=matched_phrase,
+            recommended_threshold=recommended_threshold(
+                baseline_unit, self._components.monitors_policy.materiality
+            ),
         )
         await self._components.monitors_pins.save(pin)
         # The declaration turn IS an evaluation of this monitor at this load,
@@ -358,13 +379,22 @@ class _PinApi(_MonitorsBase):
         movement twice every morning.
         """
         unit = baseline.unit if baseline is not None else pin.baseline_unit
-        threshold_statement = _threshold_statement(pin.monitor, unit)
+        materiality = self._components.monitors_policy.materiality
+        threshold_statement = _threshold_statement(
+            pin.monitor, unit, recommended_gate_text(unit, materiality)
+        )
+        recommendation_note = (
+            recommended_gate_sentence(unit, materiality)
+            if pin.monitor is None or pin.monitor.mode == "governed_default"
+            else ""
+        )
         value_text = baseline.text if baseline is not None else ""
         current = f" — currently {value_text}" if value_text else ""
         sentence = (
             f"You are already monitoring this, as {pin.label!r}{current}. I have not created a "
-            f"second monitor over the same spec — it would brief the same movement twice every "
-            f"morning — so that one stands, and it briefs you {threshold_statement}."
+            f"second monitor over the same measure — it would brief the same movement twice "
+            f"every morning — so that one stands, and it briefs you {threshold_statement}."
+            + (f" {recommendation_note}" if recommendation_note else "")
         )
         if stated_monitor is not None and stated_monitor != pin.monitor:
             sentence += (
@@ -385,6 +415,9 @@ class _PinApi(_MonitorsBase):
             baseline_value_text=value_text,
             baseline_watermark_id=pin.baseline_watermark_id or "",
             matched_phrase=matched_phrase,
+            recommended_threshold=recommended_threshold(
+                unit, self._components.monitors_policy.materiality
+            ),
         )
 
     async def list_pins(self, principal: Principal) -> MonitorsPinListResponse:
@@ -446,7 +479,7 @@ class _PinApi(_MonitorsBase):
                 "part of this monitor could not be described on this API version (the attempt "
                 "is recorded in the API log), so it is shown without its sensitivity "
                 "settings rather than removed from your list or failing the whole list. "
-                "What it MEASURES, below, is the stored spec verbatim and is unaffected."
+                "What it measures, below, is exactly what was saved and is unaffected."
             ],
             monitor=None,
             baseline_watermark_id=pin.baseline_watermark_id,
@@ -693,7 +726,7 @@ class _PinApi(_MonitorsBase):
         metrics = " and ".join(
             self._components.metric_display.name_for(metric_id) or metric_label(metric_id)
             for metric_id in spec.metric_ids
-        ) or "Monitored spec"
+        ) or "Monitored measure"
         cell = _cell_phrase(_eq_filters_of(spec), pack)
         if cell:
             return f"{cell} — {metrics}"
@@ -715,7 +748,7 @@ class _PinApi(_MonitorsBase):
             self._components.metric_display.name_for(metric_id) or metric_label(metric_id)
             for metric_id in spec.metric_ids
         )
-        parts = [metrics[:1].upper() + metrics[1:] if metrics else "A typed spec"]
+        parts = [metrics[:1].upper() + metrics[1:] if metrics else "A saved measure"]
         if spec.dimensions:
             parts.append(
                 "broken down by " + " and ".join(metric_label(d) for d in spec.dimensions)
@@ -733,7 +766,7 @@ class _PinApi(_MonitorsBase):
             parts.append("filtered where " + "; ".join(other))
         window = _window_phrase(spec, window_mode)
         summary = ", ".join(parts)
-        basis = f" on the {spec.basis} basis" if spec.basis else ""
+        basis = f" {basis_phrase(spec.basis)}" if spec.basis else ""
         return f"{summary} — {window}{basis}."
 
     async def _pin_with_same_spec(
@@ -760,6 +793,9 @@ class _PinApi(_MonitorsBase):
             notes=notes,
             spec_summary=self._spec_summary(pin.spec, pin.window_mode),
             already_existed=already_existed,
+            recommended=recommended_threshold(
+                pin.baseline_unit, self._components.monitors_policy.materiality
+            ),
         )
 
     def _units_for(self, metric_ids: Sequence[str]) -> tuple[str | None, ...]:
@@ -796,10 +832,25 @@ def _monitor_model(monitor: Monitor | None) -> MonitorModel:
     )
 
 
-def _threshold_statement(monitor: Monitor | None, unit: str | None) -> str:
-    """The gate in words, for the confirmation sentence."""
+def _threshold_statement(
+    monitor: Monitor | None, unit: str | None, recommended: str = ""
+) -> str:
+    """The gate in words, for the confirmation sentence.
+
+    ``recommended`` is the concrete default for this metric's unit as a
+    bare quantity ("0.5 percentage points"). It is stated rather than named,
+    because "more than the governed threshold for this measure" asks
+    somebody to accept a number while describing it in words they cannot
+    evaluate (docs/client-language.md §2.1). Whose recommendation it is, and
+    that it can be changed, follow as their own sentence — see
+    :func:`~revi_api.monitors_policy.recommended_gate_sentence`. With no
+    recommendation to state, this says a size rule applies and does not
+    pretend to know it.
+    """
     if monitor is None or monitor.mode == "governed_default":
-        return "when it moves more than the governed threshold for this measure"
+        if recommended:
+            return f"when it moves more than {recommended}"
+        return "when it moves enough to be worth your time"
     if monitor.mode == "any_movement":
         return "on any movement at all"
     if monitor.mode == "crosses":
@@ -881,6 +932,7 @@ def _monitor_confirmation(
     threshold_statement: str,
     alternative: str = "",
     resolution: str = "",
+    recommendation: str = "",
 ) -> str:
     """The one-time baseline confirmation, composed from the answer.
 
@@ -894,7 +946,9 @@ def _monitor_confirmation(
         f"Monitoring: {label}{current}. I'll brief you {threshold_statement}, and the answer "
         "above is the baseline I'll measure that from."
     )
-    return " ".join(part for part in (sentence, resolution, alternative) if part)
+    return " ".join(
+        part for part in (sentence, recommendation, resolution, alternative) if part
+    )
 
 
 def pin_payload(
@@ -903,6 +957,7 @@ def pin_payload(
     notes: Sequence[str] = (),
     spec_summary: str = "",
     already_existed: bool = False,
+    recommended: RecommendedThresholdPayload | None = None,
 ) -> MonitorsPinPayload:
     window_note = _WINDOW_NOTES.get(pin.window_mode, "")
     if notes:
@@ -932,4 +987,5 @@ def pin_payload(
         baseline_unit=pin.baseline_unit,
         created_at=pin.created_at,
         archived_at=pin.archived_at,
+        recommended_threshold=recommended,
     )

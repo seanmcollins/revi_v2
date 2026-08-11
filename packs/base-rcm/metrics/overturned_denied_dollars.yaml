@@ -17,13 +17,13 @@ sign: higher_is_good
 unit: money_cents
 description: >-
   Billed dollars attached to denials in the window that were later overturned
-  on appeal, remittance (denial) date basis. What it is NOT: recovered cash.
-  No stored linkage ties an appeal outcome to a subsequent payment, so this
-  is the amount whose denial was reversed — the dollars put back in play, an
-  upper bound on the recovery. Sign is higher_is_good because it measures
-  appeal effectiveness, but read it against denied_dollars: the figure rises
+  on appeal, dated by the remittance that denied them. What it is NOT:
+  recovered cash. Nothing ties an appeal outcome to a subsequent payment, so
+  this is the amount whose denial was reversed — the dollars put back in play,
+  an upper bound on the recovery. Higher is better here, because it measures
+  appeal effectiveness, but read it against denied dollars: the figure rises
   with denial volume as well as with appeal skill, and a large number over a
   larger denial base is not a win. Population caveat: these are dollars put
-  back in play, never recovered cash, and appeal state reflects the snapshot
-  watermark — recent denials show little overturn activity simply because
+  back in play, never recovered cash, and appeal state is as of the latest
+  data load — recent denials show little overturn activity simply because
   their appeals have not been decided yet.

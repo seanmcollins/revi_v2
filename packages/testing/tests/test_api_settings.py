@@ -389,7 +389,7 @@ class TestNarrativeDepth:
         assert isinstance(answer, TurnAnswer)
         prompt = llm.text_calls[-1].rendered_prompt
         assert "full analyst detail" in prompt
-        assert "Cover EVERY certified finding" in prompt
+        assert "Cover EVERY measured finding" in prompt
 
     async def test_the_default_depth_keeps_the_summary_prompt(
         self, service: ApiService, llm: MockLanguageModel

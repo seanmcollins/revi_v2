@@ -20,8 +20,8 @@ sign: higher_is_bad
 unit: count
 description: >-
   Distinct claims billed as primary while other insurance exists on the
-  account — coordination of benefits out of order. This is the certified
-  direct measurement of the COB concept: it counts the billing error itself,
-  not a payer's reason code about it. Rework on these claims is near-certain
-  (rebill to the true primary, then secondary), so volume here is a direct
-  read on avoidable touches, not merely a denial risk.
+  account — coordination of benefits (COB) out of order. This measures COB
+  directly: it counts the billing error itself, not a payer's reason code
+  about it. Rework on these claims is near-certain (rebill to the true
+  primary, then secondary), so volume here is a direct read on avoidable
+  touches, not merely a denial risk.

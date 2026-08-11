@@ -14,14 +14,14 @@ scope_dimensions:
 sign: neutral
 unit: money_cents
 description: >-
-  Gross billed charges at claim-line grain for the window, service-date basis
-  — the same chargemaster value the claim-grain `charges` contract reports,
-  addressed one procedure at a time so it can be cut by proc_group. Use
-  `charges` for claim-level and account-level questions and this contract
-  only when the question is about procedures. The two reconcile exactly over
-  the same set of claims, but they do NOT match window for window: a line
-  carries its own service date, which for an institutional stay can fall on a
-  different day from the claim's, so a line-dated window sweeps in a slightly
-  different population (about one percent of charge value in this warehouse).
-  Charges are undiscounted list value: never compare them to net-revenue
-  benchmarks, and pair with allowed_dollars for the contracted side.
+  Gross billed charges line by line for the window, dated by service — the
+  same chargemaster value the claim-level charges figure reports, addressed
+  one procedure at a time so it can be cut by procedure group. Use claim-level
+  charges for claim and account questions, and this one only when the question
+  is about procedures. The two reconcile exactly over the same set of claims,
+  but they do NOT match window for window: a line carries its own service
+  date, which for an institutional stay can fall on a different day from the
+  claim's, so a line-dated window sweeps in a slightly different population —
+  about one percent of charge value in your data. Charges are undiscounted
+  list value: never compare them to net-revenue benchmarks, and pair with
+  allowed dollars for the contracted side.

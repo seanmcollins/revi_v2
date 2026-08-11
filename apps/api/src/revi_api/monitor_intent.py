@@ -290,12 +290,12 @@ LEGAL_THRESHOLD_PHRASES: dict[str, tuple[str, ...]] = {
         "more than 2 days",
         "more than 10% (a fraction of the current value)",
         "on any movement",
-        "nothing at all, and this monitor uses the pack's governed gate for days",
+        "nothing at all, and I use the level Revi recommends for day counts",
     ),
     "count": (
         "more than 10% (a fraction of the current value)",
         "on any movement",
-        "nothing at all, and this monitor uses the pack's governed gate for counts",
+        "nothing at all, and I use the level Revi recommends for counts",
     ),
 }
 

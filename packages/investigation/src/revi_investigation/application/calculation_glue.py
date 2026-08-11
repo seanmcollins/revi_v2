@@ -26,6 +26,7 @@ from enum import StrEnum
 from revi_investigation.application.capability_ports import PackPort, TransformPort
 from revi_investigation.application.execution import ExecutedProbe
 from revi_investigation.application.planning import InvestigationPlan, TransformPlanStep
+from revi_investigation.application.rendering import plural
 from revi_kernel.errors import ReconciliationFailedError, UnsupportedConceptError
 from revi_kernel.filters import Predicate, Scalar, iter_predicates
 from revi_kernel.frame import EvidenceFrame, FrameRow, TransformProvenance
@@ -201,19 +202,20 @@ def _mark_unmatched_unknown(
     parts: list[str] = []
     if missing_prior:
         parts.append(
-            f"{missing_prior} cell(s) present now were outside the prior window's top-N and "
-            "their prior value was never retrieved"
+            f"{missing_prior} {plural(missing_prior, 'cell')} present now fell outside the "
+            "rows retrieved for the prior period, so no prior value was ever read for them"
         )
     if missing_current:
         parts.append(
-            f"{missing_current} cell(s) in the prior window were outside this window's top-N "
-            "and their current value was never retrieved"
+            f"{missing_current} {plural(missing_current, 'cell')} in the prior period fell "
+            "outside the rows retrieved for this one, so no current value was ever read "
+            "for them"
         )
     warning = (
-        f"comparison_prior_unknown: on {step_id}, " + "; ".join(parts) + ". Those cells publish "
-        "no prior figure, no movement and no impact — a value this plan did not read is "
-        "UNKNOWN, not zero — and they are excluded from every movement ranking on this turn. "
-        "Ask for the full breakdown to compare them."
+        "comparison_prior_unknown: " + "; ".join(parts) + ". Those cells publish no prior "
+        "figure, no movement and no impact — a value that was never read is unknown, not "
+        "zero — and they are left out of every movement ranking on this answer. Ask for the "
+        "full breakdown to compare them."
     )
     return replace(out, rows=tuple(rows)), warning
 
@@ -318,8 +320,8 @@ class CalculateMetricsService:
             kind=EmptinessKind.NO_ROWS,
             frame_id=first.node_id,
             detail=(
-                f"every probe in this plan returned zero rows "
-                f"({len(executed)} probe(s) executed)"
+                "every check this answer ran came back with no rows "
+                f"({len(executed)} {plural(len(executed), 'check')} run)"
             ),
             predicates=tuple(predicates),
         )

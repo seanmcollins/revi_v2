@@ -267,7 +267,12 @@ class TestTurnByTurn:
         assert "carc" in carc_frame.schema.names
         # the context header shows the cohort
         assert t3.header is not None and t3.header.cohort == cohort.id
-        assert f"cohort: {cohort.id}" in t3.header.display
+        # The header states the population's SIZE, which is the fact a
+        # reader can act on; the id itself stays on `header.cohort` for
+        # anything reconciling against it (docs/client-language.md §2).
+        assert f"population of {cohort.size} claims" in t3.header.display
+        assert cohort.id not in t3.header.display
+        assert t3.header.cohort == cohort.id
 
     async def test_t3_cohort_semijoin_equals_payer_predicate(
         self, conversation: Conversation
@@ -320,12 +325,16 @@ class TestTurnByTurn:
         not reconcile name the reason."""
         verdicts = [outcome.reconciliation for outcome in conversation.outcomes[:4]]
         assert all(v is not None and v.startswith("status=") for v in verdicts), verdicts
-        assert verdicts[0] is not None and "first turn" in verdicts[0]
+        assert verdicts[0] is not None and "first question in this thread" in verdicts[0]
         assert verdicts[1] is not None and "passed" in verdicts[1]
         for verdict in verdicts[2:]:
             assert verdict is not None
             if verdict.startswith("status=not_applicable"):
-                assert "reason=" in verdict and len(verdict.split("reason=")[1]) > 10
+                # The verdict still says WHY. ``reason=`` was a machine pair
+                # inside the half a reader reads (client-language §3), so the
+                # check is on the sentence after the status handle, not on
+                # the key that used to introduce it.
+                assert len(verdict.split("status=not_applicable;")[1].strip()) > 10
 
     async def test_t5_meta_cites_t1_provenance_with_zero_probes(
         self, conversation: Conversation

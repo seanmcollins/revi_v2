@@ -18,6 +18,36 @@ from revi_kernel.cohort import CohortRef
 from revi_kernel.filters import Predicate
 from revi_kernel.scope import Comparison, TimeWindow
 
+#: Date bases, in the words an analyst uses for them. The bare token
+#: ("remit", "service") is a modeling word; the phrase is what a reader
+#: recognises off a remittance advice. See docs/client-language.md.
+_BASIS_PHRASES: dict[str, str] = {
+    "remit": "on the remittance date",
+    "service": "on the service date",
+    "submission": "on the submission date",
+    "posting": "on the posting date",
+    "accrual": "on the accrual date",
+}
+
+
+def basis_phrase(basis_id: str) -> str:
+    """The date basis in English, or the id when this table has no phrase."""
+    return _BASIS_PHRASES.get(basis_id, basis_id)
+
+
+#: Predicate operators in English. The wire keeps the token on
+#: :attr:`FilterChip.op`; only the human label is translated here.
+_OP_PHRASES: dict[str, str] = {
+    "in": "is one of",
+    "not_in": "is not one of",
+    "eq": "is",
+    "neq": "is not",
+    "gte": "is at least",
+    "lte": "is at most",
+    "gt": "is more than",
+    "lt": "is less than",
+}
+
 
 class FilterChip(BaseModel):
     model_config = ConfigDict(extra="forbid")
@@ -40,7 +70,17 @@ class FilterChip(BaseModel):
 
     @property
     def label(self) -> str:
-        return f"{self.dimension} {self.op} [{', '.join(self.values)}]"
+        """The chip as a reader sees it.
+
+        The dimension id is de-snaked and the operator spelled in English:
+        ``payer_type in [HMO]`` is our vocabulary, ``payer type is one of
+        HMO`` is theirs. The machine-readable ``dimension``/``op``/``values``
+        fields above are untouched, so a client that branches on them is
+        unaffected (docs/client-language.md).
+        """
+        name = self.dimension.replace("_", " ")
+        op = _OP_PHRASES.get(self.op, self.op)
+        return f"{name} {op} {', '.join(self.values)}"
 
 
 class ContextHeaderPayload(BaseModel):
@@ -152,11 +192,12 @@ def build_header_payload(
     )
     filters = [chip.label for chip in chips]
 
+    basis = basis_phrase(window.basis.id)
     parts = [
-        f"as of {as_of.isoformat()} ({window.basis.id})"
+        f"as of {as_of.isoformat()} ({basis})"
         if as_of is not None
         else f"{window.range.start.isoformat()}..{window.range.end.isoformat()} "
-        f"({window.basis.id})"
+        f"({basis})"
     ]
     if comparison is not None:
         parts.append(
@@ -166,8 +207,8 @@ def build_header_payload(
     if filters:
         parts.append("filters: " + "; ".join(filters))
     if cohort is not None:
-        parts.append(f"cohort: {cohort.id} ({cohort.size} claims)")
-    parts.append(f"watermark {watermark_id}")
+        parts.append(f"population of {cohort.size} claims")
+    parts.append("this data load")
     if window_note:
         parts.append(window_note)
 

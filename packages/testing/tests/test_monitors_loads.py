@@ -474,7 +474,7 @@ class TestSimulatedLoads:
         with pytest.raises(ReviError) as refusal:
             await service.monitors.brief_at(CALLER, third, since="wm_never_evaluated")
 
-        assert "nothing to diff against" in refusal.value.message
+        assert "nothing to compare with" in refusal.value.message
 
 
 class TestLeadLifecycle:
@@ -576,15 +576,19 @@ class TestLeadLifecycle:
         lead = await service.monitors.get_lead(CALLER, "ANM-031")
         assert lead.status == "resolved_confirmed"
         assert lead.verification_note.startswith("Confirmed: ANM-031")
-        assert "no longer in the detection feed at wm_003" in lead.verification_note
-        assert "for 1 load, wm_003" in lead.verification_note
+        # The load is named by its data date, never by its internal id; the
+        # id itself stays on `confirming_watermarks` at full fidelity.
+        assert "no longer in the detection feed at " in lead.verification_note
+        assert "for 1 load." in lead.verification_note
+        assert "wm_" not in lead.verification_note
+        assert lead.confirming_watermarks == ["wm_003"]
         # A confirmation is news, and it reaches the brief with its own
         # provenance rather than only living on the lead record.
         [entry] = [e for e in brief.entries if e.kind == "resolution_confirmed"]
         assert entry.anomaly_id == "ANM-031"
         assert entry.statement == lead.verification_note
         assert entry.provenance.source == "pinned_spec"
-        assert "re-derived by this platform at each load" in entry.provenance.method
+        assert "re-derived the lead's own drill at every load" in entry.provenance.method
         # And the lead that was CLAIMED is not also reported as having
         # resolved itself — that would be the same fact told twice, once
         # crediting nobody.

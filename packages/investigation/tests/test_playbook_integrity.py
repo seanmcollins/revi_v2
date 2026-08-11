@@ -114,7 +114,10 @@ class TestAnAnsweringTransformThisEngineCannotRun:
         clarification = validator.clarification_for(raised.value, spec)
 
         assert clarification is not None
-        assert "pivot" in clarification.question
+        # The transform is named in the machine-facing ``reason``; the
+        # question says what it MEANS, because "pivot" is our word.
+        assert clarification.reason is not None and "pivot" in clarification.reason
+        assert "a step this platform cannot run" in clarification.question
         assert len(clarification.options) >= 2
         assert all(binding.kind == "metric_cut" for binding in clarification.bindings)
         assert {b.option for b in clarification.bindings} == set(clarification.options)

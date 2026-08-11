@@ -98,8 +98,10 @@ class TestComparison:
         assert "$178,216.82" in note and "$195,873.92" in note
         assert "$17,657.10" in note  # the delta, in dollars
         assert "+9.9%" in note
-        assert "detection system" in note and "governed" in note
-        assert "dnfb_dollars" in note
+        # Both sides attributed, in the reader's words: whose figure each
+        # one is, and which measure this platform re-derived from.
+        assert "detection system" in note and "standard definition" in note
+        assert "dnfb dollars" in note
 
     def test_a_small_difference_is_agreement_with_the_delta_still_published(self) -> None:
         comparison = compare_impact(
@@ -175,7 +177,7 @@ def test_ratio_contract_has_no_comparable_dollar_figure() -> None:
     pack = _FakePack({"late_charge_pct": "ratio", "dnfb_dollars": "money_cents"})
     reason = non_money_reason(("late_charge_pct",), pack)
     assert reason is not None
-    assert "late_charge_pct" in reason and "ratio" in reason
+    assert "late charge pct" in reason and "ratio" in reason
     # A money contract is not gated, and a mixed drill keeps the money half.
     assert non_money_reason(("dnfb_dollars",), pack) is None
     assert non_money_reason(("late_charge_pct", "dnfb_dollars"), pack) is None

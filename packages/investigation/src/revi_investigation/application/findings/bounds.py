@@ -283,7 +283,7 @@ def _truncation_warning(served: int, computed: int, spec: AnalysisSpec) -> str |
     )
     return (
         f"findings_truncated: {served} of {computed} computed cells are published as findings; "
-        f"the remaining {computed - served} are in the chart and the evidence frame but carry "
+        f"the remaining {computed - served} are on the chart and in the evidence but carry "
         "no finding. Superlatives and spread statements on this answer describe the published "
         f"slice, not the full population.{asked}"
     )

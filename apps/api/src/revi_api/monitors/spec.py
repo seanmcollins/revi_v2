@@ -6,6 +6,7 @@ import hashlib
 from collections.abc import Sequence
 from typing import TYPE_CHECKING, Any
 
+from revi_api.monitors.common import _date_range_phrase, _plural
 from revi_investigation.application.dto_mapping import refinement_to_dto
 from revi_investigation.application.rendering import (
     render_row_label,
@@ -82,16 +83,18 @@ def typed_spec_from_analysis(spec: AnalysisSpec) -> tuple[TypedInvestigationSpec
     # decision nobody made about this monitor.
     if spec.context.pins:
         notes.append(
-            f"{len(spec.context.pins)} session-pinned scope clause(s) were not carried onto "
-            "this monitor: a pin belongs to the conversation that declared it, and inheriting "
-            "one here would narrow every future load by a decision nobody made about the monitor"
+            "this monitor did not carry "
+            f"{_plural(len(spec.context.pins), 'sticky filter', 'sticky filters')} the "
+            "conversation was holding: a filter set in a conversation belongs to that "
+            "conversation, and inheriting one here would narrow every future load by a "
+            "decision nobody made about this monitor"
         )
     if spec.context.cohort is not None:
         notes.append(
-            "the answer this monitor was created from was computed over a pinned cohort "
-            f"({spec.context.cohort.id}), which is an extensional set materialized at one "
-            "watermark; the monitor carries the scope predicates instead, so it re-selects the "
-            "population at every load rather than re-reading a frozen one"
+            "the answer this monitor was created from was measured over a population frozen at "
+            "one data load — a fixed list, picked once. This monitor carries the scope that "
+            "picked that list instead, so it re-selects the population at every load rather "
+            "than re-reading a frozen one"
         )
 
     comparison: str | None = None
@@ -173,17 +176,35 @@ def _cell_phrase(cell: Sequence[tuple[str, str]], pack: Any) -> str:
     return render_row_label(pack, dimensions, values)
 
 
+#: The window units a spec can carry, singular and plural. Tabulated rather
+#: than pluralised by appending an "s" to the stored token: the token is an
+#: internal id, and "the last 3 days" is the reader's phrase whatever the
+#: id happens to spell.
+_WINDOW_UNIT_WORDS: dict[str, tuple[str, str]] = {
+    "day": ("day", "days"),
+    "week": ("week", "weeks"),
+    "month": ("month", "months"),
+    "quarter": ("quarter", "quarters"),
+    "year": ("year", "years"),
+}
+
+
 def _window_phrase(spec: TypedInvestigationSpec, window_mode: str) -> str:
     """The monitor's window, said the way somebody would say it."""
     window = spec.window
     if isinstance(window, WindowSpecModel):
-        unit = str(window.unit)
         quantity = str(window.quantity)
-        period = unit if quantity in ("1", "1.0") else f"{quantity} {unit}s"
+        singular, plural = _WINDOW_UNIT_WORDS.get(
+            str(window.unit), ("period", "periods")
+        )
+        period = singular if quantity in ("1", "1.0") else f"{quantity} {plural}"
         moving = "the last full " if window.mode == "full_periods" else "the last "
         return f"{moving}{period}, re-anchored at every load"
     if isinstance(window, AbsoluteWindowModel):
-        return f"the fixed dates {window.start}..{window.end}, re-measured at every load"
+        return (
+            f"the fixed dates {_date_range_phrase(window.start, window.end)}, re-measured at "
+            "every load"
+        )
     return "the window stored with this monitor"
 
 
@@ -214,15 +235,15 @@ def spec_hash(spec: TypedInvestigationSpec, presentation: str) -> str:
 _WINDOW_NOTES = {
     "relative": (
         "This monitor re-anchors its window to each load's newest data date, so it usually "
-        "tracks a moving period. Where two loads land inside the same period it resolves to "
-        "the same dates, and the change between them is late-arriving data rather than a "
-        "movement — each tile publishes the dates it actually measured, so a reader never "
-        "has to guess which of the two they are looking at."
+        "tracks a moving period. Where two loads land inside the same period it measures the "
+        "same dates, and the change between them is late-arriving data rather than a movement. "
+        "Every reading shows the dates it measured, so you can tell which of the two you are "
+        "looking at."
     ),
     "absolute": (
-        "This monitor re-measures the SAME fixed dates every load, so a load-over-load change "
-        "is always late-arriving data (adjudication run-out, back-dated charges) rather than "
-        "a movement in the period itself."
+        "This monitor re-measures the same fixed dates every load. A change from one load to "
+        "the next is therefore late-arriving data — adjudication run-out, back-dated charges — "
+        "rather than a movement in the period itself."
     ),
 }
 _WINDOW_NOTES["anchored"] = _WINDOW_NOTES["absolute"]
@@ -237,7 +258,7 @@ _WINDOW_NOTES["anchored"] = _WINDOW_NOTES["absolute"]
 #: baseline — and unattributed they read as a paragraph contradicting
 #: itself: "different date ranges" three words after "the same dates".
 SAME_WINDOW_NOTE = (
-    "Against the previous load, both readings measured the same dates ({start}..{end}), so "
-    "this change is late-arriving data settling — adjudication run-out, back-dated charges — "
+    "Against the previous load, both readings measured the same dates ({dates}), so this "
+    "change is late-arriving data settling — adjudication run-out, back-dated charges — "
     "rather than a movement in the period itself."
 )

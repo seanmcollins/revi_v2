@@ -2662,6 +2662,16 @@
             "title": "Pin Id",
             "type": "string"
           },
+          "recommended_threshold": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecommendedThresholdPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "spec": {
             "$ref": "#/components/schemas/TypedInvestigationSpec"
           },
@@ -2775,6 +2785,16 @@
             ],
             "title": "Reason Code",
             "type": "string"
+          },
+          "recommended_threshold": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecommendedThresholdPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "subject": {
             "default": "",
@@ -3175,6 +3195,11 @@
           "prior_watermark_id": {
             "default": "",
             "title": "Prior Watermark Id",
+            "type": "string"
+          },
+          "recommended_threshold_text": {
+            "default": "",
+            "title": "Recommended Threshold Text",
             "type": "string"
           },
           "reference": {
@@ -3667,6 +3692,16 @@
             ],
             "title": "Presentation",
             "type": "string"
+          },
+          "recommended_threshold": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RecommendedThresholdPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "scope": {
             "const": "tenant",
@@ -4464,6 +4499,54 @@
           "by"
         ],
         "title": "RankByModel",
+        "type": "object"
+      },
+      "RecommendedThresholdPayload": {
+        "additionalProperties": false,
+        "description": "The sensitivity Revi recommends for a metric, as a NUMBER.\n\nA default the reader cannot inspect is not a default they can accept.\nThe materiality gate is governed content and used to reach a client only\ninside prose (\"more than the governed threshold for this measure\"), which\nasks somebody to agree to a value while describing it in words they\ncannot evaluate \u2014 and which no client should have to parse a sentence to\nrecover. So the rule is published as data as well as prose\n(``docs/client-language.md`` \u00a72.1).\n\nMoney and count rules have two components at once \u2014 a share of the prior\nvalue AND an absolute floor, because relative alone briefs a $40 balance\nthat doubled and absolute alone briefs a rounding error on $12M \u2014 so\nboth are published and either may be null.",
+        "properties": {
+          "relative": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Relative"
+          },
+          "text": {
+            "title": "Text",
+            "type": "string"
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Unit"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          }
+        },
+        "required": [
+          "text"
+        ],
+        "title": "RecommendedThresholdPayload",
         "type": "object"
       },
       "ReferentPayload": {

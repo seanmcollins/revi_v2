@@ -87,7 +87,7 @@ class TestRendering:
                 ),
             )
         )
-        assert render_filter(expr) == "payer eq State Medicaid and service_line eq Cardiology"
+        assert render_filter(expr) == "payer eq State Medicaid and service line eq Cardiology"
 
     def test_disjunction_and_negation_keep_their_shape(self) -> None:
         expr = Not(Or((_predicate(PredicateOp.EQ, "A"), _predicate(PredicateOp.EQ, "B"))))
@@ -96,7 +96,7 @@ class TestRendering:
     def test_an_empty_scope_says_so_rather_than_rendering_blank(self) -> None:
         """A definition that renders to "" reads as an empty population.
         This one selects everything, and says that."""
-        assert "no selecting predicate" in render_filter(And(()))
+        assert "everything in scope" in render_filter(And(()))
 
 
 class TestPayload:

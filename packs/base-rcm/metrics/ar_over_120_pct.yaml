@@ -27,12 +27,12 @@ sign: higher_is_bad
 unit: ratio
 description: >-
   Share of open A/R older than 120 days as of the snapshot, using the derived
-  ar_age_bucket over the same open population — numerator and denominator
+  A/R age bucket over the same open population — numerator and denominator
   share the population per the denominator law. This is the deep-aging tail
-  that ar_over_90_pct folds into a single bucket: the 91-120 band is often
+  that the over-90 share folds into a single bucket: the 91-120 band is often
   ordinary payer float, while the 120+ band is where recovery probability
-  collapses, so the two contracts answer different questions and their values
-  must never be compared to each other's benchmarks. Denominator is total
-  open A/R including unbilled claims, valued at gross billed charges (same
-  convention as ar_balance and ar_over_90_pct); a billed-only variant is a
-  scope filter, not a new contract.
+  collapses, so the two measures answer different questions and their values
+  must never be compared to each other's benchmarks. Denominator is total open
+  A/R including unbilled claims, valued at gross billed charges (the same
+  convention as A/R balance and the over-90 share); a billed-only view is a
+  narrower scope, not a different measure.

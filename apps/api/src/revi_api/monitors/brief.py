@@ -45,7 +45,9 @@ if TYPE_CHECKING:  # pragma: no cover - import cycle at runtime only
 
 from revi_api.monitors.common import (
     MonitorsNotFoundError,
+    _date_range_phrase,
     _decimal,
+    _load_phrase,
     _monitors_warnings,
     _MonitorsBase,
     _plural,
@@ -221,16 +223,17 @@ class _BriefComposition(_MonitorsBase):
             return await self._prior_load(tenant, watermark)
         if since == watermark.id:
             raise PolicyDeniedError(
-                f"`since={since}` names the load this brief is FOR, so there is nothing to "
-                "diff against; omit it to diff against the previous evaluated load",
+                "this brief is for the same load you asked to compare it against, so there is "
+                "nothing to compare. Leave the comparison load out and Revi uses the previous "
+                "evaluated load.",
                 details={"since": since, "watermark_id": watermark.id},
             )
         stored = await self._components.monitors_loads.get(tenant, since)
         if stored is None:
             raise MonitorsNotFoundError(
-                f"no Monitors evaluation is recorded for load {since!r}, so this brief has "
-                "nothing to diff against; the loads this tenant has evaluated are the only "
-                "ones a brief can be taken since",
+                "the load you asked to compare against has no recorded Monitors evaluation, so "
+                "this brief has nothing to compare with. A brief can only be taken since a load "
+                "Revi has already walked your Monitors on.",
                 details={"since": since, "tenant": tenant},
             )
         return stored
@@ -427,9 +430,10 @@ class _BriefComposition(_MonitorsBase):
                         watermark_id=tile.watermark_id,
                         prior_watermark_id=delta.prior_watermark_id or None,
                         evaluated_at=tile.evaluated_at,
-                        method="this monitor's stored typed spec, re-run at this load through "
-                        "the ordinary governed pipeline (no model call), and diffed against "
-                        "the same spec's result at the load this brief was taken since",
+                        method="Revi re-measured what this monitor measures at this load, by "
+                        "the same steps it uses every load and with nothing re-interpreted. "
+                        "That reading is compared against this monitor's reading at the load "
+                        "this brief is taken since.",
                     ),
                 )
             )
@@ -563,8 +567,8 @@ class _BriefComposition(_MonitorsBase):
                 watermark_id=tile.watermark_id,
                 prior_watermark_id=delta.prior_watermark_id or None,
                 evaluated_at=tile.evaluated_at,
-                method="this monitor's stored typed spec, re-run at both loads; the cell it "
-                "ranks first is not the cell it ranked first before",
+                method="Revi re-measured what this monitor measures at both loads. The cell it "
+                "ranks first is not the cell it ranked first before.",
             ),
         )
 
@@ -592,9 +596,9 @@ class _BriefComposition(_MonitorsBase):
                         source="pinned_spec",
                         watermark_id=watermark.id,
                         evaluated_at=load.evaluated_at,
-                        method="the lead's own drill spec, re-derived by this platform at "
-                        "each load since resolution was claimed, against the exposure "
-                        "measured at the claim load",
+                        method="Revi re-derived the lead's own drill at every load since the "
+                        "fix was claimed. Each reading is measured against the exposure "
+                        "recorded at the claim load.",
                     ),
                 )
             )
@@ -712,6 +716,27 @@ class _BriefComposition(_MonitorsBase):
         }
 
 
+def _looser_than_recommended(delta: MonitorsDeltaPayload) -> str:
+    """The clause for a monitor briefing inside normal variation.
+
+    States the recommended level as a NUMBER wherever the delta carries
+    one. "Looser than Revi's recommended level" tells somebody their
+    threshold is wrong without telling them what right would be, which is
+    the shape ``docs/client-language.md`` §2.1 exists to stop; the bare
+    form is kept only for a deployment that recommends nothing here.
+    """
+    if delta.recommended_threshold_text:
+        return (
+            f" — which is looser than the {delta.recommended_threshold_text} Revi "
+            "recommends for this measure, so this movement is inside what Revi would "
+            "call normal variation."
+        )
+    return (
+        " — which is looser than Revi's recommended level for this measure, so this "
+        "movement is inside what Revi would call normal variation."
+    )
+
+
 def _movement_sentence(
     pin: MonitorsPin,
     tile: MonitorsTilePayload,
@@ -735,15 +760,13 @@ def _movement_sentence(
         f" since {_load_phrase(prior_date)}" if prior_date is not None else ""
     )
     parts = [
-        f"{pin.label}{subject}: {delta.value_text}, {delta.direction} {delta.delta_text} "
-        f"from {delta.prior_value_text}{since}."
+        f"{pin.label}{subject}: {delta.value_text}, {_change_clause(delta)}{since}."
     ]
     if delta.threshold_source == "monitor":
         parts.append(
             "Briefed on this monitor's own threshold"
             + (
-                " — which is looser than the governed gate for this measure, so the movement "
-                "is inside what the pack calls normal variation."
+                _looser_than_recommended(delta)
                 if delta.below_governed_gate
                 else f": {_sentence(delta.materiality_note)}"
             )
@@ -752,8 +775,7 @@ def _movement_sentence(
         parts.append(_sentence(delta.materiality_note))
     if baseline is not None:
         parts.append(
-            f"Since you started monitoring it, it is {baseline.direction} "
-            f"{baseline.delta_text} from {baseline.prior_value_text}."
+            f"Since you started monitoring it, it is {_change_clause(baseline)}."
             + (
                 ""
                 if baseline.same_window
@@ -766,7 +788,9 @@ def _movement_sentence(
         # declared window mode: a relative window usually moves and
         # sometimes does not, and only the resolved dates know which.
         parts.append(
-            SAME_WINDOW_NOTE.format(start=tile.window_start, end=tile.window_end)
+            SAME_WINDOW_NOTE.format(
+                dates=_date_range_phrase(tile.window_start, tile.window_end)
+            )
         )
     if tile.integrity.is_bound:
         parts.append(
@@ -776,6 +800,24 @@ def _movement_sentence(
     if tile.integrity.provisional:
         parts.append("The value is provisional — the window is still adjudicating.")
     return " ".join(parts)
+
+
+def _change_clause(delta: MonitorsDeltaPayload) -> str:
+    """The change between two readings, in words rather than in tokens.
+
+    ``direction`` is a WIRE ENUM clients branch on, and three of its four
+    values do not survive being dropped into a sentence: "flat 0.0 points
+    from 22.9%" is machine grammar, and "unknown from 22.9%" names a
+    direction that does not exist. Said here so the payload keeps its
+    branch handle and the reader gets a sentence.
+    """
+    if delta.direction in ("up", "down"):
+        return f"{delta.direction} {delta.delta_text} from {delta.prior_value_text}"
+    if delta.direction == "flat":
+        return f"unchanged from {delta.prior_value_text}"
+    # No direction was established, so none is claimed: both readings are
+    # published and the change between them is not.
+    return f"measured against {delta.prior_value_text}"
 
 
 def _cap(
@@ -861,6 +903,12 @@ _KIND_NOUNS: dict[str, tuple[str, str]] = {
     "rank_flip": ("new leader", "new leaders"),
 }
 
+#: What a kind this vocabulary has not learned yet is called. A missing
+#: entry used to print the raw enum id ("2 pin_movement"), which is the
+#: exact defect :data:`_KIND_NOUNS` exists to prevent — so the fall-back is
+#: a word, and a vaguer count beats a token.
+_KIND_NOUN_FALLBACK = ("change", "changes")
+
 
 def _sentence(text: str) -> str:
     """One clause, capitalised and stopped. Brief prose is assembled from
@@ -870,13 +918,6 @@ def _sentence(text: str) -> str:
     if not stripped:
         return ""
     return f"{stripped[:1].upper()}{stripped[1:]}."
-
-
-def _load_phrase(data_date: date | None) -> str:
-    """A load, named the way a reader names it: by its data date."""
-    if data_date is None:
-        return "the previous load"
-    return f"the {data_date:%b %-d} load"
 
 
 def _data_date_of(load: MonitorsLoad | None) -> date | None:
@@ -915,18 +956,21 @@ def _immaterial_note(
     bits: list[str] = []
     if immaterial.pin_movements:
         bits.append(
-            f"{_plural(immaterial.pin_movements, 'monitor', 'monitors')} moved by less than the "
-            "threshold for their measure"
+            _plural(
+                immaterial.pin_movements,
+                "monitor moved by less than the level that would brief it",
+                "monitors moved by less than the level that would brief them",
+            )
         )
     if immaterial.new_leads:
         bits.append(
-            f"{_plural(immaterial.new_leads, 'new lead', 'new leads')} fell below the brief "
-            "floor"
+            f"{_plural(immaterial.new_leads, 'new lead was', 'new leads were')} too small "
+            "to brief"
         )
     if immaterial.self_resolved:
         bits.append(
             f"{_plural(immaterial.self_resolved, 'lead', 'leads')} left the detection feed "
-            "below the brief floor"
+            "too small to brief"
         )
     if immaterial.not_yet_comparable:
         bits.append(
@@ -943,7 +987,7 @@ def _immaterial_note(
         detail = (
             " ("
             + ", ".join(
-                _plural(count, *_KIND_NOUNS.get(kind, (kind, kind)))
+                _plural(count, *_KIND_NOUNS.get(kind, _KIND_NOUN_FALLBACK))
                 for kind, count in sorted(dropped.items())
             )
             + ")"
@@ -964,7 +1008,7 @@ def _immaterial_note(
     opening = (
         f"{_plural(len(lost), 'monitor', 'monitors')} stopped being measurable at this load: "
         + "; ".join(lost)
-        + ". Their tiles say why."
+        + ". Each one says why."
     )
     return f"{opening} {held}"
 
@@ -1008,7 +1052,7 @@ def _headline_sentence(
     for entry in entries:
         kinds[entry.kind] = kinds.get(entry.kind, 0) + 1
     described = ", ".join(
-        _plural(kinds[kind], *_KIND_NOUNS.get(kind, (kind, kind)))
+        _plural(kinds[kind], *_KIND_NOUNS.get(kind, _KIND_NOUN_FALLBACK))
         for kind in sorted(kinds, key=lambda k: (-kinds[k], k))
     )
     return f"Since {since}: {described}."

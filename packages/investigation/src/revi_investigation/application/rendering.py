@@ -156,6 +156,53 @@ def metric_label(metric_id: str) -> str:
     return metric_id.replace("_", " ")
 
 
+#: The English a reader already owns for each date basis. ``docs/client-
+#: language.md`` §3 bans **basis** as a bare token: the sentence says "on
+#: the remittance date", never "on the 'remit' basis".
+_DATE_PHRASES = {
+    "service": "service date",
+    "submission": "submission date",
+    "remit": "remittance date",
+    "post": "posting date",
+    "discharge": "discharge date",
+}
+
+#: Same rule for **grain** and **entity**: the reader is told what the rows
+#: ARE, not what our model calls the level they live at.
+_LEVEL_PHRASES = {
+    "claim": "claim level",
+    "claim_line": "line level",
+    "line": "line level",
+    "remit": "remittance level",
+    "denial": "denial level",
+    "transaction": "transaction level",
+}
+
+
+def date_phrase(basis_id: str) -> str:
+    """``remit`` → ``remittance date``. Never "the 'remit' basis"."""
+    key = str(basis_id).strip().lower()
+    return _DATE_PHRASES.get(key, f"{key.replace('_', ' ')} date")
+
+
+def level_phrase(entity_or_grain: str) -> str:
+    """``claim_line`` → ``line level``. Never "grain" or "entity"."""
+    key = str(entity_or_grain).strip().lower()
+    return _LEVEL_PHRASES.get(key, f"{key.replace('_', ' ')} level")
+
+
+def plural(quantity: int, singular: str, many: str | None = None) -> str:
+    """The noun, in the number the sentence actually needs.
+
+    ``docs/client-language.md`` §4: "3 sentences" or "1 sentence", never
+    "1 sentence(s)". The parenthetical is machine voice — it asks a reader
+    to do the agreement the writer declined to do — and it is the one
+    register slip that shows up in a dozen warnings at once, so the plural
+    is computed in one place rather than hand-written per sentence.
+    """
+    return singular if abs(quantity) == 1 else (many or f"{singular}s")
+
+
 def unit_word(unit: str | None) -> str | None:
     """The word a rendered value of this unit ends on, or ``None``.
 

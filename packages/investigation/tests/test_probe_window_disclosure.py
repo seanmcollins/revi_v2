@@ -81,6 +81,12 @@ PACK_VERSION = PackVersionRef("base-rcm", "1.0.0")
 
 JULY_TEXT = "2026-07-01..2026-07-31"
 PROBE_TEXT = "2026-07-06..2026-08-02"
+#: The same two periods as a READER sees them. Finding titles and values
+#: keep the ISO range (they are handles a client parses); the disclosure
+#: PROSE spells the dates out — docs/client-language.md §4, "dates are
+#: readable". Both forms are asserted so a regression in either is caught.
+JULY_PROSE = "Jul 1, 2026 to Jul 31, 2026"
+PROBE_PROSE = "Jul 6, 2026 to Aug 2, 2026"
 
 
 def _spec(comparison: Comparison | None = None) -> AnalysisSpec:
@@ -220,7 +226,7 @@ class TestTheFindingStatesItsOwnPeriod:
         )
         assert PROBE_TEXT in finding.title, finding.title
         assert JULY_TEXT not in finding.title, finding.title
-        assert PROBE_TEXT in finding.statement
+        assert PROBE_PROSE in finding.statement
 
     async def test_the_statement_says_why_two_periods_appear_on_one_answer(
         self, pack_port: PackSnapshotPort
@@ -234,7 +240,7 @@ class TestTheFindingStatesItsOwnPeriod:
             pack_port,
         )
         assert "its own period" in finding.statement
-        assert JULY_TEXT in finding.statement, "the answer's own window is named as the contrast"
+        assert JULY_PROSE in finding.statement, "the answer's own window is named as the contrast"
 
     async def test_the_period_is_published_as_data_not_only_as_prose(
         self, pack_port: PackSnapshotPort
@@ -346,7 +352,7 @@ class TestTheContextHeaderNote:
         )
         note = published_window_note((finding,))
         assert note is not None
-        assert PROBE_TEXT in note
+        assert PROBE_PROSE in note
         assert "own periods" in note
 
     def test_the_note_rides_on_the_header_display(self) -> None:
@@ -369,7 +375,12 @@ class TestTheContextHeaderNote:
             window=JULY, comparison=None, predicates=(), watermark_id=WATERMARK.id
         )
         assert plain.window_note is None
-        assert plain.display.endswith(f"watermark {WATERMARK.id}")
+        # The load is named, never numbered: the id stays on
+        # `watermark_id` for anyone reconciling against it, and the display
+        # string is the sentence a reader sees (docs/client-language.md).
+        assert plain.display.endswith("this data load")
+        assert WATERMARK.id not in plain.display
+        assert plain.watermark_id == WATERMARK.id
 
 
 def _referent() -> ReferentId:

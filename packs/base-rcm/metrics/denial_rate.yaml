@@ -34,17 +34,16 @@ scope_dimensions:
 sign: higher_is_bad
 unit: ratio
 description: >-
-  Share of adjudicated claims that received at least one denial: claims
-  whose outcome-derived clean flag is false, divided by every adjudicated
-  claim in the window on the chosen date basis. Population caveat: claims
-  still awaiting their first remittance (status OPEN) are excluded from
-  both sides — an unadjudicated claim carries a false clean flag for want
-  of evidence, not because a payer denied it, so including it would report
-  the data edge as a denial. Primary basis is remittance (adjudication)
-  date per the MAP AR-5 convention; service and submission are labeled
-  alternates. Claims denied and later paid (for example COB rebills) still
-  count as denied — this is the remittance denial rate, not standing-denied
-  inventory. Benchmark context: sub-5 percent is the commonly cited target;
-  initial denial rates industry-wide run over 11 percent (Kodiak). Pair with
-  initial_denial_rate and denial_write_off_dollars; never conflate initial
-  and final rates.
+  Share of adjudicated claims that received at least one denial: claims whose
+  outcome-derived clean flag is false, divided by every adjudicated claim in
+  the window on the chosen date. Population caveat: claims still awaiting
+  their first remittance are excluded from both sides — an unadjudicated claim
+  carries a false clean flag for want of evidence, not because a payer denied
+  it, so including it would report the data edge as a denial. Primary basis is
+  remittance (adjudication) date per the MAP AR-5 convention; service and
+  submission are labeled alternates. Claims denied and later paid (COB
+  rebills, for example) still count as denied — this is the remittance denial
+  rate, not standing-denied inventory. Benchmark context: sub-5 percent is the
+  commonly cited target; initial denial rates industry-wide run over 11
+  percent (Kodiak). Pair with the initial denial rate and denial write-off
+  dollars; never conflate initial and final rates.

@@ -136,11 +136,15 @@ def non_money_reason(metric_ids: Sequence[str], pack: object) -> str | None:
         declared.append((metric_id, str(unit)))
     if not declared or any(unit == _MONEY_UNIT for _, unit in declared):
         return None
-    named = "; ".join(f"{metric_id!r} declares unit {unit!r}" for metric_id, unit in declared)
+    named = "; ".join(
+        f"{metric_id.replace('_', ' ')} is measured in {unit.replace('_', ' ')}"
+        for metric_id, unit in declared
+    )
     return (
-        f"{named} — a non-money contract produces no comparable dollar figure, so there "
-        "is nothing to reconcile against the card's dollar impact (any money column in "
-        "its frame is an internal numerator, not the metric)"
+        f"{named} — a measure that is not in dollars produces no comparable dollar "
+        "figure, so there is nothing to reconcile against the card's dollar impact. Any "
+        "dollar column behind it is a numerator inside the calculation, not the measure "
+        "itself."
     )
 
 
@@ -198,18 +202,20 @@ def compare_impact(
             note=(
                 f"The detection system reported ${detector_cents / 100:,.2f} for this cell "
                 f"over {window_start}..{window_end}. This platform re-derived "
-                f"${rederived.cents / 100:,.2f} from the governed "
-                f"{rederived.measure_id or 'metric'} contract. The two are not comparable: "
-                f"{not_comparable_reason} The difference is not attributed to the "
-                "detector, and this card is excluded from the divergence count."
+                f"${rederived.cents / 100:,.2f} from the standard definition of "
+                f"{(rederived.measure_id or 'this measure').replace('_', ' ')}. The two are "
+                f"not comparable: {not_comparable_reason} The difference is not attributed "
+                "to the detection system, and this card is excluded from the divergence "
+                "count."
             ),
         )
     basis = (
         f"The detection system reported ${detector_cents / 100:,.2f} for this cell in its "
-        f"own window ({window_start}..{window_end}), on its own population and valuation "
-        f"basis, when it fired. This platform re-derived ${rederived.cents / 100:,.2f} from "
-        f"the governed {rederived.measure_id or 'metric'} contract at the pinned watermark "
-        "over the same named cell."
+        f"own period ({window_start} to {window_end}), on its own population and its own "
+        f"valuation, when it fired. This platform re-derived ${rederived.cents / 100:,.2f} "
+        f"from the standard definition of "
+        f"{(rederived.measure_id or 'this measure').replace('_', ' ')}, read from the same "
+        "data load, over the same named cell."
     )
     verdict = (
         "The two agree within half a percent."
@@ -331,8 +337,8 @@ def build_rederiver(
             # infrastructure fault, and the next build should try again.
             logger.exception("re-derivation failed for plan %s", validated.plan.plan_hash)
             return ReDerivedImpact(
-                unavailable_reason="the platform could not re-derive this figure at this "
-                "watermark (the attempt is recorded in the API log)"
+                unavailable_reason="the platform could not re-derive this figure from "
+                "this data load"
             )
 
         cents, measure, rows = money_total(calculation.frames)
@@ -343,8 +349,8 @@ def build_rederiver(
             unavailable_reason=(
                 None
                 if cents is not None
-                else "the drill's governed contract produces no money column, so there is "
-                "no figure to compare against the card's dollar impact"
+                else "the measure behind this drill produces no dollar figure, so there "
+                "is nothing to compare against the card's dollar impact"
             ),
         )
         cache[key] = result

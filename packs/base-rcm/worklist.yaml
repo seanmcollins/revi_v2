@@ -51,10 +51,10 @@ max_limit: 33
 
 label: What to work first
 description: >-
-  The ranked anomaly worklist at this watermark: detected cards ordered by
-  the governed priority formula (normalised impact, recency, and the
-  governed recoverable estimate), split into the compliance lane that must
-  be worked regardless of size and the value lane ranked on the money. Each
-  card carries its own arithmetic, the figure that ranked it, this
-  platform's re-derivation of the detector's number where it has one, and
-  whether the card can be opened at this catalog and pack version.
+  The ranked anomaly worklist for this data load: detected cards ordered by
+  a standard priority formula — normalised impact, recency, and the
+  recoverable estimate — split into the compliance lane that must be worked
+  regardless of size and the value lane ranked on the money. Each card
+  carries its own arithmetic, the figure that ranked it, this platform's
+  re-derivation of the detection system's number where it has one, and
+  whether the card can be opened with the definitions available today.

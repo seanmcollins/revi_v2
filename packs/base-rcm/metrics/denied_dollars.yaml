@@ -19,12 +19,12 @@ scope_dimensions:
 sign: higher_is_bad
 unit: money_cents
 description: >-
-  Billed dollars attached to denial records in the window, on the remittance
-  (denial) date basis. Claim-level denials carry the claim's billed total;
-  line-level denials carry the denied line's billed amount — the denial_level
-  column distinguishes them (zero-pay vs partial-pay split). Dollars pair
-  with denial_rate volume views: each alone misleads, so present both.
-  Denials are keyed on the group code + CARC pair throughout. proc_group is
-  not a legal cut at the denial entity (it binds at claim_line only); the
-  denial record's line linkage exists but is null for claim-level denials,
-  so procedure-level denial cuts wait for a certified path.
+  Billed dollars attached to denial records in the window, counted on the
+  remittance date. A claim-level denial carries the claim's whole billed
+  total; a line-level denial carries only the denied line's billed amount.
+  That is the zero-pay versus partial-pay split, and every denial record is
+  marked one or the other. Read these dollars beside the denial volume —
+  either one on its own misleads. Denials are keyed on the group code plus
+  CARC pair throughout. Denials cannot be broken out by procedure: a
+  claim-level denial names no single procedure, so that cut is not
+  standardized here.

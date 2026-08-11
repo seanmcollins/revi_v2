@@ -34,7 +34,7 @@ metrics:
     caveat: >-
       Counts every unbilled open claim regardless of runway, so claims a
       year from their deadline and claims already past it are both in the
-      total; cut by filing_runway_bucket to separate them.
+      total; cut by filing runway bucket to separate them.
     rationale: >-
       The formula filters on billed_flag = false AND status = OPEN and
       applies no deadline predicate. Until 2026-08-09 none could be

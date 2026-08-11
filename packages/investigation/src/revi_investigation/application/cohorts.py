@@ -30,6 +30,7 @@ from revi_investigation.application.ports import (
     ReferentRegistryStore,
     RegisteredReferent,
 )
+from revi_investigation.application.rendering import date_phrase, level_phrase
 from revi_investigation.domain.context import AnalysisSpec
 from revi_investigation.domain.records import Session
 from revi_kernel.capabilities import AnalyticalRepository
@@ -145,8 +146,9 @@ class PinCohortService:
         if self._catalog.date_basis_column(definition.entity, window.basis) is not None:
             return definition
         warnings.append(
-            f"cohort pinned without its window: the {window.basis.id!r} basis is not "
-            f"answerable at the {definition.entity.value!r} grain, so the cohort covers "
-            "the scoped population across all time"
+            f"cohort pinned without its window: the {date_phrase(window.basis.id)} cannot be "
+            f"read at the {level_phrase(str(definition.entity.value))}, so the population you "
+            "pinned "
+            "covers the whole history rather than the period you named"
         )
         return CohortDefinition(entity=definition.entity, scope=definition.scope, window=None)

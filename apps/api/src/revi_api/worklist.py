@@ -158,17 +158,15 @@ def _statement(
     """
     if total == 0:
         return (
-            "There is no ranked work at this watermark: the detection feed reported no "
+            "There is no ranked work in this data load. The detection feed reported no "
             "open anomalies, so this platform has no worklist to order."
         )
     parts: list[str] = []
     scope = f" in the {lane} lane" if lane is not None else ""
     parts.append(
-        f"{len(published)} of {total} ranked cards{scope} at watermark "
-        f"{portfolio.watermark_id}, highest governed priority first "
-        f"({portfolio.formula_version}: normalised impact, recency, and the governed "
-        f"recoverable estimate, with the cards this platform cannot yet investigate "
-        f"listed last)."
+        f"{len(published)} of {total} ranked cards{scope} in this data load, highest "
+        f"priority first — normalised impact, recency, and the recoverable estimate, "
+        f"with the cards this platform cannot yet investigate listed last."
     )
     lanes = {lane_payload.id: lane_payload for lane_payload in portfolio.lanes}
     lane_bits = [
@@ -191,7 +189,7 @@ def _statement(
             f"({top.actionability_label}), priority {top.priority_score:.6f}."
         )
     parts.append(
-        f"Across the whole ranked population the governed recoverable estimate totals "
+        f"Across the whole ranked population the recoverable estimate totals "
         f"{_dollars(recoverable_cents)}."
     )
     # Counted over the whole ranked population, and said to be: a count
@@ -200,15 +198,17 @@ def _statement(
     on_platform = sum(1 for card in portfolio.items if card.ranked_on == "platform")
     if on_platform:
         parts.append(
-            f"Across the ranked population, {on_platform} card(s) are ranked on this "
-            "platform's re-derived figure rather than the detector's, because the two "
-            "diverge; each card publishes both numbers and which one ranked it."
+            f"Across the ranked population, {on_platform} "
+            f"{'card is' if on_platform == 1 else 'cards are'} ranked on this "
+            "platform's re-derived figure rather than the detection system's, because "
+            "the two diverge. Each card publishes both numbers and which one ranked it."
         )
     blocked = sum(1 for card in portfolio.items if not card.drillable)
     if blocked:
         parts.append(
-            f"{blocked} of the {len(portfolio.items)} cannot be opened at this catalog "
-            "and pack version and carry the platform's own refusal; they sort last."
+            f"{blocked} of the {len(portfolio.items)} cannot be opened with the "
+            "definitions available today. Each carries this platform's own refusal, "
+            "and they sort last."
         )
     parts.append(
         "This is the detection feed's ranked work, not a measurement of the question "
@@ -339,7 +339,8 @@ def worklist_reference_warning(reference: WorklistReference) -> str:
     return (
         f"named_cut_applied: read {reference.mention!r} as worklist row "
         f"{card.anomaly_id} — {card.title} — and opened the card's own stored drill "
-        f"({', '.join(card.drill_spec.metric_ids)}), which is the same investigation the "
+        f"({', '.join(mid.replace('_', ' ') for mid in card.drill_spec.metric_ids)}), "
+        "which is the same investigation the "
         "rail's click on that row runs. Nothing about the phrasing was interpreted: the id "
         "and the position are handles this platform published."
     )
@@ -347,15 +348,15 @@ def worklist_reference_warning(reference: WorklistReference) -> str:
 
 def worklist_warning(payload: WorklistPayload) -> str:
     routed = (
-        f"the governed {payload.matched_on} {payload.matched_id!r}"
+        "your question is about which work to pick up first"
         if payload.matched_on != "typed_query"
-        else "an explicit worklist request on this turn"
+        else "you asked for the worklist directly"
     )
     return (
         f"{WORKLIST_ATTACHED_PREFIX} this answer also carries the ranked anomaly "
         f"worklist ({len(payload.items)} of {payload.total_items} cards), attached "
-        f"because {routed} routed it. The cards are the detection feed's, ordered by "
-        f"{payload.formula_version}; they are not findings this turn computed."
+        f"because {routed}. The cards come from the detection feed, ranked by the "
+        "standard priority order. They are not measurements this answer computed."
     )
 
 
@@ -393,13 +394,13 @@ def worklist_lead_warning(payload: WorklistPayload) -> str | None:
     )
     lane_clause = f" Lanes: {lanes}." if lanes else ""
     return (
-        f"{WORKLIST_LEADS_PREFIX} this question routed to the governed "
-        f"{payload.matched_on} {payload.matched_id!r}, so the ranked worklist below IS the "
-        f"answer and the measurements on this answer are context beside it. Start with "
+        f"{WORKLIST_LEADS_PREFIX} you asked what to work on first, so the ranked "
+        "worklist below IS the answer and the measurements on this answer are context "
+        "beside it. Start with "
         f"{top.anomaly_id} — {top.title} — {_dollars(abs(top.ranked_impact_cents))}, about "
         f"{_dollars(top.recoverable_cents_estimate)} of it estimated recoverable "
-        f"({top.actionability_label}). {payload.total_items} cards are ranked and the "
-        f"governed recoverable estimate across them totals "
+        f"({top.actionability_label}). {payload.total_items} cards are ranked, and the "
+        f"recoverable estimate across them totals "
         f"{_dollars(payload.total_recoverable_cents_estimate)}.{lane_clause}"
     )
 

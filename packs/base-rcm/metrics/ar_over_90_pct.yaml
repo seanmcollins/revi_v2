@@ -24,11 +24,11 @@ sign: higher_is_bad
 unit: ratio
 description: >-
   Share of open A/R older than 90 days as of the snapshot, using the derived
-  ar_age_bucket (buckets 91-120 and 120+) over the same open population —
+  A/R age bucket (the 91-120 and 120+ bands) over the same open population —
   numerator and denominator share the population per the denominator law.
-  Denominator note (a classic semantic trap in the MAP AR-1/AR-2/AR-3
-  family): this contract's denominator is total open A/R including unbilled
-  claims, valued at gross billed charges; a billed-only variant is a scope
-  filter (submission date not null), not a new contract. Benchmark context:
+  Denominator note (a classic semantic trap in the MAP AR-1/AR-2/AR-3 family):
+  this denominator is total open A/R including unbilled claims, valued at
+  gross billed charges; a billed-only view is a narrower scope — only claims
+  that have been submitted — not a different measure. Benchmark context:
   common guidance keeps over-90 under 15-20 percent of billed A/R (sources
   conflict; treat as a range).

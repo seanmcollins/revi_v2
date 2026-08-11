@@ -92,6 +92,12 @@ OnEvent = Callable[[str, dict[str, Any]], Awaitable[None]]
 #: so a reader of ``for_investigation`` can tell it from the decision trace.
 NARRATIVE_TRACE_SUFFIX = ":narrative"
 
+#: What a definition card cites when the engine names no other source.
+#: The deployment's pack id and version ride on the payload for clients
+#: that reconcile against them; a person reading the card gets this
+#: (docs/client-language.md §2).
+DEFINITION_SOURCE = "Standard definition — from your definitions library"
+
 #: Warning surfaced when a turn's cost ceiling left nothing for the
 #: narrative. The findings, charts and grades are untouched — only the
 #: prose is missing, and the answer says so rather than reading as though
@@ -775,7 +781,7 @@ async def _compose_narrative(
     if anomaly_reconciliation is not None:
         reconciliation_line = (
             f"{anomaly_reconciliation.summary} (card-to-answer). Investigation lineage: "
-            f"{outcome.reconciliation or 'not applicable on this turn'}"
+            f"{outcome.reconciliation or 'not applicable on this answer'}"
         )
     prompt = build_narrative_prompt(
         findings=findings,
@@ -1079,7 +1085,14 @@ async def assemble_turn_response(
                     kind=t.kind,
                     title=t.title,
                     definition=t.definition,
-                    source=t.source,
+                    # Where this definition came from, in the reader's words.
+                    # The card used to cite nothing and the payload carried
+                    # `base-rcm@1.0.0` beside it — a version pin nobody
+                    # outside this repo can read. The pack ids stay on the
+                    # payload for clients that reconcile against them; the
+                    # sentence a person reads says the same thing in theirs
+                    # (docs/client-language.md).
+                    source=t.source or DEFINITION_SOURCE,
                 )
                 for t in outcome.definitional.terms
             ],

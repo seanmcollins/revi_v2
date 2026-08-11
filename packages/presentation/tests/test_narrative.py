@@ -127,7 +127,7 @@ class TestCaveatsAndDisplayNames:
             reconciliation=None,
             published_cautions=7,
         )
-        assert "7 caution-severity caveat(s) above your text" in prompt
+        assert "7 caveats above your text" in prompt
         assert "Do NOT write that the answer carries no caveats" in prompt
 
     @pytest.mark.parametrize("depth", list(NarrativeDepth))
@@ -233,7 +233,7 @@ class TestValidation:
         assert len(validation.warnings) == 1  # one operator signal, not three
         warning = validation.warnings[0]
         assert warning.startswith(REDACTION_WARNING_PREFIX)
-        assert "3 sentence(s) dropped" in warning
+        assert "3 sentences were removed from the summary" in warning
         assert "Beacon Health" in warning  # the reasons ride along
         assert validation.text == "The rest held steady."
 

@@ -47,6 +47,11 @@ from revi_api.monitor_intent import (
     parse_monitor_declaration,
 )
 from revi_api.monitors import MonitorsService, annotate_time_to_impact
+from revi_api.monitors_policy import (
+    recommended_gate_sentence,
+    recommended_gate_text,
+    recommended_threshold,
+)
 from revi_api.portfolio import (
     SNAPSHOT_NOT_COMPARABLE,
     build_portfolio,
@@ -285,24 +290,39 @@ MONITOR_PENDING_WARNING = (
 )
 
 
-def monitor_declaration_warning(declaration: MonitorDeclaration) -> str:
+def monitor_declaration_warning(
+    declaration: MonitorDeclaration, recommended: str = "", note: str = ""
+) -> str:
     """What the platform read, said on the answer that acted on it.
 
     The analyst's own words are not thrown away by the rewrite: this states
     the lead-in that was matched and the question it was reduced to, so a
     reader can see the platform's reading rather than infer it from a monitor
     appearing.
+
+    ``recommended`` is the concrete sensitivity that applies when none was
+    stated ("0.5 percentage points"), and ``note`` says whose recommendation
+    it is and that it can be changed. Together they replace "the governed
+    threshold for the measure", which told somebody a number had been chosen
+    for them without saying what it was (docs/client-language.md §2.1).
     """
-    threshold = (
-        f" Sensitivity read from {declaration.threshold_phrase.strip()!r}."
-        if declaration.threshold_phrase
-        else " No sensitivity was stated, so the governed threshold for the measure applies."
-    )
+    if declaration.threshold_phrase:
+        threshold = f" Sensitivity read from {declaration.threshold_phrase.strip()!r}."
+    elif recommended:
+        threshold = (
+            " You named no sensitivity, so I'll brief you when it moves more than "
+            f"{recommended}. {note}".rstrip()
+        )
+    else:
+        threshold = (
+            " You named no sensitivity, so I'll brief you when it moves enough to be "
+            "worth your time."
+        )
     return (
         f"named_cut_applied: read {declaration.matched_phrase!r} as a monitor declaration and "
         f"investigated the rest of the sentence — {declaration.subject!r} — as an ordinary "
-        f"question, so this monitor is defined by a spec that was planned, validated and "
-        f"answered rather than by the phrasing.{threshold}"
+        f"question, so this monitor is defined by a saved measure that was planned, validated "
+        f"and answered rather than by the phrasing.{threshold}"
     )
 
 
@@ -652,7 +672,21 @@ class ApiService:
                     outcome, worklist_reference_warning(worklist_reference)
                 )
             if declaration is not None:
-                outcome = _with_warning(outcome, monitor_declaration_warning(declaration))
+                # The recommendation is stated as a number, not named, so
+                # somebody who said nothing about sensitivity still learns
+                # what they got (docs/client-language.md §2.1).
+                units = self._units_for_answer(outcome)
+                unit = units[0] if units else None
+                outcome = _with_warning(
+                    outcome,
+                    monitor_declaration_warning(
+                        declaration,
+                        recommended_gate_text(unit, self._monitors.policy.materiality),
+                        recommended_gate_sentence(
+                            unit, self._monitors.policy.materiality
+                        ),
+                    ),
+                )
             outcome, strip = await self._anomaly_reconciliation(request, outcome)
             # Read once here and handed to the assembler: the worklist
             # routing reads the plan context off it and the assembler needs
@@ -794,14 +828,18 @@ class ApiService:
                     reason_code="threshold_unreadable",
                     reason=(
                         f"I could not read {declaration.threshold_phrase.strip()!r} as a "
-                        "sensitivity, and I will not quietly substitute the governed "
-                        "threshold for one you stated — say it again in one of the forms "
-                        "below and the monitor is created from this same answer"
+                        "sensitivity, and I will not quietly put a different number in its "
+                        "place — say it again in one of the forms below and the monitor "
+                        "is created from this same answer"
                     ),
                     subject=declaration.subject,
                     threshold_phrase=declaration.threshold_phrase,
                     legal_alternatives=legal_threshold_phrases(
                         units[0] if units else None
+                    ),
+                    recommended_threshold=recommended_threshold(
+                        units[0] if units else None,
+                        self._monitors.policy.materiality,
                     ),
                 ),
             )
@@ -823,6 +861,9 @@ class ApiService:
                     subject=declaration.subject,
                     threshold_phrase=declaration.threshold_phrase,
                     legal_alternatives=legal_threshold_phrases(units[0] if units else None),
+                    recommended_threshold=recommended_threshold(
+                        units[0] if units else None, self._monitors.policy.materiality
+                    ),
                 ),
             )
         except Exception:  # pragma: no cover - defensive
@@ -847,6 +888,9 @@ class ApiService:
                     subject=declaration.subject,
                     threshold_phrase=declaration.threshold_phrase,
                     legal_alternatives=legal_threshold_phrases(units[0] if units else None),
+                    recommended_threshold=recommended_threshold(
+                        units[0] if units else None, self._monitors.policy.materiality
+                    ),
                 ),
             )
         return response.model_copy(update={"monitor": payload})
@@ -881,7 +925,7 @@ class ApiService:
             else ""
         )
         sentence = (
-            f"monitor_not_created: this turn read as a monitor declaration and NO monitor was "
+            f"monitor_not_created: this question asked for a monitor and NO monitor was "
             f"created: {refusal.reason}. The answer above stands on its own; nothing is "
             f"being monitored.{alternatives}"
         )

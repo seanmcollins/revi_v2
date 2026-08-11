@@ -381,7 +381,7 @@ class EvaluateFindingsService(_FindingBuilders):
                 else EmptinessFact(
                     kind=EmptinessKind.NO_FINDINGS,
                     frame_id=shapes[0].frame_id,
-                    detail="every scalar cell this turn produced was suppressed",
+                    detail="every single-number cell this answer produced was suppressed",
                 )
             ),
         )

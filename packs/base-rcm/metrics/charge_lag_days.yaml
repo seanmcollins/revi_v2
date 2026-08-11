@@ -13,9 +13,9 @@ scope_dimensions:
 sign: higher_is_bad
 unit: days
 description: >-
-  Mean days from the line's service date to its charge entry date, over
-  claim lines with service in the window (line-weighted, per the MAP PB-4
-  total-charge-lag shape). charge_entry_lag_days is a documented probe-time
-  derived measure (charge_entry_date minus service_date per line; see pack
-  NOTES). Benchmark context: best practice is one to two days. Pair with
-  late_charge_pct for the charge-capture picture.
+  Mean days from the line's service date to its charge entry date, over claim
+  lines with service in the window (line-weighted, per the MAP PB-4
+  total-charge-lag shape). Charge entry lag is derived when the check runs:
+  charge entry date minus service date, per line. Benchmark context: best
+  practice is one to two days. Pair with the late-charge share for the
+  charge-capture picture.

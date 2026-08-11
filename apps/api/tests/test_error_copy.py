@@ -245,11 +245,29 @@ class TestClarificationReasonCopy:
     def test_the_analysts_own_sentence_survives(self) -> None:
         copy = clarification_reason_copy(
             "PREDICATE_VALUE_UNMATCHED: payer ['UnitedHealthcare'] not in the 12 values "
-            "this watermark holds"
+            "this load holds"
         )
         assert copy is not None
-        assert "not in the 12 values this watermark holds" in copy
+        assert "not in the 12 values this load holds" in copy
         assert "PREDICATE_VALUE_UNMATCHED" not in copy
+
+    def test_a_fragment_naming_our_machinery_is_dropped_not_published(self) -> None:
+        """The fifth filter, and why it had to exist.
+
+        "only one option survived the pack's filters" carries no enum token,
+        no snake_case id, no confidence and no machine pair — it passed
+        every guard this function had and published the word ``pack`` under
+        a clarification, which is the vocabulary complaint that started
+        ``docs/client-language.md``. Dropped rather than paraphrased: the
+        fine print is optional, and guessing at what a fragment meant would
+        publish a sentence nobody wrote.
+        """
+        for reason in (
+            "CLARIFICATION_SOLE_SURVIVOR: only one option survived the pack's filters",
+            "the governed contract does not bind here",
+            "this probe was not run at this watermark",
+        ):
+            assert clarification_reason_copy(reason) is None, reason
 
     def test_operator_ids_are_translated_not_printed(self) -> None:
         copy = clarification_reason_copy(
@@ -304,11 +322,20 @@ class TestClarificationFrameReason:
             == "CLARIFICATION_NO_OPTIONS"
         )
         kept = clarification_frame_reason(
-            "no pack content matched the definitional lookup; CLARIFICATION_NO_OPTIONS"
+            "nothing in your definitions library matched that term; CLARIFICATION_NO_OPTIONS"
         )
         assert kept is not None
-        assert kept.startswith("No pack content matched the definitional lookup")
+        assert kept.startswith("Nothing in your definitions library matched that term")
         assert kept.endswith("; CLARIFICATION_NO_OPTIONS")
+        # And when the fragment names our machinery instead, the sentence
+        # goes and the shape marker still does not: the card must stay in
+        # the refusal register even with no fine print to show.
+        assert (
+            clarification_frame_reason(
+                "no pack content matched the definitional lookup; CLARIFICATION_NO_OPTIONS"
+            )
+            == "CLARIFICATION_NO_OPTIONS"
+        )
 
     def test_nothing_else_internal_rides_along_with_it(self) -> None:
         kept = clarification_frame_reason(

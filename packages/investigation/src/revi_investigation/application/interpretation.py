@@ -212,7 +212,10 @@ _DEFINITIONAL_TRAILERS = (
 # the problem is how a platform teaches people it cannot be trusted.
 _CLASSIFY_REPHRASE = "I couldn't confidently read that request — could you rephrase it?"
 _CLASSIFY_RETRY = "I hit a problem reading that just now — please try again."
-_INTERPRET_REPHRASE = "I couldn't map that question onto governed content — could you rephrase it?"
+_INTERPRET_REPHRASE = (
+    "I couldn't match that question to anything in your definitions library — could you "
+    "rephrase it?"
+)
 _INTERPRET_RETRY = "I hit a problem working that out just now — please try again."
 
 

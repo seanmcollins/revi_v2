@@ -13,9 +13,8 @@ scope_dimensions:
 sign: neutral
 unit: money_cents
 description: >-
-  Gross billed charges for claims in the window, service-date basis by
-  default (submission and discharge are labeled alternates). Charges are
-  undiscounted chargemaster value: never compare them against net-revenue
-  benchmarks, and read collection ratios on a gross basis as context only.
-  At a given watermark a claim's billed total reflects charge lines entered
-  so far.
+  Gross billed charges for claims in the window, dated by service by default
+  (submission and discharge are labeled alternates). Charges are undiscounted
+  chargemaster value: never compare them against net-revenue benchmarks, and
+  read gross-charge collection ratios as context only. Within any one data
+  load, a claim's billed total reflects the charge lines entered so far.

@@ -13,15 +13,14 @@ scope_dimensions:
 sign: neutral
 unit: count
 description: >-
-  Distinct remittance advices (835 adjudication events) in the window on the
-  remit-date basis — how many payer decisions landed. A drop with flat
-  submission volume is a payer that has stopped answering, which shows up
-  here weeks before it shows up in cash; a rise with flat volume is usually
-  rebill and appeal traffic rather than new business. Scope is narrower than
-  every other contract on purpose: the remit base view carries payer,
-  facility, region and service line, but NOT plan, product type or claim
-  type, so those are not legal cuts here and asking for them is a grain
-  error, not a missing number. First-pass remits and second-pass
-  rebill/appeal outcomes are distinguished on the remit record by remit_seq,
-  which is not a certified dimension — so this contract counts all
-  adjudication events together and cannot separate them.
+  Distinct remittance advices (835 adjudication events) in the window, dated
+  by the remittance — how many payer decisions landed. A drop with flat
+  submission volume is a payer that has stopped answering, which shows up here
+  weeks before it shows up in cash; a rise with flat volume is usually rebill
+  and appeal traffic rather than new business. Scope is narrower than every
+  other measure on purpose: a remittance carries payer, facility, region and
+  service line, but NOT plan, product type or claim type, so those cuts are
+  not available here — the remittance simply does not record them. First-pass
+  remittances and second-pass rebill or appeal outcomes are marked on the
+  remittance record, but that marking is not standardized here, so this counts
+  all adjudication events together and cannot separate them.

@@ -26,6 +26,7 @@ from revi_investigation.application.rendering import RATIO_UNIT as _RATIO_UNIT_N
 from revi_investigation.application.rendering import (
     metric_label,
     money,
+    plural,
     points,
     ratio_pct,
 )
@@ -603,15 +604,21 @@ def containment_reconciliation(
         )
     same_measure = measure is not None and measure in {ref.id for ref in finding.metric_refs}
     if not same_measure:  # pragma: no cover - _parent_finding now matches on measure
-        scope = f"{measure or 'this turn'} against {finding.referent.value}"
+        scope = (
+            f"{metric_label(measure) if measure else 'this answer'} against "
+            f"{finding.referent.value}"
+        )
     elif breakdown:
         cells = max((len(frame.rows) for _, frame in calculation.frames), default=0)
         scope = (
-            f"the {cells} row(s) this breakdown published, summed, against the whole "
-            f"{finding.referent.value} measured"
+            f"the {cells} {plural(cells, 'row')} this breakdown published, summed, against "
+            f"the whole {finding.referent.value} measured"
         )
     else:
-        scope = f"the same metric ({measure}) over the cell {finding.referent.value} names"
+        scope = (
+            f"the same measure ({metric_label(measure or '')}) over the cell "
+            f"{finding.referent.value} names"
+        )
     if parent_delta is not None and child_delta is not None:
         kind, parent_cents, child_cents = "movement vs movement", parent_delta, child_delta
     elif parent_level is not None:
@@ -622,9 +629,9 @@ def containment_reconciliation(
         return Containment(
             summary=_not_applicable(
                 f"the parent finding {finding.referent.value} published a movement "
-                f"({money(parent_delta or 0)} vs its prior period) and this turn published a "
+                f"({money(parent_delta or 0)} vs its prior period) and this answer published a "
                 f"level ({money(child_level)}) — two different kinds of quantity, so neither "
-                "contains the other. Compare this turn against the same prior period to tie "
+                "contains the other. Ask this same question against that prior period to tie "
                 "the two out."
             ),
             passed=True,
@@ -634,9 +641,10 @@ def containment_reconciliation(
     passed = abs(fraction) <= _CONTAINMENT_TOLERANCE
     summary = (
         f"status={'passed' if passed else 'failed'}; "
-        f"scope={'breakdown' if breakdown else 'containment'} ({kind}); "
-        f"parent {finding.referent.value}={money(parent_cents)}; child={money(child_cents)}; "
-        f"delta={money(delta)} ({float(fraction):+.1%}); basis={scope}"
+        f"this {'breakdown' if breakdown else 'drill'} was checked against the parent as a "
+        f"{kind}. The parent {finding.referent.value} published {money(parent_cents)} and this "
+        f"answer comes to {money(child_cents)}, a difference of {money(delta)} "
+        f"({float(fraction):+.1%}). What was compared: {scope}."
     )
     return Containment(
         summary=summary,
@@ -685,12 +693,12 @@ def measure_mismatch_reason(
     published = sorted({ref.id for ref in finding.metric_refs})
     if measure in published:
         return None
-    named = ", ".join(published) or "no metric of its own"
+    named = ", ".join(metric_label(mid) for mid in published) or "no measure of its own"
     return (
-        f"the finding this turn drilled ({finding.referent.value}) published {named}, and "
-        f"this answer publishes {measure} — two different measurements of that cell rather "
-        "than a part and its whole, so neither contains the other. Ask for "
-        f"{measure} over the parent population to tie the two out."
+        f"the finding this answer drilled into ({finding.referent.value}) published {named}, "
+        f"and this answer publishes {metric_label(measure)} — two different measurements of "
+        "that cell rather than a part and its whole, so neither contains the other. Ask for "
+        f"{metric_label(measure)} over the parent population to tie the two out."
     )
 
 
@@ -773,10 +781,11 @@ def _rate_containment(
         # none of them may be read, so there is no recomposition to state.
         return Containment(
             summary=_not_applicable(
-                f"every one of the {totals.withheld_cells} cell(s) this turn published for "
-                f"{totals.measure} had its numerator withheld by the small-cell policy, so the "
-                f"parent rate cannot be recomposed from them. The parent figure "
-                f"{finding.referent.value}={ratio_pct(parent_rate)} stands as published."
+                f"every one of the {totals.withheld_cells} "
+                f"{plural(totals.withheld_cells, 'cell')} this answer published for "
+                f"{metric_label(totals.measure)} had its numerator withheld by the small-cell "
+                "policy, so the parent rate cannot be recomposed from them. The parent figure "
+                f"{finding.referent.value} stands as published, at {ratio_pct(parent_rate)}."
             ),
             passed=True,
             anchor=_parent_anchor(
@@ -798,7 +807,7 @@ def _rate_containment(
     )
     passed = within_tolerance or explained
     cells_text = (
-        f"the {totals.cells} measurable cell(s) this "
+        f"the {totals.cells} measurable {plural(totals.cells, 'cell')} this "
         f"{'breakdown' if breakdown else 'drill'} published, recombined through their own "
         f"denominators, against the whole {finding.referent.value} measured"
     )
@@ -806,18 +815,19 @@ def _rate_containment(
     if totals.withheld_cells:
         assert interval is not None
         withheld_text = (
-            f"; withheld={totals.withheld_cells} cell(s) over "
-            f"{totals.withheld_denominator:,f} population whose numerator the small-cell policy "
-            f"suppressed, so the population rate lies in "
-            f"{ratio_pct(interval[0])}..{ratio_pct(interval[1])}"
+            f" A further {totals.withheld_cells} "
+            f"{plural(totals.withheld_cells, 'cell')}, covering "
+            f"{totals.withheld_denominator:,f} of the population, had the numerator suppressed "
+            "by the small-cell policy, so the rate over the whole population lies somewhere "
+            f"between {ratio_pct(interval[0])} and {ratio_pct(interval[1])}."
         )
         if explained and not within_tolerance:
             # Said, not left to be inferred: a reader looking at a passing
             # verdict beside a 1.1-point delta is owed the reason it is not
             # a disagreement, in the same line.
             withheld_text += (
-                " — the parent sits inside that interval, so the gap is the suppression "
-                "and not a disagreement"
+                " The parent sits inside that range, so the gap is the suppression and not "
+                "a disagreement."
             )
     # ``passed_with_suppression`` is the grammar's own third state
     # (:class:`revi_calculation.operators.reconcile.ReconciliationStatus`),
@@ -832,16 +842,16 @@ def _rate_containment(
         status = "passed_with_suppression"
     summary = (
         f"status={status}; "
-        f"scope={'breakdown' if breakdown else 'containment'} (rate recomposition); "
-        f"parent {finding.referent.value}={ratio_pct(parent_rate)}; "
-        f"child recomposed={ratio_pct(recomposed)} "
-        f"({totals.numerator:,f}/{totals.denominator:,f}); "
+        f"this {'breakdown' if breakdown else 'drill'} was checked against the parent by "
+        f"recomposing the rate. The parent {finding.referent.value} published "
+        f"{ratio_pct(parent_rate)} and the cells recompose to {ratio_pct(recomposed)} "
+        f"({totals.numerator:,f} over {totals.denominator:,f}), a difference of "
         # Signed: ``points`` is unsigned by design (a rate's movement is
         # said with a direction word beside it), and a reconciliation delta
         # has no such word — an unsigned "1.5 points" beside "-11.6%" reads
         # as two different answers to one question.
-        f"delta={'-' if delta < 0 else '+'}{points(delta)} ({float(fraction):+.1%})"
-        f"{withheld_text}; basis={cells_text}"
+        f"{'-' if delta < 0 else '+'}{points(delta)} ({float(fraction):+.1%})."
+        f"{withheld_text} What was compared: {cells_text}."
     )
     return Containment(
         summary=summary,
@@ -893,7 +903,9 @@ class _Reconciliation(_TurnRecording):
         if not any(
             isinstance(op, (SetDimensions, DrillInto)) for op in operators
         ) and not _splits_parent(spec, parent):
-            return _not_applicable("this turn neither split nor drilled the parent's population")
+            return _not_applicable(
+                "this question neither split nor drilled into the earlier answer's population"
+            )
         # A drill of a named parent finding reconciles against THAT
         # finding's published figure, whether or not this turn produced a
         # compared money frame and whether or not the parent kept an
@@ -948,7 +960,8 @@ class _Reconciliation(_TurnRecording):
             )
             return _not_applicable(
                 mismatch
-                or "this turn produced no compared money frame to reconcile against the parent"
+                or "this answer produced no compared dollar figure to reconcile against the "
+                "earlier one"
             )
         measure = shape.money_measure
         parent_totals: EvidenceFrame | None = None
@@ -963,13 +976,13 @@ class _Reconciliation(_TurnRecording):
                 break  # prefer the compare totals (they carry the prior side)
         if parent_totals is None:
             return _not_applicable(
-                f"the parent investigation holds no undimensioned {measure!r} total to "
-                "reconcile against"
+                f"the earlier answer holds no overall {metric_label(measure)} total, "
+                "unbroken by any cut, to reconcile against"
             )
         if parent_totals.watermark != shape.frame.watermark:
             return _not_applicable(
-                "the parent's totals were read at a different watermark "
-                f"({parent_totals.watermark.id}) than this turn ({shape.frame.watermark.id})"
+                "the earlier answer's totals were read from a different data load than this "
+                "one, so the two are not the same measurement to compare"
             )
         measures: tuple[str, ...] = (measure,)
         if (

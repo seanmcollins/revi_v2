@@ -262,7 +262,7 @@ class TestRefusalsWithAWayOut:
 
         assert clarification is not None
         assert clarification.options
-        assert any("ar_balance" in option for option in clarification.options)
+        assert any("ar balance" in option for option in clarification.options)
         assert clarification.reason is not None
         assert "GRAIN_INCOMPATIBLE_RECOVERABLE" in clarification.reason
 

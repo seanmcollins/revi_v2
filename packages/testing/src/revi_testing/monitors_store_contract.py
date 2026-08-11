@@ -153,7 +153,7 @@ def _lead(token: str, *, tenant: str = "demo-tenant", anomaly_id: str = "ANM-001
         baseline_cents=178_216_82,
         baseline_basis="this platform's own re-derivation at the claim load",
         confirming_watermarks=("wm_alpha",),
-        verification_note="1 of the 2 consecutive loads the governed rule requires",
+        verification_note="1 of the 2 consecutive loads Revi requires",
         history=(
             {"at": _T0.isoformat(), "from": "open", "to": "working", "by": "analyst-1"},
             {"at": _T0.isoformat(), "from": "working", "to": "resolved_claimed", "by": "analyst-1"},

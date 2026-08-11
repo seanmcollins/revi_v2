@@ -13,10 +13,10 @@ scope_dimensions:
 sign: higher_is_bad
 unit: ratio
 description: >-
-  Billed dollars on lines whose charge was entered more than three days
-  after the line's service date, as a share of all billed line dollars for
-  services in the window (the MAP CL-2 late-charge shape, dollar-weighted).
-  late_charge_cents is a documented probe-time derived measure (line billed
-  cents where charge_entry_date > service_date + 3 days, else zero; see pack
-  NOTES). Completes the charge-capture pair with charge_lag_days: lag is
-  the average, late-charge share is the tail.
+  Billed dollars on lines whose charge was entered more than three days after
+  the line's service date, as a share of all billed line dollars for services
+  in the window (the MAP CL-2 late-charge shape, dollar-weighted). The
+  late-charge amount is derived when the check runs: a line's billed dollars
+  when its charge entry date is more than three days after its service date,
+  and zero otherwise. Completes the charge-capture pair with charge lag days:
+  lag is the average, late-charge share is the tail.

@@ -14,12 +14,12 @@ unit: money_cents
 description: >-
   Credit-balance dollars standing as of the snapshot: per claim, posted
   payments in excess of the amount the account should have collected, where
-  the refund has not yet posted. credit_balance_cents is a documented
-  probe-time derived measure (visible payments minus expected collections,
-  floored at zero, minus refunds already issued; in this warehouse credits
-  arise from duplicate payer payments later refunded — see pack NOTES).
-  Credit balances are liabilities with regulatory return deadlines, so
-  higher is bad; MAP AR-9's days form is a transform over this contract and
-  a daily-revenue proxy, labeled when used. Population caveat: this is a
-  balance standing as of the snapshot, not a flow accumulated over a window,
-  so narrowing the window does not narrow the figure.
+  the refund has not yet posted. The credit balance is derived when the check
+  runs: visible payments minus expected collections, floored at zero, minus
+  refunds already issued. In your data, credits arise from duplicate payer
+  payments that are later refunded. Credit balances are liabilities with
+  regulatory return deadlines, so higher is bad; MAP AR-9's days form is built
+  on top of this figure and an estimated daily revenue, and is labeled as an
+  estimate when used. Population caveat: this is a balance standing as of the
+  snapshot, not a flow accumulated over a window, so narrowing the window does
+  not narrow the figure.

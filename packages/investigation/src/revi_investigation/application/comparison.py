@@ -55,6 +55,7 @@ from dataclasses import dataclass
 from decimal import Decimal
 
 from revi_investigation.application.capability_ports import PackPort
+from revi_investigation.application.rendering import metric_label, plural
 from revi_investigation.application.validation import population_caveat
 from revi_investigation.domain.context import AnalysisSpec
 from revi_kernel.frame import EvidenceFrame
@@ -356,14 +357,15 @@ def comparison_maturity(
                     prior_panel=prior,
                     warning=(
                         f"adjudication_incomplete: the two sides of this comparison are not "
-                        f"equally settled. {measure} was measured over {current:,} adjudicated "
-                        f"record(s) on this window and {prior:,} on the comparison window — "
+                        f"equally settled. {metric_label(measure)} was measured over "
+                        f"{current:,} adjudicated {plural(current, 'record')} on this period "
+                        f"and {prior:,} on the comparison period — "
                         f"{thin} holds {share:.1%} of the panel {thick} does. Claims still "
                         "awaiting their first remittance are excluded from both sides, and they "
                         "are not excluded evenly, so the difference between the two figures is "
                         "a settlement artifact until the thinner side matures. The movement is "
-                        "published as provisional and this turn cannot be read at high "
-                        "confidence."
+                        "published as provisional, and this answer cannot be read as "
+                        "settled."
                     ),
                 )
             )
@@ -419,13 +421,13 @@ class DeclaredNonComparability:
     @property
     def warning(self) -> str:
         return (
-            f"not_comparable_windows: the governed contract for {self.measure} declares that "
-            "these two windows may not be differenced as levels — "
-            f"{self.caveat} A movement between them is a settlement artifact of the newer "
-            "window rather than a change in the business, so no figure on this turn is "
-            "published at high confidence and the difference is not a result. Ask over two "
-            "settled windows, or read each window on its own, to get a comparison this "
-            "platform will stand behind."
+            f"not_comparable_windows: the standard definition of "
+            f"{metric_label(self.measure)} says these two periods may not be subtracted "
+            f"from one another as levels — {self.caveat} A movement between them is an "
+            "artifact of the newer period still settling rather than a change in the "
+            "business, so no figure on this answer is published as settled and the "
+            "difference is not a result. Ask over two settled periods, or read each period "
+            "on its own, to get a comparison this platform will stand behind."
         )
 
 

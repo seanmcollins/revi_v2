@@ -123,9 +123,10 @@ class TestPopulationCaveatIsPublished:
         """The structural rule. v1's caveat existed, was correct, and never
         left the pack — the response's warnings carried only basis and
         suppression notes."""
-        caveats = [w for w in outcome.warnings if w.startswith("population_caveat: denial_rate")]
+        caveats = [w for w in outcome.warnings if w.startswith("population_caveat: denial rate")]
         assert len(caveats) == 1, outcome.warnings
-        assert "status OPEN" in caveats[0]
+        # The excluded population, named the way the contract now names it.
+        assert "claims still awaiting their first remittance" in caveats[0]
         assert "excluded from both sides" in caveats[0]
 
     async def test_the_caveat_is_not_duplicated_per_probe(self, outcome: TurnOutcome) -> None:

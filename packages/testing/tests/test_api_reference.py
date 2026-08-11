@@ -469,7 +469,9 @@ class TestEvidenceReachesTheWire:
         # a first turn HAS a verdict: "nothing to reconcile to, and here is why"
         assert t1.reconciliation is not None
         assert t1.reconciliation.status == "not_applicable"
-        assert "first turn" in (t1.reconciliation.detail or "")
+        # Says the same fact in the reader's words: nothing came before it
+        # in this thread (docs/client-language.md — "turn" is NEVER-SAY).
+        assert "first question in this thread" in (t1.reconciliation.detail or "")
 
         t2 = answers[1].evidence
         assert t2.reconciliation is not None and t2.reconciliation.status == "passed"

@@ -18,14 +18,13 @@ sign: higher_is_bad
 unit: days
 description: >-
   Mean days from service date to claim submission over every claim in the
-  window (claim-weighted). On the primary submission basis that population is
-  exactly the claims submitted in the window, because an unsubmitted claim
-  has no submission date to fall inside it; on the alternate service basis
-  the denominator also counts claims that were never submitted, whose lag is
-  null and which therefore dilute the mean — use DNFB and the
-  timely-filing-at-risk views for unresolved inventory rather than reading
-  this metric on the service basis.
-  submission_lag_days is a documented probe-time derived measure
-  (submission_date minus service_date per claim; see pack NOTES).
+  window (claim-weighted). Dated by submission, the primary reading, that
+  population is exactly the claims submitted in the window, because an
+  unsubmitted claim has no submission date to fall inside it. Dated by service
+  instead, the denominator also counts claims that were never submitted, which
+  have no lag at all and therefore pull the mean down — use DNFB (discharged
+  not final billed) and the timely-filing-at-risk views for unresolved
+  inventory rather than reading this on the service date. Submission lag is
+  derived when the check runs: submission date minus service date, per claim.
   Institutional claims bill after discharge, so their floor is the length of
-  stay — cut by claim_type before comparing.
+  stay — cut by claim type before comparing.

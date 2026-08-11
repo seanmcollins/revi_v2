@@ -193,7 +193,7 @@ class TestATruncatedPriorIsUnknownNotZero:
         assert kept[frame.schema.index_of("denied_dollars__delta")] == 100_000
         assert len(warnings) == 1
         assert warnings[0].startswith("comparison_prior_unknown:")
-        assert "UNKNOWN, not zero" in warnings[0]
+        assert "unknown, not zero" in warnings[0]
 
 
 def _panel_compare_frame(current_panel: int, prior_panel: int) -> EvidenceFrame:

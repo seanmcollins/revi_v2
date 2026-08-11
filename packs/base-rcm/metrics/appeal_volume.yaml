@@ -18,14 +18,13 @@ sign: neutral
 unit: count
 description: >-
   Denial records in the window carrying appeal activity of any kind —
-  appealed-and-pending, overturned or upheld — on the remittance (denial)
-  date basis. Counted at the denial record, not the claim: one claim denied
+  appealed-and-pending, overturned or upheld — dated by the remittance that
+  denied them. Counted at the denial record, not the claim: one claim denied
   under two codes and appealed on both is two appeals, which is how appeal
   work is actually staffed. Sign is neutral on purpose: more appeals is not
   better or worse on its own, it is capacity spent, and whether it was spent
-  well is appeal_overturn_rate (did we win) read against denied_dollars (was
-  it worth pursuing). Population caveat: appeals on recent denials have
-  not been filed yet, so a window near the data edge understates the
-  pipeline. This
-  warehouse records no appeal filing date, so an appeal is dated by the
-  denial it answers, never by when the work happened.
+  well is the appeal overturn rate (did we win) read against denied dollars
+  (was it worth pursuing). Population caveat: appeals on recent denials have
+  not been filed yet, so a window near the data edge understates the pipeline.
+  Your data records no appeal filing date, so an appeal is dated by the denial
+  it answers, never by when the work happened.

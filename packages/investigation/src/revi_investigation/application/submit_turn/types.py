@@ -107,8 +107,16 @@ def _not_applicable(reason: str) -> str:
     ``null`` used to mean both "not checked" and, indistinguishably from
     the outside, "nothing to say" — the one place in a product built on
     "never claim more than the evidence supports" where silence was
-    ambiguous."""
-    return f"status=not_applicable; reason={reason}"
+    ambiguous.
+
+    ``status=<verdict>;`` stays: it is the branch handle clients read, the
+    same way a warning's ``findings_truncated:`` prefix is, and
+    :func:`revi_api.evidence.parse_reconciliation` splits on it to fill the
+    Evidence rail's ``status``/``detail`` pair. Everything after it is
+    written for the reader — ``reason=`` was a second machine pair inside
+    the half of the string a human actually reads, and it is gone.
+    """
+    return f"status=not_applicable; {reason}"
 
 
 def _period_phrase(window: AbsoluteRange) -> str:

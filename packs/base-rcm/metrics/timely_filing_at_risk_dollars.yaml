@@ -41,17 +41,17 @@ sign: higher_is_bad
 unit: money_cents
 description: >-
   Billed value of open, never-submitted claims as of the snapshot — the
-  unbilled inventory whose filing clocks are running. The contract defines
-  the population (open AND not billed) and the valuation (gross billed
-  charges); how close each claim is to its deadline is a cut, not a filter.
-  Population caveat: this total counts every unbilled open claim regardless of
-  runway, so a claim with a year left and a claim already past its deadline
-  are both in it. Cut it by filing_runway_bucket before acting on it: that
-  dimension joins each claim to the filing limit its PLAN configures and
-  separates `expired` (deadline gone, dollars lost) from the day bands still
-  workable. The limit is the plan record, which is the pack's
-  plan_configuration tier and the most specific rule available; only 7 of the
-  30 plans in this warehouse match a filing_rules entry that needs no
-  confirmation, so for the rest the deadline is a planning default to confirm
-  against the payer contract before you work the list. Read the total as "the
-  population a filing watch ages", and the runway cut as the exposure.
+  unbilled inventory whose filing clocks are running. The definition fixes the
+  population (open and not billed) and the valuation (gross billed charges);
+  how close each claim is to its deadline is a cut, not a filter. Population
+  caveat: this total counts every unbilled open claim regardless of runway, so
+  a claim with a year left and a claim already past its deadline are both in
+  it. Cut it by filing runway bucket before acting on it: that breakdown
+  matches each claim to the filing limit its plan configures, and separates
+  the expired band — deadline gone, dollars lost — from the day bands still
+  workable. The limit comes from the plan record, the most specific rule
+  available; only 7 of the 30 plans in your data match a published filing rule
+  that needs no confirmation, so for the rest the deadline is a planning
+  default to confirm against the payer contract before you work the list. Read
+  the total as the population a filing watch ages, and the runway cut as the
+  exposure.

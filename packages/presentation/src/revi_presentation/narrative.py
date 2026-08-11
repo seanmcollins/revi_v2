@@ -74,7 +74,7 @@ from collections.abc import Mapping, Sequence
 from decimal import Decimal, InvalidOperation
 
 from revi_investigation_contracts.api import FindingPayload
-from revi_investigation_contracts.header import ContextHeaderPayload
+from revi_investigation_contracts.header import ContextHeaderPayload, basis_phrase
 from revi_investigation_contracts.narrative import (
     NarrativeFacts,
     NarrativeRedaction,
@@ -88,14 +88,19 @@ NARRATIVE_TEMPLATE_VERSION = "v1"
 NARRATIVE_TEMPLATE = """# Compose the answer narrative
 
 Write a short, plain-language narrative for a revenue-cycle analyst from
-the certified findings below — and ONLY from them.
+the measured findings below — and ONLY from them.
 
 Rules:
 
 - Cite the referent id (F1, F2, ...) in every sentence that makes a claim.
 - Use only the numbers shown below, formatted naturally.
 - Name only the entities that appear below; never introduce new ones.
-- State the evidence grade plainly when it is weaker than direct.
+- Say how a figure was arrived at whenever it was arrived at by anything
+  other than measuring it directly, and say it in exactly one of these
+  phrases: measured directly, calculated from measured values, estimated,
+  exploratory, not measured.
+- Never state a confidence for a finding — not as a number and not as a
+  word. The reader is never asked to weigh a probability.
 - Call each metric by the name it is given below. Never use a raw metric id:
   those names say what the number actually measures, and an id may promise
   more than its formula delivers.
@@ -128,7 +133,7 @@ do not claim more than they allow:
 
 Reconciliation: {reconciliation}
 
-Benchmark context (governed):
+Benchmark context:
 
 {benchmarks}
 """
@@ -149,16 +154,19 @@ Benchmark context (governed):
 NARRATIVE_TEMPLATE_ANALYST = """# Compose the answer narrative (full analyst detail)
 
 Write a thorough, plain-language analysis for a revenue-cycle analyst from
-the certified findings below — and ONLY from them.
+the measured findings below — and ONLY from them.
 
 Rules:
 
 - Cite the referent id (F1, F2, ...) in every sentence that makes a claim.
 - Use only the numbers shown below, formatted naturally.
 - Name only the entities that appear below; never introduce new ones.
-- Cover EVERY certified finding, not only the largest.
-- State each finding's evidence grade and confidence explicitly, including
-  when the grade is direct.
+- Cover EVERY measured finding, not only the largest.
+- Say how EVERY finding was arrived at, including the ones measured
+  directly, and say it in exactly one of these phrases: measured directly,
+  calculated from measured values, estimated, exploratory, not measured.
+- Never state a confidence for a finding — not as a number and not as a
+  word. The reader is never asked to weigh a probability.
 - Report the reconciliation status in its own sentence, in plain words.
 - Call each metric by the name it is given below. Never use a raw metric id:
   those names say what the number actually measures, and an id may promise
@@ -168,7 +176,7 @@ Rules:
   number — an upper bound is not an exposure, and an inventory is not a
   diagnosis.
 - Where a benchmark range is given, say how the figure sits against it —
-  as a range, with its cohort, never as a pass/fail target — in the same
+  as a range, with its population, never as a pass/fail target — in the same
   sentence as the finding it bears on, citing that finding. A range stated
   on its own cites nothing, so it cannot be published, and dropping it
   strands whatever sentence referred back to it.
@@ -198,7 +206,7 @@ do not claim more than they allow:
 
 Reconciliation: {reconciliation}
 
-Benchmark context (governed):
+Benchmark context:
 
 {benchmarks}
 """
@@ -515,9 +523,10 @@ def _empty_slot(published_cautions: int) -> str:
     """
     if published_cautions <= 0:
         return "- (nothing on the mandatory list for this slot)"
+    noun = "caveat" if published_cautions == 1 else "caveats"
     return (
         "- (nothing on the mandatory list for this slot — but this answer publishes "
-        f"{published_cautions} caution-severity caveat(s) above your text. Do NOT write that "
+        f"{published_cautions} {noun} above your text. Do NOT write that "
         "the answer carries no caveats, no qualifications or no caution: it does.)"
     )
 
@@ -564,7 +573,7 @@ def build_narrative_prompt(
         findings=finding_lines,
         caveats=caveat_lines,
         disclosures=disclosure_lines,
-        reconciliation=reconciliation or "not applicable on this turn",
+        reconciliation=reconciliation or "not applicable on this answer",
         benchmarks=benchmark_lines,
     )
 
@@ -958,7 +967,14 @@ def _topic_sentence(
     )
     lead = findings[0]
     where = f" for {scope}" if scope else ""
-    return f"This answer covers {period} ({header.basis} basis){where}. {lead.title} ({lead.referent})."
+    # The bare token ("remit") is a modeling word; ``basis_phrase`` is the
+    # one client rendering of it, shared with the context header, and falls
+    # back to the raw id for a basis it has no phrase for.
+    basis = basis_phrase(header.basis)
+    return (
+        f"This answer covers {period}, measured {basis}{where}. "
+        f"{lead.title} ({lead.referent})."
+    )
 
 
 
@@ -1155,14 +1171,14 @@ def reconciliation_disclosure(
     if status == "not_comparable":
         return _sentence(
             f"The detection card published {card} and this answer publishes {answer}{gap}, but "
-            "the two are not comparable — the governed contract is an as-of balance and the "
-            "card's figure was computed over a window, so the gap is a difference of "
-            "measurement kind rather than a disagreement"
+            "the two are not comparable — this answer measures a balance as it stood on one "
+            "date and the card's figure was accumulated over a window, so the gap is a "
+            "difference in what each figure measures rather than a disagreement"
         )
     return _sentence(
         f"The detection card this drill was opened from published {card} and this answer "
-        f"publishes {answer}{gap}: the detector's window, population or valuation basis is "
-        "not the contract's, and both figures stand as what each system measured"
+        f"publishes {answer}{gap}: the card's window, population or valuation is not this "
+        "answer's, and both figures stand as what each system measured"
     )
 
 
@@ -1246,10 +1262,16 @@ def mandatory_disclosures(
     failed = by_code.get("RECONCILIATION_FAILED")
     if failed is not None:
         _, _, detail = failed.partition("RECONCILIATION_FAILED: ")
+        # The branch handle never reaches published prose. When the prefix
+        # is spelled any other way the partition yields nothing, and the
+        # old fallback spliced the whole message — code and all — in front
+        # of the reader. The code still rides on ``warnings_v2[].code``.
+        detail = detail or failed.replace("RECONCILIATION_FAILED", "").lstrip(" :;—-")
+        tail = f" — {detail}" if detail else ""
         trail.append(
             _sentence(
                 "This answer does not reconcile against the answer it was drilled from, and "
-                f"both figures stand published until it does — {detail or failed}"
+                f"both figures stand published until it does{tail}"
             )
         )
     trail.extend(stated(TRAILING_DISCLOSURE_CODES))
@@ -1276,7 +1298,7 @@ def empty_narrative(classified_warnings: Sequence[tuple[str, str]]) -> str | Non
     if not sentences:
         return None
     return " ".join(
-        ["This turn published no finding, and here is why.", *dict.fromkeys(sentences)]
+        ["This answer published no finding, and here is why.", *dict.fromkeys(sentences)]
     )
 
 
@@ -1437,8 +1459,9 @@ def _population_claim_allowed(sentence: str, certified: set[int]) -> str | None:
             except ValueError:  # pragma: no cover - regex yields digits only
                 continue
             if value not in certified:
+                noun = "cell or entity" if value == 1 else "cells or entities"
                 return (
-                    f"counts {value} cell(s)/entities, which no certified suppression figure "
+                    f"counts {value} {noun}, which no measured suppression figure "
                     "on this answer states"
                 )
     return None
@@ -1654,30 +1677,33 @@ def validate_narrative(text: str, facts: NarrativeFacts) -> NarrativeValidation:
         cited = set(_REFERENT_TOKEN.findall(sentence))
         unknown_citations = cited - referent_ids
         if unknown_citations:
-            reason = f"cites unknown referent(s) {sorted(unknown_citations)}"
+            unknown = sorted(unknown_citations)
+            label = "referent" if len(unknown) == 1 else "referents"
+            reason = f"cites unknown {label} {', '.join(unknown)}"
         if reason is None and numbers:
             if not cited:
                 reason = "states figures without citing a referent"
             else:
                 for token in numbers:
                     if not _number_allowed(token, allowed, date_tokens):
-                        reason = f"figure {token!r} matches no certified value"
+                        reason = f"figure {token!r} matches no measured value"
                         break
         if reason is None:
             for match in _PROPER_NAME.finditer(sentence):
                 name = match.group(1)
                 if (numbers or cited) and not _name_admitted(name, known_token_sequences):
-                    reason = f"names {name!r}, which is outside the certified vocabulary"
+                    reason = f"names {name!r}, which is not among the names this answer measured"
                     break
         if reason is None and facts.cautioned and _FACE_VALUE.search(sentence):
             reason = (
-                "claims the figures can be taken at face value on a turn carrying a "
-                "caution-severity disclosure"
+                "claims the figures can be taken at face value on an answer that publishes "
+                "a caution"
             )
         if reason is None and facts.published_cautions and _NO_CAVEATS.search(sentence):
+            noun = "caveat" if facts.published_cautions == 1 else "caveats"
             reason = (
-                f"states the answer carries no caveats while {facts.published_cautions} "
-                "caution-severity caveat(s) are published on it"
+                "states the answer carries no caveats while this answer publishes "
+                f"{facts.published_cautions} {noun}"
             )
         if reason is None and facts.truncated:
             if _SPREAD_CLAIM.search(sentence):
@@ -1688,8 +1714,8 @@ def validate_narrative(text: str, facts: NarrativeFacts) -> NarrativeValidation:
             elif _SUPERLATIVE.search(sentence) and leading_referent not in cited:
                 reason = (
                     "states a superlative over a truncated finding list without citing the "
-                    f"leading finding ({leading_referent or 'none'}) — the relation is certified "
-                    "only over the full computed population"
+                    f"leading finding ({leading_referent or 'none'}) — the relation is measured "
+                    "only over the full population"
                 )
                 substituted = True
         if reason is None:
@@ -1745,9 +1771,11 @@ def validate_narrative(text: str, facts: NarrativeFacts) -> NarrativeValidation:
         # the turn, and N copies of it in the answer's warnings array read
         # as N separate problems.
         reasons = list(dict.fromkeys(r.reason for r in redactions))
+        count = len(redactions)
+        subject = "sentence was" if count == 1 else "sentences were"
         warnings.append(
-            f"{REDACTION_WARNING_PREFIX}: {len(redactions)} sentence(s) dropped "
-            f"from the narrative ({'; '.join(reasons)})"
+            f"{REDACTION_WARNING_PREFIX}: {count} {subject} removed "
+            f"from the summary ({'; '.join(reasons)})"
         )
 
     return NarrativeValidation(text=emitted, redactions=redactions, warnings=warnings)

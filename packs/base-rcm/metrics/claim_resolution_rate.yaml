@@ -20,15 +20,16 @@ scope_dimensions:
 sign: higher_is_good
 unit: ratio
 description: >-
-  Claims that have reached a resolved standing — PAID or CLOSED — as a share
-  of all claims in the window, service-date basis. Population caveat: it is
-  the whole reading — this is a flow cohort measured against a snapshot
-  watermark, so a claim's status is "as of today" while its cohort is "as of
-  service", and recent cohorts read low purely because they have not had time
-  to resolve. The number is only interpretable as a curve across cohort age
-  or as a payer-versus-payer comparison at equal age — never as a single
-  level. CLOSED counts as resolved even when it closed on a write-off rather
-  than a payment, so a high rate is not by itself good news: read it against
-  denial_write_off_dollars, and against net_to_gross_rate for what the
-  resolutions were worth. What remains unresolved is exactly ar_balance's
-  population (OPEN plus DENIED).
+  Claims that have reached a resolved standing — paid or closed — as a share
+  of all claims in the window, dated by service. Population caveat: it is the
+  whole reading — membership is fixed by service date while each claim's
+  standing is read from the latest data load, so the standing is "as of today"
+  while the population is "as of service", and recent service months read low
+  purely because they have not had time to resolve. The number is only
+  interpretable as a curve across the age of the service month, or as a
+  payer-versus-payer comparison at equal age — never as a single level. A
+  claim closed on a write-off counts as resolved just as a paid one does, so a
+  high rate is not by itself good news: read it against denial write-off
+  dollars, and against the net-to-gross rate for what the resolutions were
+  worth. What remains unresolved is exactly the A/R balance population: still
+  open, plus standing denied.

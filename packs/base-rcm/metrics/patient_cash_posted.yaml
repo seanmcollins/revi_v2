@@ -12,8 +12,8 @@ scope_dimensions:
 sign: higher_is_good
 unit: money_cents
 description: >-
-  Patient payment dollars posted in the window, on the post-date basis.
-  Patient payments in this warehouse post only after adjudication
-  establishes patient responsibility, so they carry no remit basis and a
-  point-of-service split is not supportable (see pack NOTES). Combined
-  payer-plus-patient cash is a transform over cash_posted and this contract.
+  Patient payment dollars posted in the window, dated by the posting date. In
+  your data, patient payments post only after adjudication establishes patient
+  responsibility, so they carry no remittance date and a point-of-service
+  split cannot be supported. Combined payer-plus-patient cash is built on top
+  of payer cash posted and this figure.

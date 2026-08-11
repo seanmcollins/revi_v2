@@ -17,12 +17,12 @@ sign: neutral
 unit: ratio
 description: >-
   Contract-expected reimbursement divided by gross billed charges for claims
-  in the window, service-date basis — the share of chargemaster value the
+  in the window, dated by service — the share of chargemaster value the
   contracts are modeled to pay, and one minus this is the contractual
   allowance rate. Sign is neutral: the number moves with contract terms AND
   with chargemaster changes, so a fall can mean worse rates or simply higher
   list prices, and the two look identical here. Read it as mix and contract
   context, never as a collection result — actual realization against
-  expectation is net_collection_rate, and this contract deliberately says
+  expectation is the net collection rate, and this one deliberately says
   nothing about cash. Comparisons across payers are only meaningful on a
   shared service mix.

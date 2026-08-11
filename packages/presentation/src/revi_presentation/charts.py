@@ -72,6 +72,25 @@ _ALLOWED_TYPES: frozenset[str] = frozenset(
 )
 _RECIPE_TYPE_ALIASES = {"table_bars": "table"}
 
+#: Chart kinds in English. The wire keeps the token on
+#: :attr:`ChartSpec.chart_type`, where a client branches on it; a note a
+#: reader is expected to read says the shape instead — "grouped bars", not
+#: ``grouped_bar``. See docs/client-language.md.
+_SHAPE_WORDS: dict[str, str] = {
+    "bar": "bars",
+    "grouped_bar": "grouped bars",
+    "stacked_bar": "stacked bars",
+    "line": "a line",
+    "waterfall": "a waterfall",
+    "table": "a table",
+    "range_band": "a range band",
+}
+
+
+def _shape_words(chart_type: str) -> str:
+    """``chart_type`` as a reader's phrase, or its own words if unknown."""
+    return _SHAPE_WORDS.get(chart_type, chart_type.replace("_", " "))
+
 
 @dataclass(frozen=True, slots=True)
 class RecipeSpec:
@@ -583,13 +602,14 @@ def build_chart_spec(
         # marks are not two series on ONE category, they are one measure on
         # two windows, and the axis says which is which.
         annotations.append(
-            f"comparison: one measure on two windows — {current_period} ({CURRENT_SERIES}) "
-            f"against {prior_period} ({PRIOR_SERIES}). They are not summed."
+            f"comparison: one measure on two windows — {current_period} is "
+            f"{UNNAMED_CURRENT_LABEL} and {prior_period} is {UNNAMED_PRIOR_LABEL}. "
+            "They are not summed."
         )
     elif two_sided:
         annotations.append(
-            f"comparison: two series per category — {CURRENT_SERIES} is this window and "
-            f"{PRIOR_SERIES} is the window it is compared against. They are not summed."
+            f"comparison: two series per category — one is {UNNAMED_CURRENT_LABEL} and the "
+            f"other is {UNNAMED_PRIOR_LABEL}. They are not summed."
         )
     if two_sided and not period_axis:
         # The mirror case: the compare operator outer-joins and zero-fills
@@ -612,7 +632,10 @@ def build_chart_spec(
                 "an absence, not a measured zero."
             )
     if frame.truncated:
-        annotations.append("truncated: not all cells are shown (top-N applied at the source)")
+        annotations.append(
+            "truncated: not all cells are shown — only the leading ones were kept when this "
+            "figure was measured"
+        )
     if bounds:
         # Counted from the marks actually drawn, so the chart caption, the
         # narrative and the probe metadata cannot state three different
@@ -634,10 +657,10 @@ def build_chart_spec(
     drawn = len(frame.rows) - withheld
     if bounds and drawn and len(bounds) / drawn > _MAX_BOUNDED_SHARE_FOR_RANKING:
         annotations.append(
-            f"ranking_refused: {len(bounds)} of the {drawn} marks with a figure are ceilings, "
+            "These marks are not ranked, whatever order they are drawn in: "
+            f"{len(bounds)} of the {drawn} marks with a figure are ceilings, "
             f"leaving {drawn - len(bounds)} measured — too few for an order to mean anything. "
-            "These marks are NOT ranked, whatever order they are drawn in; putting ceilings in "
-            "order beside measured figures sorts by how big each group is."
+            "Putting ceilings in order beside measured figures sorts by how big each group is."
         )
     if withheld:
         annotations.append(
@@ -646,7 +669,8 @@ def build_chart_spec(
         )
     elif frame.suppressed_cells > 0 and not bounds:
         annotations.append(
-            f"suppression: {frame.suppressed_cells} small cells withheld per policy"
+            f"suppression: {frame.suppressed_cells} cells were withheld because their "
+            "groups were too small to publish"
         )
 
     # Last, over everything above it — see ``_shape_corrected_type``. The
@@ -661,9 +685,9 @@ def build_chart_spec(
             else ("its time axis" if time_col is not None else "an axis that is in no order")
         )
         annotations.append(
-            f"chart type: drawn as {drawn_type}, not the {chart_type} the {recipe.id} recipe "
-            f"asks for — a line asserts a movement between ordered points, and this figure "
-            f"draws {points} point{'' if points == 1 else 's'} on {axis}."
+            f"chart type: drawn as {_shape_words(drawn_type)} rather than "
+            f"{_shape_words(chart_type)} — a line asserts a movement between ordered points, "
+            f"and this figure draws {points} point{'' if points == 1 else 's'} on {axis}."
         )
     chart_type = drawn_type
 
@@ -791,7 +815,7 @@ def build_chart_specs(
             # Named, never silently dropped: a figure that was computed and
             # not drawn is a fact about the answer.
             twin.annotations.append(
-                f"identical to the figure this answer drew for {spec.frame_id}, which is "
+                "identical to a figure this answer already drew, which is "
                 "therefore not drawn twice"
             )
             continue

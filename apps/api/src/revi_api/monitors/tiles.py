@@ -25,6 +25,7 @@ from revi_investigation.application.ports import (
 from revi_investigation.application.rendering import (
     format_value,
     magnitude,
+    metric_label,
 )
 from revi_investigation.application.submit_turn import SubmitTurnRequest, TurnOutcome
 from revi_investigation.domain.context import PackVersionRef
@@ -45,12 +46,56 @@ from revi_kernel.watermark import DataWatermark, WatermarkEpoch
 if TYPE_CHECKING:  # pragma: no cover - import cycle at runtime only
     pass
 
-from revi_api.monitors.common import _decimal, _MonitorsBase, _utc, logger
+from revi_api.monitors.common import _decimal, _load_phrase, _MonitorsBase, _utc, logger
 from revi_api.monitors.spec import _cell_phrase, _eq_filters_of, _narrowed_to_cell
 
-#: What a pin evaluation's turn records as its question. Never shown as an
+#: What a pin evaluation records as its question. Never shown as an
 #: analyst's words, because it is not one: it names the monitor it re-ran.
-_EVALUATION_QUESTION = "(Monitors: re-running a monitored spec at this load)"
+#: Stored, and reachable from a tile's permalink, so it is written for the
+#: reader who follows that link.
+_EVALUATION_QUESTION = "(Monitors: re-measuring this monitor at this load)"
+
+#: Metric units, as the word a sentence about them uses. The stored token
+#: (``money_cents``, ``ratio``) is an internal id: a reader comparing two
+#: readings needs to know one was dollars and the other a percentage, and
+#: has never seen either spelling.
+_UNIT_WORDS: dict[str, str] = {
+    "money_cents": "dollars",
+    "ratio": "a percentage",
+    "days": "days",
+    "count": "a count",
+}
+
+
+def _unit_words(unit: str | None) -> str:
+    """One unit, in the words a sentence about it uses."""
+    if unit is None:
+        return "an unknown unit"
+    return _UNIT_WORDS.get(unit, "an unknown unit")
+
+
+#: Dimensions whose reader-facing form is an initialism the analyst owns.
+_DIMENSION_INITIALISMS: dict[str, str] = {
+    "carc": "CARC",
+    "rarc": "RARC",
+    "cob": "COB",
+    "npi": "NPI",
+    "drg": "DRG",
+    "cpt": "CPT",
+}
+
+
+def _dimension_words(dimension: str) -> str:
+    """One breakdown dimension, said rather than spelled.
+
+    "Group code" and "CARC" are the analyst's own vocabulary once they stop
+    being identifiers; ``group_code`` on screen is ours. This is a rendering
+    of last resort — no display label for a dimension exists anywhere in the
+    definitions library, so a monitor broken out by an unfamiliar dimension
+    still reads as words rather than as a token.
+    """
+    words = dimension.replace("_", " ").strip()
+    return _DIMENSION_INITIALISMS.get(words, words)
 
 
 # ---------------------------------------------------------------------------
@@ -197,7 +242,10 @@ class _LoadEvaluation(_MonitorsBase):
                 watermark_id=watermark.id,
                 newest_data_date=watermark.newest_data_date,
                 evaluated_at=datetime.now(UTC),
-                unavailable_reason=f"{exc.code.value}: {exc.message}",
+                # The platform's own sentence, without the machine code in
+                # front of it: clients branch on the code where it rides on
+                # the wire, and a reader has no use for an ALL_CAPS token.
+                unavailable_reason=exc.message,
             )
             await self._store_tile(pin, watermark, tile)
             return tile
@@ -395,8 +443,8 @@ class _LoadEvaluation(_MonitorsBase):
                 evaluated_at=datetime.now(UTC),
                 investigation_id=outcome.investigation.id,
                 unavailable_reason=(
-                    "re-running this monitor's stored spec at this load asked a question rather "
-                    f"than answering: {outcome.clarification.question}"
+                    "re-measuring what this monitor measures at this load asked a question back "
+                    f"rather than answering: {outcome.clarification.question}"
                 ),
             )
         trace = await self._components.traces.get(outcome.trace_id)
@@ -457,11 +505,11 @@ class _LoadEvaluation(_MonitorsBase):
                 warnings=warnings,
                 warnings_v2=classified,
                 unavailable_reason=(
-                    "this monitor's stored spec ran at this load and returned no value: the "
+                    "this monitor was re-measured at this load and produced no value: the "
                     "population it names is empty here, or every cell of it was withheld "
-                    "before results left the engine. No number is published rather than a "
-                    "blank one standing in for zero — open the monitor for the caveats this "
-                    "evaluation carried."
+                    "before any result was published. No number is shown rather than a blank "
+                    "one standing in for zero — open the monitor for the caveats this reading "
+                    "carried."
                 ),
             )
         if headline is not None and pin.spec.dimensions and not headline.subject:
@@ -490,7 +538,7 @@ class _LoadEvaluation(_MonitorsBase):
                 warnings_v2=classified,
                 unavailable_reason=(
                     "this monitor breaks out "
-                    + " and ".join(pin.spec.dimensions)
+                    + " and ".join(_dimension_words(d) for d in pin.spec.dimensions)
                     + ", and this load could not record WHICH cell its number is about. A "
                     "value published under a title nobody can check against it is the defect "
                     "this surface was rebuilt to prevent, so no value is published here. Open "
@@ -692,8 +740,8 @@ class _LoadEvaluation(_MonitorsBase):
         if pin.baseline_watermark_id == tile.watermark_id:
             return None
         if pin.baseline_unit != tile.unit:
-            was = pin.baseline_unit or "an unknown unit"
-            now = tile.unit or "an unknown unit"
+            was = _unit_words(pin.baseline_unit)
+            now = _unit_words(tile.unit)
             return _delta_payload(
                 prior_watermark_id=pin.baseline_watermark_id or "",
                 prior_value=pin.baseline_value,
@@ -702,8 +750,8 @@ class _LoadEvaluation(_MonitorsBase):
                 verdict=MaterialityVerdict(
                     False,
                     "not_comparable",
-                    f"this monitor's baseline was measured in {was} and it now measures {now}, "
-                    "so the two are not two measurements of one thing",
+                    f"this monitor's baseline was measured in {was} and it now measures "
+                    f"{now}, so the two are not two measurements of one thing",
                 ),
                 comparable=False,
                 not_comparable_reason="the metric's declared unit changed since the baseline "
@@ -956,7 +1004,7 @@ def _subject_mismatch(
     if not prior_label:
         return (
             "this monitor measures a ranked breakdown and the earlier load did not record which "
-            "cell it headlined, so a delta between them could be a comparison of two different "
+            "cell it headlined, so a change between them could be a comparison of two different "
             f"cells; this load's is {current_label!r}"
         )
     if not current_label:
@@ -966,7 +1014,7 @@ def _subject_mismatch(
         )
     return (
         f"the earlier load's leading cell was {prior_label!r} and this one's is "
-        f"{current_label!r}, so a delta between them would be a comparison of two different "
+        f"{current_label!r}, so a change between them would be a comparison of two different "
         "subjects rather than a movement in one"
     )
 
@@ -986,20 +1034,20 @@ def _not_comparable_reason(
         )
     if prior.value is None:
         return (
-            f"the prior load ({prior.watermark_id}) produced no value for this monitor, so no "
+            f"{_load_phrase(prior.newest_data_date)} produced no value for this monitor, so no "
             "movement can be claimed"
         )
     if prior.unit != headline.unit:
         return (
-            f"the prior load measured this monitor in {prior.unit or 'an unknown unit'} and this "
-            f"one measures it in {headline.unit or 'an unknown unit'}, so the two are not two "
-            "measurements of one thing"
+            f"the previous load measured this monitor in {_unit_words(prior.unit)} and this one "
+            f"measures it in {_unit_words(headline.unit)}, so the two are not two measurements "
+            "of one thing"
         )
     if prior.metric_id and prior.metric_id != headline.metric_id:
         return (
-            f"the prior load's headline came from {prior.metric_id!r} and this one's from "
-            f"{headline.metric_id!r}, so a delta between them would be a comparison of two "
-            "different contracts"
+            f"the previous load's headline came from {metric_label(prior.metric_id)} and this "
+            f"one's from {metric_label(headline.metric_id)}, so a change between them would "
+            "compare two different measures"
         )
     return _subject_mismatch(pin, prior.headline_subject_label, headline.subject_label)
 
@@ -1017,7 +1065,7 @@ def _baseline_not_comparable_reason(
         return (
             "this monitor measures a ranked breakdown and the load its baseline was captured at "
             "was not recorded as an evaluation, so there is no way to tell whether the "
-            "baseline number belongs to the cell this tile is showing"
+            "baseline number belongs to the cell this monitor is showing"
         )
     mismatch = _subject_mismatch(
         pin, baseline.headline_subject_label, tile.headline_subject_label
@@ -1046,9 +1094,9 @@ def _assert_subject_matches_label(pin: MonitorsPin, headline: _Headline | None) 
         expected = fixed.get(dimension)
         if expected is not None and expected != value:
             raise ReviError(
-                f"monitors tile for pin {pin.id!r} would publish {dimension}={value!r} under a "
-                f"spec narrowed to {dimension}={expected!r}: a tile whose label and value name "
-                "different subjects is refused here rather than rendered",
+                f"this monitor would publish a value for {_dimension_words(dimension)} "
+                f"{value} while it is narrowed to {expected}: a monitor whose title and value "
+                "name different subjects is refused here rather than shown",
                 details={"pin_id": pin.id, "dimension": dimension},
             )
 
@@ -1118,6 +1166,7 @@ def _delta_payload(
         below_governed_gate=verdict.below_governed_gate,
         materiality_rule=verdict.rule,
         materiality_note=verdict.note,
+        recommended_threshold_text=verdict.recommended_threshold_text,
     )
 
 

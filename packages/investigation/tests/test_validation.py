@@ -350,7 +350,11 @@ class TestBudgetsAndWarnings:
         scope = Predicate(DimensionRef("clean_claim"), PredicateOp.EQ, (False,))
         spec = make_spec(measures=("denial_rate",), scope=scope)
         validated = validator.validate(planner.build(spec), spec)
-        assert any("clean_claim" in w and "denial_rate" in w for w in validated.warnings)
+        # Named in the reader's words on both sides — the dimension by its
+        # catalog label, the metric by its de-snaked name (client-language §3).
+        assert any(
+            "clean claim" in w and "denial rate" in w for w in validated.warnings
+        ), validated.warnings
 
     def test_population_caveats_are_published_on_every_answer(
         self,
@@ -366,7 +370,11 @@ class TestBudgetsAndWarnings:
         validated = validator.validate(planner.build(spec), spec)
         caveats = [w for w in validated.warnings if w.startswith("population_caveat:")]
         assert len(caveats) == 1, validated.warnings
-        assert "denial_rate" in caveats[0] and "status OPEN" in caveats[0]
+        # Same two facts the id-and-enum version checked: WHICH metric the
+        # caveat belongs to, and that the caveat names the excluded
+        # population — both now in the words the contract publishes.
+        assert "denial rate" in caveats[0]
+        assert "claims still awaiting their first remittance are excluded" in caveats[0]
 
     def test_a_contract_without_a_caveat_emits_nothing(
         self,

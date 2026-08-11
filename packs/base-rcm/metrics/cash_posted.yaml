@@ -14,10 +14,10 @@ scope_dimensions:
 sign: higher_is_good
 unit: money_cents
 description: >-
-  Payer payment dollars posted in the window, on the post-date basis (when
-  money movement hit the ledger). Excludes patient payments (see
-  patient_cash_posted), adjustments, and refunds — transaction type carries
-  direction and amounts are always positive. Remit-date is a labeled
-  alternate for adjudication-aligned views; service/submission bases give
-  cohort views (cash-to-date for services or submissions in the window).
-  "Payer payments" and "cash posted" resolve here.
+  Payer payment dollars posted in the window, dated by the posting date — when
+  the money movement hit the ledger. Excludes patient payments (those are
+  patient cash posted), adjustments, and refunds; transaction type carries
+  direction and amounts are always positive. The remittance date is a labeled
+  alternate for adjudication-aligned views; dating by service or submission
+  gives cash-to-date for the services or submissions in the window. "Payer
+  payments" and "cash posted" both resolve here.

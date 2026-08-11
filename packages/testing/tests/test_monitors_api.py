@@ -280,7 +280,21 @@ class TestCreateByIntent:
         # cannot check is a monitor they cannot trust.
         assert declaration.spec.metric_ids == ["denial_rate"]
         assert declaration.baseline_watermark_id
-        assert "governed threshold" in declaration.threshold_statement
+        # The recommended sensitivity is STATED, not named: the number, its
+        # unit, whose recommendation it is, and that it can be changed
+        # (docs/client-language.md §2.1). "the governed threshold" told the
+        # analyst a number had been picked without saying what it was.
+        assert "governed" not in declaration.threshold_statement
+        assert "points" in declaration.threshold_statement
+        # The number is the clause; whose recommendation it is and that it
+        # can be changed follow as their own sentence on the statement, so
+        # neither reads as "…anytime., and the answer above…".
+        assert "Revi's recommended level" in declaration.statement
+        assert "change it anytime" in declaration.statement
+        # And as DATA, so a sensitivity control can render it.
+        assert declaration.recommended_threshold is not None
+        assert declaration.recommended_threshold.value == 0.005
+        assert declaration.recommended_threshold.unit == "points"
         # The platform says what it READ rather than asserting it read intent.
         assert any("monitor declaration" in w for w in answer.warnings)
 

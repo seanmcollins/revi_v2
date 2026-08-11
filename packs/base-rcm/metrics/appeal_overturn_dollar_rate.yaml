@@ -22,11 +22,11 @@ scope_dimensions:
 sign: higher_is_good
 unit: ratio
 description: >-
-  Overturned denied dollars divided by decided denied dollars (overturned
-  plus upheld) for denials in the window, remittance-date basis. The
-  denominator is decided appeals only — never all denials and never all
-  appeals — so pending appeals do not dilute it, exactly as in the
-  record-count appeal_overturn_rate. Present the two together: a dollar rate
-  well below the count rate means the wins are small claims and the losses
-  are the expensive ones, which changes where appeal effort should go.
-  Appeal state reflects the snapshot watermark.
+  Overturned denied dollars divided by decided denied dollars (overturned plus
+  upheld) for denials in the window, dated by remittance. The denominator is
+  decided appeals only — never all denials and never all appeals — so pending
+  appeals do not dilute it, exactly as in the record-count appeal overturn
+  rate. Present the two together: a dollar rate well below the count rate
+  means the wins are small claims and the losses are the expensive ones, which
+  changes where appeal effort should go. Appeal state is as of the latest data
+  load.

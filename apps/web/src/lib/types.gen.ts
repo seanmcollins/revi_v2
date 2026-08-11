@@ -1677,6 +1677,7 @@ export interface components {
             monitor: components["schemas"]["MonitorModel"];
             /** Pin Id */
             pin_id: string;
+            recommended_threshold?: components["schemas"]["RecommendedThresholdPayload"] | null;
             spec: components["schemas"]["TypedInvestigationSpec"];
             /** Statement */
             statement: string;
@@ -1768,6 +1769,7 @@ export interface components {
              * @enum {string}
              */
             reason_code: "threshold_illegal" | "threshold_unreadable" | "not_stored";
+            recommended_threshold?: components["schemas"]["RecommendedThresholdPayload"] | null;
             /**
              * Subject
              * @default
@@ -1973,6 +1975,11 @@ export interface components {
              * @default
              */
             prior_watermark_id: string;
+            /**
+             * Recommended Threshold Text
+             * @default
+             */
+            recommended_threshold_text: string;
             /**
              * Reference
              * @default prior_load
@@ -2292,6 +2299,7 @@ export interface components {
              * @enum {string}
              */
             presentation: "chart" | "finding" | "worklist_slice" | "scalar";
+            recommended_threshold?: components["schemas"]["RecommendedThresholdPayload"] | null;
             /**
              * Scope
              * @default tenant
@@ -2760,6 +2768,33 @@ export interface components {
              * @enum {string}
              */
             op: "rank_by";
+        };
+        /**
+         * RecommendedThresholdPayload
+         * @description The sensitivity Revi recommends for a metric, as a NUMBER.
+         *
+         *     A default the reader cannot inspect is not a default they can accept.
+         *     The materiality gate is governed content and used to reach a client only
+         *     inside prose ("more than the governed threshold for this measure"), which
+         *     asks somebody to agree to a value while describing it in words they
+         *     cannot evaluate — and which no client should have to parse a sentence to
+         *     recover. So the rule is published as data as well as prose
+         *     (``docs/client-language.md`` §2.1).
+         *
+         *     Money and count rules have two components at once — a share of the prior
+         *     value AND an absolute floor, because relative alone briefs a $40 balance
+         *     that doubled and absolute alone briefs a rounding error on $12M — so
+         *     both are published and either may be null.
+         */
+        RecommendedThresholdPayload: {
+            /** Relative */
+            relative?: number | null;
+            /** Text */
+            text: string;
+            /** Unit */
+            unit?: string | null;
+            /** Value */
+            value?: number | null;
         };
         /** ReferentPayload */
         ReferentPayload: {

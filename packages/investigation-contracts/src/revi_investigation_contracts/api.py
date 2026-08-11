@@ -1039,6 +1039,36 @@ class MonitorModel(ClosedModel):
     note: str = ""
 
 
+class RecommendedThresholdPayload(ClosedModel):
+    """The sensitivity Revi recommends for a metric, as a NUMBER.
+
+    A default the reader cannot inspect is not a default they can accept.
+    The materiality gate is governed content and used to reach a client only
+    inside prose ("more than the governed threshold for this measure"), which
+    asks somebody to agree to a value while describing it in words they
+    cannot evaluate — and which no client should have to parse a sentence to
+    recover. So the rule is published as data as well as prose
+    (``docs/client-language.md`` §2.1).
+
+    Money and count rules have two components at once — a share of the prior
+    value AND an absolute floor, because relative alone briefs a $40 balance
+    that doubled and absolute alone briefs a rounding error on $12M — so
+    both are published and either may be null.
+    """
+
+    #: The rule as a reader-ready phrase: "0.5 percentage points",
+    #: "5% of the prior value and $1,000.00". Always populated.
+    text: str
+    #: The absolute component, in ``unit``. Null for a purely relative rule.
+    value: float | None = None
+    #: The unit ``value`` is stated in: ``points`` for a rate, ``cents`` for
+    #: money, ``days`` for a lag, ``count`` for a volume.
+    unit: str | None = None
+    #: The relative component as a fraction of the prior value (``0.1`` is
+    #: 10%). Null for a rule with no relative component.
+    relative: float | None = None
+
+
 class MonitorDeclarationPayload(ClosedModel):
     """The one-time confirmation a "monitor X" turn answers with.
 
@@ -1084,6 +1114,11 @@ class MonitorDeclarationPayload(ClosedModel):
     #: what the other one would have been, rather than leaving a monitor
     #: gated four times tighter than anybody asked for.
     threshold_alternative: str = ""
+    #: The recommended sensitivity for this metric's unit, as a number.
+    #: Published so any surface offering a sensitivity control can show what
+    #: the reader would otherwise be asked to accept sight-unseen. Null when
+    #: this deployment recommends none for the unit.
+    recommended_threshold: RecommendedThresholdPayload | None = None
 
 
 class MonitorRefusedPayload(ClosedModel):
@@ -1116,6 +1151,10 @@ class MonitorRefusedPayload(ClosedModel):
     #: Phrasings that would be accepted for this metric, in the analyst's
     #: own idiom. Never empty — a refusal with no way forward is a wall.
     legal_alternatives: list[str] = Field(default_factory=list)
+    #: The recommended sensitivity for this metric's unit, as a number.
+    #: Stated rather than named, so somebody choosing to accept the
+    #: recommendation can see what they are accepting.
+    recommended_threshold: RecommendedThresholdPayload | None = None
 
 
 class TimeToImpactPayload(ClosedModel):

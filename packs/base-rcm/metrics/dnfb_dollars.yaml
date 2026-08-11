@@ -19,13 +19,14 @@ sign: higher_is_bad
 unit: money_cents
 description: >-
   Gross billed dollars on discharged, never-submitted claims as of the
-  snapshot (discharge date present, submission date null — the structural
-  DNFB definition in this warehouse), aged on the discharge basis. The MAP
-  PB-1 days form (DNFB over average daily gross revenue) is a transform
-  over this contract and charges, computed at presentation time. Benchmark
-  context: five to seven days of revenue is commonly cited as acceptable,
-  with some guidance flagging sustained levels above three to five —
-  treat as a range. Population caveat: professional claims (no discharge
-  date) are outside this population by construction, and this is inventory
-  standing as of the snapshot rather than a flow accumulated over a window,
-  so narrowing the window does not narrow the figure.
+  snapshot — a discharge date is present and no submission date is, which is
+  how DNFB (discharged not final billed) is identified in your data — aged
+  from the discharge date. The MAP PB-1 days form (DNFB over average daily
+  gross revenue) is built on top of this figure and charges when the answer is
+  presented. Benchmark context: five to seven days of revenue is commonly
+  cited as acceptable, with some guidance flagging sustained levels above
+  three to five — treat as a range. Population caveat: professional claims,
+  which have no discharge date, are outside this population by construction,
+  and this is inventory standing as of the snapshot rather than a flow
+  accumulated over a window, so narrowing the window does not narrow the
+  figure.

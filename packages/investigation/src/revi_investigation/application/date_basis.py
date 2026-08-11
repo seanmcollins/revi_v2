@@ -46,6 +46,7 @@ from dataclasses import dataclass
 
 from revi_calculation_contracts.contract import MetricContract
 from revi_catalog_contracts.model import CatalogSnapshot
+from revi_investigation.application.rendering import date_phrase, level_phrase, metric_label
 from revi_kernel.errors import DateBasisInvalidError
 from revi_kernel.refs import DateBasisRef
 
@@ -92,10 +93,12 @@ def substitution_warning(contract: MetricContract, resolution: BasisResolution) 
     """
     if not resolution.substituted:
         return None
+    where = f" at the {level_phrase(resolution.entity)}" if resolution.entity else ""
     return (
-        f"alternate_basis_used: {contract.id!r} computed on the {resolution.basis.id!r} date "
-        f"basis — the {resolution.requested.id!r} basis it asks for is not available at the "
-        f"{resolution.entity!r} grain in this warehouse"
+        f"alternate_basis_used: {metric_label(contract.id)} is measured on the "
+        f"{date_phrase(resolution.basis.id)}. It asked for the "
+        f"{date_phrase(resolution.requested.id)}, and your data does not carry that "
+        f"date{where}."
     )
 
 

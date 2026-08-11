@@ -18,11 +18,11 @@ sign: neutral
 unit: money_cents
 description: >-
   Open accounts receivable as of the snapshot: billed value of unresolved
-  claims (status OPEN or DENIED — denied-standing inventory remains
-  receivable until worked or written off). Valuation caveat: this warehouse
+  claims — still open, or standing denied, since denied inventory remains
+  receivable until it is worked or written off. Valuation caveat: your data
   keeps no per-claim net open balance, so A/R is valued at gross billed
   charges, not net of partial payments — a gross-A/R view, stated in every
-  answer. Cut by ar_age_bucket (derived at probe time from the newest data
-  date on the service or submission aging basis) for the aging profile;
-  unsubmitted claims are included, so an is-null submission filter yields
-  the unbilled A/R view.
+  answer. Cut by A/R age bucket (built when the check runs, from the newest
+  data date against the service or submission date) for the aging profile;
+  unsubmitted claims are included, so filtering to claims with no submission
+  date yields the unbilled A/R view.

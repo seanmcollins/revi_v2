@@ -41,6 +41,7 @@ from revi_investigation_contracts.api import (
     MonitorMode,
     MonitorModel,
     MonitorUnit,
+    RecommendedThresholdPayload,
     TimeToImpactPayload,
     TypedInvestigationSpec,
     WarningPayload,
@@ -177,6 +178,13 @@ class MonitorsPinPayload(ClosedModel):
     baseline_value: float | None = None
     baseline_value_text: str = ""
     baseline_unit: str | None = None
+    #: The sensitivity Revi recommends for this monitor's unit, as a number.
+    #: A surface offering a sensitivity control renders THIS rather than
+    #: naming a threshold the reader cannot inspect — see
+    #: :class:`~revi_investigation_contracts.api.RecommendedThresholdPayload`
+    #: and ``docs/client-language.md`` §2.1. Null when this deployment
+    #: recommends none for the unit.
+    recommended_threshold: RecommendedThresholdPayload | None = None
     created_at: datetime
     archived_at: datetime | None = None
     #: Tenant-scoped, not user-scoped, in v1 — stated on the wire rather
@@ -314,6 +322,11 @@ class MonitorsDeltaPayload(ClosedModel):
     #: checkable rather than trusted.
     materiality_rule: str = ""
     materiality_note: str = ""
+    #: The sensitivity Revi recommends for this measure, as a concrete
+    #: phrase ("0.5 percentage points"). Carried whether or not it is the
+    #: gate that decided, so a surface saying a movement was inside normal
+    #: variation can also say what normal is (docs/client-language.md §2.1).
+    recommended_threshold_text: str = ""
 
 
 class MonitorsTilePayload(ClosedModel):

@@ -22,17 +22,17 @@ sign: higher_is_good
 unit: ratio
 description: >-
   Claims paid on their first remittance with no denial, as a share of every
-  claim in the window on the chosen date basis. On the primary submission
-  basis that population is exactly the claims submitted in the window — a
-  claim with no submission date cannot fall inside a submission window at
-  all. On the alternate service basis the denominator also carries claims
-  that were never submitted, whose yield is zero by construction, so a
-  service-basis reading is a yield-per-service-volume view and sits below the
-  submission-basis rate; the alternate-basis label on the answer says which
-  one produced the number. Distinct from clean_claim_rate: yield is measured
-  at the payer's first-pass outcome; the clean rate reads the outcome-derived
-  clean flag. Population caveat: recently submitted claims sit in the
-  denominator until adjudication is visible, so a window near the data edge
-  reads conservatively and two windows of unequal adjudication maturity are
-  not comparable as levels. Benchmark context: 90-95 percent or better is the commonly cited
-  range for first-pass resolution.
+  claim in the window on the chosen date. Dated by submission, the primary
+  reading, that population is exactly the claims submitted in the window — a
+  claim with no submission date cannot fall inside a submission window at all.
+  Dated by service instead, the denominator also carries claims that were
+  never submitted, whose yield is zero by construction, so a service-dated
+  reading is a yield-per-service-volume view and sits below the
+  submission-dated rate; the answer says which date produced the number.
+  Distinct from the clean claim rate: yield is measured at the payer's
+  first-pass outcome, while the clean rate reads the outcome-derived clean
+  flag. Population caveat: recently submitted claims sit in the denominator
+  until adjudication is visible, so a window near the data edge reads
+  conservatively and two windows of unequal adjudication maturity are not
+  comparable as levels. Benchmark context: 90-95 percent or better is the
+  commonly cited range for first-pass resolution.

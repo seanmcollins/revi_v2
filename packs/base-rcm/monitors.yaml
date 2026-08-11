@@ -250,8 +250,8 @@ time_to_impact:
       note: >-
         Discharged-not-final-billed inventory: the account exists and the
         charges exist, so the cash arrives once the bill drops and the payer
-        pays. Projected as the governed bill window plus the governed
-        payment lag, from the median age of this cell's accounts.
+        pays. Projected as the usual time to bill plus the usual time to
+        be paid, from the median age of this cell's accounts.
     submission_gap:
       method: aging_projection
       lane: pre_cash
@@ -259,8 +259,8 @@ time_to_impact:
       age_aggregate: median
       note: >-
         Claims past their intended drop date: the cash arrives once they are
-        submitted and paid. Projected as the governed bill window plus the
-        governed payment lag.
+        submitted and paid. Projected as the usual time to bill plus the
+        usual time to be paid.
     charge_entry_lag:
       method: aging_projection
       lane: pre_cash
@@ -269,8 +269,8 @@ time_to_impact:
       note: >-
         Charges entered late: the value is captured but the bill has not
         dropped, so the cash is delayed rather than lost. Projected as the
-        governed bill window plus the governed payment lag from the observed
-        entry lag.
+        usual time to bill plus the usual time to be paid, measured from the
+        charge-entry lag actually observed.
     charge_hold:
       method: unknown
       lane: unknown
@@ -324,9 +324,9 @@ time_to_impact:
       lane: already_hit
       reason: >-
         The claims are adjudicated and paid short, so the shortfall has
-        already hit cash. When the dispute RECOVERS it depends on the payer's
-        own reconsideration cycle, which this warehouse does not carry — so
-        the recovery date is unknown rather than estimated from a national
+        already hit cash. When the dispute recovers depends on the payer's
+        own reconsideration cycle, which your data does not record — so the
+        recovery date is unknown rather than estimated from a national
         average nobody agreed to.
     contractual:
       method: unknown
@@ -347,7 +347,7 @@ time_to_impact:
       method: unknown
       lane: unknown
       reason: >-
-        A credit balance is money OWED OUT, not cash coming in, so a
+        A credit balance is money owed out, not cash coming in, so a
         time-to-cash figure would have the sign backwards. The obligation is
         compliance-mandatory and dated by regulation rather than by this
         data, which the compliance lane already says.

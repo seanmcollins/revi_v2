@@ -14,14 +14,13 @@ scope_dimensions:
 sign: neutral
 unit: money_cents
 description: >-
-  Payer-allowed dollars on claim lines in the window, service-date basis —
-  the adjudicated worth of each procedure, and the "actual" side of contract
-  variance. Population caveat: the allowed amount is null until the claim's
-  first remittance lands, so unadjudicated lines contribute nothing and
-  recent service cohorts under-read until adjudication catches up; that also
-  means allowed dollars must never be divided by line_charges over the same
-  window as if it were a payment-to-charge ratio, because the denominator
-  counts lines the numerator cannot see (see pack NOTES for the deferred
-  allowed-to-charges contract). Cut by proc_group for procedure-level
-  contract analysis, and pair with expected_reimbursement to see contracted
+  Payer-allowed dollars on claim lines in the window, dated by service — the
+  adjudicated worth of each procedure, and the "actual" side of contract
+  variance. Population caveat: the allowed amount is not set until the claim's
+  first remittance lands, so unadjudicated lines contribute nothing and recent
+  service months under-read until adjudication catches up; that also means
+  allowed dollars must never be divided by line charges over the same window
+  as if it were a payment-to-charge ratio, because the denominator counts
+  lines the numerator cannot see. Cut by procedure group for procedure-level
+  contract analysis, and pair with expected reimbursement to see contracted
   expectation against payer decision.

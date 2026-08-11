@@ -15,17 +15,16 @@ scope_dimensions:
 sign: neutral
 unit: money_cents
 description: >-
-  Patient-responsibility dollars established at adjudication for claims in
-  the window (deductible, copay and coinsurance accumulated onto the claim),
-  service-date basis. Population caveat: the amount is assigned at
-  adjudication, so it is near-zero — not exactly zero — until the claim's
-  first remittance lands, and recent service cohorts under-read until the
-  remittances catch up; the watermark header carries that edge. Measured
-  over 2026-05-01..2026-08-02, 555 of the window's 6,272 OPEN claims carry
-  any patient responsibility at all, $61,164 of the window's $2.22M (2.8%),
-  so "un-adjudicated contributes nothing" is close enough to reason with and
-  wrong to assert. Sign is
-  neutral: the amount is benefit-design driven, not a performance result;
-  what is actionable is what happens next, so read it with
-  patient_cash_posted (collected) and patient_responsibility_rate (share of
-  the net collectible that falls to the patient).
+  Patient-responsibility dollars established at adjudication for claims in the
+  window (deductible, copay and coinsurance accumulated onto the claim), dated
+  by service. Population caveat: the amount is assigned at adjudication, so it
+  is near-zero — not exactly zero — until the claim's first remittance lands,
+  and recent service months under-read until the remittances catch up; the
+  header says which data load you are reading. Measured over May 1 – Aug 2,
+  2026, 555 of the window's 6,272 still-open claims carry any patient
+  responsibility at all, $61,164 of the window's $2.22M (2.8%), so
+  "un-adjudicated contributes nothing" is close enough to reason with and
+  wrong to assert. Sign is neutral: the amount is benefit-design driven, not a
+  performance result; what is actionable is what happens next, so read it with
+  patient cash posted (collected) and the patient-responsibility rate (the
+  share of the net collectible that falls to the patient).

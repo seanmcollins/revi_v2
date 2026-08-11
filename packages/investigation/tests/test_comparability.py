@@ -421,7 +421,7 @@ class TestNothingSurvivesAtHighConfidenceOverANonComparableComparison:
 
         assert [f.confidence for f in result.findings] == ["qualified"] * 4
         assert any(w.startswith("not_comparable_windows:") for w in warnings)
-        assert "net_collection_rate" in warnings[0]
+        assert "net collection rate" in warnings[0]
 
     def test_a_stronger_caveat_is_never_raised(self, pack_port: PackSnapshotPort) -> None:
         findings = (self._finding("F1", "net_collection_rate", "low"),)

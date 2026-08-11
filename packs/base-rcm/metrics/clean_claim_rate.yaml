@@ -26,17 +26,16 @@ scope_dimensions:
 sign: higher_is_good
 unit: ratio
 description: >-
-  Share of adjudicated claims flagged clean, on the chosen date basis.
-  Population caveat: claims still awaiting their first remittance (status
-  OPEN) are excluded from both sides — the outcome-derived clean_claim flag
-  is false until a claim resolves paid with zero denials, so an
-  un-adjudicated claim would otherwise count as not-clean for want of
-  evidence rather than because anything went wrong. Point of clarification:
-  MAP CL-1 measures
-  clean claims at the pre-submission scrubber; this warehouse's clean_claim
-  flag is outcome-derived (claim resolved with zero denials), so this
-  contract is an outcome-based clean rate — closely related to
-  first_pass_yield and complementary to denial_rate, which reads the same
-  flag with the opposite polarity, so over an identical population the two
-  sum to one. Benchmark context: 95 percent is the commonly cited target,
-  top performers near 98 (scrubber-based definitions).
+  Share of adjudicated claims flagged clean, on the chosen date. Population
+  caveat: claims still awaiting their first remittance are excluded from both
+  sides — the clean flag is derived from the outcome and stays false until a
+  claim resolves paid with zero denials, so an un-adjudicated claim would
+  otherwise count as not-clean for want of evidence rather than because
+  anything went wrong. Point of clarification: MAP CL-1 measures clean claims
+  at the pre-submission scrubber; here the clean flag is derived from the
+  outcome (claim resolved with zero denials), so this is an outcome-based
+  clean rate — closely related to first-pass yield and complementary to the
+  denial rate, which reads the same flag with the opposite polarity, so over
+  an identical population the two sum to one. Benchmark context: 95 percent is
+  the commonly cited target, top performers near 98 (scrubber-based
+  definitions).

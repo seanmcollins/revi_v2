@@ -19,6 +19,7 @@ from revi_investigation.application.ports import (
 )
 from revi_investigation.application.rendering import (
     magnitude,
+    metric_label,
 )
 from revi_investigation_contracts.api import (
     AnomalyCard,
@@ -34,7 +35,14 @@ from revi_kernel.watermark import DataWatermark
 if TYPE_CHECKING:  # pragma: no cover - import cycle at runtime only
     pass
 
-from revi_api.monitors.common import MonitorsNotFoundError, _MonitorsBase, _plural, _utc, logger
+from revi_api.monitors.common import (
+    MonitorsNotFoundError,
+    _load_phrase,
+    _MonitorsBase,
+    _plural,
+    _utc,
+    logger,
+)
 
 
 @dataclass(frozen=True, slots=True)
@@ -87,9 +95,8 @@ class _LeadLifecycle(_MonitorsBase):
         tenant = principal.tenant
         if request.status not in LEAD_STATUSES_HUMAN_SETTABLE:
             raise PolicyDeniedError(
-                f"{request.status!r} is a verdict this platform reaches from data, not a "
-                "status a person may set: claim the resolution and the next loads confirm it "
-                "or refuse it",
+                "that status is a verdict this platform reaches from data, not one a person "
+                "may set: claim the resolution, and the next loads confirm it or refuse it",
                 details={"anomaly_id": anomaly_id, "status": request.status},
             )
         if watermark is None:
@@ -98,8 +105,9 @@ class _LeadLifecycle(_MonitorsBase):
         card = next((c for c in portfolio.items if c.anomaly_id == anomaly_id), None)
         if card is None:
             raise MonitorsNotFoundError(
-                f"{anomaly_id!r} is not in the detection feed at watermark {watermark.id}; a "
-                "lead that is not detected cannot have its status changed",
+                f"{anomaly_id} is not in the detection feed at "
+                f"{_load_phrase(watermark.newest_data_date, unknown='this load')}; a lead that "
+                "is not detected cannot have its status changed",
                 details={"anomaly_id": anomaly_id, "watermark_id": watermark.id},
             )
         existing = await self._components.monitors_leads.get(tenant, anomaly_id)
@@ -184,9 +192,10 @@ class _LeadLifecycle(_MonitorsBase):
         """
         if not card.drillable:
             return None, (
-                "this card cannot be investigated at this catalog and pack version, so this "
-                "platform has no figure of its own to measure the fix against; confirmation "
-                "can only come from the lead leaving the detection feed"
+                "this card cannot be opened as an investigation with the data and definitions "
+                "library available here, so this platform has no figure of its own to measure "
+                "the fix against; confirmation can only come from the lead leaving the "
+                "detection feed"
             )
         rederived = await self._components.rederive_impact(card.drill_spec, watermark)
         if rederived.cents is None:
@@ -195,9 +204,12 @@ class _LeadLifecycle(_MonitorsBase):
                 f"claim load ({rederived.unavailable_reason or 'no reason recorded'}), so "
                 "confirmation can only come from the lead leaving the detection feed"
             )
+        measure = (
+            metric_label(rederived.measure_id) if rederived.measure_id else "the lead's measure"
+        )
         return rederived.cents, (
-            f"this platform's own re-derivation of the lead's drill "
-            f"({rederived.measure_id or 'metric'}) at the claim load {watermark.id}"
+            f"this platform's own re-derivation of the lead's drill ({measure}) at the load "
+            "the fix was claimed at"
         )
 
     async def _load_order(self, tenant: str) -> dict[str, datetime]:
@@ -317,18 +329,18 @@ class _LeadLifecycle(_MonitorsBase):
     ) -> _Verification:
         required = resolution.consecutive_loads_required
         confirming = (*lead.confirming_watermarks, watermark.id)
-        # The loads that verified it, named. A single-load span is written as
-        # one id rather than "wm_003-wm_003", which reads like a bug.
-        span = (
-            f"{confirming[0]}-{watermark.id}" if len(confirming) > 1 else watermark.id
-        )
+        # The load this verdict was reached at, named by its data date. The
+        # warehouse handles for the whole streak ride on
+        # ``confirming_watermarks``, where a client that wants them can read
+        # them without a reader having to.
+        at_load = _load_phrase(watermark.newest_data_date, unknown="this load")
 
         if card is None:
             note = (
-                f"{lead.anomaly_id} is no longer in the detection feed at {watermark.id}: the "
+                f"{lead.anomaly_id} is no longer in the detection feed at {at_load}: the "
                 "detector's own rule has stopped firing for this cell"
             )
-            return self._advance(lead, confirming, required, note, span, watermark, in_feed=False)
+            return self._advance(lead, confirming, required, note, watermark, in_feed=False)
 
         current: int | None = None
         if lead.baseline_cents is not None and card.drillable:
@@ -339,9 +351,9 @@ class _LeadLifecycle(_MonitorsBase):
             held = replace(
                 lead,
                 verification_note=(
-                    f"still detected at {watermark.id}, and this platform has no comparable "
-                    f"figure to measure the fix against ({basis}). The claim stands "
-                    "unconfirmed rather than being confirmed on an assertion."
+                    f"still detected at {at_load}, and this platform has no comparable figure "
+                    f"to measure the fix against ({basis}). The claim stands unconfirmed "
+                    "rather than being confirmed on an assertion."
                 ),
                 updated_at=datetime.now(UTC),
             )
@@ -354,13 +366,13 @@ class _LeadLifecycle(_MonitorsBase):
             reduction = Decimal(baseline - current) / Decimal(abs(baseline))
         if reduction >= resolution.measured_reduction_fraction:
             note = (
-                f"{lead.anomaly_id} is back within tolerance at {watermark.id}: this "
-                f"platform's re-derived exposure fell from {magnitude(baseline, 'money_cents')} "
-                f"at the claim load to {magnitude(current, 'money_cents')} "
-                f"({float(reduction):.0%} down, against a governed threshold of "
-                f"{float(resolution.measured_reduction_fraction):.0%})"
+                f"{lead.anomaly_id} is back within tolerance at {at_load}: this platform's "
+                f"re-derived exposure fell from {magnitude(baseline, 'money_cents')} at the "
+                f"claim load to {magnitude(current, 'money_cents')} — a {float(reduction):.0%} "
+                f"drop, against the {float(resolution.measured_reduction_fraction):.0%} Revi "
+                "looks for before calling a fix confirmed"
             )
-            return self._advance(lead, confirming, required, note, span, watermark, in_feed=True)
+            return self._advance(lead, confirming, required, note, watermark, in_feed=True)
         if -reduction >= resolution.regression_increase_fraction:
             regressed = replace(
                 lead,
@@ -370,10 +382,10 @@ class _LeadLifecycle(_MonitorsBase):
                 verification_note=(
                     f"Regressed: {lead.anomaly_id} moved the wrong way. This platform's "
                     f"re-derived exposure rose from {magnitude(baseline, 'money_cents')} at "
-                    f"the claim load to {magnitude(current, 'money_cents')} at {watermark.id} "
-                    f"({float(-reduction):.0%} up, against a governed regression threshold of "
-                    f"{float(resolution.regression_increase_fraction):.0%}). The claimed fix "
-                    "did not hold."
+                    f"the claim load to {magnitude(current, 'money_cents')} at {at_load} — a "
+                    f"{float(-reduction):.0%} rise, past the "
+                    f"{float(resolution.regression_increase_fraction):.0%} Revi treats as a "
+                    "regression. The claimed fix did not hold."
                 ),
             )
             return _Verification(
@@ -397,11 +409,11 @@ class _LeadLifecycle(_MonitorsBase):
             confirming_watermarks=(),
             updated_at=datetime.now(UTC),
             verification_note=(
-                f"still detected at {watermark.id}: this platform's re-derived exposure is "
+                f"still detected at {at_load}: this platform's re-derived exposure is "
                 f"{magnitude(current, 'money_cents')} against {magnitude(baseline, 'money_cents')} "
-                f"at the claim load ({float(reduction):.0%} down, short of the governed "
-                f"{float(resolution.measured_reduction_fraction):.0%}). Not confirmed, and the "
-                "streak restarts."
+                f"at the claim load — a {float(reduction):.0%} drop, short of the "
+                f"{float(resolution.measured_reduction_fraction):.0%} Revi looks for. Not "
+                "confirmed, and the streak restarts."
             ),
         )
         return _Verification(held, None)
@@ -412,7 +424,6 @@ class _LeadLifecycle(_MonitorsBase):
         confirming: tuple[str, ...],
         required: int,
         note: str,
-        span: str,
         watermark: DataWatermark,
         *,
         in_feed: bool,
@@ -429,8 +440,7 @@ class _LeadLifecycle(_MonitorsBase):
                     updated_at=datetime.now(UTC),
                     verification_note=(
                         f"{note}. That is {len(confirming)} of the {required} consecutive "
-                        "loads the governed rule requires before this platform will call it "
-                        "confirmed."
+                        "loads Revi requires before it will call this confirmed."
                     ),
                 ),
                 None,
@@ -447,15 +457,16 @@ class _LeadLifecycle(_MonitorsBase):
                     updated_at=datetime.now(UTC),
                     verification_note=(
                         f"{note}. That is {len(confirming)} of the {required} consecutive loads "
-                        f"the governed rule requires, but {lead.anomaly_id} is still in the "
-                        f"detection feed at {watermark.id}, so this platform will not call it "
-                        "confirmed: a lead the detector is still firing on is not a fixed one."
+                        f"Revi requires, but {lead.anomaly_id} is still in the detection feed "
+                        f"at {_load_phrase(watermark.newest_data_date, unknown='this load')}, "
+                        "so this platform will not call it confirmed: a lead the detector is "
+                        "still firing on is not a fixed one."
                     ),
                 ),
                 None,
             )
         loads = "load" if required == 1 else "consecutive loads"
-        sentence = f"Confirmed: {note}, for {required} {loads}, {span}."
+        sentence = f"Confirmed: {note}, for {required} {loads}."
         return _Verification(
             replace(
                 lead,
@@ -561,15 +572,15 @@ def _repaired_lead(lead: MonitorsLead, order: Mapping[str, datetime], required: 
         )
     if lead.status == "resolved_confirmed" and len(kept) >= required:
         note = (
-            f"Confirmed: {lead.anomaly_id} verified on {_plural(len(kept), 'load', 'loads')} "
-            f"after the claim at {claimed_at} ({', '.join(kept)}). {discarded}"
+            f"Confirmed: {lead.anomaly_id} verified on "
+            f"{_plural(len(kept), 'load', 'loads')} after the fix was claimed. {discarded}"
         )
         status = "resolved_confirmed"
     else:
         note = (
-            f"Resolution claimed at {claimed_at}, and no load since has verified it. {discarded} "
-            f"This platform re-runs the lead's own drill at every load after {claimed_at} and "
-            f"confirms only once {required} consecutive loads verify it."
+            "Resolution claimed, and no load since has verified it. "
+            f"{discarded} This platform re-runs the lead's own drill at every load after the "
+            f"claim and confirms only once {required} consecutive loads verify it."
         )
         status = "resolved_claimed"
     return replace(
@@ -581,23 +592,22 @@ def _repaired_lead(lead: MonitorsLead, order: Mapping[str, datetime], required: 
     )
 
 
-def _withdrawn_confirmation_sentence(lead: MonitorsLead, watermark_id: str) -> str:
-    """Both facts, in one sentence, in the order a reader needs them."""
-    confirmed_at = (
-        lead.confirming_watermarks[-1]
-        if lead.confirming_watermarks
-        else (lead.claimed_at_watermark or "an earlier load")
-    )
+def _withdrawn_confirmation_sentence(lead: MonitorsLead) -> str:
+    """Both facts, in one sentence, in the order a reader needs them.
+
+    The loads themselves are counted rather than listed: the handles are on
+    the payload (``confirming_watermarks``), and a sentence that spells them
+    out asks the reader to recognise a name only the warehouse uses.
+    """
     on_loads = (
-        f" on {_plural(len(lead.confirming_watermarks), 'load', 'loads')} "
-        f"{', '.join(lead.confirming_watermarks)}"
+        f" on {_plural(len(lead.confirming_watermarks), 'earlier load', 'earlier loads')}"
         if lead.confirming_watermarks
-        else ""
+        else " at an earlier load"
     )
     return (
-        f"Regressed: {lead.anomaly_id} was confirmed fixed at {confirmed_at}{on_loads}; the "
-        f"detector fired again at {watermark_id} — the confirmation is withdrawn, because a lead "
-        "in this load's own detection feed is not a fixed lead."
+        f"Regressed: {lead.anomaly_id} was confirmed fixed{on_loads}; the detector fired again "
+        "at this load — the confirmation is withdrawn, because a lead in this load's own "
+        "detection feed is not a fixed lead."
     )
 
 
@@ -610,7 +620,7 @@ def _regressed_on_reappearance(
     never capped, so this takes its slot in the brief rather than being
     narrated in an eyebrow above a green check.
     """
-    sentence = _withdrawn_confirmation_sentence(lead, watermark.id)
+    sentence = _withdrawn_confirmation_sentence(lead)
     regressed = replace(
         lead,
         status="regressed",
@@ -691,7 +701,7 @@ def _publishable_lead_status(
         tenant,
         watermark_id,
     )
-    return "regressed", _withdrawn_confirmation_sentence(lead, watermark_id)
+    return "regressed", _withdrawn_confirmation_sentence(lead)
 
 
 def _assert_no_confirmed_lead_in_feed(
@@ -707,11 +717,14 @@ def _assert_no_confirmed_lead_in_feed(
     offenders = sorted(a for a, status in statuses.items() if status == "resolved_confirmed")
     if offenders:  # pragma: no cover - unreachable by construction
         raise ReviError(
-            f"monitors would publish {', '.join(offenders)} as a confirmed fix for tenant "
-            f"{tenant!r} while it is in the detection feed at {watermark_id}: a lead the "
-            "detector is still firing on is not a fixed lead, and this payload is refused "
-            "rather than rendered",
-            details={"anomaly_ids": offenders, "watermark_id": watermark_id},
+            f"monitors would publish {', '.join(offenders)} as a confirmed fix while it is in "
+            "this load's detection feed: a lead the detector is still firing on is not a fixed "
+            "lead, and this payload is refused rather than rendered",
+            details={
+                "anomaly_ids": offenders,
+                "tenant": tenant,
+                "watermark_id": watermark_id,
+            },
         )
 
 

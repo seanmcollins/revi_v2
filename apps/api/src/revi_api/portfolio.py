@@ -171,10 +171,10 @@ _LANE_LABELS: dict[str, tuple[str, str]] = {
     ),
     VALUE_LANE: (
         "Ranked by value recoverable",
-        "Ordered by the governed priority formula: normalized impact, "
-        "recency, and the governed recoverable estimate — with the cards "
-        "this platform cannot yet investigate listed last, carrying its "
-        "own refusal.",
+        "Ordered by a standard priority formula: normalized impact, "
+        "recency, and the recoverable estimate that comes with it — with "
+        "the cards this platform cannot yet investigate listed last, "
+        "carrying its own refusal.",
     ),
 }
 
@@ -386,10 +386,10 @@ _NOT_ATTEMPTED = (
 #: the gap between it and a card fired over a window is a difference of
 #: *kind*, not a disagreement this platform can lay at the detector's door.
 SNAPSHOT_NOT_COMPARABLE = (
-    "the governed contract is a snapshot (an as-of balance at the watermark) and applies "
-    "no start..end window, while the card's figure was computed over one, so the gap "
-    "between them is a difference of measurement kind rather than of population, window "
-    "or valuation basis."
+    "the standard definition reads a balance standing as of this data load and applies "
+    "no period at all, while the card's figure was computed over one — so the gap "
+    "between them is a difference in what is being measured, not in the population, "
+    "the period, or how the dollars were valued."
 )
 
 
@@ -417,8 +417,8 @@ def _comparison_for(
         unattempted_note=(
             _NOT_ATTEMPTED
             if drillable
-            else "this card cannot be investigated at this catalog and pack version, so "
-            "there is no governed contract figure to reconcile the detector's against"
+            else "this card cannot be opened with the definitions available today, so "
+            "there is no standard figure to reconcile the detection system's against"
         ),
         not_comparable_reason=SNAPSHOT_NOT_COMPARABLE if snapshot_drill else None,
     )
@@ -444,9 +444,9 @@ def reconciliation_note(
         note = (
             f"{note} Part of this gap is this platform's own doing, not the "
             f"detector's: the drill was repointed onto a different cut ({swaps}) "
-            "because the governed contract has no legal cut at the detector's "
-            "dimension, so the two figures are measured over related — not "
-            "identical — populations. See drill_dimension_repoints."
+            "because the standard definition cannot be broken out the way the "
+            "detection system broke it out, so the two figures are measured over "
+            "related — not identical — populations."
         ).strip()
     return note
 
@@ -473,8 +473,8 @@ def dimension_repointed_warning(
     tail = f" {rationales}" if rationales else ""
     return (
         f"dimension_repointed: this drill of {record.anomaly_id} does not read the cut the "
-        f"detector fired on: the governed contract declares no legal cut at "
-        f"{', '.join(sorted({r.from_dimension for r in dimension_repoints}))}, so the "
+        f"detection system fired on. The standard definition cannot be broken out by "
+        f"{', '.join(sorted({r.from_dimension.replace('_', ' ') for r in dimension_repoints}))}, so the "
         f"platform repointed it ({swaps}). The figures below are measured over a related "
         f"— not identical — population, and any gap against the card's figure is partly "
         f"this substitution rather than the detector's error.{tail}"
@@ -523,8 +523,8 @@ def ranked_figure(record: AnomalyRecord, comparison: ImpactComparison) -> Ranked
             basis="platform",
             note=(
                 "ranked on this platform's re-derived figure "
-                f"(${comparison.platform_cents / 100:,.2f} from the governed "
-                f"{comparison.measure_id or 'metric'} contract), not the detector's "
+                f"(${comparison.platform_cents / 100:,.2f} from the standard definition of "
+                f"{(comparison.measure_id or 'this measure').replace('_', ' ')}), not the detection system's "
                 f"${record.impact_cents / 100:,.2f}: the two diverge, and ordering the "
                 "worklist by a number this payload disputes would rank the work on the "
                 "side of the disagreement the platform does not stand behind. The "
@@ -830,9 +830,9 @@ def build_portfolio(
         total_cents = sum(abs(c.impact_cents) for c in cards) or 1
         all_warnings.append(
             f"{len(blocked)} of {len(cards)} detected anomalies "
-            f"({blocked_cents / total_cents:.0%} of ranked impact) are not investigable at "
-            "this catalog and pack version; they are detected, ranked, and listed after the "
-            "cards that can be opened, with the platform's refusal on each"
+            f"({blocked_cents / total_cents:.0%} of ranked impact) are not investigable "
+            "with the definitions available today. They are detected, ranked, and listed "
+            "after the cards that can be opened, each carrying its own refusal."
         )
     all_warnings.extend(_reconciliation_warnings(cards))
     return PortfolioResponse(
@@ -918,16 +918,16 @@ def _reconciliation_warnings(cards: list[AnomalyCard]) -> list[str]:
     if unavailable:
         out.append(
             f"{len(unavailable)} of {len(drillable)} ranked cards could not be re-derived "
-            "against this platform's governed contracts; their impact figures are the "
-            "detection system's assertion alone"
+            "against this platform's own standard definitions, so their impact figures "
+            "are the detection system's assertion alone."
         )
     if diverged:
         worst = max(abs(c.impact_delta_fraction or 0.0) for c in diverged)
         out.append(
             f"{len(diverged)} ranked cards diverge from this platform's re-derivation of "
-            f"the same cell (largest gap {worst:.1%}); each card publishes both figures, "
-            "the delta, and the reason the detector's window, population or valuation "
-            "basis is not the contract's"
+            f"the same cell (largest gap {worst:.1%}). Each card publishes both figures, "
+            "the difference between them, and the reason the detection system's period, "
+            "population or valuation is not the standard one."
         )
     if repointed:
         worst_repointed = max(abs(c.impact_delta_fraction or 0.0) for c in repointed)
@@ -940,9 +940,10 @@ def _reconciliation_warnings(cards: list[AnomalyCard]) -> list[str]:
         )
         out.append(
             f"dimension_repointed: {len(repointed)} further ranked cards differ from this "
-            "platform's re-derivation because THIS PLATFORM repointed their drill onto a "
-            f"different cut ({'; '.join(swaps)}) — the governed contract declares no legal "
-            "cut at the detector's dimension, so the two figures are measured over related, "
+            "platform's re-derivation because this platform, not the detection system, "
+            f"repointed their drill onto a different cut ({'; '.join(swaps)}) — the standard "
+            "definition cannot be broken out the way the detection system broke it out, so "
+            "the two figures are measured over related, "
             f"not identical, populations (largest gap {worst_repointed:.1%}). They are "
             "counted here and not in the divergence figure above: the gap is this "
             "platform's doing, not the detection system's"

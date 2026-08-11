@@ -15,13 +15,13 @@ scope_dimensions:
 sign: neutral
 unit: money_cents
 description: >-
-  Refund dollars posted in the window on the post-date basis — overpayments
-  returned to the payer, the resolution side of a credit balance. Direction
-  note: refunds are recorded as positive amounts like every transaction, and
-  the sign convention is neutral because issuing an owed refund is correct
-  behavior, not a performance failure; rising refunds signal upstream
-  overpayment (in this warehouse, duplicate payer payments) rather than poor
-  collection. Read against credit_balance_dollars, which values the credits
-  still standing: refunds falling while credits rise is a compliance
-  backlog, not an improvement. This contract does not measure payer
-  takebacks or recoupments — no clawback events exist here.
+  Refund dollars posted in the window, dated by the posting date —
+  overpayments returned to the payer, the resolution side of a credit balance.
+  Direction note: refunds are recorded as positive amounts like every
+  transaction, and the sign convention is neutral because issuing an owed
+  refund is correct behavior, not a performance failure; rising refunds signal
+  upstream overpayment — in your data, duplicate payer payments — rather than
+  poor collection. Read against credit balance dollars, which value the
+  credits still standing: refunds falling while credits rise is a compliance
+  backlog, not an improvement. This does not measure payer takebacks or
+  recoupments — no clawback events exist here.

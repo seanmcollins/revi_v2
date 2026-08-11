@@ -19,19 +19,17 @@ sign: higher_is_bad
 unit: days
 description: >-
   Mean days from claim submission to payment posting, over every transaction
-  posted in the window. The contract cannot restrict the population to payer
-  PAYMENT transactions: `txn_type` is not a certified catalog dimension, so
-  the restriction is not expressible in contract-internal filter algebra
-  today. The numerator carries this partly: payment_lag_days is null for
-  non-PAYMENT transactions and a sum skips nulls, so only payment lag enters
-  the numerator — but the denominator counts every transaction, so the mean
-  is diluted downward in proportion to the non-payment transaction share.
-  Read the level only after scoping to a payment-dominated population, and
-  prefer period-over-period movement to the absolute number until `txn_type`
-  is certified. payment_lag_days is a documented
-  probe-time derived measure (post date minus the parent claim's submission
-  date per payment transaction; see pack NOTES). Cut by payer to build the
-  scorecard; a stretch in this metric with flat volume is the timing
-  signature the cash-decline playbook separates from mix/volume effects —
-  the planted scenario stretches one payer's remit-to-post lag by four
-  days.
+  posted in the window. This measure cannot narrow its population to payer
+  payments alone: transaction type is not standardized here, so that
+  restriction cannot be written into the definition today. The numerator
+  carries part of it — payment lag is recorded only on payment transactions,
+  and a sum skips what is missing, so only payment lag enters the numerator —
+  but the denominator counts every transaction, so the mean is pulled downward
+  in proportion to the non-payment share. Read the level only after scoping to
+  a payment-dominated population, and prefer period-over-period movement to
+  the absolute number until transaction type is standardized. Payment lag is
+  derived when the check runs: posting date minus the parent claim's
+  submission date, per payment transaction. Cut by payer to build the
+  scorecard; a stretch here with flat volume is the timing signature a
+  cash-decline review separates from mix and volume effects — in the reference
+  data, one payer's remittance-to-posting lag is stretched by four days.

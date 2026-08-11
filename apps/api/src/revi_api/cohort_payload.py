@@ -40,11 +40,11 @@ logger = logging.getLogger("revi.api.cohort")
 #: What an empty scope selects. Stated rather than rendered as "" — a
 #: cohort whose definition renders blank reads like a bug or, worse, like
 #: an empty population.
-_EVERYTHING = "all entities in scope (no selecting predicate)"
+_EVERYTHING = "everything in scope — nothing was filtered out"
 
 
 def _value(value: Scalar) -> str:
-    return "null" if value is None else str(value)
+    return "not set" if value is None else str(value)
 
 
 def render_filter(expr: FilterExpr) -> str:
@@ -55,12 +55,15 @@ def render_filter(expr: FilterExpr) -> str:
     silently missing clause in a definition somebody is asked to trust.
     """
     if isinstance(expr, Predicate):
+        # The dimension in the reader's words, not the id it is stored
+        # under (client-language §3: no snake_case on a default surface).
+        name = expr.dimension.id.replace("_", " ")
         values = ", ".join(_value(v) for v in expr.values)
         if not expr.values:
-            return f"{expr.dimension.id} {expr.op.value}"
+            return f"{name} {expr.op.value}"
         if len(expr.values) == 1:
-            return f"{expr.dimension.id} {expr.op.value} {values}"
-        return f"{expr.dimension.id} {expr.op.value} [{values}]"
+            return f"{name} {expr.op.value} {values}"
+        return f"{name} {expr.op.value} [{values}]"
     if isinstance(expr, And):
         rendered = [render_filter(clause) for clause in expr.clauses if not _is_empty(clause)]
         if not rendered:
@@ -72,7 +75,7 @@ def render_filter(expr: FilterExpr) -> str:
     if isinstance(expr, Not):
         return f"not ({render_filter(expr.clause)})"
     if isinstance(expr, InCohort):
-        return f"member of cohort {expr.cohort.id}"
+        return "in the population pinned earlier in this thread"
     # Unreachable over the closed algebra; stated rather than rendered as
     # an empty string, which would read as "selects everything".
     return f"<unrenderable filter: {type(expr).__name__}>"

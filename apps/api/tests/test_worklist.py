@@ -146,7 +146,11 @@ class TestWorklistPayload:
             c.recoverable_cents_estimate for c in portfolio.items
         )
         assert str(len(payload.items)) in payload.statement
-        assert portfolio.formula_version in payload.statement
+        # The formula's identity rides in the payload FIELD, which clients
+        # branch on; the sentence states the RULE instead of a version pin
+        # (client-language §3).
+        assert payload.formula_version == portfolio.formula_version
+        assert "normalised impact, recency, and the recoverable estimate" in payload.statement
 
     def test_the_builds_warnings_travel_verbatim(self, routing, rules) -> None:
         """A worklist read into a conversation must not shed disclosures."""
@@ -190,7 +194,7 @@ class TestWorklistPayload:
             portfolio, routing, matched_on="playbook", matched_id="daily_portfolio"
         )
         assert payload.items == []
-        assert "no ranked work at this watermark" in payload.statement
+        assert "no ranked work in this data load" in payload.statement
 
     def test_the_attachment_is_disclosed_as_a_classified_warning(
         self, routing, rules
@@ -201,5 +205,7 @@ class TestWorklistPayload:
         )
         warning = worklist_warning(payload)
         assert classify(warning) == ("WORKLIST_ATTACHED", "info")
-        assert "daily_portfolio" in warning
-        assert "not findings this turn computed" in warning
+        # WHY it is attached, said as a fact about the question rather than
+        # by naming the internal route that matched it.
+        assert "which work to pick up first" in warning
+        assert "not measurements this answer computed" in warning

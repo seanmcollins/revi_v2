@@ -324,10 +324,15 @@ class TestInterpretationValidation:
         contract = engine.pack_port.metric("cash_posted")
         assert contract is not None
         allowed = {basis.id for basis in contract.allowed_date_bases}
+        phrases = {basis_id: f"{basis_id} date" for basis_id in allowed} | {
+            "remit": "remittance date",
+            "post": "posting date",
+        }
         for option in clarification.options:
-            named = option.removeprefix("Use the ").removesuffix(" date basis")
-            assert named in allowed, option
-            assert named != "discharge"
+            named = option.removeprefix("Use the ")
+            matched = {bid for bid, phrase in phrases.items() if phrase == named}
+            assert matched & allowed, option
+            assert "discharge" not in named
 
     async def test_a_basis_no_alternative_can_rescue_still_refuses(self) -> None:
         """The honesty half: no invented way out.

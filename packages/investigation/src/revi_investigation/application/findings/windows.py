@@ -53,6 +53,18 @@ def _measured_range(spec: AnalysisSpec, window: TimeWindow | None) -> AbsoluteRa
     return (window or spec.context.window).range
 
 
+#: A date as a reader says it. ISO ranges belong in Evidence
+#: (``docs/client-language.md`` §4), not on a default surface.
+_MONTHS = (
+    "Jan", "Feb", "Mar", "Apr", "May", "Jun",
+    "Jul", "Aug", "Sep", "Oct", "Nov", "Dec",
+)
+
+
+def _readable(value: date) -> str:
+    return f"{_MONTHS[value.month - 1]} {value.day}, {value.year}"
+
+
 def probe_window_disclosure(spec: AnalysisSpec, window: TimeWindow | None) -> str | None:
     """Why this finding's period is not the one in the context header.
 
@@ -66,11 +78,10 @@ def probe_window_disclosure(spec: AnalysisSpec, window: TimeWindow | None) -> st
     header = spec.context.window.range
     own = window.range
     return (
-        f"This check runs on its own period ({own.start.isoformat()}.."
-        f"{own.end.isoformat()}), not the answer's "
-        f"({header.start.isoformat()}..{header.end.isoformat()}): the playbook declares the "
-        "period this measure is read over, and the figure above is stated over the period it "
-        "was computed on."
+        f"This check runs on its own period ({_readable(own.start)} to {_readable(own.end)}), "
+        f"not the answer's ({_readable(header.start)} to {_readable(header.end)}). The period "
+        "this measure is read over comes with the measure, and the figure above is stated "
+        "over the period it was computed on."
     )
 
 
@@ -165,10 +176,12 @@ def published_window_note(findings: Sequence[Finding]) -> str | None:
                 ranges.add((start, end))
     if not ranges:
         return None
-    text = "; ".join(f"{start.isoformat()}..{end.isoformat()}" for start, end in sorted(ranges))
+    text = "; ".join(
+        f"{_readable(start)} to {_readable(end)}" for start, end in sorted(ranges)
+    )
     return (
-        "some checks here use their own periods, declared by the playbook rather than by this "
-        f"question ({text}) — each result states the period it was computed over"
+        "some checks here use their own periods, which come with the measure rather than "
+        f"from your question ({text}) — each result states the period it was computed over"
     )
 
 

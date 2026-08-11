@@ -104,11 +104,12 @@ class TestABreakdownTiesOutToTheWhole:
         assert result is not None
         summary, passed = result.summary, result.passed
         assert passed is True
-        assert summary.startswith("status=passed; scope=breakdown (level vs level);")
-        assert "parent F1=$1,193,126.92" in summary
-        assert "child=$1,193,126.92" in summary
-        assert "delta=$0.00" in summary
-        assert "3 row(s) this breakdown published, summed" in summary
+        assert summary.startswith("status=passed;")
+        assert "breakdown was checked against the parent as a level vs level" in summary
+        assert "parent F1 published $1,193,126.92" in summary
+        assert "this answer comes to $1,193,126.92" in summary
+        assert "a difference of $0.00" in summary
+        assert "3 rows this breakdown published, summed" in summary
 
     def test_parts_that_do_not_sum_to_the_whole_fail_loudly(self, make_spec) -> None:  # type: ignore[no-untyped-def]
         parent = _parent(make_spec, (_whole(),))
@@ -187,7 +188,7 @@ class TestADrillFindsItsCellWhereverTheSessionPublishedIt:
         assert result is not None
         summary, passed = result.summary, result.passed
         assert passed is True
-        assert "parent F2=$176,112.25" in summary
+        assert "parent F2 published $176,112.25" in summary
 
     def test_an_older_handle_measuring_something_else_is_not_tied_out(
         self, make_spec
@@ -322,10 +323,11 @@ class TestARateBreakdownRecomposesToItsParent:
 
         assert result is not None
         assert result.passed is True
-        assert result.summary.startswith("status=passed; scope=breakdown (rate recomposition);")
-        assert "parent F1=12.8%" in result.summary
-        assert "child recomposed=12.8%" in result.summary
-        assert "1,280/10,000" in result.summary
+        assert result.summary.startswith("status=passed;")
+        assert "breakdown was checked against the parent by recomposing the rate" in result.summary
+        assert "parent F1 published 12.8%" in result.summary
+        assert "the cells recompose to 12.8%" in result.summary
+        assert "1,280 over 10,000" in result.summary
 
     def test_cells_that_do_not_recompose_to_the_parent_fail_loudly(
         self, make_spec
@@ -344,7 +346,8 @@ class TestARateBreakdownRecomposesToItsParent:
         assert result is not None
         assert result.passed is False
         assert result.summary.startswith("status=failed;")
-        assert "delta=+" in result.summary  # signed: the direction of the gap
+        # Signed: the direction of the gap survives the rewrite.
+        assert "a difference of +" in result.summary
 
     def test_a_withheld_numerator_is_an_interval_not_a_disagreement(
         self, make_spec
@@ -377,8 +380,8 @@ class TestARateBreakdownRecomposesToItsParent:
         # The grammar's own third state: not a point tie-out, not a
         # disagreement — the §15 policy standing between the two figures.
         assert result.summary.startswith("status=passed_with_suppression;")
-        assert "withheld=1 cell(s)" in result.summary
-        assert "12.2%..17.0%" in result.summary
+        assert "A further 1 cell" in result.summary
+        assert "between 12.2% and 17.0%" in result.summary
         assert "the gap is the suppression and not a disagreement" in result.summary
 
     def test_a_clamped_ceiling_is_not_summed_as_a_numerator(self, make_spec) -> None:  # type: ignore[no-untyped-def]
@@ -425,15 +428,15 @@ class TestARateBreakdownRecomposesToItsParent:
 
         # Without the threshold the ceilings look like measurements…
         assert summed is not None and summed.passed is False
-        assert "208/1,544" in summed.summary
+        assert "208 over 1,544" in summed.summary
         # …and with it, the eight measured cells recompose and the four
         # ceilings contribute their POPULATION and a cap the policy itself
         # supplies, which the parent's 12.8% sits inside.
         assert guarded is not None and guarded.passed is True
         assert guarded.summary.startswith("status=passed_with_suppression;")
-        assert "168/1,216" in guarded.summary
-        assert "withheld=4 cell(s) over 328 population" in guarded.summary
-        assert "10.9%..13.5%" in guarded.summary
+        assert "168 over 1,216" in guarded.summary
+        assert "A further 4 cells, covering 328 of the population" in guarded.summary
+        assert "between 10.9% and 13.5%" in guarded.summary
 
     def test_a_parent_outside_that_interval_still_fails(self, make_spec) -> None:  # type: ignore[no-untyped-def]
         parent = _investigation(make_spec(measures=("denial_rate",)), (_rate_whole("0.400"),))
@@ -487,7 +490,7 @@ class TestARateBreakdownRecomposesToItsParent:
         )
 
         assert result is not None and result.passed is True
-        assert "scope=containment (rate recomposition)" in result.summary
+        assert "this drill was checked against the parent by recomposing the rate" in result.summary
 
 
 class TestTheChildAnswerCarriesTheParentLevel:
@@ -665,7 +668,8 @@ class TestDrillingARateFindingNeverPublishesADisagreement:
             "denied_dollars",
         )
         assert reason is not None
-        assert "F1" in reason and "denial_rate" in reason and "denied_dollars" in reason
+        # The handle, and both measures — named the way a reader reads them.
+        assert "F1" in reason and "denial rate" in reason and "denied dollars" in reason
 
     def test_a_handle_that_does_publish_the_measure_keeps_its_tie_out(self) -> None:
         money = Finding(

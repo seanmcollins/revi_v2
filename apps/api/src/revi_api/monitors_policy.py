@@ -53,7 +53,10 @@ from revi_investigation.application.rendering import (
     RATIO_UNIT,
     magnitude,
 )
-from revi_investigation_contracts.api import TimeToImpactPayload
+from revi_investigation_contracts.api import (
+    RecommendedThresholdPayload,
+    TimeToImpactPayload,
+)
 from revi_investigation_contracts.monitors import MonitorsMaterialityPayload
 
 #: Where the governed Monitors content lives, relative to the pack directory.
@@ -358,9 +361,15 @@ class MaterialityVerdict:
     #: ``governed`` (the pack's threshold) or ``monitor`` (the analyst's own).
     threshold_source: str = "governed"
     #: True when the analyst's own threshold briefed a movement the
-    #: GOVERNED gate calls normal variation. Counted across loads to decide
-    #: the fatigue advisory.
+    #: recommended gate calls normal variation. Counted across loads to
+    #: decide the fatigue advisory.
     below_governed_gate: bool = False
+    #: The RECOMMENDED gate for this unit as a concrete phrase ("0.5
+    #: percentage points"), carried whether or not it is the gate that
+    #: decided. Without it a surface can say a movement was inside normal
+    #: variation but not what normal was, which is the sentence
+    #: ``docs/client-language.md`` §2.1 exists to prevent.
+    recommended_threshold_text: str = ""
 
 
 #: Returned when the gate cannot be evaluated at all. Deliberately NOT
@@ -427,6 +436,10 @@ def assess_movement(
         note=own.note,
         threshold_source="monitor",
         below_governed_gate=own.material and not governed.material,
+        # The analyst's threshold decided, and the recommendation still
+        # rides along: "looser than Revi's recommended level" is only a
+        # useful sentence if the reader can see what that level is.
+        recommended_threshold_text=governed.recommended_threshold_text,
     )
 
 
@@ -442,12 +455,14 @@ def _governed_verdict(
         return MaterialityVerdict(
             False,
             _UNGATED,
-            f"the governed materiality content declares no threshold for unit "
-            f"{unit or 'unknown'!r}, so this movement is counted but not briefed — an "
-            "ungated alert is the failure mode this gate exists to prevent",
+            "no size rule is set up for this kind of measure, so this movement is counted "
+            "but not briefed — briefing every movement, however small, is exactly what "
+            "this rule exists to prevent",
         )
     passed, rule, note = _pack_gate(unit, delta, prior, threshold, magnitude_text)
-    return MaterialityVerdict(passed, rule, note)
+    return MaterialityVerdict(
+        passed, rule, note, recommended_threshold_text=gate_text(unit, threshold)
+    )
 
 
 def _monitor_verdict(
@@ -652,6 +667,105 @@ def validate_monitor(monitor: Monitor, *, units: Sequence[str | None]) -> str | 
     return None
 
 
+#: What each unit kind is called when we name whose recommendation it is.
+#: "Revi's recommended level for rates" reads; "for ratio" does not.
+_UNIT_NOUNS: dict[str, str] = {
+    RATIO_UNIT: "rates",
+    MONEY_UNIT: "dollar measures",
+    COUNT_UNIT: "counts",
+    DAYS_UNIT: "day counts",
+}
+
+
+def gate_text(unit: str | None, threshold: UnitThreshold) -> str:
+    """One unit kind's gate as a concrete rule: value and unit, no adjective.
+
+    The client-facing half of :func:`_pack_gate`. A default is stated as the
+    number it actually is — "0.5 percentage points" — never as "the standard
+    threshold", which asks a reader to accept a value while describing it in
+    words they cannot check (docs/client-language.md §2.1).
+    """
+    if unit == RATIO_UNIT and threshold.min_points is not None:
+        return f"{float(threshold.min_points) * 100:.1f} percentage points"
+    if unit in (MONEY_UNIT, COUNT_UNIT):
+        bits: list[str] = []
+        if threshold.min_relative is not None:
+            bits.append(f"{float(threshold.min_relative):.0%} of the prior value")
+        if threshold.min_absolute is not None:
+            bits.append(magnitude(threshold.min_absolute, unit))
+        return " and ".join(bits)
+    if unit == DAYS_UNIT and threshold.min_absolute is not None:
+        return magnitude(threshold.min_absolute, unit)
+    return ""
+
+
+def recommended_gate_text(unit: str | None, policy: MaterialityPolicy) -> str:
+    """The recommended gate for ``unit``, as a reader-ready phrase.
+
+    Empty when this deployment declares no gate for the unit — in which case
+    the caller must not claim one exists.
+    """
+    threshold = policy.unit_kinds.get(unit or "")
+    if threshold is None:
+        return ""
+    return gate_text(unit, threshold)
+
+
+#: The unit each kind's absolute component is stated in, for the wire.
+_ABSOLUTE_UNITS: dict[str, str] = {
+    RATIO_UNIT: "points",
+    MONEY_UNIT: "cents",
+    COUNT_UNIT: "count",
+    DAYS_UNIT: "days",
+}
+
+
+def recommended_threshold(
+    unit: str | None, policy: MaterialityPolicy
+) -> RecommendedThresholdPayload | None:
+    """The recommended gate as DATA, for a client that offers a control.
+
+    ``None`` when this deployment recommends nothing for the unit — a
+    surface must then say so rather than render a blank number as if a
+    recommendation existed.
+    """
+    threshold = policy.unit_kinds.get(unit or "")
+    if threshold is None:
+        return None
+    text = gate_text(unit, threshold)
+    if not text:
+        return None
+    absolute = threshold.min_points if unit == RATIO_UNIT else threshold.min_absolute
+    return RecommendedThresholdPayload(
+        text=text,
+        value=None if absolute is None else float(absolute),
+        unit=None if absolute is None else _ABSOLUTE_UNITS.get(unit or ""),
+        relative=(
+            None if threshold.min_relative is None else float(threshold.min_relative)
+        ),
+    )
+
+
+def recommended_gate_sentence(unit: str | None, policy: MaterialityPolicy) -> str:
+    """Whose recommendation the gate is, and that it can be changed.
+
+    The second and third of the three parts docs/client-language.md §2.1
+    requires of a client-facing default; the first — the number itself —
+    is :func:`recommended_gate_text`, which the caller has already spliced
+    into the clause this follows. Returned as its OWN sentence rather than
+    glued onto that clause: "…more than 0.5 percentage points — Revi's
+    recommended level for rates. You can change this anytime." reads
+    correctly on its own and produces "anytime., and the answer above…" the
+    moment a caller continues the sentence.
+
+    Empty when there is no gate to describe.
+    """
+    if not recommended_gate_text(unit, policy):
+        return ""
+    noun = _UNIT_NOUNS.get(unit or "", "measures like this")
+    return f"That is Revi's recommended level for {noun}, and you can change it anytime."
+
+
 def _pack_gate(
     unit: str | None,
     delta: Decimal,
@@ -664,12 +778,16 @@ def _pack_gate(
         # A rate's movement is percentage POINTS and nothing else. A
         # relative gate on a rate is meaningless at both ends of the scale.
         material = size >= threshold.min_points
-        gate = f"{float(threshold.min_points) * 100:.1f} points"
+        gate = gate_text(unit, threshold)
         return (
             material,
             "ratio_points",
             f"the rate moved {magnitude_text}, "
-            + (f"at or above the governed gate of {gate}" if material else f"below {gate}"),
+            + (
+                f"at or above the {gate} Revi recommends for rates"
+                if material
+                else f"under the {gate} Revi recommends for rates"
+            ),
         )
     if unit in (MONEY_UNIT, COUNT_UNIT):
         # Conjoined on purpose: relative alone briefs a $40 balance that
@@ -680,34 +798,38 @@ def _pack_gate(
         share = (size / abs(prior)) if prior else None
         clears_relative = relative is None or share is None or share >= relative
         material = clears_floor and clears_relative
-        gate_bits: list[str] = []
-        if relative is not None:
-            gate_bits.append(f"{float(relative):.0%} of the prior value")
-        if floor is not None:
-            gate_bits.append(magnitude(floor, unit))
-        gate = " and ".join(gate_bits) or "no gate"
+        gate = gate_text(unit, threshold) or "no gate"
+        noun = _UNIT_NOUNS.get(unit or "", "measures like this")
         observed = magnitude_text + (f" ({float(share):.1%})" if share is not None else "")
         rule = "money_relative_and_floor" if unit == MONEY_UNIT else "count_relative_and_floor"
         return (
             material,
             rule,
             f"the value moved {observed}, "
-            + (f"clearing the governed gate of {gate}" if material else f"short of {gate}"),
+            + (
+                f"clearing the {gate} Revi recommends for {noun}"
+                if material
+                else f"short of the {gate} Revi recommends for {noun}"
+            ),
         )
     if unit == DAYS_UNIT and threshold.min_absolute is not None:
         material = size >= threshold.min_absolute
-        gate = magnitude(threshold.min_absolute, unit)
+        gate = gate_text(unit, threshold)
         return (
             material,
             "days_absolute",
             f"the measure moved {magnitude_text}, "
-            + (f"at or above the governed gate of {gate}" if material else f"below {gate}"),
+            + (
+                f"at or above the {gate} Revi recommends for day counts"
+                if material
+                else f"under the {gate} Revi recommends for day counts"
+            ),
         )
     return (
         False,
         _UNGATED,
-        f"the governed thresholds for unit {unit or 'unknown'!r} do not describe a rule this "
-        "movement can be judged by, so it is counted rather than briefed",
+        "no size rule is set up for this kind of measure, so this movement can't be judged "
+        "big or small — it is counted here rather than briefed",
     )
 
 
@@ -736,9 +858,11 @@ def assess_new_lead(
         "new_lead_floor",
         f"the lead's ranked impact is {magnitude(impact_cents, MONEY_UNIT)}, "
         + (
-            f"at or above the governed brief floor of {magnitude(floor, MONEY_UNIT)}"
+            f"at or above the {magnitude(floor, MONEY_UNIT)} Revi recommends before a new "
+            "lead earns a line in the brief"
             if material
-            else f"below the governed brief floor of {magnitude(floor, MONEY_UNIT)}"
+            else f"under the {magnitude(floor, MONEY_UNIT)} Revi recommends before a new lead "
+            "earns a line in the brief"
         ),
     )
 
@@ -752,9 +876,11 @@ def assess_self_resolved(*, impact_cents: int, policy: MaterialityPolicy) -> Mat
         "self_resolved_floor",
         f"the lead carried {magnitude(impact_cents, MONEY_UNIT)} when it was last detected, "
         + (
-            "at or above the governed brief floor"
+            f"at or above the {magnitude(floor, MONEY_UNIT)} Revi recommends before a "
+            "self-resolved lead earns a line in the brief"
             if material
-            else f"below the governed brief floor of {magnitude(floor, MONEY_UNIT)}"
+            else f"under the {magnitude(floor, MONEY_UNIT)} Revi recommends before a "
+            "self-resolved lead earns a line in the brief"
         ),
     )
 
@@ -831,10 +957,10 @@ def time_to_impact_for(
             return TimeToImpactPayload(
                 kind="unknown",
                 lane=rule.lane,  # type: ignore[arg-type]
-                method=f"the governed rule reads the detector's {rule.deadline_fact!r} fact, "
-                "which this record does not publish",
+                method="dating this depends on a filing-deadline fact the detection "
+                "system did not publish for this card",
                 method_id=rule.method,
-                reason=f"the detection feed published no {rule.deadline_fact!r} for this card",
+                reason="the detection feed published no filing deadline for this card",
             )
         whole = int(days)
         return TimeToImpactPayload(

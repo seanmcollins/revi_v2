@@ -565,7 +565,10 @@ class _TurnCore(_ClarificationPolicy):
                 parent, validated.plan, calculation, operators, extra_warnings, state, spec
             )
             if parent is not None
-            else _not_applicable("this is a first turn; there is no parent answer to reconcile to")
+            else _not_applicable(
+                "this is the first question in this thread; there is no earlier answer to "
+                "reconcile against"
+            )
         )
 
         # Assumptions lead: when the engine committed to a reading rather
@@ -780,11 +783,11 @@ class _TurnCore(_ClarificationPolicy):
         return _DirectRoute(
             spec=replace(spec, measures=tuple(measures)),
             disclosure=(
-                f"Assumed: measured {named} directly for the population this question "
-                f"already names, rather than through the {playbook_id!r} playbook. That "
-                f"playbook answers by a {transform!r} step this engine does not implement, "
-                "and a question already scoped to a named entity is a measurement of that "
-                "entity — not a comparison across entities. Ask for the others by name and "
+                f"Assumed: I measured {named} directly for the population this question "
+                "already names, rather than running the full review it would otherwise "
+                "route to. That review finishes with a step this platform cannot run, and "
+                "a question already narrowed to one named thing is a measurement of that "
+                "thing, not a comparison across several. Ask for the others by name and "
                 "they run the same way."
             ),
         )
@@ -1048,8 +1051,8 @@ class _TurnCore(_ClarificationPolicy):
         if not answer.terms:
             clarification = ClarificationRequest(
                 question=(
-                    "I couldn't find a governed definition for that term — could you name "
-                    "the code, concept, or metric another way?"
+                    "I couldn't find a definition for that term in your definitions "
+                    "library — could you name the code, concept, or measure another way?"
                 ),
                 reason="no pack content matched the definitional lookup",
             )

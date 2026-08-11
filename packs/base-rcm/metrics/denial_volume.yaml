@@ -16,17 +16,16 @@ scope_dimensions:
 sign: higher_is_bad
 unit: count
 description: >-
-  Distinct denial records in the window on the remittance (denial) date
-  basis. Denials are keyed on the group code + CARC pair, so one adjudicated
-  claim can produce several records; unlike denied_claims this contract IS
+  Distinct denial records in the window, dated by the remittance that denied
+  them. Denials are keyed on the group code plus CARC pair, so one adjudicated
+  claim can produce several records; unlike denied claims, this figure IS
   additive across code-level cuts, which makes it the right denominator-free
-  ruler for a code mix decomposition that has to reconcile. Read the pair
-  together when sizing work: records measure touches, denied_claims measures
-  accounts, and the ratio between them is how many reasons a typical denied
-  claim carries. Data note for this warehouse specifically: the mock
-  generator emits at most ONE denial record per claim, so here the two
-  contracts return identical numbers and their ratio is exactly one — the
-  distinction is governed meaning that bites on production remittances, not
-  a difference visible in the reference data. Not every record is workable —
-  patient-responsibility notices are billing instructions, and
-  denials_unworked_pct removes them.
+  ruler for a code mix breakdown that has to reconcile. Read the pair together
+  when sizing work: records measure touches, denied claims measure accounts,
+  and the ratio between them is how many reasons a typical denied claim
+  carries. Data note: your data carries at most one denial record per claim,
+  so here the two measures return identical numbers and their ratio is exactly
+  one — the distinction is a real one on production remittances, not a
+  difference visible in this data. Not every record is workable:
+  patient-responsibility notices are billing instructions, and the unworked
+  denial share removes them.

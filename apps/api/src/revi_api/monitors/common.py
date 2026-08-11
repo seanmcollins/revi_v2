@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Awaitable, Callable
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import TYPE_CHECKING
 
@@ -84,6 +84,36 @@ def _decimal(value: float | None) -> Decimal | None:
     return None if value is None else Decimal(str(value))
 
 
+def _load_phrase(data_date: date | None, *, unknown: str = "the previous load") -> str:
+    """A load, named the way a reader names it: by its data date.
+
+    Lives here rather than in one section, because every section says it:
+    the brief names the load it diffs against, a tile names the load that
+    produced no value, and a lead's verdict names the load that reached it.
+    A warehouse handle (``wm_003``) is not a name a reader has ever seen.
+
+    ``unknown`` is what to say when the load recorded no data date, and it
+    is the CALLER's word: a brief looking backwards means "the previous
+    load", while a verdict being written at this load means "this load".
+    """
+    if data_date is None:
+        return unknown
+    return f"the {data_date:%b %-d} load"
+
+
+def _date_range_phrase(start: date, end: date) -> str:
+    """A window, said the way a reader says it: Jul 1 to Aug 2, 2026.
+
+    (With an en dash between the ends, not the word "to".)
+    ``2026-07-01..2026-07-31`` is the Evidence rail's form and belongs
+    there; on a default surface it is two machine tokens and a typo. The
+    year is said once when both ends share it.
+    """
+    if start.year == end.year:
+        return f"{start:%b %-d} – {end:%b %-d}, {end:%Y}"  # noqa: RUF001 - en dash, a date range
+    return f"{start:%b %-d, %Y} – {end:%b %-d, %Y}"  # noqa: RUF001 - en dash, a date range
+
+
 def _utc(value: datetime) -> datetime:
     """Interpret a naive datetime as UTC before comparing it to anything.
 
@@ -103,8 +133,11 @@ def _utc(value: datetime) -> datetime:
 def _monitors_warnings(policy: MonitorsPolicy) -> list[str]:
     if policy.enabled:
         return []
+    # The ``population_caveat:`` prefix is machine-facing — `warning_codes`
+    # matches on it and strips it — and everything after the colon is
+    # written for the reader.
     return [
-        "population_caveat: this deployment's pack ships no governed Monitors content, so no "
-        "materiality gate was applied and no time-to-impact was derived — every movement is "
-        "reported as measured, and nothing here has been judged material"
+        "population_caveat: your definitions library has no monitoring rules set up here, so "
+        "nothing has been judged big enough to flag and no cash timing was worked out. Every "
+        "movement is reported as measured."
     ]

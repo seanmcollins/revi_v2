@@ -217,7 +217,9 @@ class TestDirectionAwareSelection:
         titles, warnings = await _findings(_compare_frame(falls), spec, pack_port)
 
         assert warnings and warnings[0].startswith("direction_unmatched")
-        assert "increase" in warnings[0]
+        # The direction is stated as the verb the analyst used, not as the
+        # repr of the enum branch behind it (client-language §3).
+        assert "nothing rose" in warnings[0]
         assert titles, "the opposite direction is still shown, as context"
 
     async def test_no_direction_leads_with_the_worst_movement(

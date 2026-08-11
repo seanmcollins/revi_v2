@@ -159,9 +159,12 @@ class TestBasisFallback:
         [(_, frame)] = [(name, f) for name, f in outcome.frames if name == "main"]
         assert frame.rows
         [warning] = [w for w in outcome.warnings if w.startswith("alternate_basis_used:")]
-        assert "'service'" in warning
-        assert "'remit'" in warning
-        assert "'claim'" in warning
+        # Same three facts, in the reader's words: the date it WAS read on,
+        # the date it normally uses, and the level your data does not carry
+        # that date at (client-language §3 bans the ids and "grain").
+        assert "service date" in warning
+        assert "remittance date" in warning
+        assert "claim level" in warning
 
     async def test_the_fallback_never_leaves_the_contract(
         self, engine: WiredEngine

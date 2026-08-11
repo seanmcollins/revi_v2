@@ -17,17 +17,16 @@ scope_dimensions:
 sign: higher_is_bad
 unit: count
 description: >-
-  Distinct claims with at least one denial record in the window, remittance
-  (denial) date basis — denial workload in claims rather than in records or
-  dollars. Additivity caveat, and it matters: a claim denied under two CARCs
-  appears in both CARC cells, so cells cut by code, category or appeal status
-  do NOT sum to the ungrouped total and a share-of-total over those cuts can
-  exceed 100 percent. Read cell values on their own terms, or use
-  denied_dollars (additive) when a decomposition has to reconcile. Data note
-  for this warehouse specifically: the mock generator emits at most one
-  denial record per claim, so here the additivity caveat never actually
-  bites and this contract equals denial_volume — the caveat is governed
-  meaning for production remittances, not an observed effect in the
-  reference data. The denominator question — denied claims over all claims —
-  is denial_rate, at claim grain, where code-level cuts are illegal by
-  design.
+  Distinct claims with at least one denial record in the window, dated by the
+  remittance that denied them — denial workload in claims rather than in
+  records or dollars. Additivity caveat, and it matters: a claim denied under
+  two CARCs appears in both CARC cells, so cells cut by code, category or
+  appeal status do NOT sum to the ungrouped total, and a share-of-total over
+  those cuts can exceed 100 percent. Read cell values on their own terms, or
+  use denied dollars, which do add up, when a breakdown has to reconcile. Data
+  note: your data carries at most one denial record per claim, so here the
+  additivity caveat never actually bites and this figure equals denial volume
+  — the caveat is a real one for production remittances, not an observed
+  effect in this data. The denominator question, denied claims over all
+  claims, is the denial rate, which is read claim by claim and where
+  code-level cuts are unavailable by design.

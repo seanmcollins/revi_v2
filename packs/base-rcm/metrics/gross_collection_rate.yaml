@@ -24,9 +24,9 @@ scope_dimensions:
 sign: neutral
 unit: ratio
 description: >-
-  Payer cash posted to date for services in the window divided by gross
-  billed charges for the same cohort (cross-entity ratio-of-sums per cell).
-  Gross collection rate is context only: it moves with chargemaster pricing
-  and payer mix, so it has no meaningful universal target — use
-  net_collection_rate for realization judgments. Patient cash excluded, as
-  in the net rate.
+  Payer cash posted to date for services in the window divided by gross billed
+  charges for the same population — each cell is one sum over another, not an
+  average of ratios. Gross collection rate is context only: it moves with
+  chargemaster pricing and payer mix, so it has no meaningful universal target
+  — use the net collection rate for realization judgments. Patient cash is
+  excluded, as in the net rate.
