@@ -739,6 +739,7 @@ class _TurnCore(_ClarificationPolicy):
             emptiness=emptiness,
             chart_sorts=chart_sorts,
             frame_windows=frame_windows,
+            deep_research=interpreted.deep_research if interpreted is not None else None,
         )
 
     def _direct_route_for_unexecutable_playbook(

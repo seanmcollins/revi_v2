@@ -120,6 +120,16 @@ Guidance:
   above is one the analyst will never see. Leave the list empty rather than
   offer something this vocabulary cannot answer.
 
+Deep research (`deep_research`): set this ONLY when the analyst asks for the
+recoverability review by name — "run deep research on what we can recover",
+"do a deep dive on Northbridge's denials", "what's actually recoverable out
+of the open denials". It names WHICH denials and nothing else: `population`
+is one of `all_open`, `payer`, `recovery_class` or `facility`, and `values`
+holds the names the analyst used (empty for every open denial). Setting it
+does not replace the answer — the question still gets answered — it offers
+the run beside it. Leave it null for an ordinary question about denials or
+recoveries, however detailed.
+
 Question:
 
 {question}

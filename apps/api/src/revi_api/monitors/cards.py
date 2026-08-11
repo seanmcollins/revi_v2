@@ -18,12 +18,22 @@ from revi_investigation_contracts.api import (
     PortfolioLanePayload,
     PortfolioResponse,
 )
+from revi_investigation_contracts.deep_research_offer import (
+    DeepResearchAffordance,
+    DeepResearchSelector,
+)
 
 if TYPE_CHECKING:  # pragma: no cover - import cycle at runtime only
     pass
 
 from revi_api.monitors.common import _MonitorsBase
 from revi_api.monitors.leads import _assert_no_confirmed_lead_in_feed, _publishable_lead_status
+
+#: Which of a card's own cuts the recoverability mode can target. A card cut
+#: by CARC or by procedure group names a population deep research has no
+#: selector for, and offering a run that would silently widen to everything
+#: would be worse than offering nothing.
+_RESEARCHABLE_CUTS: dict[str, str] = {"payer": "payer", "facility": "facility"}
 
 
 class _CardDecoration(_MonitorsBase):
@@ -64,11 +74,44 @@ class _CardDecoration(_MonitorsBase):
                         "lead_status": status,
                         "lead_status_note": note or lead.note,
                         "lead_updated_at": lead.updated_at,
+                        "deep_research": research_affordance(card),
                     }
                 )
             )
         _assert_no_confirmed_lead_in_feed(tenant, portfolio.watermark_id, published)
         return portfolio.model_copy(update={"items": items})
+
+
+def research_affordance(card: AnomalyCard) -> DeepResearchAffordance | None:
+    """The deep-research run this card could launch, if any.
+
+    Offered only where the card's own cut is one the mode can target. The
+    population travels as a selector, so the run the reader starts is over
+    exactly the denials the card is about — never a widened stand-in that
+    happens to include them.
+    """
+    for dimension in card.dimensions:
+        kind = _RESEARCHABLE_CUTS.get(dimension.dimension)
+        if kind is None or not dimension.value:
+            continue
+        label = (
+            f"denials from {dimension.value}"
+            if kind == "payer"
+            else f"denials at {dimension.value}"
+        )
+        return DeepResearchAffordance(
+            population=DeepResearchSelector(
+                kind=kind,  # type: ignore[arg-type]
+                values=[dimension.value],
+                label=label,
+            ),
+            label="Run deep research",
+            description=(
+                f"Measure what is realistically recoverable out of {label}, on your "
+                "own history, and write it up."
+            ),
+        )
+    return None
 
 
 def annotate_time_to_impact(

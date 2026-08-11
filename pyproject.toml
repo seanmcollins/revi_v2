@@ -121,11 +121,17 @@ forbidden_modules = [
 [[tool.importlinter.contracts]]
 name = "Capability implementations are independent (interact only via contracts + kernel)"
 type = "independence"
+# `revi_statistics` is deliberately absent: deep research (the investigation
+# engine) consumes it directly, which is the one sanctioned capability-to-
+# capability edge in the tree. Nothing is weakened by the omission — the two
+# contracts below still forbid statistics from importing any capability, and
+# forbid every capability except the engine from importing statistics — so
+# the pairwise independence this contract used to assert is unchanged in
+# every direction except the one that was designed.
 modules = [
     "revi_investigation",
     "revi_catalog",
     "revi_calculation",
-    "revi_statistics",
     "revi_pack",
     "revi_pack_learning",
     "revi_presentation",
@@ -214,18 +220,38 @@ forbidden_modules = [
     "numpy", "scipy", "pandas", "statsmodels", "sklearn", "pydantic", "yaml",
 ]
 
-# Nothing consumes statistics yet. Deep research (phase 3) is the intended
-# and only caller; until it exists, an accidental import from the engine or
-# the API would create a dependency nobody designed. Deleting this contract
-# is the deliberate act that admits the first consumer.
+# Statistics has exactly one consumer, and it is named here.
+#
+# This replaces the placeholder contract that forbade every consumer while
+# the capability had none. Deep research is that consumer: the investigation
+# engine reads denial rows through the ordinary analytical port and hands
+# them to the estimators. Deleting the placeholder was the deliberate act
+# its docstring invited; leaving the edge unconstrained afterwards would not
+# have been. So the edge is stated positively — the engine may import
+# statistics and its contracts, and nothing else may.
+#
+# In particular the API stays out. The report crosses the wire as
+# `revi_investigation_contracts.deep_research`, whose shapes carry the
+# evidence tier and the interval in plain types, so no transport layer ever
+# depends on an estimator's object model — and a second consumer arriving
+# later has to change this contract, on the record, rather than by import.
+#
+# ``allow_indirect_imports`` is what makes the contract say the thing it
+# means. Every composition root wires the engine, and the engine now
+# depends on the estimators, so a transitive path from the API to
+# statistics exists the moment deep research does — forbidding that path
+# would forbid wiring the feature at all. What is forbidden is a DIRECT
+# import: no module outside the engine may name an estimator or one of its
+# types, which is exactly the coupling this contract exists to prevent.
 [[tool.importlinter.contracts]]
-name = "Nothing imports statistics yet (phase 3 is its only intended consumer)"
+name = "Statistics has one consumer: the investigation engine (deep research)"
 type = "forbidden"
+allow_indirect_imports = true
 source_modules = [
-    "revi_kernel", "revi_investigation", "revi_investigation_contracts",
+    "revi_kernel", "revi_investigation_contracts",
     "revi_catalog", "revi_catalog_contracts", "revi_calculation", "revi_calculation_contracts",
     "revi_pack", "revi_pack_contracts", "revi_pack_learning", "revi_presentation",
     "revi_connector_duckdb", "revi_store_postgres", "revi_adapter_claude",
-    "revi_testing", "revi_warehouse", "revi_api", "revi_scheduler",
+    "revi_warehouse", "revi_api", "revi_scheduler",
 ]
 forbidden_modules = ["revi_statistics", "revi_statistics_contracts"]

@@ -58,6 +58,10 @@ from revi_catalog_contracts.model import CatalogSnapshot, normalize_synonym
 from revi_investigation.application.anchoring import window_anchor
 from revi_investigation.application.capability_ports import PackPort, TermDefinition
 from revi_investigation.application.date_basis import resolve_answerable_basis
+from revi_investigation.application.deep_research.grammar import (
+    PopulationKind,
+    TargetPopulation,
+)
 from revi_investigation.application.llm.guard import assert_safe_payload
 from revi_investigation.application.llm.render import (
     LoadedTemplate,
@@ -903,6 +907,24 @@ def _answer_shape(raw: str | None) -> AnswerShape | None:
         return None
 
 
+def _deep_research_offer(request: object) -> TargetPopulation | None:
+    """The population a recoverability run would cover, or nothing.
+
+    The model names a population; this decides whether that population is
+    one the mode can actually run over. A selector naming values it does
+    not need, or needing values it did not give, is dropped — an affordance
+    that cannot launch is worse than none, because the reader taps it.
+    """
+    if request is None:
+        return None
+    kind = getattr(request, "population", None)
+    values = tuple(str(value).strip() for value in getattr(request, "values", ()) if str(value).strip())
+    try:
+        return TargetPopulation(kind=PopulationKind(str(kind)), values=values)
+    except ValueError:
+        return None
+
+
 @dataclass(frozen=True, slots=True)
 class InterpretedInvestigation:
     spec: AnalysisSpec
@@ -916,6 +938,11 @@ class InterpretedInvestigation:
     #: terms — a filter dropped as redundant, a period nobody asked for.
     #: Surfaced as turn warnings; never left in the debug payload alone.
     notes: tuple[str, ...] = ()
+    #: The population a deep-research run would cover, when the analyst
+    #: asked for one by name. An OFFER, not a launch: this answer still
+    #: answers the question it was asked, and the affordance rides beside
+    #: it naming exactly what would run.
+    deep_research: TargetPopulation | None = None
 
 
 @dataclass(frozen=True, slots=True)
@@ -1661,6 +1688,7 @@ class InterpretQuestionService:
                 dimension_ids=tuple(parsed.dimension_ids),
                 concept_ids=tuple(parsed.concept_ids),
                 notes=tuple(notes),
+                deep_research=_deep_research_offer(parsed.deep_research),
             ),
             clarification=None,
             definitional=None,

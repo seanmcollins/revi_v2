@@ -36,6 +36,8 @@ from revi_api.worklist import (
     worklist_warning,
 )
 from revi_investigation.application.capability_ports import BenchmarkSpec
+from revi_investigation.application.deep_research import TargetPopulation
+from revi_investigation.application.deep_research import copy as deep_research_copy
 from revi_investigation.application.findings import published_window_note
 from revi_investigation.application.llm.guard import assert_safe_payload
 from revi_investigation.application.ports import (
@@ -67,6 +69,10 @@ from revi_investigation_contracts.api import (
     TurnClarification,
     UsageSummary,
     WorklistPayload,
+)
+from revi_investigation_contracts.deep_research_offer import (
+    DeepResearchAffordance,
+    DeepResearchSelector,
 )
 from revi_investigation_contracts.header import build_header_payload
 from revi_kernel.filters import iter_predicates
@@ -1063,6 +1069,35 @@ def _debug_payload(outcome: TurnOutcome, trace: TraceRecord | None) -> DebugTrac
     return build_debug_trace(trace)
 
 
+def deep_research_affordance(
+    population: TargetPopulation | None,
+) -> DeepResearchAffordance | None:
+    """The run this answer could launch, when the analyst asked for one.
+
+    The offer carries the SELECTOR, not a sentence: a client renders the
+    label and posts the population back unchanged, so what the reader taps
+    is exactly what runs. An offer that had to be parsed out of prose could
+    launch something the reader never chose.
+    """
+    if population is None:
+        return None
+    label = deep_research_copy.population_label(
+        str(population.kind), population.values
+    )
+    return DeepResearchAffordance(
+        population=DeepResearchSelector(
+            kind=str(population.kind),  # type: ignore[arg-type]
+            values=list(population.values),
+            label=label,
+        ),
+        label="Run deep research",
+        description=(
+            f"Measure what is realistically recoverable out of {label}, on your own "
+            "history, and write it up."
+        ),
+    )
+
+
 async def assemble_turn_response(
     components: ApiComponents,
     outcome: TurnOutcome,
@@ -1337,4 +1372,5 @@ async def assemble_turn_response(
         evidence=evidence,
         metric=metric,
         debug=debug,
+        deep_research=deep_research_affordance(outcome.deep_research),
     )

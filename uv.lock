@@ -1571,6 +1571,8 @@ dependencies = [
     { name = "revi-investigation-contracts" },
     { name = "revi-kernel" },
     { name = "revi-pack-contracts" },
+    { name = "revi-statistics" },
+    { name = "revi-statistics-contracts" },
 ]
 
 [package.metadata]
@@ -1581,6 +1583,8 @@ requires-dist = [
     { name = "revi-investigation-contracts", editable = "packages/investigation-contracts" },
     { name = "revi-kernel", editable = "packages/kernel" },
     { name = "revi-pack-contracts", editable = "packages/pack-contracts" },
+    { name = "revi-statistics", editable = "packages/statistics" },
+    { name = "revi-statistics-contracts", editable = "packages/statistics-contracts" },
 ]
 
 [[package]]

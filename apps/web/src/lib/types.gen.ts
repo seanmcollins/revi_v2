@@ -24,6 +24,93 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/deep-research": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * List Deep Research
+         * @description This tenant's deep-research runs, newest first.
+         */
+        get: operations["list_deep_research_v1_deep_research_get"];
+        put?: never;
+        /**
+         * Start Deep Research
+         * @description Start a deep-research run over a target population.
+         *
+         *     Returns immediately with the run's id and its starting state; the
+         *     run continues in the background. Watch it on the run's stream, or
+         *     poll the run itself. The run is pinned to the newest load at the
+         *     moment it starts and every number in its report is read at that
+         *     load.
+         */
+        post: operations["start_deep_research_v1_deep_research_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/deep-research/{run_id}": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Get Deep Research
+         * @description One run: how far it has got, and its report once it is finished.
+         */
+        get: operations["get_deep_research_v1_deep_research__run_id__get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
+    "/v1/deep-research/{run_id}/stream": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        /**
+         * Stream Deep Research
+         * @description Server-Sent Events for one run, from wherever it has got to. A
+         *     watcher that attaches late is caught up with the frames already
+         *     emitted, so nothing is missed by joining mid-run.
+         *
+         *     Each frame is `event: <kind>` + `data: <json>` — see the
+         *     `DeepResearchStreamEvent` schema. Frame kinds and payloads:
+         *
+         *     - `research_started` — the run's id, the data load it is pinned to, and the population it targets
+         *     - `research_plan` — the angles this run will look at, in the order it will look at them
+         *     - `research_progress` — which angle is running, how far along, and how long it has taken
+         *     - `research_finding` — one certified result, the moment it is measured
+         *     - `research_warning` — a qualification a reader needs before reading the numbers
+         *     - `narrative_delta` — one chunk of the written report as it is composed
+         *     - `error` — the run stopped; nothing partial is published
+         *     - `research_complete` — the finished report
+         *
+         *     The stream is progress; the final `research_complete` frame carries
+         *     the finished report, which is also what the run's own GET returns.
+         */
+        get: operations["stream_deep_research_v1_deep_research__run_id__stream_get"];
+        put?: never;
+        post?: never;
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/health": {
         parameters: {
             query?: never;
@@ -444,6 +531,37 @@ export interface components {
             year: number;
         };
         /**
+         * AngleEvidencePayload
+         * @description How one angle got its numbers, for the evidence rail and exports.
+         *
+         *     Internal identifiers live here and only here: the read's fingerprint,
+         *     the estimator it called, how long it took. The default surface never
+         *     shows them and this never loses them.
+         */
+        AngleEvidencePayload: {
+            /** Cells Published */
+            cells_published: number;
+            /** Cells Refused */
+            cells_refused: number;
+            /** Duration Ms */
+            duration_ms: number;
+            /** Estimator */
+            estimator: string;
+            /**
+             * Family
+             * @enum {string}
+             */
+            family: "outcome_by_stratum" | "payer_contrast" | "class_contrast" | "timeliness_curve" | "deadline_interaction" | "expected_recovery";
+            /** Read Fingerprint */
+            read_fingerprint: string;
+            /** Rows In Scope */
+            rows_in_scope: number;
+            /** Rows Read */
+            rows_read: number;
+            /** Title */
+            title: string;
+        };
+        /**
          * AnomalyCard
          * @description One detected anomaly, ranked by the governed priority formula.
          *
@@ -499,6 +617,7 @@ export interface components {
             compliance_floor_applied: boolean;
             /** Confidence */
             confidence: string;
+            deep_research?: components["schemas"]["DeepResearchAffordance"] | null;
             /** Description */
             description: string;
             /**
@@ -767,6 +886,62 @@ export interface components {
             };
             settings?: components["schemas"]["SettingsBoundsPayload"];
         };
+        /**
+         * CensoringPayload
+         * @description What the edge of the data cost this analysis, stated in counts.
+         *
+         *     Nothing here is modelled or extrapolated. Every denial left out of a
+         *     denominator is counted on one of these lines, so the numbers above are
+         *     readable against exactly what they exclude.
+         */
+        CensoringPayload: {
+            /**
+             * Basis
+             * @enum {string}
+             */
+            basis: "decided" | "pursuit";
+            /**
+             * Data Edge Date
+             * Format: date
+             */
+            data_edge_date: string;
+            /**
+             * Excluded Immature
+             * @default 0
+             */
+            excluded_immature: number;
+            /**
+             * Excluded Not Pursued
+             * @default 0
+             */
+            excluded_not_pursued: number;
+            /**
+             * Excluded Open Undecided
+             * @default 0
+             */
+            excluded_open_undecided: number;
+            /**
+             * Excluded Unclassifiable
+             * @default 0
+             */
+            excluded_unclassifiable: number;
+            /** In Denominator */
+            in_denominator: number;
+            /**
+             * Not Pursued In Input
+             * @default 0
+             */
+            not_pursued_in_input: number;
+            /**
+             * Open Undecided In Input
+             * @default 0
+             */
+            open_undecided_in_input: number;
+            /** Rows Considered */
+            rows_considered: number;
+            /** Statements */
+            statements?: string[];
+        };
         /** ChartRow */
         ChartRow: {
             /** Bound Population */
@@ -943,6 +1118,51 @@ export interface components {
              */
             window_start: string;
         };
+        /** ContrastArmPayload */
+        ContrastArmPayload: {
+            interval?: components["schemas"]["IntervalPayload"] | null;
+            /** Label */
+            label: string;
+            /** N */
+            n: number;
+            /** Rate */
+            rate?: string | null;
+            /** Successes */
+            successes: number;
+        };
+        /**
+         * ContrastPayload
+         * @description Two populations compared, with the effect size and the test.
+         *
+         *     A refused contrast publishes both sides' sizes and nothing else: a
+         *     reader needs to know how thin the comparison was, and must not be
+         *     handed a probability the disclosure rules say is not publishable.
+         */
+        ContrastPayload: {
+            /**
+             * Implication
+             * @default
+             */
+            implication: string;
+            left: components["schemas"]["ContrastArmPayload"];
+            /** P Value */
+            p_value?: string | null;
+            /** Refusal Reason */
+            refusal_reason?: string | null;
+            right: components["schemas"]["ContrastArmPayload"];
+            /** Risk Difference */
+            risk_difference?: string | null;
+            risk_difference_interval?: components["schemas"]["IntervalPayload"] | null;
+            /**
+             * Test
+             * @enum {string}
+             */
+            test: "two_proportion_z" | "fishers_exact" | "refused";
+            /** Title */
+            title: string;
+            /** Z Statistic */
+            z_statistic?: string | null;
+        };
         /**
          * CreateMonitorsPinRequest
          * @description Add a monitor to Monitors.
@@ -985,6 +1205,35 @@ export interface components {
             /** Referent */
             referent?: string | null;
             spec?: components["schemas"]["TypedInvestigationSpec"] | null;
+        };
+        /**
+         * DeadlinePayload
+         * @description What crossing a filing deadline costs, split by the limit's standing.
+         *
+         *     A limit stated without a confirmation caveat and a limit that is only a
+         *     planning default are not the same fact, and pooling them over-predicts
+         *     the drop on every plan whose limit nobody has confirmed.
+         */
+        DeadlinePayload: {
+            /**
+             * Implication
+             * @default
+             */
+            implication: string;
+            /** Rows */
+            rows?: components["schemas"]["DeadlineRowPayload"][];
+        };
+        /** DeadlineRowPayload */
+        DeadlineRowPayload: {
+            cell: components["schemas"]["RateCellPayload"];
+            /** Position */
+            position: string;
+            /** Position Label */
+            position_label: string;
+            /** Rule */
+            rule: string;
+            /** Rule Label */
+            rule_label: string;
         };
         /**
          * DebugInterpretation
@@ -1213,6 +1462,214 @@ export interface components {
             /** Weakest Grade */
             weakest_grade?: string | null;
         };
+        /**
+         * DeepResearchAffordance
+         * @description A place another surface can offer to start a run from.
+         *
+         *     Carried additively on payloads that already name a population — a lead
+         *     about one payer's denials can offer the run it would launch, with the
+         *     population already filled in. Naming the selector rather than a
+         *     sentence is what makes the offer honest: what the reader taps is
+         *     exactly what runs, and no client has to parse a sentence back into a
+         *     request.
+         */
+        DeepResearchAffordance: {
+            /**
+             * Description
+             * @default
+             */
+            description: string;
+            /** Label */
+            label: string;
+            population: components["schemas"]["DeepResearchSelector"];
+        };
+        /** DeepResearchListResponse */
+        DeepResearchListResponse: {
+            /** Runs */
+            runs?: components["schemas"]["DeepResearchSummary"][];
+        };
+        /**
+         * DeepResearchProgressPayload
+         * @description Where a run has got to.
+         */
+        DeepResearchProgressPayload: {
+            /**
+             * Angle Index
+             * @default 0
+             */
+            angle_index: number;
+            /**
+             * Angle Total
+             * @default 0
+             */
+            angle_total: number;
+            /**
+             * Elapsed Ms
+             * @default 0
+             */
+            elapsed_ms: number;
+            /**
+             * Message
+             * @default
+             */
+            message: string;
+            /**
+             * Phase
+             * @enum {string}
+             */
+            phase: "plan" | "execute" | "synthesize";
+        };
+        /**
+         * DeepResearchReport
+         * @description A finished deep-research report — the artifact a link points at.
+         *
+         *     Everything a reader needs to check the headline is here: the rate
+         *     behind every dollar, the size of every population, what was left out
+         *     and why, and the words that explain it. Nothing is summarized away.
+         */
+        DeepResearchReport: {
+            censoring: components["schemas"]["CensoringPayload"];
+            /** Charts */
+            charts?: components["schemas"]["ChartSpec"][];
+            /** Completed At */
+            completed_at?: string | null;
+            /** Context Notes */
+            context_notes?: string[];
+            /** Contrasts */
+            contrasts?: components["schemas"]["ContrastPayload"][];
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Data Edge Date
+             * Format: date
+             */
+            data_edge_date: string;
+            /** Data Load Label */
+            data_load_label: string;
+            deadline?: components["schemas"]["DeadlinePayload"] | null;
+            /**
+             * Duration Ms
+             * @default 0
+             */
+            duration_ms: number;
+            /** Evidence */
+            evidence?: components["schemas"]["AngleEvidencePayload"][];
+            /** Findings */
+            findings?: components["schemas"]["FindingPayload"][];
+            headline: components["schemas"]["HeadlinePayload"];
+            /** Id */
+            id: string;
+            /**
+             * Narrative
+             * @default
+             */
+            narrative: string;
+            /** Not Estimable */
+            not_estimable?: components["schemas"]["ExpectedRecoveryRowPayload"][];
+            plan: components["schemas"]["ResearchPlanPayload"];
+            population: components["schemas"]["DeepResearchSelector"];
+            /** Rates */
+            rates?: components["schemas"]["RateCellPayload"][];
+            /** Research Question */
+            research_question: string;
+            /** Strata */
+            strata?: components["schemas"]["ExpectedRecoveryRowPayload"][];
+            thin_populations?: components["schemas"]["ThinPopulationsPayload"] | null;
+            timeliness?: components["schemas"]["TimelinessCurvePayload"] | null;
+            /** Warnings */
+            warnings?: components["schemas"]["WarningPayload"][];
+        };
+        /**
+         * DeepResearchRunResponse
+         * @description A run: its status, how far it has got, and its report when done.
+         */
+        DeepResearchRunResponse: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Data Load Label */
+            data_load_label: string;
+            /** Error */
+            error?: string | null;
+            /** Id */
+            id: string;
+            population: components["schemas"]["DeepResearchSelector"];
+            progress: components["schemas"]["DeepResearchProgressPayload"];
+            report?: components["schemas"]["DeepResearchReport"] | null;
+            /** Session Id */
+            session_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "planning" | "running" | "complete" | "failed" | "interrupted";
+        };
+        /**
+         * DeepResearchSelector
+         * @description Which denials a run is about.
+         */
+        DeepResearchSelector: {
+            /**
+             * Kind
+             * @default all_open
+             * @enum {string}
+             */
+            kind: "all_open" | "payer" | "recovery_class" | "facility";
+            /**
+             * Label
+             * @default
+             */
+            label: string;
+            /** Values */
+            values?: string[];
+        };
+        /**
+         * DeepResearchStreamEvent
+         * @description One frame on a run's progress stream.
+         */
+        DeepResearchStreamEvent: {
+            /** Data */
+            data: {
+                [key: string]: unknown;
+            };
+            /**
+             * Event
+             * @enum {string}
+             */
+            event: "research_started" | "research_plan" | "research_progress" | "research_finding" | "research_warning" | "narrative_delta" | "error" | "research_complete";
+        };
+        /**
+         * DeepResearchSummary
+         * @description One line in the list of a tenant's runs.
+         */
+        DeepResearchSummary: {
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /** Data Load Label */
+            data_load_label: string;
+            /** Id */
+            id: string;
+            population: components["schemas"]["DeepResearchSelector"];
+            /** Research Question */
+            research_question: string;
+            /** Session Id */
+            session_id: string;
+            /**
+             * Status
+             * @enum {string}
+             */
+            status: "planning" | "running" | "complete" | "failed" | "interrupted";
+            /** Total Expected Cents */
+            total_expected_cents?: number | null;
+        };
         /** DefinitionalPayload */
         DefinitionalPayload: {
             /** Pack Id */
@@ -1398,6 +1855,35 @@ export interface components {
              */
             op: "expand";
         };
+        /**
+         * ExpectedRecoveryRowPayload
+         * @description One population of open denials, priced or explicitly not priced.
+         */
+        ExpectedRecoveryRowPayload: {
+            /** Catchable Dollars Cents */
+            catchable_dollars_cents: number;
+            /** Deadline Passed Dollars Cents */
+            deadline_passed_dollars_cents: number;
+            /** Deadline Unknown Dollars Cents */
+            deadline_unknown_dollars_cents: number;
+            /**
+             * Evidence
+             * @enum {string}
+             */
+            evidence: "measured" | "not_estimable";
+            /** Expected Cents */
+            expected_cents?: number | null;
+            expected_interval?: components["schemas"]["MoneyIntervalPayload"] | null;
+            /** Label */
+            label: string;
+            /** Open Denials */
+            open_denials: number;
+            /** Open Dollars Cents */
+            open_dollars_cents: number;
+            /** Parts */
+            parts?: components["schemas"]["StratumPartPayload"][];
+            rate_cell: components["schemas"]["RateCellPayload"];
+        };
         /** ExplainModel */
         ExplainModel: {
             /**
@@ -1468,6 +1954,59 @@ export interface components {
         HTTPValidationError: {
             /** Detail */
             detail?: components["schemas"]["ValidationError"][];
+        };
+        /**
+         * HeadlinePayload
+         * @description What the open denials are worth, and how sure that figure is.
+         *
+         *     ``total_expected_cents`` covers measured populations only. Everything
+         *     that could not be measured is in ``unpriced_open_dollars_cents`` and
+         *     listed separately, at full value, so a reader can see exactly how much
+         *     of the inventory went unpriced instead of finding a total that quietly
+         *     assumed zero.
+         *
+         *     The range is the sum of each population's own range. Populations that
+         *     share payers, staffing and seasons move together, so it is a spread
+         *     indication rather than a guarantee — ``range_assumes_independence``
+         *     says so on the wire rather than in a comment.
+         */
+        HeadlinePayload: {
+            /** Catchable Dollars Cents */
+            catchable_dollars_cents: number;
+            /** Deadline Passed Dollars Cents */
+            deadline_passed_dollars_cents: number;
+            /** Deadline Unknown Dollars Cents */
+            deadline_unknown_dollars_cents: number;
+            /** Priced Open Dollars Cents */
+            priced_open_dollars_cents: number;
+            /**
+             * Range Assumes Independence
+             * @default true
+             */
+            range_assumes_independence: boolean;
+            /** Total Expected Cents */
+            total_expected_cents: number;
+            total_expected_interval: components["schemas"]["MoneyIntervalPayload"];
+            /** Total Open Denials */
+            total_open_denials: number;
+            /** Total Open Dollars Cents */
+            total_open_dollars_cents: number;
+            /** Unpriced Open Dollars Cents */
+            unpriced_open_dollars_cents: number;
+            /** Unpriced Share */
+            unpriced_share: string;
+        };
+        /**
+         * IntervalPayload
+         * @description A confidence interval on a rate, as exact decimal text.
+         */
+        IntervalPayload: {
+            /** Confidence */
+            confidence: string;
+            /** High */
+            high: string;
+            /** Low */
+            low: string;
         };
         /** InvestigationResponse */
         InvestigationResponse: {
@@ -1635,6 +2174,18 @@ export interface components {
             /** Playbook Id */
             playbook_id?: string | null;
             primary?: components["schemas"]["EvidenceMetricRef"] | null;
+        };
+        /**
+         * MoneyIntervalPayload
+         * @description A confidence interval on dollars, in whole cents.
+         */
+        MoneyIntervalPayload: {
+            /** Confidence */
+            confidence: string;
+            /** High Cents */
+            high_cents: number;
+            /** Low Cents */
+            low_cents: number;
         };
         /**
          * MonitorDeclarationPayload
@@ -2770,6 +3321,41 @@ export interface components {
             op: "rank_by";
         };
         /**
+         * RateCellPayload
+         * @description One population's recovery rate, or its refusal to publish one.
+         *
+         *     A cell is either a measurement — ``rate`` and ``interval`` both present
+         *     — or a refusal, with both absent. There is no third state. ``n`` and
+         *     ``successes`` are published either way, because the size of the
+         *     population is the reason for the refusal and hiding it would make the
+         *     refusal impossible to check.
+         */
+        RateCellPayload: {
+            /**
+             * Basis
+             * @enum {string}
+             */
+            basis: "decided" | "pursuit";
+            /**
+             * Evidence
+             * @enum {string}
+             */
+            evidence: "measured" | "not_estimable";
+            /** Floor */
+            floor: number;
+            interval?: components["schemas"]["IntervalPayload"] | null;
+            /** Label */
+            label: string;
+            /** N */
+            n: number;
+            /** Parts */
+            parts?: components["schemas"]["StratumPartPayload"][];
+            /** Rate */
+            rate?: string | null;
+            /** Successes */
+            successes: number;
+        };
+        /**
          * RecommendedThresholdPayload
          * @description The sensitivity Revi recommends for a metric, as a NUMBER.
          *
@@ -2814,6 +3400,60 @@ export interface components {
              * @enum {string}
              */
             op: "remove_filter";
+        };
+        /**
+         * ResearchAnglePayload
+         * @description One angle a run looked at, and how it was cut.
+         */
+        ResearchAnglePayload: {
+            /**
+             * Basis
+             * @default decided
+             * @enum {string}
+             */
+            basis: "decided" | "pursuit";
+            /**
+             * Family
+             * @enum {string}
+             */
+            family: "outcome_by_stratum" | "payer_contrast" | "class_contrast" | "timeliness_curve" | "deadline_interaction" | "expected_recovery";
+            /** Purpose */
+            purpose: string;
+            /** Stratify By */
+            stratify_by?: ("payer" | "plan" | "recovery_class" | "age_band" | "dollar_band" | "delay_band" | "filing_position" | "filing_rule")[];
+            /** Title */
+            title: string;
+            /** Within */
+            within?: ("payer" | "plan" | "recovery_class" | "age_band" | "dollar_band" | "delay_band" | "filing_position" | "filing_rule")[];
+        };
+        /**
+         * ResearchPlanPayload
+         * @description The angles a run will look at, and who chose them.
+         *
+         *     ``authored_by`` is ``model`` when the control plane selected the angles
+         *     and ``revi`` when the run fell back to the standing set — a run whose
+         *     plan came from a fallback says so rather than presenting it as a
+         *     choice. Either way every angle is one of the closed set, and none of
+         *     them computes anything: the numbers come from deterministic code.
+         */
+        ResearchPlanPayload: {
+            /** Added By Revi */
+            added_by_revi?: ("outcome_by_stratum" | "payer_contrast" | "class_contrast" | "timeliness_curve" | "deadline_interaction" | "expected_recovery")[];
+            /** Angles */
+            angles?: components["schemas"]["ResearchAnglePayload"][];
+            /**
+             * Authored By
+             * @default revi
+             * @enum {string}
+             */
+            authored_by: "model" | "revi";
+            /**
+             * Rationale
+             * @default
+             */
+            rationale: string;
+            /** Research Question */
+            research_question: string;
         };
         /** ResetContextModel */
         ResetContextModel: {
@@ -3029,6 +3669,34 @@ export interface components {
             /** Narrative Depths */
             narrative_depths?: string[];
         };
+        /**
+         * StartDeepResearchRequest
+         * @description Launch a run over a target population.
+         */
+        StartDeepResearchRequest: {
+            population?: components["schemas"]["DeepResearchSelector"];
+            /** Question */
+            question?: string | null;
+            /** Session Id */
+            session_id?: string | null;
+        };
+        /**
+         * StratumPartPayload
+         * @description One ``population = value`` pair, with the words a reader sees.
+         */
+        StratumPartPayload: {
+            /**
+             * Stratifier
+             * @enum {string}
+             */
+            stratifier: "payer" | "plan" | "recovery_class" | "age_band" | "dollar_band" | "delay_band" | "filing_position" | "filing_rule";
+            /** Stratifier Label */
+            stratifier_label: string;
+            /** Value */
+            value: string;
+            /** Value Label */
+            value_label: string;
+        };
         /** TermPayload */
         TermPayload: {
             /** Definition */
@@ -3041,6 +3709,25 @@ export interface components {
             term: string;
             /** Title */
             title: string;
+        };
+        /**
+         * ThinPopulationsPayload
+         * @description Populations too small to name individually, counted together.
+         *
+         *     Naming a population of four denials and printing its dollars discloses
+         *     those four denials. So populations under the disclosure level are
+         *     rolled into this one line: how many there were and what they hold, and
+         *     nothing that identifies any of them.
+         */
+        ThinPopulationsPayload: {
+            /** Floor */
+            floor: number;
+            /** Open Denials */
+            open_denials: number;
+            /** Open Dollars Cents */
+            open_dollars_cents: number;
+            /** Populations */
+            populations: number;
         };
         /**
          * TimeToImpactPayload
@@ -3111,6 +3798,27 @@ export interface components {
              */
             recovery_label: string;
         };
+        /** TimelinessBandPayload */
+        TimelinessBandPayload: {
+            /** Band */
+            band: string;
+            cell: components["schemas"]["RateCellPayload"];
+        };
+        /**
+         * TimelinessCurvePayload
+         * @description Recovery rate by how long the denial waited before going back out.
+         */
+        TimelinessCurvePayload: {
+            /** Bands */
+            bands?: components["schemas"]["TimelinessBandPayload"][];
+            /**
+             * Implication
+             * @default
+             */
+            implication: string;
+            /** Within */
+            within?: ("payer" | "plan" | "recovery_class" | "age_band" | "dollar_band" | "delay_band" | "filing_position" | "filing_rule")[];
+        };
         /** TurnAnswer */
         TurnAnswer: {
             anomaly_reconciliation?: components["schemas"]["AnomalyReconciliationPayload"] | null;
@@ -3121,6 +3829,7 @@ export interface components {
             cohort?: components["schemas"]["CohortPayload"] | null;
             context_header?: components["schemas"]["ContextHeaderPayload"] | null;
             debug?: components["schemas"]["DebugTracePayload"] | null;
+            deep_research?: components["schemas"]["DeepResearchAffordance"] | null;
             definitional?: components["schemas"]["DefinitionalPayload"] | null;
             evidence?: components["schemas"]["EvidencePayload"];
             /** Findings */
@@ -3578,6 +4287,348 @@ export interface operations {
                 };
                 content: {
                     "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description SOURCE_UNAVAILABLE or DATA_LOADING — the analytical source cannot serve this watermark right now. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    list_deep_research_v1_deep_research_get: {
+        parameters: {
+            query?: {
+                limit?: number;
+            };
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeepResearchListResponse"];
+                };
+            };
+            /** @description Stable §12 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, …). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unknown session, investigation, or referent (REFERENT_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description WATERMARK_STALE or CONTEXT_CONFLICT — the pinned context cannot absorb the request without an explicit decision. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description SOURCE_UNAVAILABLE or DATA_LOADING — the analytical source cannot serve this watermark right now. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    start_deep_research_v1_deep_research_post: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        requestBody: {
+            content: {
+                "application/json": components["schemas"]["StartDeepResearchRequest"];
+            };
+        };
+        responses: {
+            /** @description Successful Response */
+            202: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeepResearchRunResponse"];
+                };
+            };
+            /** @description Stable §12 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, …). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unknown session, investigation, or referent (REFERENT_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description WATERMARK_STALE or CONTEXT_CONFLICT — the pinned context cannot absorb the request without an explicit decision. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description SOURCE_UNAVAILABLE or DATA_LOADING — the analytical source cannot serve this watermark right now. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    get_deep_research_v1_deep_research__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeepResearchRunResponse"];
+                };
+            };
+            /** @description Stable §12 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, …). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unknown session, investigation, or referent (REFERENT_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description WATERMARK_STALE or CONTEXT_CONFLICT — the pinned context cannot absorb the request without an explicit decision. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description SOURCE_UNAVAILABLE or DATA_LOADING — the analytical source cannot serve this watermark right now. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    stream_deep_research_v1_deep_research__run_id__stream_get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "text/event-stream": components["schemas"]["DeepResearchStreamEvent"];
+                };
+            };
+            /** @description Stable §12 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, …). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unknown session, investigation, or referent (REFERENT_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description WATERMARK_STALE or CONTEXT_CONFLICT — the pinned context cannot absorb the request without an explicit decision. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
                 };
             };
             /** @description SOURCE_UNAVAILABLE or DATA_LOADING — the analytical source cannot serve this watermark right now. */

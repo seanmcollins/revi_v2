@@ -84,6 +84,13 @@ from revi_investigation_contracts.api import (
     TurnResponse,
     TurnStreamEvent,
 )
+from revi_investigation_contracts.deep_research import (
+    DEEP_RESEARCH_EVENT_PAYLOADS,
+    DeepResearchListResponse,
+    DeepResearchRunResponse,
+    DeepResearchStreamEvent,
+    StartDeepResearchRequest,
+)
 from revi_investigation_contracts.monitors import (
     CreateMonitorsPinRequest,
     MonitorsBriefResponse,
@@ -188,8 +195,34 @@ def _public_payload(kind: str, payload: dict[str, Any]) -> dict[str, Any]:
     return {**payload, "reason": clarification_frame_reason(payload.get("reason"))}
 
 
+_RESEARCH_SSE_DESCRIPTION = "\n".join(
+    [
+        "Server-Sent Events for one run, from wherever it has got to. A ",
+        "watcher that attaches late is caught up with the frames already ",
+        "emitted, so nothing is missed by joining mid-run.",
+        "",
+        "Each frame is `event: <kind>` + `data: <json>` — see the ",
+        "`DeepResearchStreamEvent` schema. Frame kinds and payloads:",
+        "",
+        *(f"- `{kind}` — {doc}" for kind, doc in DEEP_RESEARCH_EVENT_PAYLOADS.items()),
+        "",
+        "The stream is progress; the final `research_complete` frame carries ",
+        "the finished report, which is also what the run's own GET returns.",
+    ]
+)
+
 _SSE_MEDIA_TYPE = "text/event-stream"
 _TURNS_PATH = "/v1/sessions/{session_id}/turns"
+_RESEARCH_STREAM_PATH = "/v1/deep-research/{run_id}/stream"
+
+#: Every streaming route, and the frame model it publishes. A second
+#: streaming endpoint added without an entry here would ship as an untyped
+#: blob and a generated client would have no contract for it — which is the
+#: whole reason this is a table rather than two hard-coded paths.
+_STREAM_SCHEMAS: tuple[tuple[str, str, type[BaseModel]], ...] = (
+    (_TURNS_PATH, "post", TurnStreamEvent),
+    (_RESEARCH_STREAM_PATH, "get", DeepResearchStreamEvent),
+)
 
 
 def _publish_stream_schema(app: FastAPI) -> None:
@@ -198,23 +231,27 @@ def _publish_stream_schema(app: FastAPI) -> None:
     FastAPI can only attach a schema to a route's JSON body, so the
     event-stream media type would otherwise be published as an untyped
     blob and a generated client would have no contract for the stream at
-    all. This registers :class:`TurnStreamEvent` as a real component and
-    points the ``text/event-stream`` content at it, leaving the
-    ``application/json`` schema (the blocking ``TurnResponse``) alone.
+    all. This registers each stream's frame model as a real component and
+    points the ``text/event-stream`` content at it, leaving any
+    ``application/json`` schema on the same route alone.
     """
     base = app.openapi
 
     def openapi() -> dict[str, Any]:
         spec = base()
         schemas = spec.setdefault("components", {}).setdefault("schemas", {})
-        if TurnStreamEvent.__name__ not in schemas:
-            schemas[TurnStreamEvent.__name__] = TurnStreamEvent.model_json_schema(
-                ref_template="#/components/schemas/{model}"
-            )
-        content = spec["paths"][_TURNS_PATH]["post"]["responses"]["200"]["content"]
-        content[_SSE_MEDIA_TYPE] = {
-            "schema": {"$ref": f"#/components/schemas/{TurnStreamEvent.__name__}"}
-        }
+        for path, method, model in _STREAM_SCHEMAS:
+            if model.__name__ not in schemas:
+                schemas[model.__name__] = model.model_json_schema(
+                    ref_template="#/components/schemas/{model}"
+                )
+            operation = spec["paths"].get(path, {}).get(method)
+            if operation is None:  # pragma: no cover - both routes are declared
+                continue
+            content = operation["responses"]["200"].setdefault("content", {})
+            content[_SSE_MEDIA_TYPE] = {
+                "schema": {"$ref": f"#/components/schemas/{model.__name__}"}
+            }
         app.openapi_schema = spec
         return spec
 
@@ -632,6 +669,59 @@ def create_app(
     async def get_monitors_lead(anomaly_id: str, caller: CallerPrincipal) -> MonitorsLeadPayload:
         """One lead's lifecycle state, its verification streak and its history."""
         return await _service().monitors.get_lead(caller, anomaly_id)
+
+    @app.post(
+        "/v1/deep-research",
+        response_model=DeepResearchRunResponse,
+        status_code=202,
+        responses=ERROR_RESPONSES,
+    )
+    async def start_deep_research(
+        request: StartDeepResearchRequest, caller: CallerPrincipal
+    ) -> DeepResearchRunResponse:
+        """Start a deep-research run over a target population.
+
+        Returns immediately with the run's id and its starting state; the
+        run continues in the background. Watch it on the run's stream, or
+        poll the run itself. The run is pinned to the newest load at the
+        moment it starts and every number in its report is read at that
+        load.
+        """
+        return await _service().start_deep_research(caller, request)
+
+    @app.get(
+        "/v1/deep-research",
+        response_model=DeepResearchListResponse,
+        responses=ERROR_RESPONSES,
+    )
+    async def list_deep_research(
+        caller: CallerPrincipal, limit: int = Query(default=25, ge=1, le=100)
+    ) -> DeepResearchListResponse:
+        """This tenant's deep-research runs, newest first."""
+        return await _service().list_deep_research(caller, limit=limit)
+
+    @app.get(
+        "/v1/deep-research/{run_id}",
+        response_model=DeepResearchRunResponse,
+        responses=ERROR_RESPONSES,
+    )
+    async def get_deep_research(
+        run_id: str, caller: CallerPrincipal
+    ) -> DeepResearchRunResponse:
+        """One run: how far it has got, and its report once it is finished."""
+        return await _service().get_deep_research(caller, run_id)
+
+    @app.get(
+        _RESEARCH_STREAM_PATH,
+        responses=ERROR_RESPONSES,
+        response_class=StreamingResponse,
+        description=_RESEARCH_SSE_DESCRIPTION,
+    )
+    async def stream_deep_research(run_id: str, caller: CallerPrincipal) -> StreamingResponse:
+        """Watch a run in flight. Late watchers are caught up, not cut off."""
+        service = _service()
+        frames = service.stream_deep_research(caller, run_id)
+        return StreamingResponse(frames, media_type=_SSE_MEDIA_TYPE)
 
     @app.get("/v1/capabilities", response_model=CapabilitiesResponse, responses=ERROR_RESPONSES)
     async def get_capabilities(

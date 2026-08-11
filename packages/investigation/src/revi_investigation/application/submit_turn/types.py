@@ -14,6 +14,7 @@ from revi_investigation.application.calculation_glue import (
     EmptinessFact,
 )
 from revi_investigation.application.capability_ports import BenchmarkSpec
+from revi_investigation.application.deep_research.grammar import TargetPopulation
 from revi_investigation.application.interpretation import (
     DefinitionalAnswer,
     PendingClarification,
@@ -286,6 +287,11 @@ class TurnOutcome:
     #: ``chart_sorts`` is — the renderer runs outside the engine and has no
     #: plan to ask.
     frame_windows: tuple[tuple[str, AbsoluteRange, AbsoluteRange | None], ...] = ()
+    #: The population a deep-research run would cover, when the analyst
+    #: asked for one by name. Carried so the answer can OFFER the run next
+    #: to itself — naming the population it would launch with, rather than
+    #: a sentence a client would have to parse back into a selector.
+    deep_research: TargetPopulation | None = None
 
     @property
     def question(self) -> str:

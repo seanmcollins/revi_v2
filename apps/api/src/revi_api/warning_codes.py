@@ -224,6 +224,20 @@ _RULES: tuple[_Rule, ...] = (
     # content (CAUTION). See :func:`revi_api.error_copy.clarification_register`.
     _rule("CLARIFICATION_OPTIONS_OFFERED", INFO, r"^clarification_options_offered:"),
     _rule("CLARIFICATION_NO_OPTIONS", CAUTION, r"^clarification_no_options:"),
+    # -- Deep research ---------------------------------------------------
+    # Four of these five are CAUTIONS because each one changes how the
+    # headline should be read: money that could not be priced, a range that
+    # is narrower than the truth, a comparison chosen for its extremes, and
+    # an angle that did not run. Only the censoring lines are INFO — they
+    # describe what the analysis correctly excluded rather than a limit on
+    # what it published.
+    _rule("DEEP_RESEARCH_UNPRICED", CAUTION, r"^deep_research_unpriced:"),
+    _rule("DEEP_RESEARCH_THIN_ROLLUP", INFO, r"^deep_research_thin_rollup:"),
+    _rule("DEEP_RESEARCH_EXTREMES", CAUTION, r"^deep_research_extremes:"),
+    _rule("DEEP_RESEARCH_INDEPENDENCE", CAUTION, r"^deep_research_independence:"),
+    _rule("DEEP_RESEARCH_ANGLE_REFUSED", CAUTION, r"^deep_research_angle_refused:"),
+    _rule("DEEP_RESEARCH_CENSORING", INFO, r"^deep_research_censoring:"),
+    _rule("DEEP_RESEARCH_NO_PRIOR", INFO, r"^deep_research_no_prior:"),
 )
 
 #: Every code this module can emit, for the client that wants to enumerate

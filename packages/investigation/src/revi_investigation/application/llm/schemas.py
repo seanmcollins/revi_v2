@@ -72,6 +72,8 @@ __all__ = [
     "AskedOrderLiteral",
     "ChartSuggestionResponse",
     "ComparisonLiteral",
+    "DeepResearchPlanResponse",
+    "DeepResearchRequestModel",
     "DrillIntoModel",
     "EntityGrainLiteral",
     "ExpandModel",
@@ -87,6 +89,11 @@ __all__ = [
     "RefinementEmissionResponse",
     "RefinementOperatorModel",
     "RemoveFilterModel",
+    "ResearchAngleModel",
+    "ResearchBasisLiteral",
+    "ResearchFamilyLiteral",
+    "ResearchPopulationLiteral",
+    "ResearchStratumLiteral",
     "ResetContextModel",
     "ScalarValue",
     "ScopePredicateModel",
@@ -225,6 +232,27 @@ class GroundedOptionModel(_Closed):
     scope: list[ScopePredicateModel] = Field(default_factory=list)
 
 
+#: Which denials a deep-research run would cover. Mirrors
+#: :class:`revi_investigation.application.deep_research.grammar.PopulationKind`.
+ResearchPopulationLiteral = Literal["all_open", "payer", "recovery_class", "facility"]
+
+
+class DeepResearchRequestModel(_Closed):
+    """A request to launch the recoverability mode over a population.
+
+    The analyst asked for a deep look at what is recoverable, not for a
+    figure. The model's whole job here is to say WHICH denials — the
+    population and its values — and every value is re-checked against the
+    data before anything runs. It never selects the analysis: that comes
+    from the closed angle catalogue, chosen separately.
+    """
+
+    population: ResearchPopulationLiteral = "all_open"
+    #: Names to narrow to, exactly as the analyst wrote them. Empty for
+    #: every open denial.
+    values: list[str] = Field(default_factory=list)
+
+
 class InterpretationResponse(_Closed):
     intent_summary: str
     #: The shape the answer's FIRST SENTENCE owes the question. Closed set;
@@ -289,6 +317,12 @@ class InterpretationResponse(_Closed):
     #: anything renders them (design §2.8; see :class:`GroundedOptionModel`).
     clarification_options: list[GroundedOptionModel] = Field(default_factory=list)
     definitional_terms: list[str] = Field(default_factory=list)
+    #: Set only when the analyst asked for the recoverability mode by name
+    #: — "run deep research on…", "do a deep dive on what we can recover
+    #: from…". It names the population, never the analysis, and the turn
+    #: it rides on still answers the question it was asked: this is an
+    #: offer to launch, not a launch.
+    deep_research: DeepResearchRequestModel | None = None
 
 
 # ---------------------------------------------------------------------------
@@ -315,6 +349,60 @@ class RefinementEmissionResponse(_Closed):
     #: Optional recovery chips for the "no operators" case — trimmed by
     #: :func:`clarification_options` before anything renders them.
     clarification_options: list[str] = Field(default_factory=list)
+
+
+# ---------------------------------------------------------------------------
+# plan_deep_research — the closed angle catalogue
+
+#: The research angles a run may contain. Mirrors
+#: :class:`revi_investigation.application.deep_research.grammar.AngleFamily`.
+ResearchFamilyLiteral = Literal[
+    "outcome_by_stratum",
+    "payer_contrast",
+    "class_contrast",
+    "timeliness_curve",
+    "deadline_interaction",
+    "expected_recovery",
+]
+
+#: The populations an angle may cut by. Mirrors
+#: :class:`revi_investigation.application.deep_research.grammar.Stratum`.
+ResearchStratumLiteral = Literal[
+    "payer",
+    "plan",
+    "recovery_class",
+    "age_band",
+    "dollar_band",
+    "delay_band",
+    "filing_position",
+    "filing_rule",
+]
+
+#: Mirrors
+#: :class:`revi_investigation.application.deep_research.grammar.RateBasisChoice`.
+ResearchBasisLiteral = Literal["decided", "pursuit"]
+
+
+class ResearchAngleModel(_Closed):
+    """One angle, chosen from the catalogue and cut by named populations."""
+
+    family: ResearchFamilyLiteral
+    stratify_by: list[ResearchStratumLiteral] = Field(default_factory=list)
+    within: list[ResearchStratumLiteral] = Field(default_factory=list)
+    basis: ResearchBasisLiteral = "decided"
+
+
+class DeepResearchPlanResponse(_Closed):
+    """Which angles a run should look at, and why.
+
+    Selection only. Nothing here produces a number, and an angle naming
+    anything outside the catalogue does not become a weaker analysis — it
+    is dropped before a single denial is read.
+    """
+
+    research_question: str
+    angles: list[ResearchAngleModel] = Field(default_factory=list)
+    rationale: str = ""
 
 
 # ---------------------------------------------------------------------------

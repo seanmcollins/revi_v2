@@ -119,6 +119,69 @@
         "title": "AnchoredWindowModel",
         "type": "object"
       },
+      "AngleEvidencePayload": {
+        "additionalProperties": false,
+        "description": "How one angle got its numbers, for the evidence rail and exports.\n\nInternal identifiers live here and only here: the read's fingerprint,\nthe estimator it called, how long it took. The default surface never\nshows them and this never loses them.",
+        "properties": {
+          "cells_published": {
+            "title": "Cells Published",
+            "type": "integer"
+          },
+          "cells_refused": {
+            "title": "Cells Refused",
+            "type": "integer"
+          },
+          "duration_ms": {
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "estimator": {
+            "title": "Estimator",
+            "type": "string"
+          },
+          "family": {
+            "enum": [
+              "outcome_by_stratum",
+              "payer_contrast",
+              "class_contrast",
+              "timeliness_curve",
+              "deadline_interaction",
+              "expected_recovery"
+            ],
+            "title": "Family",
+            "type": "string"
+          },
+          "read_fingerprint": {
+            "title": "Read Fingerprint",
+            "type": "string"
+          },
+          "rows_in_scope": {
+            "title": "Rows In Scope",
+            "type": "integer"
+          },
+          "rows_read": {
+            "title": "Rows Read",
+            "type": "integer"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "family",
+          "title",
+          "estimator",
+          "read_fingerprint",
+          "rows_read",
+          "rows_in_scope",
+          "cells_published",
+          "cells_refused",
+          "duration_ms"
+        ],
+        "title": "AngleEvidencePayload",
+        "type": "object"
+      },
       "AnomalyCard": {
         "additionalProperties": false,
         "description": "One detected anomaly, ranked by the governed priority formula.\n\nThe decomposed components (impact, age, recoverable estimate,\nactionability rationale) travel with the score \u2014 no black-box\nordering \u2014 and ``drill_spec`` is the typed handle the UI posts to\nstart an ordinary investigation turn.\n\n``drill_spec`` is a complete :class:`TypedInvestigationSpec`, not a\nbag of operators: the card's own metric, its dimensions (both as the\nbreakdown and, at their detected values, as the scope), and its\nobservation window. Posting it re-derives the detector's assertion\nfrom the platform's certified semantics and versioned contracts \u2014 so\nthe answer carries a real evidence grade where the card itself only\ncarries provenance. Earlier milestones shipped ``drill_filters`` +\n``drill_window``, which were sound operators with nowhere to land: a\nrefinement refines a parent investigation and a card is not one.\n\n**No evidence grade, by construction.** A grade certifies how a number\nwas *computed by this platform* from certified semantics (design \u00a75.3);\nan anomaly card is not that. It is a record read from an external\ndetection system as-of a watermark, so the platform cannot honestly\nstamp DIRECT/DERIVED/PROXY on it. Instead every card declares its\n``provenance`` (``external_detection``), the ``priority_formula_version``\nthat ordered it, and the ``source_watermark_id`` it was read at \u2014 the\nthree facts a grade would otherwise have implied. Drilling a card starts\nan ordinary investigation turn, and *that* answer carries a real grade.",
@@ -154,6 +217,16 @@
           "confidence": {
             "title": "Confidence",
             "type": "string"
+          },
+          "deep_research": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeepResearchAffordance"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "description": {
             "title": "Description",
@@ -686,6 +759,78 @@
         "title": "CapabilitiesResponse",
         "type": "object"
       },
+      "CensoringPayload": {
+        "additionalProperties": false,
+        "description": "What the edge of the data cost this analysis, stated in counts.\n\nNothing here is modelled or extrapolated. Every denial left out of a\ndenominator is counted on one of these lines, so the numbers above are\nreadable against exactly what they exclude.",
+        "properties": {
+          "basis": {
+            "enum": [
+              "decided",
+              "pursuit"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "data_edge_date": {
+            "format": "date",
+            "title": "Data Edge Date",
+            "type": "string"
+          },
+          "excluded_immature": {
+            "default": 0,
+            "title": "Excluded Immature",
+            "type": "integer"
+          },
+          "excluded_not_pursued": {
+            "default": 0,
+            "title": "Excluded Not Pursued",
+            "type": "integer"
+          },
+          "excluded_open_undecided": {
+            "default": 0,
+            "title": "Excluded Open Undecided",
+            "type": "integer"
+          },
+          "excluded_unclassifiable": {
+            "default": 0,
+            "title": "Excluded Unclassifiable",
+            "type": "integer"
+          },
+          "in_denominator": {
+            "title": "In Denominator",
+            "type": "integer"
+          },
+          "not_pursued_in_input": {
+            "default": 0,
+            "title": "Not Pursued In Input",
+            "type": "integer"
+          },
+          "open_undecided_in_input": {
+            "default": 0,
+            "title": "Open Undecided In Input",
+            "type": "integer"
+          },
+          "rows_considered": {
+            "title": "Rows Considered",
+            "type": "integer"
+          },
+          "statements": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Statements",
+            "type": "array"
+          }
+        },
+        "required": [
+          "basis",
+          "data_edge_date",
+          "rows_considered",
+          "in_denominator"
+        ],
+        "title": "CensoringPayload",
+        "type": "object"
+      },
       "ChartRow": {
         "additionalProperties": false,
         "properties": {
@@ -1143,6 +1288,143 @@
         "title": "ContextHeaderPayload",
         "type": "object"
       },
+      "ContrastArmPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "interval": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IntervalPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "n": {
+            "title": "N",
+            "type": "integer"
+          },
+          "rate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate"
+          },
+          "successes": {
+            "title": "Successes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "label",
+          "n",
+          "successes"
+        ],
+        "title": "ContrastArmPayload",
+        "type": "object"
+      },
+      "ContrastPayload": {
+        "additionalProperties": false,
+        "description": "Two populations compared, with the effect size and the test.\n\nA refused contrast publishes both sides' sizes and nothing else: a\nreader needs to know how thin the comparison was, and must not be\nhanded a probability the disclosure rules say is not publishable.",
+        "properties": {
+          "implication": {
+            "default": "",
+            "title": "Implication",
+            "type": "string"
+          },
+          "left": {
+            "$ref": "#/components/schemas/ContrastArmPayload"
+          },
+          "p_value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "P Value"
+          },
+          "refusal_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Refusal Reason"
+          },
+          "right": {
+            "$ref": "#/components/schemas/ContrastArmPayload"
+          },
+          "risk_difference": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Risk Difference"
+          },
+          "risk_difference_interval": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IntervalPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "test": {
+            "enum": [
+              "two_proportion_z",
+              "fishers_exact",
+              "refused"
+            ],
+            "title": "Test",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "z_statistic": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Z Statistic"
+          }
+        },
+        "required": [
+          "title",
+          "left",
+          "right",
+          "test"
+        ],
+        "title": "ContrastPayload",
+        "type": "object"
+      },
       "CreateMonitorsPinRequest": {
         "additionalProperties": false,
         "description": "Add a monitor to Monitors.\n\nThree ways in, all producing the same row \u2014 a pin created from an\nartifact and a monitor created by intent differ only in provenance:\n\n* ``investigation_id`` (+ optional ``referent``) \u2014 monitor what is on\n  screen. The platform resolves that investigation's STORED spec\n  server-side and pins it. No text is re-interpreted and no model is\n  called: the spec already exists, and re-deriving it from the\n  question would be a second, worse answer to a question already\n  answered.\n* ``spec`` \u2014 a caller that already holds a typed spec (a portfolio\n  card's ``drill_spec``, a saved view) monitors it directly.\n* an utterance \u2014 \"monitor Silverline's denial rate\" \u2014 which is not this\n  request at all: it is an ordinary turn that compiles through\n  interpretation and registers the monitor from the answer it produced.\n  See ``revi_api.monitor_intent``.\n\nExactly one of ``investigation_id`` / ``spec``. A body carrying both is\nrefused rather than resolved, because either resolution order would be\na guess about which the caller meant.",
@@ -1207,6 +1489,59 @@
           }
         },
         "title": "CreateMonitorsPinRequest",
+        "type": "object"
+      },
+      "DeadlinePayload": {
+        "additionalProperties": false,
+        "description": "What crossing a filing deadline costs, split by the limit's standing.\n\nA limit stated without a confirmation caveat and a limit that is only a\nplanning default are not the same fact, and pooling them over-predicts\nthe drop on every plan whose limit nobody has confirmed.",
+        "properties": {
+          "implication": {
+            "default": "",
+            "title": "Implication",
+            "type": "string"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/DeadlineRowPayload"
+            },
+            "title": "Rows",
+            "type": "array"
+          }
+        },
+        "title": "DeadlinePayload",
+        "type": "object"
+      },
+      "DeadlineRowPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "cell": {
+            "$ref": "#/components/schemas/RateCellPayload"
+          },
+          "position": {
+            "title": "Position",
+            "type": "string"
+          },
+          "position_label": {
+            "title": "Position Label",
+            "type": "string"
+          },
+          "rule": {
+            "title": "Rule",
+            "type": "string"
+          },
+          "rule_label": {
+            "title": "Rule Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "position",
+          "position_label",
+          "rule",
+          "rule_label",
+          "cell"
+        ],
+        "title": "DeadlineRowPayload",
         "type": "object"
       },
       "DebugInterpretation": {
@@ -1696,6 +2031,449 @@
         "title": "DebugTracePayload",
         "type": "object"
       },
+      "DeepResearchAffordance": {
+        "additionalProperties": false,
+        "description": "A place another surface can offer to start a run from.\n\nCarried additively on payloads that already name a population \u2014 a lead\nabout one payer's denials can offer the run it would launch, with the\npopulation already filled in. Naming the selector rather than a\nsentence is what makes the offer honest: what the reader taps is\nexactly what runs, and no client has to parse a sentence back into a\nrequest.",
+        "properties": {
+          "description": {
+            "default": "",
+            "title": "Description",
+            "type": "string"
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "population": {
+            "$ref": "#/components/schemas/DeepResearchSelector"
+          }
+        },
+        "required": [
+          "population",
+          "label"
+        ],
+        "title": "DeepResearchAffordance",
+        "type": "object"
+      },
+      "DeepResearchListResponse": {
+        "additionalProperties": false,
+        "properties": {
+          "runs": {
+            "items": {
+              "$ref": "#/components/schemas/DeepResearchSummary"
+            },
+            "title": "Runs",
+            "type": "array"
+          }
+        },
+        "title": "DeepResearchListResponse",
+        "type": "object"
+      },
+      "DeepResearchProgressPayload": {
+        "additionalProperties": false,
+        "description": "Where a run has got to.",
+        "properties": {
+          "angle_index": {
+            "default": 0,
+            "title": "Angle Index",
+            "type": "integer"
+          },
+          "angle_total": {
+            "default": 0,
+            "title": "Angle Total",
+            "type": "integer"
+          },
+          "elapsed_ms": {
+            "default": 0,
+            "title": "Elapsed Ms",
+            "type": "integer"
+          },
+          "message": {
+            "default": "",
+            "title": "Message",
+            "type": "string"
+          },
+          "phase": {
+            "enum": [
+              "plan",
+              "execute",
+              "synthesize"
+            ],
+            "title": "Phase",
+            "type": "string"
+          }
+        },
+        "required": [
+          "phase"
+        ],
+        "title": "DeepResearchProgressPayload",
+        "type": "object"
+      },
+      "DeepResearchReport": {
+        "additionalProperties": false,
+        "description": "A finished deep-research report \u2014 the artifact a link points at.\n\nEverything a reader needs to check the headline is here: the rate\nbehind every dollar, the size of every population, what was left out\nand why, and the words that explain it. Nothing is summarized away.",
+        "properties": {
+          "censoring": {
+            "$ref": "#/components/schemas/CensoringPayload"
+          },
+          "charts": {
+            "items": {
+              "$ref": "#/components/schemas/ChartSpec"
+            },
+            "title": "Charts",
+            "type": "array"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "context_notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Context Notes",
+            "type": "array"
+          },
+          "contrasts": {
+            "items": {
+              "$ref": "#/components/schemas/ContrastPayload"
+            },
+            "title": "Contrasts",
+            "type": "array"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "data_edge_date": {
+            "format": "date",
+            "title": "Data Edge Date",
+            "type": "string"
+          },
+          "data_load_label": {
+            "title": "Data Load Label",
+            "type": "string"
+          },
+          "deadline": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeadlinePayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "duration_ms": {
+            "default": 0,
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "evidence": {
+            "items": {
+              "$ref": "#/components/schemas/AngleEvidencePayload"
+            },
+            "title": "Evidence",
+            "type": "array"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/FindingPayload"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "headline": {
+            "$ref": "#/components/schemas/HeadlinePayload"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "narrative": {
+            "default": "",
+            "title": "Narrative",
+            "type": "string"
+          },
+          "not_estimable": {
+            "items": {
+              "$ref": "#/components/schemas/ExpectedRecoveryRowPayload"
+            },
+            "title": "Not Estimable",
+            "type": "array"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/ResearchPlanPayload"
+          },
+          "population": {
+            "$ref": "#/components/schemas/DeepResearchSelector"
+          },
+          "rates": {
+            "items": {
+              "$ref": "#/components/schemas/RateCellPayload"
+            },
+            "title": "Rates",
+            "type": "array"
+          },
+          "research_question": {
+            "title": "Research Question",
+            "type": "string"
+          },
+          "strata": {
+            "items": {
+              "$ref": "#/components/schemas/ExpectedRecoveryRowPayload"
+            },
+            "title": "Strata",
+            "type": "array"
+          },
+          "thin_populations": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ThinPopulationsPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "timeliness": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/TimelinessCurvePayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/WarningPayload"
+            },
+            "title": "Warnings",
+            "type": "array"
+          }
+        },
+        "required": [
+          "id",
+          "research_question",
+          "population",
+          "data_load_label",
+          "data_edge_date",
+          "created_at",
+          "plan",
+          "headline",
+          "censoring"
+        ],
+        "title": "DeepResearchReport",
+        "type": "object"
+      },
+      "DeepResearchRunResponse": {
+        "additionalProperties": false,
+        "description": "A run: its status, how far it has got, and its report when done.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "data_load_label": {
+            "title": "Data Load Label",
+            "type": "string"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "population": {
+            "$ref": "#/components/schemas/DeepResearchSelector"
+          },
+          "progress": {
+            "$ref": "#/components/schemas/DeepResearchProgressPayload"
+          },
+          "report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeepResearchReport"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "planning",
+              "running",
+              "complete",
+              "failed",
+              "interrupted"
+            ],
+            "title": "Status",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "session_id",
+          "status",
+          "created_at",
+          "population",
+          "data_load_label",
+          "progress"
+        ],
+        "title": "DeepResearchRunResponse",
+        "type": "object"
+      },
+      "DeepResearchSelector": {
+        "additionalProperties": false,
+        "description": "Which denials a run is about.",
+        "properties": {
+          "kind": {
+            "default": "all_open",
+            "enum": [
+              "all_open",
+              "payer",
+              "recovery_class",
+              "facility"
+            ],
+            "title": "Kind",
+            "type": "string"
+          },
+          "label": {
+            "default": "",
+            "title": "Label",
+            "type": "string"
+          },
+          "values": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Values",
+            "type": "array"
+          }
+        },
+        "title": "DeepResearchSelector",
+        "type": "object"
+      },
+      "DeepResearchStreamEvent": {
+        "additionalProperties": false,
+        "description": "One frame on a run's progress stream.",
+        "properties": {
+          "data": {
+            "additionalProperties": true,
+            "title": "Data",
+            "type": "object"
+          },
+          "event": {
+            "enum": [
+              "research_started",
+              "research_plan",
+              "research_progress",
+              "research_finding",
+              "research_warning",
+              "narrative_delta",
+              "error",
+              "research_complete"
+            ],
+            "title": "Event",
+            "type": "string"
+          }
+        },
+        "required": [
+          "event",
+          "data"
+        ],
+        "title": "DeepResearchStreamEvent",
+        "type": "object"
+      },
+      "DeepResearchSummary": {
+        "additionalProperties": false,
+        "description": "One line in the list of a tenant's runs.",
+        "properties": {
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "data_load_label": {
+            "title": "Data Load Label",
+            "type": "string"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "population": {
+            "$ref": "#/components/schemas/DeepResearchSelector"
+          },
+          "research_question": {
+            "title": "Research Question",
+            "type": "string"
+          },
+          "session_id": {
+            "title": "Session Id",
+            "type": "string"
+          },
+          "status": {
+            "enum": [
+              "planning",
+              "running",
+              "complete",
+              "failed",
+              "interrupted"
+            ],
+            "title": "Status",
+            "type": "string"
+          },
+          "total_expected_cents": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Expected Cents"
+          }
+        },
+        "required": [
+          "id",
+          "session_id",
+          "status",
+          "created_at",
+          "research_question",
+          "population",
+          "data_load_label"
+        ],
+        "title": "DeepResearchSummary",
+        "type": "object"
+      },
       "DefinitionalPayload": {
         "additionalProperties": false,
         "properties": {
@@ -2040,6 +2818,87 @@
         "title": "ExpandModel",
         "type": "object"
       },
+      "ExpectedRecoveryRowPayload": {
+        "additionalProperties": false,
+        "description": "One population of open denials, priced or explicitly not priced.",
+        "properties": {
+          "catchable_dollars_cents": {
+            "title": "Catchable Dollars Cents",
+            "type": "integer"
+          },
+          "deadline_passed_dollars_cents": {
+            "title": "Deadline Passed Dollars Cents",
+            "type": "integer"
+          },
+          "deadline_unknown_dollars_cents": {
+            "title": "Deadline Unknown Dollars Cents",
+            "type": "integer"
+          },
+          "evidence": {
+            "enum": [
+              "measured",
+              "not_estimable"
+            ],
+            "title": "Evidence",
+            "type": "string"
+          },
+          "expected_cents": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Cents"
+          },
+          "expected_interval": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MoneyIntervalPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "open_denials": {
+            "title": "Open Denials",
+            "type": "integer"
+          },
+          "open_dollars_cents": {
+            "title": "Open Dollars Cents",
+            "type": "integer"
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/StratumPartPayload"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "rate_cell": {
+            "$ref": "#/components/schemas/RateCellPayload"
+          }
+        },
+        "required": [
+          "label",
+          "evidence",
+          "open_denials",
+          "open_dollars_cents",
+          "catchable_dollars_cents",
+          "deadline_passed_dollars_cents",
+          "deadline_unknown_dollars_cents",
+          "rate_cell"
+        ],
+        "title": "ExpectedRecoveryRowPayload",
+        "type": "object"
+      },
       "ExplainModel": {
         "additionalProperties": false,
         "properties": {
@@ -2235,6 +3094,95 @@
           }
         },
         "title": "HTTPValidationError",
+        "type": "object"
+      },
+      "HeadlinePayload": {
+        "additionalProperties": false,
+        "description": "What the open denials are worth, and how sure that figure is.\n\n``total_expected_cents`` covers measured populations only. Everything\nthat could not be measured is in ``unpriced_open_dollars_cents`` and\nlisted separately, at full value, so a reader can see exactly how much\nof the inventory went unpriced instead of finding a total that quietly\nassumed zero.\n\nThe range is the sum of each population's own range. Populations that\nshare payers, staffing and seasons move together, so it is a spread\nindication rather than a guarantee \u2014 ``range_assumes_independence``\nsays so on the wire rather than in a comment.",
+        "properties": {
+          "catchable_dollars_cents": {
+            "title": "Catchable Dollars Cents",
+            "type": "integer"
+          },
+          "deadline_passed_dollars_cents": {
+            "title": "Deadline Passed Dollars Cents",
+            "type": "integer"
+          },
+          "deadline_unknown_dollars_cents": {
+            "title": "Deadline Unknown Dollars Cents",
+            "type": "integer"
+          },
+          "priced_open_dollars_cents": {
+            "title": "Priced Open Dollars Cents",
+            "type": "integer"
+          },
+          "range_assumes_independence": {
+            "default": true,
+            "title": "Range Assumes Independence",
+            "type": "boolean"
+          },
+          "total_expected_cents": {
+            "title": "Total Expected Cents",
+            "type": "integer"
+          },
+          "total_expected_interval": {
+            "$ref": "#/components/schemas/MoneyIntervalPayload"
+          },
+          "total_open_denials": {
+            "title": "Total Open Denials",
+            "type": "integer"
+          },
+          "total_open_dollars_cents": {
+            "title": "Total Open Dollars Cents",
+            "type": "integer"
+          },
+          "unpriced_open_dollars_cents": {
+            "title": "Unpriced Open Dollars Cents",
+            "type": "integer"
+          },
+          "unpriced_share": {
+            "title": "Unpriced Share",
+            "type": "string"
+          }
+        },
+        "required": [
+          "total_open_denials",
+          "total_open_dollars_cents",
+          "total_expected_cents",
+          "total_expected_interval",
+          "priced_open_dollars_cents",
+          "unpriced_open_dollars_cents",
+          "unpriced_share",
+          "catchable_dollars_cents",
+          "deadline_passed_dollars_cents",
+          "deadline_unknown_dollars_cents"
+        ],
+        "title": "HeadlinePayload",
+        "type": "object"
+      },
+      "IntervalPayload": {
+        "additionalProperties": false,
+        "description": "A confidence interval on a rate, as exact decimal text.",
+        "properties": {
+          "confidence": {
+            "title": "Confidence",
+            "type": "string"
+          },
+          "high": {
+            "title": "High",
+            "type": "string"
+          },
+          "low": {
+            "title": "Low",
+            "type": "string"
+          }
+        },
+        "required": [
+          "low",
+          "high",
+          "confidence"
+        ],
+        "title": "IntervalPayload",
         "type": "object"
       },
       "InvestigationResponse": {
@@ -2630,6 +3578,31 @@
           }
         },
         "title": "MetricProvenancePayload",
+        "type": "object"
+      },
+      "MoneyIntervalPayload": {
+        "additionalProperties": false,
+        "description": "A confidence interval on dollars, in whole cents.",
+        "properties": {
+          "confidence": {
+            "title": "Confidence",
+            "type": "string"
+          },
+          "high_cents": {
+            "title": "High Cents",
+            "type": "integer"
+          },
+          "low_cents": {
+            "title": "Low Cents",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "low_cents",
+          "high_cents",
+          "confidence"
+        ],
+        "title": "MoneyIntervalPayload",
         "type": "object"
       },
       "MonitorDeclarationPayload": {
@@ -4501,6 +5474,82 @@
         "title": "RankByModel",
         "type": "object"
       },
+      "RateCellPayload": {
+        "additionalProperties": false,
+        "description": "One population's recovery rate, or its refusal to publish one.\n\nA cell is either a measurement \u2014 ``rate`` and ``interval`` both present\n\u2014 or a refusal, with both absent. There is no third state. ``n`` and\n``successes`` are published either way, because the size of the\npopulation is the reason for the refusal and hiding it would make the\nrefusal impossible to check.",
+        "properties": {
+          "basis": {
+            "enum": [
+              "decided",
+              "pursuit"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "evidence": {
+            "enum": [
+              "measured",
+              "not_estimable"
+            ],
+            "title": "Evidence",
+            "type": "string"
+          },
+          "floor": {
+            "title": "Floor",
+            "type": "integer"
+          },
+          "interval": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IntervalPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "n": {
+            "title": "N",
+            "type": "integer"
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/StratumPartPayload"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "rate": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate"
+          },
+          "successes": {
+            "title": "Successes",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "label",
+          "basis",
+          "n",
+          "successes",
+          "evidence",
+          "floor"
+        ],
+        "title": "RateCellPayload",
+        "type": "object"
+      },
       "RecommendedThresholdPayload": {
         "additionalProperties": false,
         "description": "The sensitivity Revi recommends for a metric, as a NUMBER.\n\nA default the reader cannot inspect is not a default they can accept.\nThe materiality gate is governed content and used to reach a client only\ninside prose (\"more than the governed threshold for this measure\"), which\nasks somebody to agree to a value while describing it in words they\ncannot evaluate \u2014 and which no client should have to parse a sentence to\nrecover. So the rule is published as data as well as prose\n(``docs/client-language.md`` \u00a72.1).\n\nMoney and count rules have two components at once \u2014 a share of the prior\nvalue AND an absolute floor, because relative alone briefs a $40 balance\nthat doubled and absolute alone briefs a rounding error on $12M \u2014 so\nboth are published and either may be null.",
@@ -4591,6 +5640,133 @@
           "dimension"
         ],
         "title": "RemoveFilterModel",
+        "type": "object"
+      },
+      "ResearchAnglePayload": {
+        "additionalProperties": false,
+        "description": "One angle a run looked at, and how it was cut.",
+        "properties": {
+          "basis": {
+            "default": "decided",
+            "enum": [
+              "decided",
+              "pursuit"
+            ],
+            "title": "Basis",
+            "type": "string"
+          },
+          "family": {
+            "enum": [
+              "outcome_by_stratum",
+              "payer_contrast",
+              "class_contrast",
+              "timeliness_curve",
+              "deadline_interaction",
+              "expected_recovery"
+            ],
+            "title": "Family",
+            "type": "string"
+          },
+          "purpose": {
+            "title": "Purpose",
+            "type": "string"
+          },
+          "stratify_by": {
+            "items": {
+              "enum": [
+                "payer",
+                "plan",
+                "recovery_class",
+                "age_band",
+                "dollar_band",
+                "delay_band",
+                "filing_position",
+                "filing_rule"
+              ],
+              "type": "string"
+            },
+            "title": "Stratify By",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "within": {
+            "items": {
+              "enum": [
+                "payer",
+                "plan",
+                "recovery_class",
+                "age_band",
+                "dollar_band",
+                "delay_band",
+                "filing_position",
+                "filing_rule"
+              ],
+              "type": "string"
+            },
+            "title": "Within",
+            "type": "array"
+          }
+        },
+        "required": [
+          "family",
+          "title",
+          "purpose"
+        ],
+        "title": "ResearchAnglePayload",
+        "type": "object"
+      },
+      "ResearchPlanPayload": {
+        "additionalProperties": false,
+        "description": "The angles a run will look at, and who chose them.\n\n``authored_by`` is ``model`` when the control plane selected the angles\nand ``revi`` when the run fell back to the standing set \u2014 a run whose\nplan came from a fallback says so rather than presenting it as a\nchoice. Either way every angle is one of the closed set, and none of\nthem computes anything: the numbers come from deterministic code.",
+        "properties": {
+          "added_by_revi": {
+            "items": {
+              "enum": [
+                "outcome_by_stratum",
+                "payer_contrast",
+                "class_contrast",
+                "timeliness_curve",
+                "deadline_interaction",
+                "expected_recovery"
+              ],
+              "type": "string"
+            },
+            "title": "Added By Revi",
+            "type": "array"
+          },
+          "angles": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchAnglePayload"
+            },
+            "title": "Angles",
+            "type": "array"
+          },
+          "authored_by": {
+            "default": "revi",
+            "enum": [
+              "model",
+              "revi"
+            ],
+            "title": "Authored By",
+            "type": "string"
+          },
+          "rationale": {
+            "default": "",
+            "title": "Rationale",
+            "type": "string"
+          },
+          "research_question": {
+            "title": "Research Question",
+            "type": "string"
+          }
+        },
+        "required": [
+          "research_question"
+        ],
+        "title": "ResearchPlanPayload",
         "type": "object"
       },
       "ResetContextModel": {
@@ -5006,6 +6182,79 @@
         "title": "SettingsBoundsPayload",
         "type": "object"
       },
+      "StartDeepResearchRequest": {
+        "additionalProperties": false,
+        "description": "Launch a run over a target population.",
+        "properties": {
+          "population": {
+            "$ref": "#/components/schemas/DeepResearchSelector"
+          },
+          "question": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id"
+          }
+        },
+        "title": "StartDeepResearchRequest",
+        "type": "object"
+      },
+      "StratumPartPayload": {
+        "additionalProperties": false,
+        "description": "One ``population = value`` pair, with the words a reader sees.",
+        "properties": {
+          "stratifier": {
+            "enum": [
+              "payer",
+              "plan",
+              "recovery_class",
+              "age_band",
+              "dollar_band",
+              "delay_band",
+              "filing_position",
+              "filing_rule"
+            ],
+            "title": "Stratifier",
+            "type": "string"
+          },
+          "stratifier_label": {
+            "title": "Stratifier Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          },
+          "value_label": {
+            "title": "Value Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "stratifier",
+          "stratifier_label",
+          "value",
+          "value_label"
+        ],
+        "title": "StratumPartPayload",
+        "type": "object"
+      },
       "TermPayload": {
         "additionalProperties": false,
         "properties": {
@@ -5044,6 +6293,36 @@
           "definition"
         ],
         "title": "TermPayload",
+        "type": "object"
+      },
+      "ThinPopulationsPayload": {
+        "additionalProperties": false,
+        "description": "Populations too small to name individually, counted together.\n\nNaming a population of four denials and printing its dollars discloses\nthose four denials. So populations under the disclosure level are\nrolled into this one line: how many there were and what they hold, and\nnothing that identifies any of them.",
+        "properties": {
+          "floor": {
+            "title": "Floor",
+            "type": "integer"
+          },
+          "open_denials": {
+            "title": "Open Denials",
+            "type": "integer"
+          },
+          "open_dollars_cents": {
+            "title": "Open Dollars Cents",
+            "type": "integer"
+          },
+          "populations": {
+            "title": "Populations",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "populations",
+          "open_denials",
+          "open_dollars_cents",
+          "floor"
+        ],
+        "title": "ThinPopulationsPayload",
         "type": "object"
       },
       "TimeToImpactPayload": {
@@ -5152,6 +6431,61 @@
         "title": "TimeToImpactPayload",
         "type": "object"
       },
+      "TimelinessBandPayload": {
+        "additionalProperties": false,
+        "properties": {
+          "band": {
+            "title": "Band",
+            "type": "string"
+          },
+          "cell": {
+            "$ref": "#/components/schemas/RateCellPayload"
+          }
+        },
+        "required": [
+          "band",
+          "cell"
+        ],
+        "title": "TimelinessBandPayload",
+        "type": "object"
+      },
+      "TimelinessCurvePayload": {
+        "additionalProperties": false,
+        "description": "Recovery rate by how long the denial waited before going back out.",
+        "properties": {
+          "bands": {
+            "items": {
+              "$ref": "#/components/schemas/TimelinessBandPayload"
+            },
+            "title": "Bands",
+            "type": "array"
+          },
+          "implication": {
+            "default": "",
+            "title": "Implication",
+            "type": "string"
+          },
+          "within": {
+            "items": {
+              "enum": [
+                "payer",
+                "plan",
+                "recovery_class",
+                "age_band",
+                "dollar_band",
+                "delay_band",
+                "filing_position",
+                "filing_rule"
+              ],
+              "type": "string"
+            },
+            "title": "Within",
+            "type": "array"
+          }
+        },
+        "title": "TimelinessCurvePayload",
+        "type": "object"
+      },
       "TurnAnswer": {
         "additionalProperties": false,
         "properties": {
@@ -5203,6 +6537,16 @@
             "anyOf": [
               {
                 "$ref": "#/components/schemas/DebugTracePayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "deep_research": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeepResearchAffordance"
               },
               {
                 "type": "null"
@@ -6150,6 +7494,426 @@
           }
         ],
         "summary": "Get Capabilities"
+      }
+    },
+    "/v1/deep-research": {
+      "get": {
+        "description": "This tenant's deep-research runs, newest first.",
+        "operationId": "list_deep_research_v1_deep_research_get",
+        "parameters": [
+          {
+            "in": "query",
+            "name": "limit",
+            "required": false,
+            "schema": {
+              "default": 25,
+              "maximum": 100,
+              "minimum": 1,
+              "title": "Limit",
+              "type": "integer"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeepResearchListResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable \u00a712 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, \u2026)."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unknown session, investigation, or referent (REFERENT_NOT_FOUND)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "WATERMARK_STALE or CONTEXT_CONFLICT \u2014 the pinned context cannot absorb the request without an explicit decision."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "SOURCE_UNAVAILABLE or DATA_LOADING \u2014 the analytical source cannot serve this watermark right now."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "List Deep Research"
+      },
+      "post": {
+        "description": "Start a deep-research run over a target population.\n\nReturns immediately with the run's id and its starting state; the\nrun continues in the background. Watch it on the run's stream, or\npoll the run itself. The run is pinned to the newest load at the\nmoment it starts and every number in its report is read at that\nload.",
+        "operationId": "start_deep_research_v1_deep_research_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/StartDeepResearchRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "202": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeepResearchRunResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable \u00a712 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, \u2026)."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unknown session, investigation, or referent (REFERENT_NOT_FOUND)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "WATERMARK_STALE or CONTEXT_CONFLICT \u2014 the pinned context cannot absorb the request without an explicit decision."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "SOURCE_UNAVAILABLE or DATA_LOADING \u2014 the analytical source cannot serve this watermark right now."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Start Deep Research"
+      }
+    },
+    "/v1/deep-research/{run_id}": {
+      "get": {
+        "description": "One run: how far it has got, and its report once it is finished.",
+        "operationId": "get_deep_research_v1_deep_research__run_id__get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeepResearchRunResponse"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable \u00a712 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, \u2026)."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unknown session, investigation, or referent (REFERENT_NOT_FOUND)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "WATERMARK_STALE or CONTEXT_CONFLICT \u2014 the pinned context cannot absorb the request without an explicit decision."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "SOURCE_UNAVAILABLE or DATA_LOADING \u2014 the analytical source cannot serve this watermark right now."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Get Deep Research"
+      }
+    },
+    "/v1/deep-research/{run_id}/stream": {
+      "get": {
+        "description": "Server-Sent Events for one run, from wherever it has got to. A \nwatcher that attaches late is caught up with the frames already \nemitted, so nothing is missed by joining mid-run.\n\nEach frame is `event: <kind>` + `data: <json>` \u2014 see the \n`DeepResearchStreamEvent` schema. Frame kinds and payloads:\n\n- `research_started` \u2014 the run's id, the data load it is pinned to, and the population it targets\n- `research_plan` \u2014 the angles this run will look at, in the order it will look at them\n- `research_progress` \u2014 which angle is running, how far along, and how long it has taken\n- `research_finding` \u2014 one certified result, the moment it is measured\n- `research_warning` \u2014 a qualification a reader needs before reading the numbers\n- `narrative_delta` \u2014 one chunk of the written report as it is composed\n- `error` \u2014 the run stopped; nothing partial is published\n- `research_complete` \u2014 the finished report\n\nThe stream is progress; the final `research_complete` frame carries \nthe finished report, which is also what the run's own GET returns.",
+        "operationId": "stream_deep_research_v1_deep_research__run_id__stream_get",
+        "parameters": [
+          {
+            "in": "path",
+            "name": "run_id",
+            "required": true,
+            "schema": {
+              "title": "Run Id",
+              "type": "string"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "content": {
+              "text/event-stream": {
+                "schema": {
+                  "$ref": "#/components/schemas/DeepResearchStreamEvent"
+                }
+              }
+            },
+            "description": "Successful Response"
+          },
+          "400": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Stable \u00a712 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, \u2026)."
+          },
+          "401": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body."
+          },
+          "403": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404."
+          },
+          "404": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "Unknown session, investigation, or referent (REFERENT_NOT_FOUND)."
+          },
+          "409": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "WATERMARK_STALE or CONTEXT_CONFLICT \u2014 the pinned context cannot absorb the request without an explicit decision."
+          },
+          "422": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            },
+            "description": "Validation Error"
+          },
+          "503": {
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorEnvelope"
+                }
+              }
+            },
+            "description": "SOURCE_UNAVAILABLE or DATA_LOADING \u2014 the analytical source cannot serve this watermark right now."
+          }
+        },
+        "security": [
+          {
+            "HTTPBearer": []
+          }
+        ],
+        "summary": "Stream Deep Research"
       }
     },
     "/v1/health": {

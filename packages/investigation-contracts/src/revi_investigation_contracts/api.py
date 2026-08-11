@@ -15,6 +15,7 @@ from typing import Annotated, Any, Literal, Protocol, Union
 from pydantic import Field, model_validator
 
 from revi_investigation_contracts.debug import DebugTracePayload
+from revi_investigation_contracts.deep_research_offer import DeepResearchAffordance
 from revi_investigation_contracts.evidence import EvidencePayload
 from revi_investigation_contracts.header import ContextHeaderPayload
 from revi_investigation_contracts.provenance import MetricProvenancePayload
@@ -666,6 +667,12 @@ class TurnAnswer(ClosedModel):
     #: asked for it (``debug=true``). Always ``None`` otherwise — the
     #: trace is still recorded; it is simply not published.
     debug: DebugTracePayload | None = None
+    #: A deep-research run this answer could launch, when the analyst asked
+    #: for one by name. Additive and optional: the answer above is still
+    #: the answer to the question that was asked, and this names the
+    #: population a run would cover rather than describing it in a sentence
+    #: a client would have to read back into a request.
+    deep_research: DeepResearchAffordance | None = None
 
 
 class TurnClarification(ClosedModel):
@@ -1389,6 +1396,13 @@ class AnomalyCard(ClosedModel):
     #: lead nobody has claimed.
     lead_status_note: str = ""
     lead_updated_at: datetime | None = None
+    #: A deep-research run this lead could launch, when the card names a
+    #: population the recoverability mode can measure — a payer, a facility.
+    #: Additive and optional; it carries the SELECTOR rather than a
+    #: sentence, so what the reader taps is exactly what runs. ``None`` on
+    #: a card whose cut the mode cannot target, which is a fact about the
+    #: card rather than a silent omission.
+    deep_research: DeepResearchAffordance | None = None
     #: When the cash effect of this card lands, or whether it already has.
     #: ``None`` only when the deployment ships no governed time-to-impact
     #: content at all; otherwise every card carries one, including the

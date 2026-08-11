@@ -22,7 +22,7 @@ from __future__ import annotations
 
 import logging
 import uuid
-from collections.abc import Mapping
+from collections.abc import AsyncIterator, Mapping
 from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
@@ -40,6 +40,11 @@ from revi_api.assembly import (
 from revi_api.auth import AuthorizationError, Principal
 from revi_api.cohort_payload import cohort_id_from_trace, cohort_payload_for
 from revi_api.debug_trace import build_debug_trace
+from revi_api.deep_research import (
+    DEEP_RESEARCH_TRACE_SUFFIX,
+    DeepResearchApi,
+)
+from revi_api.deep_research_narrative import compose_report_narrative
 from revi_api.error_copy import budget_subcode, plain_message
 from revi_api.monitor_intent import (
     MonitorDeclaration,
@@ -105,6 +110,11 @@ from revi_investigation_contracts.api import (
     WorklistPayload,
     WorklistQuery,
 )
+from revi_investigation_contracts.deep_research import (
+    DeepResearchListResponse,
+    DeepResearchRunResponse,
+    StartDeepResearchRequest,
+)
 from revi_investigation_contracts.settings import SessionSettingsModel
 from revi_kernel.errors import ErrorCode, PolicyDeniedError, ReviError
 from revi_kernel.watermark import DataWatermark
@@ -161,7 +171,13 @@ _SUPPLEMENTARY_SUFFIXES = (
     WORKLIST_TRACE_SUFFIX,
     MONITOR_TRACE_SUFFIX,
     API_TRACE_SUFFIX,
+    DEEP_RESEARCH_TRACE_SUFFIX,
 )
+
+#: How many of a tenant's conversations a run listing scans. Runs live in
+#: conversations like every other investigation, so the listing walks them;
+#: this bounds that walk at a depth well past any realistic run history.
+_RESEARCH_SESSION_SCAN = 200
 
 #: How far back a worklist reference looks for the list it names. Three
 #: turns: the list, a question about it, and a follow-up to that. Beyond
@@ -460,6 +476,7 @@ class ApiService:
         # be the same object from the same build, which is the rule the
         # conversational worklist already follows.
         self._monitors = MonitorsService(components, portfolio_for=self._portfolio_for)
+        self._research: DeepResearchApi | None = None
 
     @property
     def components(self) -> ApiComponents:
@@ -469,6 +486,87 @@ class ApiService:
     def monitors(self) -> MonitorsService:
         """The Monitors surface: monitors, per-load evaluation, brief, leads."""
         return self._monitors
+
+    @property
+    def research(self) -> DeepResearchApi:
+        """Deep research: launching runs, watching them, serving them back.
+
+        Built lazily and held for the life of the process, because a run
+        outlives the request that started it and the registry of in-flight
+        runs is what a watcher attaches to.
+        """
+        if self._research is None:
+            components = self._components
+
+            async def compose(
+                *,
+                draft: Any,
+                warnings: Any,
+                emit: Any,
+            ) -> str:
+                text, _ = await compose_report_narrative(
+                    llm=components.llm,
+                    draft=draft,
+                    warnings=warnings,
+                    emit=emit,
+                    metric_display=components.metric_display.names,
+                )
+                return text
+
+            self._research = DeepResearchApi(
+                service=components.deep_research,
+                investigations=components.investigations,
+                traces=components.traces,
+                pack_id=components.pack_port.pack_id,
+                pack_version=components.pack_port.pack_version,
+                pack_snapshot_id=components.pack_port.snapshot_id,
+                compose=compose,
+            )
+        return self._research
+
+    # ------------------------------------------------------------ deep research
+
+    async def start_deep_research(
+        self, principal: Principal, request: StartDeepResearchRequest
+    ) -> DeepResearchRunResponse:
+        """Launch a run, pinned to the newest load, in a conversation."""
+        if request.session_id:
+            session = await self._authorized_session(principal, request.session_id)
+        else:
+            session = await self._components.open_session.open(
+                tenant=principal.tenant, session_id=None
+            )
+        watermark = session.watermark
+        return await self.research.start(
+            principal,
+            request,
+            session,
+            watermark,
+            self._components.deep_research_settings,
+        )
+
+    async def get_deep_research(
+        self, principal: Principal, run_id: str
+    ) -> DeepResearchRunResponse:
+        return await self.research.get(principal, run_id)
+
+    async def list_deep_research(
+        self, principal: Principal, *, limit: int = 25
+    ) -> DeepResearchListResponse:
+        page = await self._components.sessions.list_for_tenant(
+            principal.tenant, limit=_RESEARCH_SESSION_SCAN
+        )
+        sessions: list[Session] = []
+        for summary in page.sessions:
+            found = await self._components.sessions.get(summary.session_id)
+            if found is not None and found.tenant == principal.tenant:
+                sessions.append(found)
+        return await self.research.list_runs(principal, sessions, limit=limit)
+
+    def stream_deep_research(
+        self, principal: Principal, run_id: str
+    ) -> AsyncIterator[str]:
+        return self.research.stream(principal, run_id)
 
     # ------------------------------------------------------------ authorization
 

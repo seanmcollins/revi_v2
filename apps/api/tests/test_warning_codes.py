@@ -423,6 +423,52 @@ FAMILIES: list[tuple[str, str, str]] = [
         "so the way forward is to ask it a different way.",
     ),
     (
+        "DEEP_RESEARCH_UNPRICED",
+        "caution",
+        "deep_research_unpriced: $2,430,765.30 — 42.3% of the open denied dollars — sits "
+        "in 26 populations your own history cannot price yet, and is left out of the "
+        "figure above.",
+    ),
+    (
+        "DEEP_RESEARCH_THIN_ROLLUP",
+        "info",
+        "deep_research_thin_rollup: A further 6 populations hold 41 open denials worth "
+        "$88,712.52 between them. Each is smaller than 11 denials, so they are shown "
+        "together rather than named.",
+    ),
+    (
+        "DEEP_RESEARCH_EXTREMES",
+        "caution",
+        "deep_research_extremes: These two were picked because they sit at the ends of "
+        "the range, so read the gap as a place to look rather than a result that has "
+        "been confirmed.",
+    ),
+    (
+        "DEEP_RESEARCH_INDEPENDENCE",
+        "caution",
+        "deep_research_independence: The range around the total is the sum of each "
+        "population's own range. Populations that share payers, staffing and seasons "
+        "move together, so read it as a spread rather than a guarantee.",
+    ),
+    (
+        "DEEP_RESEARCH_ANGLE_REFUSED",
+        "caution",
+        "deep_research_angle_refused: Speed and what it is worth was not run: the "
+        "content defines no delay bands to read a curve along",
+    ),
+    (
+        "DEEP_RESEARCH_CENSORING",
+        "info",
+        "deep_research_censoring: 212 denials have been resubmitted and are still "
+        "waiting on the payer. They are counted in neither the wins nor the losses.",
+    ),
+    (
+        "DEEP_RESEARCH_NO_PRIOR",
+        "info",
+        "deep_research_no_prior: Every rate here is measured on your own denials. "
+        "Nothing is filled in from an industry average.",
+    ),
+    (
         "REFINEMENT_REUSED_PLAN",
         "info",
         "refinement_reused_plan: this answer re-serves the previous turn's plan "

@@ -36,6 +36,13 @@ from typing import TYPE_CHECKING
 
 from revi_api.actionability import ActionabilityRules, load_actionability_rules
 from revi_api.adapters import CalculationTransforms, PackSnapshotPort
+from revi_api.deep_research_policy import (
+    DEEP_RESEARCH_FILENAME,
+    FILING_RULES_FILENAME,
+    FilingRuleLadder,
+    load_deep_research_settings,
+    load_filing_rule_ladder,
+)
 from revi_api.events import ContextTurnEventBus
 from revi_api.memory_stores import (
     MemoryCohortStore,
@@ -65,6 +72,9 @@ from revi_catalog_contracts.model import CatalogSnapshot
 from revi_connector_duckdb import DuckDbAnalyticalRepository, DuckDbAnomalySource
 from revi_investigation.application.calculation_glue import CalculateMetricsService
 from revi_investigation.application.cohorts import PinCohortService
+from revi_investigation.application.deep_research import DeepResearchService, DenialRowSource
+from revi_investigation.application.deep_research.llm import PlanDeepResearchService
+from revi_investigation.application.deep_research.policy import DeepResearchSettings
 from revi_investigation.application.execution import ExecuteInvestigationService
 from revi_investigation.application.findings import EvaluateFindingsService
 from revi_investigation.application.interpretation import (
@@ -206,6 +216,13 @@ class ApiComponents:
     #: Admin bounds for session settings, and the resolver that enforces
     #: them (out-of-bounds is refused, never clamped).
     settings_policy: SettingsPolicy
+    #: Deep research (the recoverability mode): the governed content one run
+    #: is executed under, which plans' filing limits stand without a
+    #: confirmation caveat, and the service that runs the angles.
+    #: See :mod:`revi_api.deep_research`.
+    deep_research_settings: DeepResearchSettings
+    filing_rules: FilingRuleLadder
+    deep_research: DeepResearchService
 
 
 @dataclass(frozen=True)
@@ -489,6 +506,23 @@ def build_components(
 
     actionability_path = pack_dir / "anomaly_actionability.yaml"
     actionability: ActionabilityRules = load_actionability_rules(actionability_path)
+    deep_research_settings = load_deep_research_settings(pack_dir / DEEP_RESEARCH_FILENAME)
+    filing_rules = load_filing_rule_ladder(pack_dir / FILING_RULES_FILENAME)
+    logger.info(
+        "deep research: rate floor %d, naming floor %d, %d maturity window(s), content %s",
+        deep_research_settings.min_cohort,
+        deep_research_settings.disclosure_floor,
+        len(deep_research_settings.maturity_days),
+        deep_research_settings.content_hash[:12],
+    )
+    deep_research = DeepResearchService(
+        DenialRowSource(
+            repository,
+            stores.cache,
+            filing_rule_confirmed=filing_rules.confirmed,
+        ),
+        planner=PlanDeepResearchService(llm),
+    )
     metric_display: MetricDisplayRules = load_metric_display(pack_dir / "metric_display.yaml")
     worklist: WorklistRouting = load_worklist_routing(pack_dir / WORKLIST_FILENAME)
     monitors_policy: MonitorsPolicy = load_monitors_policy(pack_dir / MONITORS_FILENAME)
@@ -567,4 +601,7 @@ def build_components(
         settings_policy=SettingsPolicy.from_env(
             env, model_tier_effective=applies_call_policy
         ),
+        deep_research_settings=deep_research_settings,
+        filing_rules=filing_rules,
+        deep_research=deep_research,
     )

@@ -9,6 +9,11 @@ dependencies = [
     "revi-catalog-contracts",
     "revi-calculation-contracts",
     "revi-pack-contracts",
+    # Deep research is the statistics capability's one consumer: the engine
+    # reads denial rows through the ordinary analytical port and hands them
+    # to the estimators. See the import-linter contract of the same name.
+    "revi-statistics",
+    "revi-statistics-contracts",
     # Pydantic is permitted ONLY for the schema-constrained LLM boundary
     # (application/llm/schemas.py); the domain stays frozen dataclasses.
     "pydantic>=2.7",
@@ -27,3 +32,5 @@ revi-investigation-contracts = { workspace = true }
 revi-catalog-contracts = { workspace = true }
 revi-calculation-contracts = { workspace = true }
 revi-pack-contracts = { workspace = true }
+revi-statistics = { workspace = true }
+revi-statistics-contracts = { workspace = true }
