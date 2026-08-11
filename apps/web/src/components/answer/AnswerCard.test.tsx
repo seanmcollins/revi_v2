@@ -1007,7 +1007,7 @@ describe("AnswerCard — a caution is printed once, not twice", () => {
    */
   const CENSUS = `${RAW.replace(/^alternate_basis_used: /, "")}.`;
   /** A distinctive fragment of it, for the "printed once" count below. */
-  const CENSUS_FRAGMENT = "is not available at the 'claim' grain";
+  const CENSUS_FRAGMENT = "does not carry that date at the claim level";
 
   function doubled() {
     return bareTurn({

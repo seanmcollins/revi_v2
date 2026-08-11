@@ -475,6 +475,11 @@ export function chartViewForms(spec: ChartSpec): ChartView[] {
 
 /** The drawing a figure opens in — the one the engine's own kind implies. */
 export function defaultChartView(spec: ChartSpec): ChartView {
+  // The engine can declare a figure's natural form outright: a scorecard
+  // panel publishes chart_type "table" because its content is one row per
+  // entity across many measures — bars over that would draw eighteen
+  // unrelated units on one axis. The reader's view-as choice still wins.
+  if (spec.wireChartType === "table") return "table";
   const shape = chartShape(spec);
   if (shape === "comparison") return "grouped";
   if (shape === "series") return "line";
