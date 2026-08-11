@@ -113,6 +113,7 @@ apps/api/                                 FastAPI + SSE; assembly.py projects en
                                           to the wire; monitors/ is the Monitors backend
 apps/web/                                 Vite + React SPA; lib/ maps wire → view models
 contracts/openapi.json                    exported API surface (make openapi)
+docs/HANDOFF.md                           how to finish the open work — read after this file
 docs/reviews/adversarial/                 ten rounds of persona review — the "why" behind
                                           many non-obvious behaviors
 ```
