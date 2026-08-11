@@ -36,10 +36,24 @@ import type { MonitorsDelta, MonitorsTile } from "@/lib/monitors";
 /** Below this many stored readings, no line is drawn. See the note above. */
 export const MONITOR_HISTORY_MIN = 3;
 
+/**
+ * WHICH READING THIS IS, in the only vocabulary the payload supports.
+ *
+ * The stored evaluations arrive as three named fields rather than as a
+ * dated series, so "when" is answerable only as provenance: the load the
+ * monitor was created on, the load before this one, and this one. The
+ * detail chart labels its axis from this — a data load's own handle is
+ * banned from a client surface (docs/client-language.md §3), and there is
+ * no date on the wire for a historical reading to be named by.
+ */
+export type MonitorReadingOrigin = "baseline" | "prior" | "current";
+
 /** One stored evaluation of a monitor, at one data load. */
 export interface MonitorReading {
   /** The data load this reading was taken at. */
   watermarkId: string;
+  /** Where this reading came from — see {@link MonitorReadingOrigin}. */
+  origin: MonitorReadingOrigin;
   /** The value, in the contract's unit, as the server published it. */
   value: number;
   /** The server's own rendering of it — carries any `≤`. */
@@ -55,12 +69,16 @@ export interface MonitorReading {
 /** The "≤" the engine puts in front of a ceiling, wherever it renders it. */
 const CEILING = /[≤<]/;
 
-function priorReading(delta: MonitorsDelta | undefined): MonitorReading | undefined {
+function priorReading(
+  delta: MonitorsDelta | undefined,
+  origin: MonitorReadingOrigin,
+): MonitorReading | undefined {
   if (delta === undefined) return undefined;
   if (delta.priorValue === undefined) return undefined;
   if (delta.priorWatermarkId === "") return undefined;
   return {
     watermarkId: delta.priorWatermarkId,
+    origin,
     value: delta.priorValue,
     valueText: delta.priorValueText,
     bounded: CEILING.test(delta.priorValueText),
@@ -93,12 +111,13 @@ export function monitorReadings(tile: MonitorsTile): MonitorReading[] {
     readings.push(reading);
   };
 
-  push(priorReading(tile.baselineDelta));
-  push(priorReading(tile.delta));
+  push(priorReading(tile.baselineDelta, "baseline"));
+  push(priorReading(tile.delta, "prior"));
 
   if (tile.status === "ok" && tile.value !== undefined && tile.watermarkId !== "") {
     push({
       watermarkId: tile.watermarkId,
+      origin: "current",
       value: tile.value,
       valueText: tile.valueText,
       // Both sources agree on the live payload; either one alone is

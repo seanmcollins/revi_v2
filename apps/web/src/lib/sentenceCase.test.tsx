@@ -33,7 +33,7 @@ import { AnswerCard } from "@/components/answer/AnswerCard";
 import { BriefPanel } from "@/components/monitors/BriefPanel";
 import { LeadLifecyclePanel, type LeadRow } from "@/components/monitors/LeadLifecycle";
 import { LeadStatusControl } from "@/components/monitors/LeadStatus";
-import { MonitorTile } from "@/components/monitors/MonitorTile";
+import { DigestTile } from "@/components/home/MonitorDigest";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import answers from "@/lib/__fixtures__/live-answers.json";
 import live from "@/lib/__fixtures__/live-monitors.json";
@@ -229,9 +229,19 @@ describe("the monitors surface opens every card in capitals", () => {
   for (const tile of tiles) {
     it(`tile: ${tile.pinId}`, () => {
       const pin = PINS.find((p) => p?.pinId === tile.pinId);
+      // EXPANDED, which is where the density is. The compact tile is a
+      // label, a figure and a chip; every sentence a monitor writes — the
+      // movement, the materiality rule, the readings, the spec summary,
+      // the two-step confirm — is in the detail behind it.
       const { container } = draw(
         <ul>
-          <MonitorTile tile={tile} {...(pin ? { pin } : {})} />
+          <DigestTile
+            tile={tile}
+            {...(pin ? { pin } : {})}
+            moved={false}
+            expanded
+            onToggle={() => {}}
+          />
         </ul>,
       );
       expectSentenceCase(container, `the monitor tile ${tile.pinId}`);
@@ -246,7 +256,7 @@ describe("the monitors surface opens every card in capitals", () => {
   });
 
   it("the lead lifecycle controls", () => {
-    // The same rows `MonitorsSurface` builds: a lead the snapshot carries
+    // The same rows `useLeadRows` builds for Home: a lead the snapshot carries
     // a status for, joined to whatever this browser has since recorded.
     const state = mapLeadState(live.lead);
     expect(state, "the capture must contain a lead with a lifecycle").not.toBeNull();

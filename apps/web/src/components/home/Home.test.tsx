@@ -35,6 +35,8 @@ import { MemoryRouter, Route, Routes, useParams } from "react-router-dom";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import live from "@/lib/__fixtures__/live-monitors.json";
 import type { TurnDriver, TurnSubmission } from "@/lib/driver";
+import { monitorReadings } from "@/lib/monitorHistory";
+import { mapMonitorsPin, parseMonitors, type MonitorsPin } from "@/lib/monitors";
 import { INITIAL_PACK, useSessionStore } from "@/lib/store";
 import type { TurnEvent } from "@/lib/types";
 
@@ -244,6 +246,15 @@ function fakeDriver(): TurnDriver & { asked: TurnSubmission[] } {
   const asked: TurnSubmission[] = [];
   return {
     asked,
+    // Home reads the monitors' own settings now — `GET /v1/monitors/pins`,
+    // a different read from the one that draws the tiles — because a
+    // monitor's sensitivity is edited inside its tile here. It came with
+    // the retired Monitors surface.
+    async listMonitorsPins(): Promise<MonitorsPin[]> {
+      return (live.pins.pins as unknown[])
+        .map((raw) => mapMonitorsPin(raw))
+        .filter((pin): pin is MonitorsPin => pin !== null);
+    },
     async submit(submission: TurnSubmission, emit: (event: TurnEvent) => void) {
       asked.push(submission);
       useSessionStore.getState().adoptSession({
@@ -288,6 +299,10 @@ beforeEach(() => {
     streamingTurnId: null,
     sessions: [],
     leadStates: {},
+    knownMonitors: [],
+    monitorsLoaded: false,
+    monitorsLoading: false,
+    monitorsError: null,
   });
   serve();
 });
@@ -662,6 +677,254 @@ describe("Home — a monitor's stored readings, and the two dots that are not a 
   });
 });
 
+/* ------------------------------------------------------------------ */
+/* A monitor opens into itself                                          */
+/* ------------------------------------------------------------------ */
+
+/**
+ * WHAT `/monitors` LEFT BEHIND, and where it went.
+ *
+ * The retired surface was a grid of management cards. Home's digest was a
+ * list of links to it. Neither is true now: a tile opens in place into the
+ * monitor's own detail, and the click that used to leave for the
+ * conversation that created the monitor is the click that opens it — "I'm
+ * confused by the experience of clicking on a monitor and having it take
+ * you into the chat that started the monitor instead of some kind of more
+ * detailed analysis view".
+ */
+describe("Home — a monitor opens in place, into its own detail", () => {
+  /** The first monitor in the digest, whatever this capture ranks first. */
+  const openFirst = async (): Promise<HTMLElement> => {
+    const tiles = await waitFor(() => {
+      const found = document.querySelectorAll<HTMLElement>("[data-tile-pin]");
+      expect(found.length).toBeGreaterThan(0);
+      return found;
+    });
+    const trigger = within(tiles[0]).getByRole("button", { expanded: false });
+    await userEvent.click(trigger);
+    return tiles[0];
+  };
+
+  it("stays calm until it is opened — no management density on arrival", async () => {
+    draw();
+    const tiles = await waitFor(() => {
+      const found = document.querySelectorAll<HTMLElement>("[data-tile-pin]");
+      expect(found.length).toBeGreaterThan(0);
+      return found;
+    });
+    for (const tile of tiles) {
+      expect(tile).toHaveAttribute("data-tile-expanded", "false");
+      // One control per monitor, closed: the tile itself.
+      expect(tile.querySelectorAll("a[href], button")).toHaveLength(1);
+    }
+    expect(document.querySelector("[data-monitor-management]")).toBeNull();
+    expect(screen.queryByRole("button", { name: /Stop monitoring this/ })).toBeNull();
+  });
+
+  it("opens the monitor rather than navigating into the conversation behind it", async () => {
+    draw();
+    const tile = await openFirst();
+
+    expect(tile).toHaveAttribute("data-tile-expanded", "true");
+    // The click did NOT leave Home. `/i/{id}` resolves through the
+    // workspace, and a session route on screen is the old behaviour.
+    expect(screen.queryByTestId("session-route")).not.toBeInTheDocument();
+    expect(
+      screen.getByRole("heading", { level: 1, name: "Where things stand" }),
+    ).toBeInTheDocument();
+  });
+
+  it("demotes the investigation to a provenance link inside the detail", async () => {
+    draw();
+    const tile = await openFirst();
+    // Still reachable — every monitor IS a real investigation with a real
+    // trace, and that is the claim this link keeps checkable — but it is
+    // no longer what a click on the monitor does.
+    const provenance = within(tile).getByRole("link", {
+      name: /View the analysis this came from/,
+    });
+    expect(provenance.getAttribute("href")).toMatch(/^\/i\//);
+  });
+
+  it("draws the stored readings as a chart with the loads named", async () => {
+    // The monitor that actually HAS three stored readings, read out of the
+    // capture rather than assumed to be first: five of this tenant's seven
+    // carry only two, and below three nothing is drawn at any size.
+    const historied = (parseMonitors(live.monitors).value?.tiles ?? []).find(
+      (t) => monitorReadings(t).length >= 3,
+    );
+    expect(historied, "the capture must contain a monitor with three readings").toBeDefined();
+    draw();
+    const tile = await waitFor(() => {
+      const node = document.querySelector<HTMLElement>(
+        `[data-tile-pin="${historied!.pinId}"]`,
+      );
+      expect(node, "that monitor must be in the digest").not.toBeNull();
+      return node!;
+    });
+    await userEvent.click(within(tile).getByRole("button", { expanded: false }));
+    const chart = tile.querySelector("[data-monitor-history]");
+    expect(chart, "an opened monitor with three readings must draw them").not.toBeNull();
+    expect(chart!.querySelector("[data-history-points]")).toHaveAttribute(
+      "data-history-points",
+      "3",
+    );
+    // The axis is PROVENANCE — there is no date on the wire for a stored
+    // reading, and a data load's own handle is banned from a client
+    // surface. So it says what is actually known.
+    const labels = [...chart!.querySelectorAll("[data-history-reading]")].map(
+      (node) => node.getAttribute("data-history-reading"),
+    );
+    expect(labels).toEqual(["baseline", "prior", "current"]);
+    expect(chart!.textContent).toContain("When you started");
+    expect(chart!.textContent).toContain("This load");
+    // The marks survive the size change: this capture's newest reading is
+    // provisional, and a hollow dot is a shape until it is also a sentence.
+    expect(chart!.textContent).toContain("still settling");
+  });
+
+  it("states the rule that decided whether it briefed you, without a hover", async () => {
+    draw();
+    const tile = await openFirst();
+    const rule = tile.querySelector("[data-materiality-rule]");
+    expect(rule, "an opened monitor must state its materiality rule").not.toBeNull();
+    // Whose level, and the server's own sentence about what it compared.
+    expect(rule!.textContent).toMatch(/Your level|Revi's recommended level/);
+    expect(rule!.textContent!.length).toBeGreaterThan(30);
+  });
+
+  it("shows the lines this monitor put in the brief, as the brief renders them", async () => {
+    draw();
+    const tile = await openFirst();
+    const pinId = tile.getAttribute("data-tile-pin");
+    const expected = (BRIEF.entries as Json[]).filter((e) => e.pin_id === pinId);
+    // The capture's leading monitor is the one the brief leads with; if
+    // that ever stops being true this asserts nothing, so it is checked.
+    expect(expected.length).toBeGreaterThan(0);
+    expect(tile.querySelectorAll("[data-brief-entry]")).toHaveLength(expected.length);
+    expect(tile.textContent).toContain("What it said in this load's brief");
+  });
+
+  it("carries the sensitivity editor and the two-step stop, inline", async () => {
+    draw();
+    const tile = await openFirst();
+    await waitFor(() =>
+      expect(useSessionStore.getState().knownMonitors.length).toBeGreaterThan(0),
+    );
+
+    // The editor, with the recommended level as the number the wire
+    // published rather than an adjective.
+    await userEvent.click(
+      within(tile).getByRole("button", { name: /Change what it takes to brief you/ }),
+    );
+    expect(
+      await within(tile).findByRole("button", { name: /Save and restart this monitor/ }),
+    ).toBeInTheDocument();
+    expect(within(tile).getByText(/Revi's recommended level for/)).toBeInTheDocument();
+    await userEvent.click(within(tile).getByRole("button", { name: "Cancel" }));
+
+    // And the control that ends a monitor is armed before it fires.
+    await userEvent.click(within(tile).getByRole("button", { name: /Stop monitoring this/ }));
+    const armed = tile.querySelector("[data-stop-monitor-armed]");
+    expect(armed).not.toBeNull();
+    expect(armed).toHaveTextContent(/Nothing is deleted/);
+    expect(within(tile).getByRole("button", { name: /Keep monitoring/ })).toBeInTheDocument();
+  });
+
+  it("opens one at a time, and closes on Escape", async () => {
+    draw();
+    const first = await openFirst();
+    const tiles = document.querySelectorAll<HTMLElement>("[data-tile-pin]");
+    expect(tiles.length).toBeGreaterThan(1);
+
+    await userEvent.click(within(tiles[1]).getByRole("button", { expanded: false }));
+    expect(first).toHaveAttribute("data-tile-expanded", "false");
+    expect(tiles[1]).toHaveAttribute("data-tile-expanded", "true");
+
+    await userEvent.keyboard("{Escape}");
+    expect(tiles[1]).toHaveAttribute("data-tile-expanded", "false");
+  });
+
+  /**
+   * "ASK ABOUT THIS" — the conversation a monitor is supposed to start.
+   *
+   * It prefills rather than asks: the question lands in the composer as
+   * plain editable text and nothing hidden travels with it, so what the
+   * analyst reads in the box is the whole of what they would send.
+   */
+  it("offers a question about the monitor, in the composer, unsent", async () => {
+    draw();
+    const tile = await openFirst();
+    await userEvent.click(within(tile).getByRole("button", { name: "Ask about this" }));
+
+    const composer = screen.getByLabelText("Ask a question") as HTMLTextAreaElement;
+    await waitFor(() => expect(composer.value).not.toBe(""));
+    expect(composer.value).toMatch(/^(Why did|What should I know about) /);
+    // It names what this monitor measures, so the question is about the
+    // thing on screen rather than a generic prompt.
+    expect(composer.value.toLowerCase()).toContain(
+      (TILES[0].label as string).split(" ")[0].toLowerCase(),
+    );
+    // Unsent, and the caret is at the end rather than selecting the offer.
+    expect(useSessionStore.getState().turns).toHaveLength(0);
+    expect(document.activeElement).toBe(composer);
+    expect(composer.selectionStart).toBe(composer.value.length);
+    // Editable: typing extends it rather than replacing it.
+    await userEvent.type(composer, " Break it down by payer.");
+    expect(composer.value).toContain("Break it down by payer.");
+  });
+
+  it("offers the rest of the monitors rather than a link to a retired page", async () => {
+    draw();
+    await waitFor(() =>
+      expect(document.querySelectorAll("[data-tile-pin]").length).toBe(4),
+    );
+    // The digest used to end in "All 9 monitors, with their levels" —
+    // a link to `/monitors`. There is nowhere to defer to; it expands.
+    expect(screen.queryByRole("link", { name: /All \d+ monitors/ })).toBeNull();
+    const more = screen.getByRole("button", { name: /Show the other \d+ monitors/ });
+    await userEvent.click(more);
+    await waitFor(() =>
+      expect(document.querySelectorAll("[data-tile-pin]").length).toBe(TILES.length),
+    );
+    // And with the whole list on screen, the order it was put in is
+    // declared — "first" is the strongest statement a list makes.
+    expect(document.querySelector("[data-tile-census]")).not.toBeNull();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* The other axis: state rather than change                             */
+/* ------------------------------------------------------------------ */
+
+describe("Home — what somebody claimed they fixed", () => {
+  it("carries the lead lifecycle zone the retired surface owned", async () => {
+    useSessionStore.setState({
+      leadStates: {
+        "ANM-021": {
+          anomalyId: "ANM-021",
+          status: "working",
+          note: "Bianca is on it.",
+          verificationNote: "",
+          baselineBasis: "",
+          confirmingWatermarks: [],
+          confirmationsRequired: 2,
+        },
+      },
+    });
+    draw();
+    const zone = await screen.findByRole("region", { name: "Leads somebody is working" });
+    expect(within(zone).getByText(/Being worked/)).toBeInTheDocument();
+    expect(zone.querySelector('[data-lifecycle-lead="ANM-021"]')).not.toBeNull();
+  });
+
+  it("says nobody has picked one up rather than drawing an empty box", async () => {
+    draw();
+    const zone = await screen.findByRole("region", { name: "Leads somebody is working" });
+    expect(within(zone).getByText(/Nobody has picked up a lead yet/)).toBeInTheDocument();
+  });
+});
+
 describe("Home — the composer is one keystroke away, and it goes somewhere", () => {
   it("takes focus on arrival, so New chat lands on a cursor", async () => {
     draw();
@@ -765,13 +1028,19 @@ describe("Home — reachable without a mouse", () => {
     );
     expect(focusable.length).toBeGreaterThan(3);
     expect(focusable[0]).toHaveAccessibleName("Skip to what changed");
-    expect(focusable[1]).toHaveAccessibleName("Skip to the composer");
+    // The middle one arrived with the retired Monitors route, whose own
+    // skip links offered exactly this jump. It is worth more here: the
+    // digest can sit below a worklist, and it is where every monitor is
+    // now read AND managed.
+    expect(focusable[1]).toHaveAccessibleName("Skip to your monitors");
+    expect(focusable[2]).toHaveAccessibleName("Skip to the composer");
   });
 
   it("lands each skip link on something that can take focus", () => {
     draw();
     for (const [name, id] of [
       ["Skip to what changed", "home-what-changed"],
+      ["Skip to your monitors", "home-monitors"],
       ["Skip to the composer", "turn-composer"],
     ] as const) {
       const link = screen.getByRole("link", { name });

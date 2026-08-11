@@ -3,6 +3,7 @@
 import { Eye, EyeOff } from "lucide-react";
 import { Link } from "react-router-dom";
 
+import { MONITORS_ANCHOR, focusMonitorsZone } from "@/lib/monitorsAnchor";
 import type { MonitorDeclaration, MonitorRefusal } from "@/lib/monitors";
 
 /**
@@ -52,11 +53,16 @@ export function MonitorDeclarationNote({ monitor }: { monitor: MonitorDeclaratio
             </span>
           )}
           {monitor.thresholdStatement !== "" && <span>{monitor.thresholdStatement}</span>}
+          {/* WHERE THE MONITOR NOW LIVES. `/monitors` was a route and is
+              not one any more; the monitors are a zone on Home, and this
+              is a real fragment address to it (`lib/monitorsAnchor`) with
+              the focus move a fragment cannot make on its own. */}
           <Link
-            to="/monitors"
+            to={MONITORS_ANCHOR}
+            onClick={focusMonitorsZone}
             className="focus-ring rounded underline decoration-foreground/30 underline-offset-[3px] transition-colors duration-150 hover:text-foreground hover:decoration-foreground"
           >
-            See it in Monitors
+            See it with your monitors
           </Link>
         </p>
         {/* What the platform READ in the utterance, rather than an
@@ -120,7 +126,8 @@ export function MonitorRefusedNote({ refusal }: { refusal: MonitorRefusal }) {
         <p className="num flex flex-wrap items-baseline gap-x-2 text-micro text-muted-foreground">
           <span>The answer below stands on its own. Nothing is being monitored.</span>
           <Link
-            to="/monitors"
+            to={MONITORS_ANCHOR}
+            onClick={focusMonitorsZone}
             className="focus-ring rounded underline decoration-foreground/30 underline-offset-[3px] transition-colors duration-150 hover:text-foreground hover:decoration-foreground"
           >
             See what IS being monitored

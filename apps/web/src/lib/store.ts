@@ -530,6 +530,27 @@ interface SessionState {
    */
   lastPolicyDenial: string | null;
 
+  /**
+   * A QUESTION SOMETHING ELSE ON THE PAGE OFFERED TO ASK, waiting in the
+   * composer for the analyst to accept, edit or throw away.
+   *
+   * "Ask about this" on an expanded monitor writes a plain-English question
+   * here — "Why did denial rate for Ashvale Health Plan change at this
+   * load?" — and the composer picks it up, focuses, and puts the caret at
+   * the end. It is a DRAFT and nothing more: no hidden scope rides with it,
+   * the text on screen is the whole submission, and it goes through the
+   * ordinary path when the analyst presses send.
+   *
+   * One-shot. The composer clears the slot as it takes it, so a second
+   * offer of the same question is a second prefill rather than a no-op, and
+   * nothing re-fills the box behind somebody who deleted it.
+   */
+  composerDraft: string;
+  /** Offer a question to the composer. See {@link SessionState.composerDraft}. */
+  setComposerDraft: (text: string) => void;
+  /** Called by the composer once it has taken the draft. */
+  clearComposerDraft: () => void;
+
   setDriver: (driver: TurnDriver) => void;
   /** Hydrate persisted settings on the client (never during SSR). */
   hydrateSettings: () => void;
@@ -757,6 +778,8 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   leadPendingId: null,
   leadError: null,
 
+  composerDraft: "",
+
   settings: DEFAULT_SETTINGS,
   settingsOpen: false,
   capabilities: null,
@@ -803,6 +826,9 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     saveSettings(DEFAULT_SETTINGS);
     set({ settings: DEFAULT_SETTINGS, lastPolicyDenial: null });
   },
+
+  setComposerDraft: (text) => set({ composerDraft: text }),
+  clearComposerDraft: () => set({ composerDraft: "" }),
 
   openSettings: () => {
     set({ settingsOpen: true });

@@ -34,6 +34,15 @@
  * everything else lands on `NotFound`. Those two cases are asserted on the
  * text that is really on screen rather than on the absence of the other
  * surfaces, because "renders nothing" is precisely the bug.
+ *
+ * AND ONE SURFACE THAT LEFT. `/monitors` rendered a second landing page and
+ * the owner's decision was that Home is simply the better version of it, so
+ * the route is retired and BOTH of its addresses — the current one and the
+ * `/rounds` it was renamed from — redirect to Home. What was on it did not
+ * go: the monitors are managed inside Home's digest and the lead lifecycle
+ * is below it (`components/home/Home.test.tsx`). The tests here are about
+ * the table, so what they pin is that neither address is a dead end and
+ * neither leaves an entry behind for Back to bounce off.
  */
 
 import "@testing-library/jest-dom/vitest";
@@ -60,10 +69,6 @@ vi.mock("@/components/workspace/Workspace", () => ({
 // What Home DOES is asserted in `components/home/Home.test.tsx`.
 vi.mock("@/components/home/Home", () => ({
   Home: () => <HomeStub />,
-}));
-
-vi.mock("@/components/monitors/MonitorsSurface", () => ({
-  MonitorsSurface: () => <div data-testid="monitors">Monitors</div>,
 }));
 
 vi.mock("@/components/providers/QueryProvider", () => ({
@@ -149,11 +154,10 @@ describe("the route table — Home at the front door, one workspace behind it", 
     expect(el).toHaveAttribute("data-session", "");
   });
 
-  it("renders Monitors at /monitors, and neither of the other two", () => {
+  it("lands /monitors — the retired surface — on Home", () => {
     draw("/monitors");
-    expect(screen.getByTestId("monitors")).toBeInTheDocument();
+    expect(screen.getByTestId("home")).toBeInTheDocument();
     expect(screen.queryByTestId("workspace")).not.toBeInTheDocument();
-    expect(screen.queryByTestId("home")).not.toBeInTheDocument();
   });
 });
 
@@ -167,34 +171,35 @@ describe("the route table — Home at the front door, one workspace behind it", 
  * property: a stub would pass just as happily over an empty card.
  */
 describe("no address falls through to a blank page", () => {
-  it("redirects /rounds — the surface's old name — onto Monitors", () => {
+  it("redirects /rounds — the surface's oldest name — onto Home too", () => {
     draw("/rounds");
-    expect(screen.getByTestId("monitors")).toBeInTheDocument();
-    expect(screen.queryByTestId("home")).not.toBeInTheDocument();
+    expect(screen.getByTestId("home")).toBeInTheDocument();
     expect(screen.queryByTestId("workspace")).not.toBeInTheDocument();
   });
 
   /**
    * `replace`, asserted rather than assumed. Without it the redirect leaves
-   * `/rounds` in the history stack, and Back off Monitors lands on it and is
-   * pushed straight forward again — a Back button that does nothing, which
-   * is its own bug report.
+   * `/rounds` in the history stack, and Back off the destination lands on
+   * it and is pushed straight forward again — a Back button that does
+   * nothing, which is its own bug report.
    */
   it("leaves no /rounds entry behind, so Back does not bounce forward again", () => {
     render(
-      <MemoryRouter initialEntries={["/", "/rounds"]} initialIndex={1}>
+      <MemoryRouter initialEntries={["/s/sess_1", "/rounds"]} initialIndex={1}>
         <Backer />
         <AppRoutes />
       </MemoryRouter>,
     );
-    expect(screen.getByTestId("monitors")).toBeInTheDocument();
+    expect(screen.getByTestId("home")).toBeInTheDocument();
 
     act(() => {
       screen.getByRole("button", { name: "back" }).click();
     });
 
-    expect(screen.getByTestId("home")).toBeInTheDocument();
-    expect(screen.queryByTestId("monitors")).not.toBeInTheDocument();
+    // Back reaches where the reader actually came from, not the address
+    // that redirected them.
+    expect(screen.getByTestId("workspace")).toBeInTheDocument();
+    expect(screen.queryByTestId("home")).not.toBeInTheDocument();
   });
 
   it("renders the not-found card at an unknown path, with real words on it", () => {
@@ -206,13 +211,14 @@ describe("no address falls through to a blank page", () => {
     expect(
       screen.getByText(/did not match anything this app serves/i),
     ).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: /home/i })).toHaveAttribute("href", "/");
-    expect(screen.getByRole("link", { name: /monitors/i })).toHaveAttribute(
+    expect(screen.getByRole("link", { name: /^home/i })).toHaveAttribute("href", "/");
+    // The second destination is a ZONE on Home rather than a route — the
+    // one honest offer left once `/monitors` retired.
+    expect(screen.getByRole("link", { name: /your monitors/i })).toHaveAttribute(
       "href",
-      "/monitors",
+      "/#home-monitors",
     );
 
-    expect(screen.queryByTestId("monitors")).not.toBeInTheDocument();
     expect(screen.queryByTestId("home")).not.toBeInTheDocument();
     expect(screen.queryByTestId("workspace")).not.toBeInTheDocument();
   });
@@ -284,20 +290,20 @@ describe("the address rewrite is not a remount", () => {
    * The counter counts, so an empty result above means something.
    *
    * A route change to a DIFFERENT surface must remount — that is not a
-   * defect, it is what Monitors' skip-link focus targets and Home's
-   * brief announcement are built on. If this passed at one mount as well,
-   * the assertions above would be measuring a stub that never re-runs its
+   * defect, it is what Home's brief announcement and its hash-anchored
+   * monitors zone are built on. If this passed at one mount as well, the
+   * assertions above would be measuring a stub that never re-runs its
    * effect rather than a reconciliation that never remounts.
    */
-  it("DOES remount when the surface genuinely changes (/monitors -> /s/{id})", () => {
-    draw("/monitors", "/s/sess_1");
+  it("DOES remount when the surface genuinely changes (/ -> /s/{id})", () => {
+    draw("/", "/s/sess_1");
     expect(mounts).toHaveBeenCalledTimes(0);
 
     act(() => {
       screen.getByRole("button", { name: "rewrite" }).click();
     });
     expect(mounts).toHaveBeenCalledTimes(1);
-    expect(screen.queryByTestId("monitors")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("home")).not.toBeInTheDocument();
   });
 });
 

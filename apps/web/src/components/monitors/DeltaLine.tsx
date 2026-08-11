@@ -173,6 +173,23 @@ export function directionWord(delta: MonitorsDelta): string {
  * which threshold briefed it, so a movement the governed gate calls normal
  * variation never looks governed.
  */
+/**
+ * WHOSE LEVEL BRIEFED THIS, in three words and without the platform's own.
+ *
+ * "The governed threshold" and "below the governed one" are vocabulary from
+ * inside the engine; what a reader needs is whether the level was theirs or
+ * Revi's, and whether theirs is looser.
+ *
+ * Exported because two surfaces state it: the chip below hangs the rule
+ * itself in a hover, and a monitor's expanded detail states BOTH out loud —
+ * a reader who has opened a monitor to decide whether to change its
+ * sensitivity should not have to hover to find out what it currently is.
+ */
+export function thresholdSourceLabel(delta: MonitorsDelta): string {
+  if (delta.thresholdSource !== "monitor") return "Revi's recommended level";
+  return delta.belowGovernedGate ? "Your level, lower than Revi's" : "Your level";
+}
+
 export function ThresholdNote({ delta }: { delta: MonitorsDelta }) {
   if (delta.materialityNote === "") return null;
   return (
@@ -183,16 +200,8 @@ export function ThresholdNote({ delta }: { delta: MonitorsDelta }) {
           data-threshold-source={delta.thresholdSource}
           className="focus-ring rounded text-left text-micro leading-snug text-muted-foreground underline decoration-dotted underline-offset-2 hover:text-foreground"
         >
-          {/* WHOSE LEVEL BRIEFED THIS, without the platform's word for
-              it. "The governed threshold" and "below the governed one" are
-              vocabulary from inside the engine; what a reader needs is
-              whether the level was theirs or Revi's, and whether theirs is
-              looser. The hover carries the rule itself, verbatim. */}
-          {delta.thresholdSource === "monitor"
-            ? delta.belowGovernedGate
-              ? "Your level, lower than Revi's"
-              : "Your level"
-            : "Revi's recommended level"}
+          {/* The hover carries the rule itself, verbatim. */}
+          {thresholdSourceLabel(delta)}
         </button>
       </TooltipTrigger>
       <TooltipContent side="bottom" className="max-w-80 text-meta leading-snug">

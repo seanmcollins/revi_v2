@@ -1,6 +1,7 @@
 "use client";
 
 import { AlertTriangle, Command, Settings2 } from "lucide-react";
+import { useLocation } from "react-router-dom";
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 
 import { CommandPalette } from "@/components/command/CommandPalette";
@@ -11,7 +12,8 @@ import { DetectedAnomalies } from "@/components/home/DetectedAnomalies";
 import { LeadAnchor } from "@/components/home/LeadAnchor";
 import { MonitorDigest } from "@/components/home/MonitorDigest";
 import { WhatChangedStrip } from "@/components/home/WhatChangedStrip";
-import { useLeadHandles } from "@/components/monitors/useLeadHandles";
+import { LeadLifecyclePanel } from "@/components/monitors/LeadLifecycle";
+import { useLeadHandles, useLeadRows } from "@/components/monitors/useLeadHandles";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ConnectionPill, DegradedModeBadge } from "@/components/workspace/ConnectionPill";
@@ -20,11 +22,13 @@ import { announce } from "@/lib/announce";
 import { mediumDate } from "@/lib/format";
 import { homeAnchor } from "@/lib/homeAnchor";
 import { homeShape } from "@/lib/homeLayout";
+import { MONITORS_ZONE_ID } from "@/lib/monitorsAnchor";
 import { hasUnseenLoad, markMonitorsSeen } from "@/lib/monitorsVisit";
 import { useBriefQuery, useMonitorsQuery, usePortfolioQuery } from "@/lib/queries";
 import { useSessionStore } from "@/lib/store";
 import { useAsk } from "@/lib/useAsk";
 import { useDeployment } from "@/lib/useDeployment";
+import { scrollIntoViewRespectingMotion } from "@/lib/useReducedMotion";
 
 /**
  * HOME — the picture as of this load.
@@ -40,6 +44,11 @@ import { useDeployment } from "@/lib/useDeployment";
  *                  monitors, in an order that depends on what happened at
  *                  this load — see `homeShape`, which is the whole
  *                  "ready to evolve" claim in one pure function.
+ *   THE LEAD LIFECYCLE   what we claimed we fixed, and whether it stuck.
+ *                  The other axis: state rather than change. It arrived
+ *                  with the retired Monitors route, whose two zones were
+ *                  both DIFFS — a lead appeared only if it moved at this
+ *                  load, so a claim awaiting confirmation appeared nowhere.
  *   THE COMPOSER   at the bottom, focused, with the four hero questions.
  *                  Submitting goes INTO the session the turn mints
  *                  (`useAsk`), because Home renders no thread and an
@@ -55,6 +64,13 @@ import { useDeployment } from "@/lib/useDeployment";
  * a11y half is kept: a load nobody has been briefed on still announces its
  * headline politely and still moves focus to the thing that just arrived.
  *
+ * IT IS THE ONLY LANDING SURFACE NOW. `/monitors` rendered a second one —
+ * a brief, a grid of monitor tiles and the lead lifecycle — and the owner's
+ * reading of the pair was that this one is simply the better version of it.
+ * So that route is retired and everything on it that was not already here
+ * moved: the monitors are managed inside the digest's own tiles, and the
+ * lifecycle zone is below them.
+ *
  * THE MOCK FIXTURE DOES NOT COME HERE. `HomeRoute` sends it to the
  * workspace instead: Home is made of three live reads (brief, monitors,
  * worklist) and a page of invented tiles would be the opposite of what this
@@ -67,10 +83,27 @@ export function Home() {
   const openSettings = useSessionStore((s) => s.openSettings);
   const hydrateSettings = useSessionStore((s) => s.hydrateSettings);
   const newestWatermarkId = useSessionStore((s) => s.connection.newestWatermarkId);
+  const loadMonitors = useSessionStore((s) => s.loadMonitors);
+  const driver = useSessionStore((s) => s.driver);
 
   useEffect(() => {
     hydrateSettings();
   }, [hydrateSettings]);
+
+  /**
+   * WHAT EACH MONITOR IS, as opposed to what it read.
+   *
+   * `GET /v1/monitors/pins` publishes the stored settings — the window
+   * mode, the level, Revi's recommendation for it — and it is a different
+   * read from the one that draws the tiles. The retired Monitors route made
+   * it because that is where a monitor was edited; a monitor is edited here
+   * now, so this is where it is made. Keyed on the driver because the
+   * deployment wires one after the first paint, and a read before it exists
+   * would report "no deployment" about this app's own startup order.
+   */
+  useEffect(() => {
+    if (live && driver) void loadMonitors();
+  }, [live, driver, loadMonitors]);
 
   // The deployment's newest load keys the two Monitors reads: a brief is a
   // statement about ONE data load, so a new load is a new question rather
@@ -142,6 +175,7 @@ export function Home() {
    * arrival: a load marked read by a page that then failed to read it
    * would be a load nobody is ever briefed on.
    */
+  const hash = useLocation().hash;
   const announced = useRef<string | null>(null);
   useEffect(() => {
     const data = brief.data;
@@ -152,10 +186,33 @@ export function Home() {
     markMonitorsSeen(data.watermarkId);
     if (!unseen) return;
     announce(`What changed at this load: ${data.headline}`);
+    // …but not over somebody who asked for a different zone. The rail's
+    // monitors entry, the ⌘K verb and the note under a started monitor all
+    // arrive at `/#home-monitors`, and a page that answers "take me to my
+    // monitors" by moving focus to the top is arguing with the reader.
+    if (hash === `#${MONITORS_ZONE_ID}`) return;
     // The same node the skip link lands on, so there is ONE place focus
     // can be on this zone rather than two nested ones.
     document.getElementById(WHAT_CHANGED_ID)?.focus();
-  }, [brief.data]);
+  }, [brief.data, hash]);
+
+  /**
+   * ARRIVING AT A ZONE RATHER THAN AT THE PAGE.
+   *
+   * `/monitors` was a real address and the controls that pointed at it are
+   * still on screen; they point at `/#home-monitors` now. A fragment
+   * scrolls without moving FOCUS in every browser that has not shipped the
+   * fix, so the next Tab would resume from the rail — which is why this
+   * exists rather than a bare `href`. It runs on the hash rather than once
+   * on mount, so following the same anchor twice works twice.
+   */
+  useEffect(() => {
+    if (hash !== `#${MONITORS_ZONE_ID}`) return;
+    const zone = document.getElementById(MONITORS_ZONE_ID);
+    if (!zone) return;
+    zone.focus();
+    scrollIntoViewRespectingMotion(zone, { block: "start" });
+  }, [hash, monitors.data]);
 
   /**
    * A QUESTION THAT WENT NOWHERE.
@@ -181,6 +238,27 @@ export function Home() {
       {anchor !== undefined && <LeadAnchor anchor={anchor} enabled={live} />}
     </>
   );
+
+  /**
+   * THE MONITORS, WITH EVERYTHING NEEDED TO WORK THEM.
+   *
+   * The brief's entries and the load's leads travel down with the tiles:
+   * an expanded monitor shows the lines it put in this load's brief (joined
+   * on the entry's own pin id) with the same lead controls the brief
+   * renders on them. Two surfaces rendering one brief entry two ways is how
+   * they start disagreeing about one load.
+   */
+  const digestZone = (
+    <MonitorDigest
+      query={monitors}
+      moved={shape.movedPinIds}
+      {...(brief.data ? { entries: brief.data.entries } : {})}
+      leads={leads}
+    />
+  );
+
+  /** What somebody claimed they fixed, and whether the data agrees yet. */
+  const leadRows = useLeadRows(portfolio.data?.items);
 
   const turns = useSessionStore((s) => s.turns);
   const streaming = useSessionStore((s) => s.streamingTurnId !== null);
@@ -281,15 +359,26 @@ export function Home() {
                       behaviours traded for a scroll position. */}
                   {shape.order === "monitors_first" ? (
                     <>
-                      <MonitorDigest query={monitors} moved={shape.movedPinIds} />
+                      {digestZone}
                       {worklistZone}
                     </>
                   ) : (
                     <>
                       {worklistZone}
-                      <MonitorDigest query={monitors} moved={shape.movedPinIds} />
+                      {digestZone}
                     </>
                   )}
+
+                  {/* THE OTHER AXIS: state rather than change. Below both
+                      of the swapping zones in either order, because it is
+                      not part of the evolution rule — it answers a standing
+                      question ("what did we claim we fixed, and did it
+                      stick") that neither a diff nor a ranking can. */}
+                  <LeadLifecyclePanel
+                    leads={leadRows}
+                    totalLeads={portfolio.data?.items.length ?? 0}
+                    headingId="home-leads-heading"
+                  />
                 </>
               )}
             </div>
@@ -351,6 +440,11 @@ function SkipLinks() {
       className="absolute left-2 top-2 z-50 flex gap-1.5 [&:not(:focus-within)]:pointer-events-none"
     >
       <SkipLink target={WHAT_CHANGED_ID}>Skip to what changed</SkipLink>
+      {/* IT USED TO BE THE MONITORS ROUTE'S. That surface is retired and
+          the jump it offered is worth more here, not less: the digest can
+          be several screens down, below a worklist, and it is where every
+          monitor is now read AND managed. */}
+      <SkipLink target={MONITORS_ZONE_ID}>Skip to your monitors</SkipLink>
       <SkipLink target="turn-composer">Skip to the composer</SkipLink>
     </nav>
   );

@@ -29,6 +29,7 @@ import {
   setAnswerVariant,
 } from "@/lib/answerVariant";
 import { untitledTurnLabel } from "@/lib/format";
+import { MONITORS_ANCHOR, focusMonitorsZone } from "@/lib/monitorsAnchor";
 import {
   PANE_SHORTCUTS,
   evidenceOnScreen,
@@ -91,11 +92,11 @@ export function CommandPalette({
   /**
    * The two pane verbs, offered only where there are panes.
    *
-   * This palette is mounted by the workspace, by Home and by Monitors, and
-   * only the workspace has a rail on each side to fold. `hostMounted` is
-   * the workspace saying it is on screen — without it, ⌘K on Monitors
-   * would offer "Collapse the evidence pane" and then do nothing visible,
-   * which is the class of dead control this product keeps deleting.
+   * This palette is mounted by the workspace and by Home, and only the
+   * workspace has a rail on each side to fold. `hostMounted` is the
+   * workspace saying it is on screen — without it, ⌘K on Home would offer
+   * "Collapse the evidence pane" and then do nothing visible, which is the
+   * class of dead control this product keeps deleting.
    *
    * The labels are read from the same state the toggles read, so a row
    * never offers to collapse something already collapsed.
@@ -270,19 +271,28 @@ export function CommandPalette({
       });
     }
 
-    // MONITORS HAS A ⌘K VERB. It is where an analyst starts their day and it
-    // was the only primary destination in the product with no keyboard
-    // route to it — reachable from the rail's link and nowhere else.
+    // THE MONITORS HAVE A ⌘K VERB. They are where an analyst starts their
+    // day and were the only primary destination in the product with no
+    // keyboard route to them — reachable from the rail and nowhere else.
+    //
+    // It used to open `/monitors`. That route is retired: the monitors are
+    // a ZONE on Home now, which is why this says "go to" rather than
+    // "open", and why it moves focus as well as the address. A fragment
+    // navigation scrolls without focusing, so ⌘K would otherwise leave a
+    // keyboard reader standing exactly where they pressed it.
     list.push({
       id: "monitors",
       group: "Navigate",
-      label: "Open Monitors",
+      label: "Go to your monitors",
       hint: "What changed in this data load",
       icon: <Eye className="size-3.5" />,
-      run: () => navigate("/monitors"),
+      run: () => {
+        navigate(MONITORS_ANCHOR);
+        focusMonitorsZone();
+      },
     });
 
-    // And the gesture Monitors is made of, on the answer being read. The
+    // And the gesture the monitors are made of, on the answer being read. The
     // control exists on charts, findings and worklists; the keyboard had
     // no way to reach any of them.
     const monitorable = [...turns].reverse().find((t) => t.answer.investigationId);

@@ -31,6 +31,7 @@ import { displaySessionTitle, relativeTime } from "@/lib/format";
 import { researchPath, sessionLinkFor } from "@/lib/links";
 import { useDeepResearchRuns } from "@/lib/useDeepResearch";
 import { REFERENCE_QUESTIONS } from "@/lib/mock/reference";
+import { MONITORS_ANCHOR, focusMonitorsZone } from "@/lib/monitorsAnchor";
 import { hasUnseenLoad } from "@/lib/monitorsVisit";
 import { PANE_SHORTCUTS, paneToggleLabel } from "@/lib/panes";
 import { useSessionStore } from "@/lib/store";
@@ -46,11 +47,11 @@ export const SESSIONS_PANE_ID = "pane-sessions";
  * The rail, in one of its two shapes.
  *
  * `collapsed` is a PROP, not a store read, and that is deliberate: this
- * component is mounted by three surfaces and only one of them — the
- * workspace — has a grid that can give the column back. Home and Monitors
- * render it at its full width and pass nothing, so a preference set in
- * the workspace cannot leave a 48px strip sitting in a 264px column on a
- * page that never offered to fold it.
+ * component is mounted by two surfaces and only one of them — the
+ * workspace — has a grid that can give the column back. Home renders it at
+ * its full width and passes nothing, so a preference set in the workspace
+ * cannot leave a 48px strip sitting in a 264px column on a page that never
+ * offered to fold it.
  */
 export function SessionRail({
   collapsed = false,
@@ -104,24 +105,43 @@ export function SessionRail({
   return (
     <aside id={SESSIONS_PANE_ID} className="panel flex h-full min-h-0 flex-col border-r">
       <div className="flex items-center justify-between px-4 py-3.5">
-        <div className="flex items-center gap-2">
+        {/* THE WORDMARK GOES HOME, which is the convention every reader
+            already has. It was inert type — the only wordmark in the
+            product, on a shell mounted by every surface, doing nothing —
+            and with `/monitors` retired Home has to be reachable from
+            anywhere without hunting. `aria-label` because "R Revi RCM" is
+            three fragments a screen reader would read as a heading rather
+            than as a destination. */}
+        <Link
+          to="/"
+          aria-label="Revi RCM — go to your home page"
+          className="focus-ring flex items-center gap-2 rounded-md"
+        >
           {/* The mark carries a letter, so it takes the text-safe stops —
               a logotype is exempt from AA, but it sits 40px above a CTA
               painted from the same pair and two different teals there
               read as a rendering bug. */}
-          <span className="accent-gradient-cta flex size-6 items-center justify-center rounded-md font-mono text-sm font-bold text-white">
+          <span
+            aria-hidden
+            className="accent-gradient-cta flex size-6 items-center justify-center rounded-md font-mono text-sm font-bold text-white"
+          >
             R
           </span>
-          <span className="text-[0.9rem] font-semibold tracking-tight">Revi</span>
-          <span className="mt-0.5 text-micro font-medium uppercase tracking-widest text-muted-foreground">
+          <span aria-hidden className="text-[0.9rem] font-semibold tracking-tight">
+            Revi
+          </span>
+          <span
+            aria-hidden
+            className="mt-0.5 text-micro font-medium uppercase tracking-widest text-muted-foreground"
+          >
             RCM
           </span>
-        </div>
+        </Link>
         {/* AT THE PANE'S INNER EDGE, in the flow rather than floating over
             the fifty session rows below it — an absolutely positioned
             control there would sit on top of somebody's work and take the
             click meant for it. Rendered only where a fold is on offer:
-            Home and Monitors pass no handler and get no dead button. */}
+            Home passes no handler and gets no dead button. */}
         {onToggle && <PaneToggle collapsed={false} onToggle={onToggle} />}
       </div>
 
@@ -129,10 +149,11 @@ export function SessionRail({
         <Button
           // AND GO HOME. The store's `newChat` abandons the session and
           // the workspace's own address effect used to be what took the
-          // browser back to `/`; from Monitors — and now from Home — no
-          // workspace is mounted to do it, so the click that says "start
-          // something new" would clear the thread and leave the reader
-          // where they were. Home is where a new question is asked, and
+          // browser back to `/`; from Home no workspace is mounted to do
+          // it, so the click that says "start something new" would clear
+          // the thread and leave the reader where they were. It is not the
+          // way to reach Home any more either — the entry below it is, and
+          // that one abandons nothing. Home is where a new question is asked, and
           // its composer takes focus on arrival. Lifted to `startNewChat`
           // so the icon strip's own button is the same gesture, not a
           // second copy of it.
@@ -148,6 +169,16 @@ export function SessionRail({
           <MessageSquarePlus className="size-3" />
           New chat
         </Button>
+        {/* HOME IS A DESTINATION, NOT A SIDE EFFECT. It used to be
+            reachable from the full rail only by starting a new chat —
+            which abandons the session — or by the icon strip, which only
+            the workspace can fold to. With `/monitors` retired Home is the
+            ONLY landing surface, so it gets a named entry on every route
+            including inside a conversation, and clicking it leaves the
+            conversation exactly where it is: this is a navigation and
+            nothing else, so the session stays live, stays in the rail below
+            and is one click from being back on screen. */}
+        <NavLink to="/" icon={<House aria-hidden className="size-3" />} label="Home" />
         <MonitorsLink />
       </div>
 
@@ -286,8 +317,9 @@ function PaneToggle({ collapsed, onToggle }: { collapsed: boolean; onToggle: () 
  * THE RAIL AT 48 PIXELS — wayfinding, and nothing else.
  *
  * What survives the fold is what somebody would be stranded without: the
- * way to start a new question, the way back to Home, the way to Monitors,
- * whether the deployment is answering, and the way to unfold it again.
+ * way to start a new question, the way back to Home, the way to the
+ * monitors on it, whether the deployment is answering, and the way to
+ * unfold it again.
  * What goes is everything that is a LIST — the sessions, the ranked
  * worklist, the fixture previews — because a list rendered as five
  * indistinguishable icons is not a shorter list, it is a puzzle.
@@ -388,18 +420,21 @@ function StripLink({
   icon,
   current,
   badge,
+  onClick,
 }: {
-  to: string;
+  to: string | { pathname: string; hash: string };
   label: string;
   icon: ReactNode;
   current: boolean;
   badge?: ReactNode;
+  onClick?: () => void;
 }) {
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <Link
           to={to}
+          {...(onClick ? { onClick } : {})}
           aria-label={label}
           aria-current={current ? "page" : undefined}
           className={cn(
@@ -419,12 +454,17 @@ function StripLink({
 }
 
 /**
- * Monitors on the strip, carrying the same one fact its full-width link
+ * Monitors on the strip, carrying the same one fact its full-width entry
  * carries — that there is a data load this browser has not been briefed
  * on. As a dot rather than "New load", and NOT as a count, for the same
  * reason stated on `MonitorsLink`: a number here would be a promise about
  * a brief nobody has walked yet. The name says it out loud, because a dot
  * on an icon is invisible to a reader who cannot see it.
+ *
+ * IT SURVIVED THE ROUTE IT POINTED AT. The strip is wayfinding at 48px and
+ * what survives the fold is what somebody would be stranded without; with
+ * `/monitors` retired the destination is the zone on Home rather than a
+ * page, and the Home icon above it keeps its own place unchanged.
  */
 function MonitorsStripLink() {
   const newest = useSessionStore((s) => s.connection.newestWatermarkId);
@@ -433,14 +473,17 @@ function MonitorsStripLink() {
     () => hasUnseenLoad(newest),
     () => false,
   );
-  const here = useLocation().pathname === "/monitors";
+  const here = useLocation().pathname === "/";
   const unseen = stored && !here;
 
   return (
     <StripLink
-      to="/monitors"
+      to={MONITORS_ANCHOR}
+      onClick={focusMonitorsZone}
       label={unseen ? "Monitors — there is a data load you have not read" : "Monitors"}
-      current={here}
+      // Never "you are here": this is a place ON Home, and the strip's Home
+      // icon above it is already carrying that claim for this address.
+      current={false}
       icon={<Stethoscope aria-hidden className="size-3.5" />}
       badge={
         unseen ? (
@@ -455,17 +498,72 @@ function MonitorsStripLink() {
 }
 
 /**
- * The way into Monitors, and the one honest thing it can say about it.
+ * One named destination on the full rail: an icon, a word, and "you are
+ * here" when the address says so.
+ *
+ * `aria-current="page"` rather than a colour alone — the tint that marks
+ * the active entry measures nothing a contrast checker would accept as an
+ * indicator on its own, and a reader who cannot see it is entitled to know
+ * where they are.
+ */
+function NavLink({
+  to,
+  icon,
+  label,
+  badge,
+  onClick,
+  ariaLabel,
+}: {
+  to: string | { pathname: string; hash: string };
+  icon: ReactNode;
+  label: string;
+  badge?: ReactNode;
+  onClick?: () => void;
+  ariaLabel?: string;
+}) {
+  const pathname = useLocation().pathname;
+  const target = typeof to === "string" ? to : to.pathname;
+  // An in-page anchor is never "the page you are on" — it is a place on it.
+  const current = typeof to === "string" && pathname === target;
+  return (
+    <Link
+      to={to}
+      {...(ariaLabel ? { "aria-label": ariaLabel } : {})}
+      {...(onClick ? { onClick } : {})}
+      aria-current={current ? "page" : undefined}
+      className={cn(
+        "focus-ring flex w-full items-center gap-1.5 rounded-md border px-2 py-1.5 text-meta font-medium transition-colors duration-200 hover:border-ring/40 hover:text-foreground",
+        current ? "border-ring/50 bg-accent text-foreground" : "text-muted-foreground",
+      )}
+    >
+      {icon}
+      {label}
+      {badge}
+    </Link>
+  );
+}
+
+/**
+ * THE WAY TO YOUR MONITORS, which is a zone on Home rather than a route.
+ *
+ * `/monitors` is retired — Home renders the same brief, the same monitors
+ * and the same lifecycle, and its digest now expands a monitor in place
+ * into everything the retired grid offered. This entry keeps its place in
+ * the rail because "take me to my monitors" is still a thing an analyst
+ * says every morning; what changed is where it lands. See
+ * `lib/monitorsAnchor`: a real `/#home-monitors` href, so a middle-click
+ * still opens a tab, plus a handler that moves FOCUS — which a fragment
+ * navigation does not do on its own.
  *
  * It carries a dot when this browser has not been briefed on the newest
  * load — a fact this client already holds from the health poll, so no
- * request is made to draw it. Deliberately NOT a count: a number here
- * would be a promise about how many lines the brief has, and the brief has
- * not been walked yet. "There is a load you have not been briefed on" is
+ * request is made to draw it. Deliberately NOT a count: a number here would
+ * be a promise about how many lines the brief has, and the brief has not
+ * been walked yet. "There is a load you have not been briefed on" is
  * exactly as much as is known.
  *
  * It is quiet on the mock fixture, which has no deployment to walk, rather
- * than offering a link to a page that will explain it cannot help.
+ * than offering a link to a zone that will explain it cannot help.
  */
 function MonitorsLink() {
   const mode = useSessionStore((s) => s.connection.mode);
@@ -482,27 +580,36 @@ function MonitorsLink() {
     () => hasUnseenLoad(newest),
     () => false,
   );
-  // Never on the page the dot is pointing AT. Sitting on Monitors reading
+  // Never on the page the dot is pointing AT. Standing in the zone reading
   // the new load under a badge announcing a new load is the app arguing
   // with itself, and "you are here" is the one thing the rail always knows.
-  const here = useLocation().pathname === "/monitors";
+  const here = useLocation().pathname === "/";
   const unseen = stored && !here;
 
   if (mode !== "api") return null;
   return (
-    <Link
-      to="/monitors"
-      className="focus-ring flex w-full items-center gap-1.5 rounded-md border px-2 py-1.5 text-meta font-medium text-muted-foreground transition-colors duration-200 hover:border-ring/40 hover:text-foreground"
-    >
-      <Stethoscope aria-hidden className="size-3" />
-      Monitors
-      {unseen && (
-        <span className="ml-auto inline-flex items-center gap-1 text-micro font-normal text-verified">
-          <span aria-hidden className="integrity-dot inline-block size-1.5 rounded-full bg-verified" />
-          New load
-        </span>
-      )}
-    </Link>
+    <NavLink
+      to={MONITORS_ANCHOR}
+      onClick={focusMonitorsZone}
+      icon={<Stethoscope aria-hidden className="size-3" />}
+      label="Monitors"
+      {...(unseen
+        ? { ariaLabel: "Monitors — there is a data load you have not read" }
+        : {})}
+      {...(unseen
+        ? {
+            badge: (
+              <span className="ml-auto inline-flex items-center gap-1 text-micro font-normal text-verified">
+                <span
+                  aria-hidden
+                  className="integrity-dot inline-block size-1.5 rounded-full bg-verified"
+                />
+                New load
+              </span>
+            ),
+          }
+        : {})}
+    />
   );
 }
 
@@ -692,8 +799,8 @@ function SessionList() {
    * thread in the store; the ADDRESS then followed, from an effect inside
    * the workspace. That worked while the workspace was mounted on every
    * route a rail could be clicked from. It is not, any more: from Home and
-   * from Monitors a click here would load somebody's whole conversation
-   * into a store nothing on screen renders.
+   * from Home a click here would load somebody's whole conversation into
+   * a store nothing on screen renders.
    *
    * So the click does both, in that order — the store first, so a driver
    * that cannot re-open a session says so on this rail rather than on a

@@ -41,14 +41,14 @@ beforeAll(() => {
   } as unknown as typeof ResizeObserver;
 });
 
-function renderRail() {
+function renderRail(at = "/") {
   const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
   return render(
-    // The rail reads `useLocation().pathname` to decide whether the "New
-    // load" dot is pointing at the page the reader is already on, so the
-    // route it renders under is part of what these assert: `/` is the
-    // workspace, which is where every one of these renders it.
-    <MemoryRouter initialEntries={["/"]}>
+    // The rail reads `useLocation().pathname` to decide both "you are here"
+    // on its Home entry and whether the "New load" badge is pointing at the
+    // page the reader is already standing on — so the route it renders
+    // under is part of what these assert.
+    <MemoryRouter initialEntries={[at]}>
       <QueryClientProvider client={client}>
         <TooltipProvider>
           <SessionRail />
@@ -578,10 +578,10 @@ describe("SessionRail — the collapsed icon strip", () => {
 
   afterEach(() => cleanup());
 
-  function renderStrip(onToggle?: () => void) {
+  function renderStrip(onToggle?: () => void, at = "/s/sess_1") {
     const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
     return render(
-      <MemoryRouter initialEntries={["/"]}>
+      <MemoryRouter initialEntries={[at]}>
         <QueryClientProvider client={client}>
           <TooltipProvider>
             <SessionRail collapsed {...(onToggle ? { onToggle } : {})} />
@@ -629,6 +629,11 @@ describe("SessionRail — the collapsed icon strip", () => {
   });
 
   it("says out loud that there is a load nobody has read", () => {
+    // Rendered inside a conversation, which is where the strip actually
+    // exists — the workspace is the only surface with a grid that can give
+    // the column back. On Home the monitors are ON SCREEN and the brief
+    // marks the load read as it renders, so the entry pointing at them says
+    // nothing there; that is the next test.
     window.localStorage.removeItem("revi-monitors-seen-watermark");
     useSessionStore.setState({
       connection: {
@@ -645,6 +650,38 @@ describe("SessionRail — the collapsed icon strip", () => {
     expect(
       screen.getByRole("link", { name: "Monitors — there is a data load you have not read" }),
     ).toBeInTheDocument();
+  });
+
+  it("says nothing about an unread load while standing on the page that holds it", () => {
+    // "You are here" is the one thing the rail always knows. Home renders
+    // the brief and the monitors themselves, so a badge there announcing a
+    // load the reader is looking at is the app arguing with itself.
+    window.localStorage.removeItem("revi-monitors-seen-watermark");
+    useSessionStore.setState({
+      connection: {
+        mode: "api",
+        state: "online",
+        healthChecked: true,
+        newestWatermarkId: "wm_004",
+      },
+    });
+    renderStrip(undefined, "/");
+
+    expect(screen.getByRole("link", { name: "Monitors" })).toBeInTheDocument();
+    expect(
+      screen.queryByRole("link", { name: /there is a data load you have not read/ }),
+    ).toBeNull();
+  });
+
+  it("keeps Monitors pointing at the zone on Home rather than at a retired route", () => {
+    renderStrip();
+    expect(screen.getByRole("link", { name: "Monitors" })).toHaveAttribute(
+      "href",
+      "/#home-monitors",
+    );
+    // …and Home keeps its own icon, which is now the only way back to the
+    // one landing surface from a folded rail.
+    expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute("href", "/");
   });
 
   it("carries the expand control, and announces the state on it", async () => {
@@ -697,5 +734,86 @@ describe("SessionRail — the collapsed icon strip", () => {
 
     await userEvent.click(toggle);
     expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+});
+
+
+/**
+ * THE WAY HOME, ON EVERY ROUTE.
+ *
+ * `/monitors` retired into Home, which makes Home the only landing surface
+ * in the product — and until now the full-width rail had no way to reach
+ * it. "New chat" went there as a side effect of abandoning the session,
+ * and the Home icon existed only on the folded strip, which only the
+ * workspace can produce. So a reader inside a conversation had no
+ * non-destructive way back to the page that tells them what changed.
+ */
+describe("SessionRail — Home is a named destination on both shapes of the rail", () => {
+  beforeEach(() => {
+    useSessionStore.getState().reset();
+    useSessionStore.setState({
+      driver: null,
+      sessions: [],
+      sessionsTotal: 0,
+      sessionsState: "ready",
+      sessionsError: null,
+      connection: { mode: "api", state: "online", healthChecked: true },
+    });
+  });
+
+  afterEach(() => cleanup());
+
+  it("carries a Home entry on the full rail, inside a conversation", () => {
+    renderRail("/s/sess_1");
+    const home = screen.getByRole("link", { name: "Home" });
+    expect(home).toHaveAttribute("href", "/");
+    // Not "you are here" — the reader is in a conversation.
+    expect(home).not.toHaveAttribute("aria-current");
+  });
+
+  it("says you are here when you are", () => {
+    renderRail("/");
+    expect(screen.getByRole("link", { name: "Home" })).toHaveAttribute(
+      "aria-current",
+      "page",
+    );
+  });
+
+  /**
+   * IT IS A NAVIGATION AND NOTHING ELSE. "New chat" abandons the session —
+   * which is right for what it says and wrong for "take me home". Clicking
+   * Home leaves the store alone: the conversation stays live, stays in the
+   * list below, and is one click from being back on screen.
+   */
+  it("disturbs no session — the conversation is still there afterwards", async () => {
+    useSessionStore.setState({
+      sessions: [row({ sessionId: "sess_1", title: "Why did cash decline last week?" })],
+      sessionsTotal: 1,
+      sessionId: "sess_1",
+      sessionLive: true,
+    });
+    renderRail("/s/sess_1");
+
+    await userEvent.click(screen.getByRole("link", { name: "Home" }));
+
+    const state = useSessionStore.getState();
+    expect(state.sessionId).toBe("sess_1");
+    expect(state.sessionLive).toBe(true);
+    expect(state.newChatPending).toBe(false);
+    expect(screen.getByText("Why did cash decline last week?")).toBeInTheDocument();
+  });
+
+  it("makes the wordmark itself go home, the way every product's does", () => {
+    renderRail("/s/sess_1");
+    const mark = screen.getByRole("link", { name: /Revi RCM/ });
+    expect(mark).toHaveAttribute("href", "/");
+  });
+
+  it("keeps the monitors entry pointing at the zone on Home", () => {
+    renderRail("/s/sess_1");
+    expect(screen.getByRole("link", { name: "Monitors" })).toHaveAttribute(
+      "href",
+      "/#home-monitors",
+    );
   });
 });

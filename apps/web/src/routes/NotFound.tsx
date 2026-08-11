@@ -1,6 +1,8 @@
 import { ArrowRight } from "lucide-react";
 import { Link } from "react-router-dom";
 
+import { MONITORS_ANCHOR } from "@/lib/monitorsAnchor";
+
 /**
  * NOT FOUND — because the alternative was a blank page.
  *
@@ -12,8 +14,8 @@ import { Link } from "react-router-dom";
  * to Monitors, still sitting in browser autocomplete — and read the blank
  * page as the app being broken, which is exactly what a blank page says.
  *
- * `/rounds` itself is now a redirect (see `App.tsx`), so that particular
- * address lands where it used to. This is the floor under every OTHER
+ * `/rounds` and `/monitors` are both redirects now (see `App.tsx`), so
+ * those two addresses land on Home. This is the floor under every OTHER
  * mistyped, stale or invented path: something rather than nothing, in the
  * product's own register.
  *
@@ -55,11 +57,16 @@ export function NotFound() {
               Home
               <ArrowRight aria-hidden className="size-2.5" />
             </Link>
+            {/* The second destination is a ZONE now rather than a route:
+                `/monitors` was retired into Home's digest, so the honest
+                offer from a not-found page is the anchor that lands on it.
+                A cold load at `/#home-monitors` focuses the zone — see
+                `Home`, which reads the hash on arrival. */}
             <Link
-              to="/monitors"
+              to={MONITORS_ANCHOR}
               className="focus-ring inline-flex items-center gap-1 rounded underline decoration-foreground/30 underline-offset-[3px] transition-colors duration-150 hover:text-foreground hover:decoration-foreground"
             >
-              Monitors
+              Your monitors
               <ArrowRight aria-hidden className="size-2.5" />
             </Link>
           </p>

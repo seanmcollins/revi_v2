@@ -1,7 +1,7 @@
 /**
  * BRIEF-FIRST COLD START — has this browser seen the brief for this load?
  *
- * Monitors is a load-over-load product, so "new" means one thing only: a
+ * This is a load-over-load product, so "new" means one thing only: a
  * data load this browser has not been briefed on. Not a time interval, not
  * a session count, not "every morning" — a brief re-shown for a load
  * already read would be the notification badge that trains people to
@@ -72,7 +72,10 @@ export function hasUnseenLoad(newestWatermarkId: string | undefined): boolean {
  * `hasUnseenLoad` below, announces the headline through the app's own
  * polite region and moves focus to the zone carrying it.
  *
- * The two functions above stay because both still have live readers:
- * `hasUnseenLoad` drives the rail's "New load" dot and Home's announcement,
- * and `markMonitorsSeen` is written by both surfaces that render a brief.
+ * The two functions above stay because both still have live readers, and
+ * there is now exactly one of each: `hasUnseenLoad` drives the rail's "New
+ * load" badge and Home's announcement, and `markMonitorsSeen` is written by
+ * Home — the only surface that renders a brief, since `/monitors` retired
+ * into it. The storage key keeps its name: it is a value in somebody's
+ * browser, and renaming it would re-brief every reader once for nothing.
  */

@@ -32,11 +32,12 @@ import { LeadStatusControl } from "@/components/monitors/LeadStatus";
 import { TimeToImpactLine } from "@/components/monitors/TimeToImpactLine";
 import { MonitorSensitivityForm } from "@/components/monitors/MonitorSensitivity";
 import { MonitorThis } from "@/components/monitors/MonitorThis";
-import { MonitorTile } from "@/components/monitors/MonitorTile";
+import { DigestTile } from "@/components/home/MonitorDigest";
+import { MonitorManagement } from "@/components/monitors/MonitorManagement";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import live from "@/lib/__fixtures__/live-monitors.json";
 import { mapTimeToImpact, parsePortfolioSnapshot } from "@/lib/contract";
-import { capitalizeOpening, readableStatement } from "@/lib/prose";
+import { capitalizeOpening, readableLabel, readableStatement } from "@/lib/prose";
 import {
   mapLeadState,
   mapMonitorsPin,
@@ -44,6 +45,8 @@ import {
   parseBrief,
   parseMonitors,
   tileCensus,
+  type MonitorsPin,
+  type MonitorsTile,
 } from "@/lib/monitors";
 import { useSessionStore } from "@/lib/store";
 
@@ -52,6 +55,35 @@ function draw(node: React.ReactNode) {
     <MemoryRouter>
       <TooltipProvider>{node}</TooltipProvider>
     </MemoryRouter>,
+  );
+}
+
+/**
+ * ONE MONITOR, OPENED — which is where a monitor is now read and managed.
+ *
+ * These assertions were written against `MonitorTile`, the card the retired
+ * `/monitors` grid drew. That surface is gone (Home renders the better
+ * version of all three of its zones) and the card went with it: the digest
+ * tile on Home expands in place into the same content plus the things a
+ * grid of twenty cards could not afford. So the tests follow the behaviour
+ * rather than the component — every property below is still a property of
+ * what a reader sees, at the place they now see it.
+ *
+ * `expanded` is a prop rather than a click because `DigestTile` is
+ * controlled by the digest's accordion: what is under test here is what the
+ * detail SAYS, and the disclosure itself is asserted on its own below.
+ */
+function drawTile(tile: MonitorsTile, pin?: MonitorsPin) {
+  return draw(
+    <ul>
+      <DigestTile
+        tile={tile}
+        {...(pin ? { pin } : {})}
+        moved={false}
+        expanded
+        onToggle={() => {}}
+      />
+    </ul>,
   );
 }
 
@@ -118,7 +150,7 @@ describe("no tile without its integrity atom", () => {
 
   it("draws the grade and the caveat count on EVERY live tile", () => {
     for (const tile of MONITORS.value?.tiles ?? []) {
-      const { container, unmount } = draw(<MonitorTile tile={tile} />);
+      const { container, unmount } = drawTile(tile);
       const atom = container.querySelector("[data-integrity-atom]");
       expect(atom, `${tile.label} must carry its integrity atom`).not.toBeNull();
       expect(atom).toHaveAttribute("data-answer-grade", tile.integrity.grade);
@@ -130,7 +162,7 @@ describe("no tile without its integrity atom", () => {
   it("says a still-settling figure is still settling, in words", () => {
     const provisional = (MONITORS.value?.tiles ?? []).find((t) => t.integrity.provisional);
     expect(provisional, "the live capture must contain a provisional tile").toBeDefined();
-    draw(<MonitorTile tile={provisional!} />);
+    drawTile(provisional!);
     // A word, not a shade: a provisional figure that carried its
     // uncertainty only in a lighter grey is a figure somebody quotes.
     expect(screen.getByText("still settling")).toBeInTheDocument();
@@ -163,7 +195,7 @@ describe("a movement is stated in the metric's own unit", () => {
     // deployment's leading rate monitor moves between captures and the
     // claim under test is the UNIT, not the figure.
     const points = ((tile.delta!.delta ?? 0) * 100).toFixed(1);
-    draw(<MonitorTile tile={tile} />);
+    drawTile(tile);
     expect(screen.getAllByText(new RegExp(`${points} points`)).length).toBeGreaterThan(0);
     // Never a percentage. 0.07286 rendered as "+7.3%" is a number a
     // reader cannot tell from a relative change, which is the single most
@@ -173,7 +205,7 @@ describe("a movement is stated in the metric's own unit", () => {
 
   it("says a same-window change is the data catching up, not a movement", () => {
     const tile = rateTile();
-    const { container } = draw(<MonitorTile tile={tile} />);
+    const { container } = drawTile(tile);
     // Sentence case, and in the line's own ink: the data catching up is
     // context about the reading, not an alarm about it.
     const marks = screen.getAllByText("Same period, re-measured");
@@ -199,7 +231,7 @@ describe("a movement is stated in the metric's own unit", () => {
       ...found!,
       baselineDelta: { ...found!.baselineDelta!, comparable: true, deltaText: "5.1 points" },
     };
-    draw(<MonitorTile tile={tile} />);
+    drawTile(tile);
     expect(screen.getByText(/since you started monitoring/)).toBeInTheDocument();
   });
 });
@@ -266,41 +298,31 @@ describe("a delta chip never paints a sign the payload did not carry", () => {
    * from the same `deltaText`.
    */
   it("says UP in the word the server sent, on a movement that went up", () => {
-    const { container } = draw(
-      <MonitorTile tile={tileWith({ direction: "up", sameWindow: false })} />,
-    );
+    const { container } = drawTile(tileWith({ direction: "up", sameWindow: false }));
     expect(screen.getByText(new RegExp(`Up ${magnitude()}`))).toBeInTheDocument();
     expect(markOf(container)).toBe("up");
   });
 
   it("says DOWN on a movement that went down, and shares no mark with up", () => {
-    const down = draw(
-      <MonitorTile tile={tileWith({ direction: "down", sameWindow: false })} />,
-    );
+    const down = drawTile(tileWith({ direction: "down", sameWindow: false }));
     expect(screen.getByText(new RegExp(`Down ${magnitude()}`))).toBeInTheDocument();
     expect(markOf(down.container)).toBe("down");
     cleanup();
-    const up = draw(
-      <MonitorTile tile={tileWith({ direction: "up", sameWindow: false })} />,
-    );
+    const up = drawTile(tileWith({ direction: "up", sameWindow: false }));
     expect(markOf(up.container)).not.toBe("down");
   });
 
   it("draws the same-window re-measure UNSIGNED, and still says which way it went", () => {
     // The demo tenant's entire grid. The glyph claims nothing; the word
     // carries the direction, exactly as the brief prose beside it does.
-    const { container } = draw(
-      <MonitorTile tile={tileWith({ direction: "up", sameWindow: true })} />,
-    );
+    const { container } = drawTile(tileWith({ direction: "up", sameWindow: true }));
     expect(markOf(container)).toBe("neutral");
     expect(screen.getByText(new RegExp(`Up ${magnitude()}`))).toBeInTheDocument();
     expect(container.querySelector(MINUS_PATH)).toBeNull();
   });
 
   it("draws no change as no change — unsigned, and with no direction word", () => {
-    const { container } = draw(
-      <MonitorTile tile={tileWith({ direction: "flat", delta: 0, deltaText: "$0.00" })} />,
-    );
+    const { container } = drawTile(tileWith({ direction: "flat", delta: 0, deltaText: "$0.00" }));
     expect(markOf(container)).toBe("neutral");
     // Scoped to the chip: the tile also carries a baseline movement, and
     // that one DID go somewhere.
@@ -312,9 +334,7 @@ describe("a delta chip never paints a sign the payload did not carry", () => {
   });
 
   it("names no direction when the server named none", () => {
-    const { container } = draw(
-      <MonitorTile tile={tileWith({ direction: "unknown", sameWindow: false, delta: 0.01 })} />,
-    );
+    const { container } = drawTile(tileWith({ direction: "unknown", sameWindow: false, delta: 0.01 }));
     expect(markOf(container)).toBe("neutral");
     const chip = container.querySelector("[data-delta-mark]");
     // Case-insensitive on purpose: without the flag this assertion would
@@ -327,7 +347,16 @@ describe("a delta chip never paints a sign the payload did not carry", () => {
     const { container } = draw(
       <ul>
         {(MONITORS.value?.tiles ?? []).map((tile) => (
-          <MonitorTile key={tile.pinId} tile={tile} />
+          // Every one of them opened: the chip a collapsed tile draws is
+          // the digest's own, and the line under test is the one the
+          // detail states in full.
+          <DigestTile
+            key={tile.pinId}
+            tile={tile}
+            moved={false}
+            expanded
+            onToggle={() => {}}
+          />
         ))}
       </ul>,
     );
@@ -339,13 +368,11 @@ describe("a delta chip never paints a sign the payload did not carry", () => {
   });
 
   it("keeps the refusal itself: a non-comparable delta paints no mark at all", () => {
-    const { container } = draw(
-      <MonitorTile
-        tile={tileWith({
-          comparable: false,
-          notComparableReason: "first reading — baseline set at this load.",
-        })}
-      />,
+    const { container } = drawTile(
+      tileWith({
+        comparable: false,
+        notComparableReason: "first reading — baseline set at this load.",
+      }),
     );
     expect(markOf(container)).toBe("none");
     expect(container.querySelector(MINUS_PATH)).toBeNull();
@@ -628,7 +655,7 @@ describe("a monitor with nothing to compare says so", () => {
     // for it.
     const tile = silent();
     expect(tile.delta, "this branch is the no-delta shape").toBeUndefined();
-    const { container } = draw(<MonitorTile tile={tile} />);
+    const { container } = drawTile(tile);
     expect(container.querySelector("[data-delta-absent]")).not.toBeNull();
   });
 
@@ -638,11 +665,10 @@ describe("a monitor with nothing to compare says so", () => {
     // the client's line, and the client says nothing of its own.
     const tile = silent();
     const reason = "first reading at this load: there is nothing to compare against yet.";
-    const { container } = draw(
-      <MonitorTile
-        tile={{
-          ...tile,
-          delta: {
+    const { container } = drawTile(
+      {
+        ...tile,
+        delta: {
             priorWatermarkId: "wm_002",
             priorValueText: "",
             valueText: tile.valueText,
@@ -658,8 +684,7 @@ describe("a monitor with nothing to compare says so", () => {
             materialityRule: "",
             materialityNote: "",
           },
-        }}
-      />,
+      },
     );
     // Rendered verbatim apart from the opening capital: the composer
     // hands over a bare clause ("first reading at this load: …") and a
@@ -717,32 +742,75 @@ describe("the tile grid is ordered, and says how", () => {
   });
 });
 
-describe("a tile is one tab stop, with its controls reachable inside it", () => {
-  it("keeps a tile's own controls out of the tab order until it is entered", () => {
-    // ~5 focusable controls per tile is ~100 tab stops across a 20-monitor
-    // surface. The tile is the stop; Enter enters it.
+/**
+ * A MONITOR IS ONE TAB STOP, AND OPENING IT IS THE ORDINARY GESTURE.
+ *
+ * The retired grid got that property with a bespoke roving-tabindex
+ * pattern: the card took `tabIndex={0}`, its five controls were forced to
+ * `-1`, Enter "entered" it and Escape left. That existed because ~5
+ * controls per card is ~100 tab stops across twenty monitors.
+ *
+ * It is a disclosure now and the browser's own semantics do the work.
+ * Collapsed, a monitor has exactly one control — the tile itself. Opened,
+ * its controls are ordinary and in reading order. Escape still closes, and
+ * still hands focus back to the control that opened it.
+ */
+describe("a monitor is one tab stop, and opens in place", () => {
+  it("is a single disclosure control when it is closed", () => {
     const tile = (MONITORS.value?.tiles ?? [])[0];
-    const { container } = draw(<MonitorTile tile={tile} />);
-    const item = container.querySelector<HTMLElement>("[data-tile-pin]")!;
-    expect(item.tabIndex).toBe(0);
-    const inner = [...item.querySelectorAll<HTMLElement>("a[href], button")];
-    expect(inner.length).toBeGreaterThan(1);
-    expect(inner.every((el) => el.tabIndex === -1)).toBe(true);
-
-    fireEvent.keyDown(item, { key: "Enter", target: item });
-    expect(item).toHaveAttribute("data-tile-entered", "true");
-    expect(
-      [...item.querySelectorAll<HTMLElement>("a[href], button")].every((el) => el.tabIndex === 0),
-    ).toBe(true);
+    const { container } = draw(
+      <ul>
+        <DigestTile tile={tile} moved={false} expanded={false} onToggle={() => {}} />
+      </ul>,
+    );
+    const controls = [...container.querySelectorAll<HTMLElement>("a[href], button")];
+    expect(controls).toHaveLength(1);
+    expect(controls[0]).toHaveAttribute("aria-expanded", "false");
   });
 
-  it("names what the tile is, so the one stop is not an unlabelled box", () => {
+  it("names the monitor and its value on the control that opens it", () => {
     const tile = (MONITORS.value?.tiles ?? [])[0];
-    const { container } = draw(<MonitorTile tile={tile} />);
-    const item = container.querySelector("[data-tile-pin]")!;
-    expect(item.getAttribute("aria-label")).toContain(tile.label);
-    expect(item.getAttribute("aria-label")).toContain(tile.valueText);
-    expect(item).toHaveAttribute("aria-describedby", "monitors-tile-hint");
+    draw(
+      <ul>
+        <DigestTile tile={tile} moved={false} expanded={false} onToggle={() => {}} />
+      </ul>,
+    );
+    // Named by its own content rather than by an `aria-label`: the label,
+    // the figure with its marks and the movement are all things a reader
+    // who cannot see the card is owed, and an `aria-label` would replace
+    // every one of them with a shorter sentence.
+    const control = screen.getByRole("button", { expanded: false });
+    expect(control).toHaveAccessibleName(new RegExp(escapeRe(readableLabel(tile.label))));
+    expect(control).toHaveAccessibleName(new RegExp(escapeRe(tile.valueText)));
+    expect(control).toHaveAccessibleName(/Show this monitor's detail/);
+    expect(control).toHaveAttribute("aria-describedby", "home-monitor-hint");
+  });
+
+  it("puts its controls in the tab order once it is open, in reading order", () => {
+    const tile = (MONITORS.value?.tiles ?? [])[0];
+    const { container } = drawTile(tile);
+    const controls = [...container.querySelectorAll<HTMLElement>("a[href], button")];
+    // The disclosure, then the detail's own — none of them hidden behind a
+    // second gesture, and none of them at a negative tabindex.
+    expect(controls.length).toBeGreaterThan(2);
+    expect(controls.every((el) => el.tabIndex >= 0)).toBe(true);
+    expect(controls[0]).toHaveAttribute("aria-expanded", "true");
+  });
+
+  it("closes on Escape from anywhere inside it", () => {
+    const tile = (MONITORS.value?.tiles ?? [])[0];
+    const onToggle = vi.fn();
+    const { container } = draw(
+      <ul>
+        <DigestTile tile={tile} moved={false} expanded onToggle={onToggle} />
+      </ul>,
+    );
+    // Fired from the LAST control in the panel, which is the one furthest
+    // from the disclosure: the key is handled on the monitor, not on the
+    // button that opened it.
+    const controls = container.querySelectorAll<HTMLElement>("a[href], button");
+    fireEvent.keyDown(controls[controls.length - 1], { key: "Escape" });
+    expect(onToggle).toHaveBeenCalledTimes(1);
   });
 });
 
@@ -762,11 +830,18 @@ describe("a tile is one tab stop, with its controls reachable inside it", () => 
  * The server-side half is somebody else's fix and it does not close this:
  * a read that CAN fail must present as a failed read whenever it does.
  */
-describe("a tile whose settings could not be read says so", () => {
+describe("a monitor whose settings could not be read says so", () => {
   const tile = () => (MONITORS.value?.tiles ?? [])[0];
 
-  const openMenu = (label: string) =>
-    fireEvent.click(screen.getByRole("button", { name: `Settings for the monitor ${label}` }));
+  /**
+   * THE PANEL, DIRECTLY. It used to be a popover behind a `…` trigger on a
+   * card in the retired grid; it is rendered inline inside the monitor's
+   * own expanded detail now — the reader has already opened this monitor,
+   * so a second click into a floating panel bought nothing. Same content,
+   * same three states, one less step.
+   */
+  const drawSettings = (t: MonitorsTile, pin?: MonitorsPin) =>
+    draw(<MonitorManagement tile={t} {...(pin ? { pin } : {})} />);
 
   it("mocks the 500: the sentence renders and the control offers the read again", async () => {
     const listMonitorsPins = vi
@@ -782,8 +857,7 @@ describe("a tile whose settings could not be read says so", () => {
     expect(useSessionStore.getState().monitorsLoaded).toBe(false);
 
     const t = tile();
-    draw(<MonitorTile tile={t} />);
-    openMenu(t.label);
+    drawSettings(t);
 
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(
@@ -818,8 +892,7 @@ describe("a tile whose settings could not be read says so", () => {
     expect(useSessionStore.getState().monitorsError).toBeNull();
 
     const t = tile();
-    draw(<MonitorTile tile={t} />);
-    openMenu(t.label);
+    drawSettings(t);
     const alert = await screen.findByRole("alert");
     expect(alert).toHaveTextContent(
       /Could not read this monitor's settings — reload to try again/,
@@ -831,8 +904,7 @@ describe("a tile whose settings could not be read says so", () => {
     const pin = mapMonitorsPin(live.pins.pins[0]);
     expect(pin).not.toBeNull();
     const t = { ...tile(), pinId: pin!.pinId };
-    draw(<MonitorTile tile={t} pin={pin!} />);
-    openMenu(t.label);
+    drawSettings(t, pin!);
     const change = await screen.findByRole("button", {
       name: /Change what it takes to brief you/,
     });
@@ -857,8 +929,7 @@ describe("a tile whose settings could not be read says so", () => {
     expect(pin.recommendedThreshold?.text).toBe(raw!.recommended_threshold!.text);
 
     const t = { ...tile(), pinId: pin.pinId };
-    draw(<MonitorTile tile={t} pin={pin} />);
-    openMenu(t.label);
+    drawSettings(t, pin);
     fireEvent.click(
       await screen.findByRole("button", { name: /Change what it takes to brief you/ }),
     );
@@ -893,8 +964,7 @@ describe("a tile whose settings could not be read says so", () => {
  */
 describe("ending a monitor is armed before it fires", () => {
   const tile = () => (MONITORS.value?.tiles ?? [])[0];
-  const openMenu = (label: string) =>
-    fireEvent.click(screen.getByRole("button", { name: `Settings for the monitor ${label}` }));
+  const drawSettings = (t: MonitorsTile) => draw(<MonitorManagement tile={t} />);
 
   it("does not remove the monitor on the first click", async () => {
     const deleteMonitorsPin = vi.fn().mockResolvedValue(undefined);
@@ -902,8 +972,7 @@ describe("ending a monitor is armed before it fires", () => {
       driver: { submit: async () => {}, deleteMonitorsPin } as unknown as never,
     });
     const t = tile();
-    draw(<MonitorTile tile={t} />);
-    openMenu(t.label);
+    drawSettings(t);
     fireEvent.click(await screen.findByRole("button", { name: /Stop monitoring this/ }));
     expect(deleteMonitorsPin).not.toHaveBeenCalled();
 
@@ -921,8 +990,7 @@ describe("ending a monitor is armed before it fires", () => {
       driver: { submit: async () => {}, deleteMonitorsPin } as unknown as never,
     });
     const t = tile();
-    draw(<MonitorTile tile={t} />);
-    openMenu(t.label);
+    drawSettings(t);
     fireEvent.click(await screen.findByRole("button", { name: /Stop monitoring this/ }));
 
     const keep = await screen.findByRole("button", { name: /Keep monitoring/ });
@@ -955,9 +1023,22 @@ describe("ending a monitor is armed before it fires", () => {
  * volume.
  */
 describe("monitor affordances are visible without a pointer", () => {
-  it("draws the tile's settings trigger at full opacity", () => {
-    const { container } = draw(<MonitorTile tile={(MONITORS.value?.tiles ?? [])[0]} />);
-    const trigger = container.querySelector<HTMLElement>('[aria-label^="Settings for the monitor"]')!;
+  it("draws the control that opens a monitor at full opacity", () => {
+    // The settings trigger this replaces was `opacity-0
+    // group-hover:opacity-100` — no control at all on a touch screen, in a
+    // screenshot or on a projector, and the only way into a monitor's own
+    // settings. The whole tile is that control now, and the rule holds.
+    const { container } = draw(
+      <ul>
+        <DigestTile
+          tile={(MONITORS.value?.tiles ?? [])[0]}
+          moved={false}
+          expanded={false}
+          onToggle={() => {}}
+        />
+      </ul>,
+    );
+    const trigger = container.querySelector<HTMLElement>("button")!;
     expect(trigger).not.toBeNull();
     expect(trigger.className).not.toMatch(/\bopacity-0\b/);
     expect(trigger.className).not.toMatch(/group-hover:opacity/);
@@ -1217,7 +1298,7 @@ describe("the integrity atom reads as two counts, not one number", () => {
     // how a number here should be read".
     const tile = (MONITORS.value?.tiles ?? []).find((t) => t.warnings.length > 0)!;
     expect(tile, "the live capture must contain a tile with caveats").toBeDefined();
-    const { container } = draw(<MonitorTile tile={tile} />);
+    const { container } = drawTile(tile);
     const atom = container.querySelector("[data-integrity-atom]")!;
     expect(atom.textContent).not.toMatch(/things to know\d/);
   });
@@ -1227,7 +1308,7 @@ describe("the integrity atom reads as two counts, not one number", () => {
     // page and 3.16:1 on sunken — below the 4.5:1 floor at 12px. Solid:
     // 5.24 / 4.80 / 4.57.
     const tile = (MONITORS.value?.tiles ?? []).find((t) => t.windowStart !== undefined)!;
-    const { container } = draw(<MonitorTile tile={tile} />);
+    const { container } = drawTile(tile);
     const html = container.innerHTML;
     expect(html).not.toContain("text-muted-foreground/80");
   });

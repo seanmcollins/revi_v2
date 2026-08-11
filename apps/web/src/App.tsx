@@ -1,6 +1,5 @@
 import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 
-import { MonitorsSurface } from "@/components/monitors/MonitorsSurface";
 import { HomeRoute } from "@/routes/HomeRoute";
 import { NotFound } from "@/routes/NotFound";
 import { ResearchRoute } from "@/routes/ResearchRoute";
@@ -8,8 +7,17 @@ import { RootLayout } from "@/routes/RootLayout";
 import { WorkspaceRoute } from "@/routes/WorkspaceRoute";
 
 /**
- * The route table — four surfaces, one legacy address, a floor under
+ * The route table — three surfaces, two legacy addresses, a floor under
  * everything else, and the layout that carries the providers.
+ *
+ * IT WAS FOUR SURFACES. `/monitors` rendered a second landing page — this
+ * load's brief, a grid of monitor tiles, the lead lifecycle — and Home
+ * rendered the better version of the same three things. The owner's
+ * decision was to keep one: "the /monitors view is pointless and the
+ * current home view is just a superior version." So Home is the only
+ * landing surface, the monitors are managed inside its digest (a tile
+ * expands in place into everything the retired grid offered), and the two
+ * addresses that named the retired page both land on Home.
  *
  * `/` IS HOME, AND HOME IS NOT THE WORKSPACE. It was: the workspace
  * rendered an empty composer there and rewrote its own address to
@@ -67,17 +75,26 @@ export function AppRoutes() {
             resolves to the same work as the restored answer the server
             stored; this route is that work read as the composed report. */}
         <Route path="/r/:runId" element={<ResearchRoute />} />
-        {/* Monitors is a different surface, so it is a different element
-            and a real mount — which is what its arrival announcement and
-            focus move depend on. */}
-        <Route path="/monitors" element={<MonitorsSurface />} />
-        {/* THE OLD NAME FOR THAT SURFACE. `/rounds` shipped, so it is in
-            bookmarks and in the address bar's autocomplete, and a renamed
+        {/* THE TWO ADDRESSES OF THE RETIRED SURFACE. Both shipped, so both
+            are in bookmarks and in the address bar's autocomplete, and a
             page that answers its old address with nothing teaches people
-            the app is unreliable. `replace` so the redirect leaves no entry
-            of its own: Back from Monitors goes to wherever the reader came
-            from, rather than to `/rounds` and straight forward again. */}
-        <Route path="/rounds" element={<Navigate to="/monitors" replace />} />
+            the app is unreliable — the owner hit exactly that on `/rounds`
+            (what Monitors was called before the rename) and read the blank
+            page as the product being broken.
+
+            They land on Home rather than on Home's monitors zone. What
+            somebody bookmarked was a whole surface, and Home IS that
+            surface now — arriving mid-page, past the brief this load
+            produced, would hide the first thing they came for. The controls
+            that mean "take me to my monitors" — the rail, ⌘K, the note
+            under an answer that started one — carry `#home-monitors` and do
+            move focus into the zone.
+
+            `replace` so neither redirect leaves an entry of its own: Back
+            from Home goes to wherever the reader came from, rather than to
+            `/monitors` and straight forward again. */}
+        <Route path="/monitors" element={<Navigate to="/" replace />} />
+        <Route path="/rounds" element={<Navigate to="/" replace />} />
         {/* The floor. Inside the layout group on purpose — a not-found
             address is still somewhere in this app, and it should arrive
             with the app's providers and the app's title rather than as a

@@ -66,6 +66,51 @@ export function TurnInput({
     if (autoFocus) composerRef.current?.focus();
   }, [autoFocus]);
 
+  /**
+   * A QUESTION THE PAGE OFFERED, taken into the box the analyst types in.
+   *
+   * "Ask about this" on an expanded monitor puts a plain-English question
+   * in `composerDraft`; this is where it lands. Three properties, and all
+   * three are the point:
+   *
+   *   IT IS EDITABLE, because it is just text in the textarea. Nothing
+   *     hidden travels with it — no scope, no spec, no referent — so what
+   *     the analyst reads is the whole of what they will send.
+   *   IT DOES NOT SEND ITSELF. The caret goes to the end and the analyst
+   *     presses Enter, or rewrites it, or deletes it.
+   *   IT IS ONE-SHOT. The slot is cleared as it is taken, so nothing
+   *     re-fills the box behind somebody who cleared it, and offering the
+   *     same question twice prefills twice.
+   */
+  const draft = useSessionStore((s) => s.composerDraft);
+  const clearComposerDraft = useSessionStore((s) => s.clearComposerDraft);
+  const [taken, setTaken] = useState("");
+  /**
+   * Taken DURING RENDER, not in an effect. React's own "adjust state when
+   * an input changes" pattern: an effect here would paint the empty box
+   * first and the offer a frame later, and it is a cascading render the
+   * lint rule is right to refuse. `taken` is the latch that makes it run
+   * once per offer — and it resets when the store slot clears below, so
+   * offering the same question twice prefills twice.
+   */
+  if (draft !== taken) {
+    setTaken(draft);
+    if (draft !== "") setValue(draft);
+  }
+  useEffect(() => {
+    if (taken === "") return;
+    // One-shot: nothing re-fills the box behind somebody who cleared it.
+    clearComposerDraft();
+    const node = composerRef.current;
+    if (!node) return;
+    node.focus();
+    // The caret at the END, not selecting the offer: a prefill that arrives
+    // selected is one keystroke from being wiped by somebody who meant to
+    // add a word to it.
+    node.setSelectionRange(taken.length, taken.length);
+    node.scrollIntoView({ block: "nearest" });
+  }, [taken, clearComposerDraft]);
+
   const send = (text: string) => {
     const trimmed = text.trim();
     if (!trimmed || busy) return;

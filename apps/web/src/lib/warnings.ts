@@ -165,6 +165,9 @@ export const WARNING_TITLES: Readonly<Record<string, string>> = {
   // it triggered is on screen. Not a refusal and not a confirmation — the
   // one state where saying nothing is what destroyed the monitor.
   MONITOR_PENDING_CLARIFICATION: "Your monitor is waiting on the question below",
+  // The check that ties an answer back to the card it was opened from
+  // could not run — a fact about the cross-check, not about the figures.
+  ANOMALY_RECONCILIATION_SKIPPED: "This answer wasn't checked against its card",
   /* -- deep research: how the recovery estimate was built ------------ */
   // Dollars the estimate deliberately left out (unknown deadlines, groups
   // too small to rate) — listed, never guessed into the total.

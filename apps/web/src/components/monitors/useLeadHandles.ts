@@ -13,6 +13,7 @@
 import { useCallback, useMemo } from "react";
 
 import type { BriefLeadHandle } from "@/components/monitors/BriefEntryRow";
+import type { LeadRow } from "@/components/monitors/LeadLifecycle";
 import type { PortfolioItem } from "@/lib/mock/portfolio";
 import { useSessionStore } from "@/lib/store";
 import { useAsk } from "@/lib/useAsk";
@@ -33,6 +34,62 @@ export function useOpenLead(): (item: PortfolioItem) => (() => void) | undefined
     },
     [ask],
   );
+}
+
+/**
+ * THE LEADS SOMEBODY IS ACTUALLY WORKING, for the lifecycle zone.
+ *
+ * The same join as `useLeadHandles` asked a different question: not "how do
+ * I open this lead" but "where does it stand". It reads the load's own
+ * worklist snapshot — which publishes `lead_status` and the platform's own
+ * sentence on every card — merged with whatever this browser has changed
+ * since, so a status set thirty seconds ago is not waiting for the next
+ * data load to appear.
+ *
+ * Untouched leads are excluded: they are the worklist, they are thirty of
+ * thirty-three, and a lifecycle view that listed them would be the worklist
+ * with extra steps.
+ *
+ * It lived inside the retired Monitors surface. It is here because the zone
+ * it feeds moved to Home with it — the standing question "what did we claim
+ * we fixed, and did it stick" outlived the page it was written on.
+ */
+export function useLeadRows(items: readonly PortfolioItem[] | undefined): LeadRow[] {
+  const leadStates = useSessionStore((s) => s.leadStates);
+  const openLead = useOpenLead();
+  return useMemo(() => {
+    const rows: LeadRow[] = [];
+    for (const item of items ?? []) {
+      const liveState = leadStates[item.referent];
+      const status = liveState?.status ?? item.leadStatus ?? "open";
+      if (status === "open") continue;
+      const open = openLead(item);
+      rows.push({
+        anomalyId: item.referent,
+        title: item.title,
+        status,
+        note: liveState?.verificationNote || liveState?.note || item.leadStatusNote || "",
+        ...(item.impactCents !== undefined ? { impactCents: item.impactCents } : {}),
+        ...(open ? { open } : {}),
+        ...(liveState ? { live: liveState } : {}),
+      });
+    }
+    // Anything this browser changed on a lead the snapshot does not carry
+    // still belongs here — a status set on a card that has since left the
+    // feed is exactly the kind of work that goes missing.
+    for (const [anomalyId, state] of Object.entries(leadStates)) {
+      if (state.status === "open") continue;
+      if (rows.some((row) => row.anomalyId === anomalyId)) continue;
+      rows.push({
+        anomalyId,
+        title: "No longer on this load's worklist",
+        status: state.status,
+        note: state.verificationNote || state.note,
+        live: state,
+      });
+    }
+    return rows;
+  }, [items, leadStates, openLead]);
 }
 
 /** Every lead on this load's worklist, by anomaly id. */
