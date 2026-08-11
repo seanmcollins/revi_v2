@@ -1080,6 +1080,21 @@ export interface components {
             window_start?: string | null;
         };
         /**
+         * ConsultedNotePayload
+         * @description One background note the run read before deciding what to check.
+         *
+         *     The title only. A note's content shapes *which reading runs* and can
+         *     never shape *what a number says*, and publishing its key points beside
+         *     a preview would put an industry figure next to a measured one on the
+         *     same card.
+         */
+        ConsultedNotePayload: {
+            /** Matched On */
+            matched_on?: string[];
+            /** Title */
+            title: string;
+        };
+        /**
          * ContextHeaderPayload
          * @description Structured chips plus the canonical one-line display string.
          */
@@ -1516,6 +1531,7 @@ export interface components {
              * @default
              */
             data_load_label: string;
+            generalized?: components["schemas"]["GeneralizedResearchPreviewPayload"] | null;
             /** Options */
             options?: components["schemas"]["DeepResearchSelector"][];
             plan: components["schemas"]["ResearchPlanPayload"];
@@ -1551,7 +1567,17 @@ export interface components {
              * Phase
              * @enum {string}
              */
-            phase: "plan" | "execute" | "synthesize";
+            phase: "orient" | "consult" | "plan" | "execute" | "read" | "round" | "synthesize";
+            /**
+             * Round Index
+             * @default 0
+             */
+            round_index: number;
+            /**
+             * Round Total
+             * @default 0
+             */
+            round_total: number;
         };
         /**
          * DeepResearchReport
@@ -1999,6 +2025,62 @@ export interface components {
             name: string;
             /** Value */
             value?: string | number | boolean | null;
+        };
+        /**
+         * GeneralizedResearchPreviewPayload
+         * @description What a research run learned, and what it therefore intends to read.
+         *
+         *     Resolved WITHOUT executing any of it: the orientation reads are cheap
+         *     and cached, the background notes are a lookup, and the readings are
+         *     chosen but not run. So the card in front of a minute of work costs a
+         *     fraction of a second and still says something a reader can correct.
+         *
+         *     Nothing here is a measurement. The path choices quote coverage — how
+         *     much of the data carries a path — and coverage is a fact about the data
+         *     rather than an answer to the question.
+         */
+        GeneralizedResearchPreviewPayload: {
+            /**
+             * Authored By
+             * @default revi
+             * @enum {string}
+             */
+            authored_by: "model" | "revi";
+            /** Knowledge Consulted */
+            knowledge_consulted?: components["schemas"]["ConsultedNotePayload"][];
+            /**
+             * Knowledge Statement
+             * @default
+             */
+            knowledge_statement: string;
+            /** Path Choices */
+            path_choices?: components["schemas"]["ResearchPathChoicePayload"][];
+            /**
+             * Population Label
+             * @default
+             */
+            population_label: string;
+            /**
+             * Rationale
+             * @default
+             */
+            rationale: string;
+            /** Readings */
+            readings?: components["schemas"]["PlannedReadingPayload"][];
+            /**
+             * Refusal
+             * @default
+             */
+            refusal: string;
+            /** Research Question */
+            research_question: string;
+            /**
+             * Rounds Planned
+             * @default 1
+             */
+            rounds_planned: number;
+            /** Window Label */
+            window_label: string;
         };
         /** HTTPValidationError */
         HTTPValidationError: {
@@ -3157,6 +3239,35 @@ export interface components {
             op: "pivot";
         };
         /**
+         * PlannedReadingPayload
+         * @description One reading a run intends to take, and the reason it is there.
+         *
+         *     The reason is the whole point of showing this before spending a minute
+         *     of work: a confirmation that lists what will be read without saying why
+         *     is a progress bar in advance.
+         */
+        PlannedReadingPayload: {
+            /**
+             * Chases
+             * @default
+             */
+            chases: string;
+            /** Reason */
+            reason: string;
+            /**
+             * Round
+             * @default 0
+             */
+            round: number;
+            /**
+             * Shape
+             * @enum {string}
+             */
+            shape: "measure_profile" | "stratified_rates" | "contrast" | "trend" | "composition";
+            /** Title */
+            title: string;
+        };
+        /**
          * PortfolioLanePayload
          * @description One section of the worklist, with what belongs in it and why.
          *
@@ -3475,6 +3586,21 @@ export interface components {
             title: string;
             /** Within */
             within?: ("payer" | "plan" | "recovery_class" | "age_band" | "dollar_band" | "delay_band" | "filing_position" | "filing_rule")[];
+        };
+        /**
+         * ResearchPathChoicePayload
+         * @description One thing a run established about the data before it chose anything.
+         *
+         *     "Your data carries COB mainly in remit codes — the category field is
+         *     sparsely populated here, so I read the codes." The statement arrives
+         *     already composed, beside the coverage figure it quotes, so no surface
+         *     can re-word it into something true, useless and unfalsifiable.
+         */
+        ResearchPathChoicePayload: {
+            /** Statement */
+            statement: string;
+            /** Subject */
+            subject: string;
         };
         /**
          * ResearchPlanPayload

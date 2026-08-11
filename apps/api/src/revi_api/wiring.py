@@ -72,9 +72,17 @@ from revi_catalog_contracts.model import CatalogSnapshot
 from revi_connector_duckdb import DuckDbAnalyticalRepository, DuckDbAnomalySource
 from revi_investigation.application.calculation_glue import CalculateMetricsService
 from revi_investigation.application.cohorts import PinCohortService
-from revi_investigation.application.deep_research import DeepResearchService, DenialRowSource
+from revi_investigation.application.deep_research import (
+    DeepResearchService,
+    DenialRowSource,
+    GeneralizedResearchLoop,
+    LlmGeneralPlanner,
+    MeasureAngleRunner,
+    ResearchOrienter,
+)
 from revi_investigation.application.deep_research.llm import PlanDeepResearchService
 from revi_investigation.application.deep_research.policy import DeepResearchSettings
+from revi_investigation.application.discovery import DiscoveryService
 from revi_investigation.application.execution import ExecuteInvestigationService
 from revi_investigation.application.findings import EvaluateFindingsService
 from revi_investigation.application.interpretation import (
@@ -223,6 +231,10 @@ class ApiComponents:
     deep_research_settings: DeepResearchSettings
     filing_rules: FilingRuleLadder
     deep_research: DeepResearchService
+    #: The generalized research loop: orient, consult, plan, execute, read,
+    #: iterate. Drives the preview a research QUESTION gets, where the
+    #: recoverability review describes itself through its closed catalogue.
+    research_loop: GeneralizedResearchLoop
 
 
 @dataclass(frozen=True)
@@ -523,6 +535,20 @@ def build_components(
         ),
         planner=PlanDeepResearchService(llm),
     )
+    # The generalized loop. Same repository, same cache, same catalog and
+    # the same pinned definitions library as every other read — a research
+    # run is a MODE of investigation, not a parallel system, and wiring it
+    # its own anything is how the two would start disagreeing about what a
+    # measure means.
+    research_loop = GeneralizedResearchLoop(
+        ResearchOrienter(
+            DiscoveryService(repository, stores.cache, catalog, pack_port),
+            catalog,
+            pack_port,
+        ),
+        MeasureAngleRunner(repository, stores.cache, catalog, pack_port, transforms),
+        planner=LlmGeneralPlanner(llm),
+    )
     metric_display: MetricDisplayRules = load_metric_display(pack_dir / "metric_display.yaml")
     worklist: WorklistRouting = load_worklist_routing(pack_dir / WORKLIST_FILENAME)
     monitors_policy: MonitorsPolicy = load_monitors_policy(pack_dir / MONITORS_FILENAME)
@@ -604,4 +630,5 @@ def build_components(
         deep_research_settings=deep_research_settings,
         filing_rules=filing_rules,
         deep_research=deep_research,
+        research_loop=research_loop,
     )

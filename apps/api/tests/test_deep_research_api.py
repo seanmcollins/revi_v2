@@ -527,6 +527,95 @@ class TestThePlanOnlyDryRun:
         assert preview.population.kind == "payer"
 
 
+class TestTheResearchQuestionGetsItsOwnPreview:
+    """A research question is not the standing recoverability review.
+
+    The review answers one question over open denials and can describe
+    itself from its closed catalogue. A research question can be about
+    anything the semantic layer measures, so the only honest description is
+    what the run LEARNED about the data and what it therefore intends to
+    read — resolved by really orienting, really consulting the definitions
+    library, and really planning, with nothing executed.
+    """
+
+    QUESTION = (
+        "research why our A/R over 90 has been climbing and what it will take "
+        "to bring it down"
+    )
+
+    async def _preview(self, question: str | None):
+        api = service()
+        answer = await api.start_deep_research(
+            CALLER, StartDeepResearchRequest(question=question, plan_only=True)
+        )
+        assert api.research._runs == {}, "a preview must not create a run"
+        assert answer.preview is not None
+        return answer.preview
+
+    async def test_the_review_with_no_question_gets_no_research_preview(self) -> None:
+        """Nothing to research is not the same as nothing to say."""
+        preview = await self._preview(None)
+        assert preview.generalized is None
+        assert preview.plan.angles, "the review still describes itself"
+
+    async def test_a_question_gets_the_path_choices_it_will_read_through(self) -> None:
+        preview = await self._preview(self.QUESTION)
+        general = preview.generalized
+        assert general is not None
+        assert general.path_choices, "a plan built without orientation is a guess"
+        for choice in general.path_choices:
+            assert choice.subject and choice.statement
+            assert choice.statement.rstrip().endswith((".", "%"))
+
+    async def test_the_background_notes_it_consulted_are_named(self) -> None:
+        preview = await self._preview(self.QUESTION)
+        general = preview.generalized
+        assert general is not None
+        assert general.knowledge_statement
+        titles = [note.title for note in general.knowledge_consulted]
+        assert titles, "an A/R aging question has background notes that bear on it"
+        assert all(note.matched_on for note in general.knowledge_consulted)
+
+    async def test_every_reading_carries_the_reason_it_is_there(self) -> None:
+        preview = await self._preview(self.QUESTION)
+        general = preview.generalized
+        assert general is not None
+        assert general.readings
+        for reading in general.readings:
+            assert reading.title and reading.reason
+            assert reading.round == 0, "a preview shows the opening read only"
+
+    async def test_it_says_who_chose_the_readings(self) -> None:
+        preview = await self._preview(self.QUESTION)
+        general = preview.generalized
+        assert general is not None
+        assert general.authored_by in ("model", "revi")
+
+    async def test_the_budget_it_publishes_scales_with_the_question(self) -> None:
+        deep = await self._preview(self.QUESTION)
+        shallow = await self._preview("what is our denial rate")
+        assert deep.generalized is not None and shallow.generalized is not None
+        assert deep.generalized.rounds_planned > shallow.generalized.rounds_planned
+
+    async def test_a_question_no_measure_can_answer_refuses_by_naming_the_gap(
+        self,
+    ) -> None:
+        """The first of the two honest non-answers: a statement about the
+        data, never about the engine."""
+        preview = await self._preview("how is the cafeteria doing")
+        general = preview.generalized
+        assert general is not None
+        assert general.readings == []
+        assert "definitions library" in general.refusal
+
+    async def test_the_period_it_will_read_is_stated_in_a_readers_words(self) -> None:
+        preview = await self._preview(self.QUESTION)
+        general = preview.generalized
+        assert general is not None
+        assert "through" in general.window_label
+        assert "-" not in general.window_label.replace("A/R", "")
+
+
 class TestARunIsNotSomethingAMonitorCanReRun:
     """A monitor measures ONE thing at every load and compares it to the
     last one. A recoverability review is a whole analysis over a population

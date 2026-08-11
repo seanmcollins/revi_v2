@@ -6,9 +6,8 @@ import { formatCount } from "@/lib/format";
 import {
   angleTitles,
   isRunning,
-  phaseState,
   populationLabel,
-  RESEARCH_PHASES,
+  researchPhaseRows,
   type ResearchWatchState,
 } from "@/lib/deepResearch";
 import { usePrefersReducedMotion } from "@/lib/useReducedMotion";
@@ -24,13 +23,22 @@ import { cn } from "@/lib/utils";
  * the wait — that almost all of the minute is the write-up rather than the
  * measuring.
  *
- * THE PHASES ARE THE WIRE'S, IN THE READER'S WORDS. `plan | execute |
- * synthesize` is the run's own vocabulary and three words from a compiler;
- * "reading your data / running the analysis / writing it up" is the same
- * three states said the way somebody waiting would say them. Underneath,
- * the SERVER's own progress sentence ("Comparing payers", "Checking filing
- * deadlines") is printed verbatim — nothing here stands in for a sentence
- * the platform already wrote.
+ * THE PHASES ARE THE WIRE'S, IN THE READER'S WORDS. `orient | consult |
+ * plan | execute | read | round | synthesize` is the run's own vocabulary
+ * and seven words from a compiler; "reading your data / running the
+ * analysis / going after what it found / writing it up" is the same run
+ * said the way somebody waiting would say it (`RESEARCH_PHASES` holds the
+ * mapping and the reason for it). Underneath, the SERVER's own progress
+ * sentence ("Comparing payers", "Round 1 — chasing it: the payer spread
+ * was decisive") is printed verbatim — nothing here stands in for a
+ * sentence the platform already wrote, and nothing here composes a second
+ * wording of a decision the run has already explained.
+ *
+ * A RUN THAT WENT BACK FOR MORE SAYS SO. Most questions take one pass;
+ * some earn a second, where the run reads what came back and goes after
+ * the thing that separated. That is a different state from "still going"
+ * and the reader is entitled to know which one they are in — so the
+ * iteration row appears when, and only when, it happens.
  *
  * THE ANGLES TICK OFF ONLY ONCE THEY ARE NAMED. The plan frame arrives
  * with the finished report, so for most of the run this client holds a
@@ -52,6 +60,9 @@ export function ResearchProgress({ state }: { state: ResearchWatchState }) {
   const done = Math.min(progress.angle_index, total);
   const population = populationLabel(run.population);
   const failed = run.status === "failed" || run.status === "interrupted";
+  const rows = researchPhaseRows(progress, run.status);
+  const round = progress.round_index ?? 0;
+  const rounds = progress.round_total ?? 0;
 
   return (
     <section
@@ -88,13 +99,13 @@ export function ResearchProgress({ state }: { state: ResearchWatchState }) {
       ) : (
         <>
           <ol className="space-y-2.5">
-            {RESEARCH_PHASES.map((phase) => {
-              const at = phaseState(phase.id, progress.phase, run.status);
+            {rows.map(({ phase, state: at }) => {
               return (
                 <li
                   key={phase.id}
                   data-phase={phase.id}
                   data-phase-state={at}
+                  data-round={phase.id === "round" ? round : undefined}
                   className="flex items-start gap-2.5"
                 >
                   <span
@@ -128,6 +139,18 @@ export function ResearchProgress({ state }: { state: ResearchWatchState }) {
                       )}
                     >
                       {phase.label}
+                      {/* WHICH ROUND, once the run has moved past one.
+                          Only where the row is not the active one: the
+                          server's own sentence for an active round opens
+                          "Round 1 — chasing it", and a count beside it
+                          would be this surface saying the same number
+                          twice. */}
+                      {phase.id === "round" && at !== "active" && rounds > 1 && (
+                        <span className="num font-normal text-muted-foreground">
+                          {" · "}
+                          round {formatCount(round)} of {formatCount(rounds)}
+                        </span>
+                      )}
                       {/* The screen reader is told the state in words
                           rather than by the dot's colour. */}
                       <span className="sr-only">

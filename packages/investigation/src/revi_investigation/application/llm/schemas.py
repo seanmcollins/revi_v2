@@ -78,6 +78,8 @@ __all__ = [
     "EntityGrainLiteral",
     "ExpandModel",
     "ExplainModel",
+    "GeneralizedAngleModel",
+    "GeneralizedResearchPlanResponse",
     "GroundedOptionModel",
     "InterpretationResponse",
     "PivotModel",
@@ -93,7 +95,10 @@ __all__ = [
     "ResearchBasisLiteral",
     "ResearchFamilyLiteral",
     "ResearchPopulationLiteral",
+    "ResearchShapeLiteral",
+    "ResearchStepLiteral",
     "ResearchStratumLiteral",
+    "ResearchWithinModel",
     "ResetContextModel",
     "ScalarValue",
     "ScopePredicateModel",
@@ -402,6 +407,93 @@ class DeepResearchPlanResponse(_Closed):
 
     research_question: str
     angles: list[ResearchAngleModel] = Field(default_factory=list)
+    rationale: str = ""
+
+
+# ---------------------------------------------------------------------------
+# plan_generalized_research — closed shapes over an open catalog
+#
+# The recovery schema above closes over BOTH halves: the family is one of
+# six and the stratifier is one of eight, because the recovery domain's
+# whole vocabulary is content this repo ships. The generalized planner
+# cannot close the second half the same way and must not pretend to: which
+# measures exist and which breakdowns each declares is a fact about one
+# deployment's own definitions library, and a Literal enumerating them here
+# would be this file asserting a catalog it has never read.
+#
+# So the closure moves. The SHAPE stays a Literal — five operations, and a
+# model cannot invent a sixth. The measure and the breakdowns arrive as
+# free strings and are re-resolved against the deployment's own vocabulary
+# by ``normalize_measure_angle`` before a single read is built; anything
+# that does not resolve is DROPPED with its reason recorded, exactly as an
+# invented recovery family is dropped by ``build_angle``. The guarantee is
+# identical — nothing outside the certified set ever executes — and it is
+# enforced one layer later, against content instead of against a literal.
+
+
+#: The closed operation shapes a generalized reading may take. Mirrors
+#: :class:`revi_investigation.application.deep_research.general.AngleShape`
+#: exactly.
+ResearchShapeLiteral = Literal[
+    "measure_profile",
+    "stratified_rates",
+    "contrast",
+    "trend",
+    "composition",
+]
+
+#: How a trend buckets its axis. Mirrors
+#: :class:`revi_investigation.application.deep_research.general.TimeStep`.
+ResearchStepLiteral = Literal["day", "week", "month"]
+
+
+class ResearchWithinModel(_Closed):
+    """One population held fixed for a reading — how a chase narrows.
+
+    A pair rather than a string because the value is matched against the
+    column, not against the label a reader saw: a denial-reason cell reads
+    ``16 — Missing or invalid information`` and the data holds ``16``.
+    """
+
+    dimension: str
+    value: str
+
+
+class GeneralizedAngleModel(_Closed):
+    """One generalized reading: a closed shape over a named measure."""
+
+    shape: ResearchShapeLiteral
+    #: A measure id from the vocabulary the planner was shown. Re-resolved
+    #: against the deployment's own catalog; unknown ids are dropped.
+    metric_id: str
+    #: Breakdowns that measure declares. Unknown ones are trimmed and the
+    #: trim is recorded, so a stray cut costs the reading its breakdown
+    #: rather than costing the report the reading.
+    cut_by: list[str] = Field(default_factory=list)
+    step: ResearchStepLiteral | None = None
+    basis: str | None = None
+    #: The second measure a composition is a share OF, or the one a
+    #: contrast is taken on.
+    against: str = ""
+    within: list[ResearchWithinModel] = Field(default_factory=list)
+    #: Why this reading is in the run, in the analyst's own words. Printed
+    #: in the preview and in the report, so it is client copy and goes
+    #: through the same sanitizer every other model sentence does.
+    reason: str = ""
+    #: The title of the reading whose result sent the planner here.
+    chases: str = ""
+
+
+class GeneralizedResearchPlanResponse(_Closed):
+    """What to read next, and why — the generalized planner's whole output.
+
+    Selection only, exactly as the recovery planner is. Nothing here
+    produces a number: the shapes are executed by deterministic code that
+    the control plane never touches, and every id is re-resolved against
+    certified content before a read is built.
+    """
+
+    angles: list[GeneralizedAngleModel] = Field(default_factory=list)
     rationale: str = ""
 
 

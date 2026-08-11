@@ -607,6 +607,127 @@ def _deep_research_strings() -> Iterator[tuple[str, str]]:
     )
 
 
+def _generalized_research_strings() -> Iterator[tuple[str, str]]:
+    """Every sentence a RESEARCH question's preview and walk say out loud.
+
+    Registered the day these strings started reaching a reader. Until the
+    generalized preview shipped they lived only on a walk nobody rendered;
+    now the confirmation card in front of a minute of work prints the
+    orientation's own findings, the consultation sentence, and one reason
+    per reading, and a card is a client surface whatever composed it.
+
+    Two kinds of source, both walked. The pure formatters are INVOKED,
+    because a template that reads cleanly and interpolates an internal
+    identifier only fails once it is called — which is exactly how "the
+    payer spread on ar_over_90_pct" would have reached a card. The rest are
+    read literal-by-literal, the shape :func:`literals_of` exists for.
+
+    A reason a MODEL wrote is not here and cannot be: it does not exist
+    until a call is made. It is held to the same contract by
+    ``general_llm.reason_words``, which turns an identifier into words
+    before the reason reaches anything, and that sanitizer is exercised in
+    ``packages/investigation/tests/test_generalized_planner.py``.
+    """
+    from revi_investigation.application.deep_research.general import (
+        AngleShape,
+        AngleVocabulary,
+        MeasureAngle,
+        PlannedAngle,
+        normalize_measure_angle,
+    )
+    from revi_investigation.application.deep_research.loop import (
+        gate_sentence,
+        round_words,
+    )
+    from revi_investigation.application.deep_research.policy import ResearchPolicy
+
+    for path, function in _RESEARCH_COPY_SITES:
+        if not path.exists():  # pragma: no cover - defensive
+            continue
+        for text in literals_of(path, function):
+            if not is_copy(text) or text.strip().startswith(("%", "{", "###", "- ", "  - ")):
+                continue
+            yield f"{path.name}::{function}", text
+
+    policy = ResearchPolicy()
+    # §2.1: the chase levels, stated as the rule they are.
+    yield "deep_research.loop.gate_sentence", gate_sentence(policy)
+
+    chased = PlannedAngle(
+        shape=AngleShape.MEASURE_PROFILE,
+        round=1,
+        chases="denied dollars by payer",
+        reason="the payer spread was decisive — cutting inside Veritas Comp Fund next",
+        measure=MeasureAngle(metric_id="denied_dollars", cut_by=("carc",)),
+    )
+    yield "deep_research.loop.round_words[chase]", round_words(1, (chased,))
+    yield (
+        "deep_research.loop.round_words[broaden]",
+        round_words(
+            2,
+            (
+                PlannedAngle(
+                    shape=AngleShape.MEASURE_PROFILE,
+                    round=2,
+                    reason="nothing separated by payer — trying facility",
+                    measure=MeasureAngle(metric_id="denied_dollars", cut_by=("facility",)),
+                ),
+            ),
+        ),
+    )
+    # The drop reasons. Every one interpolates a measure id, which is the
+    # exact failure this collector exists to catch.
+    vocabulary = AngleVocabulary(
+        measures={"denial_rate": frozenset({"payer"}), "ar_over_90_pct": frozenset({"payer"})},
+        bases={"denial_rate": frozenset({"service"})},
+        kinds={"denial_rate": "flow", "ar_over_90_pct": "snapshot"},
+        units={"denial_rate": "percent", "ar_over_90_pct": "percent"},
+        rate_like=frozenset({"denial_rate"}),
+    )
+    cases = (
+        (MeasureAngle(metric_id="profit_margin"), AngleShape.MEASURE_PROFILE),
+        (MeasureAngle(metric_id="ar_over_90_pct", step=None), AngleShape.TREND),
+        (MeasureAngle(metric_id="ar_over_90_pct", cut_by=("payer",)), AngleShape.STRATIFIED_RATES),
+        (MeasureAngle(metric_id="denial_rate", cut_by=("payer", "moon_phase")), AngleShape.CONTRAST),
+        (MeasureAngle(metric_id="denial_rate"), AngleShape.CONTRAST),
+        (MeasureAngle(metric_id="denial_rate"), AngleShape.COMPOSITION),
+    )
+    for angle, shape in cases:
+        _, reason = normalize_measure_angle(angle, shape, vocabulary)
+        if reason:
+            yield f"deep_research.general.normalize_measure_angle[{shape}]", reason
+
+
+#: The research copy sites, read literal-by-literal. Named here rather than
+#: inline so an unwalked one is a diff nobody can miss.
+_RESEARCH_COPY_SITES: tuple[tuple[Path, str], ...] = tuple(
+    (REPO_ROOT / f"packages/investigation/src/revi_investigation/application/{module}", function)
+    for module, function in (
+        ("deep_research/loop.py", "standing_angles"),
+        ("deep_research/loop.py", "_standing_rationale"),
+        ("deep_research/loop.py", "chase_angles"),
+        ("deep_research/loop.py", "_lead"),
+        ("deep_research/loop.py", "drop_steps"),
+        ("deep_research/loop.py", "gate_chases"),
+        ("deep_research/loop.py", "_progress_words"),
+        ("deep_research/loop.py", "population_words"),
+        ("deep_research/loop.py", "refusal"),
+        ("deep_research/loop.py", "run"),
+        ("deep_research/general_llm.py", "_fallback_reason"),
+        ("deep_research/knowledge.py", "_statement"),
+        ("deep_research/measures.py", "_title"),
+        ("deep_research/measures.py", "_cell_label"),
+        ("deep_research/measures.py", "_ordering_verdict"),
+        ("deep_research/measures.py", "_refusal_words"),
+        ("discovery/service.py", "capabilities"),
+        ("discovery/service.py", "measure_availability"),
+        ("discovery/service.py", "_census_statement"),
+        ("discovery/service.py", "_concept_statement"),
+        ("discovery/service.py", "_presence_statement"),
+    )
+)
+
+
 def _deep_research_content_strings() -> Iterator[tuple[str, str]]:
     """The governed deep-research content a reader sees: titles, progress
     lines, population labels and the sentences the report reuses."""
@@ -814,6 +935,7 @@ def client_strings() -> list[tuple[str, str]]:
         _pack_worklist_strings,
         _deep_research_strings,
         _deep_research_content_strings,
+        _generalized_research_strings,
     )
     out: list[tuple[str, str]] = []
     for collector in collectors:

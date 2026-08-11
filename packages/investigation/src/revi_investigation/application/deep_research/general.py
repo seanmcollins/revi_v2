@@ -284,6 +284,12 @@ class AngleVocabulary:
     #: Ratio metrics whose denominator counts the population their numerator
     #: is drawn from — the ones a stratified-rate reading is honest over.
     rate_like: frozenset[str] = frozenset()
+    #: metric id → the definitions library's own description of it. Carried
+    #: so a planner prompt can say what a measure IS rather than handing a
+    #: model an id and hoping it guesses: ``ar_over_90_pct`` means nothing
+    #: to anything that has not read the contract, and a planner choosing
+    #: between measures it cannot tell apart is choosing at random.
+    descriptions: dict[str, str] = field(default_factory=dict)
 
     def knows(self, metric_id: str) -> bool:
         return metric_id in self.measures
@@ -302,8 +308,11 @@ def normalize_measure_angle(
     running an angle over a measure or a cut outside the certified set —
     there the angle does not exist, and saying so is the honest outcome.
     """
+    from revi_investigation.application.rendering import metric_label
+
+    measure = metric_label(angle.metric_id)
     if not vocabulary.knows(angle.metric_id):
-        return None, f"{angle.metric_id} is not a measure in your definitions library"
+        return None, f"{measure} is not a measure in your definitions library"
     declared = vocabulary.cuts_for(angle.metric_id)
     kept = tuple(dict.fromkeys(cut for cut in angle.cut_by if cut in declared))[:MAX_CUTS]
     dropped = [cut for cut in angle.cut_by if cut not in declared]
@@ -316,7 +325,7 @@ def normalize_measure_angle(
         # A snapshot is a point in time. Bucketing one is not a coarser
         # trend, it is a category error the adapter refuses; catching it
         # here turns a mid-run failure into a plan-time drop with a reason.
-        return None, f"{angle.metric_id} is an as-of figure and has no trend over one read"
+        return None, f"{measure} is an as-of figure and has no trend over one read"
 
     basis = angle.basis if angle.basis in vocabulary.bases.get(angle.metric_id, frozenset()) else None
 
@@ -324,14 +333,15 @@ def normalize_measure_angle(
         return None, "a comparison needs a breakdown to compare across"
     if shape is AngleShape.STRATIFIED_RATES:
         if angle.metric_id not in vocabulary.rate_like:
-            return None, f"{angle.metric_id} is not a rate, so it has no population to stratify"
+            return None, f"{measure} is not a rate, so it has no population to stratify"
         if not kept:
             return None, "a rate by population needs a breakdown"
     if shape is AngleShape.COMPOSITION and not kept:
         return None, "a share of a total needs a breakdown to divide it by"
 
     reason = (
-        f"dropped the {', '.join(dropped)} breakdown — {angle.metric_id} is not broken out by it"
+        f"dropped the {', '.join(cut.replace('_', ' ') for cut in dropped)} breakdown — "
+        f"{measure} is not broken out by it"
         if dropped
         else ""
     )

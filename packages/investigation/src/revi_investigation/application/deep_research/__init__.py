@@ -56,6 +56,7 @@ from revi_investigation.application.deep_research.general import (
     normalize_measure_angle,
     walk_fingerprint,
 )
+from revi_investigation.application.deep_research.general_llm import LlmGeneralPlanner
 from revi_investigation.application.deep_research.grammar import (
     STANDING_ANGLES,
     AngleFamily,
@@ -77,17 +78,24 @@ from revi_investigation.application.deep_research.knowledge import (
 from revi_investigation.application.deep_research.loop import (
     GeneralizedResearchLoop,
     GeneralPlanner,
+    Lead,
     Orientation,
     ResearchOrienter,
+    ResearchPreview,
     ResearchRound,
     default_window,
+    gate_chases,
     iteration_budget,
+    leads_of,
+    round_words,
     standing_angles,
+    validate_angles,
 )
 from revi_investigation.application.deep_research.measures import (
     MeasureAngleRunner,
     MeasureCell,
     MeasureResult,
+    title_of,
 )
 from revi_investigation.application.deep_research.policy import (
     BandSpec,
@@ -118,6 +126,8 @@ __all__ = [
     "GeneralPlanner",
     "GeneralizedResearchLoop",
     "KnowledgeConsultation",
+    "Lead",
+    "LlmGeneralPlanner",
     "MeasureAngle",
     "MeasureAngleRunner",
     "MeasureCell",
@@ -129,6 +139,7 @@ __all__ = [
     "ResearchAngle",
     "ResearchOrienter",
     "ResearchPolicy",
+    "ResearchPreview",
     "ResearchRound",
     "ResearchWalk",
     "Stratum",
@@ -138,11 +149,16 @@ __all__ = [
     "as_prompt_context",
     "consult",
     "default_window",
+    "gate_chases",
     "iteration_budget",
+    "leads_of",
     "normalize_measure_angle",
     "plan_fingerprint",
+    "round_words",
     "standing_angles",
     "standing_plan",
+    "title_of",
+    "validate_angles",
     "validate_plan",
     "walk_fingerprint",
 ]

@@ -545,6 +545,8 @@ class ApiService:
                 pack_version=components.pack_port.pack_version,
                 pack_snapshot_id=components.pack_port.snapshot_id,
                 compose=compose,
+                research=components.research_loop,
+                catalog=components.catalog,
             )
         return self._research
 

@@ -587,6 +587,21 @@ def _refusal_words(exc: Exception) -> str:
     return text or "this reading could not be taken over this population"
 
 
+def title_of(planned: PlannedAngle, catalog: CatalogSnapshot) -> str:
+    """What a planned reading will be called, before it has run.
+
+    The preview and the report must name a reading identically — a
+    confirmation card that said "A/R over 90 by payer" over a report
+    section called something else would leave a reader unable to tell
+    whether what they approved is what ran. So both go through one
+    formatter, and the preview reaches it here rather than composing a
+    second name of its own.
+    """
+    if planned.measure is None:
+        return planned.subject.replace("_", " ")
+    return _title(planned.measure, planned.shape, catalog, None)
+
+
 def _title(
     angle: MeasureAngle,
     shape: AngleShape,

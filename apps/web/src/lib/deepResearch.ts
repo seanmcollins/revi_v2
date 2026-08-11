@@ -32,40 +32,40 @@ import type { components } from "@/lib/types.gen";
 export type ResearchSelector = components["schemas"]["DeepResearchSelector"];
 
 /**
- * A place another surface can offer to start a run from — and, WHEN THE
- * WIRE CARRIES IT, what that run proposes to do.
+ * A place another surface can offer to start a run from — and what that
+ * run proposes to do.
  *
- * `DeepResearchAffordance` is the published shape today: a label, a
- * sentence, and the closed selector the run would be over. A run is a
- * minute of work and a real model call, so the surface that offers one
- * confirms intent before spending it — and a confirmation is only worth
- * reading if it says what the run will actually look at.
+ * `DeepResearchAffordance` is the shape an ANSWER or a lead card carries:
+ * a label, a sentence, and the closed selector the run would be over. A
+ * run is a minute of work and a real model call, so the surface that
+ * offers one confirms intent before spending it — and a confirmation is
+ * only worth reading if it says what the run will actually look at.
  *
- * THE THREE FIELDS BELOW ARE THE SEAM FOR THAT, and every one of them is
- * absent today. They are read defensively (`mapResearchOffer`) and the
- * card degrades to what the current payload supports, so the backend can
- * land them additively with no client change beyond deleting this
- * paragraph. The expected wire shape, in the vocabulary the mode's other
- * schemas already use:
+ * THE FIELDS BELOW ARE THAT, AND THEY ARE REAL NOW. `POST /v1/deep-
+ * research` with `plan_only: true` resolves the whole dry run — the size
+ * of the population, the readings, the alternatives — and starts nothing
+ * (`previewDeepResearch`). Each one is still read defensively, because an
+ * affordance that arrives WITHOUT a resolved preview (the wire's own
+ * `deep_research` block, before anybody asks for one) is a complete offer
+ * and the card degrades to what the MODE does rather than to nothing:
  *
- *   `deep_research.scope` → `{ open_denials: int, open_dollars_cents:
- *     int }`. The size of the population, so "this will analyze denials
- *     from Atlas Commercial" becomes "…565 of them, worth $1,153,302.17".
- *     Named after `ExpectedRecoveryRowPayload`'s own fields, because it is
- *     the same two quantities measured over the same population.
- *   `deep_research.plan` → `{ angles: ResearchAnglePayload[] }`, i.e. the
- *     standing plan resolved for THIS population without running it — the
- *     dry-run the report already publishes as `ResearchPlanPayload`. Only
- *     `title` and `purpose` are read here.
- *   `deep_research.options` → `DeepResearchSelector[]`, the other
- *     populations this offer could run over (the payer alone, the payer
- *     within this facility, every open denial). Each is a CLOSED selector
- *     exactly like `population`, so choosing one changes what is posted
- *     and nothing else — no sentence is re-parsed and no scope is widened
- *     by the client.
- *
- * Until they arrive the card states what the MODE does — which is true of
- * every run and is not a guess about this one — and posts `population`.
+ *   `scope` → `{ open_denials, open_dollars_cents }`. The size of the
+ *     population, so "this will analyze denials from Atlas Commercial"
+ *     becomes "…565 of them, worth $1,153,302.17". The same two
+ *     quantities `ExpectedRecoveryRowPayload` publishes, over the whole
+ *     population.
+ *   `plan` → the standing angles resolved for THIS population without
+ *     running them. Only `title` and `purpose` are read here.
+ *   `options` → the other populations this offer could run over (the
+ *     payer alone, every open denial). Each is a CLOSED selector exactly
+ *     like `population`, so choosing one changes what is posted and
+ *     nothing else — no sentence is re-parsed and no scope is widened by
+ *     the client.
+ *   `generalized` → what a run would do about a RESEARCH QUESTION, which
+ *     is a different thing from the standing recoverability review: what
+ *     it established about the data, which background notes it read, and
+ *     which readings it therefore intends to take, each with the reason
+ *     it is in the run. Present only when the request carried a question.
  */
 type ResearchOfferWire = components["schemas"]["DeepResearchAffordance"];
 
@@ -75,7 +75,7 @@ export interface ResearchOfferScope {
   openDollarsCents: number;
 }
 
-/** One line of the proposed plan: what the run will look at, and why. */
+/** One line of what the run will look at: the reading, and why. */
 export interface ResearchOfferAngle {
   title: string;
   purpose: string;
@@ -83,10 +83,21 @@ export interface ResearchOfferAngle {
 
 export interface ResearchOffer extends ResearchOfferWire {
   scope?: ResearchOfferScope;
-  /** The angles this run proposes, resolved for this population. */
+  /** The readings this run proposes, resolved for this population. */
   plan?: ResearchOfferAngle[];
   /** Other populations this offer could run over, as closed selectors. */
   options?: ResearchSelector[];
+  /**
+   * The question this offer is for, when a reader asked one.
+   *
+   * Set only where a preview has already been resolved, and it is what
+   * the launch posts — the SAME question the preview described, so the
+   * run a reader confirms is the run they read about. Its absence is what
+   * tells a card it may resolve a preview of its own.
+   */
+  question?: string;
+  /** What a run would do about that question, resolved without doing it. */
+  generalized?: GeneralizedResearchPreview;
 }
 export type ResearchRun = components["schemas"]["DeepResearchRunResponse"];
 export type ResearchReport = components["schemas"]["DeepResearchReport"];
@@ -106,14 +117,110 @@ export type ResearchThinPopulations = components["schemas"]["ThinPopulationsPayl
 export type ResearchAngleEvidence = components["schemas"]["AngleEvidencePayload"];
 export type ResearchWarning = components["schemas"]["WarningPayload"];
 
-/** `planning | running | complete | failed | interrupted`. */
+/** `preview | planning | running | complete | failed | interrupted`. */
 export type ResearchStatus = ResearchRun["status"];
-/** `plan | execute | synthesize`. */
+/** `orient | consult | plan | execute | read | round | synthesize`. */
 export type ResearchPhaseId = ResearchProgress["phase"];
 
-/** A run that has not finished is still moving; everything else is settled. */
+/**
+ * A run that has not finished is still moving; everything else is settled.
+ *
+ * `preview` is settled by this rule and that is exactly right: a dry run
+ * started nothing, so there is nothing to watch, nothing to stream and
+ * nothing that will ever change on its own.
+ */
 export function isRunning(status: ResearchStatus): boolean {
   return status === "planning" || status === "running";
+}
+
+/* ------------------------------------------------------------------ */
+/* The dry run, named                                                  */
+/* ------------------------------------------------------------------ */
+
+/**
+ * WHAT A RUN WOULD DO, RESOLVED WITHOUT DOING ANY OF IT.
+ *
+ * `POST /v1/deep-research` with `plan_only: true` answers 200 with a run
+ * whose id is empty and whose status is `preview`: the population and its
+ * size, the readings, the other populations on offer — and, when the
+ * request carried a research QUESTION, what the run learned about the
+ * data and what it therefore intends to read.
+ *
+ * The camelCase shapes below are what the surfaces hold. Every string in
+ * them was composed by the server beside the figure it quotes, and this
+ * file's whole discipline about them is that NOTHING RE-WORDS ONE: a path
+ * choice arrives as a whole sentence carrying its own coverage, and a
+ * second phrasing of it here would be the one that loses the coverage.
+ */
+export type ResearchReadingShape =
+  components["schemas"]["PlannedReadingPayload"]["shape"];
+
+/** One thing the run established about the data before it chose anything. */
+export interface ResearchPathChoice {
+  subject: string;
+  statement: string;
+}
+
+/** One background note the run read, by title. */
+export interface ResearchConsultedNote {
+  title: string;
+  matchedOn: string[];
+}
+
+/** One reading the run intends to take, and the reason it is there. */
+export interface ResearchPlannedReading {
+  title: string;
+  reason: string;
+  round: number;
+  /** What this reading goes after, when it goes after something. */
+  chases: string;
+  /**
+   * The reading's family, when this build knows the one it was sent.
+   *
+   * Never rendered — the shapes are wire tokens and get no client
+   * rendering — so an unfamiliar one costs the reading nothing. It is
+   * dropped from the shape field and the reading is kept, because the
+   * title and the reason are the whole of what a reader is owed.
+   */
+  shape?: ResearchReadingShape;
+}
+
+/** What a run would do about a research question. */
+export interface GeneralizedResearchPreview {
+  researchQuestion: string;
+  /**
+   * WHAT THIS RUN ACTUALLY READS, in a reader's words.
+   *
+   * Not the same thing as the recoverability review's population, and the
+   * difference is a correctness bug rather than a wording preference: a
+   * question about A/R over 90 reads balances, aging buckets and filing
+   * runway across claims and never opens a denial inventory, so a card
+   * headed "deep research on every open denial" over it names a
+   * population the run does not touch.
+   */
+  populationLabel: string;
+  /** The period it will read, in words ("Jul 1, 2026 through Aug 2, 2026"). */
+  windowLabel: string;
+  pathChoices: ResearchPathChoice[];
+  knowledgeStatement: string;
+  knowledgeConsulted: ResearchConsultedNote[];
+  readings: ResearchPlannedReading[];
+  rationale: string;
+  /** `model` chose the readings, or `revi` fell back to its standing set. */
+  authoredBy: "model" | "revi";
+  roundsPlanned: number;
+  /** Non-empty when nothing in the data can answer the question. */
+  refusal: string;
+}
+
+/** The whole dry run, as the surfaces hold it. */
+export interface ResearchPreview {
+  population: ResearchSelector;
+  scope?: ResearchOfferScope;
+  plan: ResearchOfferAngle[];
+  options: ResearchSelector[];
+  dataLoadLabel: string;
+  generalized?: GeneralizedResearchPreview;
 }
 
 /* ------------------------------------------------------------------ */
@@ -121,15 +228,27 @@ export function isRunning(status: ResearchStatus): boolean {
 /* ------------------------------------------------------------------ */
 
 /**
- * THE THREE THINGS A RUN DOES, said the way somebody waiting would say
- * them.
+ * WHAT A RUN DOES, said the way somebody waiting would say it.
  *
- * The wire's `phase` is `plan | execute | synthesize` — accurate, and three
- * words from a compiler. What the reader is owed is what is happening to
- * THEIR data: it is being read, then measured, then written up. The
- * server's own `message` ("Comparing payers", "Checking filing deadlines")
- * rides underneath as the detail, so nothing here stands in for a sentence
- * the platform already wrote.
+ * The wire's `phase` is seven words from a compiler — `orient | consult |
+ * plan | execute | read | round | synthesize`. What the reader is owed is
+ * what is happening to THEIR data: it is being read, then measured, then
+ * — if the run finds something worth chasing — read again, and finally
+ * written up. The server's own `message` ("Comparing payers", "Reading the
+ * background notes that bear on this") rides underneath as the detail, so
+ * nothing here stands in for a sentence the platform already wrote.
+ *
+ * SEVEN PHASES, FOUR ROWS, AND `covers` IS WHY. `orient`, `consult` and
+ * `plan` are three ways of reading the data before anything is measured;
+ * drawn as three checkboxes they would tell a reader that the wait has
+ * three parts when it has one. `read` and `round` are one state too —
+ * the run finished a pass and went after what it found. Collapsing them
+ * is not a simplification: each row is still exactly one thing that
+ * happens, and the server's sentence underneath says which part of it.
+ *
+ * THE ITERATION ROW IS DRAWN ONLY IF IT HAPPENS. Most runs take one pass,
+ * and a permanently pending "going after what it found" would promise a
+ * second round that the question never earned.
  *
  * `note` is on the last one because it is the honest account of where the
  * minute goes: seven angles measure in under twenty milliseconds each and
@@ -137,20 +256,37 @@ export function isRunning(status: ResearchStatus): boolean {
  * is the slow part teaches a reader to expect the wrong thing.
  */
 export interface ResearchPhaseModel {
+  /** The wire phase this row is named for, and its handle on the surface. */
   id: ResearchPhaseId;
+  /** Every wire phase that IS this row. */
+  covers: readonly ResearchPhaseId[];
   label: string;
   note?: string;
+  /** Drawn only once the run has actually been here. */
+  onlyWhenReached?: boolean;
 }
 
 export const RESEARCH_PHASES: readonly ResearchPhaseModel[] = [
-  { id: "plan", label: "Reading your data" },
-  { id: "execute", label: "Running the analysis" },
+  { id: "plan", covers: ["orient", "consult", "plan"], label: "Reading your data" },
+  { id: "execute", covers: ["execute"], label: "Running the analysis" },
+  {
+    id: "round",
+    covers: ["read", "round"],
+    label: "Going after what it found",
+    onlyWhenReached: true,
+  },
   {
     id: "synthesize",
+    covers: ["synthesize"],
     label: "Writing it up",
     note: "Most of the minute goes here. The measuring is quick; the writing is not.",
   },
 ];
+
+/** The row a wire phase belongs to — the first one, for an unknown phase. */
+export function researchPhaseFor(phase: ResearchPhaseId): ResearchPhaseModel {
+  return RESEARCH_PHASES.find((row) => row.covers.includes(phase)) ?? RESEARCH_PHASES[0]!;
+}
 
 /** Where a phase sits against the one the run is in: done, now, or ahead. */
 export function phaseState(
@@ -158,12 +294,59 @@ export function phaseState(
   current: ResearchPhaseId,
   status: ResearchStatus,
 ): "done" | "active" | "pending" {
-  const at = RESEARCH_PHASES.findIndex((p) => p.id === current);
-  const index = RESEARCH_PHASES.findIndex((p) => p.id === phase);
+  const at = RESEARCH_PHASES.indexOf(researchPhaseFor(current));
+  const index = RESEARCH_PHASES.indexOf(researchPhaseFor(phase));
   if (!isRunning(status)) return status === "complete" ? "done" : index <= at ? "done" : "pending";
   if (index < at) return "done";
   if (index === at) return "active";
   return "pending";
+}
+
+/**
+ * HAS THIS RUN READ SOMETHING AND GONE AFTER IT?
+ *
+ * Either the wire says which round it is on, or the phase itself says the
+ * run is deciding what to chase. Both are the same fact, and a surface
+ * that waited for the counter would say nothing about a deployment whose
+ * progress payload predates it.
+ */
+export function hasIterated(progress: ResearchProgress): boolean {
+  return (
+    (progress.round_index ?? 0) > 0 ||
+    progress.phase === "read" ||
+    progress.phase === "round"
+  );
+}
+
+export interface ResearchPhaseRow {
+  phase: ResearchPhaseModel;
+  state: "done" | "active" | "pending";
+}
+
+/**
+ * The rows to draw, in order, for where this run has got to.
+ *
+ * The iteration row is the only one with a rule of its own: a run in its
+ * SECOND pass is back on `execute`, which is earlier in the order, and
+ * ordering alone would call the round it already finished "not started".
+ * The counter is the authority there, because it is a record of something
+ * that happened rather than a position in a list.
+ */
+export function researchPhaseRows(
+  progress: ResearchProgress,
+  status: ResearchStatus,
+): ResearchPhaseRow[] {
+  const iterated = hasIterated(progress);
+  const rows: ResearchPhaseRow[] = [];
+  for (const phase of RESEARCH_PHASES) {
+    if (phase.onlyWhenReached && !iterated) continue;
+    const state = phaseState(phase.id, progress.phase, status);
+    rows.push({
+      phase,
+      state: phase.id === "round" && iterated && state === "pending" ? "done" : state,
+    });
+  }
+  return rows;
 }
 
 /* ------------------------------------------------------------------ */
@@ -279,6 +462,61 @@ export function mapResearchSelector(raw: unknown): ResearchSelector | undefined 
   };
 }
 
+/** A string the wire may or may not have sent, never `undefined`. */
+function words(raw: unknown): string {
+  return typeof raw === "string" ? raw : "";
+}
+
+/** A whole number the wire may or may not have sent. */
+function count(raw: unknown): number {
+  return typeof raw === "number" && Number.isFinite(raw) ? raw : 0;
+}
+
+/** Every non-empty string in an array the wire may or may not have sent. */
+function wordList(raw: unknown): string[] {
+  return Array.isArray(raw) ? raw.filter((v): v is string => typeof v === "string" && v !== "") : [];
+}
+
+/**
+ * How big the population is — or nothing at all.
+ *
+ * A scope of zero denials would be this client inventing a fact about a
+ * run nobody has started, so a payload that did not say is read as "the
+ * platform did not say" rather than as a default.
+ */
+function readScope(raw: unknown): ResearchOfferScope | undefined {
+  const scope = isRecord(raw) ? raw : undefined;
+  const openDenials = typeof scope?.open_denials === "number" ? scope.open_denials : undefined;
+  const openDollars =
+    typeof scope?.open_dollars_cents === "number" ? scope.open_dollars_cents : undefined;
+  if (openDenials === undefined || openDollars === undefined) return undefined;
+  return { openDenials, openDollarsCents: openDollars };
+}
+
+/** The standing angles, titled, from a `ResearchPlanPayload`. */
+function readAngles(raw: unknown): ResearchOfferAngle[] {
+  const node = isRecord(raw) ? raw : undefined;
+  if (!Array.isArray(node?.angles)) return [];
+  return node.angles
+    .filter(isRecord)
+    .map((angle) => ({ title: words(angle.title), purpose: words(angle.purpose) }))
+    .filter((angle) => angle.title !== "");
+}
+
+/**
+ * The other populations on offer.
+ *
+ * A selector this client cannot honour is dropped rather than coerced,
+ * exactly as `population` is: an option that would post something other
+ * than what its label says is worse than one option fewer.
+ */
+function readOptions(raw: unknown): ResearchSelector[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map(mapResearchSelector)
+    .filter((selector): selector is ResearchSelector => selector !== undefined);
+}
+
 /**
  * The offer a lead card or an answer carries.
  *
@@ -286,56 +524,180 @@ export function mapResearchSelector(raw: unknown): ResearchSelector | undefined 
  * that what the reader taps is exactly what runs, and an offer with no
  * population behind it is a button that would launch something nobody
  * chose.
+ *
+ * The dry-run fields are read here too, because the same shape is what
+ * `POST /v1/deep-research` returns for a `plan_only` request. On the
+ * affordance the server puts beside an ANSWER they are simply absent, and
+ * the card says what the MODE does until a preview is resolved for it.
  */
 export function mapResearchOffer(raw: unknown): ResearchOffer | undefined {
   if (!isRecord(raw)) return undefined;
   const population = mapResearchSelector(raw.population);
   if (population === undefined) return undefined;
 
-  /* THE PLAN-PREVIEW SEAM. See `ResearchOffer` above for the wire shape
-     each of these expects. All three are absent on today's payload and
-     every one of them is read as "the platform did not say" rather than
-     as a default — a scope of zero denials, an empty plan or a synthesized
-     option list would each be this client inventing a fact about a run
-     that has not started. */
-  const scope = isRecord(raw.scope) ? raw.scope : undefined;
-  const openDenials = typeof scope?.open_denials === "number" ? scope.open_denials : undefined;
-  const openDollars =
-    typeof scope?.open_dollars_cents === "number" ? scope.open_dollars_cents : undefined;
-
-  const planNode = isRecord(raw.plan) ? raw.plan : undefined;
-  const angles = Array.isArray(planNode?.angles)
-    ? planNode.angles
-        .filter(isRecord)
-        .map((angle) => ({
-          title: typeof angle.title === "string" ? angle.title : "",
-          purpose: typeof angle.purpose === "string" ? angle.purpose : "",
-        }))
-        .filter((angle) => angle.title !== "")
-    : [];
-
-  // A selector this client cannot honour is dropped rather than coerced,
-  // exactly as `population` is: an option that would post something other
-  // than what its label says is worse than one option fewer.
-  const options = Array.isArray(raw.options)
-    ? raw.options
-        .map(mapResearchSelector)
-        .filter((selector): selector is ResearchSelector => selector !== undefined)
-    : [];
+  const scope = readScope(raw.scope);
+  const angles = readAngles(raw.plan);
+  const options = readOptions(raw.options);
 
   return {
     population,
     label: typeof raw.label === "string" && raw.label !== "" ? raw.label : "Run deep research",
-    description: typeof raw.description === "string" ? raw.description : "",
-    ...(openDenials !== undefined && openDollars !== undefined
-      ? { scope: { openDenials, openDollarsCents: openDollars } }
-      : {}),
+    description: words(raw.description),
+    ...(scope !== undefined ? { scope } : {}),
     ...(angles.length > 0 ? { plan: angles } : {}),
     ...(options.length > 0 ? { options } : {}),
   };
 }
 
+/* ------------------------------------------------------------------ */
+/* The dry run, read                                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * The reading families this build knows.
+ *
+ * Read exactly as `mapResearchSelector` reads a kind — an unrecognized
+ * value is never coerced into a known one — but with the opposite verdict
+ * about the record carrying it. A selector's kind is POSTED back, so an
+ * unknown one makes the whole selector unusable; a reading's shape is
+ * never rendered and never sent anywhere, so an unknown one costs the
+ * reading nothing and the title and the reason still reach the reader.
+ */
+const READING_SHAPES: ReadonlySet<string> = new Set([
+  "measure_profile",
+  "stratified_rates",
+  "contrast",
+  "trend",
+  "composition",
+]);
+
+function readReadings(raw: unknown): ResearchPlannedReading[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter(isRecord)
+    .map((reading) => {
+      const shape = words(reading.shape);
+      return {
+        title: words(reading.title),
+        reason: words(reading.reason),
+        round: count(reading.round),
+        chases: words(reading.chases),
+        ...(READING_SHAPES.has(shape) ? { shape: shape as ResearchReadingShape } : {}),
+      };
+    })
+    .filter((reading) => reading.title !== "");
+}
+
+/**
+ * What a run would do about a research question.
+ *
+ * Dropped whole when there is no question on it: the payload's own reason
+ * for existing is to say what a run would do about ONE question, and a
+ * block with no question is a section this card would head with nothing.
+ */
+export function mapGeneralizedPreview(raw: unknown): GeneralizedResearchPreview | undefined {
+  if (!isRecord(raw)) return undefined;
+  const researchQuestion = words(raw.research_question);
+  if (researchQuestion === "") return undefined;
+
+  const pathChoices = (Array.isArray(raw.path_choices) ? raw.path_choices : [])
+    .filter(isRecord)
+    .map((choice) => ({ subject: words(choice.subject), statement: words(choice.statement) }))
+    .filter((choice) => choice.statement !== "");
+
+  const knowledgeConsulted = (Array.isArray(raw.knowledge_consulted) ? raw.knowledge_consulted : [])
+    .filter(isRecord)
+    .map((note) => ({ title: words(note.title), matchedOn: wordList(note.matched_on) }))
+    .filter((note) => note.title !== "");
+
+  const authored = words(raw.authored_by);
+  return {
+    researchQuestion,
+    populationLabel: words(raw.population_label),
+    windowLabel: words(raw.window_label),
+    pathChoices,
+    knowledgeStatement: words(raw.knowledge_statement),
+    knowledgeConsulted,
+    readings: readReadings(raw.readings),
+    rationale: words(raw.rationale),
+    // Anything this build does not recognize is `revi`, which is the
+    // honest fallback in both directions: it claims no model choice was
+    // made, and a card that says so understates rather than overstates.
+    authoredBy: authored === "model" ? "model" : "revi",
+    roundsPlanned: count(raw.rounds_planned),
+    refusal: words(raw.refusal),
+  };
+}
+
+/** The whole dry run, dropped when there is no population behind it. */
+export function mapResearchPreview(raw: unknown): ResearchPreview | undefined {
+  if (!isRecord(raw)) return undefined;
+  const population = mapResearchSelector(raw.population);
+  if (population === undefined) return undefined;
+  const scope = readScope(raw.scope);
+  const generalized = mapGeneralizedPreview(raw.generalized);
+  return {
+    population,
+    ...(scope !== undefined ? { scope } : {}),
+    plan: readAngles(raw.plan),
+    options: readOptions(raw.options),
+    dataLoadLabel: words(raw.data_load_label),
+    ...(generalized !== undefined ? { generalized } : {}),
+  };
+}
+
+/**
+ * The offer a resolved dry run describes.
+ *
+ * `question` rides along because it is what the LAUNCH must post: the run
+ * a reader confirms has to be the run they just read about, and a launch
+ * that dropped the question would start the standing recoverability
+ * review under a card describing something else entirely.
+ */
+export function offerFromPreview(preview: ResearchPreview, question?: string): ResearchOffer {
+  return {
+    population: preview.population,
+    label: "Run deep research",
+    description: "",
+    ...(preview.scope !== undefined ? { scope: preview.scope } : {}),
+    ...(preview.plan.length > 0 ? { plan: preview.plan } : {}),
+    ...(preview.options.length > 0 ? { options: preview.options } : {}),
+    ...(question !== undefined && question !== "" ? { question } : {}),
+    ...(preview.generalized !== undefined ? { generalized: preview.generalized } : {}),
+  };
+}
+
+/**
+ * An offer the server already made, filled in by the dry run resolved for
+ * it.
+ *
+ * The POPULATION, the LABEL and the DESCRIPTION stay the server's own:
+ * the offer is what the reader was shown beside an answer, and the
+ * preview's job is to say what that run would look at — not to rename it.
+ */
+export function offerWithPreview(
+  offer: ResearchOffer,
+  preview: ResearchPreview,
+  question?: string,
+): ResearchOffer {
+  return {
+    ...offerFromPreview(preview, question),
+    population: offer.population,
+    label: offer.label,
+    description: offer.description,
+  };
+}
+
+/**
+ * Every status a run response can carry — INCLUDING `preview`.
+ *
+ * A `plan_only` request answers 200 with a whole run response whose status
+ * is `preview`, and while this set omitted it the dry run was rejected as
+ * contract drift and read as `null`: the one response the confirmation
+ * card exists to render was the one response this parser threw away.
+ */
 const RUN_STATUSES: ReadonlySet<string> = new Set([
+  "preview",
   "planning",
   "running",
   "complete",
@@ -391,12 +753,41 @@ export function parseResearchRun(raw: unknown): ResearchRunParse {
         angle_total: 0,
         message: "",
         elapsed_ms: 0,
+        round_index: 0,
+        round_total: 0,
       },
       ...(isRecord(raw.report) ? { report: raw.report as unknown as ResearchReport } : {}),
+      ...(isRecord(raw.preview)
+        ? { preview: raw.preview as unknown as ResearchRun["preview"] }
+        : {}),
       ...(typeof raw.error === "string" && raw.error !== "" ? { error: raw.error } : {}),
     },
     drift: [],
   };
+}
+
+export interface ResearchPreviewParse {
+  value: ResearchPreview | null;
+  drift: string[];
+}
+
+/**
+ * `POST /v1/deep-research` with `plan_only: true`, read at the seam.
+ *
+ * The response IS a run response — same envelope, empty id, status
+ * `preview` — so it goes through `parseResearchRun` first and any drift on
+ * the envelope is reported under the same names every other read uses.
+ * The preview itself is then mapped field by field, because unlike the
+ * report it is not a leaf: a surface renders a radio group from `options`
+ * and POSTs the result back.
+ */
+export function parseResearchPreview(raw: unknown): ResearchPreviewParse {
+  const { drift } = parseResearchRun(raw);
+  const preview = isRecord(raw) ? mapResearchPreview(raw.preview) : undefined;
+  if (preview === undefined) {
+    return { value: null, drift: [...drift, "preview"] };
+  }
+  return { value: preview, drift };
 }
 
 /** `GET /v1/deep-research` — this tenant's runs, newest first. */

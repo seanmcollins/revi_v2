@@ -41,6 +41,7 @@ __all__ = [
     "AngleEvidencePayload",
     "AngleFamilyLiteral",
     "CensoringPayload",
+    "ConsultedNotePayload",
     "ContrastArmPayload",
     "ContrastPayload",
     "ContrastTestLiteral",
@@ -61,13 +62,17 @@ __all__ = [
     "DeepResearchSummary",
     "EvidenceTierLiteral",
     "ExpectedRecoveryRowPayload",
+    "GeneralizedResearchPreviewPayload",
     "HeadlinePayload",
     "IntervalPayload",
     "MoneyIntervalPayload",
+    "PlannedReadingPayload",
     "RateBasisLiteral",
     "RateCellPayload",
     "ResearchAnglePayload",
+    "ResearchPathChoicePayload",
     "ResearchPlanPayload",
+    "ResearchShapeLiteral",
     "SelectorKindLiteral",
     "StartDeepResearchRequest",
     "StratumLiteral",
@@ -125,7 +130,16 @@ DeepResearchStatusLiteral = Literal[
     "preview", "planning", "running", "complete", "failed", "interrupted"
 ]
 
-DeepResearchPhaseLiteral = Literal["plan", "execute", "synthesize"]
+#: The phases a run passes through, in the order it passes through them.
+#: The first three are the generalized loop's own — orienting on the data,
+#: consulting the definitions library's background notes, and reading a
+#: round's results before deciding what to chase. A surface that only knew
+#: ``plan | execute | synthesize`` would render a minute of orienting and
+#: deciding as "still going", which is exactly the part of a research run a
+#: reader most wants to watch.
+DeepResearchPhaseLiteral = Literal[
+    "orient", "consult", "plan", "execute", "read", "round", "synthesize"
+]
 
 #: Frames a run emits while it is in flight, plus the terminal frame.
 DeepResearchEventKind = Literal[
@@ -468,6 +482,118 @@ class DeepResearchScopePayload(ClosedModel):
     open_dollars_cents: int
 
 
+#: The closed operation shapes a generalized reading may take. Mirrors
+#: :class:`revi_investigation.application.deep_research.general.AngleShape`.
+#: Closed for the same reason the recovery families are: a control plane
+#: picks from this list and cannot invent an entry, and each shape is
+#: executed by deterministic code the control plane never touches. What is
+#: NOT closed here is which measure a shape is applied to — that is one
+#: deployment's own definitions library, resolved against it before a
+#: single read is built.
+ResearchShapeLiteral = Literal[
+    "measure_profile", "stratified_rates", "contrast", "trend", "composition"
+]
+
+
+class ResearchPathChoicePayload(ClosedModel):
+    """One thing a run established about the data before it chose anything.
+
+    "Your data carries COB mainly in remit codes — the category field is
+    sparsely populated here, so I read the codes." The statement arrives
+    already composed, beside the coverage figure it quotes, so no surface
+    can re-word it into something true, useless and unfalsifiable.
+    """
+
+    #: What the finding is about — a breakdown, a measure, the deployment.
+    subject: str
+    #: The finding, as one plain sentence a report can print verbatim.
+    statement: str
+
+
+class ConsultedNotePayload(ClosedModel):
+    """One background note the run read before deciding what to check.
+
+    The title only. A note's content shapes *which reading runs* and can
+    never shape *what a number says*, and publishing its key points beside
+    a preview would put an industry figure next to a measured one on the
+    same card.
+    """
+
+    title: str
+    #: What matched it to this question — an alias, a subject area, or the
+    #: question's own words. Answers "why was this in front of the
+    #: planner" without re-running the matcher.
+    matched_on: list[str] = Field(default_factory=list)
+
+
+class PlannedReadingPayload(ClosedModel):
+    """One reading a run intends to take, and the reason it is there.
+
+    The reason is the whole point of showing this before spending a minute
+    of work: a confirmation that lists what will be read without saying why
+    is a progress bar in advance.
+    """
+
+    shape: ResearchShapeLiteral
+    #: What the reading is called, in the words the report will use.
+    title: str
+    #: Why this reading is in the run, in the analyst's own language.
+    reason: str
+    #: Which round chose it. Round 0 is the opening read; anything above it
+    #: is chosen after certified results come back, so a preview only ever
+    #: shows round 0 and the report shows the rest.
+    round: int = 0
+    #: The reading whose result sent the run here, when one did.
+    chases: str = ""
+
+
+class GeneralizedResearchPreviewPayload(ClosedModel):
+    """What a research run learned, and what it therefore intends to read.
+
+    Resolved WITHOUT executing any of it: the orientation reads are cheap
+    and cached, the background notes are a lookup, and the readings are
+    chosen but not run. So the card in front of a minute of work costs a
+    fraction of a second and still says something a reader can correct.
+
+    Nothing here is a measurement. The path choices quote coverage — how
+    much of the data carries a path — and coverage is a fact about the data
+    rather than an answer to the question.
+    """
+
+    #: What this run will answer, in one sentence.
+    research_question: str
+    #: WHAT THIS RUN READS, in the words a research report can use — and
+    #: deliberately not the recoverability review's own population noun.
+    #: The review is about open denials and says so; a research question
+    #: about A/R aging reads claims, remits and balances, and a card that
+    #: called that "every open denial" would be describing a population the
+    #: run never opens. The two live side by side on the same payload, so
+    #: the difference has to be on the wire rather than in a comment.
+    population_label: str = ""
+    #: The period it will read, in a reader's words.
+    window_label: str
+    #: What was established about the data before anything was chosen.
+    path_choices: list[ResearchPathChoicePayload] = Field(default_factory=list)
+    #: One sentence naming what was consulted, or that nothing spoke to it.
+    knowledge_statement: str = ""
+    knowledge_consulted: list[ConsultedNotePayload] = Field(default_factory=list)
+    #: The opening readings, each with its reason.
+    readings: list[PlannedReadingPayload] = Field(default_factory=list)
+    #: Why this set and not another.
+    rationale: str = ""
+    #: ``model`` when the control plane chose these readings, ``revi`` when
+    #: the run fell back to its standing set. A fallback presented as a
+    #: choice is a small lie about how the analysis was decided.
+    authored_by: Literal["model", "revi"] = "revi"
+    #: How many read-and-decide rounds this question earned. Budgets scale
+    #: with the question's composition depth, so a reader can see that a
+    #: three-part question bought more work than a one-part one.
+    rounds_planned: int = 1
+    #: Set when nothing in the definitions library can speak to the
+    #: question — a refusal naming the data gap, never a thin run.
+    refusal: str = ""
+
+
 class DeepResearchPreviewPayload(ClosedModel):
     """What a run WOULD do, resolved without doing any of it.
 
@@ -492,6 +618,12 @@ class DeepResearchPreviewPayload(ClosedModel):
     options: list[DeepResearchSelector] = Field(default_factory=list)
     #: The load every figure above was read at, in a reader's words.
     data_load_label: str = ""
+    #: What a research question — as opposed to the standing recoverability
+    #: review — would look at, and why. Present when the request carried a
+    #: question the generalized loop can research; absent when the run is
+    #: the standing recoverability review, which describes itself through
+    #: ``plan`` above.
+    generalized: GeneralizedResearchPreviewPayload | None = None
 
 
 class StartDeepResearchRequest(ClosedModel):
@@ -519,6 +651,13 @@ class DeepResearchProgressPayload(ClosedModel):
     #: What the run is doing right now, in one short phrase.
     message: str = ""
     elapsed_ms: int = 0
+    #: Which read-and-decide round this is, and how many the question
+    #: earned. Zero on a run that takes one pass. A reader watching a
+    #: minute of work is entitled to know whether the run is still on its
+    #: opening read or has read something and gone after it, and "still
+    #: going" cannot say which.
+    round_index: int = 0
+    round_total: int = 0
 
 
 class DeepResearchRunResponse(ClosedModel):

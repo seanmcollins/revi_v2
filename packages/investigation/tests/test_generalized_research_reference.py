@@ -50,6 +50,9 @@ from revi_catalog import load_catalog
 from revi_connector_duckdb import DuckDbAnalyticalRepository
 from revi_investigation.application.deep_research.general import (
     AngleShape,
+    MeasureAngle,
+    PlannedAngle,
+    TimeStep,
     walk_fingerprint,
 )
 from revi_investigation.application.deep_research.grammar import (
@@ -61,6 +64,7 @@ from revi_investigation.application.deep_research.loop import (
     ResearchOrienter,
     default_window,
     iteration_budget,
+    leads_of,
 )
 from revi_investigation.application.deep_research.measures import MeasureAngleRunner
 from revi_investigation.application.discovery import DiscoveryKind, DiscoveryService
@@ -159,6 +163,85 @@ async def _research(loop, settings, watermark, snapshot, question, population=No
     )
 
 
+class _ScriptedPlanner:
+    """A control plane that chooses a DIFFERENT plan from the standing one.
+
+    A real model behind the same seam is exercised by the live-acceptance
+    bar; what is checked here is the property that must hold whatever the
+    model says. The script is deliberately not the deterministic set: if
+    the run's invariants only held because the plan happened to be the one
+    the fallback produces, this file would be testing the fallback.
+    """
+
+    def __init__(self) -> None:
+        self.opened = 0
+        self.continued = 0
+
+    async def open(self, orientation, *, budget):
+        self.opened += 1
+        angles = [
+            PlannedAngle(
+                shape=AngleShape.MEASURE_PROFILE,
+                reason="where the aged A/R sits, payer by payer",
+                measure=MeasureAngle(metric_id="ar_over_90_pct", cut_by=("payer",)),
+            ),
+            PlannedAngle(
+                shape=AngleShape.TREND,
+                reason="whether the denial rate has been climbing alongside it",
+                measure=MeasureAngle(metric_id="denial_rate", step=TimeStep.MONTH),
+            ),
+            PlannedAngle(
+                shape=AngleShape.CONTRAST,
+                reason="whether the payer gap on denials is real or the size of the groups",
+                measure=MeasureAngle(metric_id="denial_rate", cut_by=("payer",)),
+            ),
+            # Deliberately illegal: a measure this data does not carry. It
+            # must not become a weaker reading, and it must not stop the
+            # three legal ones running.
+            PlannedAngle(
+                shape=AngleShape.MEASURE_PROFILE,
+                reason="how profitable we are",
+                measure=MeasureAngle(metric_id="profit_margin"),
+            ),
+        ]
+        return angles, "Read where the aged A/R sits, then whether denials moved with it."
+
+    async def next_round(self, orientation, rounds, *, index, remaining):
+        self.continued += 1
+        leads = leads_of(rounds, orientation.policy)
+        proposed = []
+        for lead in leads[:1]:
+            proposed.append(
+                PlannedAngle(
+                    shape=AngleShape.MEASURE_PROFILE,
+                    round=index,
+                    chases=lead.title,
+                    reason=f"{lead.why} — cutting inside {lead.shown} by facility next",
+                    measure=MeasureAngle(
+                        metric_id=rounds[-1].results[0].metric_id,
+                        cut_by=("facility",),
+                        within=((lead.dimension, lead.value),),
+                    ),
+                )
+            )
+        # One proposal into a population nothing separated, every round. The
+        # thresholds must drop it whatever reason was written for it.
+        proposed.append(
+            PlannedAngle(
+                shape=AngleShape.MEASURE_PROFILE,
+                round=index,
+                chases="a reading that did not separate",
+                reason="this one looked interesting to me",
+                measure=MeasureAngle(
+                    metric_id="ar_over_90_pct",
+                    cut_by=("facility",),
+                    within=(("payer", "Atlas Commercial"),),
+                ),
+            )
+        )
+        return proposed
+
+
 @pytest.fixture(scope="module")
 async def ar_run(loop, settings, watermark, snapshot):
     return await _research(loop, settings, watermark, snapshot, AR_QUESTION)
@@ -172,6 +255,32 @@ async def payer_run(loop, settings, watermark, snapshot):
 @pytest.fixture(scope="module")
 async def facility_run(loop, settings, watermark, snapshot):
     return await _research(loop, settings, watermark, snapshot, FACILITY_QUESTION)
+
+
+@pytest.fixture(scope="module")
+def planner() -> _ScriptedPlanner:
+    return _ScriptedPlanner()
+
+
+@pytest.fixture(scope="module")
+async def planned_run(repository, cache, catalog, snapshot, settings, watermark, planner):
+    """The A/R question, planned by something outside the loop."""
+    pack = PackSnapshotPort(snapshot)
+    loop = GeneralizedResearchLoop(
+        ResearchOrienter(DiscoveryService(repository, cache, catalog, pack), catalog, pack),
+        MeasureAngleRunner(
+            repository, cache, catalog, pack, CalculationTransforms(snapshot.metric)
+        ),
+        planner=planner,
+    )
+    walk, results, orientation = await loop.run(
+        question=AR_QUESTION,
+        population=TargetPopulation(),
+        settings=settings,
+        watermark=watermark,
+        pack_snapshot_id=snapshot.id,
+    )
+    return loop, walk, results, orientation
 
 
 @pytest.fixture(scope="module")
@@ -559,6 +668,212 @@ class TestItIsCheap:
         _, results, _ = ar_run
         fingerprints = [result.read_fingerprint for result in results if not result.refusal]
         assert len(fingerprints) == len(results)
+
+
+class TestAModelChoosesThePlan:
+    """The invariants that hold whatever the control plane decided.
+
+    Everything above this class runs the loop with no planner, so its plan
+    is the standing set and its numbers are pinned. That is the
+    deterministic-fallback half of the bar and it stays exactly as it was.
+
+    This half is the other one. The plan is chosen by something outside the
+    loop, so nothing here may assert WHICH readings ran — what is asserted
+    is that whatever ran was legal, was recorded, was certified, and
+    replays to the same figures. A reference test that pinned the plan
+    would fail the first time the planner had a better idea, which is the
+    behavior the planner exists to have.
+    """
+
+    async def test_the_report_says_who_chose_the_plan(self, planned_run) -> None:
+        _, walk, _, _ = planned_run
+        assert walk.authored_by == "model"
+        assert walk.rationale.startswith("Read where the aged A/R sits")
+
+    async def test_the_angles_executed_are_exactly_the_recorded_ones(
+        self, planned_run
+    ) -> None:
+        _, walk, results, _ = planned_run
+        assert [result.angle for result in results] == list(walk.angles)
+
+    async def test_every_angle_the_model_chose_is_legal_in_this_data(
+        self, planned_run
+    ) -> None:
+        _, walk, _, orientation = planned_run
+        for angle in walk.angles:
+            assert angle.shape in set(AngleShape)
+            assert angle.measure is not None
+            assert orientation.vocabulary.knows(angle.measure.metric_id)
+            assert set(angle.measure.cut_by) <= orientation.vocabulary.cuts_for(
+                angle.measure.metric_id
+            )
+
+    async def test_a_measure_this_data_does_not_carry_never_ran(self, planned_run) -> None:
+        _, _, results, _ = planned_run
+        assert all(result.metric_id != "profit_margin" for result in results)
+
+    async def test_every_reading_carries_its_stated_reason(self, planned_run) -> None:
+        _, walk, _, _ = planned_run
+        for angle in walk.angles:
+            assert angle.reason
+        for step in walk.steps:
+            assert step.reason
+
+    async def test_it_iterated_and_the_chase_was_the_models_own(self, planned_run) -> None:
+        _, walk, _, _ = planned_run
+        assert walk.rounds >= 2
+        chases = [step for step in walk.steps if step.action == "chase"]
+        assert chases, "a why-and-what-will-it-take question earns a chase"
+        assert any("cutting inside" in step.reason for step in chases)
+
+    async def test_a_chase_into_a_population_nothing_separated_was_gated(
+        self, planned_run
+    ) -> None:
+        """The model proposes; the content decides what is significant."""
+        _, walk, _, _ = planned_run
+        gated = [
+            step
+            for step in walk.steps
+            if step.action == "drop" and "I did not go inside" in step.reason
+        ]
+        assert gated, "the out-of-bounds proposal was neither run nor recorded"
+        assert "You can change this anytime." in gated[0].reason
+        assert all(
+            angle.measure is None
+            or ("payer", "Atlas Commercial") not in angle.measure.within
+            for angle in walk.angles
+        )
+
+    async def test_every_published_figure_is_certified(self, planned_run) -> None:
+        _, _, results, _ = planned_run
+        for result in results:
+            for cell in result.cells:
+                if cell.is_measured:
+                    assert cell.value is not None
+                    assert not cell.bounded and not cell.withheld
+                    assert result.read_fingerprint
+
+    async def test_the_recorded_walk_replays_with_no_further_model_calls(
+        self, planned_run, settings, watermark, snapshot, planner
+    ) -> None:
+        """"The recorded path is the plan." A permalink, a replay and the
+        harness re-run what was DECIDED and may not re-decide it."""
+        loop, walk, results, _ = planned_run
+        before = (planner.opened, planner.continued)
+        again = await loop.replay(
+            walk,
+            settings=settings,
+            watermark=watermark,
+            pack_snapshot_id=snapshot.id,
+            window=default_window(watermark, settings.research),
+        )
+        assert (planner.opened, planner.continued) == before
+        assert [
+            (result.title, [(cell.label, cell.value) for cell in result.cells])
+            for result in again
+        ] == [
+            (result.title, [(cell.label, cell.value) for cell in result.cells])
+            for result in results
+        ]
+
+    async def test_the_run_names_its_iteration_rounds_while_it_works(
+        self, repository, cache, catalog, snapshot, settings, watermark
+    ) -> None:
+        """A minute of work, narrated by the decisions that caused it.
+
+        "Still going" and "the payer spread was decisive — cutting inside
+        Veritas Comp Fund next" are different states, and a reader watching
+        a research run is entitled to know which one they are in. The
+        sentence is the one the planner already wrote; a second wording of
+        the same decision would be a second description of one fact.
+        """
+        said: list[tuple[str, str]] = []
+
+        async def progress(phase: str, message: str) -> None:
+            said.append((phase, message))
+
+        pack = PackSnapshotPort(snapshot)
+        loop = GeneralizedResearchLoop(
+            ResearchOrienter(DiscoveryService(repository, cache, catalog, pack), catalog, pack),
+            MeasureAngleRunner(
+                repository, cache, catalog, pack, CalculationTransforms(snapshot.metric)
+            ),
+            planner=_ScriptedPlanner(),
+        )
+        await loop.run(
+            question=AR_QUESTION,
+            population=TargetPopulation(),
+            settings=settings,
+            watermark=watermark,
+            pack_snapshot_id=snapshot.id,
+            progress=progress,
+        )
+        phases = [phase for phase, _ in said]
+        assert phases[:3] == ["orient", "consult", "plan"]
+        rounds = [message for phase, message in said if phase == "round"]
+        assert rounds, "an iterating run said nothing about why it iterated"
+        assert rounds[0].startswith("Round 1 — ")
+        assert ":" in rounds[0], "a round message that names no cause is a spinner"
+
+    async def test_a_run_whose_planner_fails_falls_back_and_says_so(
+        self, repository, cache, catalog, snapshot, settings, watermark
+    ) -> None:
+        class _Broken:
+            async def open(self, orientation, *, budget):
+                raise RuntimeError("the control plane is unreachable")
+
+            async def next_round(self, orientation, rounds, *, index, remaining):
+                raise RuntimeError("the control plane is unreachable")
+
+        pack = PackSnapshotPort(snapshot)
+        loop = GeneralizedResearchLoop(
+            ResearchOrienter(DiscoveryService(repository, cache, catalog, pack), catalog, pack),
+            MeasureAngleRunner(
+                repository, cache, catalog, pack, CalculationTransforms(snapshot.metric)
+            ),
+            planner=_Broken(),
+        )
+        walk, results, _ = await loop.run(
+            question=AR_QUESTION,
+            population=TargetPopulation(),
+            settings=settings,
+            watermark=watermark,
+            pack_snapshot_id=snapshot.id,
+        )
+        assert walk.authored_by == "revi"
+        assert results, "a failed plan call must not fail the run"
+
+    async def test_the_fallback_is_the_pinned_deterministic_plan(
+        self, ar_run, repository, cache, catalog, snapshot, settings, watermark
+    ) -> None:
+        """The one place the old pin still lives: no planner and a broken
+        planner must produce the SAME walk, or the fallback is not a
+        fallback."""
+        walk, _, _ = ar_run
+
+        class _Broken:
+            async def open(self, orientation, *, budget):
+                raise RuntimeError("unreachable")
+
+            async def next_round(self, orientation, rounds, *, index, remaining):
+                raise RuntimeError("unreachable")
+
+        pack = PackSnapshotPort(snapshot)
+        loop = GeneralizedResearchLoop(
+            ResearchOrienter(DiscoveryService(repository, cache, catalog, pack), catalog, pack),
+            MeasureAngleRunner(
+                repository, cache, catalog, pack, CalculationTransforms(snapshot.metric)
+            ),
+            planner=_Broken(),
+        )
+        fallen_back, _, _ = await loop.run(
+            question=AR_QUESTION,
+            population=TargetPopulation(),
+            settings=settings,
+            watermark=watermark,
+            pack_snapshot_id=snapshot.id,
+        )
+        assert walk_fingerprint(fallen_back) == walk_fingerprint(walk)
 
 
 class TestDates:

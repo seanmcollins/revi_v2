@@ -38,10 +38,13 @@ from decimal import Decimal
 from typing import Any
 
 from revi_api.auth import Principal
+from revi_api.deep_research_preview import generalized_preview_payload
 from revi_api.warning_codes import structured_warnings
+from revi_catalog_contracts.model import CatalogSnapshot
 from revi_investigation.application.deep_research import (
     DeepResearchProgress,
     DeepResearchService,
+    GeneralizedResearchLoop,
     PopulationKind,
     TargetPopulation,
 )
@@ -71,6 +74,7 @@ from revi_investigation_contracts.deep_research import (
     DeepResearchScopePayload,
     DeepResearchSelector,
     DeepResearchSummary,
+    GeneralizedResearchPreviewPayload,
     StartDeepResearchRequest,
 )
 from revi_kernel.errors import (
@@ -248,6 +252,8 @@ class DeepResearchApi:
         pack_version: str,
         pack_snapshot_id: str,
         compose: Any = None,
+        research: GeneralizedResearchLoop | None = None,
+        catalog: CatalogSnapshot | None = None,
     ) -> None:
         self._service = service
         self._investigations = investigations
@@ -256,6 +262,11 @@ class DeepResearchApi:
         self._pack_version = pack_version
         self._pack_snapshot_id = pack_snapshot_id
         self._compose = compose
+        #: The generalized loop, for a request that carries a research
+        #: QUESTION rather than the standing recoverability review. Optional
+        #: so a deployment with no catalog wired still previews the review.
+        self._research = research
+        self._catalog = catalog
         self._runs: dict[str, RunState] = {}
 
     # -- the dry run ---------------------------------------------------------
@@ -312,8 +323,45 @@ class DeepResearchApi:
                 data_load_label=(
                     f"the load through {watermark.newest_data_date.strftime('%b %-d, %Y')}"
                 ),
+                generalized=await self._generalized_preview(
+                    request, population, watermark, settings
+                ),
             ),
         )
+
+    async def _generalized_preview(
+        self,
+        request: StartDeepResearchRequest,
+        population: TargetPopulation,
+        watermark: DataWatermark,
+        settings: Any,
+    ) -> GeneralizedResearchPreviewPayload | None:
+        """What a research QUESTION would look at — orient, consult, plan.
+
+        Only for a request that carries a question. Without one there is no
+        research question to research, and the standing recoverability
+        review already describes itself through the closed catalogue.
+
+        A failure here degrades to the review's own description rather than
+        failing the confirmation: the reader still gets a card that says
+        what will be looked at, and the run they confirm is unaffected —
+        the loop re-orients for itself and never reads this payload.
+        """
+        question = (request.question or "").strip()
+        if not question or self._research is None or self._catalog is None:
+            return None
+        try:
+            resolved = await self._research.preview(
+                question=question,
+                population=population,
+                settings=settings,
+                watermark=watermark,
+                pack_snapshot_id=self._pack_snapshot_id,
+            )
+        except Exception:  # pragma: no cover - defensive
+            logger.exception("generalized research preview failed")
+            return None
+        return generalized_preview_payload(resolved, self._catalog)
 
     # -- launch --------------------------------------------------------------
 

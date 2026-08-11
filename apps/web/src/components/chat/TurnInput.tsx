@@ -1,11 +1,15 @@
 "use client";
 
-import { CornerDownLeft, LoaderCircle } from "lucide-react";
+import { AlertTriangle, CornerDownLeft, LoaderCircle, Telescope } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
 
+import { ResearchLaunchCard } from "@/components/research/ResearchLaunchCard";
 import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Textarea } from "@/components/ui/textarea";
+import { allOpenSelector, offerFromPreview } from "@/lib/deepResearch";
 import { useSessionStore } from "@/lib/store";
+import { useResearchPreview } from "@/lib/useDeepResearch";
 
 /**
  * Multiline composer. Enter sends, Shift+Enter breaks; disabled while a
@@ -24,6 +28,23 @@ import { useSessionStore } from "@/lib/store";
  * and the analyst should be typing, not tabbing. The workspace does not
  * pass it: a session being re-opened must not steal focus from the thread
  * being read.
+ *
+ * TWO WAYS TO SPEND THE SAME SENTENCE, AND THE BOX DOES NOT CHANGE.
+ *
+ * Enter asks the question and gets an answer in seconds. "Deep research"
+ * takes the SAME text and spends about a minute on it instead. Which one a
+ * question deserves is the analyst's call and nobody else's, so the choice
+ * is a second control beside Send rather than a mode, a prefix, a toggle or
+ * a guess made from the wording. Nothing about the ordinary path moves:
+ * Enter still sends, Shift+Enter still breaks the line, and the deep
+ * research control is disabled under exactly the conditions Send is.
+ *
+ * IT PREVIEWS; IT DOES NOT LAUNCH. The press resolves what a run WOULD do
+ * — the readings, the reasons, whether the data can answer this at all —
+ * and opens the confirmation card over it. That is a real request and it
+ * says so while it runs. The composer is NOT cleared: nothing has been
+ * spent, the sentence is still the analyst's, and a box emptied by a
+ * preview would have thrown away the question if they closed the card.
  */
 export function TurnInput({
   suggestions,
@@ -119,6 +140,35 @@ export function TurnInput({
     else void submit({ utterance: trimmed });
   };
 
+  /**
+   * THE DEEP-RESEARCH PRESS, in three states and no fourth.
+   *
+   * The card opens only once the server has answered, because what the
+   * card is FOR is the answer: an empty confirmation shown instantly and
+   * filled in a second later would ask a reader to decide before there is
+   * anything to decide about.
+   */
+  const {
+    preview,
+    pending: previewing,
+    error: previewError,
+    request: previewRun,
+  } = useResearchPreview();
+  const [cardOpen, setCardOpen] = useState(false);
+  const [asked, setAsked] = useState("");
+
+  const research = () => {
+    const trimmed = value.trim();
+    if (!trimmed || busy) return;
+    setAsked(trimmed);
+    void (async () => {
+      // The card opens on the ANSWER, not on the press: only a resolved
+      // preview has anything in it to decide about.
+      const resolved = await previewRun(allOpenSelector(), trimmed);
+      if (resolved) setCardOpen(true);
+    })();
+  };
+
   return (
     <div className="space-y-2">
       {suggestions.length > 0 && (
@@ -168,22 +218,90 @@ export function TurnInput({
           }
           disabled={busy}
           rows={2}
-          className="max-h-40 resize-none pr-12 text-body"
+          className="max-h-40 resize-none pr-40 text-body"
         />
-        <Button
-          type="submit"
-          size="icon-sm"
-          disabled={busy || !value.trim()}
-          aria-label="Send"
-          className="absolute bottom-2 right-2"
-        >
-          {busy ? (
-            <LoaderCircle className="animate-spin" />
-          ) : (
-            <CornerDownLeft />
-          )}
-        </Button>
+        <div className="absolute bottom-2 right-2 flex items-center gap-1.5">
+          {/* A REAL BUTTON, IN THE TAB ORDER, ALWAYS THERE.
+              Not a hover affordance and not a menu item: this is one of
+              the two things that can be done with what is in the box, and
+              a control that does not exist on a touch screen or in a
+              screenshot is not a quiet control, it is an absent one. The
+              accessible name says what the press DOES — it opens the
+              confirmation — because a name promising a launch on a
+              control that opens a card would tell a screen-reader user a
+              minute of work had started when nothing had. */}
+          <Popover
+            open={cardOpen}
+            onOpenChange={(next) => {
+              // Only CLOSING is the popover's to decide. It opens when
+              // the server has answered and not when the trigger is
+              // pressed, so an empty card can never appear.
+              if (!next) setCardOpen(false);
+            }}
+          >
+            <PopoverTrigger asChild>
+              <Button
+                type="button"
+                variant="ghost"
+                size="xs"
+                data-research-composer
+                disabled={busy || !value.trim()}
+                aria-label="Deep research on this question — see what it will look at"
+                onClick={research}
+                className="h-8 gap-1 rounded-md px-2 text-meta font-normal text-muted-foreground transition-colors duration-150 hover:text-foreground"
+              >
+                {previewing ? (
+                  <LoaderCircle aria-hidden className="size-3 animate-spin" />
+                ) : (
+                  <Telescope aria-hidden className="size-3" />
+                )}
+                Deep research
+              </Button>
+            </PopoverTrigger>
+            <PopoverContent align="end" className="w-[26rem] max-w-[calc(100vw-2rem)] p-3">
+              {preview && (
+                <ResearchLaunchCard
+                  offer={offerFromPreview(preview, asked)}
+                  variant="compact"
+                  onLaunched={() => setCardOpen(false)}
+                />
+              )}
+            </PopoverContent>
+          </Popover>
+          <Button
+            type="submit"
+            size="icon-sm"
+            disabled={busy || !value.trim()}
+            aria-label="Send"
+          >
+            {busy ? (
+              <LoaderCircle className="animate-spin" />
+            ) : (
+              <CornerDownLeft />
+            )}
+          </Button>
+        </div>
       </form>
+
+      {/* WHILE IT RESOLVES, AND IF IT DOES NOT. The pending line is a
+          status because it is not news; the failure is an alert because
+          the analyst pressed something and it did not happen. The server's
+          own sentence is printed verbatim — it is the one that knows why —
+          and the box is left exactly as it was. */}
+      {previewing && (
+        <p role="status" className="text-micro leading-snug text-muted-foreground">
+          Working out what deep research would look at…
+        </p>
+      )}
+      {previewError && (
+        <p
+          role="alert"
+          className="flex items-start gap-1.5 text-micro leading-snug text-negative"
+        >
+          <AlertTriangle aria-hidden className="mt-0.5 size-3 shrink-0" />
+          {previewError}
+        </p>
+      )}
       {/* The composer says something only when it has something to say.
           The standing disclaimer ("every number is computed from your
           data…") belongs on the empty state, where a first-time reader

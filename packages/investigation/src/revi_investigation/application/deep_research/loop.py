@@ -256,7 +256,7 @@ class ResearchOrienter:
             question, window=window, watermark=watermark, pack_snapshot_id=pack_snapshot_id
         )
         profile = self._discovery.measure_availability(
-            population=_population_words(population),
+            population=population_words(population),
             watermark=watermark,
             pack_snapshot_id=pack_snapshot_id,
         )
@@ -442,6 +442,7 @@ def _vocabulary_of(profile: object, pack: PackPort) -> AngleVocabulary:
     kinds: dict[str, str] = {}
     units: dict[str, str] = {}
     rate_like: set[str] = set()
+    descriptions = dict(pack.metric_summaries())
     for availability in getattr(profile, "measures", ()):
         measures[availability.metric_id] = frozenset(availability.cuts)
         bases[availability.metric_id] = frozenset(availability.date_bases)
@@ -459,10 +460,15 @@ def _vocabulary_of(profile: object, pack: PackPort) -> AngleVocabulary:
         kinds=kinds,
         units=units,
         rate_like=frozenset(rate_like),
+        descriptions={
+            metric_id: description
+            for metric_id, description in descriptions.items()
+            if metric_id in measures
+        },
     )
 
 
-def _population_words(population: TargetPopulation) -> str:
+def population_words(population: TargetPopulation) -> str:
     """What this run is about, in words a generalized report can use.
 
     The recovery mode's own label says "every open denial", which is right
@@ -490,10 +496,13 @@ def standing_angles(orientation: Orientation) -> tuple[PlannedAngle, ...]:
     plane has nothing to give, with the report saying which of the two
     chose it.
     """
+    from revi_investigation.application.rendering import metric_label
+
     angles: list[PlannedAngle] = []
     for position, metric_id in enumerate(orientation.measures[:3]):
         cut = orientation.cut_for.get(metric_id)
         kind = orientation.vocabulary.kinds.get(metric_id, "flow")
+        measure = metric_label(metric_id)
         reason_lead = (
             "the measure the question names"
             if position == 0
@@ -524,7 +533,7 @@ def standing_angles(orientation: Orientation) -> tuple[PlannedAngle, ...]:
                     PlannedAngle(
                         shape=AngleShape.CONTRAST,
                         reason=(
-                            f"whether the {cut.replace('_', ' ')} spread on {metric_id} is a "
+                            f"whether the {cut.replace('_', ' ')} spread on {measure} is a "
                             "real gap or the size of the groups behind it"
                         ),
                         measure=MeasureAngle(metric_id=metric_id, cut_by=(cut,)),
@@ -581,6 +590,125 @@ def _spread(result: MeasureResult, policy: ResearchPolicy) -> tuple[MeasureCell,
     if ratio < policy.chase_spread_ratio:
         return None
     return high, ratio
+
+
+@dataclass(frozen=True, slots=True)
+class Lead:
+    """A finding the research thresholds admit as worth going inside.
+
+    The policy's own verdict, made into an object because two callers need
+    it and they must not disagree. The deterministic planner turns leads
+    into chases directly; the model planner is SHOWN them, proposes chases
+    in its own words, and is then held to this same set — a chase into a
+    population the thresholds never admitted is dropped, whatever reason
+    was written for it. The model decides what is interesting; the content
+    decides what is significant.
+    """
+
+    #: The reading this came off, by the title a reader saw.
+    title: str
+    #: The breakdown the lead sits on, and the value AS THE DATA HOLDS IT —
+    #: a chase filters the column, and the column holds ``16`` where the
+    #: reader saw ``16 — Missing or invalid information``.
+    dimension: str
+    value: str
+    #: The same population in the words a reader saw.
+    shown: str
+    #: The clause that says why this is a lead, quoted by the walk step,
+    #: the progress line and the planner prompt alike, so one decision is
+    #: described once.
+    why: str
+
+
+def leads_of(rounds: Sequence[ResearchRound], policy: ResearchPolicy) -> tuple[Lead, ...]:
+    """Everything in the newest round the thresholds say is worth chasing."""
+    if not rounds:
+        return ()
+    found: list[Lead] = []
+    for result in rounds[-1].results:
+        angle = result.angle.measure
+        if angle is None or result.refusal or not angle.cut_by:
+            continue
+        lead = _lead(result, policy)
+        if lead is None:
+            continue
+        raw, shown, why = lead
+        found.append(
+            Lead(
+                title=result.title,
+                dimension=angle.cut_by[0],
+                value=raw,
+                shown=shown,
+                why=why,
+            )
+        )
+    return tuple(found)
+
+
+def gate_sentence(policy: ResearchPolicy) -> str:
+    """The chase levels, stated as the rule they are.
+
+    Said whenever a proposal is dropped for going inside a difference the
+    thresholds did not admit. It names the value, the unit, who recommends
+    it and that it can be moved — never "below the threshold", which asks a
+    reader to accept a number nobody showed them
+    (``docs/client-language.md`` §2.1).
+    """
+    return (
+        "A difference is worth going inside when a rate gap is beyond what the size of "
+        f"the groups explains at the {policy.chase_p_value} level, or when a dollars or "
+        f"days breakdown has a widest group at least {policy.chase_spread_ratio} times its "
+        "narrowest — Revi's recommended levels for chasing a difference. You can change "
+        "this anytime."
+    )
+
+
+def gate_chases(
+    proposed: Sequence[PlannedAngle],
+    leads: Sequence[Lead],
+    policy: ResearchPolicy,
+    *,
+    round_index: int,
+) -> tuple[tuple[PlannedAngle, ...], tuple[WalkStep, ...]]:
+    """Hold proposed chases to the thresholds, and record what was dropped.
+
+    A reading that narrows to a population — ``within`` is set — is a claim
+    that the last round found something there. The content decides whether
+    it did. A proposal narrowing into a population no reading separated is
+    dropped rather than trimmed into a pooled reading: run as a broadening
+    it would answer a question nobody asked and carry a reason about a
+    finding that does not exist.
+
+    Broadenings pass through. They assert nothing about the last round, so
+    there is nothing for a threshold to hold them to.
+    """
+    admitted = {(lead.dimension, lead.value) for lead in leads}
+    kept: list[PlannedAngle] = []
+    dropped: list[WalkStep] = []
+    for angle in proposed:
+        measure = angle.measure
+        if measure is None or not measure.within:
+            kept.append(angle)
+            continue
+        outside = [pair for pair in measure.within if pair not in admitted]
+        if not outside:
+            kept.append(angle)
+            continue
+        dropped.append(
+            WalkStep(
+                round=round_index,
+                action="drop",
+                subject=angle.subject,
+                reason=(
+                    "I did not go inside "
+                    + ", ".join(value for _, value in outside)
+                    + " — nothing in the last reading separated it. "
+                    + gate_sentence(policy)
+                ),
+                detail=angle.reason,
+            )
+        )
+    return tuple(kept), tuple(dropped)
 
 
 def chase_angles(
@@ -758,6 +886,54 @@ def drop_steps(rounds: Sequence[ResearchRound]) -> tuple[WalkStep, ...]:
 # the loop
 
 
+@dataclass(frozen=True, slots=True)
+class ResearchPreview:
+    """What a run WOULD look at, resolved without looking at any of it.
+
+    A research run is a minute of work and a real model call, so the
+    surface offering one confirms intent first — and a confirmation is only
+    worth reading if it says what will actually be checked and why. That is
+    ORIENT, CONSULT and PLAN — the three phases that cost cached reads and
+    one model call — and none of EXECUTE, which is the minute. The
+    confirmation is not free, and it is not meant to be: what it buys is a
+    reader seeing the reasoning before the work rather than after it.
+
+    The reader can correct it. Everything here is a decision — the period,
+    the population, which measures were reached, which readings follow —
+    and a preview that could not be argued with would be a progress bar
+    shown in advance.
+    """
+
+    orientation: Orientation
+    angles: tuple[PlannedAngle, ...]
+    rationale: str
+    #: ``model`` when the control plane chose; ``revi`` when the standing
+    #: set did. Carried through to the card, because a fallback presented
+    #: as a choice is a small lie about how the analysis was decided.
+    authored_by: str
+    #: Rounds this question's composition depth earned.
+    budget: int
+
+    @property
+    def refusal(self) -> str:
+        """Why there is nothing to run, when there is nothing to run.
+
+        A statement about the data, never about the engine — the first of
+        the two honest non-answers the completeness bar allows.
+        """
+        if self.angles:
+            return ""
+        if not self.orientation.measures:
+            return (
+                "Nothing in your definitions library matches the words in this question, "
+                "so there is no standard measure to research it through."
+            )
+        return (
+            "The measures this question reaches cannot be read over this population, so "
+            "there is no reading to take."
+        )
+
+
 class GeneralizedResearchLoop:
     """One research run, from a free-text question to a recorded walk."""
 
@@ -771,6 +947,44 @@ class GeneralizedResearchLoop:
         self._orienter = orienter
         self._runner = runner
         self._planner = planner
+
+    async def preview(
+        self,
+        *,
+        question: str,
+        population: TargetPopulation,
+        settings: DeepResearchSettings,
+        watermark: DataWatermark,
+        pack_snapshot_id: str,
+        window: AbsoluteRange | None = None,
+    ) -> ResearchPreview:
+        """Orient, consult and plan. Read nothing.
+
+        The same three phases :meth:`run` opens with, called by the surface
+        that offers the run, so the card a reader confirms describes the
+        run they are about to get rather than a generic description of the
+        mode. The orientation reads go through the run's own cache, so a
+        preview followed by a run costs one read rather than two.
+        """
+        policy = settings.research
+        span = window or default_window(watermark, policy)
+        budget = iteration_budget(question, policy)
+        orientation = await self._orienter.orient(
+            question=question,
+            population=population,
+            window=span,
+            watermark=watermark,
+            pack_snapshot_id=pack_snapshot_id,
+            policy=policy,
+        )
+        angles, rationale, authored_by = await self._open(orientation, budget)
+        return ResearchPreview(
+            orientation=orientation,
+            angles=tuple(angles),
+            rationale=rationale,
+            authored_by=authored_by,
+            budget=budget,
+        )
 
     async def run(
         self,
@@ -853,7 +1067,9 @@ class GeneralizedResearchLoop:
             if index >= budget:
                 break
             await say("read", "Reading what came back and deciding what to chase")
-            planned = list(await self._next(orientation, history, index, budget - index))
+            chosen, gated = await self._next(orientation, history, index, budget - index)
+            planned = list(chosen)
+            steps.extend(gated)
             for angle in planned:
                 steps.append(
                     WalkStep(
@@ -864,6 +1080,13 @@ class GeneralizedResearchLoop:
                         detail=angle.chases,
                     )
                 )
+            if planned:
+                # The reader is watching a minute-long run and is entitled to
+                # know which state it is in. "Still going" and "the payer
+                # spread was decisive — cutting inside Veritas Comp Fund
+                # next" are different states, and only the second one says
+                # that the run READ something and DECIDED.
+                await say("round", round_words(index, planned))
 
         steps.extend(drop_steps(history))
         steps.append(
@@ -913,18 +1136,74 @@ class GeneralizedResearchLoop:
         history: Sequence[ResearchRound],
         index: int,
         remaining: int,
-    ) -> tuple[PlannedAngle, ...]:
+    ) -> tuple[tuple[PlannedAngle, ...], tuple[WalkStep, ...]]:
+        """What runs next, and the record of what was proposed and refused.
+
+        The order is the whole design. The control plane proposes; the
+        grammar decides what is *legal*; the research thresholds decide what
+        is *significant*; and only what survives both runs. A proposal
+        dropped at either gate is recorded rather than discarded, because a
+        run that quietly declined to chase something looks identical to a
+        run that never thought of it.
+        """
         deterministic = chase_angles(orientation, history, index=index)
         if self._planner is None:
-            return deterministic
+            return deterministic, ()
         try:
             proposed = await self._planner.next_round(
                 orientation, history, index=index, remaining=remaining
             )
         except Exception:
-            return deterministic
+            return deterministic, ()
         legal = validate_angles(proposed, orientation, round_index=index)
-        return legal or deterministic
+        if not legal:
+            return deterministic, ()
+        kept, dropped = gate_chases(
+            legal,
+            leads_of(history, orientation.policy),
+            orientation.policy,
+            round_index=index,
+        )
+        return (kept or deterministic), dropped
+
+    # -- replay -------------------------------------------------------------
+
+    async def replay(
+        self,
+        walk: ResearchWalk,
+        *,
+        settings: DeepResearchSettings,
+        watermark: DataWatermark,
+        pack_snapshot_id: str,
+        window: AbsoluteRange,
+    ) -> tuple[MeasureResult, ...]:
+        """Re-execute a recorded walk. No orientation, no model, no choices.
+
+        "The recorded path is the plan" (addendum). This is the method that
+        makes the sentence true: a permalink, a replay and the warehouse-diff
+        harness all re-run *what was decided*, and none of them may re-decide
+        it. Two runs of one walk at one load therefore publish byte-identical
+        numbers whether or not a control plane was ever reachable — the
+        reproducibility claim attaches to the walk, which is what provenance
+        has always promised.
+        """
+        estimation = settings.estimation_policy()
+        results: list[MeasureResult] = []
+        for angle in walk.angles:
+            if angle.measure is None:
+                continue
+            results.append(
+                await self._runner.run(
+                    angle,
+                    population=walk.population,
+                    window=window,
+                    as_of=watermark.newest_data_date,
+                    watermark=watermark,
+                    pack_snapshot_id=pack_snapshot_id,
+                    policy=estimation,
+                )
+            )
+        return tuple(results)
 
 
 def validate_angles(
@@ -968,6 +1247,20 @@ def _standing_rationale(orientation: Orientation) -> str:
         f"Revi's opening read of {named}: what it is, how it has moved, and where it "
         "differs — then whatever those readings point at."
     )
+
+
+def round_words(index: int, planned: Sequence[PlannedAngle]) -> str:
+    """What a new round is FOR, in the sentence that decided it.
+
+    The reason a round exists was already written once — by the planner
+    that chose the angle, or by the deterministic reader that found the
+    lead. Quoting it is what makes the progress stream a record of
+    reasoning rather than a spinner with words on it, and re-wording it
+    here would put a second description of one decision on the wire.
+    """
+    lead = planned[0]
+    verb = "chasing it" if lead.chases else "trying another angle"
+    return f"Round {index} — {verb}: {lead.reason}"
 
 
 def _progress_words(angle: PlannedAngle, round_index: int, position: int, total: int) -> str:

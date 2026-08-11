@@ -70,7 +70,9 @@ import type {
 } from "@/lib/driver";
 import {
   parseResearchList,
+  parseResearchPreview,
   parseResearchRun,
+  type ResearchPreview,
   type ResearchRun,
   type ResearchSelector,
   type ResearchSummary,
@@ -521,8 +523,51 @@ export async function patchLeadStatus(
 }
 
 /* ------------------------------------------------------------------ */
-/* Deep research — the mode's three reads and its one write            */
+/* Deep research — the mode's reads, its dry run and its one write     */
 /* ------------------------------------------------------------------ */
+
+/**
+ * `POST /v1/deep-research` with `plan_only: true` — what a run WOULD do,
+ * with nothing started.
+ *
+ * The same route and the same body as the launch below, one field apart,
+ * and that is the point rather than an economy: the preview a reader
+ * confirms is resolved by the run's own orientation over the run's own
+ * cache, so what the card describes is what the run does. A separate
+ * endpoint composing its own description would be a second account of one
+ * run, and the second account is always the one that goes stale.
+ *
+ * It answers 200 with a run envelope whose id is empty and whose status is
+ * `preview`. NOTHING IS STARTED and nothing is stored, so there is no id
+ * to poll, no stream to open and nothing to clean up if the reader closes
+ * the card.
+ */
+export async function previewDeepResearch(
+  population: ResearchSelector,
+  options: RequestOptions & { question?: string; sessionId?: string } = {},
+): Promise<ResearchPreview> {
+  const base = options.baseUrl ?? apiBaseUrl();
+  const raw = await requestJson(
+    `${base}/v1/deep-research`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        population,
+        ...(options.question ? { question: options.question } : {}),
+        ...(options.sessionId ? { session_id: options.sessionId } : {}),
+        plan_only: true,
+      }),
+    },
+    options,
+  );
+  const { value, drift } = parseResearchPreview(raw);
+  if (drift.length > 0) {
+    reportDriftToConsole(drift, "POST /v1/deep-research (plan only)", options.onDrift);
+  }
+  if (!value) throw new Error("this run's preview failed contract validation");
+  return value;
+}
 
 /**
  * `POST /v1/deep-research` — start a run over a target population.

@@ -1,13 +1,17 @@
 /**
- * WATCHING A RUN, AND STARTING ONE.
+ * WATCHING A RUN, RESOLVING WHAT ONE WOULD DO, AND STARTING ONE.
  *
  * Deep research is the one thing in this product that takes about a minute
  * and keeps going whether or not anybody is looking at it. That shape is
- * what these two hooks are for, and it is why neither of them lives on the
+ * what these hooks are for, and it is why none of them lives on the
  * session store: a run is not a conversation, it has no thread, no
  * referents and no pending refinements, and giving it a slice of the store
  * would put a background job inside the object that models "what the
  * analyst is reading right now".
+ *
+ * THE DRY RUN IS HERE FOR THE SAME REASON. `plan_only` resolves what a run
+ * would look at without starting one, and it is a read about a run rather
+ * than a fact about the conversation.
  *
  * THE READ IS TWO REQUESTS AND THEY DO NOT COMPETE.
  *
@@ -33,6 +37,7 @@ import {
   ApiRequestError,
   fetchDeepResearchRun,
   fetchDeepResearchRuns,
+  previewDeepResearch,
   startDeepResearch,
   streamDeepResearch,
 } from "@/lib/apiDriver";
@@ -41,7 +46,8 @@ import {
   applyResearchFrame,
   initialWatchState,
   isRunning,
-  RESEARCH_PHASES,
+  researchPhaseFor,
+  type ResearchPreview,
   type ResearchSelector,
   type ResearchSummary,
   type ResearchWatchState,
@@ -74,7 +80,11 @@ export function useDeepResearchRun(runId: string, enabled = true): ResearchRunVi
    * A run emits a progress frame per angle — eight of them inside a
    * second — and a live region that announced every one of those would be
    * a screen reader reading a counter. The reader is told when the WORK
-   * CHANGES: reading, measuring, writing, done.
+   * CHANGES: reading, measuring, chasing, writing, done.
+   *
+   * Keyed on the ROW rather than the wire phase, because `orient`,
+   * `consult` and `plan` are one row and announcing its sentence three
+   * times is the counter this ref exists to prevent.
    */
   const spoken = useRef<string | null>(null);
 
@@ -84,7 +94,8 @@ export function useDeepResearchRun(runId: string, enabled = true): ResearchRunVi
     const controller = new AbortController();
 
     const speak = (next: ResearchWatchState): void => {
-      const key = isRunning(next.run.status) ? next.run.progress.phase : next.run.status;
+      const row = researchPhaseFor(next.run.progress.phase);
+      const key = isRunning(next.run.status) ? row.id : next.run.status;
       if (spoken.current === key) return;
       spoken.current = key;
       if (next.run.status === "complete") {
@@ -95,8 +106,7 @@ export function useDeepResearchRun(runId: string, enabled = true): ResearchRunVi
         announce(next.run.error ?? "This run stopped before it could finish.");
         return;
       }
-      const phase = RESEARCH_PHASES.find((p) => p.id === next.run.progress.phase);
-      if (phase) announce(`Deep research: ${phase.label.toLowerCase()}.`);
+      announce(`Deep research: ${row.label.toLowerCase()}.`);
     };
 
     const apply = (updater: (prev: ResearchWatchState) => ResearchWatchState): void => {
@@ -158,6 +168,184 @@ export function useDeepResearchRun(runId: string, enabled = true): ResearchRunVi
   }, [runId, enabled]);
 
   return { state, loading, error };
+}
+
+/* ------------------------------------------------------------------ */
+/* Resolving what one WOULD do                                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * What the selector's values are joined on to make an effect dependency.
+ *
+ * A character that cannot occur in a payer name. "Atlas Commercial" has a
+ * space in it and "registration and eligibility" has three, so any
+ * printable separator would split one value into two on the way back and
+ * post a population nobody chose.
+ */
+const SEPARATOR = "\u0000";
+
+/** The server's own sentence, or the plainest true thing about a drop. */
+function refusalOf(caught: unknown): string {
+  if (caught instanceof ApiRequestError) return caught.message;
+  if (caught instanceof Error) return caught.message;
+  return "Revi could not work out what this would look at.";
+}
+
+export interface ResearchPreviewView {
+  /** What the run would do, once the server has said. */
+  preview: ResearchPreview | null;
+  /** The dry run is in flight — the control says so rather than repeating. */
+  pending: boolean;
+  /** The server's own refusal, when it refused. */
+  error: string | null;
+}
+
+export interface ResearchPreviewRequest extends ResearchPreviewView {
+  /**
+   * Resolve what a run over this population, for this question, would do.
+   *
+   * Answers with the preview so the caller can act ON THE ANSWER —
+   * opening a card, in the composer's case — rather than watching state
+   * for it to appear. `null` means it did not resolve, and `error` says
+   * why in the server's own words.
+   */
+  request: (population: ResearchSelector, question: string) => Promise<ResearchPreview | null>;
+  /** Forget it — the reader closed the card or retyped the question. */
+  reset: () => void;
+}
+
+/**
+ * THE DRY RUN, ON A PRESS.
+ *
+ * For the composer, where the question is whatever is in the box at the
+ * moment somebody asks for deep research. Nothing is started: this is one
+ * `plan_only` POST, and what comes back is what the confirmation card
+ * renders.
+ *
+ * Single-flight, for the same reason `useLaunchDeepResearch` is: a second
+ * press while the first is in flight would resolve the same orientation
+ * twice, and the orientation is real work against real data.
+ */
+export function useResearchPreview(): ResearchPreviewRequest {
+  const [preview, setPreview] = useState<ResearchPreview | null>(null);
+  const [pending, setPending] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const inFlight = useRef(false);
+  const alive = useRef(true);
+
+  useEffect(() => {
+    alive.current = true;
+    return () => {
+      alive.current = false;
+    };
+  }, []);
+
+  const request = useCallback(
+    async (population: ResearchSelector, question: string): Promise<ResearchPreview | null> => {
+      if (inFlight.current) return null;
+      inFlight.current = true;
+      setPending(true);
+      setError(null);
+      setPreview(null);
+      try {
+        const resolved = await previewDeepResearch(population, {
+          onDrift,
+          ...(question !== "" ? { question } : {}),
+        });
+        if (!alive.current) return null;
+        setPreview(resolved);
+        return resolved;
+      } catch (caught) {
+        if (alive.current) setError(refusalOf(caught));
+        return null;
+      } finally {
+        inFlight.current = false;
+        if (alive.current) setPending(false);
+      }
+    },
+    [],
+  );
+
+  const reset = useCallback(() => {
+    setPreview(null);
+    setError(null);
+  }, []);
+
+  return { preview, pending, error, request, reset };
+}
+
+/**
+ * THE DRY RUN, FOR A QUESTION THAT WAS ALREADY ASKED.
+ *
+ * For the answer path: "run deep research on X" comes back as an ordinary
+ * answer carrying an offer, and the card under it resolves the same
+ * preview the composer's control does so that both routes describe the
+ * same run in the same words.
+ *
+ * The selector is taken apart into its three fields and rebuilt inside
+ * the effect. That is not ceremony: it is what lets the effect depend on
+ * the population's VALUE rather than on the identity of an object a
+ * parent re-creates on every render, which would re-POST the dry run on
+ * every render. A selector is those three fields and nothing else, so the
+ * rebuild is byte-for-byte what arrived.
+ *
+ * ONE PIECE OF STATE, CARRYING THE QUESTION IT ANSWERS. "In flight" is
+ * then a comparison rather than a flag — the question being asked is not
+ * the question that was answered — which is both fewer moving parts and
+ * the only version that cannot show a stale preview under a new question
+ * for one frame.
+ */
+interface ResolvedPreview {
+  /** The question this result is the answer to. */
+  question: string;
+  preview: ResearchPreview | null;
+  error: string | null;
+}
+
+export function useResearchPreviewFor(
+  population: ResearchSelector,
+  question: string,
+  enabled: boolean,
+): ResearchPreviewView {
+  const [resolved, setResolved] = useState<ResolvedPreview>({
+    question: "",
+    preview: null,
+    error: null,
+  });
+
+  const kind = population.kind;
+  const label = population.label;
+  const values = (population.values ?? []).join(SEPARATOR);
+
+  useEffect(() => {
+    if (!enabled || question === "") return;
+    let cancelled = false;
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const preview = await previewDeepResearch(
+          { kind, label, values: values === "" ? [] : values.split(SEPARATOR) },
+          { question, onDrift, signal: controller.signal },
+        );
+        if (!cancelled) setResolved({ question, preview, error: null });
+      } catch (caught) {
+        if (cancelled || controller.signal.aborted) return;
+        setResolved({ question, preview: null, error: refusalOf(caught) });
+      }
+    })();
+
+    return () => {
+      cancelled = true;
+      controller.abort();
+    };
+  }, [enabled, question, kind, label, values]);
+
+  const settled = resolved.question === question;
+  return {
+    preview: settled ? resolved.preview : null,
+    pending: enabled && question !== "" && !settled,
+    error: settled ? resolved.error : null,
+  };
 }
 
 /* ------------------------------------------------------------------ */

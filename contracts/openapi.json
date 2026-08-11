@@ -1157,6 +1157,28 @@
         "title": "CohortPayload",
         "type": "object"
       },
+      "ConsultedNotePayload": {
+        "additionalProperties": false,
+        "description": "One background note the run read before deciding what to check.\n\nThe title only. A note's content shapes *which reading runs* and can\nnever shape *what a number says*, and publishing its key points beside\na preview would put an industry figure next to a measured one on the\nsame card.",
+        "properties": {
+          "matched_on": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Matched On",
+            "type": "array"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "title": "ConsultedNotePayload",
+        "type": "object"
+      },
       "ContextHeaderPayload": {
         "additionalProperties": false,
         "description": "Structured chips plus the canonical one-line display string.",
@@ -2078,6 +2100,16 @@
             "title": "Data Load Label",
             "type": "string"
           },
+          "generalized": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GeneralizedResearchPreviewPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "options": {
             "items": {
               "$ref": "#/components/schemas/DeepResearchSelector"
@@ -2129,12 +2161,26 @@
           },
           "phase": {
             "enum": [
+              "orient",
+              "consult",
               "plan",
               "execute",
+              "read",
+              "round",
               "synthesize"
             ],
             "title": "Phase",
             "type": "string"
+          },
+          "round_index": {
+            "default": 0,
+            "title": "Round Index",
+            "type": "integer"
+          },
+          "round_total": {
+            "default": 0,
+            "title": "Round Total",
+            "type": "integer"
           }
         },
         "required": [
@@ -3147,6 +3193,81 @@
           "name"
         ],
         "title": "FindingValue",
+        "type": "object"
+      },
+      "GeneralizedResearchPreviewPayload": {
+        "additionalProperties": false,
+        "description": "What a research run learned, and what it therefore intends to read.\n\nResolved WITHOUT executing any of it: the orientation reads are cheap\nand cached, the background notes are a lookup, and the readings are\nchosen but not run. So the card in front of a minute of work costs a\nfraction of a second and still says something a reader can correct.\n\nNothing here is a measurement. The path choices quote coverage \u2014 how\nmuch of the data carries a path \u2014 and coverage is a fact about the data\nrather than an answer to the question.",
+        "properties": {
+          "authored_by": {
+            "default": "revi",
+            "enum": [
+              "model",
+              "revi"
+            ],
+            "title": "Authored By",
+            "type": "string"
+          },
+          "knowledge_consulted": {
+            "items": {
+              "$ref": "#/components/schemas/ConsultedNotePayload"
+            },
+            "title": "Knowledge Consulted",
+            "type": "array"
+          },
+          "knowledge_statement": {
+            "default": "",
+            "title": "Knowledge Statement",
+            "type": "string"
+          },
+          "path_choices": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchPathChoicePayload"
+            },
+            "title": "Path Choices",
+            "type": "array"
+          },
+          "population_label": {
+            "default": "",
+            "title": "Population Label",
+            "type": "string"
+          },
+          "rationale": {
+            "default": "",
+            "title": "Rationale",
+            "type": "string"
+          },
+          "readings": {
+            "items": {
+              "$ref": "#/components/schemas/PlannedReadingPayload"
+            },
+            "title": "Readings",
+            "type": "array"
+          },
+          "refusal": {
+            "default": "",
+            "title": "Refusal",
+            "type": "string"
+          },
+          "research_question": {
+            "title": "Research Question",
+            "type": "string"
+          },
+          "rounds_planned": {
+            "default": 1,
+            "title": "Rounds Planned",
+            "type": "integer"
+          },
+          "window_label": {
+            "title": "Window Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "research_question",
+          "window_label"
+        ],
+        "title": "GeneralizedResearchPreviewPayload",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -5254,6 +5375,48 @@
         "title": "PivotModel",
         "type": "object"
       },
+      "PlannedReadingPayload": {
+        "additionalProperties": false,
+        "description": "One reading a run intends to take, and the reason it is there.\n\nThe reason is the whole point of showing this before spending a minute\nof work: a confirmation that lists what will be read without saying why\nis a progress bar in advance.",
+        "properties": {
+          "chases": {
+            "default": "",
+            "title": "Chases",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "round": {
+            "default": 0,
+            "title": "Round",
+            "type": "integer"
+          },
+          "shape": {
+            "enum": [
+              "measure_profile",
+              "stratified_rates",
+              "contrast",
+              "trend",
+              "composition"
+            ],
+            "title": "Shape",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          }
+        },
+        "required": [
+          "shape",
+          "title",
+          "reason"
+        ],
+        "title": "PlannedReadingPayload",
+        "type": "object"
+      },
       "PortfolioLanePayload": {
         "additionalProperties": false,
         "description": "One section of the worklist, with what belongs in it and why.\n\n``items`` stays one ranked array \u2014 clients that already read it are\nuntouched \u2014 and each card names its lane, so a UI can render\n\"must-do regardless of size\" as its own section instead of letting a\n$824 compliance item sit at rank 1 above a $178K critical finding.",
@@ -5782,6 +5945,26 @@
           "purpose"
         ],
         "title": "ResearchAnglePayload",
+        "type": "object"
+      },
+      "ResearchPathChoicePayload": {
+        "additionalProperties": false,
+        "description": "One thing a run established about the data before it chose anything.\n\n\"Your data carries COB mainly in remit codes \u2014 the category field is\nsparsely populated here, so I read the codes.\" The statement arrives\nalready composed, beside the coverage figure it quotes, so no surface\ncan re-word it into something true, useless and unfalsifiable.",
+        "properties": {
+          "statement": {
+            "title": "Statement",
+            "type": "string"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          }
+        },
+        "required": [
+          "subject",
+          "statement"
+        ],
+        "title": "ResearchPathChoicePayload",
         "type": "object"
       },
       "ResearchPlanPayload": {

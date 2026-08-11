@@ -1,0 +1,205 @@
+{
+  "id": "",
+  "session_id": "sess_c41f8b2d",
+  "status": "preview",
+  "created_at": "2026-08-11T02:37:15Z",
+  "data_load_label": "the load through Aug 2, 2026",
+  "population": {
+    "kind": "all_open",
+    "values": [],
+    "label": "every open denial"
+  },
+  "progress": {
+    "phase": "plan",
+    "angle_index": 0,
+    "angle_total": 0,
+    "message": "",
+    "elapsed_ms": 0,
+    "round_index": 0,
+    "round_total": 0
+  },
+  "report": null,
+  "error": null,
+  "preview": {
+    "population": {
+      "kind": "all_open",
+      "values": [],
+      "label": "every open denial"
+    },
+    "scope": {
+      "open_denials": 5398,
+      "open_dollars_cents": 574949512
+    },
+    "plan": {
+      "research_question": "which payers are slowing our cash the most",
+      "authored_by": "model",
+      "rationale": "The question asks both \"how much comes back\" and \"where\", so the headline pricing is cut by payer and denial type together, with single-cut recovery rates behind it to show which side of that interaction is doing the work. The two contrasts name the strongest and weakest ends with a test, and the timeliness curve plus the deadline split are the standing levers the reader can actually act on.",
+      "added_by_revi": [],
+      "angles": [
+        {
+          "family": "expected_recovery",
+          "title": "What the open inventory is worth",
+          "purpose": "Expected recoverable dollars over the denials still open, priced only where this organization's own history supports a rate.",
+          "stratify_by": [
+            "payer",
+            "recovery_class"
+          ],
+          "within": [],
+          "basis": "decided"
+        },
+        {
+          "family": "outcome_by_stratum",
+          "title": "Recovery rates by population",
+          "purpose": "How often resubmitting works, cut by the populations that matter, with the size of the group behind every rate.",
+          "stratify_by": [
+            "payer"
+          ],
+          "within": [],
+          "basis": "decided"
+        },
+        {
+          "family": "outcome_by_stratum",
+          "title": "Recovery rates by population",
+          "purpose": "How often resubmitting works, cut by the populations that matter, with the size of the group behind every rate.",
+          "stratify_by": [
+            "recovery_class"
+          ],
+          "within": [],
+          "basis": "decided"
+        },
+        {
+          "family": "outcome_by_stratum",
+          "title": "Recovery rates by population",
+          "purpose": "How often resubmitting works, cut by the populations that matter, with the size of the group behind every rate.",
+          "stratify_by": [
+            "dollar_band"
+          ],
+          "within": [],
+          "basis": "decided"
+        },
+        {
+          "family": "payer_contrast",
+          "title": "Strongest and weakest payer",
+          "purpose": "The payer that gives the most back against the one that gives the least, and whether the gap is real or just how few denials sit behind it.",
+          "stratify_by": [],
+          "within": [],
+          "basis": "decided"
+        },
+        {
+          "family": "class_contrast",
+          "title": "Strongest and weakest denial type",
+          "purpose": "The kind of denial most worth working against the kind least worth working, tested the same way.",
+          "stratify_by": [],
+          "within": [],
+          "basis": "decided"
+        },
+        {
+          "family": "timeliness_curve",
+          "title": "Speed and what it is worth",
+          "purpose": "Recovery rate by how many days passed before the denial went back out \u2014 the price of a slow queue, in points.",
+          "stratify_by": [],
+          "within": [],
+          "basis": "decided"
+        },
+        {
+          "family": "deadline_interaction",
+          "title": "The filing deadline",
+          "purpose": "What crossing a filing deadline costs, separated by whether the limit is confirmed or still needs confirming.",
+          "stratify_by": [
+            "filing_position",
+            "filing_rule"
+          ],
+          "within": [],
+          "basis": "decided"
+        }
+      ]
+    },
+    "options": [
+      {
+        "kind": "payer",
+        "values": [
+          "Atlas Commercial"
+        ],
+        "label": "denials from Atlas Commercial"
+      },
+      {
+        "kind": "recovery_class",
+        "values": [
+          "clinical"
+        ],
+        "label": "clinical denials"
+      }
+    ],
+    "data_load_label": "the load through Aug 2, 2026",
+    "generalized": {
+      "research_question": "which payers are slowing our cash the most",
+      "population_label": "everything in your data",
+      "window_label": "May 5, 2026 through Aug 2, 2026",
+      "path_choices": [
+        {
+          "subject": "payer",
+          "statement": "Payer is populated on 99.8% of the claims in this period, so cutting by payer reads the whole book rather than a corner of it."
+        },
+        {
+          "subject": "denial reason",
+          "statement": "Your data carries the reason for a denial mainly in the remit codes \u2014 the category field is filled on 12% of lines here, so I read the codes."
+        },
+        {
+          "subject": "aging",
+          "statement": "A/R aging is measured from the posting date in this data, not the service date, so the days below are days since the claim posted."
+        }
+      ],
+      "knowledge_statement": "Two background notes bear on this question, and both are about how payers behave rather than about your numbers.",
+      "knowledge_consulted": [
+        {
+          "title": "Timely filing limits vary by payer contract",
+          "matched_on": [
+            "filing deadline",
+            "payer"
+          ]
+        },
+        {
+          "title": "Commercial payers slow down at quarter end",
+          "matched_on": [
+            "payer",
+            "aging"
+          ]
+        }
+      ],
+      "readings": [
+        {
+          "shape": "measure_profile",
+          "title": "Days in A/R, as it stands",
+          "reason": "The question is whether cash is slowing, and this is the measure that answers it before anything is cut.",
+          "round": 0,
+          "chases": ""
+        },
+        {
+          "shape": "stratified_rates",
+          "title": "Days in A/R by payer",
+          "reason": "The question names payers, so the same measure is cut by payer rather than read as a total and attributed by guess.",
+          "round": 0,
+          "chases": ""
+        },
+        {
+          "shape": "trend",
+          "title": "Days in A/R over the last thirteen weeks",
+          "reason": "A level says where you are; the movement says whether this is new or whether it has always been like this.",
+          "round": 0,
+          "chases": ""
+        },
+        {
+          "shape": "composition",
+          "title": "Where the open dollars sit by aging band",
+          "reason": "An average can hide one enormous old claim, so the spread is read beside the middle of it.",
+          "round": 0,
+          "chases": ""
+        }
+      ],
+      "rationale": "I read the level first, then cut it by payer, then look at how it has moved \u2014 then whatever those three point at.",
+      "authored_by": "model",
+      "rounds_planned": 3,
+      "refusal": ""
+    }
+  }
+}

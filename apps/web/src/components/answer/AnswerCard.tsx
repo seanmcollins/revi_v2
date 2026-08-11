@@ -188,10 +188,20 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
           nothing has started. Below the answer in every layout, because
           the answer above IS an answer to the question that was asked and
           this is the deeper thing on offer next — not a correction to it,
-          and not a refusal. See `ResearchLaunchCard`. */}
+          and not a refusal. See `ResearchLaunchCard`.
+
+          THE UTTERANCE GOES WITH IT, because it is the research question.
+          The composer's own "Deep research" control and this route are two
+          ways of asking for the same run, and handing the card the
+          question is what makes them describe it identically instead of
+          this one showing a thinner card for having arrived through the
+          answer. */}
       {a.deepResearch && (
         <div className="fade-up">
-          <ResearchLaunchCard offer={a.deepResearch} />
+          <ResearchLaunchCard
+            offer={a.deepResearch}
+            question={turn.submission.utterance}
+          />
         </div>
       )}
 
