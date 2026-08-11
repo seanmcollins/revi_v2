@@ -1,6 +1,7 @@
 "use client";
 
-import { ArrowDownRight, ArrowUpRight, Maximize2 } from "lucide-react";
+import { ArrowDownRight, ArrowUpRight, ListPlus, Maximize2, X } from "lucide-react";
+import { Dialog as DialogPrimitive } from "radix-ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Bar,
@@ -426,22 +427,25 @@ const TICK_LINE_PX = 14;
 const AXIS_TICK_MARGIN = 6;
 /** The height the axis had as a constant — and still the floor. */
 export const MIN_AXIS_HEIGHT = 74;
-const MAX_AXIS_HEIGHT = 116;
+export const MAX_AXIS_HEIGHT = 116;
+/**
+ * The 8px is not slack, it is measurement error paid for: 6.3px is the
+ * AVERAGE advance, and a name of capitals and an ellipsis ("Northbridge
+ * Comme…", "Summit Peak Medic…") runs wider than its average. At +4 the
+ * sweep still cut 1-3px off those three labels; at +8 the corpus is clean
+ * at every width with room to spare inside the cap.
+ */
+const TICK_ADVANCE_SLACK = 8;
 /** Vertical room the drawing itself keeps, whatever the axis costs. */
 export const PLOT_ROOM_PX = 214;
 
-export function rotatedAxisHeight(ticks: readonly string[]): number {
+export function rotatedAxisHeight(ticks: readonly string[], max = MAX_AXIS_HEIGHT): number {
   const longest = ticks.reduce((n, tick) => Math.max(n, tick.length), 0);
   if (longest === 0) return MIN_AXIS_HEIGHT;
   const drop = longest * TICK_CHAR_PX * TICK_ROTATION_SIN + TICK_LINE_PX * TICK_ROTATION_COS;
-  // The 8px is not slack, it is measurement error paid for: 6.3px is the
-  // AVERAGE advance, and a name of capitals and an ellipsis ("Northbridge
-  // Comme…", "Summit Peak Medic…") runs wider than its average. At +4 the
-  // sweep still cut 1-3px off those three labels; at +8 the corpus is
-  // clean at every width with room to spare inside the cap.
   return Math.max(
     MIN_AXIS_HEIGHT,
-    Math.min(MAX_AXIS_HEIGHT, Math.ceil(drop) + AXIS_TICK_MARGIN + 8),
+    Math.min(max, Math.ceil(drop) + AXIS_TICK_MARGIN + TICK_ADVANCE_SLACK),
   );
 }
 
@@ -484,6 +488,96 @@ export function flatTickBudget(plotWidth: number, categories: number): number {
   if (plotWidth <= 0 || categories <= 0) return Number.POSITIVE_INFINITY;
   const band = (plotWidth - AXIS_Y_WIDTH) / categories;
   return Math.floor((band - TICK_BAND_PAD) / TICK_CHAR_PX) - TICK_MARK_PAD;
+}
+
+/* ------------------------------------------------------------------ */
+/* THE SAME AXIS, IN A ROOM TEN TIMES THE SIZE                         */
+/* ------------------------------------------------------------------ */
+
+/**
+ * How many characters a ROTATED tick may take, given the room the axis is
+ * allowed to occupy below the plot — `rotatedAxisHeight` solved for length
+ * instead of for height, off the same geometry and the same constants, so
+ * the two cannot drift.
+ *
+ * This is the number that makes fullscreen worth opening. Every other
+ * width on this figure is measured (`flatTickBudget` reads the band, the
+ * gutters read the label) and the rotated budget was the one constant left
+ * — 18 characters, whether the figure was 280px wide in the Evidence rail
+ * or filled the screen. So the twelve-payer ranking elided "Northbridge
+ * Commercial PPO" to "Northbridge Comm…" in both, and an expansion that
+ * enlarged the picture without re-spelling the axis would have been a
+ * bigger copy of the unreadable thing.
+ */
+export function rotatedTickBase(maxAxisHeight: number): number {
+  const room =
+    maxAxisHeight - AXIS_TICK_MARGIN - TICK_ADVANCE_SLACK - TICK_LINE_PX * TICK_ROTATION_COS;
+  return Math.max(FLAT_TICK_FLOOR, Math.floor(room / (TICK_CHAR_PX * TICK_ROTATION_SIN)));
+}
+
+/**
+ * The room the axis may take on a figure that owns 85% of the viewport.
+ * A 220px axis is a fifth of that figure and buys ~53 characters, which is
+ * longer than every payer, plan and provider name in the corpus.
+ */
+export const EXPANDED_MAX_AXIS_HEIGHT = 220;
+/**
+ * …and the budget the INLINE figure has always used, unchanged. Its axis
+ * is capped at 116px, and 18 characters is what a reader needs to tell two
+ * payers apart in a card that is 214px of plot tall.
+ */
+export const ROTATED_TICK_BASE = 18;
+/**
+ * A FLAT tick fullscreen is still budgeted against its own band — a label
+ * wider than its band collides with its neighbours at any size — but the
+ * band is now wide enough that the inline ceilings (12 and 20 characters,
+ * chosen for a column) are the binding constraint rather than the room.
+ */
+const EXPANDED_FLAT_CEILING = 40;
+
+/**
+ * ROTATE OR NOT, AND AT WHAT LENGTH — one decision, in one place.
+ *
+ * Both halves were inline in the component and both read the container's
+ * measured width, which is exactly why they can be re-run at a different
+ * width and produce a different axis. `expanded` is the fullscreen figure
+ * asking the same question with a much larger answer.
+ */
+export function axisTickPlan(
+  labels: readonly string[],
+  {
+    kind,
+    plotWidth,
+    expanded = false,
+  }: { kind: ChartSpec["kind"]; plotWidth: number; expanded?: boolean },
+): { rotate: boolean; text: Map<string, string> } {
+  /**
+   * HORIZONTAL LABELS WHEREVER THEY FIT.
+   *
+   * The rule was "more than six categories, rotate", which put a 35° slant
+   * under axes whose labels are "0–30 days" and "Jan" — unreadable for no
+   * reason, and the rotation is what pushes the first and last label past
+   * the container's edge. Rotation is a cost, so it is paid only when the
+   * labels cannot sit flat: short names across a modest number of
+   * categories stay horizontal, and a name that cannot fit its own
+   * measured band rotates whatever the count.
+   */
+  const longest = labels.reduce((n, label) => Math.max(n, tickLabel(label).length), 0);
+  const budget = flatTickBudget(plotWidth, labels.length);
+  const rotate =
+    kind !== "line" &&
+    ((labels.length > 6 && !(longest <= 12 && labels.length <= 12)) ||
+      (longest > budget && budget < FLAT_TICK_FLOOR));
+
+  if (rotate) {
+    const base = expanded ? rotatedTickBase(EXPANDED_MAX_AXIS_HEIGHT) : ROTATED_TICK_BASE;
+    // `axisTickLabels` only ever GROWS from the base, so the ceiling has
+    // to clear it: at 53 characters a base above the old 40 would have
+    // made the growth loop unreachable and quietly stopped disambiguating.
+    return { rotate, text: axisTickLabels(labels, base, Math.max(base, 40)) };
+  }
+  const ceiling = expanded ? EXPANDED_FLAT_CEILING : labels.length > 8 ? 12 : 20;
+  return { rotate, text: axisTickLabels(labels, Math.max(4, Math.min(ceiling, budget))) };
 }
 
 /**
@@ -967,22 +1061,7 @@ function SingleDeltaCard({
   );
 }
 
-/**
- * Charts are live objects: clicking a bar emits a typed
- * `{op: "DrillInto", target}` refinement — no natural language in the
- * loop. Truncation is always surfaced ("showing top 8 of 12 — Expand").
- */
-export function InvestigationChart({
-  spec: published,
-  turnId,
-  windowLabel,
-  comparisonWindows,
-  watermarkId,
-  packLabel,
-  question,
-  investigationId,
-  caveats,
-}: {
+export interface InvestigationChartProps {
   spec: ChartSpec;
   turnId: string;
   /** The turn's window, appended to the composed title (see AnswerCard). */
@@ -1004,6 +1083,48 @@ export function InvestigationChart({
   investigationId?: string;
   /** The turn's caveats, so the CSV cannot leave without them. */
   caveats?: readonly string[];
+}
+
+/**
+ * Charts are live objects: clicking a bar emits a typed
+ * `{op: "DrillInto", target}` refinement — no natural language in the
+ * loop. Truncation is always surfaced ("showing top 8 of 12 — Expand").
+ */
+function ChartFigure({
+  spec: published,
+  turnId,
+  windowLabel,
+  comparisonWindows,
+  watermarkId,
+  packLabel,
+  question,
+  investigationId,
+  caveats,
+  expanded = false,
+  expandable = false,
+  onDrilled,
+}: InvestigationChartProps & {
+  /**
+   * This figure IS the fullscreen one: it fills the dialog rather than a
+   * card, its title is carried by the dialog's header, and every measured
+   * rule on it — the tick budget, the axis height, the plot's own room —
+   * is re-derived at the width it is actually drawn at.
+   */
+  expanded?: boolean;
+  /**
+   * Draw the control that opens the fullscreen copy — a real
+   * `Dialog.Trigger`, so Radix owns the open state, the `aria-expanded`
+   * and the focus that has to come back to it. False on the fullscreen
+   * copy itself, which is already inside the dialog.
+   */
+  expandable?: boolean;
+  /**
+   * A gesture that starts a NEW turn was made from inside the dialog. The
+   * fullscreen figure is a picture of the turn that is on screen behind
+   * it, so leaving it open over a refinement would be showing yesterday's
+   * chart at 90vw while today's answer streams underneath.
+   */
+  onDrilled?: () => void;
 }) {
   const emitRefinement = useSessionStore((s) => s.emitRefinement);
   const reducedMotion = usePrefersReducedMotion();
@@ -1042,7 +1163,17 @@ export function InvestigationChart({
    * flip, focus change) never replays the draw.
    */
   const drawIn = {
-    isAnimationActive: !reducedMotion,
+    // …AND NOT AT ALL ON THE FULLSCREEN COPY, which is not a draw — the
+    // marks are already on screen behind the dialog and this is the same
+    // ones again, larger. It is also the one mount whose container is
+    // sized AFTER it: the dialog's plot takes the height that is left over
+    // from a `85vh` column, so `ResponsiveContainer` measures 0 on the
+    // first pass. Recharts keys its animation to `animationId`, which is
+    // pinned to the spec on purpose (a theme flip must not replay the
+    // draw) — so the animation that ran at height 0 was the only one that
+    // ever ran, and every bar stayed a 1px sliver on the baseline. Live:
+    // twelve payers, full axis, no marks.
+    isAnimationActive: !reducedMotion && !expanded,
     animationDuration: 260,
     animationEasing: "ease-out",
     animationId: spec.id,
@@ -1141,6 +1272,7 @@ export function InvestigationChart({
       { op: "DrillInto", target: target.referent ?? `${spec.id}:${target.label}` },
       { turnId, referent: target.referent },
     );
+    onDrilled?.();
   };
 
   const handleBarClick = (entry: unknown) => {
@@ -1178,38 +1310,19 @@ export function InvestigationChart({
     spec.rows.filter((row) => row.withheld === true).map((row) => row.label),
   );
   /**
-   * HORIZONTAL LABELS WHEREVER THEY FIT.
+   * THE AXIS, MEASURED AGAINST THE CONTAINER IT IS DRAWN IN.
    *
-   * The rule was "more than six categories, rotate", which put a 35°
-   * slant under axes whose labels are "0–30 days" and "Jan" — unreadable
-   * for no reason, and the rotation is what pushes the first and last
-   * label past the container's edge. Rotation is a cost, so it is paid
-   * only when the labels cannot sit flat: short names across a modest
-   * number of categories stay horizontal.
-   *
-   * Twelve characters over up to twelve categories is roughly the point
-   * at which a 3xl-column figure runs out of room at the 12px tick size.
-   */
-  const longestLabel = spec.rows.reduce(
-    (longest, row) => Math.max(longest, tickLabel(row.label).length),
-    0,
-  );
-  /**
-   * …AND THE SAME RULE, MEASURED AGAINST THE CONTAINER IT IS DRAWN IN.
-   *
-   * The rule above counts characters and categories and knows nothing
-   * about width, so the same five-payer chart is comfortable in the answer
-   * column and unreadable in the Evidence rail: measured at 308px, five
-   * flat labels up to 20 characters each drew on top of one another —
+   * A rule that counts characters and categories and knows nothing about
+   * width gives the same five-payer chart a comfortable axis in the answer
+   * column and an unreadable one in the Evidence rail: measured at 308px,
+   * five flat labels up to 20 characters each drew on top of one another —
    * 111px of overlap, four colliding pairs, one illegible grey smear where
-   * the payer names should be. Twenty of the corpus's charts did it at one
-   * width or another, and three of them did it at every width.
+   * the payer names should be.
    *
-   * So the tick budget is the BAND's, and it is measured: a flat label
-   * that cannot fit its own band is shortened to fit, and when the band is
-   * too narrow to hold a name at all (below eight characters, where a
-   * payer is no longer identifiable) the axis rotates, which is what
-   * rotation is for.
+   * So the tick budget is the BAND's, and it is measured here, per mounted
+   * figure. The fullscreen copy is a second mount with a second observer,
+   * which is exactly why expanding re-spells the axis instead of scaling
+   * up the rail's elisions. See `axisTickPlan`.
    */
   const plotRef = useRef<HTMLDivElement>(null);
   const [plotWidth, setPlotWidth] = useState(0);
@@ -1223,20 +1336,13 @@ export function InvestigationChart({
     observer.observe(node);
     return () => observer.disconnect();
   }, []);
-  const tickBudget = flatTickBudget(plotWidth, data.length);
-  const rotateTicks =
-    spec.kind !== "line" &&
-    ((data.length > 6 && !(longestLabel <= 12 && data.length <= 12)) ||
-      (longestLabel > tickBudget && tickBudget < FLAT_TICK_FLOOR));
-  const tickText = useMemo(
+  const { rotate: rotateTicks, text: tickText } = useMemo(
     () =>
-      axisTickLabels(
+      axisTickPlan(
         spec.rows.map((row) => row.label),
-        rotateTicks
-          ? 18
-          : Math.max(4, Math.min(data.length > 8 ? 12 : 20, tickBudget)),
+        { kind: spec.kind, plotWidth, expanded },
       ),
-    [spec.rows, rotateTicks, data.length, tickBudget],
+    [spec.rows, spec.kind, plotWidth, expanded],
   );
   // Composed rather than exclusive: on a comparison one category can hold
   // a ceiling on one window and no figure at all on the other, and an
@@ -1295,7 +1401,13 @@ export function InvestigationChart({
     // eslint-disable-next-line react-hooks/exhaustive-deps
     [data, tickText, boundedLabels, withheldLabels, absentLabels, provisionalLabels],
   );
-  const axisHeight = rotateTicks ? rotatedAxisHeight(renderedTicks) : MIN_AXIS_HEIGHT;
+  // The cap the axis grows against is the figure's own: a card can spare
+  // 116px below its plot, a figure that owns the screen can spare 220 —
+  // which is what lets a whole payer name be drawn rather than budgeted
+  // for and then cut off by the SVG's bottom edge.
+  const axisHeight = rotateTicks
+    ? rotatedAxisHeight(renderedTicks, expanded ? EXPANDED_MAX_AXIS_HEIGHT : MAX_AXIS_HEIGHT)
+    : MIN_AXIS_HEIGHT;
 
   // The caption under the figure: what the axis is, then what ordered it.
   // `humanizeColumn` rather than `displayLabel` because this is a heading
@@ -1334,18 +1446,41 @@ export function InvestigationChart({
   );
 
   return (
-    <figure className="rounded-lg border bg-card p-3.5">
-      <figcaption className="mb-1 flex items-baseline justify-between gap-2">
-        <span className="text-meta font-medium" title={spec.wireTitle}>
-          {/* Composed from the frame's own columns ("Cash posted by
-              payer"), not the engine's frame bookkeeping ("cash posted —
-              cash by payer  compare"). The published title stays on the
-              `title` attribute so the reduction is checkable. */}
-          {spec.title}
-          {windowLabel && (
-            <span className="font-normal text-muted-foreground"> — {windowLabel}</span>
-          )}
-        </span>
+    <figure
+      className={cn(
+        "rounded-lg border bg-card p-3.5",
+        // FULLSCREEN IS THE SAME FIGURE, NOT A SECOND ONE. It loses the
+        // card's frame — the dialog is already a surface, and a card drawn
+        // inside a card reads as a screenshot pasted into a modal — and
+        // becomes a column so the plot can take every pixel the notes and
+        // the action row do not need.
+        expanded && "flex h-full min-h-0 flex-col rounded-none border-0 bg-transparent px-5 py-4",
+      )}
+    >
+      {/* Nothing to caption on a fullscreen single-series figure: the
+          title is the dialog's heading and there is no legend, so the row
+          is not drawn rather than drawn empty. */}
+      {(!expanded || (spec.series.length > 1 && !asCard)) && (
+      <figcaption
+        className={cn(
+          "mb-1 flex items-baseline gap-2",
+          // The title is the DIALOG's heading when this figure fills one —
+          // printed twice, eight pixels apart, it would read as two charts.
+          expanded ? "justify-end" : "justify-between",
+        )}
+      >
+        {!expanded && (
+          <span className="text-meta font-medium" title={spec.wireTitle}>
+            {/* Composed from the frame's own columns ("Cash posted by
+                payer"), not the engine's frame bookkeeping ("cash posted —
+                cash by payer  compare"). The published title stays on the
+                `title` attribute so the reduction is checkable. */}
+            {spec.title}
+            {windowLabel && (
+              <span className="font-normal text-muted-foreground"> — {windowLabel}</span>
+            )}
+          </span>
+        )}
         {/* A legend is present for every multi-series chart and names each
             series beside its swatch: three of the eight light-mode hues
             sit below 3:1 on white, and the rule for that is relief — the
@@ -1371,6 +1506,7 @@ export function InvestigationChart({
           </span>
         )}
       </figcaption>
+      )}
 
       {/* THE RANKING WAS REFUSED — the one sentence on this figure that
           keeps the warning register, and the one that stays above the
@@ -1448,8 +1584,19 @@ export function InvestigationChart({
       // cut off at the bottom — up to 16px, at every container width.
       <div
         ref={plotRef}
-        className={cn("w-full", !rotateTicks && "h-56")}
-        {...(rotateTicks ? { style: { height: PLOT_ROOM_PX + axisHeight } } : {})}
+        className={cn(
+          "w-full",
+          // FULLSCREEN, THE HEIGHT IS THE ROOM THAT IS LEFT. The card's
+          // rule is "214px of drawing plus whatever the names need below
+          // it"; in a dialog that is 85vh tall, the same arithmetic would
+          // leave four hundred pixels of overlay under a chart the reader
+          // opened precisely to make bigger. So the plot takes the column
+          // and the notes, the caption and the actions keep their own
+          // intrinsic height — with a floor, so a short viewport degrades
+          // to a scroll rather than to a squashed plot.
+          expanded ? "min-h-[18rem] flex-1" : !rotateTicks && "h-56",
+        )}
+        {...(rotateTicks && !expanded ? { style: { height: PLOT_ROOM_PX + axisHeight } } : {})}
       >
         <ResponsiveContainer width="100%" height="100%">
           {spec.kind === "line" ? (
@@ -1754,7 +1901,41 @@ export function InvestigationChart({
             order it does not state is an axis the reader has to assume,
             and the assumption was wrong: it was alphabetical. */}
         <span className="text-micro text-muted-foreground">{footerCaption}</span>
-        <span className="flex items-center gap-1">
+        <span className="flex shrink-0 items-center gap-1">
+          {/* FULL SCREEN — the readability affordance, and the reason it is
+              a persistent control rather than a hover reveal.
+
+              The Evidence rail draws this same figure 280px wide. At that
+              width a twelve-payer ranking cannot spell its own axis: the
+              names are elided to fit and the picture is a shape rather
+              than a finding. The fix is not a bigger card — the answer
+              column has one of those and the rail's chart is still the one
+              a reader wants to see properly — it is the same figure, drawn
+              again in a room where its own width-aware machinery reaches a
+              different answer.
+              PERSISTENT, in the muted ink beside the other chart actions:
+              a control that appears on hover does not exist for a touch
+              user, in a screenshot, or on a projector (the rule
+              `MonitorThis` states at its own trigger). Tabbable in the
+              card's natural order, and named for the figure it opens —
+              "View full screen" alone is four identical controls on a turn
+              that published four charts.
+              NOT ON A CARD: a figure card is one number at display size,
+              and there is nothing in it to enlarge. */}
+          {expandable && !asCard && spec.keying?.mode !== "unkeyable" && (
+            <DialogPrimitive.Trigger asChild>
+              <Button
+                variant="ghost"
+                size="xs"
+                aria-label={`View full screen: ${spec.title}`}
+                title="Open this figure full screen, where the axis has room to spell its own labels"
+                className="h-5 gap-1 px-1.5 text-micro font-normal text-muted-foreground hover:text-foreground"
+              >
+                <Maximize2 aria-hidden className="size-2.5" />
+                Full screen
+              </Button>
+            </DialogPrimitive.Trigger>
+          )}
           {/* MONITOR THIS, at the figure's own pin point — beside the export,
               which is the other "take this away with you" gesture on the
               chart. What it registers is the SPEC behind the figure, so
@@ -1773,16 +1954,27 @@ export function InvestigationChart({
           {/* TRUNCATION IS CONTEXT, NOT AN ALARM. "Showing top 8 of 12" is
               a fact about the drawing with the fix attached to it, and in
               amber it read as a defect in the data. Quiet ink, same words,
-              same one-click expansion. */}
+              same one-click expansion.
+
+              AND IT IS NOT THE MAXIMIZE GLYPH. This control asks the
+              ENGINE for the four rows it did not send — a new turn, new
+              numbers — and it wore the same corner-arrows icon that now
+              opens the figure full screen, one gap apart in the same row.
+              Two gestures, one symbol, and the difference between them is
+              a round trip to the warehouse. `ListPlus` says what this one
+              does: more rows. */}
           {spec.truncation && spec.truncation.total > spec.truncation.shown && (
             <Button
               variant="ghost"
               size="xs"
               className="h-5 gap-1 px-1.5 text-meta font-normal text-muted-foreground hover:text-foreground"
-              onClick={() => emitRefinement({ op: "Expand" }, { turnId })}
+              onClick={() => {
+                emitRefinement({ op: "Expand" }, { turnId });
+                onDrilled?.();
+              }}
             >
               Showing top {spec.truncation.shown} of {spec.truncation.total}
-              <Maximize2 className="size-2.5" />
+              <ListPlus aria-hidden className="size-2.5" />
               Expand
             </Button>
           )}
@@ -1816,6 +2008,85 @@ export function InvestigationChart({
         </span>
       </div>
     </figure>
+  );
+}
+
+/**
+ * THE FIGURE, AND THE SAME FIGURE WITH ROOM TO BE READ.
+ *
+ * The owner's report was "we should give the ability to fullscreen graphs
+ * so that they're actually readable", and the second half is the
+ * requirement. Every measured rule on this chart — which labels are
+ * elided, whether the axis rotates, how deep the axis is, how wide the
+ * bars are — is a function of the width the figure was mounted at. So the
+ * expansion is not a transform of the drawn SVG (which would enlarge the
+ * elisions along with everything else) and not a second chart component
+ * (which would be a second set of honesty rules to keep in step): it is
+ * `ChartFigure` mounted a second time, at 90vw, where its own machinery
+ * reaches different answers. The twelve-payer ranking that reads
+ * "Northbridge Comm…" in a 280px rail spells the name out in the dialog
+ * because `axisTickPlan` was asked again with a bigger budget.
+ *
+ * Everything else travels because it is the same component: the title (in
+ * the dialog's own heading, so it is not printed twice), the context line,
+ * every note and honesty caption, and a working action row — drill,
+ * Monitor this, CSV.
+ *
+ * The dialog is modal: focus moves in and returns to the control that
+ * opened it, Esc and the overlay close it, and the page behind it does not
+ * scroll. `overlay-in`/`panel-in` are the house's own enter animations and
+ * they are already switched off under `prefers-reduced-motion`
+ * (`globals.css`); the draw-in inside the plot asks the same question
+ * through `usePrefersReducedMotion`.
+ */
+export function InvestigationChart(props: InvestigationChartProps) {
+  const [open, setOpen] = useState(false);
+  const { spec, windowLabel } = props;
+
+  return (
+    // The inline figure sits INSIDE the dialog's root so its expand
+    // control can be the real `Dialog.Trigger`: Radix then owns the
+    // `aria-expanded`, the `aria-haspopup` and — the part a hand-rolled
+    // open state gets wrong — the focus that must return to this exact
+    // button when the dialog closes. A modal `Dialog.Content` focuses its
+    // trigger ref on close and prevents the default restore, so with no
+    // trigger registered, focus landed on `<body>`.
+    <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
+      <ChartFigure {...props} expandable />
+      <DialogPrimitive.Portal>
+          <DialogPrimitive.Overlay className="overlay-in fixed inset-0 z-50 bg-black/50 backdrop-blur-[2px]" />
+          <DialogPrimitive.Content
+            // NO DESCRIPTION, DELIBERATELY. Radix wants either a
+            // `Description` or this explicit opt-out; everything this
+            // figure has to say about itself is already inside it, as
+            // captions the reader can see, and a hidden paraphrase would
+            // be a second wording of the honesty notes to keep in step.
+            aria-describedby={undefined}
+            className="panel-in fixed left-1/2 top-1/2 z-50 flex h-[85vh] w-[90vw] max-w-[120rem] -translate-x-1/2 -translate-y-1/2 flex-col overflow-hidden rounded-xl border bg-surface-overlay shadow-2xl shadow-black/20"
+          >
+            <div className="flex items-start justify-between gap-4 border-b px-5 py-3">
+              <DialogPrimitive.Title
+                className="text-body font-semibold tracking-tight"
+                title={spec.wireTitle}
+              >
+                {spec.title}
+                {windowLabel && (
+                  <span className="font-normal text-muted-foreground"> — {windowLabel}</span>
+                )}
+              </DialogPrimitive.Title>
+              <DialogPrimitive.Close
+                aria-label="Close full screen"
+                className="focus-ring -mr-1 rounded p-1 text-muted-foreground hover:text-foreground"
+              >
+                <X aria-hidden className="size-4" />
+              </DialogPrimitive.Close>
+            </div>
+            <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
+              <ChartFigure {...props} expanded onDrilled={() => setOpen(false)} />
+            </div>
+          </DialogPrimitive.Content>
+        </DialogPrimitive.Portal>
+    </DialogPrimitive.Root>
   );
 }
 

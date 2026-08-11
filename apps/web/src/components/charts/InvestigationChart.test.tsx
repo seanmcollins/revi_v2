@@ -10,13 +10,18 @@
  */
 
 import "@testing-library/jest-dom/vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import { readFileSync } from "node:fs";
+import path from "node:path";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import {
   axisTickLabels,
+  axisTickPlan,
   boundedLegend,
   ChartTooltipContent,
+  EXPANDED_MAX_AXIS_HEIGHT,
   flatTickBudget,
   FLAT_TICK_FLOOR,
   InvestigationChart,
@@ -24,6 +29,8 @@ import {
   orderNote,
   rotatedAxisGutter,
   rotatedAxisHeight,
+  rotatedTickBase,
+  ROTATED_TICK_BASE,
 } from "@/components/charts/InvestigationChart";
 import { chartToCsv } from "@/lib/export";
 import { useSessionStore } from "@/lib/store";
@@ -1308,5 +1315,253 @@ describe("InvestigationChart — the figure card keeps the chart's affordances",
     expect(screen.getByText("Denied dollars by CARC")).toBeInTheDocument();
     expect(screen.getByText("CARC · Ordered by denied dollars, high to low")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /Showing top 1 of 12/ })).toBeInTheDocument();
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* FULL SCREEN — the same figure, in a room where it can be read       */
+/* ------------------------------------------------------------------ */
+
+/**
+ * "We should give the ability to fullscreen graphs so that they're
+ * actually readable" — and READABLE is the assertion, not "bigger".
+ *
+ * The Evidence rail draws these charts 280px wide. Every measured rule on
+ * the figure is a function of that width, so the expansion has to re-run
+ * them rather than scale the drawn SVG: an enlarged screenshot of
+ * "Northbridge Comm…" is still a chart nobody can read.
+ *
+ * The MARKS are Recharts' and jsdom gives a `ResponsiveContainer` no size,
+ * so what the axis draws is asserted where it is decided — `axisTickPlan`,
+ * the one function both mounts call — and what the DIALOG carries is
+ * asserted in the DOM.
+ */
+const RANKING = spec({
+  title: "Denied dollars by payer",
+  xLabel: "payer",
+  order: { basis: "value", by: "denied_dollars", descending: true },
+  rows: LIVE_PAYERS.map((label, i) => ({
+    label,
+    values: { denied_dollars: (LIVE_PAYERS.length - i) * 1000 },
+  })),
+});
+
+describe("InvestigationChart — the axis is re-spelled at the width it is drawn at", () => {
+  it("elides the twelve-payer ranking in the rail and spells it whole full screen", () => {
+    const rail = axisTickPlan(LIVE_PAYERS, { kind: "bar", plotWidth: 280 });
+    const full = axisTickPlan(LIVE_PAYERS, { kind: "bar", plotWidth: 1360, expanded: true });
+
+    // The rail cannot hold these names: it rotates, and it still cuts.
+    expect(rail.rotate).toBe(true);
+    expect(rail.text.get("Summit Peak Medicare Advantage")).toContain("…");
+    expect(rail.text.get("Silverline Medicare Advantage")).toContain("…");
+    expect(rail.text.get("Northbridge Commercial")).toContain("…");
+
+    // Full screen every one of them is drawn as the wire published it —
+    // which is the whole payoff the owner asked for.
+    for (const payer of LIVE_PAYERS) expect(full.text.get(payer)).toBe(payer);
+  });
+
+  it("keeps the inline figure exactly as it was", () => {
+    // The expansion must not move the axis of the chart already on screen.
+    const rail = axisTickPlan(LIVE_PAYERS, { kind: "bar", plotWidth: 280 });
+    const before = axisTickLabels(LIVE_PAYERS, ROTATED_TICK_BASE);
+    for (const payer of LIVE_PAYERS) expect(rail.text.get(payer)).toBe(before.get(payer));
+  });
+
+  it("budgets the fullscreen label against the axis room it will be drawn in", () => {
+    // `rotatedTickBase` is `rotatedAxisHeight` solved for length, so a
+    // label drawn at the budget must still fit under the cap that bought
+    // it. Two constants that disagree here is a name cut off by the SVG's
+    // bottom edge — the defect the measured axis height exists to end.
+    const base = rotatedTickBase(EXPANDED_MAX_AXIS_HEIGHT);
+    expect(base).toBeGreaterThan(ROTATED_TICK_BASE);
+    expect(rotatedAxisHeight(["A".repeat(base)], EXPANDED_MAX_AXIS_HEIGHT)).toBeLessThanOrEqual(
+      EXPANDED_MAX_AXIS_HEIGHT,
+    );
+    // …and it grows with the room, rather than being a second constant.
+    expect(rotatedTickBase(400)).toBeGreaterThan(base);
+  });
+
+  it("still shortens a flat tick to its own band, at either size", () => {
+    // Fullscreen is not "print everything": a label wider than its band
+    // collides with its neighbour at any width. Twelve categories in a
+    // 1360px plot get ~109px each — about 13 characters.
+    const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun"];
+    const flat = axisTickPlan(months, { kind: "bar", plotWidth: 1360, expanded: true });
+    expect(flat.rotate).toBe(false);
+    for (const month of months) expect(flat.text.get(month)).toBe(month);
+  });
+});
+
+describe("InvestigationChart — the expand affordance", () => {
+  it("is on a multi-datum chart, persistently and by its figure's name", () => {
+    render(<InvestigationChart spec={RANKING} turnId="turn_1" />);
+
+    const expand = screen.getByRole("button", {
+      name: "View full screen: Denied dollars by payer",
+    });
+    // PERSISTENT, not hover-revealed: the house rule `MonitorThis` states
+    // at its own trigger. A control that appears on hover does not exist
+    // for a touch user, in a screenshot, or on a projector.
+    expect(expand.className).not.toMatch(/opacity-0|group-hover/);
+    // And reachable by keyboard, in the card's own order.
+    expect(expand).not.toHaveAttribute("tabindex", "-1");
+  });
+
+  it("is absent on a figure card — there is nothing in one number to enlarge", () => {
+    render(
+      <InvestigationChart
+        spec={spec({ rows: [{ label: "CARC 16", values: { denied_dollars: 412300 } }] })}
+        turnId="turn_1"
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: /View full screen/ })).not.toBeInTheDocument();
+  });
+
+  it("is absent on a chart that was not drawn at all", () => {
+    render(
+      <InvestigationChart
+        spec={spec({
+          keying: {
+            xColumn: "month",
+            seriesColumn: "payer",
+            wireRows: 30,
+            keys: 3,
+            mode: "unkeyable",
+            wireTotal: 0,
+            drawnTotal: 0,
+            note: "The server sent 30 rows over 3 distinct (month, payer) keys.",
+            rows: [],
+          },
+        })}
+        turnId="turn_1"
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: /View full screen/ })).not.toBeInTheDocument();
+  });
+
+  it("no longer shares its glyph with the control that asks for more rows", () => {
+    // "Expand" fetches the four rows the engine did not send — a new turn,
+    // new numbers — and it wore the maximize glyph one gap away from the
+    // control that opens this same figure full screen.
+    const { container } = render(
+      <InvestigationChart
+        spec={spec({ ...RANKING, truncation: { shown: 12, total: 30 } })}
+        turnId="turn_1"
+      />,
+    );
+
+    const rows = screen.getByRole("button", { name: /Showing top 12 of 30/ });
+    const full = screen.getByRole("button", { name: /View full screen/ });
+    const glyph = (node: HTMLElement): string | null =>
+      node.querySelector("svg")?.getAttribute("class") ?? null;
+    expect(glyph(rows)).not.toBe(glyph(full));
+    expect(container.querySelectorAll(".lucide-maximize-2")).toHaveLength(1);
+  });
+});
+
+describe("InvestigationChart — what the fullscreen dialog carries", () => {
+  const REAL_EMIT = useSessionStore.getState().emitRefinement;
+  afterEach(() => {
+    useSessionStore.setState({ emitRefinement: REAL_EMIT });
+  });
+
+  /** The ranking, with every honesty mark the wire can put on one. */
+  const MARKED = spec({
+    ...RANKING,
+    notes: ["upper bounds: 1 of 12 marks are ceilings, not measurements."],
+    truncation: { shown: 12, total: 30 },
+    rows: RANKING.rows.map((row, i) =>
+      i === 0 ? { ...row, bounded: true, denominator: 41 } : row,
+    ),
+  });
+
+  async function openFullScreen() {
+    const user = userEvent.setup();
+    render(<InvestigationChart spec={MARKED} turnId="turn_1" investigationId="inv_1" />);
+    // Held before the click: an open modal marks everything behind it
+    // `aria-hidden`, which is the point of a modal and also means the
+    // trigger is no longer findable by role while the dialog is up.
+    const expand = screen.getByRole("button", { name: /View full screen/ });
+    await user.click(expand);
+    return { user, expand, dialog: await screen.findByRole("dialog") };
+  }
+
+  it("carries the title, the context line, the notes and the honesty marks", async () => {
+    const { dialog } = await openFullScreen();
+    const panel = within(dialog);
+
+    // The title is the dialog's own heading — once, not twice.
+    expect(panel.getByRole("heading", { name: /Denied dollars by payer/ })).toBeInTheDocument();
+    expect(panel.getAllByText(/Denied dollars by payer/)).toHaveLength(1);
+    // The context line under the figure.
+    expect(
+      panel.getByText("Payer · Ordered by denied dollars, high to low"),
+    ).toBeInTheDocument();
+    // The engine's own census, and what "≤" means — the marks travel.
+    expect(
+      panel.getByText(/Upper bounds: 1 of 12 marks are ceilings, not measurements./),
+    ).toBeInTheDocument();
+    expect(panel.getByText(/≤ means at most/)).toBeInTheDocument();
+  });
+
+  it("keeps the action row working inside it", async () => {
+    const emitRefinement = vi.fn();
+    useSessionStore.setState({ emitRefinement });
+    const { user, dialog } = await openFullScreen();
+    const panel = within(dialog);
+
+    // The export is here, on the same published rows.
+    // (`MonitorThis` is driver-gated and renders nothing in this
+    // environment — on the fullscreen figure as on the inline one.)
+    expect(panel.getByRole("button", { name: /CSV/ })).toBeInTheDocument();
+
+    // …and a refinement asked for from inside the dialog is emitted, then
+    // stands down: it starts a new turn, and a 90vw picture of the old one
+    // over the answer streaming underneath is not a view of anything.
+    await user.click(panel.getByRole("button", { name: /Showing top 12 of 30/ }));
+    expect(emitRefinement).toHaveBeenCalledWith({ op: "Expand" }, { turnId: "turn_1" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("closes on Esc and gives focus back to the control that opened it", async () => {
+    const { user, expand } = await openFullScreen();
+
+    // Focus moved INTO the dialog when it opened.
+    expect(document.activeElement).not.toBe(expand);
+    await user.keyboard("{Escape}");
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+    // …and back out to where it came from, not to the top of the document.
+    await waitFor(() => expect(expand).toHaveFocus());
+  });
+
+  it("closes when the overlay behind it is clicked", async () => {
+    const { user } = await openFullScreen();
+    const overlay = document.querySelector(".overlay-in");
+    expect(overlay).not.toBeNull();
+
+    await user.click(overlay as Element);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("opens with the house animation, which reduced motion already switches off", async () => {
+    const { dialog } = await openFullScreen();
+    expect(dialog.className).toContain("panel-in");
+    expect(document.querySelector(".overlay-in")).not.toBeNull();
+
+    // The classes are only half the promise; this is the other half, read
+    // from the stylesheet that makes it. A dialog that grew its own
+    // keyframes would pass the assertion above and animate anyway for a
+    // reader who asked it not to.
+    const css = readFileSync(
+      path.resolve(import.meta.dirname, "../../globals.css"),
+      "utf8",
+    );
+    const reduced = css.slice(css.indexOf("@media (prefers-reduced-motion: reduce)"));
+    expect(reduced).toContain(".panel-in");
+    expect(reduced).toContain(".overlay-in");
   });
 });

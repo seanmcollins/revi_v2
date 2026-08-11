@@ -165,6 +165,20 @@ export const WARNING_TITLES: Readonly<Record<string, string>> = {
   // it triggered is on screen. Not a refusal and not a confirmation — the
   // one state where saying nothing is what destroyed the monitor.
   MONITOR_PENDING_CLARIFICATION: "Your monitor is waiting on the question below",
+  /* -- deep research: how the recovery estimate was built ------------ */
+  // Dollars the estimate deliberately left out (unknown deadlines, groups
+  // too small to rate) — listed, never guessed into the total.
+  DEEP_RESEARCH_UNPRICED: "Some dollars could not be estimated yet",
+  DEEP_RESEARCH_THIN_ROLLUP: "Small groups were set aside, not guessed",
+  DEEP_RESEARCH_EXTREMES: "Read the best and worst with care",
+  // The ranges combine assuming the groups move independently — stated
+  // because it is an assumption, not a measurement.
+  DEEP_RESEARCH_INDEPENDENCE: "How these ranges combine",
+  DEEP_RESEARCH_ANGLE_REFUSED: "Part of this research could not run here",
+  // Open cases counted neither as wins nor losses — the disclosure that
+  // keeps the rates honest.
+  DEEP_RESEARCH_CENSORING: "Still-open cases are not counted either way",
+  DEEP_RESEARCH_NO_PRIOR: "Only your own data was used",
   /* -- what the platform did with the answer (does not change it) ---- */
   SUPPRESSION_APPLIED: "Small cells were suppressed",
   NARRATIVE_REDACTED: "A sentence was cut from the write-up",
