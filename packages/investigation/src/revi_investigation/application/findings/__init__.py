@@ -138,6 +138,7 @@ from revi_investigation.application.findings.windows import (
     WINDOW_START_SUFFIX,
     probe_window_disclosure,
     published_window_note,
+    published_window_span,
 )
 
 __all__ = [
@@ -170,6 +171,7 @@ __all__ = [
     "premise_verdict_sentence",
     "probe_window_disclosure",
     "published_window_note",
+    "published_window_span",
     "row_noun",
     "terminal_bucket_censoring",
     "verify_premise",

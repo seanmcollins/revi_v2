@@ -27,7 +27,12 @@ from revi_investigation_contracts.deep_research import (
     DeepResearchSelector,
     StartDeepResearchRequest,
 )
-from revi_kernel.errors import ReferentNotFoundError, UnsupportedConceptError
+from revi_investigation_contracts.monitors import CreateMonitorsPinRequest
+from revi_kernel.errors import (
+    PolicyDeniedError,
+    ReferentNotFoundError,
+    UnsupportedConceptError,
+)
 
 REPO_ROOT = Path(__file__).resolve().parents[3]
 WAREHOUSE = REPO_ROOT / "data" / "revi_warehouse.duckdb"
@@ -460,3 +465,85 @@ class TestOrdinaryTurnsAreUnaffected:
         assert answer.outcome in ("answer", "clarification_required")
         if answer.outcome == "answer":
             assert answer.deep_research is None
+
+
+class TestThePlanOnlyDryRun:
+    """The confirmation in front of a minute of work, answered from facts.
+
+    A run is about sixty seconds and a real model call, and this product's
+    rule for a real consequence is that it is stated BEFORE the click. The
+    surface that offers one needed three things it cannot compose without
+    asserting facts it has not read: how big the population is, which angles
+    the run would take, and which other populations the same offer could
+    run over. All three come back here, and nothing starts.
+    """
+
+    async def test_it_starts_nothing_and_says_what_a_run_would_do(self) -> None:
+        api = service()
+        answer = await api.start_deep_research(
+            CALLER, StartDeepResearchRequest(plan_only=True)
+        )
+        assert answer.status == "preview"
+        assert answer.id == ""
+        assert api.research._runs == {}, "a preview must not create a run"
+        assert answer.report is None
+        preview = answer.preview
+        assert preview is not None
+        assert preview.scope.open_denials > 0
+        assert preview.scope.open_dollars_cents > 0
+        assert preview.plan.angles, "the angles a run would take"
+        assert all(angle.title and angle.purpose for angle in preview.plan.angles)
+
+    async def test_the_size_it_reports_is_the_size_the_run_prices(self) -> None:
+        api = service()
+        preview = (
+            await api.start_deep_research(CALLER, StartDeepResearchRequest(plan_only=True))
+        ).preview
+        assert preview is not None
+        started = await api.start_deep_research(CALLER, StartDeepResearchRequest())
+        await _finish(api, started.id)
+        finished = await api.get_deep_research(CALLER, started.id)
+        assert finished.report is not None
+        assert (
+            preview.scope.open_denials == finished.report.headline.total_open_denials
+        )
+        assert (
+            preview.scope.open_dollars_cents
+            == finished.report.headline.total_open_dollars_cents
+        )
+
+    async def test_the_other_populations_are_closed_selectors_not_sentences(self) -> None:
+        api = service()
+        answer = await api.start_deep_research(
+            CALLER,
+            StartDeepResearchRequest(
+                population=DeepResearchSelector(kind="payer", values=["Atlas Commercial"]),
+                plan_only=True,
+            ),
+        )
+        preview = answer.preview
+        assert preview is not None
+        assert [option.kind for option in preview.options] == ["all_open"]
+        assert preview.population.kind == "payer"
+
+
+class TestARunIsNotSomethingAMonitorCanReRun:
+    """A monitor measures ONE thing at every load and compares it to the
+    last one. A recoverability review is a whole analysis over a population
+    — dozens of rates, an expected-recovery total, its own refusals — and it
+    names no single measure. Pinning one reached the typed-spec builder with
+    an empty measure list and came back a 500."""
+
+    async def test_pinning_one_is_refused_in_the_reader_s_own_words(self) -> None:
+        api = service()
+        started = await api.start_deep_research(CALLER, StartDeepResearchRequest())
+        await _finish(api, started.id)
+        with pytest.raises(PolicyDeniedError) as refused:
+            await api.monitors.create_pin(
+                CALLER, CreateMonitorsPinRequest(investigation_id=started.id)
+            )
+        message = str(refused.value)
+        assert "monitor" in message
+        assert "data load" in message
+        # …and it says what CAN be watched instead, rather than only "no".
+        assert "instead" in message

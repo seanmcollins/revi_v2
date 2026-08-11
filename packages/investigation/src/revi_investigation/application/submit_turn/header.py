@@ -8,6 +8,7 @@ from datetime import date
 from revi_investigation.application.capability_ports import PackPort
 from revi_investigation.application.findings import (
     published_window_note,
+    published_window_span,
 )
 from revi_investigation.application.planning import (
     InvestigationPlan,
@@ -106,5 +107,11 @@ def build_context_header(
         watermark_id=session.watermark.id,
         as_of=snapshot_as_of(spec, session, pack, measure_ids),
         window_note=published_window_note(findings),
+        # …and, when NOT ONE figure was computed over the window above, the
+        # span they actually cover. The header states the union or it
+        # states nothing it did not honor (§5c).
+        published_span=published_window_span(
+            findings, (context.window.range.start, context.window.range.end)
+        ),
         corrections=corrections,
     )

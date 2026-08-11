@@ -40,6 +40,7 @@ from revi_investigation.application.deep_research.policy import DeepResearchSett
 from revi_investigation.application.deep_research.rows import DenialRows
 from revi_investigation_contracts.api import (
     ChartRow,
+    ChartSort,
     ChartSpec,
     ChartType,
     FindingPayload,
@@ -224,6 +225,35 @@ def _censoring(
     )
 
 
+def plan_payload_of(
+    plan: DeepResearchPlan, settings: DeepResearchSettings
+) -> ResearchPlanPayload:
+    """The angles a run will look at, in the words a reader sees them in.
+
+    Shared by the report and by the PLAN-ONLY preview, so a confirmation
+    card and the run it starts describe the same angles in the same
+    sentences — a preview composed separately is a second description that
+    can drift from the thing it previews.
+    """
+    return ResearchPlanPayload(
+        research_question=plan.research_question,
+        angles=[
+            ResearchAnglePayload(
+                family=str(angle.family),  # type: ignore[arg-type]
+                title=settings.angle(str(angle.family)).title,
+                purpose=settings.angle(str(angle.family)).purpose,
+                stratify_by=[str(s) for s in angle.stratify_by],  # type: ignore[misc]
+                within=[str(s) for s in angle.within],  # type: ignore[misc]
+                basis=str(angle.basis),  # type: ignore[arg-type]
+            )
+            for angle in plan.angles
+        ],
+        rationale=plan.rationale,
+        authored_by=plan.authored_by,  # type: ignore[arg-type]
+        added_by_revi=[str(family) for family in plan.added_by_revi],  # type: ignore[misc]
+    )
+
+
 # ---------------------------------------------------------------------------
 # charts
 
@@ -238,8 +268,18 @@ def _bar(
     unit: str,
     annotations: Sequence[str] = (),
     axis_order: Sequence[str] | None = None,
+    ranked: bool = False,
 ) -> ChartSpec | None:
-    """A bar chart, or nothing. One mark is a figure, not a chart."""
+    """A bar chart, or nothing. One mark is a figure, not a chart.
+
+    ``ranked`` says these rows were ORDERED BY THE MEASURE, and it is
+    published on the wire as the ordering it is. A ranking whose ordering
+    stays inside this function is a ranking the renderer cannot recognise:
+    it reads ``order.basis`` to decide that a league table of payer names
+    is read down a column rather than across a 60px axis, and every chart
+    here arrived with no ordering at all, so a report full of rankings drew
+    them all as rotated-label column charts.
+    """
     if len(rows) < 2:
         return None
     return ChartSpec(
@@ -254,6 +294,7 @@ def _bar(
         rows=[ChartRow(x=name, value=value) for name, value in rows],
         annotations=list(annotations),
         axis_order=list(axis_order) if axis_order else None,
+        sort=ChartSort(by=value_label, direction="desc") if ranked else None,
     )
 
 
@@ -639,6 +680,8 @@ def build_report(
         rows=[(row.label, row.expected_cents or 0) for row in top],
         unit="money_cents",
         annotations=[words.NO_PRIOR_SUBSTITUTED],
+        # `top` is sorted by expected dollars, descending, ten lines above.
+        ranked=True,
     )
     if chart is not None:
         charts.append(chart)
@@ -669,9 +712,18 @@ def build_report(
             ),
             x_label="population",
             value_label="recovery rate",
-            rows=[(cell.label, float(cell.rate or 0)) for cell in measured],
+            rows=[
+                (cell.label, float(cell.rate or 0))
+                for cell in sorted(
+                    measured, key=lambda c: (-float(c.rate or 0), c.label)
+                )
+            ],
             unit="ratio",
             annotations=[settings.floor_sentence()],
+            # "Recovery rate by payer" is a league table: it is ordered by
+            # the measure, and the ordering is published so the renderer
+            # can read it down a column.
+            ranked=True,
         )
         if chart is not None:
             charts.append(chart)
@@ -894,23 +946,7 @@ def build_report(
         values=list(population.values),
         label=population_words,
     )
-    plan_payload = ResearchPlanPayload(
-        research_question=plan.research_question,
-        angles=[
-            ResearchAnglePayload(
-                family=str(angle.family),  # type: ignore[arg-type]
-                title=settings.angle(str(angle.family)).title,
-                purpose=settings.angle(str(angle.family)).purpose,
-                stratify_by=[str(s) for s in angle.stratify_by],  # type: ignore[misc]
-                within=[str(s) for s in angle.within],  # type: ignore[misc]
-                basis=str(angle.basis),  # type: ignore[arg-type]
-            )
-            for angle in plan.angles
-        ],
-        rationale=plan.rationale,
-        authored_by=plan.authored_by,  # type: ignore[arg-type]
-        added_by_revi=[str(family) for family in plan.added_by_revi],  # type: ignore[misc]
-    )
+    plan_payload = plan_payload_of(plan, settings)
 
     report = DeepResearchReport(
         id=run_id,

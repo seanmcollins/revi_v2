@@ -87,6 +87,42 @@ FAMILIES: list[tuple[str, str, str]] = [
         "questions in a row without converging.",
     ),
     (
+        "REFERENT_ASSUMED",
+        "caution",
+        "referent_assumed: you did not name a figure, so I answered for the one "
+        "figure this conversation has on screen — say another if you meant it.",
+    ),
+    (
+        "VALUE_ASSUMED",
+        "caution",
+        "value_assumed: this data has no 'Atlas' spelled the way you typed it, "
+        "so I read it as Atlas Commercial — the one close match it holds.",
+    ),
+    (
+        "FILTER_SWAPPED",
+        "caution",
+        "filter_swapped: this question names a payer, so the payer filter it "
+        "was carrying was traded for the one you named.",
+    ),
+    (
+        "BENCHMARK_COMPARISON",
+        "info",
+        "benchmark_comparison: the figures above are re-served with the peer "
+        "range beside them; nothing was recomputed.",
+    ),
+    (
+        "BENCHMARK_WITHHELD",
+        "caution",
+        "benchmark_withheld: there is no comparison to make yet. Denial rate is "
+        "read over a period that has not finished settling.",
+    ),
+    (
+        "BENCHMARK_ABSENT",
+        "info",
+        "benchmark_absent: your definitions library publishes no peer range for "
+        "days in A/R.",
+    ),
+    (
         "CLARIFICATION_ANSWER_APPLIED",
         "caution",
         "Read as an answer to the question above: 'which service line?' → 'imaging'. "

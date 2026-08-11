@@ -835,6 +835,63 @@ def presentation_order_request(question: str) -> bool:
     )
 
 
+#: "Compare that to the industry benchmark", "how does that compare to
+#: benchmark", "vs benchmark?".
+#:
+#: Benchmark attachment is fully automatic and purely structural: the guard
+#: walks every published finding's metric refs and harvests the ranges the
+#: definitions library holds for them. There is no analyst intent anywhere
+#: in that path and no field on the interpretation schema to carry one — so
+#: "compare that to the benchmark" is an utterance the interpretation
+#: vocabulary cannot express, and the model had nowhere to put it but a
+#: clarification. Three live conversations spent a turn being asked *which
+#: measure* to compare, in sessions that had measured exactly one, whose
+#: previous answer had already printed the range.
+_BENCHMARK_COMPARISON = re.compile(
+    r"^\s*(?:(?:and|so|ok|okay|but)\s+)?"
+    r"(?:how\s+(?:does|do)\s+(?:that|this|it|those|these|they|we|ours?)\s+"
+    r"(?:compare|stack\s+up|measure\s+up)"
+    r"|compare\s+(?:that|this|it|those|these|ours?)"
+    r"|(?:vs\.?|versus|against)"
+    r"|(?:is\s+)?(?:that|this|it)\s+(?:good|bad|normal|typical|above|below)"
+    r")\b[^?]{0,80}?\bbench-?marks?\b[^?]*\??\s*$",
+    re.IGNORECASE,
+)
+
+
+#: …and the same question asked without the word. "Is that a lot?", "is
+#: that good?", "is that normal?" are requests to JUDGE the figure on
+#: screen, and the only judgement this platform will pass on a level is the
+#: peer range its definitions library publishes for that measure — which is
+#: exactly what the benchmark turn states, including when there is none and
+#: when the period has not settled enough to judge.
+#:
+#: Deliberately bare: an utterance carrying anything else ("is that a lot
+#: for Atlas?") names a population and is a question to be measured.
+_ASKS_IF_THAT_IS_GOOD = re.compile(
+    r"^\s*(?:(?:and|so|ok|okay|but)\s+)?"
+    r"(?:is|are)\s+(?:that|this|it|those|these)\s+"
+    r"(?:a\s+lot|a\s+little|good|bad|normal|typical|high|low|unusual|"
+    r"any\s+good|ok|okay|fine|healthy|concerning)\s*\??\s*$",
+    re.IGNORECASE,
+)
+
+
+def benchmark_comparison_request(question: str) -> bool:
+    """Is this utterance only "put that beside the benchmark"?
+
+    Decided before any model call, for the same reason a display-scope
+    request is: the engine is holding everything the answer needs — the
+    findings, the metrics they cite, and the ranges the definitions library
+    publishes for those metrics — so asking a model to interpret it buys a
+    call and a chance of a clarification with nothing behind it.
+    """
+    return (
+        _BENCHMARK_COMPARISON.search(question) is not None
+        or _ASKS_IF_THAT_IS_GOOD.search(question) is not None
+    )
+
+
 def out_of_range_question(period_label: str, watermark: DataWatermark) -> str:
     """Say which period was asked for and which one exists.
 
@@ -1039,6 +1096,15 @@ class PendingClarification:
         return None
 
 
+#: What the reading prompts are told when a session has answered nothing.
+#: Stated rather than omitted: a slot left empty reads as an omission, and
+#: the model has to know the difference between "nothing is on screen" and
+#: "you were not shown what is".
+_NO_CONVERSATION = (
+    "Nothing has been answered in this conversation yet, so this utterance stands on its own."
+)
+
+
 def render_pending_clarification(pending: PendingClarification | None) -> str:
     """The pending-clarification block for the classification prompt."""
     if pending is None:
@@ -1068,11 +1134,26 @@ class ClassifyTurnService:
         question: str,
         *,
         pending: PendingClarification | None = None,
+        conversation: str | None = None,
         policy: LlmCallPolicy = DEFAULT_LLM_CALL_POLICY,
     ) -> ClassificationOutcome:
+        """Classify one utterance — against the conversation it arrives in.
+
+        ``conversation`` is what the analyst can see: the last analytical
+        answer's question, measures, period, cut, scope and published
+        handles (see ``_conversation_summary``). Without it this call had
+        exactly one conversational fact available to it — a PENDING
+        clarification — which is the one piece of context that misleads: a
+        stale question about "the math for F1" was the loudest signal in
+        the prompt when the analyst typed a clean "and by payer?".
+        """
         prompt = render_template(
             self._template.text,
-            {"question": question, "pending": render_pending_clarification(pending)},
+            {
+                "question": question,
+                "pending": render_pending_clarification(pending),
+                "conversation": conversation or _NO_CONVERSATION,
+            },
         )
         assert_safe_payload(prompt)
         result = await self._llm.structured(
@@ -1182,9 +1263,32 @@ class InterpretQuestionService:
         )
         return f"{line}\n    asked as: {phrasings}" if phrasings else line
 
+    def _metric_line(self, metric_id: str, description: str) -> str:
+        """One metric's prompt entry: what it is, and how it can be CUT.
+
+        Dimensions rendered as a flat global list say nothing about which
+        metric each one belongs to, so the model proposed ``denial_rate``
+        broken out by ``denial_category`` — a pair the §6.6 validator
+        refuses at plan time — and a plain yes/no risk question came back as
+        a grain-incompatibility card whose four options answered a different
+        question.
+
+        The contract already declares this (``scope_dimensions``) and the
+        REFINEMENT prompt already renders it (``_dimension_lines``). Ten
+        lines of the same fact, on the call that needed it most.
+        """
+        line = f"- {metric_id}: {_clip(description)}"
+        contract = self._pack.metric(metric_id)
+        cuts = (
+            ", ".join(dim.id for dim in contract.scope_dimensions)
+            if contract is not None
+            else ""
+        )
+        return f"{line}\n    can be broken out by: {cuts}" if cuts else line
+
     def _vocabulary(self) -> dict[str, str]:
         metrics = "\n".join(
-            f"- {mid}: {_clip(desc)}" for mid, desc in self._pack.metric_summaries()
+            self._metric_line(mid, desc) for mid, desc in self._pack.metric_summaries()
         )
         dimensions = "\n".join(
             f"- {dim.id}: {dim.label}" for dim in self._catalog.dimensions if dim.certified
@@ -1311,6 +1415,7 @@ class InterpretQuestionService:
         turn_id: str,
         policy: LlmCallPolicy = DEFAULT_LLM_CALL_POLICY,
         basis_override: str | None = None,
+        conversation: str | None = None,
     ) -> InterpretationOutcome:
         """Interpret one question against the pack, catalog and session.
 
@@ -1321,8 +1426,23 @@ class InterpretQuestionService:
         use?"), being ANSWERED. The answer is a governed basis id the
         platform offered, so re-running the analyst's original question
         with it applied is a substitution, not a second interpretation.
+
+        ``conversation`` is the answer on screen (see
+        ``_conversation_summary``). The deterministic carry in
+        ``_with_resumed_context`` is what actually holds a thread's window
+        and scope; this is what lets the model CHOOSE to state one — until
+        it existed the model could not know there was anything to continue,
+        so "same but for last quarter" and "what about Silverline?" were
+        read as though nothing had been asked before them.
         """
-        prompt = render_template(self._template.text, {**self._vocabulary(), "question": question})
+        prompt = render_template(
+            self._template.text,
+            {
+                **self._vocabulary(),
+                "question": question,
+                "conversation": conversation or _NO_CONVERSATION,
+            },
+        )
         assert_safe_payload(prompt)
         result = await self._llm.structured(
             StructuredLlmRequest(

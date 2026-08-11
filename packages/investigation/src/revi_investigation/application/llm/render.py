@@ -44,6 +44,29 @@ def load_template(template_id: str, version: str) -> LoadedTemplate:
     return LoadedTemplate(template_id=template_id, version=version, text=text, sha256=digest)
 
 
+#: How every prompt template ends: a heading, then the analyst's own
+#: sentence and nothing after it. Everything above is vocabulary and
+#: context this platform composed — including, since the reading prompts
+#: were given the answer on screen, the analyst's PREVIOUS question.
+_UTTERANCE_HEADINGS = ("\nUtterance:\n", "\nQuestion:\n")
+
+
+def analyst_words(prompt: str) -> str:
+    """The tail of a rendered prompt that is the analyst's own sentence.
+
+    For test and demo doubles that pick a canned answer by what was asked.
+    Matching on the WHOLE prompt stopped being a test of the utterance the
+    moment the prompt started carrying the conversation: "Break that down
+    by payer" renders a prompt containing "Why did cash decline last
+    week?", and a whole-prompt match served turn one's script on turn two.
+    """
+    for heading in _UTTERANCE_HEADINGS:
+        index = prompt.rfind(heading)
+        if index != -1:
+            return prompt[index + len(heading) :]
+    return prompt
+
+
 def render_template(text: str, values: Mapping[str, str]) -> str:
     """Substitute ``{name}`` placeholders strictly from ``values``."""
     used: set[str] = set()

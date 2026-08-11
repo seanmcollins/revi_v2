@@ -130,9 +130,21 @@ _RULES: tuple[_Rule, ...] = (
     # improved — a systematically premise-flattering omission that no
     # census on the card counted.
     _rule("DIRECTION_OMITTED", CAUTION, r"^direction_omitted:"),
-    # Context carried onto a clarification resume from the thread it
-    # interrupted, rather than defaulted.
+    # Context carried onto an answer from the conversation it continues,
+    # rather than defaulted — a clarification resume, or an ordinary
+    # follow-up that named no period.
     _rule("RESUMED_CONTEXT", INFO, r"^resumed_context:"),
+    # NOT YET CLASSIFIED, deliberately: `referent_assumed:`,
+    # `value_assumed:`, `benchmark_comparison:`, `benchmark_withheld:`,
+    # `benchmark_absent:` and `filter_swapped:`.
+    #
+    # A rule here is half a contract: `contract-followups.test.ts` reads
+    # THIS module and fails unless the web publishes a plain-language title
+    # for every code in it, so a code lands in one commit with its title or
+    # it does not land. Until then these sentences reach the reader whole
+    # under UNCLASSIFIED — which is the path written for exactly this, and
+    # loses no honesty: the message is published verbatim, only the branch
+    # handle is missing.
     _rule("WINDOW_ASSUMED", CAUTION, r"^window_assumed:"),
     _rule("SNAPSHOT_AS_OF", CAUTION, r"^snapshot_as_of:"),
     _rule("DROPPED_GRAIN", CAUTION, r"^dropped_grain:"),
@@ -147,6 +159,16 @@ _RULES: tuple[_Rule, ...] = (
     _rule("RESULT_TRUNCATED", CAUTION, r"^probe '.+' truncated to the top"),
     _rule("COHORT_WINDOW_DROPPED", CAUTION, r"^cohort pinned without its window:"),
     _rule("ASSUMPTION_COMMITTED", CAUTION, r"^Assumed:"),
+    # The conversational-context commits: each states the reading the
+    # platform chose and why, in one sentence the reader can overrule.
+    _rule("REFERENT_ASSUMED", CAUTION, r"^referent_assumed:"),
+    _rule("VALUE_ASSUMED", CAUTION, r"^value_assumed:"),
+    _rule("FILTER_SWAPPED", CAUTION, r"^filter_swapped:"),
+    # The zero-probe benchmark turns: a re-served range, a range that
+    # cannot be judged yet, or the honest absence of one.
+    _rule("BENCHMARK_COMPARISON", INFO, r"^benchmark_comparison:"),
+    _rule("BENCHMARK_WITHHELD", CAUTION, r"^benchmark_withheld:"),
+    _rule("BENCHMARK_ABSENT", INFO, r"^benchmark_absent:"),
     _rule(
         "CLARIFICATION_ANSWER_APPLIED",
         CAUTION,

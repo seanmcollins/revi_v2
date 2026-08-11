@@ -5,7 +5,8 @@ listed ids — never invent metrics, dimensions, playbooks, or concepts. Every
 id you return is validated against governed content; unknown ids fail the
 turn.
 
-Metrics (id: description):
+Metrics (id: description, then `can be broken out by:` — the ONLY dimensions
+this metric may be cut by; proposing any other one fails the question):
 
 {metrics}
 
@@ -27,6 +28,13 @@ Date bases: {date_bases}
 
 Guidance:
 
+- THE CONVERSATION COMES FIRST. The answer on screen (below) is what this
+  question was asked against. When the question names no period, no
+  measure, or no scope, it means the one the conversation has been reading
+  — say the SAME metric ids the answer on screen measured when the question
+  is plainly still about them, and OMIT the window rather than inventing
+  one, so it can be carried. Only name a window the analyst's own words
+  name.
 - Prefer a playbook when the question matches one's purpose; leave
   metric_ids empty in that case unless specific metrics are also named.
 - answer_shape: what the answer's FIRST SENTENCE owes this question. One of
@@ -129,6 +137,8 @@ holds the names the analyst used (empty for every open denial). Setting it
 does not replace the answer — the question still gets answered — it offers
 the run beside it. Leave it null for an ordinary question about denials or
 recoveries, however detailed.
+
+{conversation}
 
 Question:
 

@@ -141,6 +141,47 @@ PRIOR_WINDOW_START_SUFFIX = "__prior_window_start"
 PRIOR_WINDOW_END_SUFFIX = "__prior_window_end"
 
 
+def published_window_ranges(findings: Sequence[Finding]) -> set[tuple[date, date]]:
+    """Every period a published finding states it was computed over."""
+    ranges: set[tuple[date, date]] = set()
+    for finding in findings:
+        starts: dict[str, date] = {}
+        ends: dict[str, date] = {}
+        for name, value in finding.values:
+            if name.endswith(WINDOW_START_SUFFIX) and isinstance(value, date):
+                starts[name[: -len(WINDOW_START_SUFFIX)]] = value
+            elif name.endswith(WINDOW_END_SUFFIX) and isinstance(value, date):
+                ends[name[: -len(WINDOW_END_SUFFIX)]] = value
+        for measure, start in starts.items():
+            end = ends.get(measure)
+            if end is not None:
+                ranges.add((start, end))
+    return ranges
+
+
+def published_window_span(
+    findings: Sequence[Finding], window: tuple[date, date]
+) -> tuple[date, date] | None:
+    """The span the figures actually cover, when NONE of them covers ``window``.
+
+    §5c, and the sharpest single misattribution in the live corpus: "how
+    much did we write off" published a **July** header over
+    ``$4,127,096.62 … over 2026-02-01..2026-07-31``. The per-finding
+    sentence was honest and easy to skim past; the header is the thing
+    people quote.
+
+    So the header states the union of what was measured, and names the
+    period the question asked for as one it did not honor. ``None`` — leave
+    the header as it stands — whenever at least one published figure WAS
+    computed over the header's own window, because then the header is true
+    of something on the card and the per-finding note carries the rest.
+    """
+    ranges = published_window_ranges(findings)
+    if not ranges or window in ranges:
+        return None
+    return min(start for start, _ in ranges), max(end for _, end in ranges)
+
+
 def published_window_note(findings: Sequence[Finding]) -> str | None:
     """What the context header owes a reader, read off the FINDINGS.
 
@@ -163,19 +204,7 @@ def published_window_note(findings: Sequence[Finding]) -> str | None:
     Nothing is re-scoped to make this go away: the window the probe read is
     the window the pack authored.
     """
-    ranges: set[tuple[date, date]] = set()
-    for finding in findings:
-        starts: dict[str, date] = {}
-        ends: dict[str, date] = {}
-        for name, value in finding.values:
-            if name.endswith(WINDOW_START_SUFFIX) and isinstance(value, date):
-                starts[name[: -len(WINDOW_START_SUFFIX)]] = value
-            elif name.endswith(WINDOW_END_SUFFIX) and isinstance(value, date):
-                ends[name[: -len(WINDOW_END_SUFFIX)]] = value
-        for measure, start in starts.items():
-            end = ends.get(measure)
-            if end is not None:
-                ranges.add((start, end))
+    ranges = published_window_ranges(findings)
     if not ranges:
         return None
     text = "; ".join(

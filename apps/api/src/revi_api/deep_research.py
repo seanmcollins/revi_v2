@@ -45,6 +45,7 @@ from revi_investigation.application.deep_research import (
     PopulationKind,
     TargetPopulation,
 )
+from revi_investigation.application.deep_research.report import plan_payload_of
 from revi_investigation.application.deep_research.rows import DeepResearchReadRefused
 from revi_investigation.application.ports import (
     InvestigationStore,
@@ -63,9 +64,11 @@ from revi_investigation.domain.turns import TurnClass
 from revi_investigation_contracts.api import FindingPayload, WarningPayload
 from revi_investigation_contracts.deep_research import (
     DeepResearchListResponse,
+    DeepResearchPreviewPayload,
     DeepResearchProgressPayload,
     DeepResearchReport,
     DeepResearchRunResponse,
+    DeepResearchScopePayload,
     DeepResearchSelector,
     DeepResearchSummary,
     StartDeepResearchRequest,
@@ -183,6 +186,26 @@ def _selector(request: StartDeepResearchRequest) -> TargetPopulation:
         raise UnsupportedConceptError(str(exc)) from exc
 
 
+def _other_populations(selector: DeepResearchSelector) -> list[DeepResearchSelector]:
+    """The other populations this same offer could honestly run over.
+
+    Derived from the selector itself and from nothing else — every open
+    denial, and each named value on its own where the offer names several.
+    A client that had to invent alternatives would be widening a scope
+    nobody asked it to widen; a client offered a closed selector posts
+    exactly what it was given.
+    """
+    options: list[DeepResearchSelector] = []
+    if selector.kind != "all_open":
+        options.append(DeepResearchSelector(kind="all_open", label="every open denial"))
+    if len(selector.values) > 1:
+        options.extend(
+            DeepResearchSelector(kind=selector.kind, values=[value], label=value)
+            for value in selector.values
+        )
+    return options
+
+
 def _scalar(value: str | int | float | bool | None) -> Scalar:
     """A published figure, as the store's own value type.
 
@@ -234,6 +257,63 @@ class DeepResearchApi:
         self._pack_snapshot_id = pack_snapshot_id
         self._compose = compose
         self._runs: dict[str, RunState] = {}
+
+    # -- the dry run ---------------------------------------------------------
+
+    async def preview(
+        self,
+        request: StartDeepResearchRequest,
+        session: Session,
+        watermark: DataWatermark,
+        settings: Any,
+    ) -> DeepResearchRunResponse:
+        """What a run WOULD do — nothing started, nothing stored.
+
+        The confirmation in front of a minute of work needs three things a
+        surface cannot compose for itself without asserting facts it has
+        not read: how big the population is, which angles the run would
+        take, and which other populations the same offer could run over.
+        All three come from here, and the run this previews is the same
+        run: the plan is the standing set the run resolves, and the size is
+        read through the run's own cache, so confirming and then running
+        costs one read.
+        """
+        population = _selector(request)
+        resolved = await self._service.preview(
+            question=request.question,
+            population=population,
+            settings=settings,
+            watermark=watermark,
+            pack_snapshot_id=self._pack_snapshot_id,
+        )
+        selector = DeepResearchSelector(
+            kind=request.population.kind,
+            values=list(population.values),
+            label=request.population.label,
+        )
+        return DeepResearchRunResponse(
+            id="",
+            session_id=session.id,
+            status="preview",
+            created_at=datetime.now(UTC),
+            population=selector,
+            data_load_label=(
+                f"the load through {watermark.newest_data_date.strftime('%b %-d, %Y')}"
+            ),
+            progress=DeepResearchProgressPayload(phase="plan"),
+            preview=DeepResearchPreviewPayload(
+                population=selector,
+                scope=DeepResearchScopePayload(
+                    open_denials=resolved.open_denials,
+                    open_dollars_cents=resolved.open_dollars_cents,
+                ),
+                plan=plan_payload_of(resolved.plan, settings),
+                options=_other_populations(selector),
+                data_load_label=(
+                    f"the load through {watermark.newest_data_date.strftime('%b %-d, %Y')}"
+                ),
+            ),
+        )
 
     # -- launch --------------------------------------------------------------
 

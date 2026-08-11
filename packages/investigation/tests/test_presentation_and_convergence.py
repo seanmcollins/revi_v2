@@ -20,6 +20,7 @@ import pytest
 
 from revi_investigation.application.interpretation import (
     PendingClarification,
+    benchmark_comparison_request,
     presentation_order_request,
 )
 from revi_investigation.application.ports import RegisteredReferent
@@ -265,3 +266,49 @@ class TestPendingClarificationIsUnchanged:
             question="Which did you mean?", options=("a", "b"), streak=1
         )
         assert pending.question and pending.options
+
+
+class TestABenchmarkComparisonIsRecognisedWithoutAModel:
+    """"Compare that to the industry benchmark" is a statement about ranges
+    this platform has already harvested for the answer on screen.
+
+    Benchmark attachment is fully structural — the guard walks the published
+    findings' metrics and takes what the definitions library holds for them
+    — so there is no analyst intent in the path and no field on the
+    interpretation schema to carry one. The model had nowhere to put the
+    utterance but a clarification, and three live conversations spent a turn
+    being asked *which* measure to compare, in sessions that had measured
+    exactly one, whose previous answer had already printed the range.
+    """
+
+    @pytest.mark.parametrize(
+        "utterance",
+        [
+            "compare that to the industry benchmark",
+            "how does that compare to the benchmark",
+            "how does that compare to benchmark",
+            "vs benchmark?",
+            "vs the industry benchmark",
+            # …and the same question asked without the word. The only
+            # judgement this platform will pass on a level is the peer
+            # range its definitions library publishes for that measure.
+            "is that a lot?",
+            "is that good?",
+            "is that normal?",
+        ],
+    )
+    def test_the_utterance_is_read_here(self, utterance: str) -> None:
+        assert benchmark_comparison_request(utterance)
+
+    @pytest.mark.parametrize(
+        "utterance",
+        [
+            "what is the benchmark for denial rate",
+            "compare the two",
+            "and the dollars?",
+            # Names a population: a question to be measured, not judged.
+            "is that a lot for Atlas Commercial?",
+        ],
+    )
+    def test_a_question_that_needs_measuring_is_not(self, utterance: str) -> None:
+        assert not benchmark_comparison_request(utterance)

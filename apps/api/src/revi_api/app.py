@@ -677,7 +677,7 @@ def create_app(
         responses=ERROR_RESPONSES,
     )
     async def start_deep_research(
-        request: StartDeepResearchRequest, caller: CallerPrincipal
+        request: StartDeepResearchRequest, caller: CallerPrincipal, response: Response
     ) -> DeepResearchRunResponse:
         """Start a deep-research run over a target population.
 
@@ -686,7 +686,16 @@ def create_app(
         poll the run itself. The run is pinned to the newest load at the
         moment it starts and every number in its report is read at that
         load.
+
+        `plan_only` asks what a run WOULD do and starts nothing: the answer
+        is 200 rather than 202, `status` is `preview`, and `preview` carries
+        the size of the population, the angles the run would take and the
+        other populations the same offer could run over. A run is about a
+        minute of work and a real model call, so the surface that offers one
+        can confirm intent against facts rather than against a sentence.
         """
+        if request.plan_only:
+            response.status_code = 200
         return await _service().start_deep_research(caller, request)
 
     @app.get(

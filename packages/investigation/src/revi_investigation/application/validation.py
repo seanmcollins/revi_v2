@@ -421,6 +421,28 @@ class PlanValidationService:
 
     # ------------------------------------------------------------------ api
 
+    def declared_domains(self) -> tuple[tuple[str, str, tuple[str, ...]], ...]:
+        """``(dimension id, label, the values it may take)`` where declared.
+
+        The catalog knows which dimensions are closed sets and what is in
+        them, and no prompt was ever shown it. So a follow-up naming a value
+        — "same for Silverline" — reached the operator emitter with no way
+        to tell a payer from a plan from a financial class, and the turn
+        came back unable to compile a filter it had every id for.
+
+        Only the CLOSED ones: an open dimension's values live in the
+        warehouse and are checked there, by the value-existence guard whose
+        refusal enumerates them.
+        """
+        out: list[tuple[str, str, tuple[str, ...]]] = []
+        for dim in self._catalog.dimensions:
+            if not dim.certified:
+                continue
+            domain = dim.value_domain if dim.value_domain is not None else dim.buckets
+            if domain:
+                out.append((dim.id, dim.label, tuple(domain)))
+        return tuple(out)
+
     def validate(self, plan: InvestigationPlan, spec: AnalysisSpec) -> ValidatedPlan:
         warnings: list[str] = []
 

@@ -8,6 +8,7 @@ from revi_investigation.application.interpretation import (
     PendingClarification,
 )
 from revi_investigation.application.submit_turn.clarification import (
+    ASKS_WHETHER_TO_PIN,
     CLARIFICATION_NOT_CONVERGING_REASON,
     _answers_pending,
     _bindings_for,
@@ -208,6 +209,33 @@ class _ClarificationPolicy(_AnalysisGuards):
             "rather than ask a second one about which of the two we are doing — ask it "
             "again whenever you want it, and it will run as its own turn."
         )
+
+    async def _persistence_is_not_a_gate(
+        self, session: Session, state: _TurnState, clarification: ClarificationRequest
+    ) -> bool:
+        """Is this "filter now, or pin for the session?" — asked before the number?
+
+        Both readings of "just Atlas Commercial" count the same rows on THIS
+        answer. What separates them is whether the narrowing survives to the
+        next one, which is a thing the analyst can decide after seeing the
+        figure and cannot usefully decide before it. Asked as a gate it cost
+        two live conversations their whole turn.
+
+        So: narrow this answer, say so, and leave the pin as the offer it
+        always was. Only where there IS an answer to narrow — with nothing
+        analytical on screen the question is not about persistence at all.
+        """
+        if not ASKS_WHETHER_TO_PIN.search(clarification.question):
+            return False
+        if await self._latest_investigation(session, analytical=True) is None:
+            return False
+        state.assumptions.append(
+            "Assumed: I narrowed the answer above to what you named, for this question only. "
+            "You were about to be asked whether to keep that narrowing for the rest of the "
+            "conversation — but both readings count the same records here, so the number "
+            "comes first. Say to keep it and it stays until you clear it."
+        )
+        return True
 
     @staticmethod
     def _commit_instead_of_clarifying(

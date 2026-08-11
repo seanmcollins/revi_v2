@@ -561,6 +561,13 @@ class ApiService:
                 tenant=principal.tenant, session_id=None
             )
         watermark = session.watermark
+        if request.plan_only:
+            # The dry run: what a run WOULD do, with nothing started. A
+            # minute of work and a real model call is a consequence worth
+            # stating before the click rather than discovering after it.
+            return await self.research.preview(
+                request, session, watermark, self._components.deep_research_settings
+            )
         return await self.research.start(
             principal,
             request,

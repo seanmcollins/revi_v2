@@ -33,8 +33,11 @@ from revi_investigation.application.submit_turn.clarification import (
     ANAPHORIC_SUBJECT,
     CLARIFICATION_CONVERGED_REASON,
     CLARIFICATION_MEASURE_SETTLED_REASON,
+    ENTITY_SUPERLATIVE,
+    NOT_CONVERGIBLE_REASONS,
     _bindings_for,
     _subject_option,
+    cuts_an_entity_axis,
 )
 from revi_investigation.application.submit_turn.containment import _Reconciliation
 from revi_investigation.application.submit_turn.types import _period_phrase, _TurnState
@@ -351,10 +354,25 @@ class _AnalysisGuards(_Reconciliation):
         knows how to apply: a single deterministic ``metric_cut`` binding
         over the subject's own ids, which the lone-option rule below then
         applies with the disclosure sentence that already exists.
+
+        THE STREAK PRECONDITION IS GONE where the session has an answer.
+        Waiting for a second consecutive clarification is what let seven
+        live conversations end on an optionless card the first time —
+        "which payer got worse", "how much?", "why those?" — each of them
+        over a thread whose subject was on screen. The §2.8 objection is to
+        INVENTING a subject, and a subject this platform published a moment
+        ago is not invented, whether the card before it was a question or an
+        answer. With nothing analytical on screen the streak rule still
+        stands: there the only thing to converge on would be a guess.
         """
-        if clarification.options or state.pending is None or state.pending.streak < 1:
+        if clarification.options:
+            return clarification
+        if any(marker in (clarification.reason or "") for marker in NOT_CONVERGIBLE_REASONS):
             return clarification
         parent = await self._latest_investigation(session, analytical=True)
+        streak = state.pending.streak if state.pending is not None else 0
+        if parent is None and streak < 1:
+            return clarification
         option = _subject_option(parent)
         if option is None:
             return clarification
@@ -363,9 +381,9 @@ class _AnalysisGuards(_Reconciliation):
             options=(option.option,),
             bindings=(option,),
             reason=(
-                f"{clarification.reason}; {CLARIFICATION_CONVERGED_REASON}: "
-                f"{state.pending.streak + 1} consecutive clarifications with nothing to "
-                "choose from, so this turn commits to the subject already on screen"
+                f"{clarification.reason}; {CLARIFICATION_CONVERGED_REASON}: nothing to choose "
+                f"from after {streak + 1} question(s), so this turn commits to the subject "
+                "already on screen"
             ),
         )
 
@@ -471,6 +489,16 @@ class _AnalysisGuards(_Reconciliation):
             return clarification
         parent = await self._latest_investigation(session, analytical=True)
         if parent is None or len(parent.spec.measures) != 1:
+            return clarification
+        # ONE MEASURE IS NOT THE ANSWER TO A QUESTION ABOUT ROWS. This guard
+        # is right about the loop it was written for — "which metric are you
+        # asking about" in a session that has measured one thing — and it
+        # has no entity axis, so "which one is worst now" on a thread whose
+        # last two turns carved payer types out of the population came back
+        # as the org-level scalar already on screen, narrated as a
+        # superlative. A commitment that answers a different question is
+        # worse than the clarification it replaced.
+        if ENTITY_SUPERLATIVE.search(utterance or "") and cuts_an_entity_axis(parent.spec):
             return clarification
         option = _subject_option(parent)
         if option is None:  # pragma: no cover - a single measure always yields one

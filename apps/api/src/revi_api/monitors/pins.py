@@ -87,6 +87,25 @@ class _PinApi(_MonitorsBase):
             investigation = await self._authorized_investigation(
                 principal, request.investigation_id
             )
+            # A MONITOR IS A MEASURE RE-READ AT EVERY LOAD, and some answers
+            # are not one. A recoverability review is a whole analysis over
+            # a population — dozens of rates, an expected-recovery total,
+            # its own refusals — and it names no single measure to re-run.
+            # Pinning one reached the typed-spec builder with an empty
+            # measure list and came back a 500. It is a refusal, and the
+            # refusal says what CAN be monitored instead.
+            if not investigation.spec.measures:
+                raise PolicyDeniedError(
+                    "this answer is not something a monitor can re-run. A monitor measures "
+                    "one thing at every data load and compares it to the last one, and this "
+                    "answer measures a whole population rather than a single figure. Ask for "
+                    "the figure you want watched — a rate, a total, a balance — and monitor "
+                    "that answer instead",
+                    details={
+                        "tenant": principal.tenant,
+                        "investigation_id": request.investigation_id,
+                    },
+                )
             spec, window_mode, notes = typed_spec_from_analysis(investigation.spec)
             created_from_kind = "artifact"
             # THE CELL, not the ranking it was drawn from. A finding on a

@@ -22,6 +22,7 @@ from revi_investigation.application.interpretation import (
     ClassifyTurnService,
     InterpretQuestionService,
     PendingClarification,
+    benchmark_comparison_request,
     display_scope_limit,
     presentation_order_request,
 )
@@ -41,6 +42,7 @@ from revi_investigation.application.refinement_llm import (
     EmitRefinementsService,
     ResolveReferentsService,
     referent_tokens,
+    resolve_complement_referent,
 )
 from revi_investigation.application.submit_turn.clarification import _answers_pending
 from revi_investigation.application.submit_turn.open_session import OpenSessionService
@@ -266,17 +268,66 @@ class SubmitTurnService(_RefinementTurns):
                 state.time_stage("classify")
                 return await self._presentation_turn(session, state, None, ordered_parent)
 
+        # "Compare that to the industry benchmark" is a statement about
+        # ranges this platform has already harvested for the answer on
+        # screen, and it is decidable without a model for the same reason.
+        # Left to the pipeline it came back as "Which measure should I
+        # compare against the industry benchmark?" over four options, in
+        # sessions that had measured exactly one — three times in the live
+        # corpus, one of them offering "The benchmark already shown in the
+        # previous result" as an option.
+        # Unlike the ordering rule above, a pending question of ours is not
+        # a reason to skip this one: "compare that to the industry
+        # benchmark" is a self-contained request that answers none of our
+        # options, and the corpus's benchmark turns arrived immediately
+        # after a clarification every time. ``_answers_pending`` is the test
+        # that separates the two.
+        if benchmark_comparison_request(state.question) and (
+            pending is None or not _answers_pending(state.question, pending)
+        ):
+            benchmark_parent = await self._latest_investigation(session, analytical=True)
+            if benchmark_parent is not None and benchmark_parent.findings:
+                state.time_stage("classify")
+                return await self._benchmark_turn(session, state, benchmark_parent)
+
+        # "Not that one, the other" over an answer holding exactly two rows
+        # points at the second one, and that is a LOOKUP against what this
+        # platform published — the same kind of fact a handle is. Read
+        # before classification because the classifier is where it went
+        # wrong: it came back at 0.33 with a question of its own, and the
+        # deterministic resolver three stages downstream never ran.
+        if pending is None:
+            complement_parent = await self._latest_investigation(session, analytical=True)
+            if complement_parent is not None and resolve_complement_referent(
+                state.question,
+                complement_parent.findings,
+                await self._referents.list_for_session(session.id),
+            ):
+                state.time_stage("classify")
+                return await self._refinement_turn(session, state, None, dto_ops=None)
+
         known = await self._classification_by_construction(session, pending, state.question)
         if known is not None:
             state.time_stage("classify")
             assert known.classification is not None
             if known.classification.turn_class is TurnClass.DEFINITIONAL:
                 return await self._definitional_outcome(session, state, known)
-            return await self._new_investigation_turn(session, state, known)
+            return await self._continued_investigation_turn(session, state, known)
+
+        # WHAT IS ON SCREEN, for the two model calls that were reading the
+        # utterance and nothing else. A classifier shown only the sentence
+        # cannot tell "and June?" from a fresh question about June, so it
+        # asked — 27 times in 34 live conversations, 13 of them at a
+        # confidence ABOVE the threshold, which is what proves it a context
+        # problem and not a threshold one.
+        conversation = await self._conversation_summary(session)
 
         await self._stage(state, "classify")
         classified = await self._classifier.classify(
-            request.question, pending=pending, policy=state.call_policy()
+            request.question,
+            pending=pending,
+            conversation=conversation,
+            policy=state.call_policy(),
         )
         state.record_llm("classify_turn", classified.usage, classified.failure)
         state.template_hashes["classify_turn@v1"] = classified.template_hash
@@ -297,6 +348,14 @@ class SubmitTurnService(_RefinementTurns):
             # more precisely when it applies: "I asked twice and did not
             # converge" is a better sentence than "you asked something
             # else", and it names the question being answered.
+            # …and before either of them: a "question" whose two readings
+            # count the same rows. "Just Atlas Commercial" came back asking
+            # whether to filter this answer or pin the payer for the rest of
+            # the session — a decision that belongs after the number.
+            if classified.clarification is not None and await self._persistence_is_not_a_gate(
+                session, state, classified.clarification
+            ):
+                return await self._refinement_turn(session, state, classified, dto_ops=None)
             committed = self._commit_instead_of_clarifying(
                 state, pending
             ) or self._supersede_pending(state, pending)
@@ -313,13 +372,13 @@ class SubmitTurnService(_RefinementTurns):
             state.assumptions.append(committed)
             if pending is not None and state.lineage_parent is None:
                 state.lineage_parent = pending.investigation_id
-            return await self._new_investigation_turn(session, state, classified)
+            return await self._continued_investigation_turn(session, state, classified)
 
         turn_class = classified.classification.turn_class
         if turn_class is TurnClass.DEFINITIONAL:
             return await self._definitional_outcome(session, state, classified)
         if turn_class is TurnClass.NEW_INVESTIGATION:
-            return await self._new_investigation_turn(session, state, classified)
+            return await self._continued_investigation_turn(session, state, classified)
         if turn_class is TurnClass.REFINEMENT:
             return await self._refinement_turn(session, state, classified, dto_ops=None)
         if turn_class is TurnClass.PRESENTATION_ONLY:
@@ -668,7 +727,7 @@ class SubmitTurnService(_RefinementTurns):
                 "That question is left unanswered; ask it again if you still want it."
             )
             state.lineage_parent = pending.investigation_id
-            return await self._new_investigation_turn(session, state, classified)
+            return await self._continued_investigation_turn(session, state, classified)
         resolved = _join_question_and_answer(pending.original_question, state.question)
         if resolved != state.question:
             state.assumptions.append(
@@ -681,4 +740,34 @@ class SubmitTurnService(_RefinementTurns):
         # typed in the analyst's own words. Without this, every clarification
         # reply in a 13-investigation session was saved as a ROOT node.
         state.lineage_parent = pending.investigation_id
-        return await self._new_investigation_turn(session, state, classified)
+        # …and this one really did interrupt a thread, so it resumes with
+        # that sentence rather than the ordinary-follow-up one.
+        return await self._new_investigation_turn(
+            session, state, classified, resume=await self._resumed_context(session, state)
+        )
+
+    async def _continued_investigation_turn(
+        self, session: Session, state: _TurnState, classified: ClassificationOutcome | None
+    ) -> TurnOutcome:
+        """A new investigation, run INSIDE the conversation it arrives in.
+
+        The one difference from :meth:`_new_investigation_turn` is that the
+        answer on screen is offered to it as context. Which is the whole of
+        the highest-breadth defect in the live corpus: every follow-up that
+        reached this path and named no period got the last full month back,
+        whatever the conversation had been reading — four probes, four
+        misses, and no acknowledgement beyond a generic "the question named
+        no period".
+
+        The carry itself is ``_with_resumed_context``'s and is unchanged:
+        applied only where this sentence states nothing, never over a
+        dimension this question cuts by, and disclosed in one clause every
+        time it fires.
+        """
+        return await self._new_investigation_turn(
+            session,
+            state,
+            classified,
+            resume=await self._standing_context(session),
+            continuation=True,
+        )

@@ -63,7 +63,13 @@ from revi_investigation.application.submit_turn.clarification import (
     _ASKS_WHICH_MEASURE as _ASKS_WHICH_MEASURE,
 )
 from revi_investigation.application.submit_turn.clarification import (
+    ASKS_WHETHER_TO_PIN as ASKS_WHETHER_TO_PIN,
+)
+from revi_investigation.application.submit_turn.clarification import (
     CLARIFICATION_SOLE_SURVIVOR_REASON as CLARIFICATION_SOLE_SURVIVOR_REASON,
+)
+from revi_investigation.application.submit_turn.clarification import (
+    ENTITY_SUPERLATIVE as ENTITY_SUPERLATIVE,
 )
 from revi_investigation.application.submit_turn.clarification import (
     NO_OPTIONS_REASON as NO_OPTIONS_REASON,
@@ -94,6 +100,9 @@ from revi_investigation.application.submit_turn.clarification import (
 )
 from revi_investigation.application.submit_turn.clarification import (
     claim_referent_predicates as claim_referent_predicates,
+)
+from revi_investigation.application.submit_turn.clarification import (
+    cuts_an_entity_axis as cuts_an_entity_axis,
 )
 from revi_investigation.application.submit_turn.clarification import (
     drop_refuted_options as drop_refuted_options,

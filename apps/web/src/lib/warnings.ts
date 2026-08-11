@@ -148,6 +148,14 @@ export const WARNING_TITLES: Readonly<Record<string, string>> = {
   COHORT_WINDOW_DROPPED: "The pinned population kept no window",
   ASSUMPTION_COMMITTED: "An assumption was made and applied",
   CLARIFICATION_ANSWER_APPLIED: "Read as an answer to the question above",
+  // The conversational commits: the platform chose the one reading the
+  // conversation supports and says so — each is overrulable in a word.
+  REFERENT_ASSUMED: "Read as being about the figure on screen",
+  VALUE_ASSUMED: "Your spelling was matched to what the data holds",
+  FILTER_SWAPPED: "One filter was traded for the one you named",
+  BENCHMARK_COMPARISON: "Held beside the peer range",
+  BENCHMARK_WITHHELD: "Too early to judge against the peer range",
+  BENCHMARK_ABSENT: "No peer range exists for this measure",
   // The two registers of a clarification, declared by the engine — a
   // question with choices is an offer, not a verdict; only a declared
   // no-options dead end wears the loud register.

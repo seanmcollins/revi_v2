@@ -14,6 +14,7 @@ from collections.abc import AsyncIterator, Callable, Mapping
 from dataclasses import dataclass, field
 from typing import Any
 
+from revi_investigation.application.llm.render import analyst_words
 from revi_investigation.application.ports import (
     LlmFailureKind,
     LlmUsage,
@@ -99,10 +100,19 @@ class MockLanguageModel:
 
     async def structured(self, request: StructuredLlmRequest) -> StructuredLlmResult:
         self.structured_calls.append(request)
+        # A matcher picks WHICH UTTERANCE a rule answers, so it is shown the
+        # analyst's own words rather than the whole prompt. Once the reading
+        # prompts started carrying the answer on screen, a whole-prompt
+        # match served the previous question's script: the reference
+        # conversation's turn 5 matched turn 4's rule, because turn 4's
+        # question is quoted in turn 5's context. A test that needs to
+        # assert on the composed prompt reads ``calls_for``.
         for rule in self.rules:
             if rule.template_id != request.template_id:
                 continue
-            if rule.matcher is not None and not rule.matcher(request.rendered_prompt):
+            if rule.matcher is not None and not rule.matcher(
+                analyst_words(request.rendered_prompt)
+            ):
                 continue
             output = dict(rule.response) if rule.response is not None else None
             return StructuredLlmResult(

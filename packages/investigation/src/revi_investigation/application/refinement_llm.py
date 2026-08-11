@@ -406,6 +406,43 @@ def resolve_ordinal_referent(
     return (ReferentResolution(mention=mention, referent=entry.referent, confidence=1.0),)
 
 
+#: "The other one", "not that one — the other", "the other two". A
+#: COMPLEMENT: it names a row by what it is NOT.
+_COMPLEMENT = re.compile(
+    r"\b(?:the|that)\s+other(?:\s+(?:one|row|item|result|entry|finding|record))?\b",
+    re.IGNORECASE,
+)
+
+
+def resolve_complement_referent(
+    question: str,
+    findings: Sequence[Finding],
+    entries: tuple[RegisteredReferent, ...],
+) -> tuple[ReferentResolution, ...]:
+    """Bind "the other" to the row the previous answer published beside it.
+
+    "Top 2 facilities by denied dollars in July 2026" → **"not that one, the
+    other"**, over an answer holding exactly two findings, came back asking
+    whether the analyst meant a different metric, a different segment or a
+    different time window. None of the three is what was said. "The other"
+    has one reading whenever an answer published exactly two rows, and it is
+    the second one — the first is what "that one" was.
+
+    Deliberately narrow. Two published rows and no other referent already
+    claimed: with three on screen "the other" is genuinely ambiguous and
+    stays a question, and with one there is no other.
+    """
+    if _COMPLEMENT.search(question) is None:
+        return ()
+    if len(findings) != 2:
+        return ()
+    by_value = {entry.referent.value: entry for entry in entries}
+    entry = by_value.get(findings[1].referent.value)
+    if entry is None:
+        return ()  # the registry was rebuilt: let the model see the drift
+    return (ReferentResolution(mention="the other", referent=entry.referent, confidence=1.0),)
+
+
 @dataclass(frozen=True, slots=True)
 class ReferentResolution:
     mention: str
@@ -422,6 +459,12 @@ class ResolutionOutcome:
     #: Why the call came back empty-handed, when it did — as data, so a
     #: trace consumer never has to parse the clarification's English.
     failure: LlmFailureKind | None = None
+    #: The candidate this call named but would not claim — a resolution
+    #: below :data:`_MIN_RESOLUTION_CONFIDENCE`. Carried as DATA beside the
+    #: clarification that offers it, because a clarification with one
+    #: option is not a question: the caller applies it and says so rather
+    #: than spending a whole exchange on a choice with one item in it.
+    tentative: tuple[ReferentResolution, ...] = ()
 
 
 class ResolveReferentsService:
@@ -496,6 +539,13 @@ class ResolveReferentsService:
                     ),
                     result.usage,
                     self._template.sha256,
+                    tentative=(
+                        ReferentResolution(
+                            mention=item.mention,
+                            referent=referent,
+                            confidence=item.confidence,
+                        ),
+                    ),
                 )
             resolutions.append(
                 ReferentResolution(

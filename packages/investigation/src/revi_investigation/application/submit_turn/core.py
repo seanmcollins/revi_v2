@@ -2,7 +2,7 @@
 
 from __future__ import annotations
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 from typing import Any
@@ -14,6 +14,7 @@ from revi_investigation.application.execution import (
     bounded_cells_warning,
 )
 from revi_investigation.application.findings import (
+    published_window_span,
     row_noun,
 )
 from revi_investigation.application.interpretation import (
@@ -78,6 +79,7 @@ from revi_investigation.domain.records import (
 )
 from revi_investigation.domain.refinements import (
     Refinement,
+    SetWindow,
 )
 from revi_investigation.domain.turns import (
     ClarificationBinding,
@@ -102,6 +104,49 @@ class _DirectRoute:
 
     spec: AnalysisSpec
     disclosure: str
+
+
+def _window_refusal(
+    spec: AnalysisSpec, operators: Sequence[Refinement], parent: Investigation | None
+) -> ClarificationRequest | None:
+    """Refuse a period this plan could not honor, rather than re-serving.
+
+    ``REFINEMENT_NOT_APPLIED`` is the right disclosure for an edit that
+    genuinely changed nothing — a filter already in force, a cut already
+    made. It is the wrong one for a PERIOD: "in July?" and "same but for
+    last quarter" each compiled, applied to the context, published the
+    analyst's window in the header, and served the same figures over the
+    same months underneath. The header is what a reader quotes.
+
+    ``None`` for every edit that is not a window, which is where the
+    caution still belongs — and for a window operator that asked for the
+    period this answer was already reading, because there the identical
+    evidence is not a failure to honor anything.
+    """
+    if not any(isinstance(op, SetWindow) for op in operators):
+        return None
+    window = spec.context.window.range
+    if parent is not None and parent.spec.context.window.range == window:
+        return None
+    measures = ", ".join(metric_label(ref.id) for ref in spec.measures)
+    instead = (
+        f"Ask for {measures} over that period and it runs on its own."
+        if measures
+        else "Name the measure you want over that period and it runs on its own."
+    )
+    return ClarificationRequest(
+        question=(
+            f"I can't read this answer over {window.start.isoformat()}.."
+            f"{window.end.isoformat()}. The checks behind it carry their own periods, so "
+            "re-running them would have handed you the same figures under a heading naming "
+            f"a period they do not cover. {instead}"
+        ),
+        reason=(
+            "REFINEMENT_NOT_APPLIED: the window operator left the evidence identical, and a "
+            "period the analyst named is refused rather than re-served under a heading it "
+            "does not govern"
+        ),
+    )
 
 
 class _TurnCore(_ClarificationPolicy):
@@ -154,7 +199,9 @@ class _TurnCore(_ClarificationPolicy):
         """
         if binding.kind == "date_basis" and binding.basis:
             state.basis_override = binding.basis
-            return await self._new_investigation_turn(session, state, classified)
+            return await self._new_investigation_turn(
+                session, state, classified, resume=await self._resumed_context(session, state)
+            )
         if binding.kind == "predicate_value" and binding.scope:
             # The analyst picked a value from the twelve this warehouse
             # actually holds, offered because the one they typed does not
@@ -163,7 +210,13 @@ class _TurnCore(_ClarificationPolicy):
             # live, that came straight back as the SAME refusal. The choice
             # is a substitution and is applied as one.
             state.scope_override = binding.scope
-            return await self._new_investigation_turn(session, state, classified)
+            # …over the thread's own context, like every other resume. The
+            # substitution names a value; it says nothing about the period,
+            # and re-reading a sentence that names none was how a resumed
+            # answer landed back on the last full month.
+            return await self._new_investigation_turn(
+                session, state, classified, resume=await self._resumed_context(session, state)
+            )
         # The option is the analyst's answer, so it joins their question:
         # both halves are their own words and the join is the same
         # deterministic one the typed-reply path uses.
@@ -179,15 +232,24 @@ class _TurnCore(_ClarificationPolicy):
         *,
         binding: ClarificationBinding | None = None,
         resume: AnalysisSpec | None = None,
+        continuation: bool = False,
     ) -> TurnOutcome:
         """Interpret the analyst's sentence and run it (§8.1).
 
-        ``binding`` and ``resume`` are set only on a clarification resume.
-        The binding's ids are pinned over the second reading — the analyst
-        chose a thing this platform named and that choice is not re-decided
-        by a model — and ``resume`` is the context of the answer the
-        clarification interrupted, applied only where the sentence itself
-        states nothing.
+        ``binding`` is set only on a clarification resume: its ids are
+        pinned over the second reading — the analyst chose a thing this
+        platform named and that choice is not re-decided by a model.
+
+        ``resume`` is the context of the answer this one continues, applied
+        only where the sentence itself states nothing. It arrives from two
+        callers now. On a clarification resume it is the answer the
+        clarification interrupted. On an ORDINARY follow-up
+        (``continuation=True``) it is the answer on screen — because a
+        question asked inside a live conversation does not stop being part
+        of it by being read confidently. Wiring the carry to the resume path
+        alone inverted the product: "denial rate for June 2026" then "show
+        me denial rate by facility" silently moved to July, while the same
+        thread's fumbled turns kept June.
 
         ``classified`` is ``None`` on the turns this engine decides WITHOUT
         a model — the deterministic display-limit expansion, a budget stop
@@ -210,6 +272,12 @@ class _TurnCore(_ClarificationPolicy):
                 # Set when a clarification about the date basis has been
                 # answered — or answered itself, see _recoverable_refusal.
                 basis_override=state.basis_override,
+                # …and what the analyst can SEE. A reading of "and the
+                # dollars?" composed without it invented a screen: the
+                # clarification asserted dollars would sit "alongside the
+                # counts already shown" over an answer that had shown a
+                # percentage.
+                conversation=await self._conversation_summary(session),
             )
         except DateBasisInvalidError as refusal:
             # The basis is fixed at interpretation (it is what the context
@@ -226,6 +294,12 @@ class _TurnCore(_ClarificationPolicy):
 
         interpreted: InterpretedInvestigation | None = None
         prelude: list[str] = []
+        # Composed only AFTER the carry below is known: the fallback spec's
+        # window is the widest the load admits, and saying so beside a
+        # sentence that has just carried the thread's own month publishes
+        # two windows on one card and leaves the reader to pick. (§5b: six
+        # answers in the live corpus carried both.)
+        option_window_note = False
         if interpretation.clarification is not None:
             # A resume that cannot be re-read is still a resume: the option
             # the analyst tapped carries ids, and running them is better
@@ -244,7 +318,7 @@ class _TurnCore(_ClarificationPolicy):
             spec = typed
             playbook_id = binding.playbook_id if binding is not None else None
             window_explicit = False
-            prelude.append(_option_window_assumed(spec))
+            option_window_note = True
         elif interpretation.definitional is not None:
             return await self._definitional_outcome(
                 session, state, classified, answer=interpretation.definitional
@@ -262,10 +336,31 @@ class _TurnCore(_ClarificationPolicy):
                 playbook_id = binding.playbook_id
             window_explicit = interpreted.window_explicit
 
-        # What the resumed sentence did not state is carried from the answer
-        # it continues, never defaulted to the widest window the load allows.
-        spec, window_explicit, carried = _with_resumed_context(spec, resume, window_explicit)
+        # What the continuing sentence did not state is carried from the
+        # answer it continues, never defaulted to the widest window the load
+        # allows — or, on an ordinary follow-up, to the last full month.
+        stated_its_own_window = window_explicit
+        spec, window_explicit, carried = _with_resumed_context(
+            spec, resume, window_explicit, continuation=continuation
+        )
+        window_was_carried = window_explicit and not stated_its_own_window
+        if option_window_note and not window_was_carried:
+            prelude.append(_option_window_assumed(spec))
         prelude.extend(carried)
+        # ONE WINDOW DISCLOSURE PER CARD. ``window_assumed`` is composed at
+        # interpretation time, before this carry exists; leaving it in place
+        # published a card asserting both "the question named no period, so
+        # I used July" and "measured over that thread's window (Q2)". The
+        # first sentence is no longer true of the answer, so it goes.
+        if window_was_carried and interpreted is not None and interpreted.notes:
+            interpreted = replace(
+                interpreted,
+                notes=tuple(
+                    note
+                    for note in interpreted.notes
+                    if not note.startswith("window_assumed:")
+                ),
+            )
 
         # carryover law 5: session pins persist until explicitly cleared
         pins = await self._inherited_pins(session)
@@ -458,6 +553,18 @@ class _TurnCore(_ClarificationPolicy):
         # byte-identical did not.
         if parent is not None and operators and validated.plan.plan_hash == parent.plan_hash:
             if _same_findings(findings_result.findings, parent.findings):
+                # A PERIOD THE ANALYST NAMED IS NOT A CAUTION. "Same but for
+                # last quarter" came back as the previous numbers under a Q2
+                # header with a warning attached — a wrong answer that says
+                # so in the fine print, which is the one option that should
+                # not survive. Where the edit that changed nothing was the
+                # window itself, the turn refuses and says what to ask
+                # instead.
+                unhonored = _window_refusal(spec, operators, parent)
+                if unhonored is not None:
+                    return await self._clarification_outcome(
+                        session, state, classified, unhonored
+                    )
                 extra_warnings.append(
                     "refinement_not_applied: what you asked to change does not alter this plan "
                     f"({parent.plan_hash}) — the operator(s) "
@@ -596,6 +703,28 @@ class _TurnCore(_ClarificationPolicy):
             *validated.plan.notes,
             *extra_warnings,
         )
+        # ONE WINDOW DISCLOSURE PER CARD, second half. ``window_assumed`` is
+        # composed at interpretation time and is about the period this turn
+        # RESOLVED TO; where not one published figure was computed over it,
+        # the header now states the span they do cover, and the two
+        # sentences read as a card arguing with itself. Recomposed rather
+        # than dropped: the analyst still named no period, and that is why
+        # they are being shown one they did not choose.
+        span = published_window_span(
+            findings_result.findings,
+            (spec.context.window.range.start, spec.context.window.range.end),
+        )
+        if span is not None:
+            warnings = tuple(
+                (
+                    "window_assumed: your question named no period. The checks behind this "
+                    f"answer carry their own, so the figures below cover {span[0].isoformat()}"
+                    f"..{span[1].isoformat()} — name a period and I will read them over it."
+                )
+                if warning.startswith("window_assumed:")
+                else warning
+                for warning in warnings
+            )
         # An empty population is the stronger fact: when nothing was
         # retrieved at all, "no finding survived" is a consequence, not the
         # explanation.
@@ -923,6 +1052,28 @@ class _TurnCore(_ClarificationPolicy):
                     )
                     return await self._apply_binding(session, state, classified, lone)
             clarification = _no_replay(state, clarification, narrowed)
+        # 3c. …and a value the analyst named that this data holds under a
+        #     longer name. "What about Silverline?" on a warehouse holding
+        #     'Silverline Medicare Advantage' enumerated all twelve payers
+        #     and asked which — a question whose answer is the only one of
+        #     the twelve their sentence names. The values are the
+        #     warehouse's own, so committing to the one they picked out
+        #     invents nothing; two candidates is a real question and is
+        #     still asked.
+        if (clarification.reason or "").startswith("PREDICATE_VALUE_UNMATCHED") and not (
+            state.applied_bindings
+        ):
+            named = options_named(state.utterance or state.question, clarification.options)
+            chosen = clarification.binding_for(named[0]) if len(named) == 1 else None
+            if chosen is not None:
+                state.applied_bindings.append(chosen.option)
+                state.assumptions.append(
+                    f"value_assumed: this data has no {named[0]!r} spelled the way you typed "
+                    f"it, and exactly one of the values it does hold is the one your question "
+                    f"names — {named[0]} — so I read it as that rather than asking you to pick "
+                    "it out of a list. Say a different one and I will re-run it."
+                )
+                return await self._apply_binding(session, state, classified, chosen)
         # 4. …then convergence, counted across EVERY clarification the
         #    engine issues rather than only the interpreter's.
         clarification = await self._converge_on_subject(session, state, clarification)

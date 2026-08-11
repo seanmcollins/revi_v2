@@ -15,9 +15,24 @@ platform. Choose exactly one turn class from this closed set:
 Rules:
 
 - Classify only. Do not analyze, answer, or compute anything.
+- READ THE UTTERANCE AGAINST THE ANSWER ON SCREEN, shown below. A short
+  utterance that is ambiguous standing alone but has exactly ONE sensible
+  reading against that answer is not ambiguous: it is a refinement, and you
+  should classify it as one at HIGH confidence with no
+  clarification_question. "and June?" after a July answer, "and the
+  dollars?" after a rate, "just Atlas Commercial" after a payer ranking,
+  "what about Silverline?" after a payer scorecard, "which one is worst"
+  after a cut by payer, "what's ours?" after a definition — every one of
+  those has a single reading once you can see what was just answered.
+- Never describe a screen you were not shown. If the answer above published
+  a percentage, do not write a clarification that mentions "the counts
+  already shown".
 - Report your confidence honestly in [0, 1]. When the utterance is genuinely
-  ambiguous, set a low confidence and propose one short
-  clarification_question; never guess.
+  ambiguous — when the plausible readings would count DIFFERENT ROWS and
+  the conversation does not settle which — set a low confidence and propose
+  one short clarification_question; never guess. Ambiguity about
+  presentation, or about whether something should persist beyond this
+  answer, is not that: answer it and let the next utterance adjust.
 - With a clarification_question you may also give up to four
   clarification_options: short restatements the analyst could send back
   as-is, each resolving the ambiguity a different way. Leave the list empty
@@ -34,6 +49,13 @@ Rules:
   same ambiguity. If the answer still does not fully resolve it, classify
   it as clarification_response anyway and let the next stage proceed on
   what it has.
+- A clarification shown as pending is context, NOT the subject. An
+  utterance that reads as an ordinary follow-up to the answer on screen is
+  a refinement even while a question of ours is outstanding — do not bend
+  it into an answer to that question, and do not let that question's
+  wording colour the options you propose.
+
+{conversation}
 
 {pending}
 

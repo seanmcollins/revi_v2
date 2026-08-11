@@ -502,3 +502,62 @@ class TestTheInterruptedThreadsContextIsCarried:
         fresh = make_spec(measures=("denial_rate",))
         carried, explicit, notes = _with_resumed_context(fresh, None, window_explicit=False)
         assert carried is fresh and explicit is False and notes == []
+
+
+class TestAnOrdinaryFollowUpCarriesTheThreadToo:
+    """THE INVERSION, closed.
+
+    The carry was wired to the clarification-resume path alone, so a
+    follow-up the model read CONFIDENTLY was re-defaulted to the last full
+    month while the same thread's fumbled turns kept their period: "denial
+    rate for June 2026" then "show me denial rate by facility" silently
+    moved to July, four probes out of four. Same machinery, second caller,
+    and a disclosure sentence that is true of it — nothing interrupted
+    anything.
+    """
+
+    @staticmethod
+    def _thread(make_spec):  # type: ignore[no-untyped-def]
+        return make_spec(measures=("denial_rate",)).with_context(
+            replace(
+                make_spec(measures=("denial_rate",)).context,
+                window=replace(
+                    make_spec(measures=("denial_rate",)).context.window,
+                    range=AbsoluteRange(start=JULY[0], end=JULY[1]),
+                    requested=None,
+                ),
+            )
+        )
+
+    def test_the_period_the_conversation_is_reading_is_carried(
+        self, make_spec
+    ) -> None:  # type: ignore[no-untyped-def]
+        fresh = make_spec(measures=("clean_claim_rate",))
+        carried, explicit, notes = _with_resumed_context(
+            fresh, self._thread(make_spec), window_explicit=False, continuation=True
+        )
+        window = carried.context.window.range
+        assert (window.start, window.end) == JULY
+        assert explicit is True
+        assert any(note.startswith("resumed_context:") for note in notes)
+
+    def test_the_disclosure_does_not_claim_anything_was_interrupted(
+        self, make_spec
+    ) -> None:  # type: ignore[no-untyped-def]
+        fresh = make_spec(measures=("clean_claim_rate",))
+        _, _, notes = _with_resumed_context(
+            fresh, self._thread(make_spec), window_explicit=False, continuation=True
+        )
+        [note] = [n for n in notes if "period" in n]
+        assert "interrupted" not in note
+        assert "this conversation has been reading" in note
+
+    def test_a_period_this_question_named_still_wins(
+        self, make_spec
+    ) -> None:  # type: ignore[no-untyped-def]
+        fresh = make_spec(measures=("clean_claim_rate",))
+        stated = fresh.context.window.range
+        carried, _, _ = _with_resumed_context(
+            fresh, self._thread(make_spec), window_explicit=True, continuation=True
+        )
+        assert carried.context.window.range == stated

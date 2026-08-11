@@ -46,6 +46,13 @@ export interface paths {
          *     poll the run itself. The run is pinned to the newest load at the
          *     moment it starts and every number in its report is read at that
          *     load.
+         *
+         *     `plan_only` asks what a run WOULD do and starts nothing: the answer
+         *     is 200 rather than 202, `status` is `preview`, and `preview` carries
+         *     the size of the population, the angles the run would take and the
+         *     other populations the same offer could run over. A run is about a
+         *     minute of work and a real model call, so the surface that offers one
+         *     can confirm intent against facts rather than against a sentence.
          */
         post: operations["start_deep_research_v1_deep_research_post"];
         delete?: never;
@@ -1489,6 +1496,33 @@ export interface components {
             runs?: components["schemas"]["DeepResearchSummary"][];
         };
         /**
+         * DeepResearchPreviewPayload
+         * @description What a run WOULD do, resolved without doing any of it.
+         *
+         *     A run is about a minute of work and a real model call, so the surface
+         *     that offers one confirms intent first — and a confirmation is only
+         *     worth reading if it says what will actually be looked at. This is that
+         *     payload: the population, its size, the angles the run would take in the
+         *     words the reader will see them in, and the other populations the same
+         *     offer could run over.
+         *
+         *     Nothing here is executed and nothing is stored. The one read it makes
+         *     is the run's own denial read, through the same cache the run uses, so
+         *     a preview followed by a run costs one read rather than two.
+         */
+        DeepResearchPreviewPayload: {
+            /**
+             * Data Load Label
+             * @default
+             */
+            data_load_label: string;
+            /** Options */
+            options?: components["schemas"]["DeepResearchSelector"][];
+            plan: components["schemas"]["ResearchPlanPayload"];
+            population: components["schemas"]["DeepResearchSelector"];
+            scope: components["schemas"]["DeepResearchScopePayload"];
+        };
+        /**
          * DeepResearchProgressPayload
          * @description Where a run has got to.
          */
@@ -1599,6 +1633,7 @@ export interface components {
             /** Id */
             id: string;
             population: components["schemas"]["DeepResearchSelector"];
+            preview?: components["schemas"]["DeepResearchPreviewPayload"] | null;
             progress: components["schemas"]["DeepResearchProgressPayload"];
             report?: components["schemas"]["DeepResearchReport"] | null;
             /** Session Id */
@@ -1607,7 +1642,22 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "planning" | "running" | "complete" | "failed" | "interrupted";
+            status: "preview" | "planning" | "running" | "complete" | "failed" | "interrupted";
+        };
+        /**
+         * DeepResearchScopePayload
+         * @description How big the population a run would cover is.
+         *
+         *     The same two quantities ``ExpectedRecoveryRowPayload`` publishes per
+         *     population, measured over the whole of it, so a surface offering the
+         *     run can say "565 of them, worth $1,153,302.17" instead of naming the
+         *     population and inventing nothing about its size.
+         */
+        DeepResearchScopePayload: {
+            /** Open Denials */
+            open_denials: number;
+            /** Open Dollars Cents */
+            open_dollars_cents: number;
         };
         /**
          * DeepResearchSelector
@@ -1666,7 +1716,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "planning" | "running" | "complete" | "failed" | "interrupted";
+            status: "preview" | "planning" | "running" | "complete" | "failed" | "interrupted";
             /** Total Expected Cents */
             total_expected_cents?: number | null;
         };
@@ -3674,6 +3724,11 @@ export interface components {
          * @description Launch a run over a target population.
          */
         StartDeepResearchRequest: {
+            /**
+             * Plan Only
+             * @default false
+             */
+            plan_only: boolean;
             population?: components["schemas"]["DeepResearchSelector"];
             /** Question */
             question?: string | null;

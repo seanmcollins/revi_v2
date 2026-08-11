@@ -111,16 +111,27 @@ class MovementShape:
 
 
 def find_primary_movement(
-    plan: InvestigationPlan, calculation: CalculationResult
+    plan: InvestigationPlan,
+    calculation: CalculationResult,
+    subject: str | None = None,
 ) -> MovementShape | None:
     """The first compare output carrying dimensions and any measure delta.
 
-    Money wins when a frame holds several compared measures — a dollar
-    movement is what a worklist is built from, and preferring it keeps
-    every answer this engine already gave byte-identical. Otherwise the
-    first compared metric column is the answer, which is the case that used
-    to publish nothing.
+    THE SUBJECT WINS. ``subject`` is the metric the question is ABOUT, and
+    a playbook runs several probe families whose plan order is the pack
+    author's, not the analyst's: "how're we doing with denials" measured
+    ``denial_rate``, published nothing for it, and led with denied dollars
+    by CARC. ``_subject_first`` already applies this rule to the scalar and
+    trend paths; the shape finders are where a playbook answer is actually
+    decided, and they had no idea what the question was about.
+
+    Money wins when a frame holds several compared measures and the subject
+    is not among them — a dollar movement is what a worklist is built from,
+    and preferring it keeps every answer this engine already gave
+    byte-identical. Otherwise the first compared metric column is the
+    answer, which is the case that used to publish nothing.
     """
+    candidates: list[tuple[str, EvidenceFrame, tuple[str, ...], tuple[str, ...]]] = []
     for step in plan.transforms.steps:
         if step.operator != "compare":
             continue
@@ -134,17 +145,27 @@ def find_primary_movement(
         compared = _compared_measures(frame)
         if not compared:
             continue
+        candidates.append((step.id, frame, dims, compared))
+    if not candidates:
+        return None
+    chosen = next(
+        ((s, f, d, c) for s, f, d, c in candidates if subject is not None and subject in c),
+        candidates[0],
+    )
+    step_id, frame, dims, compared = chosen
+    if subject is not None and subject in compared:
+        measure = subject
+    else:
         best = next((name for name in compared if _unit_of(frame, name) == _MONEY_UNIT), None)
         measure = best if best is not None else compared[0]
-        return MovementShape(
-            frame_id=step.id,
-            frame=frame,
-            dimension_columns=dims,
-            measure=measure,
-            unit=_unit_of(frame, measure),
-            window=frame_window(plan, step.id),
-        )
-    return None
+    return MovementShape(
+        frame_id=step_id,
+        frame=frame,
+        dimension_columns=dims,
+        measure=measure,
+        unit=_unit_of(frame, measure),
+        window=frame_window(plan, step_id),
+    )
 
 
 def _compared_measures(frame: EvidenceFrame) -> tuple[str, ...]:
@@ -179,10 +200,29 @@ class ConcentrationShape:
 
 
 def find_primary_concentration(
-    plan: InvestigationPlan, calculation: CalculationResult
+    plan: InvestigationPlan,
+    calculation: CalculationResult,
+    subject: str | None = None,
 ) -> ConcentrationShape | None:
     """The first ``rank`` output carrying dimensions and a base measure —
-    the findings frame for playbooks that rank rather than compare."""
+    the findings frame for playbooks that rank rather than compare.
+
+    …preferring the one that ranks the metric the QUESTION is about, for
+    the reason ``find_primary_movement`` gives: plan order is the pack
+    author's, and a denial question that leads with denied dollars by CARC
+    while ``denial_rate`` publishes nothing is the plan's order winning
+    over the analyst's.
+    """
+    if subject is not None:
+        preferred = _first_concentration(plan, calculation, subject)
+        if preferred is not None:
+            return preferred
+    return _first_concentration(plan, calculation, None)
+
+
+def _first_concentration(
+    plan: InvestigationPlan, calculation: CalculationResult, subject: str | None
+) -> ConcentrationShape | None:
     for step in plan.transforms.steps:
         if step.operator != "rank":
             continue
@@ -198,6 +238,8 @@ def find_primary_concentration(
             continue
         measure = _base_measure(frame, ranked_by)
         if measure is None:
+            continue
+        if subject is not None and measure != subject:
             continue
         rank_column = f"{ranked_by}__rank"
         if rank_column not in frame.schema.names:

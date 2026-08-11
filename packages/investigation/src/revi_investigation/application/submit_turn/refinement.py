@@ -20,10 +20,13 @@ from revi_investigation.application.ports import (
 )
 from revi_investigation.application.refinement_llm import (
     ReferentResolution,
+    referent_tokens,
+    resolve_complement_referent,
     resolve_ordinal_referent,
     resolve_referent_tokens,
     to_domain_operators,
 )
+from revi_investigation.application.rendering import metric_label
 from revi_investigation.application.submit_turn.core import _TurnCore
 from revi_investigation.application.submit_turn.header import build_context_header
 from revi_investigation.application.submit_turn.presentation import (
@@ -58,6 +61,8 @@ from revi_investigation.domain.refinements import (
     Expand,
     RankBy,
     Refinement,
+    RemoveFilter,
+    SetWindow,
     apply_refinements,
     detect_conflict,
 )
@@ -72,8 +77,38 @@ from revi_kernel.cohort import CohortRef
 from revi_kernel.errors import (
     ContextConflictError,
 )
+from revi_kernel.filters import PredicateOp, iter_predicates
 from revi_kernel.frame import EvidenceFrame
 from revi_kernel.refs import ReferentId
+
+
+def _swap_conflicting_filters(
+    parent: AnalysisSpec, operators: tuple[Refinement, ...]
+) -> tuple[Refinement, ...] | None:
+    """The same operators, with a contradicted narrowing REPLACED not added.
+
+    ``None`` when nothing here is that case — no positive membership filter
+    whose dimension the parent already pins — so every other conflict keeps
+    the refusal it had. Narrow on purpose: an exclusion stacked on an
+    exclusion ("and excluding Medicaid too?") is an EXTENSION and must
+    still be read as one, which is why only ``eq``/``in`` qualify.
+    """
+    pinned = {
+        predicate.dimension.id
+        for predicate in iter_predicates(parent.context.effective_scope())
+    }
+    replaced = [
+        op.predicate.dimension
+        for op in operators
+        if isinstance(op, AddFilter)
+        and op.predicate.op in (PredicateOp.EQ, PredicateOp.IN)
+        and op.predicate.dimension.id in pinned
+    ]
+    if not replaced:
+        return None
+    # The removal leads: `apply_refinements` is sequential, so the clause
+    # this one contradicts has to be gone before it is offered.
+    return (*(RemoveFilter(dimension) for dimension in replaced), *operators)
 
 
 class _RefinementTurns(_TurnCore):
@@ -90,6 +125,28 @@ class _RefinementTurns(_TurnCore):
     ) -> TurnOutcome:
         parent = await self._latest_investigation(session, analytical=True)
         if parent is None:
+            # …unless something WAS answered and it simply measured
+            # nothing. "What's a clean claim?" then "what's ours?" is read
+            # as a refinement — correctly, there is an answer on screen —
+            # and came back "there's no prior answer in this session to
+            # refine yet", which is true of the measurements and false of
+            # the conversation. There is nothing to edit, so it runs as the
+            # question it is; the reading prompt carries the definition
+            # that anchors it (see ``_conversation_summary``).
+            # …and only where nothing was pointed AT. "Drill into F1" names
+            # a handle this session never published, and the honest answer
+            # to that is that it was never published — not a fresh
+            # measurement of something else.
+            if (
+                not referent_tokens(state.question)
+                and await self._latest_investigation(session, analytical=False) is not None
+            ):
+                state.assumptions.append(
+                    "Assumed: the answer above explained a term rather than measuring "
+                    "anything, so there is nothing to narrow or re-cut. I read this as a "
+                    "question about that term and measured it."
+                )
+                return await self._new_investigation_turn(session, state, classified)
             return await self._clarification_outcome(
                 session,
                 state,
@@ -105,6 +162,14 @@ class _RefinementTurns(_TurnCore):
         parent_plan_context = await self._plan_context_of(parent.id)
         playbook_id = parent_plan_context.playbook_id
         window_explicit = parent_plan_context.window_explicit
+        # …and whether THIS follow-up named a period, decided below once the
+        # operators exist. A playbook probe template's own window applies
+        # only where the analyst named none, and this path inherited the
+        # PARENT's answer to that question: "how are denials trending
+        # lately" assumed a window, so "same but for last quarter" compiled
+        # `set_window(Q2)`, applied it to the context — and left every probe
+        # reading its own period, which is how a Q2 header shipped over
+        # Jun 8 to Aug 2 evidence with REFINEMENT_NOT_APPLIED attached.
         entries = await self._referents.list_for_session(session.id)
         resolutions: tuple[ReferentResolution, ...] = ()
         rationale = ""
@@ -145,6 +210,12 @@ class _RefinementTurns(_TurnCore):
                 deterministic = resolve_ordinal_referent(
                     state.question, parent.findings, entries
                 )
+            if not deterministic:
+                # …and a COMPLEMENT points at the row that is not the one
+                # just discussed, which exists exactly when two were shown.
+                deterministic = resolve_complement_referent(
+                    state.question, parent.findings, entries
+                )
             if deterministic or not entries:
                 # Nothing left for a model to resolve: every handle matched,
                 # or nothing has been shown that anaphora could point at.
@@ -163,10 +234,34 @@ class _RefinementTurns(_TurnCore):
                 state.template_hashes["resolve_referents@v1"] = resolved.template_hash
                 state.time_stage("resolve_referents")
                 if resolved.clarification is not None:
-                    return await self._clarification_outcome(
-                        session, state, classified, resolved.clarification
-                    )
-                resolutions = resolved.resolutions
+                    # A QUESTION WITH ONE ANSWER IS NOT A QUESTION. The
+                    # sub-threshold path named its candidate and offered it
+                    # as the single option — "By 'that payer', do you mean
+                    # D1 — Summit Peak Medicare Advantage?" — over a thread
+                    # in which exactly one payer had ever been shown. There
+                    # is nothing for the analyst to decide, and deciding it
+                    # cost them the turn. It is applied and disclosed.
+                    lone = resolved.tentative
+                    if len(lone) == 1 and not state.applied_bindings:
+                        state.applied_bindings.append(lone[0].referent.value)
+                        label = next(
+                            (e.label for e in entries if e.referent == lone[0].referent),
+                            lone[0].referent.value,
+                        )
+                        state.assumptions.append(
+                            f"referent_assumed: I read {lone[0].mention!r} as "
+                            f"{lone[0].referent.value} — {' '.join(label.split())} — the only "
+                            "thing on screen it could point at, so I answered rather than "
+                            "asking you to choose from a list of one. Name a different one "
+                            "and I will re-run it."
+                        )
+                        resolutions = lone
+                    else:
+                        return await self._clarification_outcome(
+                            session, state, classified, resolved.clarification
+                        )
+                else:
+                    resolutions = resolved.resolutions
 
             exhausted = self._budget_stop(state, "compiling your follow-up")
             if exhausted is not None:
@@ -196,6 +291,8 @@ class _RefinementTurns(_TurnCore):
         registry_index = {entry.referent.value: entry.referent for entry in entries}
         domain_ops = to_domain_operators(dto_ops, registry_index)
         ops_json = tuple(op.model_dump(mode="json") for op in dto_ops)
+        named_a_window = any(isinstance(op, SetWindow) for op in domain_ops)
+        window_explicit = window_explicit or named_a_window
 
         prelude_warnings: list[str] = []
         cohort = await self._pin_drill_cohort(session, parent.spec, domain_ops, prelude_warnings)
@@ -211,22 +308,60 @@ class _RefinementTurns(_TurnCore):
                 resolve_cohort=resolve_cohort if cohort is not None else None,
             )
         except ContextConflictError as conflict:
-            # detected BEFORE execution (§7.7 law 4); a conversational
-            # outcome, never a server error
-            return await self._clarification_outcome(
-                session,
-                state,
-                classified,
-                ClarificationRequest(
-                    question=(
-                        f"That contradicts the current context: {conflict.message}. "
-                        "Widen the context first (remove the filter or reset), or "
-                        "rephrase what you want."
+            # A NEW VALUE ON A DIMENSION ALREADY PINNED IS A SWAP. "How are
+            # we doing with Atlas Commercial?" then "what about
+            # Silverline?" compiled `payer eq Silverline` against an active
+            # `payer eq Atlas Commercial` and dead-ended on "that
+            # contradicts the current context", with no options — over a
+            # follow-up whose only sensible reading is "the same question,
+            # about this one instead". Nobody asks for the intersection of
+            # two payers.
+            swapped = _swap_conflicting_filters(parent.spec, domain_ops)
+            if swapped is not None:
+                domain_ops = swapped
+                try:
+                    new_spec = apply_refinements(
+                        parent.spec,
+                        domain_ops,
+                        turn_id=state.turn_id,
+                        resolve_cohort=resolve_cohort if cohort is not None else None,
+                    )
+                except ContextConflictError:
+                    swapped = None
+                else:
+                    prelude_warnings.append(
+                        "filter_swapped: this question names a "
+                        + ", ".join(
+                            sorted(
+                                {
+                                    op.predicate.dimension.id.replace("_", " ")
+                                    for op in domain_ops
+                                    if isinstance(op, AddFilter)
+                                }
+                            )
+                        )
+                        + " the answer above was already narrowed to a different one of, so I "
+                        "read it as asking the same question about this one instead of about "
+                        "both at once — which would have counted nothing. Say so if you meant "
+                        "to add to the narrowing rather than replace it."
+                    )
+            if swapped is None:
+                # detected BEFORE execution (§7.7 law 4); a conversational
+                # outcome, never a server error
+                return await self._clarification_outcome(
+                    session,
+                    state,
+                    classified,
+                    ClarificationRequest(
+                        question=(
+                            f"That contradicts the current context: {conflict.message}. "
+                            "Widen the context first (remove the filter or reset), or "
+                            "rephrase what you want."
+                        ),
+                        reason=f"CONTEXT_CONFLICT: {conflict.message}",
                     ),
-                    reason=f"CONTEXT_CONFLICT: {conflict.message}",
-                ),
-                extra={"refinement": {"operators": list(ops_json), "rationale": rationale}},
-            )
+                    extra={"refinement": {"operators": list(ops_json), "rationale": rationale}},
+                )
         new_spec = self._rebase_context(new_spec, session)
 
         if domain_ops and all(isinstance(op, _KERNEL_ONLY) for op in domain_ops):
@@ -465,22 +600,73 @@ class _RefinementTurns(_TurnCore):
             frame_windows=plan_context.frame_windows,
         )
 
+    @staticmethod
+    def _implicit_meta_referent(parent: Investigation | None) -> str | None:
+        """Which figure "show me the math" is about, when it names none.
+
+        Nobody types F1. The meta path demanded one anyway — *"Which finding
+        do you mean? Name it by its handle (F1, F2, ...)"*, with **no
+        options** — over answers holding a single figure: "show me the math"
+        after `denial rate: 12.8%` and after `clean claim rate: 92.1%` both
+        dead-ended on a question whose answer was the only thing on screen,
+        expressed in an identifier the analyst has no reason to know exists.
+
+        One finding is the referent. Several findings have a HEADLINE, and
+        the headline is what a follow-up about "the math" or "the
+        difference" is about — an answer's first row is the one it led
+        with, and on a scorecard it is literally the leader row. So the
+        answer is always the figure the answer opened on, and which one
+        that was is published rather than assumed silently.
+
+        ``None`` only where there is genuinely nothing to point at: no
+        analytical answer on screen, or one that published no figure. That
+        is the one case where asking is the honest move, and the caller
+        asks it with the handles listed rather than with an empty card.
+        """
+        if parent is None or not parent.findings:
+            return None
+        return parent.findings[0].referent.value
+
     async def _meta_turn(
         self, session: Session, state: _TurnState, classified: ClassificationOutcome
     ) -> TurnOutcome:
+        entries = await self._referents.list_for_session(session.id)
         token_match = _REFERENT_TOKEN.search(state.question)
         if token_match is None:
-            return await self._clarification_outcome(
-                session,
-                state,
-                classified,
-                ClarificationRequest(
-                    question="Which finding do you mean? Name it by its handle (F1, F2, ...).",
-                    reason="meta turn names no referent",
-                ),
+            parent = await self._latest_investigation(session, analytical=True)
+            implicit = self._implicit_meta_referent(parent)
+            if implicit is None:
+                # Still a question — but never an empty one. The registry is
+                # the answer here exactly as it is for a handle nobody
+                # published, so it is what gets shown.
+                available = [entry.referent.value for entry in entries]
+                return await self._clarification_outcome(
+                    session,
+                    state,
+                    classified,
+                    ClarificationRequest(
+                        question=(
+                            "Which figure do you mean? "
+                            + (
+                                f"This answer published {', '.join(available[:12])} — "
+                                "say one of those, or name it in your own words."
+                                if available
+                                else "Nothing has been shown yet — what would you like to "
+                                "investigate?"
+                            )
+                        ),
+                        options=tuple(drill_suggestion(value) for value in available[:4]),
+                        reason="meta turn names no referent",
+                    ),
+                )
+            state.assumptions.append(
+                f"referent_assumed: you did not name a figure, so I answered for {implicit} — "
+                "the one the answer above leads with. Name another and I will show that one "
+                "instead."
             )
-        token = token_match.group(1).upper()
-        entries = await self._referents.list_for_session(session.id)
+            token = implicit
+        else:
+            token = token_match.group(1).upper()
         entry = next((e for e in entries if e.referent.value == token), None)
         if entry is None:
             # The same deterministic honesty the refinement path gives: a
@@ -541,7 +727,10 @@ class _RefinementTurns(_TurnCore):
             findings=(),
             header=header,
             frames=(),
-            warnings=(),
+            # Assumptions lead here too (§2.8). A meta answer that resolved
+            # the figure the analyst did not name has a decision in it, and
+            # a decision this platform made on their behalf is published.
+            warnings=tuple(state.assumptions),
             clarification=None,
             definitional=None,
             trace_id=state.trace_id,
@@ -549,6 +738,62 @@ class _RefinementTurns(_TurnCore):
             meta=meta,
             settings=state.settings,
         )
+
+    async def _benchmark_turn(
+        self,
+        session: Session,
+        state: _TurnState,
+        parent: Investigation,
+    ) -> TurnOutcome:
+        """"Compare that to the benchmark" — zero probes, zero model calls.
+
+        Benchmark attachment is structural: the guard walks the published
+        findings' metrics and harvests what the definitions library holds
+        for them. Nothing about it needs interpreting, and interpreting it
+        cost three live conversations a turn each — *"Which measure should I
+        compare against the industry benchmark?"* over four options, in a
+        session that had measured exactly one thing, whose previous answer
+        had already printed the range.
+
+        So this turn re-serves the answer on screen with the comparison
+        stated, and states the three honest outcomes plainly: here is the
+        range, there is no published range for this measure, or the period
+        has not settled enough for a range to judge it — which is the rule
+        ``_benchmarks_for`` already applies and never said out loud.
+        """
+        served = parent.findings
+        benchmarks = self._benchmarks_for(
+            FindingsResult(findings=served, referents=()), parent.warnings
+        )
+        unsettled = any(w.startswith("adjudication_incomplete:") for w in parent.warnings)
+        measures = ", ".join(
+            dict.fromkeys(
+                metric_label(ref.id) for finding in served for ref in finding.metric_refs
+            )
+        ) or "this answer"
+        if benchmarks:
+            note = (
+                "benchmark_comparison: the figures above are re-served with the peer range "
+                "beside them — "
+                + "; ".join(f"{metric_label(b.metric_id)} {b.range_text}" for b in benchmarks)
+                + ". Nothing was re-measured; the range is the one your definitions library "
+                "publishes, with the population it was drawn from."
+            )
+        elif unsettled:
+            note = (
+                f"benchmark_withheld: there is no comparison to make yet. {measures} is read "
+                "here over a period that has not finished settling, and a range judges a "
+                "level — a level that is still moving is not one to judge. Ask again for a "
+                "period that has settled and the range comes with it."
+            )
+        else:
+            note = (
+                f"benchmark_absent: your definitions library publishes no peer range for "
+                f"{measures}, so there is nothing here to compare it against. Nothing was "
+                "re-measured."
+            )
+        state.assumptions.append(note)
+        return await self._presentation_turn(session, state, None, parent)
 
     async def _context_control_turn(
         self, session: Session, state: _TurnState, classified: ClassificationOutcome
@@ -806,7 +1051,14 @@ class _RefinementTurns(_TurnCore):
             trace_id=state.trace_id,
             referents=await self._referents_of(session, parent.id),
             watermark_stale=state.watermark_stale,
-            benchmarks=self._benchmarks_for(FindingsResult(findings=served, referents=())),
+            # …with the parent's own caveats in hand, so the rule that
+            # withholds a peer range over a window that has not finished
+            # settling still holds on a re-serve. Passing `()` made a
+            # re-presentation the one surface where a provisional level
+            # arrived beside a judgement of it.
+            benchmarks=self._benchmarks_for(
+                FindingsResult(findings=served, referents=()), warnings
+            ),
             settings=state.settings,
             chart_sorts=chart_sorts,
             frame_windows=plan_context.frame_windows,

@@ -63,11 +63,11 @@ INTERPRETATION: dict[str, Any] = {
 
 
 def _asked(utterance: str) -> Callable[[str], bool]:
-    def matcher(prompt: str) -> bool:
-        _, _, tail = prompt.partition("Utterance:")
-        return utterance in tail
-
-    return matcher
+    """Match what the ANALYST said. The mock hands matchers the utterance
+    alone, so the pending block and the answer-on-screen block — both of
+    which echo earlier questions back into the prompt — cannot fire a rule
+    on the wrong turn."""
+    return lambda words: utterance in words
 
 
 def _engine() -> WiredEngine:

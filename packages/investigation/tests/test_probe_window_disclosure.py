@@ -22,6 +22,7 @@ from revi_investigation.application.findings import (
     WINDOW_START_SUFFIX,
     EvaluateFindingsService,
     published_window_note,
+    published_window_span,
 )
 from revi_investigation.application.planning import (
     InvestigationPlan,
@@ -395,3 +396,62 @@ class TestTheContextHeaderNote:
 
 def _referent() -> ReferentId:
     return ReferentId(value="F1", kind=ReferentKind.FINDING)
+
+
+class TestTheHeaderNeverPublishesAWindowNoFigureUsed:
+    """§5c. "How much did we write off" published a **July** header over
+    ``$4,127,096.62 … over 2026-02-01..2026-07-31``, and asked in July
+    twice. The per-finding sentence was honest and easy to skim past; the
+    header is the thing people quote. So the header states the union of what
+    was measured, and names the asked-for period as one it did not honor.
+    """
+
+    @staticmethod
+    def _finding(start: date, end: date) -> Finding:
+        return Finding(
+            referent=_referent(),
+            title=f"denial write off dollars ({start}..{end})",
+            statement="…",
+            metric_refs=(MetricRef("denial_write_off_dollars"),),
+            values=(
+                (f"denial_write_off_dollars{WINDOW_START_SUFFIX}", start),
+                (f"denial_write_off_dollars{WINDOW_END_SUFFIX}", end),
+            ),
+            grade=EvidenceGrade.DIRECT,
+        )
+
+    def test_the_span_is_published_when_nothing_used_the_asked_window(self) -> None:
+        span = published_window_span(
+            (self._finding(date(2026, 2, 1), date(2026, 7, 31)),),
+            (date(2026, 7, 1), date(2026, 7, 31)),
+        )
+        assert span == (date(2026, 2, 1), date(2026, 7, 31))
+
+    def test_nothing_is_published_when_one_figure_did_use_it(self) -> None:
+        assert (
+            published_window_span(
+                (
+                    self._finding(date(2026, 7, 1), date(2026, 7, 31)),
+                    self._finding(date(2026, 2, 1), date(2026, 7, 31)),
+                ),
+                (date(2026, 7, 1), date(2026, 7, 31)),
+            )
+            is None
+        )
+
+    def test_a_header_with_no_own_window_figures_is_untouched(self) -> None:
+        assert published_window_span((), (date(2026, 7, 1), date(2026, 7, 31))) is None
+
+    def test_the_display_states_the_span_and_names_the_period_it_did_not_honor(self) -> None:
+        header = build_header_payload(
+            window=JULY,
+            comparison=None,
+            predicates=(),
+            watermark_id=WATERMARK.id,
+            published_span=(date(2026, 2, 1), date(2026, 7, 31)),
+        )
+        assert header.display.startswith("2026-02-01..2026-07-31")
+        assert "nothing below was measured over 2026-07-01..2026-07-31" in header.display
+        # The structured window is still the investigation's: the
+        # population, the charts and every drill are scoped by it.
+        assert (header.window_start, header.window_end) == (date(2026, 7, 1), date(2026, 7, 31))

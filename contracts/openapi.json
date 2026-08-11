@@ -2069,6 +2069,40 @@
         "title": "DeepResearchListResponse",
         "type": "object"
       },
+      "DeepResearchPreviewPayload": {
+        "additionalProperties": false,
+        "description": "What a run WOULD do, resolved without doing any of it.\n\nA run is about a minute of work and a real model call, so the surface\nthat offers one confirms intent first \u2014 and a confirmation is only\nworth reading if it says what will actually be looked at. This is that\npayload: the population, its size, the angles the run would take in the\nwords the reader will see them in, and the other populations the same\noffer could run over.\n\nNothing here is executed and nothing is stored. The one read it makes\nis the run's own denial read, through the same cache the run uses, so\na preview followed by a run costs one read rather than two.",
+        "properties": {
+          "data_load_label": {
+            "default": "",
+            "title": "Data Load Label",
+            "type": "string"
+          },
+          "options": {
+            "items": {
+              "$ref": "#/components/schemas/DeepResearchSelector"
+            },
+            "title": "Options",
+            "type": "array"
+          },
+          "plan": {
+            "$ref": "#/components/schemas/ResearchPlanPayload"
+          },
+          "population": {
+            "$ref": "#/components/schemas/DeepResearchSelector"
+          },
+          "scope": {
+            "$ref": "#/components/schemas/DeepResearchScopePayload"
+          }
+        },
+        "required": [
+          "population",
+          "scope",
+          "plan"
+        ],
+        "title": "DeepResearchPreviewPayload",
+        "type": "object"
+      },
       "DeepResearchProgressPayload": {
         "additionalProperties": false,
         "description": "Where a run has got to.",
@@ -2308,6 +2342,16 @@
           "population": {
             "$ref": "#/components/schemas/DeepResearchSelector"
           },
+          "preview": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/DeepResearchPreviewPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "progress": {
             "$ref": "#/components/schemas/DeepResearchProgressPayload"
           },
@@ -2327,6 +2371,7 @@
           },
           "status": {
             "enum": [
+              "preview",
               "planning",
               "running",
               "complete",
@@ -2347,6 +2392,26 @@
           "progress"
         ],
         "title": "DeepResearchRunResponse",
+        "type": "object"
+      },
+      "DeepResearchScopePayload": {
+        "additionalProperties": false,
+        "description": "How big the population a run would cover is.\n\nThe same two quantities ``ExpectedRecoveryRowPayload`` publishes per\npopulation, measured over the whole of it, so a surface offering the\nrun can say \"565 of them, worth $1,153,302.17\" instead of naming the\npopulation and inventing nothing about its size.",
+        "properties": {
+          "open_denials": {
+            "title": "Open Denials",
+            "type": "integer"
+          },
+          "open_dollars_cents": {
+            "title": "Open Dollars Cents",
+            "type": "integer"
+          }
+        },
+        "required": [
+          "open_denials",
+          "open_dollars_cents"
+        ],
+        "title": "DeepResearchScopePayload",
         "type": "object"
       },
       "DeepResearchSelector": {
@@ -2441,6 +2506,7 @@
           },
           "status": {
             "enum": [
+              "preview",
               "planning",
               "running",
               "complete",
@@ -6186,6 +6252,11 @@
         "additionalProperties": false,
         "description": "Launch a run over a target population.",
         "properties": {
+          "plan_only": {
+            "default": false,
+            "title": "Plan Only",
+            "type": "boolean"
+          },
           "population": {
             "$ref": "#/components/schemas/DeepResearchSelector"
           },
@@ -7604,7 +7675,7 @@
         "summary": "List Deep Research"
       },
       "post": {
-        "description": "Start a deep-research run over a target population.\n\nReturns immediately with the run's id and its starting state; the\nrun continues in the background. Watch it on the run's stream, or\npoll the run itself. The run is pinned to the newest load at the\nmoment it starts and every number in its report is read at that\nload.",
+        "description": "Start a deep-research run over a target population.\n\nReturns immediately with the run's id and its starting state; the\nrun continues in the background. Watch it on the run's stream, or\npoll the run itself. The run is pinned to the newest load at the\nmoment it starts and every number in its report is read at that\nload.\n\n`plan_only` asks what a run WOULD do and starts nothing: the answer\nis 200 rather than 202, `status` is `preview`, and `preview` carries\nthe size of the population, the angles the run would take and the\nother populations the same offer could run over. A run is about a\nminute of work and a real model call, so the surface that offers one\ncan confirm intent against facts rather than against a sentence.",
         "operationId": "start_deep_research_v1_deep_research_post",
         "requestBody": {
           "content": {

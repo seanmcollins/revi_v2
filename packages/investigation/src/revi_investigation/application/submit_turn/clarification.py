@@ -249,9 +249,13 @@ def _with_binding(spec: AnalysisSpec, binding: ClarificationBinding | None) -> A
 
 
 def _with_resumed_context(
-    spec: AnalysisSpec, resume: AnalysisSpec | None, window_explicit: bool
+    spec: AnalysisSpec,
+    resume: AnalysisSpec | None,
+    window_explicit: bool,
+    *,
+    continuation: bool = False,
 ) -> tuple[AnalysisSpec, bool, list[str]]:
-    """Carry the interrupted thread's context onto the resumed answer.
+    """Carry the standing thread's context onto the answer that continues it.
 
     A clarification interrupts a THREAD, and the thread's window, filters,
     comparison and cohort belong to the analyst: "break that down by CARC
@@ -259,11 +263,21 @@ def _with_resumed_context(
     ``filters: []``, ``cohort: null`` and a three-year window, narrated as
     a first turn.
 
-    Applied only where the resumed sentence states nothing itself, so a
-    resume that names its own period keeps it, and a dimension the analyst
-    re-scoped is never widened back. Every carry is disclosed: an inherited
-    window the analyst did not say out loud is an assumption, and §2.8
-    assumptions are published, not buried.
+    THE SAME IS TRUE OF A FOLLOW-UP THAT NEVER STUMBLED. This machinery was
+    wired only to the clarification-resume path, which inverted the
+    product: a question the model read cleanly — "denial rate for June
+    2026" then "show me denial rate by facility" — was silently
+    re-defaulted to the last full month, while a question that fumbled into
+    a clarification got June back. ``continuation`` is that second caller:
+    the same carries, the same refusals, and a disclosure sentence that is
+    TRUE of it (nothing interrupted anything — the conversation simply
+    stated a period earlier and has not changed it).
+
+    Applied only where the continuing sentence states nothing itself, so a
+    follow-up that names its own period keeps it, and a dimension the
+    analyst re-scoped is never widened back. Every carry is disclosed: an
+    inherited window the analyst did not say out loud is an assumption, and
+    §2.8 assumptions are published, not buried.
     """
     if resume is None:
         return spec, window_explicit, []
@@ -274,15 +288,25 @@ def _with_resumed_context(
         context = replace(context, window=resume.context.window)
         window_explicit = True
         notes.append(
-            "resumed_context: this answers a question that interrupted an existing thread, so "
-            f"it is measured over that thread's window ({carried.start.isoformat()}.."
+            "resumed_context: your question named no period, so it is measured over the one "
+            f"this conversation has been reading ({carried.start.isoformat()}.."
+            f"{carried.end.isoformat()}) rather than a default one. Say a period if you want a "
+            "different one."
+            if continuation
+            else "resumed_context: this answers a question that interrupted an existing thread, "
+            f"so it is measured over that thread's window ({carried.start.isoformat()}.."
             f"{carried.end.isoformat()}) rather than a default one. Say a period if you want a "
             "different one."
         )
     if context.comparison is None and resume.context.comparison is not None:
         context = replace(context, comparison=resume.context.comparison)
         notes.append(
-            "resumed_context: the comparison the interrupted thread was reading against "
+            "resumed_context: the comparison this conversation has been reading against "
+            f"({resume.context.comparison.window.range.start.isoformat()}.."
+            f"{resume.context.comparison.window.range.end.isoformat()}) is carried onto this "
+            "answer."
+            if continuation
+            else "resumed_context: the comparison the interrupted thread was reading against "
             f"({resume.context.comparison.window.range.start.isoformat()}.."
             f"{resume.context.comparison.window.range.end.isoformat()}) is carried onto this "
             "answer."
@@ -307,15 +331,21 @@ def _with_resumed_context(
     ]
     if inherited:
         context = replace(context, scope=and_merge(context.scope, *inherited))
+        thread = "this conversation is scoped by" if continuation else (
+            "the interrupted thread was scoped by"
+        )
         notes.append(
-            "resumed_context: the filters the interrupted thread was scoped by are carried onto "
+            f"resumed_context: the filters {thread} are carried onto "
             "this answer — " + "; ".join(_predicate_label(p) for p in inherited) + "."
         )
     if declined:
         # Said, not silently dropped: the analyst can see which scope the
         # thread had and that this answer deliberately widened past it.
+        lead = "this conversation is scoped by" if continuation else (
+            "the interrupted thread was scoped by"
+        )
         notes.append(
-            "resumed_context: the interrupted thread was scoped by "
+            f"resumed_context: {lead} "
             + "; ".join(_predicate_label(p) for p in declined)
             + ", and this question breaks out BY that same cut — so the filter is NOT carried "
             "and the figures below cover the whole population. Name it again if you wanted "
@@ -323,9 +353,10 @@ def _with_resumed_context(
         )
     if context.cohort is None and resume.context.cohort is not None:
         context = replace(context, cohort=resume.context.cohort)
+        scoped = "this conversation is" if continuation else "the interrupted thread was"
         notes.append(
-            f"resumed_context: the pinned cohort ({resume.context.cohort.id}) the interrupted "
-            "thread was scoped to is carried onto this answer."
+            f"resumed_context: the pinned population ({resume.context.cohort.id}) {scoped} "
+            "scoped to is carried onto this answer."
         )
     return spec.with_context(context), window_explicit, notes
 
@@ -640,6 +671,23 @@ CLARIFICATION_CONVERGED_REASON = "CLARIFICATION_CONVERGED"
 CLARIFICATION_MEASURE_SETTLED_REASON = "CLARIFICATION_MEASURE_SETTLED"
 
 
+#: Clarifications the subject commitment must never replace.
+#:
+#: Converging on the thread's subject is right when the platform could not
+#: work out WHICH of several things was meant. It is wrong when the
+#: platform is saying a thing does not exist: answering "I couldn't find a
+#: definition for that term" with the denial rate already on screen does
+#: not answer it, it changes the subject. §2.8's objection to committing —
+#: that it would mean inventing coverage — applies exactly here.
+NOT_CONVERGIBLE_REASONS = (
+    "no pack content matched",
+    "UNSUPPORTED_CONCEPT",
+    "TURN_BUDGET_EXHAUSTED",
+    "WINDOW_OUT_OF_RANGE",
+    "PREDICATE_VALUE_UNMATCHED",
+)
+
+
 _COMMITTED_REASONS = (CLARIFICATION_CONVERGED_REASON, CLARIFICATION_MEASURE_SETTLED_REASON)
 
 
@@ -667,6 +715,26 @@ _ASKS_WHICH_REFERENT = re.compile(
     re.IGNORECASE,
 )
 
+#: A clarification whose two readings produce the SAME population for this
+#: answer and differ only in whether the narrowing survives to the next one:
+#: "Do you want the previous result re-run filtered to Atlas Commercial, or
+#: should Atlas Commercial be pinned as a filter for the rest of the
+#: session?"
+#:
+#: THE POPULATION TEST. A wrong guess here changes no row that gets counted,
+#: so it is not a question — it is a follow-up affordance, and it belongs
+#: after the number rather than in front of it. Narrow on purpose: it wants
+#: the word for the persistent thing AND the span it would persist over, so
+#: an ordinary question about a filter does not trip it.
+ASKS_WHETHER_TO_PIN = re.compile(
+    r"\bpin(?:ned|ning)?\b[^?]{0,120}?\b(?:for the (?:rest of the )?session"
+    r"|for the rest of (?:the|this) (?:session|conversation)"
+    r"|across (?:the|this) (?:session|conversation)"
+    r"|until (?:you|I) (?:clear|remove|change) it)",
+    re.IGNORECASE,
+)
+
+
 #: A referent-free anaphora in the ANALYST's own words. Checked alongside
 #: the clarification above so the guard fires on the case it is named for —
 #: a follow-up that points at the answer on screen — and not on a question
@@ -675,6 +743,38 @@ ANAPHORIC_SUBJECT = re.compile(
     r"(?<!\w)(?:that|it|this|those|these|them)(?!\w)",
     re.IGNORECASE,
 )
+
+
+#: A superlative asking WHICH ROW, in the analyst's own words.
+#:
+#: The worst answer in the live corpus: "denial rate last quarter excluding
+#: Medicare" → "and excluding Medicaid too?" → **"which one is worst now"**,
+#: answered `denial rate: 8.1%` — a single org-level scalar — with the
+#: narrative explaining that *"with only one measure in hand there is
+#: nothing to rank it against, so 'worst' here names it by default rather
+#: than by comparison"*. Two turns of carving payer types out of the
+#: population, and "which one" was read as *which measure*.
+#:
+#: A superlative resolves on the axis the conversation is already cutting.
+#: This is the half of that rule the measure guard needs: the words that
+#: mean a ROW rather than a metric.
+ENTITY_SUPERLATIVE = re.compile(
+    r"\bwhich\s+(?:one|ones|of\s+(?:them|these|those))\b"
+    r"|\b(?:the\s+)?(?:worst|best|biggest|largest|highest|lowest|smallest)\s+one\b"
+    r"|\bwhich\s+\w+\s+(?:is|was|are|were)\s+(?:the\s+)?"
+    r"(?:worst|best|biggest|largest|highest|lowest|smallest)\b",
+    re.IGNORECASE,
+)
+
+
+def cuts_an_entity_axis(spec: AnalysisSpec) -> bool:
+    """Is this conversation operating on a dimension rather than a measure?
+
+    True when the answer on screen is broken out by one, and true when it is
+    merely SCOPED by one: two turns spent excluding payer types are two
+    turns spent on the payer axis, whether or not the figure was cut by it.
+    """
+    return bool(spec.dimensions) or any(iter_predicates(spec.context.effective_scope()))
 
 
 def _state_the_survivor(

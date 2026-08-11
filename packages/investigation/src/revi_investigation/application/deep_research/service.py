@@ -19,7 +19,7 @@ import asyncio
 import time
 from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Protocol
 
 from revi_investigation.application.deep_research.angles import AngleResult, run_angle
@@ -66,6 +66,17 @@ class DeepResearchResult:
     duration_ms: int
 
 
+@dataclass(frozen=True, slots=True)
+class DeepResearchPreview:
+    """A run that has not started: what it would look at, and over how much."""
+
+    plan: DeepResearchPlan
+    open_denials: int
+    open_dollars_cents: int
+    #: The data edge every figure above was read at.
+    as_of: date
+
+
 class DeepResearchPlanner(Protocol):
     """What the control plane must provide. Implemented by the model path."""
 
@@ -90,6 +101,40 @@ class DeepResearchService:
     ) -> None:
         self._rows = rows
         self._planner = planner
+
+    async def preview(
+        self,
+        *,
+        question: str | None,
+        population: TargetPopulation,
+        settings: DeepResearchSettings,
+        watermark: DataWatermark,
+        pack_snapshot_id: str,
+    ) -> DeepResearchPreview:
+        """What a run would do, resolved without doing any of it.
+
+        A run is a minute of work and a real model call, so the surface
+        offering one confirms intent first — and a confirmation is only
+        worth reading if it says what will actually be looked at, over how
+        much. Both come from facts, not from prose: the angles are the
+        standing plan (the same set a run falls back to, and the one this
+        resolves without spending a model call on a popover), and the size
+        is read through the run's own cached read, so a preview followed by
+        a run costs one read rather than two.
+        """
+        rows = await self._rows.fetch(
+            population=population,
+            settings=settings,
+            watermark=watermark,
+            pack_snapshot_id=pack_snapshot_id,
+        )
+        open_rows = rows.open_rows
+        return DeepResearchPreview(
+            plan=standing_plan(question),
+            open_denials=len(open_rows),
+            open_dollars_cents=sum(row.denied_amount_cents for row in open_rows),
+            as_of=rows.as_of,
+        )
 
     async def run(
         self,

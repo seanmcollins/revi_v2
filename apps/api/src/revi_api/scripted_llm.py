@@ -31,6 +31,7 @@ from dataclasses import dataclass, field
 from decimal import Decimal
 from typing import Any
 
+from revi_investigation.application.llm.render import analyst_words
 from revi_investigation.application.ports import (
     LlmFailureKind,
     LlmUsage,
@@ -94,10 +95,17 @@ class ScriptedLanguageModel:
 
     async def structured(self, request: StructuredLlmRequest) -> StructuredLlmResult:
         self.structured_calls.append(request)
+        # Matched against THE ANALYST'S OWN WORDS, not the whole prompt.
+        # The reading prompts now carry the answer on screen — which
+        # includes the previous question — so "Break that down by payer"
+        # rendered a prompt containing "Why did cash decline last week?"
+        # too, and a whole-prompt match served turn one's script on turn
+        # two.
+        utterance = analyst_words(request.rendered_prompt)
         for entry in self.entries:
             if entry.template_id != request.template_id:
                 continue
-            if entry.contains is not None and entry.contains not in request.rendered_prompt:
+            if entry.contains is not None and entry.contains not in utterance:
                 continue
             if entry.response is None:
                 # a scripted non-answer: the script matched and says nothing

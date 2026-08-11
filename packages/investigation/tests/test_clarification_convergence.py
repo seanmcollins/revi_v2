@@ -64,18 +64,16 @@ _INTERPRETATION = {
 
 
 def _asked(utterance: str) -> Callable[[str], bool]:
-    """Match on the prompt's UTTERANCE section, not on any occurrence.
+    """Match on what the ANALYST said, not on any occurrence in the prompt.
 
     The pending-clarification block echoes the original question back into
-    the prompt, so a naive substring matcher fires on the wrong turn — the
-    same confusion the feature exists to remove, reproduced in the fixture.
+    the prompt — and so, now, does the answer-on-screen block — so a naive
+    substring matcher fires on the wrong turn: the same confusion the
+    feature exists to remove, reproduced in the fixture. The mock hands
+    matchers the utterance alone (``analyst_words``), so this is a plain
+    containment test again.
     """
-
-    def matcher(prompt: str) -> bool:
-        _, _, tail = prompt.partition("Utterance:")
-        return utterance in tail
-
-    return matcher
+    return lambda words: utterance in words
 
 
 def _clarifying_classification() -> dict[str, object]:

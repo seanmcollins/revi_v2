@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from collections.abc import Mapping
+from dataclasses import replace
 from decimal import Decimal
 
 from revi_investigation.application.calculation_glue import (
@@ -100,6 +101,24 @@ def _subject_first[Shape: (ScalarShape, TrendShape)](
     return [s for s in shapes if s.measure == subject.id] + [
         s for s in shapes if s.measure != subject.id
     ]
+
+
+def _merged(lead: FindingsResult | None, rest: FindingsResult) -> FindingsResult:
+    """One result from the subject's own figure and the shape the plan ranked.
+
+    Handles stay monotonic without any bookkeeping here: each ``_evaluate_*``
+    reads the registry for its offset at call time, and the lead is
+    evaluated (and registered) first.
+    """
+    if lead is None or not lead.findings:
+        return rest
+    return FindingsResult(
+        findings=(*lead.findings, *rest.findings),
+        referents=(*lead.referents, *rest.referents),
+        warnings=(*lead.warnings, *rest.warnings),
+        # Something was published, so neither half's emptiness stands.
+        emptiness=None if rest.findings else rest.emptiness,
+    )
 
 
 #: How many bands of an ordinal cut the verdict states. Two: the most
@@ -212,19 +231,45 @@ class EvaluateFindingsService(_FindingBuilders):
                 premise_lead,
             )
 
-        shape = find_primary_movement(plan, calculation)
+        subject = spec.subject_metric.id if spec.subject_metric is not None else None
+        shape = find_primary_movement(plan, calculation, subject)
         if shape is None:
-            concentration = find_primary_concentration(plan, calculation)
+            concentration = find_primary_concentration(plan, calculation, subject)
             if concentration is not None:
-                return _with_premise(
-                    await self._evaluate_concentration(
-                        shape=concentration,
-                        spec=spec,
+                # …and, when the ranked frame is about something else, the
+                # subject's own single number in front of it. `subject_metric`
+                # exists to stop a playbook answering about a sibling probe,
+                # and a partition inside one shape path could not reach the
+                # case where the shapes themselves belong to two different
+                # metrics: "how're we doing with denials" measured denial
+                # rate, published nothing for it, and led with denied dollars
+                # by CARC. The gap warning said so honestly; the behaviour it
+                # described should not happen.
+                lead = (
+                    await self._subject_lead(
                         plan=plan,
+                        calculation=calculation,
+                        spec=spec,
                         pack=pack,
                         playbook=playbook,
                         session_id=session_id,
                         investigation_id=investigation_id,
+                    )
+                    if subject is not None and concentration.measure != subject
+                    else None
+                )
+                return _with_premise(
+                    _merged(
+                        lead,
+                        await self._evaluate_concentration(
+                            shape=concentration,
+                            spec=spec,
+                            plan=plan,
+                            pack=pack,
+                            playbook=playbook,
+                            session_id=session_id,
+                            investigation_id=investigation_id,
+                        ),
                     ),
                     premise_lead,
                 )
@@ -376,6 +421,51 @@ class EvaluateFindingsService(_FindingBuilders):
             premise_lead,
         )
 
+
+    async def _subject_lead(
+        self,
+        *,
+        plan: InvestigationPlan,
+        calculation: CalculationResult,
+        spec: AnalysisSpec,
+        pack: PackPort,
+        playbook: PlaybookSpec | None,
+        session_id: str,
+        investigation_id: str,
+    ) -> FindingsResult | None:
+        """The subject metric's own figure, when the lead shape is not about it.
+
+        Publishes exactly one finding — the subject's single number, or its
+        series — so a playbook answer opens on the thing that was asked
+        about and then goes on to what the plan ranked. ``None`` when the
+        subject produced no publishable shape at all, which is the case
+        ``subject_unpublished`` was written for and still owns.
+        """
+        subject = spec.subject_metric
+        if subject is None:
+            return None
+        one = replace(spec, limit=1)
+        scalars = tuple(s for s in find_scalar_shapes(plan, calculation) if s.measure == subject.id)
+        if scalars:
+            return await self._evaluate_scalars(
+                shapes=scalars,
+                spec=one,
+                pack=pack,
+                playbook=playbook,
+                session_id=session_id,
+                investigation_id=investigation_id,
+            )
+        trends = tuple(t for t in find_trend_shapes(plan, calculation) if t.measure == subject.id)
+        if trends:
+            return await self._evaluate_trends(
+                shapes=trends,
+                spec=one,
+                pack=pack,
+                playbook=playbook,
+                session_id=session_id,
+                investigation_id=investigation_id,
+            )
+        return None
 
     # -------------------------------------------------------------- premise
 

@@ -167,6 +167,7 @@ def build_header_payload(
     watermark_id: str,
     as_of: date | None = None,
     window_note: str | None = None,
+    published_span: tuple[date, date] | None = None,
     corrections: Mapping[str, Mapping[str, object]] | None = None,
 ) -> ContextHeaderPayload:
     """Assemble the canonical header from kernel scope objects.
@@ -183,6 +184,17 @@ def build_header_payload(
     on the display string as well as the field, because the display string
     is what the trace, the export and every stored answer carry.
 
+    ``published_span`` is set when NOT ONE figure below was computed over
+    the window this header names — a playbook whose checks all carry their
+    own periods. Then the displayed period is the span the figures actually
+    cover and the asked-for one is named as unhonored: a July heading over
+    a February-to-July number is the misattribution this whole payload
+    exists to prevent, and the per-finding sentence that carried it was
+    exactly the sentence a reader skims. The structured
+    ``window_start``/``window_end`` stay the investigation window — the
+    population, the charts and every drill are scoped by it, and every
+    consumer that keys off them means that.
+
     ``corrections`` carries the §6.6 value resolutions so the chips state
     the predicate that RAN.
     """
@@ -193,12 +205,18 @@ def build_header_payload(
     filters = [chip.label for chip in chips]
 
     basis = basis_phrase(window.basis.id)
-    parts = [
-        f"as of {as_of.isoformat()} ({basis})"
-        if as_of is not None
-        else f"{window.range.start.isoformat()}..{window.range.end.isoformat()} "
-        f"({basis})"
-    ]
+    if as_of is not None:
+        parts = [f"as of {as_of.isoformat()} ({basis})"]
+    elif published_span is not None:
+        parts = [
+            f"{published_span[0].isoformat()}..{published_span[1].isoformat()} ({basis})",
+            f"nothing below was measured over {window.range.start.isoformat()}.."
+            f"{window.range.end.isoformat()}, the period this question resolved to",
+        ]
+    else:
+        parts = [
+            f"{window.range.start.isoformat()}..{window.range.end.isoformat()} ({basis})"
+        ]
     if comparison is not None:
         parts.append(
             f"vs {comparison.window.range.start.isoformat()}.."

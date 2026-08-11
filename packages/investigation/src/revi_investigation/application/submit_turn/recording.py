@@ -71,6 +71,17 @@ from revi_kernel.scope import (
     resolve_window,
 )
 
+#: How much of the answer on screen the reading prompts are shown. Enough
+#: to resolve "the other one" and "that payer"; bounded so a twelve-row
+#: ranking cannot crowd out the governed vocabulary beside it.
+_CONVERSATION_FINDING_LINES = 6
+_CONVERSATION_ROW_LINES = 12
+
+#: How much of a closed dimension's value domain the operator prompt sees.
+#: Enough to recognise a value the analyst names; bounded so a 20-value
+#: CARC list does not crowd out the other dimensions beside it.
+_DECLARED_VALUES_SHOWN = 12
+
 
 class _TurnRecording(_SubmitTurnBase):
     """Frames, the trace record, turn events, and the context the later
@@ -91,6 +102,121 @@ class _TurnRecording(_SubmitTurnBase):
         if not candidates:
             return None
         return max(candidates, key=lambda inv: inv.created_at)
+
+    async def _standing_context(self, session: Session) -> AnalysisSpec | None:
+        """The context this conversation is standing in, if it has one.
+
+        The window, filters, comparison and cohort of the answer on screen.
+        Read off the session's latest ANALYTICAL answer and handed to the
+        turn that continues it, so a follow-up that names no period inherits
+        the one the conversation has been reading instead of falling back to
+        the last full month.
+
+        Deliberately without the lineage side effect ``_resumed_context``
+        carries: an answer to a question this platform asked belongs under
+        that question, and an ordinary follow-up does not.
+        """
+        parent = await self._latest_investigation(session, analytical=True)
+        return None if parent is None else parent.spec
+
+    async def _conversation_summary(self, session: Session) -> str:
+        """What is on screen, as a block for the two reading prompts.
+
+        ``classify_turn`` and ``interpret_question`` were composed from the
+        utterance and the governed vocabulary and NOTHING about the
+        conversation — the one exception being a pending clarification,
+        i.e. the single piece of context that misleads. So "and June?" after
+        a July answer, "what about Silverline?" after an Atlas Commercial
+        scorecard and "what's ours?" after a clean-claim definition were all
+        genuinely ambiguous *from inside the prompt*, and the model did the
+        right thing with what it had: it asked.
+
+        Everything here is a fact this platform published a moment ago —
+        the analyst's own question, the ids the answer measured, the period
+        it read, the cut it made and the handles it printed. Nothing is
+        inferred and nothing is invented, which is what makes it safe to
+        reason against.
+        """
+        parent = await self._latest_investigation(session, analytical=True)
+        if parent is None:
+            # A DEFINITION IS SOMETHING ON SCREEN. "What's a clean claim?"
+            # then "what's ours?" came back asserting there was no prior
+            # answer to anchor "ours" to — true of the analytical lineage
+            # and false of the conversation, and the model said it because
+            # this block told it so. It measured nothing, and that is the
+            # fact to state; the term it answered about is the anchor.
+            answered = await self._latest_investigation(session, analytical=False)
+            if answered is None:
+                return (
+                    "Nothing has been answered in this conversation yet, so this utterance "
+                    "stands on its own."
+                )
+            return (
+                "THE ANSWER ON SCREEN — what this conversation has been about:\n"
+                f"- the analyst's last question: {answered.question!r}\n"
+                "- it was answered from your definitions library and measured nothing, so "
+                "there are no figures on screen — but the term it explained is what a "
+                "follow-up like 'what's ours?' is asking about."
+            )
+        spec = parent.spec
+        context = spec.context
+        window = context.window.range
+        period = f"{window.start.isoformat()}..{window.end.isoformat()}"
+        lines = [
+            "THE ANSWER ON SCREEN — what this conversation has been about. These are facts",
+            "this platform published a moment ago, not guesses:",
+            f"- the analyst's last question: {parent.question!r}",
+            f"- the period that answer read: {period}"
+            + (
+                f", which the analyst named as {spec.period_label!r}"
+                if spec.period_label
+                else " (no period was named; this was the platform's own choice)"
+            ),
+        ]
+        measures = [ref.id for ref in spec.measures]
+        if spec.subject_metric is not None and spec.subject_metric.id not in measures:
+            measures.insert(0, spec.subject_metric.id)
+        lines.append(
+            "- what it measured: " + (", ".join(measures) if measures else "(a full review)")
+        )
+        if spec.subject_metric is not None:
+            lines.append(f"- the metric it was ABOUT: {spec.subject_metric.id}")
+        lines.append(
+            "- broken out by: "
+            + (", ".join(d.id for d in spec.dimensions) if spec.dimensions else "(nothing)")
+        )
+        filters = [_predicate_label(p) for p in iter_predicates(context.effective_scope())]
+        lines.append("- narrowed to: " + ("; ".join(filters) if filters else "(nothing)"))
+        if context.comparison is not None:
+            comparison = context.comparison
+            lines.append(
+                f"- compared against: {comparison.kind.value} "
+                f"({comparison.window.range.start.isoformat()}.."
+                f"{comparison.window.range.end.isoformat()})"
+            )
+        if context.cohort is not None:
+            lines.append(f"- pinned to a population of {context.cohort.size} claim(s)")
+        published = [
+            f"{finding.referent.value} — {' '.join(finding.title.split())}"
+            for finding in parent.findings[:_CONVERSATION_FINDING_LINES]
+        ]
+        lines.append(
+            "- the figures it published: " + ("; ".join(published) if published else "(none)")
+        )
+        entries = [
+            entry
+            for entry in await self._referents.list_for_session(session.id)
+            if entry.investigation_id == parent.id and entry.dimension_value is not None
+        ]
+        rows = [
+            f"{entry.referent.value} — {entry.dimension_value[1]} "
+            f"({entry.dimension_value[0]})"
+            for entry in entries[:_CONVERSATION_ROW_LINES]
+            if entry.dimension_value is not None
+        ]
+        if rows:
+            lines.append("- the rows it printed: " + "; ".join(rows))
+        return "\n".join(lines)
 
     async def _plan_context_of(self, investigation_id: str) -> _PlanContext:
         """How the parent turn was planned, read back from its trace.
@@ -191,6 +317,16 @@ class _TurnRecording(_SubmitTurnBase):
         return "\n".join(lines)
 
     def _dimension_lines(self) -> str:
+        """The cuts a follow-up may name — with the values a closed one holds.
+
+        "Same for Silverline" reached the operator emitter as a proper noun
+        with no home: nothing in the prompt said whether Silverline was a
+        payer, a plan or a financial class, so the turn came back unable to
+        compile a filter it had every id for. The catalog declares the
+        closed domains and no prompt was ever shown them.
+        """
+        domains = {dim_id: (label, values) for dim_id, label, values in
+                   self._validator.declared_domains()}
         seen: dict[str, None] = {}
         for metric_id, _ in self._pack.metric_summaries():
             contract = self._pack.metric(metric_id)
@@ -198,7 +334,17 @@ class _TurnRecording(_SubmitTurnBase):
                 continue
             for dim in contract.scope_dimensions:
                 seen.setdefault(dim.id)
-        return "\n".join(f"- {dim_id}" for dim_id in seen) or "- (none)"
+        lines: list[str] = []
+        for dim_id in seen:
+            declared = domains.get(dim_id)
+            if declared is None:
+                lines.append(f"- {dim_id}")
+                continue
+            label, values = declared
+            shown = ", ".join(values[:_DECLARED_VALUES_SHOWN])
+            more = "" if len(values) <= _DECLARED_VALUES_SHOWN else ", …"
+            lines.append(f"- {dim_id} ({label}) — values: {shown}{more}")
+        return "\n".join(lines) or "- (none)"
 
     def _metric_lines(self) -> str:
         return "\n".join(f"- {mid}" for mid, _ in self._pack.metric_summaries()) or "- (none)"

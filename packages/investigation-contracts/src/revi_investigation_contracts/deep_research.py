@@ -50,9 +50,11 @@ __all__ = [
     "DeepResearchEventKind",
     "DeepResearchListResponse",
     "DeepResearchPhaseLiteral",
+    "DeepResearchPreviewPayload",
     "DeepResearchProgressPayload",
     "DeepResearchReport",
     "DeepResearchRunResponse",
+    "DeepResearchScopePayload",
     "DeepResearchSelector",
     "DeepResearchStatusLiteral",
     "DeepResearchStreamEvent",
@@ -117,7 +119,11 @@ EvidenceTierLiteral = Literal["measured", "not_estimable"]
 #: How two populations were compared, or that they were not.
 ContrastTestLiteral = Literal["two_proportion_z", "fishers_exact", "refused"]
 
-DeepResearchStatusLiteral = Literal["planning", "running", "complete", "failed", "interrupted"]
+#: ``preview`` is the one state that is not a run: a plan-only request
+#: resolved what a run would do and started nothing.
+DeepResearchStatusLiteral = Literal[
+    "preview", "planning", "running", "complete", "failed", "interrupted"
+]
 
 DeepResearchPhaseLiteral = Literal["plan", "execute", "synthesize"]
 
@@ -449,6 +455,45 @@ class DeepResearchReport(ClosedModel):
 # requests, progress and responses
 
 
+class DeepResearchScopePayload(ClosedModel):
+    """How big the population a run would cover is.
+
+    The same two quantities ``ExpectedRecoveryRowPayload`` publishes per
+    population, measured over the whole of it, so a surface offering the
+    run can say "565 of them, worth $1,153,302.17" instead of naming the
+    population and inventing nothing about its size.
+    """
+
+    open_denials: int
+    open_dollars_cents: int
+
+
+class DeepResearchPreviewPayload(ClosedModel):
+    """What a run WOULD do, resolved without doing any of it.
+
+    A run is about a minute of work and a real model call, so the surface
+    that offers one confirms intent first — and a confirmation is only
+    worth reading if it says what will actually be looked at. This is that
+    payload: the population, its size, the angles the run would take in the
+    words the reader will see them in, and the other populations the same
+    offer could run over.
+
+    Nothing here is executed and nothing is stored. The one read it makes
+    is the run's own denial read, through the same cache the run uses, so
+    a preview followed by a run costs one read rather than two.
+    """
+
+    population: DeepResearchSelector
+    scope: DeepResearchScopePayload
+    plan: ResearchPlanPayload
+    #: Other populations this offer could run over, as closed selectors —
+    #: what the reader taps is exactly what would be posted, and no client
+    #: has to parse a sentence back into a request.
+    options: list[DeepResearchSelector] = Field(default_factory=list)
+    #: The load every figure above was read at, in a reader's words.
+    data_load_label: str = ""
+
+
 class StartDeepResearchRequest(ClosedModel):
     """Launch a run over a target population."""
 
@@ -459,6 +504,10 @@ class StartDeepResearchRequest(ClosedModel):
     question: str | None = None
     #: Attach the run to an existing conversation. Omitted, one is opened.
     session_id: str | None = None
+    #: Resolve what the run WOULD do and return it, without starting
+    #: anything. Answers 200 with :class:`DeepResearchPreviewPayload` on the
+    #: response's ``preview`` field rather than 202 with a run.
+    plan_only: bool = False
 
 
 class DeepResearchProgressPayload(ClosedModel):
@@ -485,6 +534,10 @@ class DeepResearchRunResponse(ClosedModel):
     report: DeepResearchReport | None = None
     #: Why a run stopped, when it did not finish.
     error: str | None = None
+    #: Set only on a ``plan_only`` request: what a run WOULD do, with
+    #: nothing started. ``status`` is ``preview`` and there is no run to
+    #: poll or stream.
+    preview: DeepResearchPreviewPayload | None = None
 
 
 class DeepResearchSummary(ClosedModel):

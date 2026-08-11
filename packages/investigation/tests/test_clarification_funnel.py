@@ -21,13 +21,16 @@ from revi_catalog_contracts.model import CatalogSnapshot
 from revi_investigation.application.interpretation import PendingClarification
 from revi_investigation.application.submit_turn import (
     _ASKS_WHICH_MEASURE,
+    ASKS_WHETHER_TO_PIN,
     CLARIFICATION_SOLE_SURVIVOR_REASON,
+    ENTITY_SUPERLATIVE,
     NO_OPTIONS_REASON,
     SubmitTurnService,
     _answers_pending,
     _no_options_card,
     _state_the_survivor,
     _with_resumed_context,
+    cuts_an_entity_axis,
 )
 from revi_investigation.application.validation import PlanValidationService
 from revi_investigation.domain.turns import ClarificationBinding, ClarificationRequest
@@ -344,3 +347,80 @@ class TestEveryOfferedOptionIsOneTheEngineCanRun:
             "This pack defines no metric called 'foo'. Did you mean one of these?",
         ):
             assert not _ASKS_WHICH_MEASURE.search(question), question
+
+
+class TestASuperlativeResolvesOnTheAxisTheConversationIsCutting:
+    """§5a, and the worst answer in the live corpus.
+
+    "denial rate last quarter excluding Medicare" → "and excluding Medicaid
+    too?" → **"which one is worst now"** came back as
+    ``denial rate: 8.1%`` — a single org-level scalar — narrated as *"with
+    only one measure in hand there is nothing to rank it against, so 'worst'
+    here names it by default rather than by comparison"*. Two turns of
+    carving payer types out of the population, and "which one" was read as
+    *which measure*. A clarification would have been strictly better than
+    the answer that was given.
+    """
+
+    def test_the_words_that_name_a_row_are_recognised(self) -> None:
+        for question in (
+            "which one is worst now",
+            "which of them is biggest",
+            "the worst one",
+            "which payer is worst",
+        ):
+            assert ENTITY_SUPERLATIVE.search(question), question
+
+    def test_a_question_about_the_measure_is_not_one_of_them(self) -> None:
+        for question in (
+            "what was our denial rate",
+            "show me the math",
+            "and the dollars?",
+        ):
+            assert not ENTITY_SUPERLATIVE.search(question), question
+
+    def test_a_thread_scoped_by_a_dimension_is_on_the_entity_axis(
+        self, make_spec
+    ) -> None:  # type: ignore[no-untyped-def]
+        scoped = make_spec(
+            measures=("denial_rate",),
+            scope=Predicate(
+                dimension=DimensionRef("payer_type"),
+                op=PredicateOp.NOT_IN,
+                values=("Medicare", "Medicaid"),
+            ),
+        )
+        assert cuts_an_entity_axis(scoped)
+
+    def test_a_thread_cut_by_a_dimension_is_too(self, make_spec) -> None:  # type: ignore[no-untyped-def]
+        assert cuts_an_entity_axis(make_spec(measures=("denial_rate",), dimensions=("payer",)))
+
+    def test_a_bare_org_level_measure_is_not(self, make_spec) -> None:  # type: ignore[no-untyped-def]
+        assert not cuts_an_entity_axis(make_spec(measures=("denial_rate",)))
+
+
+class TestAPersistenceQuestionIsAskedAfterTheAnswer:
+    """The population test, corollary 3.
+
+    *"Do you want the previous result re-run filtered to Atlas Commercial,
+    or should Atlas Commercial be pinned as a filter for the rest of the
+    session?"* — both readings count the same records on THIS answer, and
+    the one that differs is a decision the analyst can only usefully make
+    once they have seen the number.
+    """
+
+    def test_the_filter_or_pin_question_is_recognised(self) -> None:
+        for question in (
+            "Do you want the previous result re-run filtered to Atlas Commercial, or should "
+            "Atlas Commercial be pinned as a filter for the rest of the session?",
+            "Should I pin that for the rest of this conversation?",
+            "Pin this until you clear it?",
+        ):
+            assert ASKS_WHETHER_TO_PIN.search(question), question
+
+    def test_a_real_scope_question_is_not_one(self) -> None:
+        for question in (
+            "There is no payer named 'Silverline' in this data. Which did you mean?",
+            "Which measure should I compare against the benchmark?",
+        ):
+            assert not ASKS_WHETHER_TO_PIN.search(question), question

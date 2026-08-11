@@ -3,6 +3,7 @@ zero-probe paths, gestures, pins, and watermark epochs (§7, §8.2-8.3)."""
 
 from __future__ import annotations
 
+from dataclasses import replace
 from datetime import UTC, datetime
 from decimal import Decimal
 from pathlib import Path
@@ -21,6 +22,7 @@ from revi_investigation.application.llm.schemas import (
 )
 from revi_investigation.application.ports import RegisteredReferent
 from revi_investigation.application.refinement_llm import (
+    resolve_complement_referent,
     resolve_ordinal_referent,
     resolve_referent_tokens,
 )
@@ -325,54 +327,16 @@ class TestConflictAndClarification:
         assert outcome.clarification.reason is not None
         assert "AMBIGUOUS_REFINEMENT" in outcome.clarification.reason
 
-    async def test_low_confidence_referent_resolution_clarifies(
+    async def test_a_lone_low_confidence_candidate_is_applied_and_disclosed(
         self, small_warehouse_path: Path
     ) -> None:
-        llm = MockLanguageModel()
-        _canned_t1(llm)
-        llm.respond(
-            "classify_turn",
-            {"turn_class": "refinement", "confidence": 0.9, "clarification_question": None},
-            matcher=lambda p: "that thing" in p,
-        )
-        llm.respond(
-            "resolve_referents",
-            {"resolutions": [{"mention": "that thing", "referent_id": "F1", "confidence": 0.2}]},
-            matcher=lambda p: "that thing" in p,
-        )
-        engine = _engine(small_warehouse_path, llm)
-        t1 = await _run_t1(engine)
-        outcome = await engine.submit.submit(
-            SubmitTurnRequest(
-                tenant="demo", question="drill into that thing", session_id=t1.session.id
-            )
-        )
-        assert outcome.clarification is not None
-        assert "F1" in outcome.clarification.question
-        # A GUESS IS AN OPTION. The candidate the model named is offered as
-        # something the analyst can tap: it shipped with `options: ()`, so
-        # the funnel's last step stamped CLARIFICATION_NO_OPTIONS and the
-        # card printed "There is no answerable option to offer here." one
-        # line above a question that was offering exactly one.
-        assert outcome.clarification.options, "the candidate referent must be offered"
-        assert all("F1" in option for option in outcome.clarification.options)
-        assert NO_OPTIONS_REASON not in (outcome.clarification.reason or "")
-        # The option carries the HANDLE, which is what resolves it: a reply
-        # naming one is claimed by `resolve_referent_tokens` at confidence
-        # 1.0 before any model sees it (§7.6).
-        entries = await engine.referent_registry.list_for_session(t1.session.id)
-        resolved, unknown = resolve_referent_tokens(outcome.clarification.options[0], entries)
-        assert unknown == ()
-        assert [r.referent.value for r in resolved] == ["F1"]
+        """A question with one answer is not a question (the population test).
 
-    async def test_the_referent_guess_frame_carries_its_option(
-        self, small_warehouse_path: Path
-    ) -> None:
-        """The SSE frame publishes the options, not only the question.
-
-        The frame is what a client renders the card from the moment a turn
-        resolves; it carried `{question, reason}` alone, so every option the
-        funnel had just validated arrived only on the terminal frame.
+        The sub-threshold path named its candidate and offered it as the
+        single option — *"By 'that payer', do you mean D1 — Summit Peak
+        Medicare Advantage?"* — in a thread that had shown exactly one
+        payer. There was nothing to decide, and deciding it cost the analyst
+        the turn. It is applied now, and said out loud.
         """
         llm = MockLanguageModel()
         _canned_t1(llm)
@@ -386,16 +350,62 @@ class TestConflictAndClarification:
             {"resolutions": [{"mention": "that thing", "referent_id": "F1", "confidence": 0.2}]},
             matcher=lambda p: "that thing" in p,
         )
+        llm.respond(
+            "emit_refinements",
+            {"operators": [{"op": "drill_into", "target": "F1"}], "rationale": "drill F1"},
+            matcher=lambda p: "that thing" in p,
+        )
         engine = _engine(small_warehouse_path, llm)
         t1 = await _run_t1(engine)
-        await engine.submit.submit(
+        outcome = await engine.submit.submit(
             SubmitTurnRequest(
                 tenant="demo", question="drill into that thing", session_id=t1.session.id
             )
         )
+        assert outcome.clarification is None, "one candidate is not a choice"
+        assert outcome.investigation.status is InvestigationStatus.COMPLETE
+        [disclosure] = [
+            w for w in outcome.investigation.warnings if w.startswith("referent_assumed:")
+        ]
+        assert "F1" in disclosure
+        assert "that thing" in disclosure
+
+    async def test_the_candidate_is_still_offered_as_an_option_when_it_is_asked(
+        self, small_warehouse_path: Path
+    ) -> None:
+        """A GUESS IS AN OPTION, and the SSE frame publishes it.
+
+        The service still composes the offer — the engine applies it when
+        there is exactly one and nothing else has been applied this turn,
+        and the shape has to survive for every other case. The frame is what
+        a client renders the card from the moment a turn resolves; it
+        carried `{question, reason}` alone, so every option the funnel had
+        just validated arrived only on the terminal frame.
+        """
+        llm = MockLanguageModel()
+        _canned_t1(llm)
+        llm.respond(
+            "classify_turn",
+            {"turn_class": "refinement", "confidence": 0.9, "clarification_question": None},
+            matcher=lambda p: "F97" in p,
+        )
+        engine = _engine(small_warehouse_path, llm)
+        t1 = await _run_t1(engine)
+        outcome = await engine.submit.submit(
+            SubmitTurnRequest(tenant="demo", question="drill into F97", session_id=t1.session.id)
+        )
+        assert outcome.clarification is not None
+        assert outcome.clarification.options, "the handles this session DID publish"
+        assert NO_OPTIONS_REASON not in (outcome.clarification.reason or "")
         [frame] = [e for e in engine.event_bus.events if e.kind == "clarification"]
-        assert frame.payload["options"], frame.payload
-        assert all("F1" in option for option in frame.payload["options"])
+        assert frame.payload["options"] == list(outcome.clarification.options)
+        # The option carries the HANDLE, which is what resolves it: a reply
+        # naming one is claimed by `resolve_referent_tokens` at confidence
+        # 1.0 before any model sees it (§7.6).
+        entries = await engine.referent_registry.list_for_session(t1.session.id)
+        resolved, unknown = resolve_referent_tokens(outcome.clarification.options[0], entries)
+        assert unknown == ()
+        assert resolved
 
 
 class TestZeroProbeTurns:
@@ -574,7 +584,18 @@ class TestZeroProbeTurns:
         assert outcome.meta.operators  # operator applications with versions
         assert outcome.meta.finding_values  # the cited finding's numbers
 
-    async def test_meta_without_referent_clarifies(self, small_warehouse_path: Path) -> None:
+    async def test_meta_without_referent_answers_for_the_headline_figure(
+        self, small_warehouse_path: Path
+    ) -> None:
+        """Nobody types F1.
+
+        "Show me the math" over an answer holding one family of figures came
+        back *"Which finding do you mean? Name it by its handle (F1, F2,
+        ...)"* — with no options — demanding an identifier the analyst has
+        no reason to know exists, for an answer whose referent was the only
+        thing on screen. The figure the answer leads with is the referent,
+        and the assumption is published.
+        """
         llm = MockLanguageModel()
         _canned_t1(llm)
         llm.respond(
@@ -589,7 +610,38 @@ class TestZeroProbeTurns:
                 tenant="demo", question="how did you work all this out", session_id=t1.session.id
             )
         )
+        assert outcome.clarification is None
+        assert outcome.meta is not None
+        assert outcome.meta.referent == t1.findings[0].referent.value
+        assert any(w.startswith("referent_assumed:") for w in outcome.warnings)
+
+    async def test_meta_over_an_answer_that_published_nothing_asks_with_options(
+        self, small_warehouse_path: Path
+    ) -> None:
+        """With no figure on screen there is genuinely nothing to point at —
+        and the question is still never an empty card: the registry is the
+        answer, so the registry is what gets shown."""
+        llm = MockLanguageModel()
+        _canned_t1(llm)
+        llm.respond(
+            "classify_turn",
+            {"turn_class": "meta", "confidence": 0.95, "clarification_question": None},
+            matcher=lambda p: "how did you" in p,
+        )
+        engine = _engine(small_warehouse_path, llm)
+        t1 = await _run_t1(engine)
+        stored = await engine.investigation_store.get(t1.investigation.id)
+        assert stored is not None
+        await engine.investigation_store.save(replace(stored, findings=()), None)
+
+        outcome = await engine.submit.submit(
+            SubmitTurnRequest(
+                tenant="demo", question="how did you work all this out", session_id=t1.session.id
+            )
+        )
         assert outcome.clarification is not None
+        assert outcome.clarification.options, "a clarification with no options is a dead end"
+        assert NO_OPTIONS_REASON not in (outcome.clarification.reason or "")
 
     async def test_context_control_pins_persist_into_the_next_question(
         self, small_warehouse_path: Path
@@ -1156,3 +1208,62 @@ class TestOrdinalsReadThePublishedOrdering:
         # …but naming one of the two is never ambiguous
         [resolved] = resolve_named_referents("how about Atlas Commercial", two)
         assert resolved.referent.value == "D2"
+
+
+class TestTheComplementReferent:
+    """"The other" points at the row that is not the one just discussed.
+
+    "Top 2 facilities by denied dollars in July 2026" → **"not that one,
+    the other"**, over an answer holding exactly two findings, came back
+    asking whether the analyst meant a different metric, a different
+    segment or a different time window. None of the three is what was said,
+    and the reading that was said has exactly one candidate.
+    """
+
+    @staticmethod
+    def _finding(referent: str, title: str) -> Finding:
+        return Finding(
+            referent=ReferentId(value=referent, kind=ReferentKind.FINDING),
+            title=title,
+            statement=f"{title}.",
+            metric_refs=(MetricRef("denied_dollars"),),
+            values=(("denied_dollars", Decimal("1")),),
+            grade=EvidenceGrade.DIRECT,
+        )
+
+    @staticmethod
+    def _entries(*referents: str) -> tuple[RegisteredReferent, ...]:
+        return tuple(
+            RegisteredReferent(
+                referent=ReferentId(value=value, kind=ReferentKind.FINDING),
+                session_id="s",
+                investigation_id="i",
+                label=value,
+            )
+            for value in referents
+        )
+
+    def test_two_rows_on_screen_make_the_other_one_unambiguous(self) -> None:
+        findings = (self._finding("F1", "Eastmere"), self._finding("F2", "Northgate"))
+        [resolved] = resolve_complement_referent(
+            "not that one, the other", findings, self._entries("F1", "F2")
+        )
+        assert resolved.referent.value == "F2"
+        assert resolved.confidence == 1.0
+
+    def test_three_rows_leave_it_a_real_question(self) -> None:
+        findings = (
+            self._finding("F1", "Eastmere"),
+            self._finding("F2", "Northgate"),
+            self._finding("F3", "Southfield"),
+        )
+        assert (
+            resolve_complement_referent(
+                "not that one, the other", findings, self._entries("F1", "F2", "F3")
+            )
+            == ()
+        )
+
+    def test_an_utterance_that_names_no_complement_resolves_nothing(self) -> None:
+        findings = (self._finding("F1", "Eastmere"), self._finding("F2", "Northgate"))
+        assert resolve_complement_referent("compare the two", findings, self._entries("F1", "F2")) == ()
