@@ -134,9 +134,9 @@ export function AnswerCard({ turn, active = false }: { turn: TurnRecord; active?
               </button>
             </TooltipTrigger>
             <TooltipContent side="bottom" className="max-w-80 text-micro leading-snug">
-              Re-opening a session replays what the server kept: this turn&apos;s findings, its
-              charts (rebuilt from the frames it stored), its evidence bundle (projected from
-              its recorded trace) and — when the store holds them — its stated context and
+              Re-opening a session replays what the server kept: this answer&apos;s findings,
+              its charts (rebuilt from what it stored), its evidence (projected from its
+              recorded trace) and — when the store holds them — its stated context and
               written analysis. Its stage timings were never persisted.
             </TooltipContent>
           </Tooltip>
@@ -233,9 +233,9 @@ function TurnErrorCard({ error }: { error: NonNullable<TurnRecord["answer"]["err
   const spendStop = error.subcode === "MODEL_SPEND_BUDGET";
   const readStop = error.subcode === "WAREHOUSE_READ_BUDGET";
   const heading = spendStop
-    ? "This turn hit its model-spend ceiling"
+    ? "This question hit its model-spend ceiling"
     : readStop
-      ? "This question reads more of the warehouse than one turn allows"
+      ? "This question reads more of your data than one question is allowed to"
       : undefined;
   // The server's sentence, and only the server's sentence. The bracketed
   // machine tail repeats the code chip beside it and prints raw ids and
@@ -247,8 +247,16 @@ function TurnErrorCard({ error }: { error: NonNullable<TurnRecord["answer"]["err
       <AlertTriangle className="mt-0.5 size-3.5 shrink-0 text-negative" />
       <div className="min-w-0 flex-1">
         {heading && <p className="font-semibold">{heading}</p>}
-        <p className={cn(heading && "mt-0.5")}>
-          <code className="mr-1.5 font-mono text-micro">{error.code}</code>
+        {/* THE CODE IS A BRANCH HANDLE, NOT A WORD.
+            `UNSUPPORTED_CONCEPT` sat in front of the server's sentence on
+            every error card, unconditionally, while the machine tail
+            below it — which repeats the same code — was correctly gated
+            on debug. An ALL_CAPS enum token gets no client rendering at
+            all (docs/client-language.md §3): the sentence after it is the
+            message. It rides on `data-error-code` for anyone branching on
+            it, and stays spelled out when debug is on. */}
+        <p className={cn(heading && "mt-0.5")} data-error-code={error.code}>
+          {debug && <code className="mr-1.5 font-mono text-micro">{error.code}</code>}
           {sentence}
         </p>
         {debug && machine && (

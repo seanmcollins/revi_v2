@@ -64,7 +64,7 @@ describe("ContextHeader — the cohort chip", () => {
 
   it("keeps the hash reachable as a debugging handle, not as a name", async () => {
     renderHeader(LIVE_COHORT);
-    await userEvent.click(screen.getByRole("button", { name: /Cohort/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Population/ }));
     expect(await screen.findByText("cohort_f35d90b18482b2ea")).toBeInTheDocument();
     // The origin is a reference underneath, not the headline.
     expect(screen.getByText(/Pinned from D9 in turn_69a3e994c1d0/)).toBeInTheDocument();
@@ -72,7 +72,7 @@ describe("ContextHeader — the cohort chip", () => {
 
   it("explains a cohort pinned without its own window", async () => {
     renderHeader(LIVE_COHORT);
-    await userEvent.click(screen.getByRole("button", { name: /Cohort/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Population/ }));
     expect(
       await screen.findByText(/covers this population across all time/),
     ).toBeInTheDocument();
@@ -89,20 +89,20 @@ describe("ContextHeader — the cohort chip", () => {
       originTurn: "",
     });
     expect(screen.getByText("coh_9f2a11")).toBeInTheDocument();
-    expect(screen.getByText("312 entities")).toBeInTheDocument();
-    await userEvent.click(screen.getByRole("button", { name: /Cohort/ }));
+    expect(screen.getByText("312 records")).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /Population/ }));
     expect(await screen.findByText(/not the rule that selected it/)).toBeInTheDocument();
   });
 
-  it("says an unpinned cohort is re-evaluated each turn", async () => {
+  it("says an unpinned population is re-evaluated each time you ask", async () => {
     renderHeader({ ...LIVE_COHORT, pinned: false });
-    await userEvent.click(screen.getByRole("button", { name: /Cohort/ }));
+    await userEvent.click(screen.getByRole("button", { name: /Population/ }));
     expect(await screen.findByText(/the members can change/)).toBeInTheDocument();
   });
 
   it("draws no chip at all when the turn pinned no population", () => {
     renderHeader();
-    expect(screen.queryByRole("button", { name: /Cohort/ })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /Population/ })).not.toBeInTheDocument();
   });
 });
 

@@ -118,8 +118,13 @@ export function MonitorDigest({
                 className="focus-ring inline-flex items-center gap-1 rounded underline decoration-foreground/30 underline-offset-[3px] transition-colors duration-150 hover:text-foreground hover:decoration-foreground"
               >
                 {rest > 0
-                  ? `All ${tiles.length} monitors, with their thresholds`
-                  : "Your monitors, with their thresholds"}
+                  ? // "Levels", not "thresholds". The monitors surface calls
+                    // this a level in every sentence it writes — "Revi's
+                    // recommended level", "Your level", "Tell me when it
+                    // crosses a level" — and two words for one control is
+                    // how a reader concludes they are two controls.
+                    `All ${tiles.length} monitors, with their levels`
+                  : "Your monitors, with their levels"}
                 <ArrowRight aria-hidden className="size-2.5" />
               </Link>
             </p>

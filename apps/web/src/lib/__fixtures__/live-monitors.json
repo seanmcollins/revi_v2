@@ -12,12 +12,53 @@
     "watermark_id": "wm_003",
     "newest_data_date": "2026-08-02",
     "prior_watermark_id": "wm_002",
-    "headline": "4 thing(s) changed between wm_002 and wm_003: 2 new lead, 1 pin movement, 1 self resolved. Held back and counted rather than hidden: 1 monitored item(s) moved by less than the threshold for their unit; 1 lead(s) left the detection feed below the brief floor.",
+    "prior_newest_data_date": "2026-08-01",
+    "headline": "Since the Aug 1 load: 3 monitors moved, 2 new leads, 1 new leader, 1 resolved on its own.",
     "entries": [
+      {
+        "kind": "rank_flip",
+        "title": "Denial rate by payer, monthly",
+        "statement": "Since the Aug 1 load: State Medicaid MCO overtook Ashvale Health Plan at the top of Denial rate by payer, monthly, now at 29.5%. This is a change of subject and not a movement, so no change is reported between them — they are two different cells.",
+        "anomaly_id": null,
+        "pin_id": "pin_f48564be9b31",
+        "investigation_id": "inv_3f760fecf776",
+        "category": null,
+        "lane": null,
+        "impact_cents": null,
+        "time_to_impact": null,
+        "delta": null,
+        "baseline_delta": null,
+        "lead_status": null,
+        "integrity": {
+          "grade": "direct",
+          "things_to_know": 7,
+          "things_to_know_caution": 6,
+          "caveat_codes": [
+            "BOUNDED_CELLS_UNRANKED",
+            "FINDINGS_TRUNCATED",
+            "ALTERNATE_BASIS_USED",
+            "POPULATION_CAVEAT",
+            "SUPPRESSION_APPLIED",
+            "SUPPRESSION_BOUNDED",
+            "ADJUDICATION_INCOMPLETE"
+          ],
+          "checks": 1,
+          "is_bound": false,
+          "provisional": true
+        },
+        "provenance": {
+          "source": "pinned_spec",
+          "watermark_id": "wm_003",
+          "prior_watermark_id": "wm_002",
+          "evaluated_at": "2026-08-10T07:44:45.989999Z",
+          "formula_version": null,
+          "method": "Revi re-measured what this monitor measures at both loads. The cell it ranks first is not the cell it ranked first before."
+        }
+      },
       {
         "kind": "new_lead",
         "title": "Non-covered denial burst: Bluestone PPO Imaging",
-        "statement": "New at this load: ANM-029 — Non-covered denial burst: Bluestone PPO Imaging ($17,677.33 ranked on the detector's figure). the lead's ranked impact is $17,677.33, at or above the governed brief floor of $1,000.00.",
+        "statement": "New at this load: ANM-029 — Non-covered denial burst: Bluestone PPO Imaging, $17,677.33 on the detector's figure. The lead's ranked impact is $17,677.33, at or above the $1,000.00 Revi recommends before a new lead earns a line in the brief.",
         "anomaly_id": "ANM-029",
         "pin_id": null,
         "investigation_id": null,
@@ -39,13 +80,13 @@
         },
         "delta": null,
         "baseline_delta": null,
-        "lead_status": "open",
+        "lead_status": "resolved_claimed",
         "integrity": null,
         "provenance": {
           "source": "detection_feed",
           "watermark_id": "wm_003",
           "prior_watermark_id": null,
-          "evaluated_at": "2026-08-10T02:30:43.413050Z",
+          "evaluated_at": "2026-08-11T00:18:34.991345Z",
           "formula_version": "anomaly_priority@3",
           "method": "present in the detection feed at this load and absent at the prior one"
         }
@@ -53,7 +94,7 @@
       {
         "kind": "new_lead",
         "title": "Eligibility denial burst: State MCO Standard Emergency",
-        "statement": "New at this load: ANM-007 — Eligibility denial burst: State MCO Standard Emergency ($15,181.68 ranked on the detector's figure). the lead's ranked impact is $15,181.68, at or above the governed brief floor of $1,000.00.",
+        "statement": "New at this load: ANM-007 — Eligibility denial burst: State MCO Standard Emergency, $15,181.68 on the detector's figure. The lead's ranked impact is $15,181.68, at or above the $1,000.00 Revi recommends before a new lead earns a line in the brief.",
         "anomaly_id": "ANM-007",
         "pin_id": null,
         "investigation_id": null,
@@ -81,9 +122,188 @@
           "source": "detection_feed",
           "watermark_id": "wm_003",
           "prior_watermark_id": null,
-          "evaluated_at": "2026-08-10T02:30:43.413050Z",
+          "evaluated_at": "2026-08-11T00:18:34.991345Z",
           "formula_version": "anomaly_priority@3",
           "method": "present in the detection feed at this load and absent at the prior one"
+        }
+      },
+      {
+        "kind": "pin_movement",
+        "title": "denial rate for State Medicaid MCO",
+        "statement": "denial rate for State Medicaid MCO: 29.5%, up 7.3 points from 22.2% since the Aug 1 load. The rate moved 7.3 points, at or above the governed gate of 0.5 points. Against the previous load, both readings measured the same dates (Jul 1 – Jul 31, 2026), so this change is late-arriving data settling — adjudication run-out, back-dated charges — rather than a movement in the period itself. The value is provisional — the window is still adjudicating.",
+        "anomaly_id": null,
+        "pin_id": "pin_0bf06e1b3505",
+        "investigation_id": "inv_64646c3682a4",
+        "category": null,
+        "lane": null,
+        "impact_cents": null,
+        "time_to_impact": null,
+        "delta": {
+          "prior_watermark_id": "wm_002",
+          "prior_value": 0.222222,
+          "prior_value_text": "22.2%",
+          "value": 0.295082,
+          "value_text": "29.5%",
+          "unit": "ratio",
+          "delta": 0.07286,
+          "delta_text": "7.3 points",
+          "delta_fraction": null,
+          "direction": "up",
+          "comparable": true,
+          "not_comparable_reason": null,
+          "reference": "prior_load",
+          "subject_label": "State Medicaid MCO",
+          "prior_subject_label": "State Medicaid MCO",
+          "same_window": true,
+          "material": true,
+          "threshold_source": "governed",
+          "below_governed_gate": false,
+          "materiality_rule": "ratio_points",
+          "materiality_note": "the rate moved 7.3 points, at or above the governed gate of 0.5 points",
+          "recommended_threshold_text": ""
+        },
+        "baseline_delta": null,
+        "lead_status": null,
+        "integrity": {
+          "grade": "direct",
+          "things_to_know": 3,
+          "things_to_know_caution": 3,
+          "caveat_codes": [
+            "ALTERNATE_BASIS_USED",
+            "POPULATION_CAVEAT",
+            "ADJUDICATION_INCOMPLETE"
+          ],
+          "checks": 1,
+          "is_bound": false,
+          "provisional": true
+        },
+        "provenance": {
+          "source": "pinned_spec",
+          "watermark_id": "wm_003",
+          "prior_watermark_id": "wm_002",
+          "evaluated_at": "2026-08-10T07:44:46.239544Z",
+          "formula_version": null,
+          "method": "Revi re-measured what this monitor measures at this load, by the same steps it uses every load and with nothing re-interpreted. That reading is compared against this monitor's reading at the load this brief is taken since."
+        }
+      },
+      {
+        "kind": "pin_movement",
+        "title": "Silverline Medicare Advantage — denial rate",
+        "statement": "Silverline Medicare Advantage — denial rate: 18.8%, up 2.8 points from 16.0% since the Aug 1 load. The rate moved 2.8 points, at or above the governed gate of 0.5 points. Against the previous load, both readings measured the same dates (Jul 1 – Jul 31, 2026), so this change is late-arriving data settling — adjudication run-out, back-dated charges — rather than a movement in the period itself. The value is provisional — the window is still adjudicating.",
+        "anomaly_id": null,
+        "pin_id": "pin_13d7f5687ae2",
+        "investigation_id": "inv_fe85c8c0a53d",
+        "category": null,
+        "lane": null,
+        "impact_cents": null,
+        "time_to_impact": null,
+        "delta": {
+          "prior_watermark_id": "wm_002",
+          "prior_value": 0.16,
+          "prior_value_text": "16.0%",
+          "value": 0.188034,
+          "value_text": "18.8%",
+          "unit": "ratio",
+          "delta": 0.028034,
+          "delta_text": "2.8 points",
+          "delta_fraction": null,
+          "direction": "up",
+          "comparable": true,
+          "not_comparable_reason": null,
+          "reference": "prior_load",
+          "subject_label": "Silverline Medicare Advantage",
+          "prior_subject_label": "Silverline Medicare Advantage",
+          "same_window": true,
+          "material": true,
+          "threshold_source": "governed",
+          "below_governed_gate": false,
+          "materiality_rule": "ratio_points",
+          "materiality_note": "the rate moved 2.8 points, at or above the governed gate of 0.5 points",
+          "recommended_threshold_text": ""
+        },
+        "baseline_delta": null,
+        "lead_status": null,
+        "integrity": {
+          "grade": "direct",
+          "things_to_know": 4,
+          "things_to_know_caution": 3,
+          "caveat_codes": [
+            "ALTERNATE_BASIS_USED",
+            "POPULATION_CAVEAT",
+            "SUPPRESSION_APPLIED",
+            "ADJUDICATION_INCOMPLETE"
+          ],
+          "checks": 1,
+          "is_bound": false,
+          "provisional": true
+        },
+        "provenance": {
+          "source": "pinned_spec",
+          "watermark_id": "wm_003",
+          "prior_watermark_id": "wm_002",
+          "evaluated_at": "2026-08-10T07:44:46.552902Z",
+          "formula_version": null,
+          "method": "Revi re-measured what this monitor measures at this load, by the same steps it uses every load and with nothing re-interpreted. That reading is compared against this monitor's reading at the load this brief is taken since."
+        }
+      },
+      {
+        "kind": "pin_movement",
+        "title": "Ashvale Health Plan — denial rate",
+        "statement": "Ashvale Health Plan — denial rate: 22.9%, down 3.0 points from 25.9% since the Aug 1 load. Briefed on this monitor's own threshold: This monitor briefs at 1 point and it moved 3.0 points (Ashvale is our JOC account — brief me on anything over a point.). Against the previous load, both readings measured the same dates (Jul 1 – Jul 31, 2026), so this change is late-arriving data settling — adjudication run-out, back-dated charges — rather than a movement in the period itself. The value is provisional — the window is still adjudicating.",
+        "anomaly_id": null,
+        "pin_id": "pin_b616b7b89bde",
+        "investigation_id": "inv_ded310207575",
+        "category": null,
+        "lane": null,
+        "impact_cents": null,
+        "time_to_impact": null,
+        "delta": {
+          "prior_watermark_id": "wm_002",
+          "prior_value": 0.259259,
+          "prior_value_text": "25.9%",
+          "value": 0.229167,
+          "value_text": "22.9%",
+          "unit": "ratio",
+          "delta": -0.030092,
+          "delta_text": "3.0 points",
+          "delta_fraction": null,
+          "direction": "down",
+          "comparable": true,
+          "not_comparable_reason": null,
+          "reference": "prior_load",
+          "subject_label": "Ashvale Health Plan",
+          "prior_subject_label": "Ashvale Health Plan",
+          "same_window": true,
+          "material": true,
+          "threshold_source": "monitor",
+          "below_governed_gate": false,
+          "materiality_rule": "monitor_delta_gte",
+          "materiality_note": "this monitor briefs at 1 point and it moved 3.0 points (Ashvale is our JOC account — brief me on anything over a point.)",
+          "recommended_threshold_text": ""
+        },
+        "baseline_delta": null,
+        "lead_status": null,
+        "integrity": {
+          "grade": "direct",
+          "things_to_know": 4,
+          "things_to_know_caution": 3,
+          "caveat_codes": [
+            "ALTERNATE_BASIS_USED",
+            "POPULATION_CAVEAT",
+            "SUPPRESSION_APPLIED",
+            "ADJUDICATION_INCOMPLETE"
+          ],
+          "checks": 1,
+          "is_bound": false,
+          "provisional": true
+        },
+        "provenance": {
+          "source": "pinned_spec",
+          "watermark_id": "wm_003",
+          "prior_watermark_id": "wm_002",
+          "evaluated_at": "2026-08-10T16:55:47.158775Z",
+          "formula_version": null,
+          "method": "Revi re-measured what this monitor measures at this load, by the same steps it uses every load and with nothing re-interpreted. That reading is compared against this monitor's reading at the load this brief is taken since."
         }
       },
       {
@@ -105,99 +325,22 @@
           "source": "detection_feed",
           "watermark_id": "wm_003",
           "prior_watermark_id": "wm_002",
-          "evaluated_at": "2026-08-10T02:30:43.413050Z",
+          "evaluated_at": "2026-08-11T00:18:34.991345Z",
           "formula_version": "anomaly_priority@3",
           "method": "absent from the detection feed at this load and present at the prior one, with no resolution claimed"
         }
-      },
-      {
-        "kind": "pin_movement",
-        "title": "Denial rate by payer, monthly",
-        "statement": "Denial rate by payer, monthly: 29.5% at wm_003, up 3.6 points from 25.9% at wm_002. Briefed on this monitor's own threshold: this monitor briefs at 1 points and the tile moved 3.6 points (Anything over a point on any payer is worth my morning.). Since you started monitoring it at wm_001 it is up 5.2 points from 24.3%. Both loads measured the same dates (2026-07-01..2026-07-31), so this change is late-arriving data settling — adjudication run-out, back-dated charges — rather than a movement in the period itself. The value is provisional — the window is still adjudicating.",
-        "anomaly_id": null,
-        "pin_id": "pin_f48564be9b31",
-        "investigation_id": "inv_a7f2ebd1b158",
-        "category": null,
-        "lane": null,
-        "impact_cents": null,
-        "time_to_impact": null,
-        "delta": {
-          "prior_watermark_id": "wm_002",
-          "prior_value": 0.259259,
-          "prior_value_text": "25.9%",
-          "value": 0.295082,
-          "value_text": "29.5%",
-          "unit": "ratio",
-          "delta": 0.035823,
-          "delta_text": "3.6 points",
-          "delta_fraction": null,
-          "direction": "up",
-          "comparable": true,
-          "not_comparable_reason": null,
-          "reference": "prior_load",
-          "same_window": true,
-          "material": true,
-          "threshold_source": "monitor",
-          "below_governed_gate": false,
-          "materiality_rule": "monitor_delta_gte",
-          "materiality_note": "this monitor briefs at 1 points and the tile moved 3.6 points (Anything over a point on any payer is worth my morning.)"
-        },
-        "baseline_delta": {
-          "prior_watermark_id": "wm_001",
-          "prior_value": 0.243243,
-          "prior_value_text": "24.3%",
-          "value": 0.295082,
-          "value_text": "29.5%",
-          "unit": "ratio",
-          "delta": 0.051839,
-          "delta_text": "5.2 points",
-          "delta_fraction": null,
-          "direction": "up",
-          "comparable": true,
-          "not_comparable_reason": null,
-          "reference": "baseline",
-          "same_window": false,
-          "material": true,
-          "threshold_source": "monitor",
-          "below_governed_gate": false,
-          "materiality_rule": "monitor_delta_gte",
-          "materiality_note": "this monitor briefs at 1 points and the tile moved 5.2 points (Anything over a point on any payer is worth my morning.)"
-        },
-        "lead_status": null,
-        "integrity": {
-          "grade": "direct",
-          "things_to_know": 7,
-          "things_to_know_caution": 6,
-          "caveat_codes": [
-            "BOUNDED_CELLS_UNRANKED",
-            "FINDINGS_TRUNCATED",
-            "ALTERNATE_BASIS_USED",
-            "POPULATION_CAVEAT",
-            "SUPPRESSION_APPLIED",
-            "SUPPRESSION_BOUNDED",
-            "ADJUDICATION_INCOMPLETE"
-          ],
-          "checks": 1,
-          "is_bound": false,
-          "provisional": true
-        },
-        "provenance": {
-          "source": "pinned_spec",
-          "watermark_id": "wm_003",
-          "prior_watermark_id": "wm_002",
-          "evaluated_at": "2026-08-10T01:58:01.293089Z",
-          "formula_version": null,
-          "method": "this monitor's stored typed spec, re-run at this load through the ordinary governed pipeline (no model call), and diffed against the same spec's result at the prior load"
-        }
       }
     ],
-    "entries_total": 4,
+    "entries_total": 7,
     "immaterial": {
-      "pin_movements": 1,
+      "pin_movements": 2,
       "new_leads": 0,
       "self_resolved": 1,
       "entries_withheld_by_cap": 0,
-      "note": "Held back and counted rather than hidden: 1 monitored item(s) moved by less than the threshold for their unit; 1 lead(s) left the detection feed below the brief floor."
+      "not_yet_comparable": 3,
+      "unavailable": 0,
+      "entries_withheld_by_kind": {},
+      "note": "Held back and counted rather than hidden: 2 monitors moved by less than the level that would brief them; 1 lead left the detection feed too small to brief; 3 monitors have nothing to compare against yet."
     },
     "fatigue": {
       "active": false,
@@ -228,12 +371,23 @@
         "compliance"
       ],
       "max_entries": 12,
-      "content_hash": "4837d00672b6c7981c3d0ad1e781e27fa685b9a6ac932b7d3b7fb9cc5534c0b8",
-      "source": "/Users/dev/revi_v2/packs/base-rcm/monitors.yaml"
+      "priority_order": [
+        "resolution_regressed",
+        "resolution_confirmed",
+        "rank_flip",
+        "new_lead",
+        "pin_movement",
+        "self_resolved"
+      ],
+      "never_capped": [
+        "resolution_regressed"
+      ],
+      "content_hash": "ed81720ea0fdfd05c061e170c6aeea1c451b87dad715f41e2b34b13c9dbc6106",
+      "source": "/Users/sean/Documents/revi_v2/packs/base-rcm/monitors.yaml"
     },
-    "pins_evaluated": 4,
+    "pins_evaluated": 9,
     "leads_verified": 0,
-    "generated_at": "2026-08-10T02:30:43.424477Z",
+    "generated_at": "2026-08-11T00:18:35.016148Z",
     "warnings": [],
     "warnings_v2": []
   },
@@ -250,13 +404,17 @@
         "status": "ok",
         "watermark_id": "wm_003",
         "newest_data_date": "2026-08-02",
-        "evaluated_at": "2026-08-10T01:58:01.293089Z",
+        "evaluated_at": "2026-08-10T07:44:45.989999Z",
         "window_start": "2026-07-01",
         "window_end": "2026-07-31",
-        "investigation_id": "inv_a7f2ebd1b158",
-        "headline_referent": "F1",
+        "investigation_id": "inv_3f760fecf776",
+        "headline_referent": "F155",
         "headline_title": "State Medicaid MCO: 29.5% denial rate",
         "headline_statement": "State Medicaid MCO ranks #1 of 8 measured by denial rate over 2026-07-01..2026-07-31: 29.5%.",
+        "headline_subject": {
+          "payer": "State Medicaid MCO"
+        },
+        "headline_subject_label": "State Medicaid MCO",
         "value_text": "29.5%",
         "value": 0.295082,
         "unit": "ratio",
@@ -333,7 +491,7 @@
         ],
         "findings": [
           {
-            "referent": "F1",
+            "referent": "F155",
             "title": "State Medicaid MCO: 29.5% denial rate",
             "statement": "State Medicaid MCO ranks #1 of 8 measured by denial rate over 2026-07-01..2026-07-31: 29.5%.",
             "metric_ids": [
@@ -353,32 +511,13 @@
             "impact_cents": null,
             "confidence": "qualified",
             "suggested_refinements": [
-              "drill into F1"
+              "drill into F155"
             ],
-            "benchmarks": [
-              {
-                "id": "benchmark.denial_rate.marketplace_kff",
-                "metric_id": "denial_rate",
-                "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
-                "value_low": "19",
-                "value_high": "20",
-                "unit": "percent of in-network claims denied",
-                "period": "2023-2024",
-                "authority": "independent analysis of CMS transparency data",
-                "review_status": "machine_researched",
-                "cautions": [
-                  "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
-                  "Plan-reported data with no initial/final distinction"
-                ],
-                "sources": [
-                  "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
-                ]
-              }
-            ],
+            "benchmarks": [],
             "metric_caveats": []
           },
           {
-            "referent": "F2",
+            "referent": "F156",
             "title": "Ashvale Health Plan: 22.9% denial rate",
             "statement": "Ashvale Health Plan ranks #2 of 8 measured by denial rate over 2026-07-01..2026-07-31: 22.9%.",
             "metric_ids": [
@@ -398,32 +537,13 @@
             "impact_cents": null,
             "confidence": "qualified",
             "suggested_refinements": [
-              "drill into F2"
+              "drill into F156"
             ],
-            "benchmarks": [
-              {
-                "id": "benchmark.denial_rate.marketplace_kff",
-                "metric_id": "denial_rate",
-                "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
-                "value_low": "19",
-                "value_high": "20",
-                "unit": "percent of in-network claims denied",
-                "period": "2023-2024",
-                "authority": "independent analysis of CMS transparency data",
-                "review_status": "machine_researched",
-                "cautions": [
-                  "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
-                  "Plan-reported data with no initial/final distinction"
-                ],
-                "sources": [
-                  "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
-                ]
-              }
-            ],
+            "benchmarks": [],
             "metric_caveats": []
           },
           {
-            "referent": "F3",
+            "referent": "F157",
             "title": "Silverline Medicare Advantage: 18.8% denial rate",
             "statement": "Silverline Medicare Advantage ranks #3 of 8 measured by denial rate over 2026-07-01..2026-07-31: 18.8%.",
             "metric_ids": [
@@ -443,32 +563,13 @@
             "impact_cents": null,
             "confidence": "qualified",
             "suggested_refinements": [
-              "drill into F3"
+              "drill into F157"
             ],
-            "benchmarks": [
-              {
-                "id": "benchmark.denial_rate.marketplace_kff",
-                "metric_id": "denial_rate",
-                "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
-                "value_low": "19",
-                "value_high": "20",
-                "unit": "percent of in-network claims denied",
-                "period": "2023-2024",
-                "authority": "independent analysis of CMS transparency data",
-                "review_status": "machine_researched",
-                "cautions": [
-                  "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
-                  "Plan-reported data with no initial/final distinction"
-                ],
-                "sources": [
-                  "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
-                ]
-              }
-            ],
+            "benchmarks": [],
             "metric_caveats": []
           },
           {
-            "referent": "F4",
+            "referent": "F158",
             "title": "Federal Medicare: ≤ 4.7% denial rate (upper bound)",
             "statement": "Federal Medicare: denial rate is AT MOST 4.7% over 2026-07-01..2026-07-31 — the numerator was suppressed over a population of 214, so this is a ceiling and not a measurement. It is published unranked: a bound cannot be ordered against measured cells.",
             "metric_ids": [
@@ -496,32 +597,13 @@
             "impact_cents": null,
             "confidence": "qualified",
             "suggested_refinements": [
-              "drill into F4"
+              "drill into F158"
             ],
-            "benchmarks": [
-              {
-                "id": "benchmark.denial_rate.marketplace_kff",
-                "metric_id": "denial_rate",
-                "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
-                "value_low": "19",
-                "value_high": "20",
-                "unit": "percent of in-network claims denied",
-                "period": "2023-2024",
-                "authority": "independent analysis of CMS transparency data",
-                "review_status": "machine_researched",
-                "cautions": [
-                  "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
-                  "Plan-reported data with no initial/final distinction"
-                ],
-                "sources": [
-                  "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
-                ]
-              }
-            ],
+            "benchmarks": [],
             "metric_caveats": []
           },
           {
-            "referent": "F5",
+            "referent": "F159",
             "title": "Summit Peak Medicare Advantage: ≤ 18.9% denial rate (upper bound)",
             "statement": "Summit Peak Medicare Advantage: denial rate is AT MOST 18.9% over 2026-07-01..2026-07-31 — the numerator was suppressed over a population of 53, so this is a ceiling and not a measurement. It is published unranked: a bound cannot be ordered against measured cells.",
             "metric_ids": [
@@ -549,32 +631,13 @@
             "impact_cents": null,
             "confidence": "qualified",
             "suggested_refinements": [
-              "drill into F5"
+              "drill into F159"
             ],
-            "benchmarks": [
-              {
-                "id": "benchmark.denial_rate.marketplace_kff",
-                "metric_id": "denial_rate",
-                "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
-                "value_low": "19",
-                "value_high": "20",
-                "unit": "percent of in-network claims denied",
-                "period": "2023-2024",
-                "authority": "independent analysis of CMS transparency data",
-                "review_status": "machine_researched",
-                "cautions": [
-                  "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
-                  "Plan-reported data with no initial/final distinction"
-                ],
-                "sources": [
-                  "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
-                ]
-              }
-            ],
+            "benchmarks": [],
             "metric_caveats": []
           },
           {
-            "referent": "F6",
+            "referent": "F160",
             "title": "Lakewood Medicaid MCO: ≤ 20.8% denial rate (upper bound)",
             "statement": "Lakewood Medicaid MCO: denial rate is AT MOST 20.8% over 2026-07-01..2026-07-31 — the numerator was suppressed over a population of 48, so this is a ceiling and not a measurement. It is published unranked: a bound cannot be ordered against measured cells.",
             "metric_ids": [
@@ -602,28 +665,9 @@
             "impact_cents": null,
             "confidence": "qualified",
             "suggested_refinements": [
-              "drill into F6"
+              "drill into F160"
             ],
-            "benchmarks": [
-              {
-                "id": "benchmark.denial_rate.marketplace_kff",
-                "metric_id": "denial_rate",
-                "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
-                "value_low": "19",
-                "value_high": "20",
-                "unit": "percent of in-network claims denied",
-                "period": "2023-2024",
-                "authority": "independent analysis of CMS transparency data",
-                "review_status": "machine_researched",
-                "cautions": [
-                  "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
-                  "Plan-reported data with no initial/final distinction"
-                ],
-                "sources": [
-                  "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
-                ]
-              }
-            ],
+            "benchmarks": [],
             "metric_caveats": []
           }
         ],
@@ -634,19 +678,22 @@
           "value": 0.295082,
           "value_text": "29.5%",
           "unit": "ratio",
-          "delta": 0.035823,
-          "delta_text": "3.6 points",
+          "delta": null,
+          "delta_text": "",
           "delta_fraction": null,
-          "direction": "up",
-          "comparable": true,
-          "not_comparable_reason": null,
+          "direction": "unknown",
+          "comparable": false,
+          "not_comparable_reason": "the earlier load's leading cell was 'Ashvale Health Plan' and this one's is 'State Medicaid MCO', so a delta between them would be a comparison of two different subjects rather than a movement in one",
           "reference": "prior_load",
-          "same_window": true,
-          "material": true,
-          "threshold_source": "monitor",
+          "subject_label": "State Medicaid MCO",
+          "prior_subject_label": "Ashvale Health Plan",
+          "same_window": false,
+          "material": false,
+          "threshold_source": "governed",
           "below_governed_gate": false,
-          "materiality_rule": "monitor_delta_gte",
-          "materiality_note": "this monitor briefs at 1 points and the tile moved 3.6 points (Anything over a point on any payer is worth my morning.)"
+          "materiality_rule": "not_comparable",
+          "materiality_note": "the earlier load's leading cell was 'Ashvale Health Plan' and this one's is 'State Medicaid MCO', so a delta between them would be a comparison of two different subjects rather than a movement in one",
+          "recommended_threshold_text": ""
         },
         "baseline_delta": {
           "prior_watermark_id": "wm_001",
@@ -655,19 +702,22 @@
           "value": 0.295082,
           "value_text": "29.5%",
           "unit": "ratio",
-          "delta": 0.051839,
-          "delta_text": "5.2 points",
+          "delta": null,
+          "delta_text": "",
           "delta_fraction": null,
-          "direction": "up",
-          "comparable": true,
-          "not_comparable_reason": null,
+          "direction": "unknown",
+          "comparable": false,
+          "not_comparable_reason": "the earlier load's leading cell was 'Ashvale Health Plan' and this one's is 'State Medicaid MCO', so a delta between them would be a comparison of two different subjects rather than a movement in one",
           "reference": "baseline",
+          "subject_label": "State Medicaid MCO",
+          "prior_subject_label": "Ashvale Health Plan",
           "same_window": false,
-          "material": true,
-          "threshold_source": "monitor",
+          "material": false,
+          "threshold_source": "governed",
           "below_governed_gate": false,
-          "materiality_rule": "monitor_delta_gte",
-          "materiality_note": "this monitor briefs at 1 points and the tile moved 5.2 points (Anything over a point on any payer is worth my morning.)"
+          "materiality_rule": "not_comparable",
+          "materiality_note": "the earlier load's leading cell was 'Ashvale Health Plan' and this one's is 'State Medicaid MCO', so a delta between them would be a comparison of two different subjects rather than a movement in one",
+          "recommended_threshold_text": ""
         },
         "unavailable_reason": null
       },
@@ -678,13 +728,17 @@
         "status": "ok",
         "watermark_id": "wm_003",
         "newest_data_date": "2026-08-02",
-        "evaluated_at": "2026-08-10T01:58:01.372314Z",
+        "evaluated_at": "2026-08-10T07:44:46.134048Z",
         "window_start": "2026-07-01",
         "window_end": "2026-07-31",
-        "investigation_id": "inv_c290c64800a3",
-        "headline_referent": "F7",
+        "investigation_id": "inv_4a68fdcdb16f",
+        "headline_referent": "F161",
         "headline_title": "Summit Peak Medicare Advantage: $176,112.25 denied dollars",
         "headline_statement": "Summit Peak Medicare Advantage ranks #1 of 12 measured by denied dollars over 2026-07-01..2026-07-31: $176,112.25.",
+        "headline_subject": {
+          "payer": "Summit Peak Medicare Advantage"
+        },
+        "headline_subject_label": "Summit Peak Medicare Advantage",
         "value_text": "$176,112.25",
         "value": 17611225,
         "unit": "money_cents",
@@ -721,7 +775,7 @@
         ],
         "findings": [
           {
-            "referent": "F7",
+            "referent": "F161",
             "title": "Summit Peak Medicare Advantage: $176,112.25 denied dollars",
             "statement": "Summit Peak Medicare Advantage ranks #1 of 12 measured by denied dollars over 2026-07-01..2026-07-31: $176,112.25.",
             "metric_ids": [
@@ -741,13 +795,13 @@
             "impact_cents": 17611225,
             "confidence": "high",
             "suggested_refinements": [
-              "drill into F7"
+              "drill into F161"
             ],
             "benchmarks": [],
             "metric_caveats": []
           },
           {
-            "referent": "F8",
+            "referent": "F162",
             "title": "State Medicaid: $168,575.44 denied dollars",
             "statement": "State Medicaid ranks #2 of 12 measured by denied dollars over 2026-07-01..2026-07-31: $168,575.44.",
             "metric_ids": [
@@ -767,13 +821,13 @@
             "impact_cents": 16857544,
             "confidence": "high",
             "suggested_refinements": [
-              "drill into F8"
+              "drill into F162"
             ],
             "benchmarks": [],
             "metric_caveats": []
           },
           {
-            "referent": "F9",
+            "referent": "F163",
             "title": "Silverline Medicare Advantage: $158,122.42 denied dollars",
             "statement": "Silverline Medicare Advantage ranks #3 of 12 measured by denied dollars over 2026-07-01..2026-07-31: $158,122.42.",
             "metric_ids": [
@@ -793,7 +847,7 @@
             "impact_cents": 15812242,
             "confidence": "high",
             "suggested_refinements": [
-              "drill into F9"
+              "drill into F163"
             ],
             "benchmarks": [],
             "metric_caveats": []
@@ -813,12 +867,15 @@
           "comparable": true,
           "not_comparable_reason": null,
           "reference": "prior_load",
+          "subject_label": "Summit Peak Medicare Advantage",
+          "prior_subject_label": "Summit Peak Medicare Advantage",
           "same_window": true,
           "material": false,
           "threshold_source": "governed",
           "below_governed_gate": false,
           "materiality_rule": "money_relative_and_floor",
-          "materiality_note": "the value moved $0.00 (0.0%), short of 5% of the prior value and $1,000.00"
+          "materiality_note": "the value moved $0.00 (0.0%), short of 5% of the prior value and $1,000.00",
+          "recommended_threshold_text": ""
         },
         "baseline_delta": {
           "prior_watermark_id": "wm_001",
@@ -834,44 +891,47 @@
           "comparable": true,
           "not_comparable_reason": null,
           "reference": "baseline",
-          "same_window": false,
+          "subject_label": "Summit Peak Medicare Advantage",
+          "prior_subject_label": "Summit Peak Medicare Advantage",
+          "same_window": true,
           "material": false,
           "threshold_source": "governed",
           "below_governed_gate": false,
           "materiality_rule": "money_relative_and_floor",
-          "materiality_note": "the value moved $0.00 (0.0%), short of 5% of the prior value and $1,000.00"
+          "materiality_note": "the value moved $0.00 (0.0%), short of 5% of the prior value and $1,000.00",
+          "recommended_threshold_text": ""
         },
         "unavailable_reason": null
       },
       {
-        "pin_id": "pin_7466bf3197e3",
-        "label": "denial rate by payer each month",
+        "pin_id": "pin_0bf06e1b3505",
+        "label": "denial rate for State Medicaid MCO",
         "presentation": "scalar",
         "status": "ok",
         "watermark_id": "wm_003",
         "newest_data_date": "2026-08-02",
-        "evaluated_at": "2026-08-10T02:30:43.334579Z",
+        "evaluated_at": "2026-08-10T07:44:46.239544Z",
         "window_start": "2026-07-01",
         "window_end": "2026-07-31",
-        "investigation_id": "inv_d1f0f93a5b00",
-        "headline_referent": "F10",
-        "headline_title": "State Medicaid MCO: 29.5% denial rate",
-        "headline_statement": "State Medicaid MCO ranks #1 of 8 measured by denial rate over 2026-07-01..2026-07-31: 29.5%.",
+        "investigation_id": "inv_64646c3682a4",
+        "headline_referent": "F164",
+        "headline_title": "denial rate: 29.5% (2026-07-01..2026-07-31)",
+        "headline_statement": "denial rate is 29.5% over 2026-07-01..2026-07-31.",
+        "headline_subject": {
+          "payer": "State Medicaid MCO"
+        },
+        "headline_subject_label": "State Medicaid MCO",
         "value_text": "29.5%",
         "value": 0.295082,
         "unit": "ratio",
         "metric_id": "denial_rate",
         "integrity": {
           "grade": "direct",
-          "things_to_know": 7,
-          "things_to_know_caution": 6,
+          "things_to_know": 3,
+          "things_to_know_caution": 3,
           "caveat_codes": [
-            "BOUNDED_CELLS_UNRANKED",
-            "FINDINGS_TRUNCATED",
             "ALTERNATE_BASIS_USED",
             "POPULATION_CAVEAT",
-            "SUPPRESSION_APPLIED",
-            "SUPPRESSION_BOUNDED",
             "ADJUDICATION_INCOMPLETE"
           ],
           "checks": 1,
@@ -879,27 +939,11 @@
           "provisional": true
         },
         "warnings": [
-          "bounded_cells_unranked: 4 of 12 payers are too small to measure exactly — for those only a ceiling is known, so they are listed below the ranking rather than inside it. The ranking covers the 8 that could be measured: a ceiling has no place in an order it was never measured for.",
-          "findings_truncated: 6 of 12 computed cells are published as findings; the remaining 6 are in the chart and the evidence frame but carry no finding. Superlatives and spread statements on this answer describe the published slice, not the full population.",
           "alternate_basis_used: 'denial_rate' is computed on the 'service' basis — its primary 'remit' basis is not available at the 'claim' grain in this warehouse",
           "population_caveat: denial_rate — claims still awaiting their first remittance (status OPEN) are excluded from both sides — an unadjudicated claim carries a false clean flag for want of evidence, not because a payer denied it, so including it would report the data edge as a denial.",
-          "suppression: cells counting fewer than 11 entities in their POPULATION are withheld entirely before results leave the engine; a cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped",
-          "suppression_bounded: 4 of 12 groups here are too small to measure exactly — fewer than 11 things sit behind each of those numbers — so each shows a ceiling instead of a figure: Federal Medicare (denial rate ≤ 4.7% over 214 entities); Lakewood Medicaid MCO (denial rate ≤ 20.8% over 48 entities); Summit Peak Medicare Advantage (denial rate ≤ 18.9% over 53 entities); Veritas Comp Fund (denial rate ≤ 76.9% over 13 entities). The true value is at or below the ceiling and is not a measurement.",
           "adjudication_incomplete: this answer's window (2026-07-01..2026-07-31, service basis) has not finished settling. Across this whole load it holds 1,544 settled record(s) where a window of this length normally holds about 5,878 — 26.3% of it. What HAS settled is not a random sample of what has not: the fastest cases reach a decision first, so a total measured here is understated and a rate measured here is skewed. The count is the one 'clean_claim_rate' declares, and the norm is the median month of this load. Ask again over the last settled period, or on a basis whose events are already recorded, to read this without the caveat."
         ],
         "warnings_v2": [
-          {
-            "code": "BOUNDED_CELLS_UNRANKED",
-            "severity": "caution",
-            "message": "bounded_cells_unranked: 4 of 12 payers are too small to measure exactly — for those only a ceiling is known, so they are listed below the ranking rather than inside it. The ranking covers the 8 that could be measured: a ceiling has no place in an order it was never measured for.",
-            "count": 1
-          },
-          {
-            "code": "FINDINGS_TRUNCATED",
-            "severity": "caution",
-            "message": "findings_truncated: 6 of 12 computed cells are published as findings; the remaining 6 are in the chart and the evidence frame but carry no finding. Superlatives and spread statements on this answer describe the published slice, not the full population.",
-            "count": 1
-          },
           {
             "code": "ALTERNATE_BASIS_USED",
             "severity": "caution",
@@ -913,18 +957,6 @@
             "count": 1
           },
           {
-            "code": "SUPPRESSION_APPLIED",
-            "severity": "info",
-            "message": "suppression: cells counting fewer than 11 entities in their POPULATION are withheld entirely before results leave the engine; a cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped",
-            "count": 1
-          },
-          {
-            "code": "SUPPRESSION_BOUNDED",
-            "severity": "caution",
-            "message": "suppression_bounded: 4 of 12 groups here are too small to measure exactly — fewer than 11 things sit behind each of those numbers — so each shows a ceiling instead of a figure: Federal Medicare (denial rate ≤ 4.7% over 214 entities); Lakewood Medicaid MCO (denial rate ≤ 20.8% over 48 entities); Summit Peak Medicare Advantage (denial rate ≤ 18.9% over 53 entities); Veritas Comp Fund (denial rate ≤ 76.9% over 13 entities). The true value is at or below the ceiling and is not a measurement.",
-            "count": 1
-          },
-          {
             "code": "ADJUDICATION_INCOMPLETE",
             "severity": "caution",
             "message": "adjudication_incomplete: this answer's window (2026-07-01..2026-07-31, service basis) has not finished settling. Across this whole load it holds 1,544 settled record(s) where a window of this length normally holds about 5,878 — 26.3% of it. What HAS settled is not a random sample of what has not: the fastest cases reach a decision first, so a total measured here is understated and a rate measured here is skewed. The count is the one 'clean_claim_rate' declares, and the norm is the median month of this load. Ask again over the last settled period, or on a basis whose events are already recorded, to read this without the caveat.",
@@ -933,9 +965,9 @@
         ],
         "findings": [
           {
-            "referent": "F10",
-            "title": "State Medicaid MCO: 29.5% denial rate",
-            "statement": "State Medicaid MCO ranks #1 of 8 measured by denial rate over 2026-07-01..2026-07-31: 29.5%.",
+            "referent": "F164",
+            "title": "denial rate: 29.5% (2026-07-01..2026-07-31)",
+            "statement": "denial rate is 29.5% over 2026-07-01..2026-07-31.",
             "metric_ids": [
               "denial_rate"
             ],
@@ -943,323 +975,205 @@
               {
                 "name": "denial_rate",
                 "value": 0.295082
-              },
-              {
-                "name": "rank",
-                "value": 1
               }
             ],
             "grade": "direct",
             "impact_cents": null,
             "confidence": "qualified",
             "suggested_refinements": [
-              "drill into F10"
+              "drill into F164"
             ],
-            "benchmarks": [
-              {
-                "id": "benchmark.denial_rate.marketplace_kff",
-                "metric_id": "denial_rate",
-                "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
-                "value_low": "19",
-                "value_high": "20",
-                "unit": "percent of in-network claims denied",
-                "period": "2023-2024",
-                "authority": "independent analysis of CMS transparency data",
-                "review_status": "machine_researched",
-                "cautions": [
-                  "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
-                  "Plan-reported data with no initial/final distinction"
-                ],
-                "sources": [
-                  "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
-                ]
-              }
-            ],
-            "metric_caveats": []
-          },
-          {
-            "referent": "F11",
-            "title": "Ashvale Health Plan: 22.9% denial rate",
-            "statement": "Ashvale Health Plan ranks #2 of 8 measured by denial rate over 2026-07-01..2026-07-31: 22.9%.",
-            "metric_ids": [
-              "denial_rate"
-            ],
-            "values": [
-              {
-                "name": "denial_rate",
-                "value": 0.229167
-              },
-              {
-                "name": "rank",
-                "value": 2
-              }
-            ],
-            "grade": "direct",
-            "impact_cents": null,
-            "confidence": "qualified",
-            "suggested_refinements": [
-              "drill into F11"
-            ],
-            "benchmarks": [
-              {
-                "id": "benchmark.denial_rate.marketplace_kff",
-                "metric_id": "denial_rate",
-                "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
-                "value_low": "19",
-                "value_high": "20",
-                "unit": "percent of in-network claims denied",
-                "period": "2023-2024",
-                "authority": "independent analysis of CMS transparency data",
-                "review_status": "machine_researched",
-                "cautions": [
-                  "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
-                  "Plan-reported data with no initial/final distinction"
-                ],
-                "sources": [
-                  "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
-                ]
-              }
-            ],
-            "metric_caveats": []
-          },
-          {
-            "referent": "F12",
-            "title": "Silverline Medicare Advantage: 18.8% denial rate",
-            "statement": "Silverline Medicare Advantage ranks #3 of 8 measured by denial rate over 2026-07-01..2026-07-31: 18.8%.",
-            "metric_ids": [
-              "denial_rate"
-            ],
-            "values": [
-              {
-                "name": "denial_rate",
-                "value": 0.188034
-              },
-              {
-                "name": "rank",
-                "value": 3
-              }
-            ],
-            "grade": "direct",
-            "impact_cents": null,
-            "confidence": "qualified",
-            "suggested_refinements": [
-              "drill into F12"
-            ],
-            "benchmarks": [
-              {
-                "id": "benchmark.denial_rate.marketplace_kff",
-                "metric_id": "denial_rate",
-                "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
-                "value_low": "19",
-                "value_high": "20",
-                "unit": "percent of in-network claims denied",
-                "period": "2023-2024",
-                "authority": "independent analysis of CMS transparency data",
-                "review_status": "machine_researched",
-                "cautions": [
-                  "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
-                  "Plan-reported data with no initial/final distinction"
-                ],
-                "sources": [
-                  "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
-                ]
-              }
-            ],
-            "metric_caveats": []
-          },
-          {
-            "referent": "F13",
-            "title": "Federal Medicare: ≤ 4.7% denial rate (upper bound)",
-            "statement": "Federal Medicare: denial rate is AT MOST 4.7% over 2026-07-01..2026-07-31 — the numerator was suppressed over a population of 214, so this is a ceiling and not a measurement. It is published unranked: a bound cannot be ordered against measured cells.",
-            "metric_ids": [
-              "denial_rate"
-            ],
-            "values": [
-              {
-                "name": "denial_rate",
-                "value": 0.046729
-              },
-              {
-                "name": "denial_rate__is_bound",
-                "value": true
-              },
-              {
-                "name": "denial_rate__bound",
-                "value": 0.04672897196261682
-              },
-              {
-                "name": "denial_rate__bound_population",
-                "value": 214
-              }
-            ],
-            "grade": "direct",
-            "impact_cents": null,
-            "confidence": "qualified",
-            "suggested_refinements": [
-              "drill into F13"
-            ],
-            "benchmarks": [
-              {
-                "id": "benchmark.denial_rate.marketplace_kff",
-                "metric_id": "denial_rate",
-                "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
-                "value_low": "19",
-                "value_high": "20",
-                "unit": "percent of in-network claims denied",
-                "period": "2023-2024",
-                "authority": "independent analysis of CMS transparency data",
-                "review_status": "machine_researched",
-                "cautions": [
-                  "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
-                  "Plan-reported data with no initial/final distinction"
-                ],
-                "sources": [
-                  "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
-                ]
-              }
-            ],
-            "metric_caveats": []
-          },
-          {
-            "referent": "F14",
-            "title": "Summit Peak Medicare Advantage: ≤ 18.9% denial rate (upper bound)",
-            "statement": "Summit Peak Medicare Advantage: denial rate is AT MOST 18.9% over 2026-07-01..2026-07-31 — the numerator was suppressed over a population of 53, so this is a ceiling and not a measurement. It is published unranked: a bound cannot be ordered against measured cells.",
-            "metric_ids": [
-              "denial_rate"
-            ],
-            "values": [
-              {
-                "name": "denial_rate",
-                "value": 0.188679
-              },
-              {
-                "name": "denial_rate__is_bound",
-                "value": true
-              },
-              {
-                "name": "denial_rate__bound",
-                "value": 0.18867924528301888
-              },
-              {
-                "name": "denial_rate__bound_population",
-                "value": 53
-              }
-            ],
-            "grade": "direct",
-            "impact_cents": null,
-            "confidence": "qualified",
-            "suggested_refinements": [
-              "drill into F14"
-            ],
-            "benchmarks": [
-              {
-                "id": "benchmark.denial_rate.marketplace_kff",
-                "metric_id": "denial_rate",
-                "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
-                "value_low": "19",
-                "value_high": "20",
-                "unit": "percent of in-network claims denied",
-                "period": "2023-2024",
-                "authority": "independent analysis of CMS transparency data",
-                "review_status": "machine_researched",
-                "cautions": [
-                  "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
-                  "Plan-reported data with no initial/final distinction"
-                ],
-                "sources": [
-                  "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
-                ]
-              }
-            ],
-            "metric_caveats": []
-          },
-          {
-            "referent": "F15",
-            "title": "Lakewood Medicaid MCO: ≤ 20.8% denial rate (upper bound)",
-            "statement": "Lakewood Medicaid MCO: denial rate is AT MOST 20.8% over 2026-07-01..2026-07-31 — the numerator was suppressed over a population of 48, so this is a ceiling and not a measurement. It is published unranked: a bound cannot be ordered against measured cells.",
-            "metric_ids": [
-              "denial_rate"
-            ],
-            "values": [
-              {
-                "name": "denial_rate",
-                "value": 0.208333
-              },
-              {
-                "name": "denial_rate__is_bound",
-                "value": true
-              },
-              {
-                "name": "denial_rate__bound",
-                "value": 0.20833333333333334
-              },
-              {
-                "name": "denial_rate__bound_population",
-                "value": 48
-              }
-            ],
-            "grade": "direct",
-            "impact_cents": null,
-            "confidence": "qualified",
-            "suggested_refinements": [
-              "drill into F15"
-            ],
-            "benchmarks": [
-              {
-                "id": "benchmark.denial_rate.marketplace_kff",
-                "metric_id": "denial_rate",
-                "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
-                "value_low": "19",
-                "value_high": "20",
-                "unit": "percent of in-network claims denied",
-                "period": "2023-2024",
-                "authority": "independent analysis of CMS transparency data",
-                "review_status": "machine_researched",
-                "cautions": [
-                  "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
-                  "Plan-reported data with no initial/final distinction"
-                ],
-                "sources": [
-                  "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
-                ]
-              }
-            ],
+            "benchmarks": [],
             "metric_caveats": []
           }
         ],
-        "delta": null,
+        "delta": {
+          "prior_watermark_id": "wm_002",
+          "prior_value": 0.222222,
+          "prior_value_text": "22.2%",
+          "value": 0.295082,
+          "value_text": "29.5%",
+          "unit": "ratio",
+          "delta": 0.07286,
+          "delta_text": "7.3 points",
+          "delta_fraction": null,
+          "direction": "up",
+          "comparable": true,
+          "not_comparable_reason": null,
+          "reference": "prior_load",
+          "subject_label": "State Medicaid MCO",
+          "prior_subject_label": "State Medicaid MCO",
+          "same_window": true,
+          "material": true,
+          "threshold_source": "governed",
+          "below_governed_gate": false,
+          "materiality_rule": "ratio_points",
+          "materiality_note": "the rate moved 7.3 points, at or above the governed gate of 0.5 points",
+          "recommended_threshold_text": ""
+        },
         "baseline_delta": null,
         "unavailable_reason": null
       },
       {
-        "pin_id": "pin_0c7def7509c4",
-        "label": "State Medicaid MCO: 29.5% denial rate",
-        "presentation": "chart",
+        "pin_id": "pin_a1390d4ffe95",
+        "label": "monthly denial rate for Veritas Comp Fund",
+        "presentation": "scalar",
         "status": "ok",
         "watermark_id": "wm_003",
         "newest_data_date": "2026-08-02",
-        "evaluated_at": "2026-08-10T02:30:43.382341Z",
+        "evaluated_at": "2026-08-10T07:44:46.308568Z",
         "window_start": "2026-07-01",
         "window_end": "2026-07-31",
-        "investigation_id": "inv_9569ae037f46",
-        "headline_referent": "F16",
-        "headline_title": "State Medicaid MCO: 29.5% denial rate",
-        "headline_statement": "State Medicaid MCO ranks #1 of 8 measured by denial rate over 2026-07-01..2026-07-31: 29.5%.",
-        "value_text": "29.5%",
-        "value": 0.295082,
+        "investigation_id": "inv_c00820623af3",
+        "headline_referent": "F165",
+        "headline_title": "denial rate: ≤ 76.9% (2026-07-01..2026-07-31)",
+        "headline_statement": "denial rate is ≤ 76.9% over 2026-07-01..2026-07-31 — an UPPER BOUND, not a measurement: the numerator was suppressed over a population of 13, so the true figure is at or below this one.",
+        "headline_subject": {
+          "payer": "Veritas Comp Fund"
+        },
+        "headline_subject_label": "Veritas Comp Fund",
+        "value_text": "≤ 76.9%",
+        "value": 0.769231,
         "unit": "ratio",
         "metric_id": "denial_rate",
         "integrity": {
           "grade": "direct",
-          "things_to_know": 7,
-          "things_to_know_caution": 6,
+          "things_to_know": 4,
+          "things_to_know_caution": 4,
           "caveat_codes": [
-            "BOUNDED_CELLS_UNRANKED",
-            "FINDINGS_TRUNCATED",
             "ALTERNATE_BASIS_USED",
             "POPULATION_CAVEAT",
-            "SUPPRESSION_APPLIED",
             "SUPPRESSION_BOUNDED",
+            "ADJUDICATION_INCOMPLETE"
+          ],
+          "checks": 1,
+          "is_bound": true,
+          "provisional": true
+        },
+        "warnings": [
+          "alternate_basis_used: 'denial_rate' is computed on the 'service' basis — its primary 'remit' basis is not available at the 'claim' grain in this warehouse",
+          "population_caveat: denial_rate — claims still awaiting their first remittance (status OPEN) are excluded from both sides — an unadjudicated claim carries a false clean flag for want of evidence, not because a payer denied it, so including it would report the data edge as a denial.",
+          "suppression_bounded: 1 of 1 group here are too small to measure exactly — fewer than 11 things sit behind each of those numbers — so each shows a ceiling instead of a figure: the whole population (denial rate ≤ 76.9% over 13 entities). The true value is at or below the ceiling and is not a measurement.",
+          "adjudication_incomplete: this answer's window (2026-07-01..2026-07-31, service basis) has not finished settling. Across this whole load it holds 1,544 settled record(s) where a window of this length normally holds about 5,878 — 26.3% of it. What HAS settled is not a random sample of what has not: the fastest cases reach a decision first, so a total measured here is understated and a rate measured here is skewed. The count is the one 'clean_claim_rate' declares, and the norm is the median month of this load. Ask again over the last settled period, or on a basis whose events are already recorded, to read this without the caveat."
+        ],
+        "warnings_v2": [
+          {
+            "code": "ALTERNATE_BASIS_USED",
+            "severity": "caution",
+            "message": "alternate_basis_used: 'denial_rate' is computed on the 'service' basis — its primary 'remit' basis is not available at the 'claim' grain in this warehouse",
+            "count": 1
+          },
+          {
+            "code": "POPULATION_CAVEAT",
+            "severity": "caution",
+            "message": "population_caveat: denial_rate — claims still awaiting their first remittance (status OPEN) are excluded from both sides — an unadjudicated claim carries a false clean flag for want of evidence, not because a payer denied it, so including it would report the data edge as a denial.",
+            "count": 1
+          },
+          {
+            "code": "SUPPRESSION_BOUNDED",
+            "severity": "caution",
+            "message": "suppression_bounded: 1 of 1 group here are too small to measure exactly — fewer than 11 things sit behind each of those numbers — so each shows a ceiling instead of a figure: the whole population (denial rate ≤ 76.9% over 13 entities). The true value is at or below the ceiling and is not a measurement.",
+            "count": 1
+          },
+          {
+            "code": "ADJUDICATION_INCOMPLETE",
+            "severity": "caution",
+            "message": "adjudication_incomplete: this answer's window (2026-07-01..2026-07-31, service basis) has not finished settling. Across this whole load it holds 1,544 settled record(s) where a window of this length normally holds about 5,878 — 26.3% of it. What HAS settled is not a random sample of what has not: the fastest cases reach a decision first, so a total measured here is understated and a rate measured here is skewed. The count is the one 'clean_claim_rate' declares, and the norm is the median month of this load. Ask again over the last settled period, or on a basis whose events are already recorded, to read this without the caveat.",
+            "count": 1
+          }
+        ],
+        "findings": [
+          {
+            "referent": "F165",
+            "title": "denial rate: ≤ 76.9% (2026-07-01..2026-07-31)",
+            "statement": "denial rate is ≤ 76.9% over 2026-07-01..2026-07-31 — an UPPER BOUND, not a measurement: the numerator was suppressed over a population of 13, so the true figure is at or below this one.",
+            "metric_ids": [
+              "denial_rate"
+            ],
+            "values": [
+              {
+                "name": "denial_rate",
+                "value": 0.769231
+              },
+              {
+                "name": "denial_rate__is_bound",
+                "value": true
+              },
+              {
+                "name": "denial_rate__bound",
+                "value": 0.7692307692307693
+              },
+              {
+                "name": "denial_rate__bound_population",
+                "value": 13
+              }
+            ],
+            "grade": "direct",
+            "impact_cents": null,
+            "confidence": "qualified",
+            "suggested_refinements": [
+              "drill into F165"
+            ],
+            "benchmarks": [],
+            "metric_caveats": []
+          }
+        ],
+        "delta": {
+          "prior_watermark_id": "wm_002",
+          "prior_value": null,
+          "prior_value_text": "",
+          "value": 0.769231,
+          "value_text": "76.9%",
+          "unit": "ratio",
+          "delta": null,
+          "delta_text": "",
+          "delta_fraction": null,
+          "direction": "unknown",
+          "comparable": false,
+          "not_comparable_reason": "the prior load (wm_002) produced no value for this monitor, so no movement can be claimed",
+          "reference": "prior_load",
+          "subject_label": "Veritas Comp Fund",
+          "prior_subject_label": "",
+          "same_window": false,
+          "material": false,
+          "threshold_source": "governed",
+          "below_governed_gate": false,
+          "materiality_rule": "not_comparable",
+          "materiality_note": "the prior load (wm_002) produced no value for this monitor, so no movement can be claimed",
+          "recommended_threshold_text": ""
+        },
+        "baseline_delta": null,
+        "unavailable_reason": null
+      },
+      {
+        "pin_id": "pin_df42253af604",
+        "label": "days in A/R by payer",
+        "presentation": "scalar",
+        "status": "ok",
+        "watermark_id": "wm_003",
+        "newest_data_date": "2026-08-02",
+        "evaluated_at": "2026-08-10T07:44:46.386010Z",
+        "window_start": "2026-07-01",
+        "window_end": "2026-07-31",
+        "investigation_id": "inv_0f04c8857d64",
+        "headline_referent": "F166",
+        "headline_title": "Atlas Commercial: 179.5 days in ar",
+        "headline_statement": "Atlas Commercial ranks #1 of 12 measured by days in ar as of 2026-08-02: 179.5 days.",
+        "headline_subject": {
+          "payer": "Atlas Commercial"
+        },
+        "headline_subject_label": "Atlas Commercial",
+        "value_text": "179.5 days",
+        "value": 179.46832,
+        "unit": "days",
+        "metric_id": "days_in_ar",
+        "integrity": {
+          "grade": "direct",
+          "things_to_know": 3,
+          "things_to_know_caution": 2,
+          "caveat_codes": [
+            "FINDINGS_TRUNCATED",
+            "SUPPRESSION_APPLIED",
             "ADJUDICATION_INCOMPLETE"
           ],
           "checks": 1,
@@ -1267,15 +1181,442 @@
           "provisional": true
         },
         "warnings": [
+          "findings_truncated: 3 of 12 computed cells are published as findings; the remaining 9 are in the chart and the evidence frame but carry no finding. Superlatives and spread statements on this answer describe the published slice, not the full population.",
+          "suppression: cells counting fewer than 11 entities in their POPULATION are withheld entirely before results leave the engine; a cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped",
+          "adjudication_incomplete: this answer's window (2026-07-01..2026-07-31, service basis) has not finished settling. Across this whole load it holds 1,544 settled record(s) where a window of this length normally holds about 5,878 — 26.3% of it. What HAS settled is not a random sample of what has not: the fastest cases reach a decision first, so a total measured here is understated and a rate measured here is skewed. The count is the one 'clean_claim_rate' declares, and the norm is the median month of this load. Ask again over the last settled period, or on a basis whose events are already recorded, to read this without the caveat."
+        ],
+        "warnings_v2": [
+          {
+            "code": "FINDINGS_TRUNCATED",
+            "severity": "caution",
+            "message": "findings_truncated: 3 of 12 computed cells are published as findings; the remaining 9 are in the chart and the evidence frame but carry no finding. Superlatives and spread statements on this answer describe the published slice, not the full population.",
+            "count": 1
+          },
+          {
+            "code": "SUPPRESSION_APPLIED",
+            "severity": "info",
+            "message": "suppression: cells counting fewer than 11 entities in their POPULATION are withheld entirely before results leave the engine; a cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped",
+            "count": 1
+          },
+          {
+            "code": "ADJUDICATION_INCOMPLETE",
+            "severity": "caution",
+            "message": "adjudication_incomplete: this answer's window (2026-07-01..2026-07-31, service basis) has not finished settling. Across this whole load it holds 1,544 settled record(s) where a window of this length normally holds about 5,878 — 26.3% of it. What HAS settled is not a random sample of what has not: the fastest cases reach a decision first, so a total measured here is understated and a rate measured here is skewed. The count is the one 'clean_claim_rate' declares, and the norm is the median month of this load. Ask again over the last settled period, or on a basis whose events are already recorded, to read this without the caveat.",
+            "count": 1
+          }
+        ],
+        "findings": [
+          {
+            "referent": "F166",
+            "title": "Atlas Commercial: 179.5 days in ar",
+            "statement": "Atlas Commercial ranks #1 of 12 measured by days in ar as of 2026-08-02: 179.5 days.",
+            "metric_ids": [
+              "days_in_ar"
+            ],
+            "values": [
+              {
+                "name": "days_in_ar",
+                "value": 179.46832
+              },
+              {
+                "name": "rank",
+                "value": 1
+              }
+            ],
+            "grade": "direct",
+            "impact_cents": null,
+            "confidence": "qualified",
+            "suggested_refinements": [
+              "drill into F166"
+            ],
+            "benchmarks": [],
+            "metric_caveats": []
+          },
+          {
+            "referent": "F167",
+            "title": "Lakewood Medicaid MCO: 176.8 days in ar",
+            "statement": "Lakewood Medicaid MCO ranks #2 of 12 measured by days in ar as of 2026-08-02: 176.8 days.",
+            "metric_ids": [
+              "days_in_ar"
+            ],
+            "values": [
+              {
+                "name": "days_in_ar",
+                "value": 176.802835
+              },
+              {
+                "name": "rank",
+                "value": 2
+              }
+            ],
+            "grade": "direct",
+            "impact_cents": null,
+            "confidence": "qualified",
+            "suggested_refinements": [
+              "drill into F167"
+            ],
+            "benchmarks": [],
+            "metric_caveats": []
+          },
+          {
+            "referent": "F168",
+            "title": "Federal Medicare: 168.5 days in ar",
+            "statement": "Federal Medicare ranks #3 of 12 measured by days in ar as of 2026-08-02: 168.5 days.",
+            "metric_ids": [
+              "days_in_ar"
+            ],
+            "values": [
+              {
+                "name": "days_in_ar",
+                "value": 168.458046
+              },
+              {
+                "name": "rank",
+                "value": 3
+              }
+            ],
+            "grade": "direct",
+            "impact_cents": null,
+            "confidence": "qualified",
+            "suggested_refinements": [
+              "drill into F168"
+            ],
+            "benchmarks": [],
+            "metric_caveats": []
+          }
+        ],
+        "delta": {
+          "prior_watermark_id": "wm_002",
+          "prior_value": 179.573049,
+          "prior_value_text": "179.6 days",
+          "value": 179.46832,
+          "value_text": "179.5 days",
+          "unit": "days",
+          "delta": -0.104729,
+          "delta_text": "0.1 days",
+          "delta_fraction": -0.000583,
+          "direction": "down",
+          "comparable": true,
+          "not_comparable_reason": null,
+          "reference": "prior_load",
+          "subject_label": "Atlas Commercial",
+          "prior_subject_label": "Atlas Commercial",
+          "same_window": true,
+          "material": false,
+          "threshold_source": "monitor",
+          "below_governed_gate": false,
+          "materiality_rule": "monitor_delta_gte",
+          "materiality_note": "this monitor briefs at 2.0 days and it moved 0.1 days (declared in words: and tell me when it moves more than 2 days)",
+          "recommended_threshold_text": ""
+        },
+        "baseline_delta": null,
+        "unavailable_reason": null
+      },
+      {
+        "pin_id": "pin_13d7f5687ae2",
+        "label": "Silverline Medicare Advantage — denial rate",
+        "presentation": "finding",
+        "status": "ok",
+        "watermark_id": "wm_003",
+        "newest_data_date": "2026-08-02",
+        "evaluated_at": "2026-08-10T07:44:46.552902Z",
+        "window_start": "2026-07-01",
+        "window_end": "2026-07-31",
+        "investigation_id": "inv_fe85c8c0a53d",
+        "headline_referent": "F170",
+        "headline_title": "Silverline Medicare Advantage: 18.8% denial rate",
+        "headline_statement": "Silverline Medicare Advantage ranks #1 of 1 measured by denial rate over 2026-07-01..2026-07-31: 18.8%.",
+        "headline_subject": {
+          "payer": "Silverline Medicare Advantage"
+        },
+        "headline_subject_label": "Silverline Medicare Advantage",
+        "value_text": "18.8%",
+        "value": 0.188034,
+        "unit": "ratio",
+        "metric_id": "denial_rate",
+        "integrity": {
+          "grade": "direct",
+          "things_to_know": 4,
+          "things_to_know_caution": 3,
+          "caveat_codes": [
+            "ALTERNATE_BASIS_USED",
+            "POPULATION_CAVEAT",
+            "SUPPRESSION_APPLIED",
+            "ADJUDICATION_INCOMPLETE"
+          ],
+          "checks": 1,
+          "is_bound": false,
+          "provisional": true
+        },
+        "warnings": [
+          "alternate_basis_used: 'denial_rate' is computed on the 'service' basis — its primary 'remit' basis is not available at the 'claim' grain in this warehouse",
+          "population_caveat: denial_rate — claims still awaiting their first remittance (status OPEN) are excluded from both sides — an unadjudicated claim carries a false clean flag for want of evidence, not because a payer denied it, so including it would report the data edge as a denial.",
+          "suppression: cells counting fewer than 11 entities in their POPULATION are withheld entirely before results leave the engine; a cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped",
+          "adjudication_incomplete: this answer's window (2026-07-01..2026-07-31, service basis) has not finished settling. Across this whole load it holds 1,544 settled record(s) where a window of this length normally holds about 5,878 — 26.3% of it. What HAS settled is not a random sample of what has not: the fastest cases reach a decision first, so a total measured here is understated and a rate measured here is skewed. The count is the one 'clean_claim_rate' declares, and the norm is the median month of this load. Ask again over the last settled period, or on a basis whose events are already recorded, to read this without the caveat."
+        ],
+        "warnings_v2": [
+          {
+            "code": "ALTERNATE_BASIS_USED",
+            "severity": "caution",
+            "message": "alternate_basis_used: 'denial_rate' is computed on the 'service' basis — its primary 'remit' basis is not available at the 'claim' grain in this warehouse",
+            "count": 1
+          },
+          {
+            "code": "POPULATION_CAVEAT",
+            "severity": "caution",
+            "message": "population_caveat: denial_rate — claims still awaiting their first remittance (status OPEN) are excluded from both sides — an unadjudicated claim carries a false clean flag for want of evidence, not because a payer denied it, so including it would report the data edge as a denial.",
+            "count": 1
+          },
+          {
+            "code": "SUPPRESSION_APPLIED",
+            "severity": "info",
+            "message": "suppression: cells counting fewer than 11 entities in their POPULATION are withheld entirely before results leave the engine; a cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped",
+            "count": 1
+          },
+          {
+            "code": "ADJUDICATION_INCOMPLETE",
+            "severity": "caution",
+            "message": "adjudication_incomplete: this answer's window (2026-07-01..2026-07-31, service basis) has not finished settling. Across this whole load it holds 1,544 settled record(s) where a window of this length normally holds about 5,878 — 26.3% of it. What HAS settled is not a random sample of what has not: the fastest cases reach a decision first, so a total measured here is understated and a rate measured here is skewed. The count is the one 'clean_claim_rate' declares, and the norm is the median month of this load. Ask again over the last settled period, or on a basis whose events are already recorded, to read this without the caveat.",
+            "count": 1
+          }
+        ],
+        "findings": [
+          {
+            "referent": "F170",
+            "title": "Silverline Medicare Advantage: 18.8% denial rate",
+            "statement": "Silverline Medicare Advantage ranks #1 of 1 measured by denial rate over 2026-07-01..2026-07-31: 18.8%.",
+            "metric_ids": [
+              "denial_rate"
+            ],
+            "values": [
+              {
+                "name": "denial_rate",
+                "value": 0.188034
+              },
+              {
+                "name": "rank",
+                "value": 1
+              }
+            ],
+            "grade": "direct",
+            "impact_cents": null,
+            "confidence": "qualified",
+            "suggested_refinements": [
+              "drill into F170"
+            ],
+            "benchmarks": [],
+            "metric_caveats": []
+          }
+        ],
+        "delta": {
+          "prior_watermark_id": "wm_002",
+          "prior_value": 0.16,
+          "prior_value_text": "16.0%",
+          "value": 0.188034,
+          "value_text": "18.8%",
+          "unit": "ratio",
+          "delta": 0.028034,
+          "delta_text": "2.8 points",
+          "delta_fraction": null,
+          "direction": "up",
+          "comparable": true,
+          "not_comparable_reason": null,
+          "reference": "prior_load",
+          "subject_label": "Silverline Medicare Advantage",
+          "prior_subject_label": "Silverline Medicare Advantage",
+          "same_window": true,
+          "material": true,
+          "threshold_source": "governed",
+          "below_governed_gate": false,
+          "materiality_rule": "ratio_points",
+          "materiality_note": "the rate moved 2.8 points, at or above the governed gate of 0.5 points",
+          "recommended_threshold_text": ""
+        },
+        "baseline_delta": null,
+        "unavailable_reason": null
+      },
+      {
+        "pin_id": "pin_b616b7b89bde",
+        "label": "Ashvale Health Plan — denial rate",
+        "presentation": "finding",
+        "status": "ok",
+        "watermark_id": "wm_003",
+        "newest_data_date": "2026-08-02",
+        "evaluated_at": "2026-08-10T16:55:47.158775Z",
+        "window_start": "2026-07-01",
+        "window_end": "2026-07-31",
+        "investigation_id": "inv_ded310207575",
+        "headline_referent": "F1",
+        "headline_title": "Ashvale Health Plan: 22.9% denial rate",
+        "headline_statement": "Ashvale Health Plan ranks #1 of 1 measured by denial rate over 2026-07-01..2026-07-31: 22.9%.",
+        "headline_subject": {
+          "payer": "Ashvale Health Plan"
+        },
+        "headline_subject_label": "Ashvale Health Plan",
+        "value_text": "22.9%",
+        "value": 0.229167,
+        "unit": "ratio",
+        "metric_id": "denial_rate",
+        "integrity": {
+          "grade": "direct",
+          "things_to_know": 4,
+          "things_to_know_caution": 3,
+          "caveat_codes": [
+            "ALTERNATE_BASIS_USED",
+            "POPULATION_CAVEAT",
+            "SUPPRESSION_APPLIED",
+            "ADJUDICATION_INCOMPLETE"
+          ],
+          "checks": 1,
+          "is_bound": false,
+          "provisional": true
+        },
+        "warnings": [
+          "alternate_basis_used: 'denial_rate' is computed on the 'service' basis — its primary 'remit' basis is not available at the 'claim' grain in this warehouse",
+          "population_caveat: denial_rate — claims still awaiting their first remittance (status OPEN) are excluded from both sides — an unadjudicated claim carries a false clean flag for want of evidence, not because a payer denied it, so including it would report the data edge as a denial.",
+          "suppression: cells counting fewer than 11 entities in their POPULATION are withheld entirely before results leave the engine; a cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped",
+          "adjudication_incomplete: this answer's window (2026-07-01..2026-07-31, service basis) has not finished settling. Across this whole load it holds 1,544 settled record(s) where a window of this length normally holds about 5,878 — 26.3% of it. What HAS settled is not a random sample of what has not: the fastest cases reach a decision first, so a total measured here is understated and a rate measured here is skewed. The count is the one 'clean_claim_rate' declares, and the norm is the median month of this load. Ask again over the last settled period, or on a basis whose events are already recorded, to read this without the caveat."
+        ],
+        "warnings_v2": [
+          {
+            "code": "ALTERNATE_BASIS_USED",
+            "severity": "caution",
+            "message": "alternate_basis_used: 'denial_rate' is computed on the 'service' basis — its primary 'remit' basis is not available at the 'claim' grain in this warehouse",
+            "count": 1
+          },
+          {
+            "code": "POPULATION_CAVEAT",
+            "severity": "caution",
+            "message": "population_caveat: denial_rate — claims still awaiting their first remittance (status OPEN) are excluded from both sides — an unadjudicated claim carries a false clean flag for want of evidence, not because a payer denied it, so including it would report the data edge as a denial.",
+            "count": 1
+          },
+          {
+            "code": "SUPPRESSION_APPLIED",
+            "severity": "info",
+            "message": "suppression: cells counting fewer than 11 entities in their POPULATION are withheld entirely before results leave the engine; a cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped",
+            "count": 1
+          },
+          {
+            "code": "ADJUDICATION_INCOMPLETE",
+            "severity": "caution",
+            "message": "adjudication_incomplete: this answer's window (2026-07-01..2026-07-31, service basis) has not finished settling. Across this whole load it holds 1,544 settled record(s) where a window of this length normally holds about 5,878 — 26.3% of it. What HAS settled is not a random sample of what has not: the fastest cases reach a decision first, so a total measured here is understated and a rate measured here is skewed. The count is the one 'clean_claim_rate' declares, and the norm is the median month of this load. Ask again over the last settled period, or on a basis whose events are already recorded, to read this without the caveat.",
+            "count": 1
+          }
+        ],
+        "findings": [
+          {
+            "referent": "F1",
+            "title": "Ashvale Health Plan: 22.9% denial rate",
+            "statement": "Ashvale Health Plan ranks #1 of 1 measured by denial rate over 2026-07-01..2026-07-31: 22.9%.",
+            "metric_ids": [
+              "denial_rate"
+            ],
+            "values": [
+              {
+                "name": "denial_rate",
+                "value": 0.229167
+              },
+              {
+                "name": "rank",
+                "value": 1
+              }
+            ],
+            "grade": "direct",
+            "impact_cents": null,
+            "confidence": "qualified",
+            "suggested_refinements": [
+              "drill into F1"
+            ],
+            "benchmarks": [],
+            "metric_caveats": []
+          }
+        ],
+        "delta": {
+          "prior_watermark_id": "wm_002",
+          "prior_value": 0.259259,
+          "prior_value_text": "25.9%",
+          "value": 0.229167,
+          "value_text": "22.9%",
+          "unit": "ratio",
+          "delta": -0.030092,
+          "delta_text": "3.0 points",
+          "delta_fraction": null,
+          "direction": "down",
+          "comparable": true,
+          "not_comparable_reason": null,
+          "reference": "prior_load",
+          "subject_label": "Ashvale Health Plan",
+          "prior_subject_label": "Ashvale Health Plan",
+          "same_window": true,
+          "material": true,
+          "threshold_source": "monitor",
+          "below_governed_gate": false,
+          "materiality_rule": "monitor_delta_gte",
+          "materiality_note": "this monitor briefs at 1 point and it moved 3.0 points (Ashvale is our JOC account — brief me on anything over a point.)",
+          "recommended_threshold_text": ""
+        },
+        "baseline_delta": null,
+        "unavailable_reason": null
+      },
+      {
+        "pin_id": "pin_2e4e213ef9de",
+        "label": "denial rate by payer",
+        "presentation": "scalar",
+        "status": "ok",
+        "watermark_id": "wm_003",
+        "newest_data_date": "2026-08-02",
+        "evaluated_at": "2026-08-10T22:41:06.929428Z",
+        "window_start": "2026-07-01",
+        "window_end": "2026-07-31",
+        "investigation_id": "inv_1c30a59b4b3f",
+        "headline_referent": "F4",
+        "headline_title": "State Medicaid MCO: 29.5% denial rate",
+        "headline_statement": "State Medicaid MCO ranks #1 of 8 measured by denial rate over 2026-07-01..2026-07-31: 29.5%.",
+        "headline_subject": {
+          "payer": "State Medicaid MCO"
+        },
+        "headline_subject_label": "State Medicaid MCO",
+        "value_text": "29.5%",
+        "value": 0.295082,
+        "unit": "ratio",
+        "metric_id": "denial_rate",
+        "integrity": {
+          "grade": "direct",
+          "things_to_know": 9,
+          "things_to_know_caution": 7,
+          "caveat_codes": [
+            "WINDOW_ASSUMED",
+            "BOUNDED_CELLS_UNRANKED",
+            "FINDINGS_TRUNCATED",
+            "ALTERNATE_BASIS_USED",
+            "POPULATION_CAVEAT",
+            "SUPPRESSION_APPLIED",
+            "SUPPRESSION_BOUNDED",
+            "ADJUDICATION_INCOMPLETE",
+            "NAMED_CUT_APPLIED"
+          ],
+          "checks": 1,
+          "is_bound": false,
+          "provisional": true
+        },
+        "warnings": [
+          "window_assumed: the question named no period, so I used 2026-07-01..2026-07-31 on the service basis — the last full month this load can see (newest data date 2026-08-02).",
           "bounded_cells_unranked: 4 of 12 payers are too small to measure exactly — for those only a ceiling is known, so they are listed below the ranking rather than inside it. The ranking covers the 8 that could be measured: a ceiling has no place in an order it was never measured for.",
           "findings_truncated: 6 of 12 computed cells are published as findings; the remaining 6 are in the chart and the evidence frame but carry no finding. Superlatives and spread statements on this answer describe the published slice, not the full population.",
           "alternate_basis_used: 'denial_rate' is computed on the 'service' basis — its primary 'remit' basis is not available at the 'claim' grain in this warehouse",
           "population_caveat: denial_rate — claims still awaiting their first remittance (status OPEN) are excluded from both sides — an unadjudicated claim carries a false clean flag for want of evidence, not because a payer denied it, so including it would report the data edge as a denial.",
           "suppression: cells counting fewer than 11 entities in their POPULATION are withheld entirely before results leave the engine; a cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped",
-          "suppression_bounded: 4 of 12 groups here are too small to measure exactly — fewer than 11 things sit behind each of those numbers — so each shows a ceiling instead of a figure: Federal Medicare (denial rate ≤ 4.7% over 214 entities); Lakewood Medicaid MCO (denial rate ≤ 20.8% over 48 entities); Summit Peak Medicare Advantage (denial rate ≤ 18.9% over 53 entities); Veritas Comp Fund (denial rate ≤ 76.9% over 13 entities). The true value is at or below the ceiling and is not a measurement.",
-          "adjudication_incomplete: this answer's window (2026-07-01..2026-07-31, service basis) has not finished settling. Across this whole load it holds 1,544 settled record(s) where a window of this length normally holds about 5,878 — 26.3% of it. What HAS settled is not a random sample of what has not: the fastest cases reach a decision first, so a total measured here is understated and a rate measured here is skewed. The count is the one 'clean_claim_rate' declares, and the norm is the median month of this load. Ask again over the last settled period, or on a basis whose events are already recorded, to read this without the caveat."
+          "suppression_bounded: 4 of 12 payers here are too small to measure exactly — fewer than 11 of the events being counted landed in each, over a population this answer publishes in full — so each shows a ceiling instead of a figure: Federal Medicare (denial rate ≤ 4.7% over 214 entities); Lakewood Medicaid MCO (denial rate ≤ 20.8% over 48 entities); Summit Peak Medicare Advantage (denial rate ≤ 18.9% over 53 entities); Veritas Comp Fund (denial rate ≤ 76.9% over 13 entities). The true value is at or below the ceiling and is not a measurement.",
+          "adjudication_incomplete: through June 2026 — the last period of this metric that has finished settling — denial rate reads 9.1%. The window below (2026-07-01..2026-07-31) is the one this platform assumed, and it has NOT finished settling: it holds 1,544 settled record(s) where a window of that length normally holds about 5,878, 26.3% of it. Read the settled figure as the level and the one below as provisional — what has settled is not a random sample of what has not, so a total there is understated and a rate there is skewed. The count is the one 'clean_claim_rate' declares, and the norm is the median month of this load.",
+          "named_cut_applied: read 'monitor' as a monitor declaration and investigated the rest of the sentence — 'denial rate by payer' — as an ordinary question, so this monitor is defined by a spec that was planned, validated and answered rather than by the phrasing. No sensitivity was stated, so the governed threshold for the measure applies."
         ],
         "warnings_v2": [
+          {
+            "code": "WINDOW_ASSUMED",
+            "severity": "caution",
+            "message": "window_assumed: the question named no period, so I used 2026-07-01..2026-07-31 on the service basis — the last full month this load can see (newest data date 2026-08-02).",
+            "count": 1
+          },
           {
             "code": "BOUNDED_CELLS_UNRANKED",
             "severity": "caution",
@@ -1309,19 +1650,25 @@
           {
             "code": "SUPPRESSION_BOUNDED",
             "severity": "caution",
-            "message": "suppression_bounded: 4 of 12 groups here are too small to measure exactly — fewer than 11 things sit behind each of those numbers — so each shows a ceiling instead of a figure: Federal Medicare (denial rate ≤ 4.7% over 214 entities); Lakewood Medicaid MCO (denial rate ≤ 20.8% over 48 entities); Summit Peak Medicare Advantage (denial rate ≤ 18.9% over 53 entities); Veritas Comp Fund (denial rate ≤ 76.9% over 13 entities). The true value is at or below the ceiling and is not a measurement.",
+            "message": "suppression_bounded: 4 of 12 payers here are too small to measure exactly — fewer than 11 of the events being counted landed in each, over a population this answer publishes in full — so each shows a ceiling instead of a figure: Federal Medicare (denial rate ≤ 4.7% over 214 entities); Lakewood Medicaid MCO (denial rate ≤ 20.8% over 48 entities); Summit Peak Medicare Advantage (denial rate ≤ 18.9% over 53 entities); Veritas Comp Fund (denial rate ≤ 76.9% over 13 entities). The true value is at or below the ceiling and is not a measurement.",
             "count": 1
           },
           {
             "code": "ADJUDICATION_INCOMPLETE",
             "severity": "caution",
-            "message": "adjudication_incomplete: this answer's window (2026-07-01..2026-07-31, service basis) has not finished settling. Across this whole load it holds 1,544 settled record(s) where a window of this length normally holds about 5,878 — 26.3% of it. What HAS settled is not a random sample of what has not: the fastest cases reach a decision first, so a total measured here is understated and a rate measured here is skewed. The count is the one 'clean_claim_rate' declares, and the norm is the median month of this load. Ask again over the last settled period, or on a basis whose events are already recorded, to read this without the caveat.",
+            "message": "adjudication_incomplete: through June 2026 — the last period of this metric that has finished settling — denial rate reads 9.1%. The window below (2026-07-01..2026-07-31) is the one this platform assumed, and it has NOT finished settling: it holds 1,544 settled record(s) where a window of that length normally holds about 5,878, 26.3% of it. Read the settled figure as the level and the one below as provisional — what has settled is not a random sample of what has not, so a total there is understated and a rate there is skewed. The count is the one 'clean_claim_rate' declares, and the norm is the median month of this load.",
+            "count": 1
+          },
+          {
+            "code": "NAMED_CUT_APPLIED",
+            "severity": "info",
+            "message": "named_cut_applied: read 'monitor' as a monitor declaration and investigated the rest of the sentence — 'denial rate by payer' — as an ordinary question, so this monitor is defined by a spec that was planned, validated and answered rather than by the phrasing. No sensitivity was stated, so the governed threshold for the measure applies.",
             "count": 1
           }
         ],
         "findings": [
           {
-            "referent": "F16",
+            "referent": "F4",
             "title": "State Medicaid MCO: 29.5% denial rate",
             "statement": "State Medicaid MCO ranks #1 of 8 measured by denial rate over 2026-07-01..2026-07-31: 29.5%.",
             "metric_ids": [
@@ -1341,32 +1688,13 @@
             "impact_cents": null,
             "confidence": "qualified",
             "suggested_refinements": [
-              "drill into F16"
+              "drill into F4"
             ],
-            "benchmarks": [
-              {
-                "id": "benchmark.denial_rate.marketplace_kff",
-                "metric_id": "denial_rate",
-                "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
-                "value_low": "19",
-                "value_high": "20",
-                "unit": "percent of in-network claims denied",
-                "period": "2023-2024",
-                "authority": "independent analysis of CMS transparency data",
-                "review_status": "machine_researched",
-                "cautions": [
-                  "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
-                  "Plan-reported data with no initial/final distinction"
-                ],
-                "sources": [
-                  "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
-                ]
-              }
-            ],
+            "benchmarks": [],
             "metric_caveats": []
           },
           {
-            "referent": "F17",
+            "referent": "F5",
             "title": "Ashvale Health Plan: 22.9% denial rate",
             "statement": "Ashvale Health Plan ranks #2 of 8 measured by denial rate over 2026-07-01..2026-07-31: 22.9%.",
             "metric_ids": [
@@ -1386,32 +1714,13 @@
             "impact_cents": null,
             "confidence": "qualified",
             "suggested_refinements": [
-              "drill into F17"
+              "drill into F5"
             ],
-            "benchmarks": [
-              {
-                "id": "benchmark.denial_rate.marketplace_kff",
-                "metric_id": "denial_rate",
-                "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
-                "value_low": "19",
-                "value_high": "20",
-                "unit": "percent of in-network claims denied",
-                "period": "2023-2024",
-                "authority": "independent analysis of CMS transparency data",
-                "review_status": "machine_researched",
-                "cautions": [
-                  "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
-                  "Plan-reported data with no initial/final distinction"
-                ],
-                "sources": [
-                  "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
-                ]
-              }
-            ],
+            "benchmarks": [],
             "metric_caveats": []
           },
           {
-            "referent": "F18",
+            "referent": "F6",
             "title": "Silverline Medicare Advantage: 18.8% denial rate",
             "statement": "Silverline Medicare Advantage ranks #3 of 8 measured by denial rate over 2026-07-01..2026-07-31: 18.8%.",
             "metric_ids": [
@@ -1431,32 +1740,13 @@
             "impact_cents": null,
             "confidence": "qualified",
             "suggested_refinements": [
-              "drill into F18"
+              "drill into F6"
             ],
-            "benchmarks": [
-              {
-                "id": "benchmark.denial_rate.marketplace_kff",
-                "metric_id": "denial_rate",
-                "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
-                "value_low": "19",
-                "value_high": "20",
-                "unit": "percent of in-network claims denied",
-                "period": "2023-2024",
-                "authority": "independent analysis of CMS transparency data",
-                "review_status": "machine_researched",
-                "cautions": [
-                  "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
-                  "Plan-reported data with no initial/final distinction"
-                ],
-                "sources": [
-                  "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
-                ]
-              }
-            ],
+            "benchmarks": [],
             "metric_caveats": []
           },
           {
-            "referent": "F19",
+            "referent": "F7",
             "title": "Federal Medicare: ≤ 4.7% denial rate (upper bound)",
             "statement": "Federal Medicare: denial rate is AT MOST 4.7% over 2026-07-01..2026-07-31 — the numerator was suppressed over a population of 214, so this is a ceiling and not a measurement. It is published unranked: a bound cannot be ordered against measured cells.",
             "metric_ids": [
@@ -1484,32 +1774,13 @@
             "impact_cents": null,
             "confidence": "qualified",
             "suggested_refinements": [
-              "drill into F19"
+              "drill into F7"
             ],
-            "benchmarks": [
-              {
-                "id": "benchmark.denial_rate.marketplace_kff",
-                "metric_id": "denial_rate",
-                "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
-                "value_low": "19",
-                "value_high": "20",
-                "unit": "percent of in-network claims denied",
-                "period": "2023-2024",
-                "authority": "independent analysis of CMS transparency data",
-                "review_status": "machine_researched",
-                "cautions": [
-                  "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
-                  "Plan-reported data with no initial/final distinction"
-                ],
-                "sources": [
-                  "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
-                ]
-              }
-            ],
+            "benchmarks": [],
             "metric_caveats": []
           },
           {
-            "referent": "F20",
+            "referent": "F8",
             "title": "Summit Peak Medicare Advantage: ≤ 18.9% denial rate (upper bound)",
             "statement": "Summit Peak Medicare Advantage: denial rate is AT MOST 18.9% over 2026-07-01..2026-07-31 — the numerator was suppressed over a population of 53, so this is a ceiling and not a measurement. It is published unranked: a bound cannot be ordered against measured cells.",
             "metric_ids": [
@@ -1537,32 +1808,13 @@
             "impact_cents": null,
             "confidence": "qualified",
             "suggested_refinements": [
-              "drill into F20"
+              "drill into F8"
             ],
-            "benchmarks": [
-              {
-                "id": "benchmark.denial_rate.marketplace_kff",
-                "metric_id": "denial_rate",
-                "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
-                "value_low": "19",
-                "value_high": "20",
-                "unit": "percent of in-network claims denied",
-                "period": "2023-2024",
-                "authority": "independent analysis of CMS transparency data",
-                "review_status": "machine_researched",
-                "cautions": [
-                  "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
-                  "Plan-reported data with no initial/final distinction"
-                ],
-                "sources": [
-                  "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
-                ]
-              }
-            ],
+            "benchmarks": [],
             "metric_caveats": []
           },
           {
-            "referent": "F21",
+            "referent": "F9",
             "title": "Lakewood Medicaid MCO: ≤ 20.8% denial rate (upper bound)",
             "statement": "Lakewood Medicaid MCO: denial rate is AT MOST 20.8% over 2026-07-01..2026-07-31 — the numerator was suppressed over a population of 48, so this is a ceiling and not a measurement. It is published unranked: a bound cannot be ordered against measured cells.",
             "metric_ids": [
@@ -1590,32 +1842,211 @@
             "impact_cents": null,
             "confidence": "qualified",
             "suggested_refinements": [
-              "drill into F21"
+              "drill into F9"
             ],
-            "benchmarks": [
-              {
-                "id": "benchmark.denial_rate.marketplace_kff",
-                "metric_id": "denial_rate",
-                "cohort_label": "ACA marketplace (HealthCare.gov issuers) - in-network claims, plan-reported",
-                "value_low": "19",
-                "value_high": "20",
-                "unit": "percent of in-network claims denied",
-                "period": "2023-2024",
-                "authority": "independent analysis of CMS transparency data",
-                "review_status": "machine_researched",
-                "cautions": [
-                  "20% in 2023 (436M claims), 19% in 2024 (451M claims); insurer-level range 1-54% (2023); out-of-network 36-37%",
-                  "Plan-reported data with no initial/final distinction"
-                ],
-                "sources": [
-                  "Claims Denials and Appeals in ACA Marketplace Plans in 2024"
-                ]
-              }
-            ],
+            "benchmarks": [],
             "metric_caveats": []
           }
         ],
-        "delta": null,
+        "delta": {
+          "prior_watermark_id": "",
+          "prior_value": null,
+          "prior_value_text": "",
+          "value": 0.295082,
+          "value_text": "29.5%",
+          "unit": "ratio",
+          "delta": null,
+          "delta_text": "",
+          "delta_fraction": null,
+          "direction": "unknown",
+          "comparable": false,
+          "not_comparable_reason": "first reading — baseline set at this load, with no earlier evaluation of this monitor to compare against",
+          "reference": "prior_load",
+          "subject_label": "State Medicaid MCO",
+          "prior_subject_label": "",
+          "same_window": false,
+          "material": false,
+          "threshold_source": "governed",
+          "below_governed_gate": false,
+          "materiality_rule": "first_reading",
+          "materiality_note": "first reading — this load set the baseline and there is nothing behind it to compare against yet",
+          "recommended_threshold_text": ""
+        },
+        "baseline_delta": null,
+        "unavailable_reason": null
+      },
+      {
+        "pin_id": "pin_9f807a39583b",
+        "label": "denied dollars by facility",
+        "presentation": "scalar",
+        "status": "ok",
+        "watermark_id": "wm_003",
+        "newest_data_date": "2026-08-02",
+        "evaluated_at": "2026-08-10T23:16:50.882241Z",
+        "window_start": "2026-07-01",
+        "window_end": "2026-07-31",
+        "investigation_id": "inv_041d924f3838",
+        "headline_referent": "F1",
+        "headline_title": "Eastmere Medical Center: $235,371.88 denied dollars",
+        "headline_statement": "Eastmere Medical Center ranks #1 of 6 measured by denied dollars over 2026-07-01..2026-07-31: $235,371.88.",
+        "headline_subject": {
+          "facility": "Eastmere Medical Center"
+        },
+        "headline_subject_label": "Eastmere Medical Center",
+        "value_text": "$235,371.88",
+        "value": 23537188,
+        "unit": "money_cents",
+        "metric_id": "denied_dollars",
+        "integrity": {
+          "grade": "direct",
+          "things_to_know": 4,
+          "things_to_know_caution": 2,
+          "caveat_codes": [
+            "WINDOW_ASSUMED",
+            "FINDINGS_TRUNCATED",
+            "SUPPRESSION_APPLIED",
+            "NAMED_CUT_APPLIED"
+          ],
+          "checks": 1,
+          "is_bound": false,
+          "provisional": false
+        },
+        "warnings": [
+          "window_assumed: the question named no period, so I used 2026-07-01..2026-07-31 on the remit basis — the last full month this load can see (newest data date 2026-08-02).",
+          "findings_truncated: 3 of 6 computed cells are published as findings; the remaining 3 are on the chart and in the evidence but carry no finding. Superlatives and spread statements on this answer describe the published slice, not the full population.",
+          "suppression: cells counting fewer than 11 records in their population are withheld entirely before any result leaves this platform. A cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped.",
+          "named_cut_applied: read 'monitor' as a monitor declaration and investigated the rest of the sentence — 'denied dollars by facility' — as an ordinary question, so this monitor is defined by a saved measure that was planned, validated and answered rather than by the phrasing. You named no sensitivity, so I'll brief you when it moves more than 5% of the prior value and $1,000.00. That is Revi's recommended level for dollar measures, and you can change it anytime."
+        ],
+        "warnings_v2": [
+          {
+            "code": "WINDOW_ASSUMED",
+            "severity": "caution",
+            "message": "window_assumed: the question named no period, so I used 2026-07-01..2026-07-31 on the remit basis — the last full month this load can see (newest data date 2026-08-02).",
+            "count": 1
+          },
+          {
+            "code": "FINDINGS_TRUNCATED",
+            "severity": "caution",
+            "message": "findings_truncated: 3 of 6 computed cells are published as findings; the remaining 3 are on the chart and in the evidence but carry no finding. Superlatives and spread statements on this answer describe the published slice, not the full population.",
+            "count": 1
+          },
+          {
+            "code": "SUPPRESSION_APPLIED",
+            "severity": "info",
+            "message": "suppression: cells counting fewer than 11 records in their population are withheld entirely before any result leaves this platform. A cell whose population is larger but whose numerator is under 11 keeps its place and is published as an upper bound, never dropped.",
+            "count": 1
+          },
+          {
+            "code": "NAMED_CUT_APPLIED",
+            "severity": "info",
+            "message": "named_cut_applied: read 'monitor' as a monitor declaration and investigated the rest of the sentence — 'denied dollars by facility' — as an ordinary question, so this monitor is defined by a saved measure that was planned, validated and answered rather than by the phrasing. You named no sensitivity, so I'll brief you when it moves more than 5% of the prior value and $1,000.00. That is Revi's recommended level for dollar measures, and you can change it anytime.",
+            "count": 1
+          }
+        ],
+        "findings": [
+          {
+            "referent": "F1",
+            "title": "Eastmere Medical Center: $235,371.88 denied dollars",
+            "statement": "Eastmere Medical Center ranks #1 of 6 measured by denied dollars over 2026-07-01..2026-07-31: $235,371.88.",
+            "metric_ids": [
+              "denied_dollars"
+            ],
+            "values": [
+              {
+                "name": "denied_dollars",
+                "value": 23537188
+              },
+              {
+                "name": "rank",
+                "value": 1
+              }
+            ],
+            "grade": "direct",
+            "impact_cents": 23537188,
+            "confidence": "high",
+            "suggested_refinements": [
+              "drill into F1"
+            ],
+            "benchmarks": [],
+            "metric_caveats": []
+          },
+          {
+            "referent": "F2",
+            "title": "Northgate Regional Hospital: $227,772.39 denied dollars",
+            "statement": "Northgate Regional Hospital ranks #2 of 6 measured by denied dollars over 2026-07-01..2026-07-31: $227,772.39.",
+            "metric_ids": [
+              "denied_dollars"
+            ],
+            "values": [
+              {
+                "name": "denied_dollars",
+                "value": 22777239
+              },
+              {
+                "name": "rank",
+                "value": 2
+              }
+            ],
+            "grade": "direct",
+            "impact_cents": 22777239,
+            "confidence": "high",
+            "suggested_refinements": [
+              "drill into F2"
+            ],
+            "benchmarks": [],
+            "metric_caveats": []
+          },
+          {
+            "referent": "F3",
+            "title": "Southfield Community Hospital: $220,103.38 denied dollars",
+            "statement": "Southfield Community Hospital ranks #3 of 6 measured by denied dollars over 2026-07-01..2026-07-31: $220,103.38.",
+            "metric_ids": [
+              "denied_dollars"
+            ],
+            "values": [
+              {
+                "name": "denied_dollars",
+                "value": 22010338
+              },
+              {
+                "name": "rank",
+                "value": 3
+              }
+            ],
+            "grade": "direct",
+            "impact_cents": 22010338,
+            "confidence": "high",
+            "suggested_refinements": [
+              "drill into F3"
+            ],
+            "benchmarks": [],
+            "metric_caveats": []
+          }
+        ],
+        "delta": {
+          "prior_watermark_id": "",
+          "prior_value": null,
+          "prior_value_text": "",
+          "value": 23537188,
+          "value_text": "$235,371.88",
+          "unit": "money_cents",
+          "delta": null,
+          "delta_text": "",
+          "delta_fraction": null,
+          "direction": "unknown",
+          "comparable": false,
+          "not_comparable_reason": "first reading — baseline set at this load, with no earlier evaluation of this monitor to compare against",
+          "reference": "prior_load",
+          "subject_label": "Eastmere Medical Center",
+          "prior_subject_label": "",
+          "same_window": false,
+          "material": false,
+          "threshold_source": "governed",
+          "below_governed_gate": false,
+          "materiality_rule": "first_reading",
+          "materiality_note": "first reading — this load set the baseline and there is nothing behind it to compare against yet",
+          "recommended_threshold_text": ""
+        },
         "baseline_delta": null,
         "unavailable_reason": null
       }
@@ -1648,10 +2079,13 @@
           "comparison": null
         },
         "window_mode": "relative",
-        "window_note": "This monitor re-anchors its window to each load's newest data date, so it usually tracks a moving period. Where two loads land inside the same period it resolves to the same dates, and the change between them is late-arriving data rather than a movement — each tile publishes the dates it actually measured, so a reader never has to guess which of the two they are looking at.",
+        "window_note": "This monitor re-anchors its window to each load's newest data date, so it usually tracks a moving period. Where two loads land inside the same period it measures the same dates, and the change between them is late-arriving data rather than a movement. Every reading shows the dates it measured, so you can tell which of the two you are looking at.",
         "created_from_kind": "spec",
         "created_from_investigation_id": null,
         "created_from_referent": null,
+        "spec_summary": "Denial rate, broken down by payer — the last full month, re-anchored at every load on the service date.",
+        "notes": [],
+        "already_existed": false,
         "monitor": {
           "mode": "delta_gte",
           "value": 1,
@@ -1663,6 +2097,12 @@
         "baseline_value": 0.243243,
         "baseline_value_text": "24.3%",
         "baseline_unit": "ratio",
+        "recommended_threshold": {
+          "text": "0.5 percentage points",
+          "value": 0.005,
+          "unit": "points",
+          "relative": null
+        },
         "created_at": "2026-08-10T01:57:38.487554Z",
         "archived_at": null,
         "scope": "tenant"
@@ -1689,23 +2129,295 @@
           "comparison": null
         },
         "window_mode": "relative",
-        "window_note": "This monitor re-anchors its window to each load's newest data date, so it usually tracks a moving period. Where two loads land inside the same period it resolves to the same dates, and the change between them is late-arriving data rather than a movement — each tile publishes the dates it actually measured, so a reader never has to guess which of the two they are looking at.",
+        "window_note": "This monitor re-anchors its window to each load's newest data date, so it usually tracks a moving period. Where two loads land inside the same period it measures the same dates, and the change between them is late-arriving data rather than a movement. Every reading shows the dates it measured, so you can tell which of the two you are looking at.",
         "created_from_kind": "spec",
         "created_from_investigation_id": null,
         "created_from_referent": null,
+        "spec_summary": "Denied dollars, broken down by payer — the last full month, re-anchored at every load.",
+        "notes": [],
+        "already_existed": false,
         "monitor": null,
         "baseline_watermark_id": "wm_001",
         "baseline_value": 17611225,
         "baseline_value_text": "$176,112.25",
         "baseline_unit": "money_cents",
+        "recommended_threshold": {
+          "text": "5% of the prior value and $1,000.00",
+          "value": 100000,
+          "unit": "cents",
+          "relative": 0.05
+        },
         "created_at": "2026-08-10T01:57:38.496099Z",
         "archived_at": null,
         "scope": "tenant"
       },
       {
-        "pin_id": "pin_7466bf3197e3",
+        "pin_id": "pin_0bf06e1b3505",
         "tenant": "demo",
-        "label": "denial rate by payer each month",
+        "label": "denial rate for State Medicaid MCO",
+        "presentation": "scalar",
+        "spec": {
+          "metric_ids": [
+            "denial_rate"
+          ],
+          "dimensions": [],
+          "filters": [
+            {
+              "op": "add_filter",
+              "dimension": "payer",
+              "predicate_op": "eq",
+              "values": [
+                "State Medicaid MCO"
+              ]
+            }
+          ],
+          "window": {
+            "quantity": "1",
+            "unit": "month",
+            "mode": "full_periods"
+          },
+          "basis": "service",
+          "comparison": null
+        },
+        "window_mode": "relative",
+        "window_note": "This monitor re-anchors its window to each load's newest data date, so it usually tracks a moving period. Where two loads land inside the same period it measures the same dates, and the change between them is late-arriving data rather than a movement. Every reading shows the dates it measured, so you can tell which of the two you are looking at.",
+        "created_from_kind": "intent",
+        "created_from_investigation_id": "inv_483c6e0f6d36",
+        "created_from_referent": null,
+        "spec_summary": "Denial rate, filtered to State Medicaid MCO — the last full month, re-anchored at every load on the service date.",
+        "notes": [],
+        "already_existed": false,
+        "monitor": null,
+        "baseline_watermark_id": "wm_003",
+        "baseline_value": 0.295082,
+        "baseline_value_text": "29.5%",
+        "baseline_unit": "ratio",
+        "recommended_threshold": {
+          "text": "0.5 percentage points",
+          "value": 0.005,
+          "unit": "points",
+          "relative": null
+        },
+        "created_at": "2026-08-10T03:08:01.046398Z",
+        "archived_at": null,
+        "scope": "tenant"
+      },
+      {
+        "pin_id": "pin_a1390d4ffe95",
+        "tenant": "demo",
+        "label": "monthly denial rate for Veritas Comp Fund",
+        "presentation": "scalar",
+        "spec": {
+          "metric_ids": [
+            "denial_rate"
+          ],
+          "dimensions": [],
+          "filters": [
+            {
+              "op": "add_filter",
+              "dimension": "payer",
+              "predicate_op": "eq",
+              "values": [
+                "Veritas Comp Fund"
+              ]
+            }
+          ],
+          "window": {
+            "quantity": "1",
+            "unit": "month",
+            "mode": "full_periods"
+          },
+          "basis": "service",
+          "comparison": null
+        },
+        "window_mode": "relative",
+        "window_note": "This monitor re-anchors its window to each load's newest data date, so it usually tracks a moving period. Where two loads land inside the same period it measures the same dates, and the change between them is late-arriving data rather than a movement. Every reading shows the dates it measured, so you can tell which of the two you are looking at.",
+        "created_from_kind": "intent",
+        "created_from_investigation_id": "inv_8652302555b3",
+        "created_from_referent": null,
+        "spec_summary": "Denial rate, filtered to Veritas Comp Fund — the last full month, re-anchored at every load on the service date.",
+        "notes": [],
+        "already_existed": false,
+        "monitor": null,
+        "baseline_watermark_id": "wm_003",
+        "baseline_value": 0.769231,
+        "baseline_value_text": "76.9%",
+        "baseline_unit": "ratio",
+        "recommended_threshold": {
+          "text": "0.5 percentage points",
+          "value": 0.005,
+          "unit": "points",
+          "relative": null
+        },
+        "created_at": "2026-08-10T03:13:08.145021Z",
+        "archived_at": null,
+        "scope": "tenant"
+      },
+      {
+        "pin_id": "pin_df42253af604",
+        "tenant": "demo",
+        "label": "days in A/R by payer",
+        "presentation": "scalar",
+        "spec": {
+          "metric_ids": [
+            "days_in_ar"
+          ],
+          "dimensions": [
+            "payer"
+          ],
+          "filters": [],
+          "window": {
+            "quantity": "1",
+            "unit": "month",
+            "mode": "full_periods"
+          },
+          "basis": "service",
+          "comparison": null
+        },
+        "window_mode": "relative",
+        "window_note": "This monitor re-anchors its window to each load's newest data date, so it usually tracks a moving period. Where two loads land inside the same period it measures the same dates, and the change between them is late-arriving data rather than a movement. Every reading shows the dates it measured, so you can tell which of the two you are looking at.",
+        "created_from_kind": "intent",
+        "created_from_investigation_id": "inv_18630c8332be",
+        "created_from_referent": null,
+        "spec_summary": "Days in ar, broken down by payer — the last full month, re-anchored at every load on the service date.",
+        "notes": [],
+        "already_existed": false,
+        "monitor": {
+          "mode": "delta_gte",
+          "value": 2,
+          "unit": "days",
+          "direction": "any",
+          "note": "declared in words: and tell me when it moves more than 2 days"
+        },
+        "baseline_watermark_id": "wm_003",
+        "baseline_value": 179.46832,
+        "baseline_value_text": "179.5 days",
+        "baseline_unit": "days",
+        "recommended_threshold": {
+          "text": "1.0 days",
+          "value": 1,
+          "unit": "days",
+          "relative": null
+        },
+        "created_at": "2026-08-10T06:32:15.648460Z",
+        "archived_at": null,
+        "scope": "tenant"
+      },
+      {
+        "pin_id": "pin_13d7f5687ae2",
+        "tenant": "demo",
+        "label": "Silverline Medicare Advantage — denial rate",
+        "presentation": "finding",
+        "spec": {
+          "metric_ids": [
+            "denial_rate"
+          ],
+          "dimensions": [
+            "payer"
+          ],
+          "filters": [
+            {
+              "op": "add_filter",
+              "dimension": "payer",
+              "predicate_op": "eq",
+              "values": [
+                "Silverline Medicare Advantage"
+              ]
+            }
+          ],
+          "window": {
+            "quantity": "1",
+            "unit": "month",
+            "mode": "full_periods"
+          },
+          "basis": "service",
+          "comparison": null
+        },
+        "window_mode": "relative",
+        "window_note": "This monitor re-anchors its window to each load's newest data date, so it usually tracks a moving period. Where two loads land inside the same period it measures the same dates, and the change between them is late-arriving data rather than a movement. Every reading shows the dates it measured, so you can tell which of the two you are looking at.",
+        "created_from_kind": "artifact",
+        "created_from_investigation_id": "inv_1dffb11e1f4e",
+        "created_from_referent": "F57",
+        "spec_summary": "Denial rate, broken down by payer, filtered to Silverline Medicare Advantage — the last full month, re-anchored at every load on the service date.",
+        "notes": [],
+        "already_existed": false,
+        "monitor": null,
+        "baseline_watermark_id": "wm_003",
+        "baseline_value": 0.188034,
+        "baseline_value_text": "18.8%",
+        "baseline_unit": "ratio",
+        "recommended_threshold": {
+          "text": "0.5 percentage points",
+          "value": 0.005,
+          "unit": "points",
+          "relative": null
+        },
+        "created_at": "2026-08-10T06:42:11.193440Z",
+        "archived_at": null,
+        "scope": "tenant"
+      },
+      {
+        "pin_id": "pin_b616b7b89bde",
+        "tenant": "demo",
+        "label": "Ashvale Health Plan — denial rate",
+        "presentation": "finding",
+        "spec": {
+          "metric_ids": [
+            "denial_rate"
+          ],
+          "dimensions": [
+            "payer"
+          ],
+          "filters": [
+            {
+              "op": "add_filter",
+              "dimension": "payer",
+              "predicate_op": "eq",
+              "values": [
+                "Ashvale Health Plan"
+              ]
+            }
+          ],
+          "window": {
+            "start": "2026-07-01",
+            "end": "2026-07-31"
+          },
+          "basis": "service",
+          "comparison": null
+        },
+        "window_mode": "absolute",
+        "window_note": "This monitor re-measures the same fixed dates every load. A change from one load to the next is therefore late-arriving data — adjudication run-out, back-dated charges — rather than a movement in the period itself.",
+        "created_from_kind": "spec",
+        "created_from_investigation_id": null,
+        "created_from_referent": null,
+        "spec_summary": "Denial rate, broken down by payer, filtered to Ashvale Health Plan — the fixed dates Jul 1 – Jul 31, 2026, re-measured at every load on the service date.",
+        "notes": [],
+        "already_existed": false,
+        "monitor": {
+          "mode": "delta_gte",
+          "value": 1,
+          "unit": "points",
+          "direction": "any",
+          "note": "Ashvale is our JOC account — brief me on anything over a point."
+        },
+        "baseline_watermark_id": "wm_003",
+        "baseline_value": 0.229167,
+        "baseline_value_text": "22.9%",
+        "baseline_unit": "ratio",
+        "recommended_threshold": {
+          "text": "0.5 percentage points",
+          "value": 0.005,
+          "unit": "points",
+          "relative": null
+        },
+        "created_at": "2026-08-10T11:34:12.337249Z",
+        "archived_at": null,
+        "scope": "tenant"
+      },
+      {
+        "pin_id": "pin_2e4e213ef9de",
+        "tenant": "demo",
+        "label": "denial rate by payer",
         "presentation": "scalar",
         "spec": {
           "metric_ids": [
@@ -1724,30 +2436,39 @@
           "comparison": null
         },
         "window_mode": "relative",
-        "window_note": "This monitor re-anchors its window to each load's newest data date, so it usually tracks a moving period. Where two loads land inside the same period it resolves to the same dates, and the change between them is late-arriving data rather than a movement — each tile publishes the dates it actually measured, so a reader never has to guess which of the two they are looking at.",
+        "window_note": "This monitor re-anchors its window to each load's newest data date, so it usually tracks a moving period. Where two loads land inside the same period it measures the same dates, and the change between them is late-arriving data rather than a movement. Every reading shows the dates it measured, so you can tell which of the two you are looking at.",
         "created_from_kind": "intent",
-        "created_from_investigation_id": "inv_48de4e73c71c",
+        "created_from_investigation_id": "inv_1c30a59b4b3f",
         "created_from_referent": null,
+        "spec_summary": "Denial rate, broken down by payer — the last full month, re-anchored at every load on the service date.",
+        "notes": [],
+        "already_existed": false,
         "monitor": null,
         "baseline_watermark_id": "wm_003",
         "baseline_value": 0.295082,
         "baseline_value_text": "29.5%",
         "baseline_unit": "ratio",
-        "created_at": "2026-08-10T02:26:53.437925Z",
+        "recommended_threshold": {
+          "text": "0.5 percentage points",
+          "value": 0.005,
+          "unit": "points",
+          "relative": null
+        },
+        "created_at": "2026-08-10T22:41:06.914147Z",
         "archived_at": null,
         "scope": "tenant"
       },
       {
-        "pin_id": "pin_0c7def7509c4",
+        "pin_id": "pin_9f807a39583b",
         "tenant": "demo",
-        "label": "State Medicaid MCO: 29.5% denial rate",
-        "presentation": "chart",
+        "label": "denied dollars by facility",
+        "presentation": "scalar",
         "spec": {
           "metric_ids": [
-            "denial_rate"
+            "denied_dollars"
           ],
           "dimensions": [
-            "payer"
+            "facility"
           ],
           "filters": [],
           "window": {
@@ -1755,38 +2476,42 @@
             "unit": "month",
             "mode": "full_periods"
           },
-          "basis": "service",
+          "basis": "remit",
           "comparison": null
         },
         "window_mode": "relative",
-        "window_note": "This monitor re-anchors its window to each load's newest data date, so it usually tracks a moving period. Where two loads land inside the same period it resolves to the same dates, and the change between them is late-arriving data rather than a movement — each tile publishes the dates it actually measured, so a reader never has to guess which of the two they are looking at.",
-        "created_from_kind": "artifact",
-        "created_from_investigation_id": "inv_48de4e73c71c",
-        "created_from_referent": "chart_main",
-        "monitor": {
-          "mode": "delta_gte",
-          "value": 0.5,
-          "unit": "points",
-          "direction": "any",
-          "note": ""
-        },
+        "window_note": "This monitor re-anchors its window to each load's newest data date, so it usually tracks a moving period. Where two loads land inside the same period it measures the same dates, and the change between them is late-arriving data rather than a movement. Every reading shows the dates it measured, so you can tell which of the two you are looking at.",
+        "created_from_kind": "intent",
+        "created_from_investigation_id": "inv_041d924f3838",
+        "created_from_referent": null,
+        "spec_summary": "Denied dollars, broken down by facility — the last full month, re-anchored at every load on the remittance date.",
+        "notes": [],
+        "already_existed": false,
+        "monitor": null,
         "baseline_watermark_id": "wm_003",
-        "baseline_value": 0.295082,
-        "baseline_value_text": "29.5%",
-        "baseline_unit": "ratio",
-        "created_at": "2026-08-10T02:28:42.468891Z",
+        "baseline_value": 23537188,
+        "baseline_value_text": "$235,371.88",
+        "baseline_unit": "money_cents",
+        "recommended_threshold": {
+          "text": "5% of the prior value and $1,000.00",
+          "value": 100000,
+          "unit": "cents",
+          "relative": 0.05
+        },
+        "created_at": "2026-08-10T23:16:50.870768Z",
         "archived_at": null,
         "scope": "tenant"
       }
     ],
-    "total": 4
+    "total": 9,
+    "unreadable": []
   },
   "lead": {
     "anomaly_id": "ANM-021",
     "tenant": "demo",
     "status": "working",
     "note": "Coding is clearing the 22 held general-surgery accounts this week.",
-    "updated_at": "2026-08-10T02:29:42.737394Z",
+    "updated_at": "2026-08-10T03:20:41.545455Z",
     "claimed_at_watermark": null,
     "baseline_cents": null,
     "baseline_basis": "",
@@ -1799,6 +2524,22 @@
         "by": "dev-bypass",
         "to": "working",
         "from": "open",
+        "note": "Coding is clearing the 22 held general-surgery accounts this week.",
+        "watermark_id": "wm_003"
+      },
+      {
+        "at": "2026-08-10T03:17:55.565468+00:00",
+        "by": "dev-bypass",
+        "to": "acknowledged",
+        "from": "working",
+        "note": "VC diligence check",
+        "watermark_id": "wm_003"
+      },
+      {
+        "at": "2026-08-10T03:20:41.545455+00:00",
+        "by": "dev-bypass",
+        "to": "working",
+        "from": "acknowledged",
         "note": "Coding is clearing the 22 held general-surgery accounts this week.",
         "watermark_id": "wm_003"
       }
@@ -1840,7 +2581,7 @@
       "impact_agreement": "not_comparable",
       "impact_delta_cents": 1765710,
       "impact_delta_fraction": null,
-      "impact_reconciliation_note": "The detection system reported $178,216.82 for this cell over 2026-07-03..2026-07-29. This platform re-derived $195,873.92 from the governed dnfb_dollars contract. The two are not comparable: the governed contract is a snapshot (an as-of balance at the watermark) and applies no start..end window, while the card's figure was computed over one, so the gap between them is a difference of measurement kind rather than of population, window or valuation basis. The difference is not attributed to the detector, and this card is excluded from the divergence count.",
+      "impact_reconciliation_note": "The detection system reported $178,216.82 for this cell over 2026-07-03..2026-07-29. This platform re-derived $195,873.92 from the standard definition of dnfb dollars. The two are not comparable: the standard definition reads a balance standing as of this data load and applies no period at all, while the card's figure was computed over one — so the gap between them is a difference in what is being measured, not in the population, the period, or how the dollars were valued. The difference is not attributed to the detection system, and this card is excluded from the divergence count.",
       "ranked_on": "not_comparable",
       "ranked_impact_cents": 17821682,
       "ranked_on_note": "ranked on the detection system's figure ($178,216.82): this platform's re-derivation is not a comparable quantity (an as-of balance against a windowed flow), so substituting it would change the claim rather than correct it.",
@@ -1917,13 +2658,13 @@
       "drill_dimension_repoints": [],
       "lead_status": "working",
       "lead_status_note": "Coding is clearing the 22 held general-surgery accounts this week.",
-      "lead_updated_at": "2026-08-10T02:29:42.737394Z",
+      "lead_updated_at": "2026-08-10T03:20:41.545455Z",
       "time_to_impact": {
         "kind": "projected",
         "lane": "pre_cash",
         "days": 32,
         "deadline_date": null,
-        "method": "Discharged-not-final-billed inventory: the account exists and the charges exist, so the cash arrives once the bill drops and the payer pays. Projected as the governed bill window plus the governed payment lag, from the median age of this cell's accounts. PROJECTION, not a deadline: 4 days to bill plus 28 days of governed payment lag = 32 days, against a days_since_discharge.median of 15 days. Both figures are planning defaults from the pack, not a payer contract, which is why this is marked provisional.",
+        "method": "Discharged-not-final-billed inventory: the account exists and the charges exist, so the cash arrives once the bill drops and the payer pays. Projected as the usual time to bill plus the usual time to be paid, from the median age of this cell's accounts. PROJECTION, not a deadline: 4 days to bill plus 28 days of governed payment lag = 32 days, against a days_since_discharge.median of 15 days. Both figures are planning defaults from the pack, not a payer contract, which is why this is marked provisional.",
         "method_id": "aging_projection",
         "provisional": true,
         "reason": null,
@@ -1963,10 +2704,10 @@
       "impact_agreement": "diverged",
       "impact_delta_cents": 655987,
       "impact_delta_fraction": 0.038442,
-      "impact_reconciliation_note": "The detection system reported $170,643.00 for this cell in its own window (2026-06-20..2026-07-28), on its own population and valuation basis, when it fired. This platform re-derived $177,202.87 from the governed denied_dollars contract at the pinned watermark over the same named cell. They differ by $6,559.87 (+3.8%): the detector's window, population or valuation basis is not the contract's. The drill answers with the contract's figure and a real evidence grade; the card's figure remains the detection system's assertion, which is what it has always been.",
+      "impact_reconciliation_note": "The detection system reported $170,643.00 for this cell in its own period (2026-06-20 to 2026-07-28), on its own population and its own valuation, when it fired. This platform re-derived $177,202.87 from the standard definition of denied dollars, read from the same data load, over the same named cell. They differ by $6,559.87 (+3.8%): the detector's window, population or valuation basis is not the contract's. The drill answers with the contract's figure and a real evidence grade; the card's figure remains the detection system's assertion, which is what it has always been.",
       "ranked_on": "platform",
       "ranked_impact_cents": 17720287,
-      "ranked_on_note": "ranked on this platform's re-derived figure ($177,202.87 from the governed denied_dollars contract), not the detector's $170,643.00: the two diverge, and ordering the worklist by a number this payload disputes would rank the work on the side of the disagreement the platform does not stand behind. The detector's figure is kept above as its own assertion.",
+      "ranked_on_note": "ranked on this platform's re-derived figure ($177,202.87 from the standard definition of denied dollars), not the detection system's $170,643.00: the two diverge, and ordering the worklist by a number this payload disputes would rank the work on the side of the disagreement the platform does not stand behind. The detector's figure is kept above as its own assertion.",
       "age_days": 44,
       "recoverable_cents_estimate": 14438752,
       "actionability_label": "highly recoverable",
@@ -2029,9 +2770,9 @@
       "drill_repointed_from": "denial_rate",
       "drill_repoint_rationale": "The detector published a dollar impact under a ratio metric that is also unprobeable at its own grain (REMIT is not bound for the claim entity). denied_dollars measures the same population in the unit the card actually reports.",
       "drill_dimension_repoints": [],
-      "lead_status": "open",
-      "lead_status_note": "",
-      "lead_updated_at": null,
+      "lead_status": "resolved_claimed",
+      "lead_status_note": "Resolution claimed at wm_003, and no load since has verified it. An earlier verdict on this lead was reached at a load that ran BEFORE the claim. A load that ran before a fix was claimed is not evidence the fix worked, so this platform has discarded it. This platform re-runs the lead's own drill at every load after wm_003 and confirms only once 2 consecutive loads verify it.",
+      "lead_updated_at": "2026-08-10T09:43:17.539186Z",
       "time_to_impact": {
         "kind": "already_hit",
         "lane": "already_hit",
@@ -2081,7 +2822,7 @@
       "impact_agreement": "unavailable",
       "impact_delta_cents": null,
       "impact_delta_fraction": null,
-      "impact_reconciliation_note": "the platform could not re-derive this figure: 'gross_collection_rate' declares unit 'ratio' — a non-money contract produces no comparable dollar figure, so there is nothing to reconcile against the card's dollar impact (any money column in its frame is an internal numerator, not the metric) Part of this gap is this platform's own doing, not the detector's: the drill was repointed onto a different cut (proc_group → primary_proc_group) because the governed contract has no legal cut at the detector's dimension, so the two figures are measured over related — not identical — populations. See drill_dimension_repoints.",
+      "impact_reconciliation_note": "the platform could not re-derive this figure: gross collection rate is measured in ratio — a measure that is not in dollars produces no comparable dollar figure, so there is nothing to reconcile against the card's dollar impact. Any dollar column behind it is a numerator inside the calculation, not the measure itself. Part of this gap is this platform's own doing, not the detector's: the drill was repointed onto a different cut (proc_group → primary_proc_group) because the standard definition cannot be broken out the way the detection system broke it out, so the two figures are measured over related — not identical — populations.",
       "ranked_on": "detector",
       "ranked_impact_cents": 49326636,
       "ranked_on_note": "ranked on the detection system's figure ($493,266.36): this platform has no re-derived figure for this card, so there is no reconciled number to rank it on instead.",
@@ -2214,7 +2955,7 @@
       "impact_agreement": "agreed",
       "impact_delta_cents": 0,
       "impact_delta_fraction": 0,
-      "impact_reconciliation_note": "The detection system reported $17,677.33 for this cell in its own window (2026-08-02..2026-08-02), on its own population and valuation basis, when it fired. This platform re-derived $17,677.33 from the governed denied_dollars contract at the pinned watermark over the same named cell. The two agree within half a percent.",
+      "impact_reconciliation_note": "The detection system reported $17,677.33 for this cell in its own period (2026-08-02 to 2026-08-02), on its own population and its own valuation, when it fired. This platform re-derived $17,677.33 from the standard definition of denied dollars, read from the same data load, over the same named cell. The two agree within half a percent.",
       "ranked_on": "detector",
       "ranked_impact_cents": 1767733,
       "ranked_on_note": "ranked on the detection system's figure ($17,677.33); this platform re-derived the same cell within half a percent, so the two figures rank it identically.",
@@ -2289,9 +3030,9 @@
       "drill_repointed_from": "denial_rate",
       "drill_repoint_rationale": "The detector published a dollar impact under a ratio metric that is also unprobeable at its own grain (REMIT is not bound for the claim entity). denied_dollars measures the same population in the unit the card actually reports.",
       "drill_dimension_repoints": [],
-      "lead_status": "open",
-      "lead_status_note": "",
-      "lead_updated_at": null,
+      "lead_status": "resolved_claimed",
+      "lead_status_note": "Resolution claimed at wm_003, and no load since has verified it. 2 loads banked against this claim ran BEFORE it. A load that ran before a fix was claimed is not evidence the fix worked, so this platform has discarded it. This platform re-runs the lead's own drill at every load after wm_003 and confirms only once 2 consecutive loads verify it.",
+      "lead_updated_at": "2026-08-10T09:43:17.541029Z",
       "time_to_impact": {
         "kind": "already_hit",
         "lane": "already_hit",

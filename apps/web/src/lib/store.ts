@@ -931,7 +931,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
         switchError:
           error instanceof Error
             ? error.message
-            : "Could not re-open that session. Its turns stay on the server.",
+            : "Could not re-open that session. Everything in it stays on the server.",
       });
     } finally {
       set({ switchingSessionId: null });
@@ -1187,7 +1187,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
     try {
       const trace = await driver.getTrace(investigationId);
       if (trace === null) {
-        patch({ traceFetch: "error", traceError: "The server has no recorded trace for this turn." });
+        patch({ traceFetch: "error", traceError: "The server has no recorded trace for this answer." });
         return;
       }
       patch({ debug: trace, traceFetch: "idle", traceError: undefined });
@@ -1196,7 +1196,7 @@ export const useSessionStore = create<SessionState>((set, get) => ({
       // is the useful message here — repeated verbatim.
       patch({
         traceFetch: "error",
-        traceError: error instanceof Error ? error.message : "Could not read this turn's trace.",
+        traceError: error instanceof Error ? error.message : "Could not read this answer's trace.",
       });
     }
   },

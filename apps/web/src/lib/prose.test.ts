@@ -62,9 +62,10 @@ describe("tidyProse — a stop printed twice where two builders met", () => {
     expect(statement, "the capture must still carry the stacked stop").toBeDefined();
     const repaired = tidyProse(statement as string);
     expect(repaired).not.toContain(".).");
-    expect(repaired).toContain("worth my morning). Since you started monitoring");
-    // And the ISO range three clauses later is untouched.
-    expect(repaired).toContain("2026-07-01..2026-07-31");
+    expect(repaired).toContain("anything over a point). Against the previous load");
+    // And the window three clauses later is untouched — and is a readable
+    // date range now rather than the ISO one this line used to carry.
+    expect(repaired).toContain("Jul 1 – Jul 31, 2026");
   });
 });
 

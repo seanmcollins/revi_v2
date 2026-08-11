@@ -15,6 +15,7 @@ import { formatCount } from "@/lib/format";
 import { useSessionStore } from "@/lib/store";
 import type { EvidenceBundle, ProbeEvidence, ReconciliationResult } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { humanizeInline } from "@/lib/humanize";
 
 /**
  * The full working behind an answer: the checks it ran (with row counts
@@ -43,7 +44,7 @@ export function EvidenceDrawer({ evidence }: { evidence: EvidenceBundle }) {
         <div className="flex items-start gap-2 rounded-md border border-verified/40 bg-verified/10 p-2.5 text-meta leading-snug text-verified">
           <Zap className="mt-0.5 size-3.5 shrink-0" />
           <p>
-            Answered without going back to the warehouse — everything this answer needed
+            Answered without going back to your data — everything this answer needed
             was already computed in this session.{" "}
             {evidence.cacheHits > 0
               ? `${formatCount(evidence.cacheHits)} check${evidence.cacheHits === 1 ? " was" : "s were"} reused; no new query ran.`
@@ -57,7 +58,7 @@ export function EvidenceDrawer({ evidence }: { evidence: EvidenceBundle }) {
           Data checks ({evidence.probes.length})
         </SectionTitle>
         {evidence.probes.length === 0 ? (
-          <p className="text-meta text-muted-foreground">None ran this turn.</p>
+          <p className="text-meta text-muted-foreground">None ran for this answer.</p>
         ) : (
           <>
             <ul className="space-y-1.5">
@@ -66,7 +67,7 @@ export function EvidenceDrawer({ evidence }: { evidence: EvidenceBundle }) {
               ))}
             </ul>
             <p className="num mt-1.5 text-micro text-muted-foreground">
-              {formatCount(evidence.warehouseQueries)} queried the warehouse ·{" "}
+              {formatCount(evidence.warehouseQueries)} read your data ·{" "}
               {formatCount(evidence.cacheHits)} reused from this session
             </p>
           </>
@@ -202,7 +203,7 @@ function ProbeNode({
         {probe.cacheHit && (
           <span
             className="inline-flex shrink-0 items-center gap-0.5 rounded-full bg-verified/10 px-1.5 py-0.5 text-micro font-medium text-verified"
-            title="Reused from an earlier turn in this session instead of querying again."
+            title="Reused from an earlier answer in this session instead of querying again."
           >
             <Zap className="size-2.5" />
             Reused
@@ -221,7 +222,7 @@ function ProbeNode({
                 which is not the same as coming back empty, so it says
                 that instead of printing a zero. */}
             {probe.rowCount === undefined ? (
-              <span>Planned — not executed this turn</span>
+              <span>Planned — not run for this answer</span>
             ) : (
               <>
                 {formatCount(probe.rowCount)} row{probe.rowCount === 1 ? "" : "s"} returned
@@ -256,8 +257,17 @@ function ProbeNode({
                 {probe.probeHash.slice(0, 12)}
               </code>
               {probe.kind && (
-                <span className="rounded-full border px-1.5 py-0.5 font-mono text-micro text-muted-foreground">
-                  {probe.kind}
+                // The Evidence rail keeps raw records verbatim — that is
+                // the deal — but this chip sits behind an ordinary
+                // "Technical details" disclosure rather than behind
+                // `debug=true`, and `metric_scalar` is not a record, it is
+                // a label. Spelled, and the token stays on the attribute.
+                <span
+                  data-probe-kind={probe.kind}
+                  title={probe.kind}
+                  className="rounded-full border px-1.5 py-0.5 text-micro text-muted-foreground"
+                >
+                  {humanizeInline(probe.kind)}
                 </span>
               )}
               {probe.metrics.map((metric) => (

@@ -142,18 +142,33 @@ describe("no tile without its integrity atom", () => {
 /* ------------------------------------------------------------------ */
 
 describe("a movement is stated in the metric's own unit", () => {
+  /**
+   * A rate monitor that actually MOVED, off the capture.
+   *
+   * `comparable` is part of the predicate rather than an afterthought: a
+   * tile whose two loads measured different subjects publishes a delta
+   * object with no delta in it, and picking one of those would leave every
+   * assertion below testing the not-comparable sentence instead of a
+   * movement.
+   */
   const rateTile = () =>
-    (MONITORS.value?.tiles ?? []).find((t) => t.delta?.unit === "ratio" && t.delta.delta !== 0)!;
+    (MONITORS.value?.tiles ?? []).find(
+      (t) => t.delta?.unit === "ratio" && t.delta.comparable && (t.delta.delta ?? 0) !== 0,
+    )!;
 
   it("renders a rate's movement in POINTS, as the server rendered it", () => {
     const tile = rateTile();
     expect(tile).toBeDefined();
+    // Derived from the capture rather than transcribed from it: the
+    // deployment's leading rate monitor moves between captures and the
+    // claim under test is the UNIT, not the figure.
+    const points = ((tile.delta!.delta ?? 0) * 100).toFixed(1);
     draw(<MonitorTile tile={tile} />);
-    expect(screen.getAllByText(/3\.6 points/).length).toBeGreaterThan(0);
-    // Never a percentage. 0.035823 rendered as "+3.6%" is a number a
+    expect(screen.getAllByText(new RegExp(`${points} points`)).length).toBeGreaterThan(0);
+    // Never a percentage. 0.07286 rendered as "+7.3%" is a number a
     // reader cannot tell from a relative change, which is the single most
     // common way a denial-rate figure lies.
-    expect(screen.queryByText(/3\.6%/)).not.toBeInTheDocument();
+    expect(screen.queryByText(new RegExp(`${points}%`))).not.toBeInTheDocument();
   });
 
   it("says a same-window change is the data catching up, not a movement", () => {
@@ -171,7 +186,19 @@ describe("a movement is stated in the metric's own unit", () => {
   });
 
   it("shows the baseline movement when it says something the prior load does not", () => {
-    const tile = rateTile();
+    // The tile shows its baseline movement only when that movement says
+    // something the prior-load one does not — the same magnitude twice is
+    // one sentence printed twice. So the capture supplies the shape and
+    // the two magnitudes are made to differ, which is the condition under
+    // test.
+    const found = (MONITORS.value?.tiles ?? []).find(
+      (t) => t.baselineDelta !== undefined && t.delta !== undefined,
+    );
+    expect(found, "the live capture must contain a tile carrying both deltas").toBeDefined();
+    const tile = {
+      ...found!,
+      baselineDelta: { ...found!.baselineDelta!, comparable: true, deltaText: "5.1 points" },
+    };
     draw(<MonitorTile tile={tile} />);
     expect(screen.getByText(/since you started monitoring/)).toBeInTheDocument();
   });
@@ -204,8 +231,25 @@ describe("a delta chip never paints a sign the payload did not carry", () => {
   const MINUS_PATH = 'path[d="M5 12h14"]';
 
   /** The live rate tile's delta, re-pointed at one direction. */
+  // COMPARABLE, or every assertion below tests the wrong branch: a tile
+  // whose two loads measured different subjects renders the reason
+  // instead of a chip, and re-pointing its direction does not change that.
+  const baseTile = () =>
+    (MONITORS.value?.tiles ?? []).find(
+      (t) => t.delta !== undefined && t.delta.comparable && t.delta.unit === "ratio",
+    )!;
+
+  /**
+   * The magnitude the SERVER rendered for that tile, read out of the
+   * capture rather than transcribed into the assertion. The claim under
+   * test is that the word beside it matches the direction the payload
+   * carried; which rate moved how far is the deployment's business and
+   * changes between captures.
+   */
+  const magnitude = () => `${((baseTile().delta!.delta ?? 0) * 100).toFixed(1)} points`;
+
   function tileWith(over: Partial<import("@/lib/monitors").MonitorsDelta>) {
-    const tile = (MONITORS.value?.tiles ?? []).find((t) => t.delta !== undefined)!;
+    const tile = baseTile();
     return { ...tile, delta: { ...tile.delta!, ...over } };
   }
 
@@ -223,21 +267,21 @@ describe("a delta chip never paints a sign the payload did not carry", () => {
    */
   it("says UP in the word the server sent, on a movement that went up", () => {
     const { container } = draw(
-      <MonitorTile tile={tileWith({ direction: "up", sameWindow: false, delta: 0.035823 })} />,
+      <MonitorTile tile={tileWith({ direction: "up", sameWindow: false })} />,
     );
-    expect(screen.getByText(/Up 3\.6 points/)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`Up ${magnitude()}`))).toBeInTheDocument();
     expect(markOf(container)).toBe("up");
   });
 
   it("says DOWN on a movement that went down, and shares no mark with up", () => {
     const down = draw(
-      <MonitorTile tile={tileWith({ direction: "down", sameWindow: false, delta: -0.035823 })} />,
+      <MonitorTile tile={tileWith({ direction: "down", sameWindow: false })} />,
     );
-    expect(screen.getByText(/Down 3\.6 points/)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`Down ${magnitude()}`))).toBeInTheDocument();
     expect(markOf(down.container)).toBe("down");
     cleanup();
     const up = draw(
-      <MonitorTile tile={tileWith({ direction: "up", sameWindow: false, delta: 0.035823 })} />,
+      <MonitorTile tile={tileWith({ direction: "up", sameWindow: false })} />,
     );
     expect(markOf(up.container)).not.toBe("down");
   });
@@ -246,10 +290,10 @@ describe("a delta chip never paints a sign the payload did not carry", () => {
     // The demo tenant's entire grid. The glyph claims nothing; the word
     // carries the direction, exactly as the brief prose beside it does.
     const { container } = draw(
-      <MonitorTile tile={tileWith({ direction: "up", sameWindow: true, delta: 0.035823 })} />,
+      <MonitorTile tile={tileWith({ direction: "up", sameWindow: true })} />,
     );
     expect(markOf(container)).toBe("neutral");
-    expect(screen.getByText(/Up 3\.6 points/)).toBeInTheDocument();
+    expect(screen.getByText(new RegExp(`Up ${magnitude()}`))).toBeInTheDocument();
     expect(container.querySelector(MINUS_PATH)).toBeNull();
   });
 
@@ -352,7 +396,7 @@ describe("the brief is a list of sentences, not of metrics", () => {
     const text = container.textContent ?? "";
     expect(text).not.toContain(".).");
     expect(text).not.toContain("#1 of 1");
-    expect(text).toContain("worth my morning). Since you started monitoring");
+    expect(text).toContain("anything over a point). Against the previous load");
   });
 
   it("renders the entries in the SERVER's order and re-sorts nothing", () => {
@@ -560,7 +604,22 @@ describe("Monitor this", () => {
 /* ------------------------------------------------------------------ */
 
 describe("a monitor with nothing to compare says so", () => {
-  const silent = () => (MONITORS.value?.tiles ?? []).find((t) => t.delta === undefined)!;
+  /**
+   * A tile the server published NO delta object for.
+   *
+   * Composed rather than found: the engine now publishes a delta on every
+   * tile, carrying `comparable: false` and a sentence where it has nothing
+   * to compare — which is the better payload and is covered by the test
+   * below. This branch is the older shape, still reachable from a stored
+   * evaluation, and dropping the test with the fixture would leave the
+   * client's own fallback line untested.
+   */
+  const silent = () => {
+    const tile = (MONITORS.value?.tiles ?? [])[0]!;
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    const { delta: _delta, ...rest } = tile;
+    return rest as typeof tile;
+  };
 
   it("renders a sentence where a tile has no published movement", () => {
     // Live, 9 of 12 tiles rendered empty space beside the ones that moved,
@@ -568,7 +627,7 @@ describe("a monitor with nothing to compare says so", () => {
     // pixel. This states a fact about the payload and invents no reason
     // for it.
     const tile = silent();
-    expect(tile, "the live capture must contain a tile with no delta").toBeDefined();
+    expect(tile.delta, "this branch is the no-delta shape").toBeUndefined();
     const { container } = draw(<MonitorTile tile={tile} />);
     expect(container.querySelector("[data-delta-absent]")).not.toBeNull();
   });
@@ -620,21 +679,40 @@ describe("the tile grid is ordered, and says how", () => {
   it("puts the monitors that moved first and keeps the server's order inside each band", () => {
     const tiles = MONITORS.value?.tiles ?? [];
     const ordered = orderTilesForGrid(tiles);
-    // The live capture: one material movement, one flat, two with no
-    // comparison at all. Creation order put the flat one second and the
-    // silent pair last only by luck; this makes it a rule.
-    expect(ordered[0].delta?.material).toBe(true);
-    expect(ordered[1].delta?.delta).toBe(0);
-    expect(ordered.slice(2).every((t) => t.delta === undefined)).toBe(true);
+    // The RULE, not one capture's census: monitors that moved come first,
+    // then the ones that held still, then the ones with nothing to
+    // compare against. Written as a band index so it survives a capture
+    // where a different number of monitors moved — which is the ordinary
+    // case, and which used to rewrite this test every load.
+    const band = (t: (typeof tiles)[number]) =>
+      t.delta?.material === true ? 0 : t.delta?.comparable === true ? 1 : 2;
+    const bands = ordered.map(band);
+    expect(bands).toEqual([...bands].sort((a, b) => a - b));
+    expect(bands[0]).toBe(0);
+    expect(bands.at(-1)).toBe(2);
     // Nothing is lost and nothing is duplicated by the sort.
     expect(ordered.map((t) => t.pinId).sort()).toEqual(tiles.map((t) => t.pinId).sort());
   });
 
   it("counts the grid in the same bands it orders it by", () => {
-    expect(tileCensus(MONITORS.value?.tiles ?? [])).toEqual([
-      "1 moved",
-      "1 unchanged",
-      "2 with nothing to compare",
+    const tiles = MONITORS.value?.tiles ?? [];
+    const bandOf = (t: (typeof tiles)[number]) =>
+      t.status !== "ok"
+        ? "unavailable"
+        : t.delta === undefined || !t.delta.comparable
+          ? "silent"
+          : t.delta.material || (t.delta.direction !== "flat" && t.delta.delta !== 0)
+            ? "moved"
+            : "unchanged";
+    const moved = tiles.filter((t) => bandOf(t) === "moved").length;
+    const unchanged = tiles.filter((t) => bandOf(t) === "unchanged").length;
+    const silent = tiles.filter((t) => bandOf(t) === "silent").length;
+    // Counted off the same predicates the sort uses, so the census cannot
+    // disagree with the order it captions — which is the whole claim.
+    expect(tileCensus(tiles)).toEqual([
+      `${moved} moved`,
+      `${unchanged} unchanged`,
+      `${silent} with nothing to compare`,
     ]);
   });
 });
@@ -763,6 +841,37 @@ describe("a tile whose settings could not be read says so", () => {
     expect(
       await screen.findByRole("button", { name: /Save and restart this monitor/ }),
     ).toBeInTheDocument();
+  });
+
+  it("states the recommended level as the number the wire published", async () => {
+    // THE WHOLE POINT OF `recommended_threshold`. Before it existed the
+    // default option read "Tell me about meaningful changes" on every
+    // monitor in the product — honest, and vaguer than the rule the
+    // monitor actually applies, because the gate reached this client only
+    // inside a caption (docs/client-language.md §2.1).
+    const raw = (live.pins.pins as { recommended_threshold?: { text: string } }[]).find(
+      (entry) => entry.recommended_threshold?.text,
+    );
+    expect(raw, "the capture must carry a published recommendation").toBeDefined();
+    const pin = mapMonitorsPin(raw)!;
+    expect(pin.recommendedThreshold?.text).toBe(raw!.recommended_threshold!.text);
+
+    const t = { ...tile(), pinId: pin.pinId };
+    draw(<MonitorTile tile={t} pin={pin} />);
+    openMenu(t.label);
+    fireEvent.click(
+      await screen.findByRole("button", { name: /Change what it takes to brief you/ }),
+    );
+    expect(
+      await screen.findByText(
+        `Tell me when it moves more than ${raw!.recommended_threshold!.text}`,
+      ),
+    ).toBeInTheDocument();
+    // And whose recommendation it is, and that it is not binding.
+    expect(screen.getByText(/Revi's recommended level for .*\. You can change it anytime\./))
+      .toBeInTheDocument();
+    // Never the adjective the number replaced.
+    expect(screen.queryByText(/governed threshold|standard threshold|the pack's/i)).toBeNull();
   });
 });
 
@@ -972,23 +1081,37 @@ describe("the work behind the brief reconciles to its parts", () => {
   });
 
   it("splits the monitors it walked, and says so when they do not add up", () => {
-    // 4 evaluated: 1 briefed movement, 1 held back, and — before the
-    // server published `not_yet_comparable` — two that were counted
-    // nowhere at all.
-    const brief = { ...BRIEF.value!, pinsEvaluated: 4 };
+    // Two monitors the walk counted nowhere at all. Computed off the
+    // capture's own parts rather than pinned to a number: how many
+    // monitors moved changes every load, and what is under test is that
+    // the census refuses to let the split silently not add up.
+    const held = BRIEF.value!.immaterial;
+    const accounted =
+      BRIEF.value!.entries.filter((e) => e.kind === "pin_movement" || e.kind === "rank_flip")
+        .length +
+      (held.withheldByKind.pin_movement ?? 0) +
+      (held.withheldByKind.rank_flip ?? 0) +
+      held.pinMovements +
+      held.notYetComparable +
+      held.unavailable;
+    const brief = { ...BRIEF.value!, pinsEvaluated: accounted + 2 };
     const { container, unmount } = draw(<BriefPanel brief={brief} />);
     expect(container.querySelector("[data-walk-census]")?.textContent).toContain(
       "2 not accounted for",
     );
     unmount();
 
+    // …and when the server accounts for those two, the split closes and
+    // the census stops saying it does not.
     const closed = {
       ...brief,
-      immaterial: { ...brief.immaterial, notYetComparable: 2 },
+      immaterial: { ...brief.immaterial, notYetComparable: held.notYetComparable + 2 },
     };
     const second = draw(<BriefPanel brief={closed} />);
     const census = second.container.querySelector("[data-walk-census]")!;
-    expect(census.textContent).toContain("2 with nothing to compare against yet");
+    expect(census.textContent).toContain(
+      `${held.notYetComparable + 2} with nothing to compare against yet`,
+    );
     expect(census.textContent).not.toContain("not accounted for");
   });
 });
@@ -1037,7 +1160,7 @@ describe("the lead lifecycle zone", () => {
     draw(<LeadLifecyclePanel leads={rows} totalLeads={33} headingId="leads-heading" />);
     expect(
       screen.getByText(
-        "1 of the 2 consecutive loads Revi checks before it calls a fix confirmed",
+        "1 of the 2 consecutive loads Revi requires before it will call this confirmed",
       ),
     ).toBeInTheDocument();
   });

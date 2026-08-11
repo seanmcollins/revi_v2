@@ -1046,7 +1046,7 @@ export class ApiDriver implements TurnDriver {
             type: "error",
             code: "CONTRACT_DRIFT",
             message:
-              "Recovered the turn, but the response is missing required fields (paths in the console).",
+              "Recovered the answer, but the response is missing required fields (paths in the console).",
             correlationId: args.correlationId,
           });
           return;
@@ -1068,12 +1068,12 @@ export class ApiDriver implements TurnDriver {
       }
     }
 
-    this.options.onConnectionState?.("offline", "lost connection mid-turn");
+    this.options.onConnectionState?.("offline", "lost the connection mid-answer");
     args.emit({
       type: "error",
       code: "API_UNREACHABLE",
       message:
-        "Lost the connection while streaming this turn and could not recover it. The investigation may still complete server-side — it will be in the lineage once the API is reachable again.",
+        "Lost the connection while this answer was streaming and could not recover it. The investigation may still finish server-side — it will be in the lineage once the API is reachable again.",
       correlationId: args.correlationId,
     });
   }
@@ -1109,7 +1109,7 @@ export class ApiDriver implements TurnDriver {
     emit({
       type: "error",
       code: envelope?.code ?? `HTTP_${error.status}`,
-      message: envelope?.message ?? `The API rejected this turn (HTTP ${error.status}).`,
+      message: envelope?.message ?? `The API rejected this question (HTTP ${error.status}).`,
       correlationId: envelope?.correlationId ?? correlationId,
       ...(envelope?.subcode ? { subcode: envelope.subcode } : {}),
     });
@@ -1139,7 +1139,7 @@ export class ApiDriver implements TurnDriver {
         type: "error",
         code: "CONTRACT_DRIFT",
         message:
-          "The API responded, but required fields are missing (paths in the console). The UI cannot render this turn.",
+          "The API responded, but required fields are missing (paths in the console). The UI cannot render this answer.",
         ...(correlationId ? { correlationId } : {}),
       });
       return;

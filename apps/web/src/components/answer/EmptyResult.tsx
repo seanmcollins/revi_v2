@@ -65,7 +65,7 @@ export function EmptyResult({
             </ul>
           ) : (
             <p className="text-meta leading-snug text-muted-foreground">
-              This turn came back with no window, no measure and no record of what ran — so
+              This answer came back with no window, no measure and no record of what ran — so
               there is nothing further this card can honestly say about it.
             </p>
           )}
@@ -73,8 +73,8 @@ export function EmptyResult({
             {answer.warnings.length > 0
               ? "The notes above are the engine's own account of why."
               : chartCount > 0
-                ? "The chart below carries the rows the probes did return."
-                : "The governed data has no rows matching that question at this data load — narrow it differently, or widen the window."}
+                ? "The chart below carries the rows the checks did return."
+                : "Your data has no rows matching that question at this data load — narrow it differently, or widen the window."}
           </p>
         </div>
       </div>

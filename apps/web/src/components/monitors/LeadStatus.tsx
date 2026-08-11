@@ -123,7 +123,7 @@ export function LeadStatusControl({
               type="text"
               value={note}
               onChange={(event) => setNote(event.target.value)}
-              placeholder="All 14 accounts billed 2026-07-30."
+              placeholder="All 14 accounts billed on Jul 30."
               className="focus-ring w-full rounded-md border bg-background px-2 py-1 text-meta"
             />
           </label>

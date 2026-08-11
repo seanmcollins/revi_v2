@@ -149,7 +149,7 @@ export function TurnInput({
       {pending > 0 && (
         <p className="num text-micro text-muted-foreground">
           {mode === "api"
-            ? `${pending} refinement${pending === 1 ? "" : "s"} queued — submitting when this turn completes`
+            ? `${pending} refinement${pending === 1 ? "" : "s"} queued — submitting when this answer lands`
             : `${pending} refinement${pending === 1 ? "" : "s"} queued — the mock fixture has nowhere to send them`}
         </p>
       )}

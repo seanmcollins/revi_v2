@@ -330,7 +330,7 @@ export default function Workspace({
               <ConnectionPill />
               <DegradedModeBadge />
               <p className="num whitespace-nowrap text-micro text-muted-foreground">
-                {turns.length} turn{turns.length === 1 ? "" : "s"}
+                {turns.length} question{turns.length === 1 ? "" : "s"}
               </p>
               <Tooltip>
                 <TooltipTrigger asChild>
@@ -482,8 +482,8 @@ export function SessionLink({ sessionId }: { sessionId: string }) {
           className="mt-2.5 text-micro leading-snug text-muted-foreground"
         >
           {disclosure.basis === "observed"
-            ? "Measured: this is what came back when a turn in this session was re-read from the server."
-            : "Not yet measured on this session — every turn here was watched live, and this browser still holds what the server may not."}
+            ? "Measured: this is what came back when an answer in this session was re-read from the server."
+            : "Not yet measured on this session — every answer here was watched live, and this browser still holds what the server may not."}
         </p>
 
         <div className="mt-2.5 border-t pt-2.5">

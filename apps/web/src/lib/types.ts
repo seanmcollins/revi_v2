@@ -46,6 +46,57 @@ export function minGrade(first: EvidenceGrade, ...rest: EvidenceGrade[]): Eviden
   return weakest;
 }
 
+/**
+ * THE GRADE, IN THE READER'S WORDS — one rendering, every surface.
+ *
+ * `direct`, `derived`, `proxy` and `discovery` are the engine's tokens and
+ * they reach the wire unchanged. None of them is a word an RCM analyst
+ * owns: "proxy" is a modelling term, "discovery" reads like a feature
+ * name, and "derived" tells a reader nothing about whether they may act on
+ * the number. `docs/client-language.md` §2 fixes exactly one client
+ * rendering for each, and this is it.
+ *
+ * THERE WAS NO SHARED TABLE AND THERE WERE THREE, which is the reason this
+ * one exists rather than a fourth. `GradeBadge` said "Uncertified", the
+ * answer's integrity line said "Uncertified — fields nobody has certified
+ * for this purpose", and a monitor tile said "Verified against your data"
+ * where the badge said "Direct" — three surfaces describing one claim
+ * about one number in three vocabularies, two of which used the word
+ * `certified` that §2 translates away. A reader comparing a tile to the
+ * answer behind it had to work out whether they were being told the same
+ * thing.
+ *
+ * Sentence case, because they are read as prose as often as they are read
+ * as a pill: "Calculated from measured values" is a clause on the
+ * integrity line and a label on a badge, and it must be one string.
+ */
+export const GRADE_LABELS: Readonly<Record<EvidenceGrade, string>> = {
+  direct: "Measured directly",
+  derived: "Calculated from measured values",
+  proxy: "Estimated",
+  discovery: "Exploratory",
+  unavailable: "Not measured",
+};
+
+/**
+ * What the grade means for what the reader may DO with the number — the
+ * sentence under the label, wherever there is room for one.
+ *
+ * Written for somebody who has never heard the token. The word `certified`
+ * appears in none of them on purpose: it is platform vocabulary for
+ * "standardized in your definitions library", and a reader who does not
+ * know what certification is reads "uncertified" as "wrong".
+ */
+export const GRADE_EXPLANATIONS: Readonly<Record<EvidenceGrade, string>> = {
+  direct: "The field in your data is the thing being measured. Nothing was inferred.",
+  derived: "Worked out by arithmetic from fields that were measured directly.",
+  proxy:
+    "Measured through a stand-in that moves with what you asked about but does not prove it. Treat it as indicative.",
+  discovery:
+    "Read from fields in your data that nobody has standardized for this purpose. Treat it as a starting point, not a finding.",
+  unavailable: "Your data holds nothing adequate to measure this with.",
+};
+
 /* ------------------------------------------------------------------ */
 /* Refs (revi_kernel.refs)                                             */
 /* ------------------------------------------------------------------ */

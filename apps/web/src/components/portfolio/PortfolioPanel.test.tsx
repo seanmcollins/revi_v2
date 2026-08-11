@@ -214,7 +214,10 @@ describe("PortfolioPanel — reading every published field", () => {
 
   it("shows the detector's severity and the card's age", () => {
     renderPanel();
-    expect(screen.getAllByText("critical").length).toBeGreaterThan(0);
+    // The word, not the wire token: `critical` lower-case was the enum
+    // printed straight into a chip.
+    expect(screen.getAllByText("Critical").length).toBeGreaterThan(0);
+    expect(screen.queryAllByText("critical")).toHaveLength(0);
     expect(screen.getByText("Detected 31d ago")).toBeInTheDocument();
   });
 

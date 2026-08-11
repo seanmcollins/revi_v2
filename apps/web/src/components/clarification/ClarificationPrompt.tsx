@@ -221,7 +221,7 @@ export function ClarificationPrompt({
           <History className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           <div className="min-w-0 flex-1 space-y-2">
             <p className="text-body font-medium leading-snug">
-              This turn ended with a question
+              This answer ended with a question
             </p>
             {clarification.question !== "" && (
               <p className="text-body leading-snug text-foreground">

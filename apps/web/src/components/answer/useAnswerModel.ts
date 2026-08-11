@@ -7,6 +7,7 @@ import { caveatLines } from "@/lib/export";
 import { chartWindowLabel } from "@/lib/format";
 import { tidyProse } from "@/lib/prose";
 import type { TurnRecord } from "@/lib/store";
+import { GRADE_LABELS } from "@/lib/types";
 import type { ChartSpec, EvidenceGrade, Finding, WarningEvent } from "@/lib/types";
 import { foldComposedDisclosures, partitionWarnings, publicWarningBody } from "@/lib/warnings";
 
@@ -113,16 +114,22 @@ export interface VerificationClause {
 }
 
 /**
- * How a non-`direct` answer grade is said on a line of prose, in the same
- * words the badge's tooltip uses — a grade is a claim about the evidence,
- * so the phrasing does not get to soften between surfaces.
+ * How a non-`direct` answer grade is said on a line of prose: in the ONE
+ * rendering {@link GRADE_LABELS} fixes, which the badge, the fact rows and
+ * every monitor tile also read. A grade is a claim about the evidence, so
+ * the phrasing does not get to soften between surfaces — and it had, three
+ * ways, before that table existed.
+ *
+ * `direct` is `undefined` rather than a label because the clause it would
+ * qualify already says it: "Verified against your data" is the line, and
+ * "Verified against your data · Measured directly" says one thing twice.
  */
 const GRADE_CLAUSES: Readonly<Record<EvidenceGrade, string | undefined>> = {
   direct: undefined,
-  derived: "Derived — calculated from validated fields",
-  proxy: "Indicative — computed from a stand-in measure",
-  discovery: "Uncertified — fields nobody has certified for this purpose",
-  unavailable: "No adequate measurement exists for this",
+  derived: GRADE_LABELS.derived,
+  proxy: GRADE_LABELS.proxy,
+  discovery: GRADE_LABELS.discovery,
+  unavailable: GRADE_LABELS.unavailable,
 };
 
 /**
@@ -291,7 +298,7 @@ export function useAnswerModel(turn: TurnRecord): AnswerModel {
    */
   const completionMessage = useMemo(() => {
     if (streaming) return "";
-    if (a.status === "error") return "This turn stopped before it finished.";
+    if (a.status === "error") return "This answer stopped before it finished.";
     if (a.status === "clarification")
       return "The platform needs one more detail before it answers.";
     if (a.status !== "complete") return "";

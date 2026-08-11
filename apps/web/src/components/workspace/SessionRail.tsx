@@ -185,7 +185,7 @@ export function SessionRail() {
           title={
             mode === "api"
               ? undefined
-              : "Seed 20260807 · set VITE_REVI_DRIVER=api to use the live API"
+              : "Sample data — this is a demonstration, not your organization's numbers"
           }
         >
           {mode === "api" ? (
@@ -286,7 +286,7 @@ function ReplayDemoButton({
       <section className="space-y-1.5 rounded-md border border-warning/40 bg-warning/10 p-2">
         <p className="text-micro leading-snug">
           Replaying starts a new chat — this thread is cleared and cannot be brought back. It
-          then runs {REFERENCE_QUESTIONS.length} live turns.
+          then asks {REFERENCE_QUESTIONS.length} real questions.
         </p>
         <div className="flex gap-1.5">
           <Button
@@ -326,7 +326,7 @@ function ReplayDemoButton({
         {progress ? `Replaying ${progress.index}/${progress.total}…` : "Replay reference demo"}
       </Button>
       <p className="px-1 text-micro leading-snug text-muted-foreground">
-        {REFERENCE_QUESTIONS.length} live turns, in a new chat.
+        {REFERENCE_QUESTIONS.length} real questions, in a new chat.
       </p>
     </section>
   );
@@ -527,18 +527,26 @@ function SessionList() {
                   type="button"
                   disabled={busy && !pending}
                   aria-current={active ? "true" : undefined}
-                  // The turn count and the exact last-activity instant are
+                  // The question count and the last-activity instant are
                   // the two facts the row shows nowhere on screen, and
                   // they lived only in a native `title` — mouse-only, with
                   // no keyboard path and no touch equivalent. On the
                   // accessible name they reach everyone; the `title` stays
                   // for the pointer.
-                  aria-label={`${title} — ${session.turnCount} turn${
+                  //
+                  // "turn" reached BOTH of them. It is chat-industry
+                  // vocabulary, not analyst vocabulary
+                  // (docs/client-language.md §3), and an accessible name
+                  // is a client-visible string like any other — arguably
+                  // the one with the least room to explain itself. The
+                  // instant is read as a date rather than as an ISO
+                  // timestamp for the same reason.
+                  aria-label={`${title} — ${session.turnCount} question${
                     session.turnCount === 1 ? "" : "s"
-                  }, last activity ${session.lastActivity}`}
-                  title={`${title} · ${session.turnCount} turn${
+                  }, last active ${relativeTime(session.lastActivity)}`}
+                  title={`${title} · ${session.turnCount} question${
                     session.turnCount === 1 ? "" : "s"
-                  } · last activity ${session.lastActivity}`}
+                  } · last active ${relativeTime(session.lastActivity)}`}
                   onClick={() => void openSession(session.sessionId)}
                   className={cn(
                     // The 2px rail is the SELECTED indicator; the tint is

@@ -57,6 +57,35 @@ const BRIEF = live.brief as unknown as Json;
 const MONITORS = live.monitors as unknown as Json;
 const TILES = MONITORS.tiles as Json[];
 
+/**
+ * The brief's own headline, read out of the capture rather than
+ * transcribed into the assertions.
+ *
+ * It used to be spelled out here as "4 thing(s) changed between wm_002 and
+ * wm_003" — which is what the engine said before M43, parenthetical plural
+ * and warehouse ids and all. Pinning that text meant the tests would have
+ * gone on passing over copy the language contract now bans, and would have
+ * failed the moment it was fixed. The headline is the SERVER's sentence;
+ * what Home owes is to print it once, in the right zone, and to announce
+ * it — which is what these assert.
+ */
+const HEADLINE = BRIEF.headline as string;
+
+/**
+ * How many monitors this capture says actually moved enough to brief —
+ * counted the way `movedPinIds` counts them, from BOTH published sources:
+ * a tile in the material band, or a brief entry of a movement kind. A tile
+ * can be material with no brief line and a brief line can name a pin whose
+ * tile did not band material, and the digest's own census is the union.
+ */
+const MOVED = new Set([
+  ...TILES.filter((t) => (t.delta as Json | null)?.material === true).map((t) => t.pin_id),
+  ...(BRIEF.entries as Json[])
+    .filter((e) => e.kind === "pin_movement" || e.kind === "rank_flip")
+    .map((e) => e.pin_id)
+    .filter((id): id is string => typeof id === "string"),
+]).size;
+
 /** The captured worklist, wrapped in the snapshot envelope the route sends. */
 const PORTFOLIO: Json = {
   status: "ok",
@@ -133,8 +162,13 @@ const NO_MOVEMENT_BRIEF: Json = {
 /** One monitor whose headline value is an upper bound, not a measurement. */
 const BOUNDED_MONITORS: Json = {
   ...MONITORS,
-  tiles: TILES.map((tile, i) =>
-    i === 1
+  // Applied to a monitor the digest will actually SHOW. The digest caps at
+  // four and puts the ones that moved first, so pinning this to a fixed
+  // index made the test depend on how many monitors happened to move in
+  // the capture — it stopped exercising anything the moment a fifth one
+  // did.
+  tiles: TILES.map((tile) =>
+    (tile.delta as Json | null)?.material === true
       ? {
           ...tile,
           label: "monthly denial rate for Veritas Comp Fund",
@@ -281,14 +315,18 @@ function firstZone(): "monitors" | "anomalies" {
 describe("Home — what changed, first and in one line", () => {
   it("renders the brief's own headline, collapsed, with a way into the detail", async () => {
     draw();
-    await screen.findByText(/4 thing\(s\) changed/);
+    await screen.findByText(HEADLINE);
     // Collapsed: the sentence and nothing else. The brief's entries are
     // behind the toggle, which says how many there are. (Asserted on the
     // entry rows rather than on a title, because two of these leads are
     // also cards in the anomalies zone below — which is the point of
     // having both zones.)
     expect(document.querySelectorAll("[data-brief-entry]")).toHaveLength(0);
-    expect(screen.getByRole("button", { name: /Show what changed — 4 lines/ })).toHaveAttribute(
+    expect(
+      screen.getByRole("button", {
+        name: new RegExp(`Show what changed — ${(BRIEF.entries as Json[]).length} lines`),
+      }),
+    ).toHaveAttribute(
       "aria-expanded",
       "false",
     );
@@ -303,7 +341,9 @@ describe("Home — what changed, first and in one line", () => {
     // kinds and the walk census are `BriefPanel`'s, not a second rendering
     // of the same payload.
     await waitFor(() =>
-      expect(document.querySelectorAll("[data-brief-entry]")).toHaveLength(4),
+      expect(document.querySelectorAll("[data-brief-entry]")).toHaveLength(
+        (BRIEF.entries as Json[]).length,
+      ),
     );
     expect(screen.getByText(/New at this load: ANM-029/)).toBeInTheDocument();
     expect(screen.getByText(/Gone without being worked: ANM-032/)).toBeInTheDocument();
@@ -316,7 +356,7 @@ describe("Home — what changed, first and in one line", () => {
     // the panel's own lead. (Scoped to the zone — the polite live region
     // carries the same sentence, which is the point of it.)
     const zone = document.getElementById("home-what-changed")!;
-    expect(within(zone).getAllByText(/4 thing\(s\) changed/)).toHaveLength(1);
+    expect(within(zone).getAllByText(HEADLINE)).toHaveLength(1);
   });
 
   it("gives a quiet load the proud sentence, and nothing to expand", async () => {
@@ -348,24 +388,28 @@ describe("Home — the evolution rule, on the page", () => {
     );
     await waitFor(() => expect(firstZone()).toBe("monitors"));
     expect(
-      screen.getByText(/4 monitors re-run at this load, 1 moved enough to brief you/),
+      screen.getByText(
+        new RegExp(`${TILES.length} monitors re-run at this load, ${MOVED} moved enough to brief you`),
+      ),
     ).toBeInTheDocument();
   });
 
   it("MONITORS, NOTHING MOVED: the digest stays below the anomalies", async () => {
     serve({ monitors: STILL_MONITORS, brief: NO_MOVEMENT_BRIEF });
     draw();
-    await waitFor(() =>
-      expect(
-        within(document.getElementById("home-monitors")!).getByText(
-          "Denial rate by payer, monthly",
-        ),
-      ).toBeInTheDocument(),
+    // Waited on the CENSUS rather than on a particular monitor's name: the
+    // digest shows four of nine and which four is the digest's own
+    // ordering rule, not this test's subject. What is under test is that
+    // the zone still renders, still says what it walked, and sits BELOW
+    // the anomalies when nothing moved.
+    const census = await screen.findByText(
+      new RegExp(`${TILES.length} monitors re-run at this load, none moved enough to brief you`),
     );
-    await waitFor(() => expect(firstZone()).toBe("anomalies"));
+    expect(document.getElementById("home-monitors")!.contains(census)).toBe(true);
     expect(
-      screen.getByText(/4 monitors re-run at this load, none moved enough to brief you/),
-    ).toBeInTheDocument();
+      within(document.getElementById("home-monitors")!).getAllByRole("listitem").length,
+    ).toBeGreaterThan(0);
+    await waitFor(() => expect(firstZone()).toBe("anomalies"));
   });
 
   it("NO MONITORS: an invitation, under the anomalies, naming a real affordance", async () => {
@@ -385,7 +429,7 @@ describe("Home — the evolution rule, on the page", () => {
   it("keeps the honesty marks on a bounded value in the digest", async () => {
     serve({ monitors: BOUNDED_MONITORS });
     draw();
-    const value = await screen.findByText(/≤ 76.9%/);
+    const [value] = await screen.findAllByText(/≤ 76.9%/);
     // The `≤` is the server's, and the words beside it say what it means.
     expect(value.textContent).toContain("a ceiling, not a measurement");
     expect(value.textContent).toContain("still settling");
@@ -680,7 +724,7 @@ describe("Home — the cold start announces itself instead of redirecting", () =
       expect(node?.textContent).toContain("What changed at this load");
       return node!;
     });
-    expect(announcer.textContent).toContain("4 thing(s) changed");
+    expect(announcer.textContent).toContain(HEADLINE);
     expect(announcer.getAttribute("aria-live")).toBe("polite");
     await waitFor(() =>
       expect(document.activeElement).toBe(document.getElementById("home-what-changed")),
@@ -697,7 +741,7 @@ describe("Home — the cold start announces itself instead of redirecting", () =
   it("says nothing, and takes no focus, on a load already read", async () => {
     window.localStorage.setItem("revi-monitors-seen-watermark", "wm_003");
     draw();
-    await screen.findByText(/4 thing\(s\) changed/);
+    await screen.findByText(HEADLINE);
     expect(document.getElementById("revi-live-announcer")?.textContent ?? "").toBe("");
     // Focus stays where Home puts it by default: on the composer.
     await waitFor(() =>
@@ -707,7 +751,7 @@ describe("Home — the cold start announces itself instead of redirecting", () =
 
   it("navigates nowhere — Home IS the brief-first cold start now", async () => {
     draw();
-    await screen.findByText(/4 thing\(s\) changed/);
+    await screen.findByText(HEADLINE);
     expect(screen.queryByTestId("session-route")).not.toBeInTheDocument();
     expect(screen.getByRole("heading", { level: 1, name: "Where things stand" })).toBeInTheDocument();
   });
@@ -738,7 +782,7 @@ describe("Home — reachable without a mouse", () => {
 
   it("names all three zones for a screen reader", async () => {
     draw();
-    await screen.findByText(/4 thing\(s\) changed/);
+    await screen.findByText(HEADLINE);
     for (const name of ["What changed", "Detected anomalies", "Your monitors"]) {
       expect(screen.getByRole("region", { name })).toBeInTheDocument();
     }

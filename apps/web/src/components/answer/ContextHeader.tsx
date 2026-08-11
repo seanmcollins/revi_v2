@@ -197,13 +197,13 @@ export function ContextHeader({
         <ChipDoc title="Data through">
           <p>
             Every number in this answer was computed against the data load of{" "}
-            <span className="font-medium">{header.watermark.loadedAt}</span> (newest
+            <span className="font-medium">{safeDate(header.watermark.loadedAt)}</span> (newest
             activity {mediumDate(header.watermark.newestDataDate)}).
           </p>
           <p className="mt-1.5 text-muted-foreground">
-            Metric definitions {header.packVersion.packId}@{header.packVersion.version}.
-            Re-running against a newer load can change the numbers; this session stays on
-            this one until you choose to move it.
+            Measured against version {header.packVersion.version} of your definitions
+            library. Re-running against a newer load can change the numbers; this session
+            stays on this one until you choose to move it.
           </p>
         </ChipDoc>
       </Chip>
@@ -274,14 +274,14 @@ function RestoredChip({ notes }: { notes?: readonly string[] }) {
           ) : (
             <>
               <p>
-                This turn was rebuilt from the record the server kept for it, not watched as
-                it ran. The window, scope, cohort and data load beside this chip are the ones
-                the turn itself published and were stored with it.
+                This answer was rebuilt from the record the server kept for it, not watched
+                as it ran. The window, scope, population and data load beside this chip are
+                the ones the answer itself published and were stored with it.
               </p>
               <p className="mt-1.5 text-muted-foreground">
                 Its stage timings were never persisted, and neither was the streamed
                 write-up — anything missing below is missing because it was not stored, not
-                because this turn did not have it.
+                because the answer did not have it.
               </p>
             </>
           )}
@@ -317,7 +317,10 @@ function CohortChip({ cohort }: { cohort: NonNullable<ContextHeaderData["cohort"
   return (
     <Chip
       icon={<Users className="size-3" />}
-      name="Cohort"
+      // NOT "Cohort". §2 gives that concept exactly one client
+      // rendering — "population" — and this chip was the last place in
+      // the product still wearing the platform's word for it.
+      name="Population"
       label={cohort.detailed ? cohort.definition : cohort.id}
       trailing={
         // Solid `--verified`, not `/70`. At 70% over the chip's own
@@ -331,7 +334,7 @@ function CohortChip({ cohort }: { cohort: NonNullable<ContextHeaderData["cohort"
       }
       accent
     >
-      <ChipDoc title={cohort.pinned ? "Pinned cohort" : "Cohort"}>
+      <ChipDoc title={cohort.pinned ? "Pinned population" : "Population"}>
         {cohort.detailed ? (
           <>
             <p>
@@ -353,8 +356,9 @@ function CohortChip({ cohort }: { cohort: NonNullable<ContextHeaderData["cohort"
           </>
         ) : (
           <p>
-            {sized}. This turn published the population&rsquo;s handle and its size, but not
-            the rule that selected it — so the rule is not shown here rather than guessed at.
+            {sized}. This answer published the population&rsquo;s handle and its size, but
+            not the rule that selected it — so the rule is not shown here rather than
+            guessed at.
           </p>
         )}
         {cohort.pinned ? (
@@ -362,13 +366,13 @@ function CohortChip({ cohort }: { cohort: NonNullable<ContextHeaderData["cohort"
             Pinned{cohort.originReferent ? ` from ${cohort.originReferent}` : ""}
             {cohort.originTurn ? ` in ${cohort.originTurn}` : ""}
             {cohort.pinnedWatermarkId ? `, at data load ${cohort.pinnedWatermarkId}` : ""}: the
-            member set is frozen — later turns reuse exactly these members even if the
-            ranking would change.
+            member set is frozen — later questions reuse exactly these members even if
+            the ranking would change.
           </p>
         ) : (
           <p className="mt-1.5 text-muted-foreground">
-            Not pinned: the rule is re-evaluated against the data each turn, so the members
-            can change.
+            Not pinned: the rule is re-evaluated against the data each time you ask, so the
+            members can change.
           </p>
         )}
         {/* The handle, where a handle belongs — reachable when an
@@ -387,8 +391,29 @@ function CohortChip({ cohort }: { cohort: NonNullable<ContextHeaderData["cohort"
  * written for the ones it has. A payload with no grain says "entities",
  * which is honest: the size is real and what it counts was not stated.
  */
+/**
+ * A load timestamp as a date, and the raw string when it is not one.
+ *
+ * `loadedAt` is published in several shapes across deployments
+ * ("2026-08-03 04:10" among them), and `mediumDate` throws on anything
+ * that is not an ISO date. It printed raw before, which is a §4 violation;
+ * throwing instead would be worse than the violation.
+ */
+function safeDate(iso: string): string {
+  try {
+    return mediumDate(iso);
+  } catch {
+    return iso;
+  }
+}
+
 function pluralGrain(grain: string, size: number): string {
-  if (grain === "") return size === 1 ? "entity" : "entities";
+  // NOT "entity"/"entities". `entity` is a modelling word with no client
+  // rendering (docs/client-language.md §3), and it was the fallback — so
+  // the ONE case where the payload does not say what it counted is the one
+  // case that answered in our vocabulary. "Records" is plain English and
+  // says exactly as much as the payload does.
+  if (grain === "") return size === 1 ? "record" : "records";
   if (size === 1) return grain;
   return grain.endsWith("s") ? grain : `${grain}s`;
 }

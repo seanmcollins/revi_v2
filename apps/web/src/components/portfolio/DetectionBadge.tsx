@@ -54,9 +54,9 @@ export function DetectionBadge({
       <TooltipContent side="top" className="max-w-72">
         <p className="mb-1 font-medium">Externally detected — not an evidence grade</p>
         <p className="text-meta leading-snug opacity-90">
-          This card is a record read from an external detection system, not a number this platform
-          computed from certified semantics — so it carries no DIRECT/DERIVED/PROXY grade. Drill in
-          and the resulting answer does.
+          This card is a record read from an external detection system, not a number Revi
+          measured from your data — so nothing here says how it was measured. Drill in and the
+          answer that comes back does.
         </p>
         {(priorityFormulaVersion || sourceWatermarkId) && (
           <dl className="num mt-1.5 space-y-0.5 text-meta leading-snug opacity-70">

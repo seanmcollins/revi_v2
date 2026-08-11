@@ -257,10 +257,12 @@ describe("AnswerWorklist — the ranked list, inside a conversation", () => {
     expect(screen.getByText(/\$830,502 estimated recoverable/)).toBeInTheDocument();
     // And it names the data load by DATE or not at all. This line used to
     // read "…ranked cards at data load wm_003" — a log token in a sentence
-    // a director reads. The id stays on the title for whoever has to
-    // reproduce the query.
+    // a director reads. The hover carried the same token until M43; a
+    // version pin has no client rendering anywhere (§3), and a `title` is
+    // as client-visible as the sentence under it.
     expect(footer.textContent).not.toMatch(/wm_\d/);
-    expect(footer).toHaveAttribute("title", "Data load wm_003");
+    expect(footer.getAttribute("title") ?? "").not.toMatch(/wm_\d/);
+    expect(footer).toHaveAttribute("title", "Measured at a single data load");
   });
 
   it("carries the list's own caveats about the population", () => {

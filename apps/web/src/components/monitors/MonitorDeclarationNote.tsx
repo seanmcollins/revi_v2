@@ -135,6 +135,20 @@ export function MonitorRefusedNote({ refusal }: { refusal: MonitorRefusal }) {
             What could not be read: “{refusal.thresholdPhrase}”.
           </p>
         )}
+        {/* THE WAY OUT THAT NEEDS NO SENSITIVITY CLAUSE AT ALL.
+            The server publishes the recommended level on a refusal for
+            exactly this: somebody whose own threshold was refused can take
+            the recommendation instead, and §2.1 says an offer to accept a
+            default has to state the number being accepted. It is the
+            server's phrase, and the alternatives above are its phrasings —
+            between them the analyst has both roads out of the refusal. */}
+        {refusal.recommendedThreshold && (
+          <p className="text-micro leading-snug text-muted-foreground">
+            Or say nothing about sensitivity and Revi briefs you when it moves more than{" "}
+            {refusal.recommendedThreshold.text} — its recommended level for this measure. You can
+            change it anytime.
+          </p>
+        )}
       </div>
     </aside>
   );

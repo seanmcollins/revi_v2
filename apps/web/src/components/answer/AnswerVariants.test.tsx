@@ -26,6 +26,7 @@ import RAW_SAMPLES from "@/lib/__fixtures__/wire-samples.json";
 import { resetAnswerVariantCache, setAnswerVariant } from "@/lib/answerVariant";
 import { mapWorklist, parseTurnResponse, turnResponseToEvents } from "@/lib/contract";
 import { DEFAULT_SETTINGS } from "@/lib/settings";
+import { GRADE_LABELS } from "@/lib/types";
 import {
   applyEventToAnswer,
   emptyAnswer,
@@ -780,18 +781,23 @@ describe("CONDITION 2 — the answer grade has a home in the calm layout", () =>
   it("says a proxy grade in words, on the line", () => {
     setAnswerVariant("b");
     const { container } = renderCard(turn({ answerGrade: "proxy" }));
-    expect(
-      screen.getByText("Indicative — computed from a stand-in measure"),
-    ).toBeInTheDocument();
+    // The lexicon's rendering (docs/client-language.md §2), which the
+    // badge and every monitor tile now read from the same table. It said
+    // "Indicative — computed from a stand-in measure" here and "Proxy" on
+    // the badge four pixels away.
+    expect(screen.getByText(GRADE_LABELS.proxy)).toBeInTheDocument();
+    expect(GRADE_LABELS.proxy).toBe("Estimated");
     expect(container.querySelector('[data-answer-grade="proxy"]')).not.toBeNull();
   });
 
-  it("says an uncertified grade in the badge's own words", () => {
+  it("says an exploratory grade in the same words the badge uses", () => {
     setAnswerVariant("b");
     renderCard(turn({ answerGrade: "discovery" }));
-    expect(
-      screen.getByText("Uncertified — fields nobody has certified for this purpose"),
-    ).toBeInTheDocument();
+    // Not "Uncertified": `certified` is platform vocabulary for
+    // "standardized in your definitions library", and a reader who has
+    // never met it takes "uncertified" to mean "wrong".
+    expect(screen.getByText(GRADE_LABELS.discovery)).toBeInTheDocument();
+    expect(GRADE_LABELS.discovery).toBe("Exploratory");
   });
 
   it("adds nothing when the grade is direct — the expected case", () => {
@@ -1092,7 +1098,7 @@ describe("a restored turn keeps its answer in the calm layout", () => {
     setAnswerVariant("b");
     renderCard(restored());
     expect(
-      screen.getByText(/The written analysis was not stored for this turn/),
+      screen.getByText(/The written analysis was not stored for this answer/),
     ).toBeInTheDocument();
     expect(screen.getByText(/Ashvale HMO F1: 47.2% denial rate/)).toBeInTheDocument();
   });
@@ -1115,7 +1121,7 @@ describe("a restored turn keeps its answer in the calm layout", () => {
     );
     const note = container.querySelector("[data-restored-without-prose]");
     expect(note).not.toBeNull();
-    expect(note).toHaveTextContent(/The written analysis was not stored for this turn/);
+    expect(note).toHaveTextContent(/The written analysis was not stored for this answer/);
     expect(note).toHaveTextContent(/2 charts/);
     expect(note).toHaveTextContent(/the evidence behind them/);
   });

@@ -184,7 +184,10 @@ const TONE: Readonly<Record<IntegrityTone, { className: string; label: string }>
   },
   measured: {
     className: "bg-foreground/50",
-    label: "Measured, not governed",
+    // "not governed" asserted an authority the reader cannot inspect and
+     // then negated it — two problems in three words. What it means is that
+     // no standard definition covered this measure.
+     label: "Measured, no standard definition",
   },
   qualified: {
     className: "bg-warning",

@@ -6,7 +6,7 @@
  */
 
 import type { TurnSubmission } from "@/lib/driver";
-import { humanizeColumn } from "@/lib/humanize";
+import { humanizeColumn, humanizeInline } from "@/lib/humanize";
 import { capitalizeOpening } from "@/lib/prose";
 import type { DateBasis, DirectionOfGood, Refinement, ResolvedWindow } from "@/lib/types";
 
@@ -412,37 +412,123 @@ function lastDayOfMonth(year: number, month: number): number {
 }
 
 /**
- * Terse display form of a typed refinement operator — the user-bubble and
- * lineage-edge rendering of gesture turns: `DrillInto(F2)`, `RankBy(…)`.
+ * WHAT THE CLICK DID, IN ENGLISH — the user-bubble and lineage-edge
+ * rendering of a gesture.
+ *
+ * It read `SetDimensions(payer)`, `AddFilter(payer in Atlas)`,
+ * `ResetContext(keepPins=true)` — schema tokens in CamelCase with
+ * snake_case operands and a machine key/value pair, rendered as `<code>`
+ * chips on the DEFAULT thread, in the position a reader looks for the
+ * question they just asked. `docs/client-language.md` §3 gives operator
+ * names no client rendering at all: the sentence says what the gesture
+ * did. Every one of them here is one, in the past tense, because that is
+ * what the bubble stands for — a thing this reader did a moment ago.
+ *
+ * The operands are humanized with the rest of the product's spelling
+ * rules (`group_code` → "group code", `days_in_ar` → "days in A/R") and
+ * dates are read as dates. Finding handles (`F2`) stay verbatim: they are
+ * labels printed on the answer beside this, and the whole point of a
+ * handle is that it matches.
+ *
+ * The trace keeps full fidelity — `debug=true` prints the typed
+ * refinement, and the wire is untouched.
  */
 export function describeRefinement(refinement: Refinement): string {
   switch (refinement.op) {
     case "SetDimensions":
-      return `SetDimensions(${refinement.dimensions.join(", ")})`;
+      return refinement.dimensions.length === 0
+        ? "Removed the breakdown"
+        : `Broke it down by ${humanList(refinement.dimensions.map(humanizeInline))}`;
     case "AddFilter":
-      return `AddFilter(${refinement.filter.dimension} ${refinement.filter.op} ${refinement.filter.values.join("|")})`;
+      return [
+        "Narrowed to",
+        humanizeInline(refinement.filter.dimension),
+        filterVerb(refinement.filter.op),
+        humanList(refinement.filter.values.map(String)),
+      ]
+        .filter((part) => part !== "")
+        .join(" ");
     case "RemoveFilter":
-      return `RemoveFilter(${refinement.dimension})`;
+      return `Dropped the ${humanizeInline(refinement.dimension)} filter`;
     case "SetWindow":
-      return `SetWindow(${refinement.window.start}…${refinement.window.end})`;
+      return `Changed the period to ${chartWindowLabel(refinement.window)}`;
     case "SetComparison":
       return refinement.comparison
-        ? `SetComparison(${refinement.comparison.label ?? refinement.comparison.kind})`
-        : "SetComparison(none)";
+        ? `Compared against ${comparisonNoun(
+            refinement.comparison.label ?? refinement.comparison.kind,
+          )}`
+        : "Stopped comparing against another period";
     case "SetGrain":
-      return `SetGrain(${refinement.grain.entity})`;
+      return `Measured at ${humanizeInline(refinement.grain.entity)} level`;
     case "DrillInto":
-      return `DrillInto(${Array.isArray(refinement.target) ? refinement.target.join(", ") : refinement.target})`;
+      return `Drilled into ${humanList(
+        (Array.isArray(refinement.target) ? refinement.target : [refinement.target]).map(String),
+      )}`;
     case "Pivot":
-      return `Pivot(${refinement.measures.join(", ")})`;
+      return `Switched the measure to ${humanList(refinement.measures.map(humanizeInline))}`;
     case "Explain":
-      return `Explain(${refinement.target})`;
+      return `Asked why for ${refinement.target}`;
     case "RankBy":
-      return `RankBy(${refinement.metric} ${refinement.descending ? "desc" : "asc"})`;
+      return `Ranked by ${humanizeInline(refinement.metric)}, ${
+        refinement.descending ? "high to low" : "low to high"
+      }`;
     case "Expand":
-      return "Expand";
+      return "Widened the view";
     case "ResetContext":
-      return `ResetContext(keepPins=${String(refinement.keepPins)})`;
+      // `keepPins=true` was a log line in a chat bubble. What it MEANS is
+      // that the monitors survive the reset, which is the only part of it
+      // a reader could act on.
+      return refinement.keepPins
+        ? "Started over, keeping the monitors"
+        : "Started over, clearing the monitors";
+  }
+}
+
+/** "payer and facility", "A, B and C" — never a bare comma-joined list. */
+export function humanList(items: readonly string[]): string {
+  if (items.length === 0) return "";
+  if (items.length === 1) return items[0];
+  return `${items.slice(0, -1).join(", ")} and ${items[items.length - 1]}`;
+}
+
+/**
+ * The predicate operator as the word a sentence needs. `in` and `=` both
+ * read as "" — "Narrowed to payer Atlas Health" — because the operand
+ * after them is the whole clause; the ones that compare need their word.
+ */
+function filterVerb(op: string): string {
+  switch (op) {
+    case "not_in":
+    case "!=":
+      return "other than";
+    case ">":
+      return "above";
+    case ">=":
+      return "at or above";
+    case "<":
+      return "below";
+    case "<=":
+      return "at or below";
+    default:
+      return "";
+  }
+}
+
+/**
+ * A comparison kind as a period a reader can picture. The wire's own
+ * label wins when it has one — the server composed it from the dates.
+ */
+function comparisonNoun(kind: string): string {
+  switch (kind) {
+    case "prior_period":
+      return "the period before it";
+    case "same_period_last_year":
+    case "prior_year":
+      return "the same period last year";
+    case "none":
+      return "nothing";
+    default:
+      return kind;
   }
 }
 

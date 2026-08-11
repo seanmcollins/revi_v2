@@ -38,10 +38,12 @@ import {
   mapFinding,
   mapTimeToImpact,
   mapMonitorModel,
+  mapRecommendedThreshold,
   readTurnWarnings,
   type LeadStatus,
   type TimeToImpact,
   type MonitorModel,
+  type RecommendedThreshold,
 } from "@/lib/contract";
 import { GRADE_STRENGTH, type EvidenceGrade, type Finding, type WarningEvent } from "@/lib/types";
 
@@ -73,6 +75,7 @@ export type {
   MonitorMode,
   MonitorRefusal,
   MonitorUnit,
+  RecommendedThreshold,
 } from "@/lib/contract";
 export {
   HUMAN_LEAD_STATUSES,
@@ -83,6 +86,7 @@ export {
   mapMonitorModel,
   readMonitorRefusal,
   monitorToWire,
+  mapRecommendedThreshold,
 } from "@/lib/contract";
 
 const LEAD_STATUSES: ReadonlySet<string> = new Set<LeadStatus>([
@@ -293,6 +297,13 @@ export interface MonitorsPin {
   monitor?: MonitorModel;
   baselineWatermarkId?: string;
   baselineValueText: string;
+  /**
+   * What Revi recommends for this monitor's unit, as a number and a
+   * phrase. The sensitivity control renders it; before it existed the
+   * control's default option could only gesture at a level it could not
+   * name. See {@link RecommendedThreshold}.
+   */
+  recommendedThreshold?: RecommendedThreshold;
   createdAt: string;
 }
 
@@ -338,6 +349,9 @@ export function mapMonitorsPin(raw: unknown): MonitorsPin | null {
       ? { baselineWatermarkId: optionalString(raw.baseline_watermark_id) }
       : {}),
     baselineValueText: asString(raw.baseline_value_text),
+    ...(mapRecommendedThreshold(raw.recommended_threshold) !== undefined
+      ? { recommendedThreshold: mapRecommendedThreshold(raw.recommended_threshold) }
+      : {}),
     createdAt: asString(raw.created_at),
   };
 }

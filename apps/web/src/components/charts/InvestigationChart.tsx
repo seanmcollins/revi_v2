@@ -20,7 +20,13 @@ import { DownloadCsvButton } from "@/components/answer/AnswerActions";
 import { KeyFigure } from "@/components/figures/KeyFigure";
 import { MonitorThis } from "@/components/monitors/MonitorThis";
 import { Button } from "@/components/ui/button";
-import { capChartSeries, humanizeColumn, OTHERS_SERIES_KEY } from "@/lib/contract";
+import {
+  capChartSeries,
+  humanizeColumn,
+  OTHERS_SERIES_KEY,
+  WINDOW_LABEL_CURRENT,
+  WINDOW_LABEL_PRIOR,
+} from "@/lib/contract";
 import { humanizeInline } from "@/lib/humanize";
 import { chartToCsv } from "@/lib/export";
 import {
@@ -125,10 +131,16 @@ function periodSeriesLabel(
 ): string | undefined {
   if (spec.comparison === undefined) return undefined;
   if (key === spec.comparison.currentKey) {
-    return windows?.current ? `This window (${windows.current})` : "This window";
+    return windows?.current
+      ? `${WINDOW_LABEL_CURRENT} (${windows.current})`
+      : WINDOW_LABEL_CURRENT;
   }
   if (key === spec.comparison.priorKey) {
-    return windows?.prior ? `Prior window (${windows.prior})` : "Prior window";
+    // "Prior window" was this file's own spelling of the concept the
+    // engine calls "the window compared against". Two words for one thing
+    // is how a reader concludes they are two things, and the legend and
+    // the annotation under it are eight pixels apart.
+    return windows?.prior ? `${WINDOW_LABEL_PRIOR} (${windows.prior})` : WINDOW_LABEL_PRIOR;
   }
   return undefined;
 }

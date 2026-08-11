@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/collapsible";
 import type { InterpretationData } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { humanizeInline } from "@/lib/humanize";
 
 /**
  * "Show the interpretation" — how the question was read, BEFORE trusting
@@ -31,8 +32,8 @@ export function InterpretationPanel({ interpretation }: { interpretation: Interp
           <span className="truncate">
             <span className="font-medium text-secondary-foreground">Interpreted as:</span>{" "}
             {interpretation.metric.id !== "—"
-              ? `${interpretation.metric.name} (${interpretation.metric.id}@${interpretation.metric.version})`
-              : "governed knowledge lookup"}
+              ? interpretation.metric.name
+              : "a definition lookup"}
             {mappings.length > 0 && ` · ${mappings[0].from} → ${mappings[0].to}`}
           </span>
           <ChevronRight
@@ -68,15 +69,15 @@ export function InterpretationPanel({ interpretation }: { interpretation: Interp
               ))}
               {interpretation.playbook && (
                 <li>
-                  <span className="text-muted-foreground">Playbook · </span>
-                  <span className="font-mono text-meta">{interpretation.playbook}</span>
+                  <span className="text-muted-foreground">How it was worked · </span>
+                  <span className="text-meta">{humanizeInline(interpretation.playbook)}</span>
                 </li>
               )}
             </ul>
           </section>
           <section>
             <h4 className="mb-1 text-micro font-semibold uppercase tracking-wide text-muted-foreground">
-              {interpretation.planDiff ? "Plan diff" : "Synonym mappings"}
+              {interpretation.planDiff ? "What changed from the last question" : "Synonym mappings"}
             </h4>
             {interpretation.planDiff ? (
               <ul className="space-y-1">

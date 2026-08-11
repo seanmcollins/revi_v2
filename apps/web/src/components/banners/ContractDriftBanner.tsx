@@ -26,11 +26,11 @@ export function ContractDriftBanner() {
         <TriangleAlert className="mt-0.5 size-4 shrink-0 text-negative" />
         <div className="min-w-0 flex-1 space-y-1.5">
           <p className="text-body font-medium text-negative">
-            API contract drift detected
+            Revi and this deployment disagree about the response
           </p>
           <p className="text-meta leading-snug text-muted-foreground">
             The server&apos;s responses are missing required fields, so the affected
-            frames were not rendered. Field paths (also in the console):
+            figures were not drawn. Field paths (also in the console):
           </p>
           <div className="flex flex-wrap gap-1">
             {paths.map((path) => (

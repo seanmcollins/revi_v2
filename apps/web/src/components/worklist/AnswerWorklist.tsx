@@ -215,7 +215,11 @@ export function AnswerWorklist({
           the title, where the person reproducing the query can find it. */}
       <p
         className="num mt-2 text-micro leading-snug text-muted-foreground"
-        title={worklist.watermarkId ? `Data load ${worklist.watermarkId}` : undefined}
+        // The load's HANDLE is a version pin (§3) and reached the hover
+        // verbatim. There is nothing for a reader to do with `wm_003`;
+        // where the newest data date is published the surfaces say that
+        // instead, and this hover now says only that it is one load.
+        title={worklist.watermarkId ? "Measured at a single data load" : undefined}
       >
         {shown} of {worklist.totalItems} ranked card
         {worklist.totalItems === 1 ? "" : "s"}

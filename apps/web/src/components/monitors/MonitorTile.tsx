@@ -396,11 +396,17 @@ function TileMenu({ tile, pin }: { tile: MonitorsTile; pin?: MonitorsPin }) {
       </PopoverTrigger>
       <PopoverContent align="end" className="w-[22rem] max-w-[calc(100vw-2rem)] p-3">
         {editing && pin ? (
+          /* `recommended` is THE NUMBER, off the pin that was just read.
+             The default option said "Tell me about meaningful changes" on
+             every monitor in the product because nothing supplied it; the
+             pin list publishes it now, so the option most people take
+             states the rule it applies. */
           <MonitorSensitivityForm
             {...(pin.monitor ? { initial: pin.monitor } : {})}
             submitLabel="Save and restart this monitor"
             pending={pending}
             {...(refusal ? { refusal } : {})}
+            {...(pin.recommendedThreshold ? { recommended: pin.recommendedThreshold } : {})}
             restartNote={
               pin.baselineValueText
                 ? `Saving starts this monitor again. Its baseline becomes today's ${tile.valueText}, so “since you started monitoring” will measure from here instead of from ${pin.baselineValueText}.`
@@ -457,8 +463,8 @@ function TileMenu({ tile, pin }: { tile: MonitorsTile; pin?: MonitorsPin }) {
               ))}
               {pin?.alreadyExisted && (
                 <p className="mt-1 text-micro leading-snug text-muted-foreground">
-                  This monitor already existed — the platform returned it rather than creating a
-                  second one over the same spec.
+                  This monitor already existed — Revi returned it rather than starting a
+                  second one measuring the same thing.
                 </p>
               )}
               {pin?.monitor?.note && (

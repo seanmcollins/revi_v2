@@ -6,6 +6,7 @@ import { Dialog as DialogPrimitive } from "radix-ui";
 
 import { Button } from "@/components/ui/button";
 import { apiBaseUrl } from "@/lib/apiDriver";
+import { mediumDate } from "@/lib/format";
 import {
   decimalToNumber,
   exceedsCeiling,
@@ -16,6 +17,26 @@ import {
   type SettingsBounds,
 } from "@/lib/settings";
 import { useSessionStore } from "@/lib/store";
+
+/**
+ * A date a reader can say out loud, and the raw string when it is not a
+ * date at all.
+ *
+ * This panel printed `2026-08-02T07:11:44Z · through 2026-08-02` under
+ * "Data as of" — an ISO timestamp on a default surface
+ * (docs/client-language.md §4). The exact instant is still one hover away
+ * in the debug trace, where an operator looks.
+ */
+function safeDate(iso: string): string {
+  try {
+    // `loadedAt` arrives as "2026-08-03 04:10" on this deployment — a date
+    // and a clock time, and `mediumDate` takes only the date. The clock
+    // time is not a fact this row is for.
+    return mediumDate(iso.split(/[ T]/)[0] ?? iso);
+  } catch {
+    return iso;
+  }
+}
 import { cn } from "@/lib/utils";
 
 /**
@@ -89,9 +110,9 @@ export function SettingsPanel() {
           </div>
 
           <DialogPrimitive.Description className="sr-only">
-            Internal controls for model tier, per-turn cost ceiling, narrative and
-            evidence depth, and debug mode. Only controls this deployment supports
-            are shown.
+            Internal controls for model tier, the cost ceiling for one question,
+            narrative and evidence depth, and debug mode. Only controls this
+            deployment supports are shown.
           </DialogPrimitive.Description>
 
           <div className="min-h-0 flex-1 space-y-5 overflow-y-auto px-4 py-4">
@@ -170,7 +191,7 @@ export function SettingsPanel() {
                   label="Data as of"
                   value={
                     pinned
-                      ? `${watermark.loadedAt} · through ${watermark.newestDataDate}`
+                      ? `Loaded ${safeDate(watermark.loadedAt)} · through ${safeDate(watermark.newestDataDate)}`
                       : "Not pinned until your first question"
                   }
                 />
@@ -207,7 +228,7 @@ export function SettingsPanel() {
 
           <div className="flex items-center gap-3 border-t px-4 py-2.5">
             <p className="text-micro leading-snug text-muted-foreground">
-              Applies to the next turn you send. Kept in this browser only.
+              Applies to the next question you ask. Kept in this browser only.
             </p>
             <Button
               variant="ghost"
@@ -305,8 +326,8 @@ function ControlList({
 
       {ceiling > 0 && (
         <Control
-          label="Per-turn cost ceiling"
-          hint="Caps total model spend inside one turn. Off runs no per-turn ledger — each call stays bounded by the deployment's own per-call cap. Running out ends the turn with a question, never a quiet downgrade."
+          label="Cost ceiling for one question"
+          hint="Caps total model spend on a single question. Off keeps no running total — each call stays bounded by the deployment's own per-call cap. Running out ends the answer with a question back to you, never a quiet downgrade."
         >
           <div className="space-y-2">
             <div className="flex items-center gap-2.5">
@@ -321,7 +342,7 @@ function ControlList({
                 onChange={(e) =>
                   patchSettings({ maxTurnCostUsd: numberToDecimal(Number(e.target.value)) })
                 }
-                aria-label="Per-turn cost ceiling in USD"
+                aria-label="Cost ceiling for one question, in US dollars"
                 className="h-1 min-w-0 flex-1 accent-[var(--verified)] disabled:opacity-40"
               />
               <span className="num w-14 shrink-0 text-right text-meta tabular-nums">
@@ -339,7 +360,7 @@ function ControlList({
                 }
                 className="size-3 accent-[var(--verified)]"
               />
-              No per-turn ceiling (deployment per-call cap only)
+              No ceiling per question (the deployment&rsquo;s per-call cap still applies)
             </label>
             {overCeiling && (
               <p className="text-meta leading-snug text-warning">
@@ -375,17 +396,21 @@ function ControlList({
       {bounds.evidenceDepths.length > 1 && (
         <Control
           label="Evidence depth"
-          hint={`How many rows each check is allowed to bring back. Deep widens this platform's own cutoffs by ${bounds.evidenceDepthDeepMultiplier}× — it costs more time, and it never fetches less than standard does.`}
+          hint={`How many rows each check is allowed to bring back. Deep widens Revi's own cutoffs by ${bounds.evidenceDepthDeepMultiplier}× — it costs more time, and it never brings back less than the normal setting does.`}
         >
           <Segmented
             name="Evidence depth"
             value={settings.evidenceDepth}
             options={bounds.evidenceDepths.map((depth) => ({
               value: depth,
-              label: depth === "standard" ? "Standard" : "Deep",
+              // NOT "Standard" — §2.1 bans every adjective that asserts an
+              // authority the reader cannot inspect from the position where
+              // a default is offered. What this option IS is the cutoffs
+              // Revi recommends, and the hint says so with a name on it.
+              label: depth === "standard" ? "Recommended" : "Deep",
               hint:
                 depth === "standard"
-                  ? "The cutoffs the metric pack authors chose"
+                  ? "The row cutoffs Revi recommends. You can change this anytime."
                   : `${bounds.evidenceDepthDeepMultiplier}× wider — fewer "top N of" caveats`,
             }))}
             onChange={(value) => patchSettings({ evidenceDepth: value as EvidenceDepth })}
@@ -396,7 +421,7 @@ function ControlList({
       {bounds.debugAvailable && (
         <Control
           label="Debug mode"
-          hint="Shows how each turn was decided: classification, chosen ids, plan checks, per-query timing and per-model-call cost. Also switches the progress rail back to engine stage names."
+          hint="Shows how each answer was decided: classification, chosen ids, the checks that ran, per-query timing and per-model-call cost. Also switches the progress rail back to engine stage names."
         >
           <button
             type="button"

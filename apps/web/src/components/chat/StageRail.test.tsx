@@ -13,20 +13,25 @@ import { afterEach, describe, expect, it } from "vitest";
 
 import { groupStages, StageRail } from "@/components/chat/StageRail";
 import { emptyAnswer, type StageStatus } from "@/lib/store";
+import { violations } from "@/lib/clientLanguage";
 import { PLAIN_STAGE_GROUPS, STAGE_ORDER, type StageId } from "@/lib/types";
 
 /**
- * Internal vocabulary that must not reach an analyst in default mode. The
- * design doc names these explicitly; domain words analysts use (denial,
- * CARC, payer, AR) are deliberately absent from this list.
+ * Internal vocabulary that must not reach an analyst in default mode.
+ *
+ * The words this list shares with the rest of the product — probe,
+ * watermark, frame, discovery — are checked by `violations()` from
+ * `lib/clientLanguage`, which is the contract's own list and the one the
+ * server enforces too. What stays here is the vocabulary specific to a
+ * PROGRESS RAIL: the engine's stage names and the shapes they arrive in.
+ *
+ * Domain words analysts use (denial, CARC, payer, A/R) are deliberately
+ * absent from both lists — they are KEEP vocabulary (§1), and softening
+ * them would make the surface less clear, not more.
  */
 const JARGON = [
-  /\bprobes?\b/i,
-  /\bwatermark\b/i,
   /\bepoch\b/i,
   /\bplan hash\b/i,
-  /\bdiscovery\b/i,
-  /\bframe\b/i,
   /\bschema\b/i,
   /\bstructured output\b/i,
   /\bzero-probe\b/i,
@@ -88,6 +93,7 @@ describe("StageRail — default mode speaks plain language", () => {
     for (const pattern of JARGON) {
       expect(container.textContent ?? "").not.toMatch(pattern);
     }
+    expect(violations(container.textContent ?? "")).toEqual([]);
   });
 
   it("carries no internal vocabulary in the collapsed summary either", () => {
@@ -109,6 +115,7 @@ describe("StageRail — default mode speaks plain language", () => {
     for (const pattern of JARGON) {
       expect(container.textContent ?? "").not.toMatch(pattern);
     }
+    expect(violations(container.textContent ?? "")).toEqual([]);
     // The counts survive the rewording — only the words changed.
     expect(screen.getByText(/3 data checks/)).toBeInTheDocument();
     expect(screen.getByText(/2/)).toBeInTheDocument();

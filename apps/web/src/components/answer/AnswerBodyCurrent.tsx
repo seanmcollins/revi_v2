@@ -228,7 +228,7 @@ export function RestoredWithoutProse({
       data-restored-without-prose
       className="rounded-md border border-dashed bg-card/60 px-3 py-2 text-meta leading-snug text-muted-foreground"
     >
-      The written analysis was not stored for this turn. What the server kept is here: {list},
+      The written analysis was not stored for this answer. What the server kept is here: {list},
       with the context they were measured under.
     </p>
   );

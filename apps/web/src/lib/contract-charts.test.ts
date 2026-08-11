@@ -672,7 +672,7 @@ describe("a comparison is one chart with two windows in it", () => {
     expect(spec?.comparison).toEqual({ currentKey: "current", priorKey: "prior" });
     expect(spec?.series).toEqual([
       { key: "current", label: "This window", role: "current", pinned: true },
-      { key: "prior", label: "Prior window", role: "baseline", pinned: true },
+      { key: "prior", label: "The window compared against", role: "baseline", pinned: true },
     ]);
     expect(spec?.rows[1]).toMatchObject({
       label: "Lakewood Medicaid MCO",

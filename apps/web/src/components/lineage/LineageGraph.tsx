@@ -19,9 +19,18 @@ const TURN_CLASS_LABELS: Record<TurnClass, string> = {
   definitional: "Definition",
 };
 
-/** Never print a wire enum at the reader: an unmapped class falls back to prose. */
+/**
+ * Never print a wire enum at the reader: an unmapped class falls back to
+ * prose.
+ *
+ * "Turn" was that fallback — the banned word (docs/client-language.md §3)
+ * as the safety net of the very function whose job is to keep wire
+ * vocabulary off the screen. And reachable: `parseSessionLineage` casts an
+ * arbitrary string to `TurnClass`, so any class the server adds lands here
+ * before this client has a label for it.
+ */
 function turnClassLabel(turnClass: TurnClass): string {
-  return TURN_CLASS_LABELS[turnClass] ?? "Turn";
+  return TURN_CLASS_LABELS[turnClass] ?? "Question";
 }
 
 interface LineageNodeVM {
@@ -73,8 +82,8 @@ export function LineageGraph() {
   if (nodes.length === 0) {
     return (
       <p className="text-meta leading-relaxed text-muted-foreground">
-        No turns yet. Every question you ask is recorded here, linked to the one it
-        came from, so you can see how the investigation got where it did.
+        Nothing here yet. Every question you ask is recorded here, linked to the one
+        it came from, so you can see how the investigation got where it did.
       </p>
     );
   }

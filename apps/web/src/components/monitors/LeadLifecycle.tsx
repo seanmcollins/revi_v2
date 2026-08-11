@@ -150,21 +150,28 @@ function LeadLifecycleRow({ lead }: { lead: LeadRow }) {
 }
 
 /**
- * "1 of the 2 consecutive loads the governed rule requires" — from the
- * live record, which is the only place the streak exists.
+ * "1 of the 2 consecutive loads Revi requires before it will call this
+ * confirmed" — from the live record, which is the only place the streak
+ * exists.
  *
  * The card carries the status and the platform's sentence; the counts ride
  * on the lead record returned when somebody changes it. No record, no
  * count — a streak this client cannot read is not one it may estimate.
+ *
+ * THE WORDING IS THE SERVER'S, TO THE LETTER. This chip read "…the
+ * governed rule requires" — platform vocabulary on the one line that tells
+ * somebody whether their fix has held — and the repair that removed it
+ * ("…consecutive loads Revi checks before it calls a fix confirmed")
+ * invented a second phrasing instead of adopting the one the server
+ * already publishes in `verification_note`. The note and this chip render
+ * inches apart on the same card; two sentences for one rule is how a
+ * reader concludes there are two rules.
  */
 function confirmationStreak(lead: LeadRow): string | null {
   const live = lead.live;
   if (!live || live.confirmationsRequired <= 0) return null;
   if (lead.status !== "resolved_claimed" && lead.status !== "resolved_confirmed") return null;
-  // "the governed rule requires" is platform vocabulary on the one line
-  // that tells somebody whether their fix has held. What a reader needs is
-  // the count and what it is counting towards.
-  return `${live.confirmingWatermarks.length} of the ${live.confirmationsRequired} consecutive loads Revi checks before it calls a fix confirmed`;
+  return `${live.confirmingWatermarks.length} of the ${live.confirmationsRequired} consecutive loads Revi requires before it will call this confirmed`;
 }
 
 const GROUPS: ReadonlyArray<{ id: string; label: string; statuses: LeadStatus[] }> = [

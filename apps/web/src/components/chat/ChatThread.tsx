@@ -87,14 +87,17 @@ function UserBubble({ submission }: { submission: TurnSubmission }) {
   if (submission.refinements && submission.refinements.length > 0) {
     return (
       <div className="flex justify-end">
-        <div className="flex max-w-[85%] flex-wrap justify-end gap-1 rounded-2xl rounded-br-md bg-secondary px-4 py-2">
+        {/* SENTENCES, NOT CHIPS. These were `<code>` in a mono face —
+            `SetDimensions(payer)`, `ResetContext(keepPins=true)` — in the
+            position a reader looks for the question they just asked.
+            `describeRefinement` says what the click DID now, so the
+            bubble carries it in the same ink as a typed question: it is
+            the same thing, arrived at by a different gesture. */}
+        <div className="flex max-w-[85%] flex-col items-end gap-0.5 rounded-2xl rounded-br-md bg-secondary px-4 py-2 text-body leading-relaxed">
           {submission.refinements.map((refinement, i) => (
-            <code
-              key={`${refinement.op}-${i}`}
-              className="rounded border bg-surface-sunken px-1.5 py-0.5 font-mono text-micro"
-            >
+            <p key={`${refinement.op}-${i}`} className="text-right">
               {describeRefinement(refinement)}
-            </code>
+            </p>
           ))}
         </div>
       </div>
@@ -136,12 +139,15 @@ function EmptyState() {
 
       <div className="fade-up relative space-y-3">
         <p className="text-micro font-medium uppercase tracking-[0.3em] text-muted-foreground">
-          RCM Investigations
+          {/* Sentence case (§4). The letter-spaced uppercase is the
+              typographic treatment; the string underneath it should not
+              also be Title Case. */}
+          RCM investigations
         </p>
         <h2 className="text-[3.25rem] font-semibold leading-none tracking-[-0.045em]">Revi</h2>
         <p className="mx-auto max-w-md text-pretty text-body leading-relaxed text-muted-foreground">
-          Ask about cash, denials, AR. Every answer states the window, scope,
-          cohort and data date it used — and every number traces back to the
+          Ask about cash, denials, A/R. Every answer states the window, scope,
+          population and data date it used — and every number traces back to the
           query behind it.
         </p>
         {/* The standing disclaimer, said ONCE — here, where a first-time
@@ -170,7 +176,7 @@ function EmptyState() {
         className="fade-up relative text-micro text-muted-foreground"
         style={{ animationDelay: "400ms" }}
       >
-        Same question, same answer · governed metrics · auditable evidence
+        Same question, same answer · standard definitions · auditable evidence
         <span aria-hidden className="mx-2 text-border">·</span>
         <kbd className="rounded border bg-surface-sunken px-1 py-0.5 font-mono text-micro">⌘K</kbd>{" "}
         to command

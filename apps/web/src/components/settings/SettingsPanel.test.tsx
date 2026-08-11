@@ -85,7 +85,7 @@ describe("SettingsPanel — capabilities decide what exists", () => {
     render(<SettingsPanel />);
 
     expect(screen.getByText("Interpretation model")).toBeInTheDocument();
-    expect(screen.getByText("Per-turn cost ceiling")).toBeInTheDocument();
+    expect(screen.getByText("Cost ceiling for one question")).toBeInTheDocument();
     expect(screen.getByText("Answer detail")).toBeInTheDocument();
     expect(screen.getByText("Evidence depth")).toBeInTheDocument();
     expect(screen.getByText("Debug mode")).toBeInTheDocument();

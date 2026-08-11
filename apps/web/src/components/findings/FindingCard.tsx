@@ -267,7 +267,7 @@ function MiniBars({
     { label: comparison.currentLabel, cents: comparison.currentCents, current: true },
   ];
   return (
-    <div className="flex w-36 shrink-0 flex-col gap-1" aria-label="current vs prior">
+    <div className="flex w-36 shrink-0 flex-col gap-1" aria-label="This window against the one it is compared with">
       {rows.map((row) => (
         <div key={row.label} className="flex items-center gap-1.5">
           <div className="h-3.5 flex-1 overflow-hidden rounded-[3px] bg-surface-sunken">
@@ -290,9 +290,24 @@ function MiniBars({
           </span>
         </div>
       ))}
-      <div className="flex justify-between text-micro uppercase tracking-wide text-muted-foreground">
-        <span>{rows[0].label}</span>
-        <span>{rows[1].label}</span>
+      {/* EACH BAR CARRIES ITS OWN NAME, and neither is shouted.
+          These two labels used to be `"current"` and `"prior"` — the
+          engine's bookkeeping keys, hardcoded in `mapFinding` — set in
+          `uppercase tracking-wide`, so a comparison finding captioned its
+          bars "PRIOR" and "CURRENT". They are the turn's real dates now
+          when the header carries them, and the words for the two windows
+          when it does not; "The window compared against" does not fit on
+          one line at this width, and a caption row that wraps beside the
+          wrong bar is worse than a caption under the right one. */}
+      <div className="mt-0.5 space-y-0.5 text-micro leading-tight text-muted-foreground">
+        <p>
+          <span aria-hidden className="mr-1 inline-block size-1.5 rounded-[2px] bg-chart-baseline/45" />
+          {rows[0].label}
+        </p>
+        <p>
+          <span aria-hidden className="mr-1 inline-block size-1.5 rounded-[2px] bg-chart-current" />
+          {rows[1].label}
+        </p>
       </div>
     </div>
   );

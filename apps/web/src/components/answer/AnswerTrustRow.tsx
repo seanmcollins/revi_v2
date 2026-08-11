@@ -71,19 +71,19 @@ export function AnswerTrustRow({
               <Zap className="size-3" />
               {a.evidence.cacheHits > 0 ? (
                 <>
-                  Answered from cached results
-                  {a.header?.watermark.id ? ` (same data load ${a.header.watermark.id})` : ""}{" "}
-                  — no new warehouse query
+                  Answered from results already computed
+                  {a.header?.watermark.id ? " (same data load)" : ""} — your data was not read
+                  again
                 </>
               ) : (
-                "No warehouse query was needed for this answer"
+                "This answer needed no reading of your data"
               )}
             </button>
           </TooltipTrigger>
           <TooltipContent side="bottom" className="max-w-80 text-micro leading-snug">
             {a.evidence.cacheHits > 0
-              ? "Every probe this turn needed was already in the evidence cache from earlier in this session, at this same data load. The warehouse was not queried again — the numbers are not newer than the ones above them."
-              : "This turn answered without reading the warehouse at all — it needed no data probe, so there was nothing to query and nothing to reuse from the cache."}
+              ? "Every check this answer needed had already run earlier in this session, at this same data load. Your data was not read again — the numbers are not newer than the ones above them."
+              : "This answer needed no reading of your data at all — there was no check to run, so there was nothing to read and nothing to reuse."}
           </TooltipContent>
         </Tooltip>
       )}
@@ -106,7 +106,7 @@ export function AnswerTrustRow({
       {model.copyable && (
         <CopyTextButton
           label="Copy answer"
-          title="Copy this answer as text — findings, the written analysis, every caveat the platform attached, and a provenance line naming the data load and metric pack. Nothing leaves this browser."
+          title="Copy this answer as text — findings, the written analysis, every caveat Revi attached, and a line naming the data load and the definitions it was measured against. Nothing leaves this browser."
           text={() =>
             answerToText({
               ...(turn.submission.utterance ? { question: turn.submission.utterance } : {}),

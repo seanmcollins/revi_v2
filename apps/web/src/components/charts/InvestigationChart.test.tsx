@@ -749,7 +749,7 @@ const COMPARISON: ChartSpec = {
   comparison: { currentKey: "current", priorKey: "prior" },
   series: [
     { key: "current", label: "This window", role: "current", pinned: true },
-    { key: "prior", label: "Prior window", role: "baseline", pinned: true },
+    { key: "prior", label: "The window compared against", role: "baseline", pinned: true },
   ],
   rows: [
     {
@@ -780,13 +780,13 @@ describe("a comparison chart says which two windows it is drawing", () => {
       />,
     );
     expect(screen.getByText("This window (Jul 2026)")).toBeInTheDocument();
-    expect(screen.getByText("Prior window (Jun 2026)")).toBeInTheDocument();
+    expect(screen.getByText("The window compared against (Jun 2026)")).toBeInTheDocument();
   });
 
   it("still says which is which when the header carries no dates", () => {
     render(<InvestigationChart spec={COMPARISON} turnId="turn_1" />);
     expect(screen.getByText("This window")).toBeInTheDocument();
-    expect(screen.getByText("Prior window")).toBeInTheDocument();
+    expect(screen.getByText("The window compared against")).toBeInTheDocument();
   });
 
   it("counts ceilings per side, agreeing with the engine on the half it counted", () => {
@@ -853,7 +853,7 @@ describe("the hover on a comparison reads as a movement", () => {
       formatValue={(v) => `${v.toFixed(1)}%`}
       unit="percent"
       comparison={COMPARISON.comparison}
-      seriesLabel={(key) => (key === "current" ? "This window (Jul 2026)" : "Prior window (Jun 2026)")}
+      seriesLabel={(key) => (key === "current" ? "This window (Jul 2026)" : "The window compared against (Jun 2026)")}
       seriesColor={() => "var(--chart-current)"}
     />
   );
@@ -861,7 +861,7 @@ describe("the hover on a comparison reads as a movement", () => {
   it("states both windows and the change between them", () => {
     render(hover(COMPARISON.rows[0]!));
     expect(screen.getByText("This window (Jul 2026)")).toBeInTheDocument();
-    expect(screen.getByText("Prior window (Jun 2026)")).toBeInTheDocument();
+    expect(screen.getByText("The window compared against (Jun 2026)")).toBeInTheDocument();
     // A rate's movement is in percentage POINTS; the relative change keeps
     // the "%". Two different quantities never wear one symbol.
     expect(screen.getByText("Change")).toBeInTheDocument();
@@ -878,7 +878,7 @@ describe("the hover on a comparison reads as a movement", () => {
       screen.getByText(/This window \(Jul 2026\) is an upper bound over a population of 13/),
     ).toBeInTheDocument();
     expect(
-      screen.getByText(/Prior window \(Jun 2026\) is an upper bound over a population of 24/),
+      screen.getByText(/The window compared against \(Jun 2026\) is an upper bound over a population of 24/),
     ).toBeInTheDocument();
   });
 
@@ -1081,7 +1081,7 @@ describe("InvestigationChart — one category across two windows is a movement",
     comparison: { currentKey: "current", priorKey: "prior" },
     series: [
       { key: "current", label: "This window", role: "current", pinned: true },
-      { key: "prior", label: "Prior window", role: "baseline", pinned: true },
+      { key: "prior", label: "The window compared against", role: "baseline", pinned: true },
     ],
     rows: [{ label: "Halvern PPO Prime", values: { current: 21, prior: 15.5 } }],
   };
@@ -1107,7 +1107,7 @@ describe("InvestigationChart — one category across two windows is a movement",
     const prior = screen.getByText("15.5%");
     expect(prior.className).toContain("text-lead");
     expect(prior.className).not.toContain("text-figure");
-    expect(screen.getByText("Prior window (Jun 2026)")).toBeInTheDocument();
+    expect(screen.getByText("The window compared against (Jun 2026)")).toBeInTheDocument();
   });
 
   it("says the direction in the digest's own words, in the chart's own unit", () => {

@@ -148,7 +148,7 @@ describe("the Evidence rail is not gated on the evidence bundle", () => {
   it("says the bundle is missing rather than pretending it is empty", () => {
     useSessionStore.setState({ turns: [turnWithoutBundle("turn_1")], drawerTurnId: "turn_1" });
     renderPanel();
-    expect(screen.getByText(/published no evidence bundle/)).toBeInTheDocument();
+    expect(screen.getByText(/published no evidence/)).toBeInTheDocument();
   });
 
   it("never shows another turn's working under this turn's question", () => {

@@ -64,6 +64,17 @@ export const WARNING_TITLES: Readonly<Record<string, string>> = {
   // and reporting it only when it FAILS leaves a reader unable to tell
   // "we checked and it happened" from "we never checked".
   PREMISE_VERIFIED: "The question's premise holds",
+  // The yes or the no a yes/no question came for — a peer of the premise
+  // family rather than a caveat on what was measured. "Do we owe refunds?"
+  // and "do I have a COB problem?" were answered with six paragraphs and
+  // no verdict; this is the sentence that answers them, and it leads for
+  // the same reason a premise correction does.
+  VERDICT_LEAD: "The answer to what you asked",
+  // The measure the question was ABOUT, when this answer publishes no
+  // finding for it. "A/R over 90 is a standing balance in this data —
+  // there is no monthly series for it" IS the answer to "show me A/R over
+  // 90 by month", and it arrived as that answer's last sentence.
+  SUBJECT_UNPUBLISHED: "What you asked about has no figure here",
   // The flagship refusal, and until now the one that printed as
   // "ranking_refused:" in front of the analyst. Deliberately not "Ranking
   // refused" — the fact is that no order was published, and the engine's
@@ -408,6 +419,12 @@ export const VERDICT_CODES: ReadonlySet<string> = new Set([
   "PREMISE_PARTIAL",
   "PREMISE_UNVERIFIABLE",
   "PREMISE_VERIFIED",
+  // A verdict about the QUESTION, exactly like the four above it: the
+  // engine publishes it INFO-severity, and severity is not rank. A
+  // yes/no answer seated below "probe 'denial_code_mix__prior' reads
+  // 'denied_dollars'" is the answer's whole content, filed under its
+  // bookkeeping.
+  "VERDICT_LEAD",
   "RANKING_REFUSED",
   "DIRECTION_UNMATCHED",
 ]);

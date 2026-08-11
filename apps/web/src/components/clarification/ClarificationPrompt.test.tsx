@@ -399,7 +399,7 @@ describe("ClarificationPrompt — options rendered as tappable recovery chips", 
       expect(
         screen.queryByText("There is no answerable option to offer here."),
       ).not.toBeInTheDocument();
-      expect(screen.getByText("This turn ended with a question")).toBeInTheDocument();
+      expect(screen.getByText("This answer ended with a question")).toBeInTheDocument();
       expect(
         screen.getByText(/The wording of the question and the interpretations it offered/),
       ).toBeInTheDocument();

@@ -827,7 +827,7 @@ describe("SessionLineage contract (parseSessionLineage)", () => {
     ],
     /*
      * THE REAL EDGE SHAPE. This fixture used to read
-     * `{parentTurnId, childTurnId, operators: ["SetDimensions(payer)"]}`,
+     * `{parentTurnId, childTurnId, operators: ["Broke it down by payer"]}`,
      * which the server has never sent: `parent_id` and `child_id` are
      * INVESTIGATION ids, the turn the edge belongs to is `turn_id`, and
      * the operators are DTO objects, not display strings. Because the
@@ -849,7 +849,7 @@ describe("SessionLineage contract (parseSessionLineage)", () => {
     const { value, drift } = parseSessionLineage(LINEAGE);
     expect(drift).toEqual([]);
     expect(value?.nodes).toHaveLength(2);
-    expect(value?.edges[0]?.operators).toEqual(["SetDimensions(payer)"]);
+    expect(value?.edges[0]?.operators).toEqual(["Broke it down by payer"]);
   });
 
   it("joins the edge to a NODE's turn, not to an investigation id", () => {
@@ -1242,10 +1242,21 @@ describe("finding anatomy (F16 — mappers fitted to the live wire)", () => {
     expect(finding?.comparison).toEqual({
       currentCents: 43_203_454,
       priorCents: 46_964_923,
-      currentLabel: "current",
-      priorLabel: "prior",
+      // NOT `current` and `prior`, which is what these were — the
+      // engine's bookkeeping keys, hardcoded, and rendered `uppercase`
+      // under the card's mini-bars as "CURRENT" and "PRIOR".
+      currentLabel: "This window",
+      priorLabel: "The window compared against",
     });
     expect(finding?.impactKind).toBe("delta");
+  });
+
+  it("captions the mini-bars with the turn's own dates when the header has them", () => {
+    const finding = mapFinding(LIVE_COMPARISON_FINDING, {
+      windows: { current: "Jul 2026", prior: "Jun 2026" },
+    });
+    expect(finding?.comparison?.currentLabel).toBe("Jul 2026");
+    expect(finding?.comparison?.priorLabel).toBe("Jun 2026");
   });
 
   it("maps pct_change onto deltaPct", () => {

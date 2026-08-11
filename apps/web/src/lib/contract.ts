@@ -69,7 +69,7 @@ import type {
   WarningEvent,
 } from "@/lib/types";
 import { GRADE_STRENGTH } from "@/lib/types";
-import { chartWindowLabel, formatMeasure, type MeasureUnit } from "@/lib/format";
+import { chartWindowLabel, formatMeasure, humanList, type MeasureUnit } from "@/lib/format";
 import { humanizeColumn, humanizeInline } from "@/lib/humanize";
 import { dedupeWarnings } from "@/lib/warnings";
 import type {
@@ -792,6 +792,18 @@ export interface FindingContext {
    * them is a ceiling; the rows do.
    */
   temporalCells?: Record<string, TemporalCell[]>;
+  /**
+   * The two windows this turn ran over, already rendered — the same
+   * `chartWindowsFromHeader` reading the charts get.
+   *
+   * A comparison finding's mini-bars had `currentLabel: "current"` and
+   * `priorLabel: "prior"` HARDCODED, and the card renders those two
+   * strings in `uppercase` — so a live comparison finding captioned its
+   * own bars "PRIOR" and "CURRENT", two engine bookkeeping keys shouted at
+   * a reader who has to work out which period each one is. The dates were
+   * on the same payload the whole time.
+   */
+  windows?: { current?: string; prior?: string };
 }
 
 /**
@@ -1106,8 +1118,8 @@ export function mapFinding(raw: unknown, context: FindingContext = {}): Finding 
           comparison: {
             currentCents,
             priorCents,
-            currentLabel: "current",
-            priorLabel: "prior",
+            currentLabel: context.windows?.current ?? WINDOW_LABEL_CURRENT,
+            priorLabel: context.windows?.prior ?? WINDOW_LABEL_PRIOR,
           },
         }
       : {}),
@@ -1258,6 +1270,27 @@ const PERIOD_COLUMN = "period";
  */
 const CURRENT_PERIOD_TICKS = new Set([PERIOD_CURRENT_KEY, "this window"]);
 const PRIOR_PERIOD_TICKS = new Set([PERIOD_PRIOR_KEY, "the window compared against"]);
+
+/**
+ * THE TWO WINDOWS, IN WORDS — the client's copy of the engine's own
+ * fallback, and the only thing either half of a comparison may be called
+ * when the dates are not to hand.
+ *
+ * `current` and `prior` are bookkeeping keys. They are how the engine
+ * files two halves of one measure, and they mean nothing to a reader: a
+ * legend reading "current / prior" asks somebody to work out which of the
+ * two periods in the title is which, on the chart whose entire content is
+ * the difference between them. The engine settled this in
+ * `presentation/charts.py` (`UNNAMED_CURRENT_LABEL` /
+ * `UNNAMED_PRIOR_LABEL`) and this client said something else in four
+ * places — "Prior window" in two, the bare key `"prior"` in a third, and
+ * an uppercased `CURRENT` under a finding's mini-bars in the fourth.
+ *
+ * Sentence-capitalized here because these are labels and ticks; the engine
+ * writes them mid-sentence and so lowercases them. Same words, one concept.
+ */
+export const WINDOW_LABEL_CURRENT = "This window";
+export const WINDOW_LABEL_PRIOR = "The window compared against";
 
 /**
  * A category tick that is really a measurement: `0.127591`, `179.468320`.
@@ -1547,8 +1580,8 @@ export function mapChartSpec(
         // No dates to hand: the engine's own placeholder prose stands, and
         // a raw bookkeeping key becomes the words it stands for. Never a
         // date this client would have had to guess.
-        else if (row.label === PERIOD_CURRENT_KEY) row.label = "This window";
-        else if (row.label === PERIOD_PRIOR_KEY) row.label = "Prior window";
+        else if (row.label === PERIOD_CURRENT_KEY) row.label = WINDOW_LABEL_CURRENT;
+        else if (row.label === PERIOD_PRIOR_KEY) row.label = WINDOW_LABEL_PRIOR;
       }
       periodAxis = true;
       windowTicks = true;
@@ -1828,13 +1861,25 @@ export function mapChartSpec(
       // bookkeeping for two windows and not what either window is called.
       // The renderer replaces these with the turn's own dates when the
       // header carries them.
+      //
+      // THE UNPAIRED BRANCH IS NOT A SAFE FALLTHROUGH, which is what it
+      // looked like. A comparison that reached this client with only its
+      // current half — a partial frame, or a third series alongside the
+      // pair — is not `paired`, so the key fell through unmapped and the
+      // legend, the bar's accessible name, the tooltip and the CSV header
+      // all read the bare word `current`. The two bookkeeping keys are
+      // named wherever they appear, paired or not.
       label: paired
         ? key === PERIOD_CURRENT_KEY
-          ? "This window"
-          : "Prior window"
-        : seriesColumn === null
-          ? valueColumn
-          : key,
+          ? WINDOW_LABEL_CURRENT
+          : WINDOW_LABEL_PRIOR
+        : key === PERIOD_CURRENT_KEY
+          ? WINDOW_LABEL_CURRENT
+          : key === PERIOD_PRIOR_KEY
+            ? WINDOW_LABEL_PRIOR
+            : seriesColumn === null
+              ? valueColumn
+              : key,
       role: index === 0 ? "current" : "baseline",
       // Neither half of a comparison is ever folded into a rollup.
       ...(paired ? { pinned: true } : {}),
@@ -1973,7 +2018,11 @@ export function selectRenderableCharts(specs: readonly ChartSpec[]): ChartSpec[]
         ...base.series,
         {
           key: baselineKey,
-          label: baselineKey === "prior" ? "prior" : "comparison",
+          // It read `"prior"` — the bookkeeping key, lowercase, straight
+          // into the legend of every old-shape twin whose base carried
+          // more than one series (where `spec.comparison` is not set and
+          // the renderer therefore never relabels it).
+          label: baselineKey === PERIOD_PRIOR_KEY ? WINDOW_LABEL_PRIOR : "The comparison",
           role: "baseline",
           // Never folded into a rollup: it is the other half of the
           // comparison this chart's title promises.
@@ -3262,8 +3311,14 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
   const metricDisplay = mapMetricDisplay(raw.metric_display);
   const displayIndex = metricDisplayIndex(metricDisplay);
   const turnBenchmarks = mapBenchmarks(raw.benchmarks);
+  // Read HERE rather than beside the charts below, because a comparison
+  // finding needs the same two window labels the chart's legend does and
+  // was captioning its bars with the engine's bookkeeping keys for want of
+  // them.
+  const headerWindows = chartWindowsFromHeader(raw.context_header);
   const findingContext: FindingContext = {
     unitByMetric: unitsFromChartSpecs(raw.chart_specs),
+    ...(headerWindows !== undefined ? { windows: headerWindows } : {}),
     // The per-cell suppression flags of the turn's own temporal frames,
     // so a shape finding can say whether its movement runs between
     // ceilings. The frames are the only published place they appear.
@@ -3295,7 +3350,7 @@ export function parseTurnResponse(raw: unknown, pin: WirePin): TurnResponseParse
   // The turn's windows, for the frames that have no category axis of their
   // own: a scalar's axis IS its window, and the chart payload does not
   // carry dates.
-  const chartWindows = chartWindowsFromHeader(raw.context_header);
+  const chartWindows = headerWindows;
   const charts: ChartSpec[] = [];
   asArray(raw.chart_specs).forEach((entry, index) => {
     const spec = mapChartSpec(entry, displayIndex, {
@@ -3461,7 +3516,7 @@ export function parseInvestigationResponse(
         sessionId: asString(raw.session_id),
         error: {
           code: "TURN_FAILED",
-          message: asArray(raw.warnings).map(String).join(" ") || "This turn failed server-side.",
+          message: asArray(raw.warnings).map(String).join(" ") || "This question failed server-side.",
           correlationId: investigationId,
         },
       },
@@ -3479,8 +3534,12 @@ export function parseInvestigationResponse(
   // the list empty and the titles keep the engine's raw spelling.
   const restoredDisplay = mapMetricDisplay(raw.metric_display);
   const restoredBenchmarks = mapBenchmarks(raw.benchmarks);
+  // Same two window labels the restored charts get, for the same reason —
+  // see the live path above.
+  const restoredWindows = chartWindowsFromHeader(raw.context_header);
   const restoredContext: FindingContext = {
     unitByMetric: unitsFromChartSpecs(raw.chart_specs),
+    ...(restoredWindows !== undefined ? { windows: restoredWindows } : {}),
     // A restored turn is qualified exactly as the live one was: the
     // stored frames carry the same per-cell flags.
     temporalCells: temporalCellsFromChartSpecs(raw.chart_specs),
@@ -3507,7 +3566,6 @@ export function parseInvestigationResponse(
   // published. The narrative is not among them — nothing stores the
   // composed prose — and a restored turn says so rather than filling in.
   const restoredTurnWarnings = readTurnWarnings(raw.warnings_v2, restoredWarnings);
-  const restoredWindows = chartWindowsFromHeader(raw.context_header);
   const charts: ChartSpec[] = [];
   asArray(raw.chart_specs).forEach((entry, index) => {
     // A restored turn gets the same restraint the live one got: the stored
@@ -4111,55 +4169,108 @@ export function describeWireOperator(raw: unknown): string | null {
   if (typeof raw === "string") return raw;
   if (!isRecord(raw) || typeof raw.op !== "string") return null;
   const list = (value: unknown): string =>
-    Array.isArray(value) ? value.map((v) => String(v)).join(", ") : String(value ?? "");
+    humanList(
+      (Array.isArray(value) ? value : [value]).map((v) => humanizeInline(String(v ?? ""))),
+    );
+  const plain = (value: unknown): string =>
+    humanList((Array.isArray(value) ? value : [value]).map((v) => String(v ?? "")));
 
   switch (raw.op) {
     case "set_dimensions":
-      return `SetDimensions(${list(raw.dimensions)})`;
+      return Array.isArray(raw.dimensions) && raw.dimensions.length === 0
+        ? "Removed the breakdown"
+        : `Broke it down by ${list(raw.dimensions)}`;
     case "add_filter":
-      return `AddFilter(${String(raw.dimension)} ${String(raw.predicate_op)} ${
-        Array.isArray(raw.values) ? raw.values.map((v) => String(v)).join("|") : ""
-      })`;
+      return [
+        "Narrowed to",
+        humanizeInline(String(raw.dimension)),
+        wireFilterVerb(String(raw.predicate_op)),
+        plain(raw.values),
+      ]
+        .filter((part) => part !== "")
+        .join(" ");
     case "remove_filter":
-      return `RemoveFilter(${String(raw.dimension)})`;
+      return `Dropped the ${humanizeInline(String(raw.dimension))} filter`;
     case "set_window": {
       const window = isRecord(raw.window) ? raw.window : undefined;
       // Absolute windows carry start/end; a RELATIVE spec carries
       // quantity/unit/mode and has no resolved dates to print.
       if (window && typeof window.start === "string" && typeof window.end === "string") {
-        return `SetWindow(${window.start}…${window.end})`;
+        return `Changed the period to ${chartWindowLabel({
+          start: window.start,
+          end: window.end,
+          basis: "service",
+        })}`;
       }
       if (window && window.quantity !== undefined) {
-        return `SetWindow(${String(window.quantity)} ${String(window.unit ?? "")})`;
+        return `Changed the period to the last ${String(raw.window && window.quantity)} ${String(
+          window.unit ?? "",
+        )}`.trimEnd();
       }
-      return "SetWindow";
+      return "Changed the period";
     }
     case "set_comparison": {
       if (isRecord(raw.custom) && typeof raw.custom.start === "string") {
-        return `SetComparison(${raw.custom.start}…${String(raw.custom.end)})`;
+        return `Compared against ${chartWindowLabel({
+          start: raw.custom.start,
+          end: String(raw.custom.end),
+          basis: "service",
+        })}`;
       }
       // The wire says `prior_year`; the UI's own vocabulary for the same
       // comparison is `same_period_last_year` (see `refinementToWire`).
-      if (raw.kind === "prior_year") return "SetComparison(same_period_last_year)";
-      if (typeof raw.kind === "string") return `SetComparison(${raw.kind})`;
-      return "SetComparison(none)";
+      // Both read the same sentence, which is the point.
+      if (raw.kind === "prior_year" || raw.kind === "same_period_last_year") {
+        return "Compared against the same period last year";
+      }
+      if (raw.kind === "prior_period") return "Compared against the period before it";
+      if (typeof raw.kind === "string") return `Compared against ${raw.kind}`;
+      return "Stopped comparing against another period";
     }
     case "set_grain":
-      return `SetGrain(${String(raw.entity)})`;
+      return `Measured at ${humanizeInline(String(raw.entity))} level`;
     case "drill_into":
-      return `DrillInto(${String(raw.target)})`;
+      return `Drilled into ${String(raw.target)}`;
     case "pivot":
-      return `Pivot(${list(raw.measures)})`;
+      return `Switched the measure to ${list(raw.measures)}`;
     case "explain":
-      return `Explain(${String(raw.target)})`;
+      return `Asked why for ${String(raw.target)}`;
     case "rank_by":
-      return `RankBy(${String(raw.by)} ${raw.descending === false ? "asc" : "desc"})`;
+      return `Ranked by ${humanizeInline(String(raw.by))}, ${
+        raw.descending === false ? "low to high" : "high to low"
+      }`;
     case "expand":
-      return "Expand";
+      return "Widened the view";
     case "reset_context":
-      return `ResetContext(keepPins=${String(raw.keep_pins === true)})`;
+      return raw.keep_pins === true
+        ? "Started over, keeping the monitors"
+        : "Started over, clearing the monitors";
     default:
       return String(raw.op);
+  }
+}
+
+/** The wire's predicate operator as the word a sentence needs. */
+function wireFilterVerb(op: string): string {
+  switch (op) {
+    case "not_in":
+    case "ne":
+    case "!=":
+      return "other than";
+    case "gt":
+    case ">":
+      return "above";
+    case "gte":
+    case ">=":
+      return "at or above";
+    case "lt":
+    case "<":
+      return "below";
+    case "lte":
+    case "<=":
+      return "at or below";
+    default:
+      return "";
   }
 }
 
@@ -4628,6 +4739,63 @@ export interface MonitorDeclaration {
   baselineWatermarkId: string;
   /** The lead-in the analyst used, verbatim ("keep an eye on"). */
   matchedPhrase: string;
+  /** What Revi recommends for this measure's unit — see {@link RecommendedThreshold}. */
+  recommendedThreshold?: RecommendedThreshold;
+}
+
+/**
+ * `RecommendedThresholdPayload` — THE RECOMMENDED SENSITIVITY, AS A NUMBER.
+ *
+ * The field this client spent a whole surface not having. A sensitivity
+ * control has to offer a default, and the only honest way to offer one is
+ * to say what it IS — "0.5 percentage points" — rather than to name it.
+ * Every name tried failed the reader: "the pack's threshold" is jargon,
+ * "the standard threshold" is an authority claim, "the default" says
+ * nothing at all (docs/client-language.md §2.1). The number was on the
+ * server the whole time and only ever reached a client inside prose, so
+ * the control rendered an honest vaguer sentence instead. It is published
+ * as data now and this is where it lands.
+ *
+ * `text` IS THE RENDERING. It is composed server-side from the same policy
+ * the gate itself is evaluated against, which is what makes the sentence a
+ * client shows and the rule a monitor applies the same rule. Two of these
+ * are compound — money and count gates are a share of the prior value AND
+ * an absolute floor at once — so `value`/`unit`/`relative` are the parts
+ * for a control that needs them and never a substitute for the phrase.
+ *
+ * Absent when this deployment recommends nothing for the unit, and a
+ * surface must then say so rather than draw a blank number as if a
+ * recommendation existed.
+ */
+export interface RecommendedThreshold {
+  /** The rule as a reader-ready phrase: "0.5 percentage points". */
+  text: string;
+  /** The absolute component, in `unit`. Absent on a purely relative rule. */
+  value?: number;
+  /** `points`, `cents`, `count`, `days` — what `value` is stated in. */
+  unit?: string;
+  /** The relative component as a fraction: `0.05` is 5% of the prior value. */
+  relative?: number;
+}
+
+/**
+ * Read tolerantly, and DROPPED WHEN THE PHRASE IS EMPTY. `text` is the only
+ * part a reader sees; a payload carrying components without it would put a
+ * default on screen that nobody can read back, which is the failure this
+ * field exists to end.
+ */
+export function mapRecommendedThreshold(raw: unknown): RecommendedThreshold | undefined {
+  if (!isRecord(raw)) return undefined;
+  const text = asString(raw.text);
+  if (text === "") return undefined;
+  const value = asNumber(raw.value);
+  const relative = asNumber(raw.relative);
+  return {
+    text,
+    ...(value !== undefined ? { value } : {}),
+    ...(asString(raw.unit) !== "" ? { unit: asString(raw.unit) } : {}),
+    ...(relative !== undefined ? { relative } : {}),
+  };
 }
 
 /**
@@ -4677,6 +4845,12 @@ export interface MonitorRefusal {
   subject?: string;
   /** The sensitivity words that could not be read, verbatim. */
   thresholdPhrase?: string;
+  /**
+   * What Revi recommends for this measure's unit. Published on a refusal
+   * so somebody who decides to take the recommendation instead can see
+   * what they would be taking — see {@link RecommendedThreshold}.
+   */
+  recommendedThreshold?: RecommendedThreshold;
 }
 
 const REFUSAL_REASONS: ReadonlySet<string> = new Set([
@@ -4706,6 +4880,9 @@ export function mapMonitorRefusal(raw: unknown): MonitorRefusal | undefined {
     ...(subject !== "" ? { subject } : {}),
     ...(asString(raw.threshold_phrase) !== ""
       ? { thresholdPhrase: asString(raw.threshold_phrase) }
+      : {}),
+    ...(mapRecommendedThreshold(raw.recommended_threshold) !== undefined
+      ? { recommendedThreshold: mapRecommendedThreshold(raw.recommended_threshold) }
       : {}),
   };
 }
@@ -4746,6 +4923,9 @@ export function mapMonitorDeclaration(raw: unknown): MonitorDeclaration | undefi
     baselineValueText: asString(raw.baseline_value_text),
     baselineWatermarkId: asString(raw.baseline_watermark_id),
     matchedPhrase: asString(raw.matched_phrase),
+    ...(mapRecommendedThreshold(raw.recommended_threshold) !== undefined
+      ? { recommendedThreshold: mapRecommendedThreshold(raw.recommended_threshold) }
+      : {}),
   };
 }
 

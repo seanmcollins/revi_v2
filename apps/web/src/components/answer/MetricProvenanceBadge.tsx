@@ -49,16 +49,22 @@ export function MetricProvenanceBadge({ metric }: { metric: MetricProvenance }) 
           className="inline-flex h-5 items-center gap-1 rounded-full border border-verified/40 bg-verified/10 px-2 text-meta font-medium text-verified transition-colors duration-150 hover:bg-verified/20"
         >
           <ShieldCheck className="size-3" />
-          Governed
+          {/* NOT "Governed". §2 translates the platform's `governed` to
+              "standard" and §2.1 bans it as a bare authority claim; what
+              this chip actually asserts is that a person wrote and
+              versioned the definition this answer measured. */}
+          Standard definition
         </button>
       </PopoverTrigger>
       <PopoverContent align="start" className="w-80 p-0 text-xs">
         <div className="space-y-0.5 px-4 py-3">
           <p className="text-body font-semibold">
-            {primary ? "Governed metric contract" : `${metrics.length} governed metric contracts`}
+            {primary
+              ? "Standard definition"
+              : `${metrics.length} standard definitions`}
           </p>
           <p className="font-mono text-meta text-muted-foreground">
-            {primary ? refLabel(primary) : (playbookId ?? "no playbook recorded")}
+            {primary ? refLabel(primary) : (playbookId ?? "no approach recorded")}
           </p>
         </div>
         <Separator />
@@ -66,7 +72,7 @@ export function MetricProvenanceBadge({ metric }: { metric: MetricProvenance }) 
           {!primary && (
             <div>
               <dt className="text-meta font-medium uppercase tracking-wide text-muted-foreground">
-                Metrics read
+                Measures read
               </dt>
               <dd className="mt-0.5 space-y-0.5 font-mono text-meta leading-snug">
                 {metrics.map((ref) => (
@@ -78,14 +84,14 @@ export function MetricProvenanceBadge({ metric }: { metric: MetricProvenance }) 
           {primary && playbookId && (
             <div>
               <dt className="text-meta font-medium uppercase tracking-wide text-muted-foreground">
-                Playbook
+                How it was worked
               </dt>
               <dd className="mt-0.5 font-mono text-meta">{playbookId}</dd>
             </div>
           )}
           <div>
             <dt className="text-meta font-medium uppercase tracking-wide text-muted-foreground">
-              Pack
+              Definitions library
             </dt>
             <dd className="mt-0.5 font-mono text-meta">
               {pack.packId}@{pack.version}
@@ -99,9 +105,9 @@ export function MetricProvenanceBadge({ metric }: { metric: MetricProvenance }) 
         </dl>
         <Separator />
         <p className="px-4 py-2.5 text-meta leading-snug text-muted-foreground">
-          “Governed” means a human authored and versioned these definitions in the
-          metric contract — it is not a statement of model confidence. The version
-          shown is the one this turn read
+          “Standard” means a person authored and versioned these definitions in your
+          definitions library — it is not a statement of model confidence. The version
+          shown is the one this answer read
           {unread && ", where one was read at all"}.
         </p>
       </PopoverContent>

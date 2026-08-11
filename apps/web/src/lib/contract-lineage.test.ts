@@ -92,11 +92,11 @@ describe("describeWireOperator — the same words as describeRefinement", () => 
         kind: null,
         custom: { start: "2026-01-01", end: "2026-03-31" },
       }),
-    ).toBe("SetComparison(2026-01-01…2026-03-31)");
+    ).toBe("Compared against Jan 1 – Mar 31, 2026");
   });
 
   it("passes a display string through untouched — the local DAG builds those", () => {
-    expect(describeWireOperator("DrillInto(F2)")).toBe("DrillInto(F2)");
+    expect(describeWireOperator("Drilled into F2")).toBe("Drilled into F2");
   });
 
   it("degrades an unrecognised operator to its name rather than dropping it", () => {
@@ -138,7 +138,7 @@ describe("parseSessionLineage — edges are readable by the graph that draws the
 
   it("renders wire operator OBJECTS as labels, never as [object Object]", () => {
     const { value } = parseSessionLineage(WIRE);
-    expect(value?.edges[0]?.operators).toEqual(["SetDimensions(payer)"]);
+    expect(value?.edges[0]?.operators).toEqual(["Broke it down by payer"]);
     for (const label of value?.edges[0]?.operators ?? []) {
       expect(label).not.toContain("[object");
       expect(typeof label).toBe("string");

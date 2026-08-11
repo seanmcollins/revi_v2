@@ -80,8 +80,8 @@ export function ContextPanel() {
                     <EvidenceDrawer evidence={selected.answer.evidence} />
                   ) : (
                     <p className="text-meta leading-relaxed text-muted-foreground">
-                      This turn published no evidence bundle — either no data check ran, or
-                      the record the server kept has none. Anything it did publish is above.
+                      This answer published no evidence — either no data check ran, or the
+                      record the server kept has none. Anything it did publish is above.
                     </p>
                   )}
                 </>

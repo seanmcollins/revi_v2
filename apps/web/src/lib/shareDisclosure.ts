@@ -52,7 +52,7 @@ export interface LinkDisclosure {
 }
 
 const LEAD =
-  "Opens this session and rebuilds it from what the server kept. It is a link to the session, not a snapshot — a turn asked after you send it will be there too.";
+  "Opens this session and rebuilds it from what the server kept. It is a link to the session, not a snapshot — a question asked after you send it will be there too.";
 
 /** Never stored, on any deployment, by design. */
 const STAGE_TIMINGS = "The stage timings — those are never stored.";
@@ -66,14 +66,14 @@ export function sessionLinkDisclosure(
     return {
       lead: LEAD,
       included: [
-        "Each turn's findings, its charts and its evidence bundle, and the window, scope, cohort and data load it was measured under.",
+        "Every answer's findings, its charts and its evidence, and the window, scope, population and data load it was measured under.",
       ],
       omitted: [
         STAGE_TIMINGS,
         // The honest shape of an unobserved claim: name the thing most
         // likely to be missing, and hand over the one-step check rather
         // than a reassurance this browser cannot back.
-        "Anything else the server did not keep — the written analysis is the usual one. No turn here has been re-read from the server yet, so open the link once yourself before you send it.",
+        "Anything else the server did not keep — the written analysis is the usual one. Nothing here has been re-read from the server yet, so open the link once yourself before you send it.",
       ],
       basis: "unobserved",
     };
@@ -85,23 +85,23 @@ export function sessionLinkDisclosure(
   const evidenceKept = restored.some((turn) => turn.hasEvidence);
 
   const included = [
-    "Each turn's findings, and the window, scope, cohort and data load it was measured under.",
+    "Every answer's findings, and the window, scope, population and data load it was measured under.",
   ];
   // Absence of a chart is not evidence charts are dropped — a turn can
   // simply have had none — so charts and evidence are named only when
   // this browser has watched them come back.
-  if (chartsKept) included.push("Its charts, rebuilt from the frames the server stored.");
+  if (chartsKept) included.push("Its charts, rebuilt from what the server stored.");
   if (evidenceKept) included.push("Its evidence bundle, projected from the recorded trace.");
   if (proseKept) included.push("The written analysis, as it was composed.");
 
   const omitted = [STAGE_TIMINGS];
   if (proseLost) {
     omitted.push(
-      "The written analysis isn't stored — the link opens with the findings, charts and evidence the server kept, and each turn says so where the prose would be.",
+      "The written analysis isn't stored — the link opens with the findings, charts and evidence the server kept, and each answer says so where the writing would be.",
     );
   } else if (!proseKept) {
     omitted.push(
-      "The written analysis on some turns — this session already has turns that came back without it.",
+      "The written analysis on some answers — this session already has answers that came back without it.",
     );
   }
 

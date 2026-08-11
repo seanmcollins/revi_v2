@@ -97,7 +97,7 @@ export function AnomalyReconciliationStrip({
             />
             <Figure
               label="This answer"
-              hint="Re-derived from this platform's governed metric contract at the pinned data load, over the population the card names."
+              hint="Re-measured from your standard definition of this measure, at the pinned data load, over the population the card names."
               value={
                 answerImpactCents !== undefined ? formatCents(answerImpactCents) : "Not re-derived"
               }

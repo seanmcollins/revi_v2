@@ -115,7 +115,7 @@ export function AnswerBodyCalm({
         model.copyable ? (
           <CopyTextButton
             label="Copy answer"
-            title="Copy this answer as text — findings, the written analysis, every caveat the platform attached, and a provenance line naming the data load and metric pack. Nothing leaves this browser."
+            title="Copy this answer as text — findings, the written analysis, every caveat Revi attached, and a line naming the data load and the definitions it was measured against. Nothing leaves this browser."
             className="h-5 px-2 text-micro"
             text={() =>
               answerToText({

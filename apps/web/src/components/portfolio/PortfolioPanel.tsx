@@ -46,6 +46,21 @@ import { cn } from "@/lib/utils";
 /** How many cards the rail shows before "Show all". */
 const COLLAPSED_COUNT = 5;
 
+/**
+ * The detector's severity, in words rather than in its own token.
+ *
+ * `critical`/`high`/`medium`/`low` are lower-case wire values and were
+ * printed straight into a chip. They read as the enum they are; a reader
+ * gets "How urgent" from a capitalized English word without having to
+ * decide whether the lower case means something.
+ */
+const SEVERITY_LABELS: Record<string, string> = {
+  critical: "Critical",
+  high: "High",
+  medium: "Medium",
+  low: "Low",
+};
+
 const SEVERITY_TONE: Record<string, string> = {
   critical: "border-negative/45 text-negative",
   high: "border-warning/50 text-warning",
@@ -553,7 +568,7 @@ export function PortfolioCard({
                     SEVERITY_TONE[item.severity] ?? "border-border text-muted-foreground",
                   )}
                 >
-                  {item.severity}
+                  {SEVERITY_LABELS[item.severity] ?? humanizeInline(item.severity)}
                 </span>
               )}
               {item.ageDays !== undefined && (

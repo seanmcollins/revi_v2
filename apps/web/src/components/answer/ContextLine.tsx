@@ -79,7 +79,7 @@ export function contextSegments(
   if (header.cohort) {
     const grain = header.cohort.entityGrain;
     segments.push(
-      `${formatCount(header.cohort.size)} ${grain ? pluralGrain(grain, header.cohort.size) : "entities"}${
+      `${formatCount(header.cohort.size)} ${grain ? pluralGrain(grain, header.cohort.size) : "records"}${
         header.cohort.pinned ? " (pinned)" : ""
       }`,
     );
@@ -174,7 +174,12 @@ function safeMediumDate(iso: string): string {
 
 /** The entity grain as a countable noun — the cohort chip's own rule. */
 function pluralGrain(grain: string, size: number): string {
-  if (grain === "") return size === 1 ? "entity" : "entities";
+  // NOT "entity"/"entities". `entity` is a modelling word with no client
+  // rendering (docs/client-language.md §3), and it was the fallback — so
+  // the ONE case where the payload does not say what it counted is the one
+  // case that answered in our vocabulary. "Records" is plain English and
+  // says exactly as much as the payload does.
+  if (grain === "") return size === 1 ? "record" : "records";
   if (size === 1) return grain;
   return grain.endsWith("s") ? grain : `${grain}s`;
 }

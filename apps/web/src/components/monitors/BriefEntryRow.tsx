@@ -8,7 +8,7 @@ import { IntegrityAtom } from "@/components/monitors/IntegrityAtom";
 import { LeadStatusControl } from "@/components/monitors/LeadStatus";
 import { TimeToImpactLine } from "@/components/monitors/TimeToImpactLine";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import { formatWholeDollars } from "@/lib/format";
+import { formatWholeDollars, rankingVersionLabel } from "@/lib/format";
 import { humanizeColumn } from "@/lib/humanize";
 import { investigationLinkFor } from "@/lib/links";
 import { readableStatement, tidyProse } from "@/lib/prose";
@@ -129,7 +129,7 @@ export function BriefEntryRow({
             {tidyProse(entry.provenance.method)}
             {entry.provenance.formulaVersion && (
               <span className="mt-1 block text-micro text-muted-foreground">
-                ranked by {entry.provenance.formulaVersion}
+                ranked by {rankingVersionLabel(entry.provenance.formulaVersion)}
               </span>
             )}
           </TooltipContent>

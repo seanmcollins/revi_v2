@@ -5,6 +5,7 @@ import { useId, useState } from "react";
 
 import type { Benchmark, MeasuredValue } from "@/lib/types";
 import { cn } from "@/lib/utils";
+import { humanizeInline } from "@/lib/humanize";
 
 /**
  * The governed external ranges a finding was quoted against.
@@ -212,11 +213,11 @@ function ReviewChip({ status }: { status: string }) {
       )}
       title={
         unreviewed
-          ? "Machine-researched: gathered by an automated search of public sources and not reviewed by a person. Treat it as a reference point, not as a certified target."
-          : `Review status published by the pack: ${status}.`
+          ? "Machine-researched: gathered by an automated search of public sources and not reviewed by a person. Treat it as a reference point, not as a target anybody signed off on."
+          : `How this range was reviewed: ${humanizeInline(status)}.`
       }
     >
-      {unreviewed ? "Unreviewed" : status.replace(/_/g, " ")}
+      {unreviewed ? "Unreviewed" : humanizeInline(status)}
     </span>
   );
 }

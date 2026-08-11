@@ -3,13 +3,29 @@
 import { BookMarked } from "lucide-react";
 
 import { Separator } from "@/components/ui/separator";
+import { humanizeColumn } from "@/lib/humanize";
 import type { DefinitionCardData } from "@/lib/types";
 
+/**
+ * Where a definition came from, in the reader's words.
+ *
+ * `governed_pack` read "Governed pack content" — two platform words in
+ * three (docs/client-language.md §2 renders the pack as "your definitions
+ * library", and bans `governed` as a bare authority claim). The rendering
+ * the contract fixes for a cited governed pack is "Standard definition —
+ * from your definitions library"; this is that, at chip length, with the
+ * source's own label printed beside it.
+ */
 const AUTHORITY_LABELS: Record<string, string> = {
-  governed_pack: "Governed pack content",
+  governed_pack: "Standard definition",
   standard_paraphrase: "Standard, paraphrased",
-  concept_dictionary: "Concept dictionary",
+  concept_dictionary: "Plain-language dictionary",
 };
+
+/** An authority this build has no label for — never the raw token. */
+function authorityLabel(authority: string): string {
+  return AUTHORITY_LABELS[authority] ?? humanizeColumn(authority);
+}
 
 /**
  * A governed definition answer — visually distinct from analytical
@@ -75,7 +91,7 @@ export function DefinitionCard({ definition }: { definition: DefinitionCardData 
               {definition.sources.map((source) => (
                 <li key={source.label} className="flex items-center gap-1.5 text-meta">
                   <span className="rounded-full border px-1.5 py-px text-micro uppercase tracking-wide text-muted-foreground">
-                    {AUTHORITY_LABELS[source.authority] ?? source.authority}
+                    {authorityLabel(source.authority)}
                   </span>
                   {source.label}
                 </li>

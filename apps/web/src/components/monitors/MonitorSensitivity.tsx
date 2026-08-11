@@ -4,8 +4,12 @@ import { AlertTriangle } from "lucide-react";
 import { useState } from "react";
 
 import { Button } from "@/components/ui/button";
-import { formatCents, formatWholeDollars } from "@/lib/format";
-import type { MonitorMode, MonitorModel, MonitorUnit } from "@/lib/monitors";
+import type {
+  MonitorMode,
+  MonitorModel,
+  MonitorUnit,
+  RecommendedThreshold,
+} from "@/lib/monitors";
 import { cn } from "@/lib/utils";
 
 /**
@@ -59,20 +63,25 @@ export function MonitorSensitivityForm({
   pending: boolean;
   refusal?: string;
   /**
-   * THE RECOMMENDED RULE, AS A NUMBER AND A UNIT — when one is published.
+   * THE RECOMMENDED RULE, AS THE SERVER PUBLISHES IT.
    *
-   * NOTHING SUPPLIES THIS TODAY, and that is a wire gap rather than an
-   * oversight here: `GET /v1/monitors` puts the governed gate only inside
-   * prose (`delta.materiality_note` — "…at or above the governed gate of
-   * 0.5 points") and `GET /v1/monitors/pins` carries only the analyst's
-   * OWN `monitor` object, never a recommended one. A client that read the
-   * number back out of that sentence would be parsing its own caption,
-   * which this codebase does not do anywhere else and must not start
-   * doing on the control that sets an interruption. So the default option
-   * renders the honest fallback until a structured field exists, and
-   * never invents a figure.
+   * `RecommendedThresholdPayload` — `{text, value, unit, relative}` — on
+   * `MonitorsPinPayload`, `MonitorDeclarationPayload` and
+   * `MonitorRefusedPayload`. Nothing supplied this until M43: the gate
+   * reached a client only inside prose (`delta.materiality_note` — "…at
+   * or above the governed gate of 0.5 points"), and reading a number back
+   * out of a caption is not something this codebase does anywhere, least
+   * of all on the control that sets an interruption. So the field was
+   * added rather than parsed, which is what §2.1's corollary asks for.
+   *
+   * `text` IS THE PHRASE, and it is not recomposed here. Two of these
+   * rules are compound — "5% of the prior value and $1,000.00" is one
+   * gate with two components — and a client that rendered only `value`
+   * would state half of the rule the monitor actually applies. The parts
+   * ride along for a control that needs them; the sentence is the
+   * server's.
    */
-  recommended?: { value: number; unit: MonitorUnit };
+  recommended?: RecommendedThreshold;
   /**
    * The measure in the reader's own noun ("denial rate"), for the one
    * sentence that says whose recommendation this is. Absent, that
@@ -314,54 +323,30 @@ export function MonitorSensitivityForm({
  * faith), and neither is the rule.
  *
  * So the default option states the RULE, with the number and the unit
- * inside it — "Tell me when it moves more than 0.5 points". Nothing to
- * decode, nothing to disbelieve, and a reader who thinks the level is
- * wrong can see exactly what they disagree with before they change it.
+ * inside it — "Tell me when it moves more than 0.5 percentage points".
+ * Nothing to decode, nothing to disbelieve, and a reader who thinks the
+ * level is wrong can see exactly what they disagree with before they
+ * change it.
  *
- * AND WHEN NO NUMBER IS PUBLISHED, IT SAYS SO BY SAYING LESS. No metric
- * carries a structured recommended value on the wire today (see the
- * `recommended` prop), so this is the branch every metric currently
- * renders. "Tell me about meaningful changes" is vaguer than the sentence
- * above it and it is TRUE, which the alternative — a plausible-looking
- * 0.5 composed here — would not be.
- */
-export function recommendedRuleLabel(recommended?: { value: number; unit: MonitorUnit }): string {
-  if (recommended === undefined || !Number.isFinite(recommended.value)) {
-    return "Tell me about meaningful changes";
-  }
-  return `Tell me when it moves more than ${thresholdPhrase(recommended.value, recommended.unit)}`;
-}
-
-/**
- * The level as a phrase somebody reads aloud, in the unit it was stated
- * in. Plural-correct: "1 points" is the seam that makes a reader stop
- * trusting the sentence around it, and this sentence is the whole reason
- * the default option no longer has a name.
+ * THE PHRASE IS THE SERVER'S, VERBATIM. It is composed from the same
+ * policy object the gate is evaluated against, which is what makes the
+ * sentence this control shows and the rule a brief entry applies the same
+ * rule rather than two renderings that have to agree. It is also the only
+ * form that survives a compound gate: money and count rules are "5% of the
+ * prior value and $1,000.00", one rule with two components, and a client
+ * that spelled the absolute part alone would understate the gate by the
+ * whole of its relative half.
  *
- * The unit is not decoration. `points`, `cents` and `days` are three
- * different questions about the same-looking number, and a threshold
- * rendered in the wrong one is a monitor that fires on the wrong thing.
+ * AND WHEN NO RULE IS PUBLISHED, IT SAYS SO BY SAYING LESS. A deployment
+ * that recommends nothing for a unit sends no payload, and "Tell me about
+ * meaningful changes" is vaguer than the sentence above it and TRUE, which
+ * a plausible-looking 0.5 composed here would not be. That branch is now
+ * genuinely rare rather than universal, which is the point of the field.
  */
-function thresholdPhrase(value: number, unit: MonitorUnit): string {
-  switch (unit) {
-    case "points":
-      return `${decimal(value)} ${Math.abs(value) === 1 ? "point" : "points"}`;
-    case "relative_pct":
-      return `${decimal(value)}% of the current value`;
-    // Money arrives in cents and is read in dollars. Whole dollars when it
-    // is whole — "$1,000.00" implies a precision a recommended level does
-    // not have — and the exact figure when it is not.
-    case "cents":
-      return Math.round(value) % 100 === 0 ? formatWholeDollars(value) : formatCents(value);
-    case "days":
-      return `${decimal(value)} ${Math.abs(value) === 1 ? "day" : "days"}`;
-  }
-}
-
-const DECIMAL = new Intl.NumberFormat("en-US", { maximumFractionDigits: 3 });
-
-function decimal(value: number): string {
-  return DECIMAL.format(value);
+export function recommendedRuleLabel(recommended?: RecommendedThreshold): string {
+  const text = recommended?.text.trim() ?? "";
+  if (text === "") return "Tell me about meaningful changes";
+  return `Tell me when it moves more than ${text}`;
 }
 
 /**
@@ -385,11 +370,19 @@ function pluralMetric(label: string): string {
  * something rather than decide something.
  */
 function modeOptions(
-  recommended: { value: number; unit: MonitorUnit } | undefined,
+  recommended: RecommendedThreshold | undefined,
   metricLabel: string | undefined,
 ): ReadonlyArray<{ mode: MonitorMode; label: string; detail: string }> {
   const subject =
-    metricLabel === undefined || metricLabel.trim() === "" ? "this metric" : pluralMetric(metricLabel);
+    metricLabel !== undefined && metricLabel.trim() !== ""
+      ? pluralMetric(metricLabel)
+      : // THE UNIT'S OWN NOUN, in the server's words. A recommendation is
+        // about a KIND of measure, and the payload says which kind — so a
+        // control with no metric label to hand still says "for rates"
+        // rather than "for this metric", which is what the server's own
+        // sentence says on the same recommendation.
+        (recommended?.unit !== undefined ? UNIT_NOUNS[recommended.unit] : undefined) ??
+        "this metric";
   return [
     {
       mode: "governed_default",
@@ -397,7 +390,15 @@ function modeOptions(
       // WHOSE recommendation, and that it is not binding. The owner
       // distrusted an unattributed "standard"; a recommendation with a
       // name on it and an exit beside it is a different offer.
-      detail: `Revi's recommended level for ${subject}. You can change it anytime.`,
+      //
+      // The second form is not the first with the number missing: with no
+      // published rule there is no "level" to recommend, and calling the
+      // absence one would be the sentence claiming a figure the label
+      // above it could not state.
+      detail:
+        recommended?.text.trim()
+          ? `Revi's recommended level for ${subject}. You can change it anytime.`
+          : `Revi decides what counts as meaningful for ${subject}. You can change it anytime.`,
     },
     {
       mode: "any_movement",
@@ -438,6 +439,24 @@ function modeOptions(
  * the owner's words, as "amateur hour", because they are the enum with a
  * space in it.
  */
+/**
+ * The kind of measure a recommendation is ABOUT, keyed by the unit its
+ * absolute component is stated in — the client's copy of the server's
+ * `_UNIT_NOUNS`, so "Revi's recommended level for rates" is the same
+ * sentence wherever it is composed.
+ *
+ * Keyed on the string the payload actually carries (`points`, `cents`,
+ * `count`, `days`) rather than on `MonitorUnit`: `count` is a unit a
+ * recommendation can be stated in and a threshold cannot, so the two lists
+ * are not the same list.
+ */
+const UNIT_NOUNS: Readonly<Record<string, string>> = {
+  points: "rates",
+  cents: "dollar measures",
+  count: "counts",
+  days: "day counts",
+};
+
 const DIRECTION_LABELS: Readonly<Record<MonitorModel["direction"], string>> = {
   any: "Any direction",
   up: "Only when it rises",

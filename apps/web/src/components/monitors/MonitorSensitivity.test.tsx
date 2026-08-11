@@ -27,6 +27,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { MemoryRouter } from "react-router-dom";
 
+import { violations } from "@/lib/clientLanguage";
 import {
   MonitorSensitivityForm,
   recommendedRuleLabel,
@@ -75,66 +76,89 @@ function optionRows(container: HTMLElement): Array<{ mode: string; label: string
 /* ------------------------------------------------------------------ */
 
 describe("the recommended option states the rule instead of naming a threshold", () => {
-  it("renders the number and its unit when a recommended level is published", () => {
-    expect(recommendedRuleLabel({ value: 0.5, unit: "points" })).toBe(
-      "Tell me when it moves more than 0.5 points",
+  /**
+   * The rule as `GET /v1/monitors/pins` publishes it, live, on the demo
+   * tenant's `denial rate by payer` monitor. The client does not compose
+   * this phrase and must not: the server derives it from the same policy
+   * the gate is evaluated against.
+   */
+  const RATE_RULE = { text: "0.5 percentage points", value: 0.005, unit: "points" } as const;
+  /** The compound one — a share of the prior value AND a floor, one rule. */
+  const MONEY_RULE = {
+    text: "5% of the prior value and $1,000.00",
+    value: 100000,
+    unit: "cents",
+    relative: 0.05,
+  } as const;
+
+  it("renders the server's phrase when a recommended level is published", () => {
+    expect(recommendedRuleLabel(RATE_RULE)).toBe(
+      "Tell me when it moves more than 0.5 percentage points",
     );
-    const { container } = plainForm({ recommended: { value: 0.5, unit: "points" } });
-    expect(screen.getByText("Tell me when it moves more than 0.5 points")).toBeInTheDocument();
+    const { container } = plainForm({ recommended: RATE_RULE });
+    expect(
+      screen.getByText("Tell me when it moves more than 0.5 percentage points"),
+    ).toBeInTheDocument();
     expect(optionRows(container)[0]).toEqual({
       mode: "governed_default",
-      label: "Tell me when it moves more than 0.5 points",
+      label: "Tell me when it moves more than 0.5 percentage points",
     });
   });
 
-  it("says one point rather than 1 points", () => {
-    // A plural seam in the one sentence that carries the number is enough
-    // to make a reader stop trusting the number.
-    expect(recommendedRuleLabel({ value: 1, unit: "points" })).toBe(
-      "Tell me when it moves more than 1 point",
+  it("keeps both halves of a compound rule", () => {
+    // Money and count gates are a share of the prior value AND an absolute
+    // floor at once. Rendering `value` alone would state the floor and
+    // silently drop the half that briefs a $40 balance that doubled.
+    expect(recommendedRuleLabel(MONEY_RULE)).toBe(
+      "Tell me when it moves more than 5% of the prior value and $1,000.00",
     );
-    plainForm({ recommended: { value: 1, unit: "points" } });
-    expect(screen.getByText("Tell me when it moves more than 1 point")).toBeInTheDocument();
+    plainForm({ recommended: MONEY_RULE });
+    expect(
+      screen.getByText("Tell me when it moves more than 5% of the prior value and $1,000.00"),
+    ).toBeInTheDocument();
   });
 
-  it("reads each unit the way that measure is actually kept", () => {
-    // `points`, `cents` and `days` are three different questions about the
-    // same-looking number. A level rendered in the wrong one is a monitor
-    // that fires on the wrong thing.
-    expect(recommendedRuleLabel({ value: 100000, unit: "cents" })).toBe(
-      "Tell me when it moves more than $1,000",
-    );
-    expect(recommendedRuleLabel({ value: 2, unit: "days" })).toBe(
-      "Tell me when it moves more than 2 days",
-    );
-    expect(recommendedRuleLabel({ value: 1, unit: "days" })).toBe(
-      "Tell me when it moves more than 1 day",
-    );
-    expect(recommendedRuleLabel({ value: 5, unit: "relative_pct" })).toBe(
-      "Tell me when it moves more than 5% of the current value",
+  it("reads a lag rule in days", () => {
+    expect(recommendedRuleLabel({ text: "1.0 days", value: 1, unit: "days" })).toBe(
+      "Tell me when it moves more than 1.0 days",
     );
   });
 
   it("invents no number when the wire publishes none", () => {
-    // Every metric renders this branch today: no endpoint carries a
-    // structured recommended value, and the gate that exists lives inside
-    // a caption this client does not parse.
+    // A deployment that recommends nothing for a unit sends no payload.
+    // Rare now, and it was every metric in the product before the field
+    // existed — the gate lived inside a caption this client does not parse.
     expect(recommendedRuleLabel()).toBe("Tell me about meaningful changes");
+    expect(recommendedRuleLabel({ text: "  " })).toBe("Tell me about meaningful changes");
     const { container } = plainForm();
     expect(container.textContent).not.toMatch(/\d/);
   });
 
   it("names whose recommendation it is, and that it is not binding", () => {
-    plainForm({ recommended: { value: 0.5, unit: "points" }, metricLabel: "denial rate" });
+    plainForm({ recommended: RATE_RULE, metricLabel: "denial rate" });
     expect(
       screen.getByText("Revi's recommended level for denial rates. You can change it anytime."),
     ).toBeInTheDocument();
   });
 
-  it("falls back to the vaguer, truer noun with no metric supplied", () => {
+  it("takes the measure's noun from the rule's unit when no label is passed", () => {
+    // The server says "Revi's recommended level for rates" on this same
+    // recommendation. One concept, one sentence, wherever it is composed.
+    plainForm({ recommended: RATE_RULE });
+    expect(
+      screen.getByText("Revi's recommended level for rates. You can change it anytime."),
+    ).toBeInTheDocument();
+  });
+
+  it("claims no recommendation exists when none was published", () => {
+    // The detail line used to say "Revi's recommended level for this
+    // metric" beside a label that could not state one — a sentence
+    // asserting a figure the option above it did not have.
     plainForm();
     expect(
-      screen.getByText("Revi's recommended level for this metric. You can change it anytime."),
+      screen.getByText(
+        "Revi decides what counts as meaningful for this metric. You can change it anytime.",
+      ),
     ).toBeInTheDocument();
   });
 });
@@ -193,8 +217,17 @@ describe("the direction chips read as directions, in the reader's words", () => 
 /**
  * Platform vocabulary. Every one of these is a word a first-time reader
  * has to have been TOLD, and every one of them has been on this surface.
+ *
+ * The general list — the whole of `docs/client-language.md` §3 — now lives
+ * in `lib/clientLanguage` and is checked against every authored string in
+ * the app by `clientLanguage.test.ts`. This hand-written list stays for
+ * the words that are SPECIFIC to a sensitivity control ("materiality",
+ * "watch mode", "delta"), and `violations()` is run beside it so this
+ * surface also inherits every word the shared contract bans — including
+ * ones that arrive here from a server payload rather than from this file,
+ * which a source walk cannot see.
  */
-const JARGON = ["pack", "governed", "materiality", "watch mode", "threshold_source", "delta"];
+const JARGON = ["materiality", "watch mode", "threshold_source", "delta"];
 
 /**
  * Wire values, which must never reach a reader as themselves.
@@ -222,7 +255,10 @@ const WIRE_TOKENS = [
 
 function vocabularyHits(container: HTMLElement): string[] {
   const text = container.textContent ?? "";
-  const hits = JARGON.filter((word) => new RegExp(`\\b${word}\\b`, "i").test(text));
+  const hits = [
+    ...JARGON.filter((word) => new RegExp(`\\b${word}\\b`, "i").test(text)),
+    ...violations(text),
+  ];
   for (const node of Array.from(container.querySelectorAll("*"))) {
     const own = (node.textContent ?? "").trim().toLowerCase();
     if (WIRE_TOKENS.includes(own)) hits.push(own);
@@ -304,7 +340,7 @@ describe("the rewording changed no value this form submits", () => {
       <MonitorSensitivityForm
         submitLabel="Start monitoring"
         pending={false}
-        recommended={{ value: 0.5, unit: "points" }}
+        recommended={{ text: "0.5 percentage points", value: 0.005, unit: "points" }}
         onSubmit={onSubmit}
         onCancel={() => {}}
       />,

@@ -6,6 +6,7 @@ import { Link } from "react-router-dom";
 
 import { InvestigationChart } from "@/components/charts/InvestigationChart";
 import { selectRenderableCharts } from "@/lib/contract";
+import { chartWindowLabel } from "@/lib/format";
 import type { HomeAnchor } from "@/lib/homeAnchor";
 import { investigationLinkFor } from "@/lib/links";
 import { readableLabel } from "@/lib/prose";
@@ -49,6 +50,35 @@ export function LeadAnchor({ anchor, enabled }: { anchor: HomeAnchor; enabled: b
     if (value === undefined || value === null) return undefined;
     if (value.outcome !== "answer") return undefined;
     return selectRenderableCharts(value.charts)[0];
+  }, [query.data]);
+
+  /**
+   * THE TWO WINDOWS, so the legend on Home says what the legend on the
+   * answer says.
+   *
+   * Home mounted this chart with neither `windowLabel` nor
+   * `comparisonWindows`, so a comparison anchored here degraded to "This
+   * window" / "The window compared against" — honest, and vaguer than the
+   * dates sitting on the very payload this component already read. The
+   * answer surface passes both (`AnswerChart`); there is no reason Home
+   * should be the surface that knows less.
+   */
+  const windows = useMemo(() => {
+    const value = query.data?.value;
+    if (value === undefined || value === null || value.outcome !== "answer") return undefined;
+    const header = value.header;
+    if (!header || header.asOf) return undefined;
+    return {
+      label: chartWindowLabel(header.window),
+      ...(header.comparison
+        ? {
+            comparison: {
+              current: chartWindowLabel(header.window),
+              prior: header.comparison.label ?? chartWindowLabel(header.comparison.window),
+            },
+          }
+        : {}),
+    };
   }, [query.data]);
 
   const title = readableLabel(anchor.title);
@@ -100,6 +130,8 @@ export function LeadAnchor({ anchor, enabled }: { anchor: HomeAnchor; enabled: b
             // expects on a figure read back from storage.
             turnId={anchor.investigationId}
             investigationId={anchor.investigationId}
+            {...(windows?.label !== undefined ? { windowLabel: windows.label } : {})}
+            {...(windows?.comparison ? { comparisonWindows: windows.comparison } : {})}
           />
         </div>
       ) : query.isPending ? (

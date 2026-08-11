@@ -192,7 +192,7 @@ describe("answerToText", () => {
       warnings: [],
       restored: true,
     });
-    expect(restored).toContain("The written analysis was not stored for this turn");
+    expect(restored).toContain("The written analysis was not stored for this answer");
     expect(restored).toContain("rebuilt from this session's stored history");
   });
 
@@ -668,7 +668,7 @@ describe("answerToText — the reasoning travels with the caveats", () => {
       ],
       copiedAt: new Date("2026-08-09T14:32:00"),
     });
-    expect(text).toContain("The written analysis was not stored for this turn");
+    expect(text).toContain("The written analysis was not stored for this answer");
     expect(text).toContain("the narrative trace keeps its template, redactions and length");
     // And the caveats still travel in full underneath it.
     expect(text).toContain("claims still awaiting their first remittance");

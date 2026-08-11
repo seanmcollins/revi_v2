@@ -505,7 +505,7 @@ describe("AnswerCard — cache chip copy (residual)", () => {
 
   it("claims cache reuse only when probes actually came from the cache", () => {
     renderCard(zeroProbe(3));
-    expect(screen.getByText(/Answered from cached results/)).toBeInTheDocument();
+    expect(screen.getByText(/Answered from results already computed/)).toBeInTheDocument();
   });
 
   it("says nothing was needed when nothing was cached either", () => {
@@ -514,7 +514,7 @@ describe("AnswerCard — cache chip copy (residual)", () => {
     // from cached results" over one of those claims a reuse that never
     // happened.
     renderCard(zeroProbe(0));
-    expect(screen.getByText("No warehouse query was needed for this answer")).toBeInTheDocument();
+    expect(screen.getByText("This answer needed no reading of your data")).toBeInTheDocument();
     expect(screen.queryByText(/cached results/)).not.toBeInTheDocument();
   });
 });
@@ -540,7 +540,7 @@ describe("AnswerCard — budget refusals (F19 residual)", () => {
         },
       }),
     );
-    expect(screen.getByText("This turn hit its model-spend ceiling")).toBeInTheDocument();
+    expect(screen.getByText("This question hit its model-spend ceiling")).toBeInTheDocument();
     // The recovery is a setting, not a rewrite — and it is one click away.
     expect(screen.getByRole("button", { name: "Adjust cost ceiling" })).toBeInTheDocument();
     // "Failures are free" is a claim, and it is false.
@@ -559,7 +559,7 @@ describe("AnswerCard — budget refusals (F19 residual)", () => {
       }),
     );
     expect(
-      screen.getByText("This question reads more of the warehouse than one turn allows"),
+      screen.getByText("This question reads more of your data than one question is allowed to"),
     ).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: "Adjust cost ceiling" })).not.toBeInTheDocument();
   });
@@ -571,7 +571,12 @@ describe("AnswerCard — budget refusals (F19 residual)", () => {
         error: { code: "GRAIN_INCOMPATIBLE", message: "That metric can't be cut that way." },
       }),
     );
-    expect(screen.getByText("GRAIN_INCOMPATIBLE")).toBeInTheDocument();
+    // The CODE is not on the card. It is a branch handle, not a word
+    // (docs/client-language.md §3), and it sat in front of the server's
+    // sentence on every error a reader ever saw. It rides on the element
+    // for anyone branching on it, and spells itself out under debug.
+    expect(screen.queryByText("GRAIN_INCOMPATIBLE")).not.toBeInTheDocument();
+    expect(document.querySelector('[data-error-code="GRAIN_INCOMPATIBLE"]')).not.toBeNull();
     expect(screen.getByText(/That metric can't be cut that way\./)).toBeInTheDocument();
     expect(screen.queryByText(/before stopping/)).not.toBeInTheDocument();
   });
@@ -669,9 +674,11 @@ describe("AnswerCard — error copy is the server's, and only the server's", () 
     expect(
       screen.getByText(/That metric can't be dated the way this question needs/),
     ).toBeInTheDocument();
-    // The code chip carries the code; the tail repeated it beside a raw
-    // metric id and a Python list literal.
-    expect(screen.getAllByText("DATE_BASIS_INVALID")).toHaveLength(1);
+    // Neither the chip nor the tail: the chip is gone (§3 — an ALL_CAPS
+    // enum token gets no client rendering), and the tail repeated it
+    // beside a raw metric id and a Python list literal.
+    expect(screen.queryAllByText("DATE_BASIS_INVALID")).toHaveLength(0);
+    expect(document.querySelector('[data-error-code="DATE_BASIS_INVALID"]')).not.toBeNull();
     expect(screen.queryByText(/ar_balance/)).not.toBeInTheDocument();
     expect(screen.queryByText(/\['service', 'submission'\]/)).not.toBeInTheDocument();
   });
@@ -806,14 +813,14 @@ describe("AnswerCard — a turn rebuilt from history", () => {
   it("says the write-up was not stored rather than leaving a gap", () => {
     renderCard(restored());
     expect(
-      screen.getByText(/The written analysis was not stored for this turn/),
+      screen.getByText(/The written analysis was not stored for this answer/),
     ).toBeInTheDocument();
   });
 
   it("says nothing of the sort when the store did keep the prose", () => {
     renderCard(restored({ narrative: "Among the payers that cleared reporting…" }));
     expect(
-      screen.queryByText(/The written analysis was not stored for this turn/),
+      screen.queryByText(/The written analysis was not stored for this answer/),
     ).not.toBeInTheDocument();
     expect(screen.getByText(/Among the payers that cleared reporting/)).toBeInTheDocument();
   });
@@ -954,7 +961,7 @@ describe("AnswerCard — what a screen reader is told", () => {
 
     expect(
       container.querySelector("[role='status'][aria-live='polite']")?.textContent,
-    ).toBe("This turn stopped before it finished.");
+    ).toBe("This answer stopped before it finished.");
   });
 });
 

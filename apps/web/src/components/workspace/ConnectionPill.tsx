@@ -73,7 +73,7 @@ export function DegradedModeBadge() {
     return (
       <DegradedBadge
         label="Demo script mode"
-        explanation="Mock is a dev/test fixture — it only matches the reference demo questions, and everything else gets a scripted clarification. The live API is the product; set VITE_REVI_DRIVER=api (the default) to use it."
+        explanation="This is a demonstration script, not your data — it answers only the reference questions, and anything else gets a scripted reply. Ask whoever set this up to point it at the live deployment."
       />
     );
   }
@@ -85,7 +85,7 @@ export function DegradedModeBadge() {
       // explanation, not on a chip in the header of an analyst's screen.
       <DegradedBadge
         label="Scripted answers"
-        explanation="The API is running the scripted stub model, not a live one — free-form questions off the reference script get a clarification instead of an answer. Set REVI_MODEL_PIN and restart the API."
+        explanation="This deployment is running a stand-in for the language model rather than a real one — questions outside the reference script come back as a clarification instead of an answer. Ask whoever set this up to connect a real one."
       />
     );
   }

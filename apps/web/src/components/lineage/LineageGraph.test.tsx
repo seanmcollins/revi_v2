@@ -105,7 +105,7 @@ describe("buildLineageNodes — server-fed rows", () => {
   it("carries the edge operators onto the child they produced", () => {
     const nodes = buildLineageNodes({ turns: [], referents: {}, serverData: serverData() });
     expect(nodes[0].operators).toEqual([]);
-    expect(nodes[1].operators).toEqual(["SetDimensions(payer)"]);
+    expect(nodes[1].operators).toEqual(["Broke it down by payer"]);
   });
 
   it("maps a node to a local turn by id when the ids share a namespace", () => {

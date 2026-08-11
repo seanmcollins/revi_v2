@@ -878,7 +878,7 @@ describe("ApiDriver reconnect tolerance", () => {
 
     const events = await collectSubmit(driver, { utterance: "q" });
     expect(events[events.length - 1]).toMatchObject({ type: "error", code: "API_UNREACHABLE" });
-    expect(onConnectionState).toHaveBeenCalledWith("offline", "lost connection mid-turn");
+    expect(onConnectionState).toHaveBeenCalledWith("offline", "lost the connection mid-answer");
     // 1 sessions + 1 SSE attempt + recoveryAttempts JSON replays.
     expect(calls.filter((c) => c.accept === "application/json" && c.url.includes("/turns"))).toHaveLength(2);
   });

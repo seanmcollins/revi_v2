@@ -67,12 +67,12 @@ describe("what it says depends on what came back, not on what this build assumes
     expect(d.omitted.join(" ")).not.toMatch(/isn't stored/);
   });
 
-  it("says 'on some turns' when the session restored both kinds", () => {
+  it("says 'on some answers' when the session restored both kinds", () => {
     const d = sessionLinkDisclosure([
       turn({ rehydrated: true }),
       turn({ rehydrated: true, narrative: "" }),
     ]);
-    expect(d.omitted.join(" ")).toMatch(/on some turns/);
+    expect(d.omitted.join(" ")).toMatch(/on some answers/);
   });
 
   it("names charts and evidence only when it has watched them restore", () => {
@@ -84,7 +84,7 @@ describe("what it says depends on what came back, not on what this build assumes
     // mirror of the server note that claims charts while shipping [].
     expect(bare.included.join(" ")).not.toMatch(/charts/);
     const rich = sessionLinkDisclosure([turn({ rehydrated: true, narrative: "" })]);
-    expect(rich.included.join(" ")).toMatch(/charts, rebuilt from the frames/);
+    expect(rich.included.join(" ")).toMatch(/charts, rebuilt from what/);
     expect(rich.included.join(" ")).toMatch(/evidence bundle/);
   });
 });

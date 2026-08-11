@@ -87,7 +87,7 @@ export function CommandPalette({
   // of whichever condition is actually holding them. Rendered as hint text
   // on the disabled rows: dimming says "not now" and nothing says why.
   const busyReason = streaming
-    ? "Wait — a turn is running"
+    ? "Wait — an answer is still coming"
     : replaying
       ? "Wait — the demo is replaying"
       : switchingSessionId !== null
@@ -176,7 +176,7 @@ export function CommandPalette({
         label: replayProgress
           ? `Replaying reference demo (${replayProgress.index}/${replayProgress.total})`
           : "Replay reference demo",
-        hint: "Five turns",
+        hint: "Five questions",
         icon: <Play className="size-3.5" />,
         disabled: newChatBusy,
         run: () => void replayReference(),

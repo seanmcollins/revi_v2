@@ -1,52 +1,37 @@
 "use client";
 
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
-import type { EvidenceGrade } from "@/lib/types";
+import { GRADE_EXPLANATIONS, GRADE_LABELS, type EvidenceGrade } from "@/lib/types";
 import { cn } from "@/lib/utils";
 
-const GRADE_META: Record<
-  EvidenceGrade,
-  { label: string; dotClass: string; textClass: string; explanation: string }
-> = {
-  direct: {
-    label: "Direct",
-    dotClass: "bg-grade-direct",
-    textClass: "text-grade-direct",
-    explanation: "The field explicitly represents the concept being measured.",
-  },
-  derived: {
-    label: "Derived",
-    dotClass: "bg-grade-derived",
-    textClass: "text-grade-derived",
-    explanation: "Deterministically calculated from validated fields.",
-  },
-  proxy: {
-    label: "Proxy",
-    dotClass: "bg-grade-proxy",
-    textClass: "text-grade-proxy",
-    explanation:
-      "Correlated with the concept but does not prove it. Treat as indicative.",
-  },
-  discovery: {
-    // The engine calls this grade "discovery"; on the badge it says what it
-    // means. The engine's own token is in the tooltip and in debug mode's
-    // decision trace, so the mapping stays auditable both ways.
-    label: "Uncertified",
-    dotClass: "bg-grade-discovery",
-    textClass: "text-grade-discovery",
-    explanation:
-      "Uses catalog fields nobody has certified for this purpose (the engine grades this “discovery”) — scoping over them downgrades the whole chain.",
-  },
-  unavailable: {
-    label: "Unavailable",
-    dotClass: "bg-grade-unavailable",
-    textClass: "text-grade-unavailable",
-    explanation: "No adequate measurement exists for this concept.",
-  },
+/**
+ * THE WORDS ARE NOT THIS FILE'S ANY MORE — only the ink is.
+ *
+ * This map used to carry a label and an explanation per grade, and two
+ * other surfaces carried their own. The wording now comes from
+ * {@link GRADE_LABELS} and {@link GRADE_EXPLANATIONS}, which every surface
+ * that prints a grade reads, so a badge and the integrity line beside it
+ * cannot describe one number two ways. What stays here is the palette,
+ * which is genuinely a property of the badge.
+ */
+const GRADE_INK: Record<EvidenceGrade, { dotClass: string; textClass: string }> = {
+  direct: { dotClass: "bg-grade-direct", textClass: "text-grade-direct" },
+  derived: { dotClass: "bg-grade-derived", textClass: "text-grade-derived" },
+  proxy: { dotClass: "bg-grade-proxy", textClass: "text-grade-proxy" },
+  discovery: { dotClass: "bg-grade-discovery", textClass: "text-grade-discovery" },
+  unavailable: { dotClass: "bg-grade-unavailable", textClass: "text-grade-unavailable" },
 };
 
+/**
+ * The one rule that makes the grades a system rather than five adjectives.
+ *
+ * It said "cannot turn it into a certified conclusion", and `certified` is
+ * the platform's word for "standardized in your definitions library" — a
+ * reader who has never seen it takes "uncertified" to mean "wrong". The
+ * sentence says the same thing without asking anybody to know that.
+ */
 const GRADE_LAW =
-  "A result is only as strong as its weakest input: combining weak evidence with strong evidence cannot turn it into a certified conclusion.";
+  "A result is only as strong as its weakest input. Putting strong evidence beside weak evidence does not make the weak part any stronger.";
 
 /**
  * The grade, at row scale.
@@ -60,7 +45,8 @@ const GRADE_LAW =
  * every dot carries its grade in its accessible name and its tooltip.
  */
 export function GradeDot({ grade, className }: { grade: EvidenceGrade; className?: string }) {
-  const meta = GRADE_META[grade];
+  const ink = GRADE_INK[grade];
+  const label = GRADE_LABELS[grade];
   const spelled = grade !== "direct";
   return (
     <Tooltip>
@@ -68,17 +54,20 @@ export function GradeDot({ grade, className }: { grade: EvidenceGrade; className
         <span
           className={cn(
             "inline-flex shrink-0 cursor-default items-center gap-1 text-micro font-medium",
-            meta.textClass,
+            ink.textClass,
             className,
           )}
         >
-          <span aria-hidden className={cn("size-1.5 rounded-full", meta.dotClass)} />
-          {spelled ? meta.label : <span className="sr-only">{meta.label} evidence</span>}
+          <span aria-hidden className={cn("size-1.5 rounded-full", ink.dotClass)} />
+          {/* "Direct evidence" was grammatical; "Measured directly evidence"
+              is not. The accessible name says which of the two nouns is
+              being described rather than gluing the label onto one. */}
+          {spelled ? label : <span className="sr-only">Evidence: {label.toLowerCase()}</span>}
         </span>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-64">
-        <p className="mb-1 font-medium">{meta.label} evidence</p>
-        <p className="text-micro leading-snug opacity-90">{meta.explanation}</p>
+        <p className="mb-1 font-medium">{label}</p>
+        <p className="text-micro leading-snug opacity-90">{GRADE_EXPLANATIONS[grade]}</p>
         <p className="mt-1.5 text-micro leading-snug opacity-70">{GRADE_LAW}</p>
       </TooltipContent>
     </Tooltip>
@@ -94,25 +83,32 @@ export function GradeBadge({
   size?: "sm" | "xs";
   className?: string;
 }) {
-  const meta = GRADE_META[grade];
+  const ink = GRADE_INK[grade];
+  const label = GRADE_LABELS[grade];
   return (
     <Tooltip>
       <TooltipTrigger asChild>
         <span
           className={cn(
-            "inline-flex cursor-default items-center gap-1.5 rounded-full border px-2 font-medium",
+            // `whitespace-nowrap` and `shrink-0`: the labels are clauses
+            // now ("Calculated from measured values"), and a pill that
+            // wraps mid-clause inside a finding's title row reads as two
+            // badges. It takes the width it needs and the title beside it
+            // truncates, which is the right loser of that fight — the
+            // title is repeated in the card body and the grade is not.
+            "inline-flex shrink-0 cursor-default items-center gap-1.5 whitespace-nowrap rounded-full border px-2 font-medium",
             size === "sm" ? "h-5 text-meta" : "h-[1.2rem] text-micro",
-            meta.textClass,
+            ink.textClass,
             className,
           )}
         >
-          <span className={cn("size-1.5 rounded-full", meta.dotClass)} />
-          {meta.label}
+          <span className={cn("size-1.5 shrink-0 rounded-full", ink.dotClass)} />
+          {label}
         </span>
       </TooltipTrigger>
       <TooltipContent side="top" className="max-w-64">
-        <p className="mb-1 font-medium">{meta.label} evidence</p>
-        <p className="text-meta leading-snug opacity-90">{meta.explanation}</p>
+        <p className="mb-1 font-medium">{label}</p>
+        <p className="text-meta leading-snug opacity-90">{GRADE_EXPLANATIONS[grade]}</p>
         <p className="mt-1.5 text-meta leading-snug opacity-70">{GRADE_LAW}</p>
       </TooltipContent>
     </Tooltip>
