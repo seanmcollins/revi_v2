@@ -111,6 +111,14 @@ class ConceptExpression:
     #: The governed measure this path runs through, when the concept is
     #: carried by a measure's own definition rather than by a breakdown.
     measure_id: str = ""
+    #: Governed measures that DECLARE this breakdown, when no census could
+    #: be taken over it. Coverage and availability are different facts and
+    #: conflating them produced a wrong negative: a dimension every A/R
+    #: measure is cut by, but which no count metric declares, was reported
+    #: to the reader as one that "cannot be broken out here" — while the
+    #: same run broke it out. What is true is narrower and is said instead:
+    #: nothing here can COUNT how much of the data carries it.
+    declared_by: tuple[str, ...] = ()
 
     @property
     def is_populated(self) -> bool:

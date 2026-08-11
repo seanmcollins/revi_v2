@@ -99,6 +99,22 @@ WARN_NO_PRIOR = "deep_research_no_prior"
 WARN_BOUNDED = "suppression_bounded"
 WARN_RANKING_REFUSED = "ranking_refused"
 WARN_CHASE_GATED = "deep_research_chase_gated"
+#: The window guard's own code, reused rather than invented. A study that
+#: read a still-settling month raises exactly what a conversational answer
+#: over that month raises, so a client branches on one handle and a reader
+#: who has seen this caveat once recognises it.
+WARN_ADJUDICATION_INCOMPLETE = "adjudication_incomplete"
+
+#: Said on a study whose opening readings nobody confirmed. The readings a
+#: question earns are chosen fresh each time it is asked, so two runs of one
+#: question can open on different readings and reach different findings —
+#: which is a legitimate property of a planned analysis and an illegitimate
+#: thing to leave unsaid beside the words "chosen for this question".
+PLAN_VARIANCE_NOTE = (
+    "These readings were chosen when the run started rather than confirmed beforehand. "
+    "The same question asked again can choose a different set, so read this as one "
+    "route through your data rather than the only one it would take."
+)
 
 #: A line needs this many ordered points before it may be drawn as one.
 _MIN_POINTS_FOR_A_LINE = 3
@@ -165,10 +181,117 @@ def trend_words(*, measure: str, first_label: str, first: str, last_label: str, 
                 rising: bool | None) -> str:
     """What a series did between its ends, in the reader's own terms."""
     lead = measure[:1].upper() + measure[1:]
+    return f"{lead} {_movement_words(first_label, first, last_label, last, rising)}."
+
+
+def _movement_words(
+    first_label: str, first: str, last_label: str, last: str, rising: bool | None
+) -> str:
+    """What one series did between its own two ends, without its subject.
+
+    Split out so a GRID reading can say the same thing about one group of
+    its own — the subject there is "within Atlas Commercial", not the
+    measure — and so both sentences move together if the wording changes.
+    """
     if rising is None:
-        return f"{lead} held at {first} from {first_label} through {last_label}."
+        return f"held at {first} from {first_label} through {last_label}"
     verb = "rose" if rising else "fell"
-    return f"{lead} {verb} from {first} in {first_label} to {last} in {last_label}."
+    return f"{verb} from {first} in {first_label} to {last} in {last_label}"
+
+
+def provisional_tail_words(provisional: Sequence[MeasureCell]) -> str:
+    """The periods a direction deliberately stopped short of, named.
+
+    A caveat that lives only in the warnings register is a caveat the
+    reader meets after the sentence that needed it. This one travels IN the
+    sentence, because the whole point is that the last marks on the chart
+    are not where the line went.
+    """
+    labels = [cell.label for cell in provisional]
+    named = labels[0] if len(labels) == 1 else " and ".join(
+        (", ".join(labels[:-1]), labels[-1])
+    )
+    verb = "has" if len(labels) == 1 else "have"
+    return (
+        f"{named} {verb} not finished settling and would read low whatever happened, "
+        "so the movement is read to the last period that has."
+    )
+
+
+def provisional_only_words(measure: str, provisional: Sequence[MeasureCell]) -> str:
+    """Every period this reading published is still settling."""
+    lead = measure[:1].upper() + measure[1:]
+    labels = [cell.label for cell in provisional]
+    named = labels[0] if len(labels) == 1 else f"{labels[0]} through {labels[-1]}"
+    return (
+        f"{lead} has no period here that has finished settling — {named} would read low "
+        "whatever happened — so no movement is stated."
+    )
+
+
+#: What a GRID reading — a measure by month AND by something else — is
+#: allowed to say about movement. It may speak for one group at a time, and
+#: it says which group it is speaking for.
+#:
+#: The sentence this replaces read "appeal overturn rate rose from 47.2% in
+#: Atlas Commercial / Aug 2025 to 54.2% in State Medicaid / May 2026": two
+#: different payers, published as a trend, because the reading's cells were
+#: sorted by month and its first and last were read as a series' ends.
+GRID_TREND = (
+    "Within {group} — the largest group on this reading — {measure} {movement}."
+)
+GRID_TREND_OTHERS = (
+    " The other {others} on this reading moved separately, each over its own periods."
+)
+GRID_TREND_ONE_OTHER = (
+    " The one other group on this reading moved separately, over its own periods."
+)
+GRID_NOTHING_MOVED = (
+    "{measure} is published here for {groups} across {periods}, and no single group has "
+    "two published periods to have moved between, so nothing on this reading is a "
+    "movement."
+)
+
+#: The figures whose period has not finished settling, named, with what
+#: that does to a claim about direction. Composed beside the marks it
+#: describes rather than left to a reader to infer from a date.
+CENSORED_POINTS = (
+    "{points} on {title} {verb} over a period that has not finished settling, so a "
+    "movement into or out of {pronoun} is the claims still arriving rather than a change "
+    "in performance. At the edge of the data a period has had days for its claims to be "
+    "billed, decided and resolved where an earlier one had months. Read those marks as "
+    "provisional and take any direction from the periods that have finished settling."
+)
+
+
+def _listed(labels: Sequence[str]) -> str:
+    """Labels as a reader lists them: "Jun 2026, Jul 2026 and Aug 2026"."""
+    if len(labels) <= 1:
+        return "".join(labels)
+    return f"{', '.join(labels[:-1])} and {labels[-1]}"
+
+
+def censored_points_words(result: MeasureResult, censored: Sequence[MeasureCell]) -> str:
+    """Which figures on this reading are over a period still settling.
+
+    Named one period at a time, because the reader's question is about a
+    point on a chart and not about a window: "Jul 2026 and Aug 2026 on
+    claim resolution rate by month sit over a period that has not finished
+    settling" is checkable against the axis in front of them.
+
+    A reading with no time axis has one period — the one it announced — and
+    every figure on it is over that period, so it says so instead of
+    listing its groups back.
+    """
+    periods = [cell.period_label for cell in censored if cell.period_label]
+    named = list(dict.fromkeys(periods))
+    plural = len(named) > 1
+    return CENSORED_POINTS.format(
+        points=_listed(named) if named else "Every figure",
+        title=result.title,
+        verb="sit" if plural else "sits",
+        pronoun="them" if plural else "it",
+    )
 
 
 def spread_words(*, high_label: str, high: str, low_label: str, low: str) -> str:
@@ -234,25 +357,51 @@ def censoring_words(
     population: int,
     data_edge: str,
 ) -> tuple[str, ...]:
-    """What the edge of the data cost the rate readings in this study."""
-    noun = "reading" if readings == 1 else "readings"
+    """What the edge of the data cost the rate readings in this study.
+
+    Two things this used to get wrong, both of which read as machine output.
+
+    It borrowed the RECOVERY REVIEW's sentence — "records the payer has
+    already answered" — for every study, including ones about claim
+    resolution and denial volume, where no payer answers anything. A
+    disclosure that describes the wrong analysis is worse than none: it is
+    confidently about something else. And no borrowed paraphrase survives
+    either: "settled far enough to count" is a claim about denial rates'
+    denominators, and a resolution rate's denominator counts every claim in
+    the window, settled or not. The one description true for ANY rate a
+    study can read is the constructive one — these are the records the
+    measured figures are over — so that is what the sentence says.
+
+    And it disagreed with itself in number. "1 reading here measure" and "1
+    group publish" are the kind of sentence a reader stops trusting the
+    rest of the page over, so the verbs agree with their subjects here.
+    """
     lines = [
-        f"{readings} {noun} here measure a rate over a counted population, across "
-        f"{words.count(population, 'record')} the payer has already answered."
+        f"{words.count(readings, 'reading')} here "
+        + ("measures" if readings == 1 else "measure")
+        + " a rate over a counted population, across "
+        + f"{words.count(population, 'record')} behind the measured figures."
     ]
     if bounded:
         lines.append(
-            f"{words.count(bounded, 'group')} publish a ceiling rather than a figure, "
-            "because the population behind them is too small to name."
+            f"{words.count(bounded, 'group')} "
+            + ("publishes" if bounded == 1 else "publish")
+            + " a ceiling rather than a figure, because the population behind "
+            + ("it is" if bounded == 1 else "them is")
+            + " too small to name."
         )
     if withheld:
         lines.append(
-            f"{words.count(withheld, 'group')} publish nothing at all, for the same "
-            "reason, and are left out of every ordering above."
+            f"{words.count(withheld, 'group')} "
+            + ("publishes" if withheld == 1 else "publish")
+            + " nothing at all, for the same reason, and "
+            + ("is" if withheld == 1 else "are")
+            + " left out of every ordering above."
         )
     lines.append(
-        f"{words.count(measured, 'group')} carry a measurement. Everything above is as "
-        f"the data stood on {data_edge}."
+        f"{words.count(measured, 'group')} "
+        + ("carries" if measured == 1 else "carry")
+        + f" a measurement. Everything above is as the data stood on {data_edge}."
     )
     return tuple(lines)
 
@@ -305,6 +454,28 @@ def _interval(low: Decimal | None, high: Decimal | None, confidence: Decimal) ->
 def _figure(
     cell: MeasureCell, *, unit: str, catalog: CatalogSnapshot, confidence: Decimal
 ) -> ResearchFigurePayload:
+    """One cell, with its marks — and without the arithmetic that undoes them.
+
+    A FIGURE THAT IS NOT A MEASUREMENT CARRIES NO COUNTS. Two ways the
+    counts undo the mark beside them:
+
+    * a BOUND shipping its own numerator and denominator is not a ceiling.
+      ``≤ 37.0%`` beside ``population: 27, successes: 10`` hands any reader
+      with a calculator 10/27 = 37.037% to read as the figure — and the 10
+      is not even a count of anything, it is the bound's replacement
+      numerator published as though somebody counted it;
+    * a WITHHELD cell's population is the small cohort the §15 rule refused
+      to name — "too small to publish" beside "population: 4" names it —
+      and with a numerator next to it the withheld rate is one division
+      away. The engine nulls both upstream on the real path; this makes the
+      wire honest whatever constructed the cell.
+
+    The interval goes with them, for the same reason: it is arithmetic over
+    the same two counts. Cohort sizes still appear where they are the
+    REASON for a refusal and cannot be inverted into a value — the ranking
+    refusal, a contrast refusal, the study's own censoring census.
+    """
+    concealed = cell.bounded or cell.withheld
     return ResearchFigurePayload(
         label=cell.label,
         parts=[
@@ -321,9 +492,16 @@ def _figure(
         display=_display(cell, unit),
         bounded=cell.bounded,
         withheld=cell.withheld,
-        population=cell.population,
-        successes=cell.numerator,
-        interval=_interval(cell.interval_low, cell.interval_high, confidence),
+        population=None if concealed else cell.population,
+        successes=None if concealed else cell.numerator,
+        interval=(
+            None if concealed else _interval(cell.interval_low, cell.interval_high, confidence)
+        ),
+        # The settling verdict travels ON the figure, beside the bound and
+        # the withholding, because it is the same kind of fact: something
+        # this platform knows about the number that the number cannot say
+        # by itself.
+        censored=cell.censored,
     )
 
 
@@ -392,6 +570,112 @@ def _contrast_payload(result: MeasureResult) -> ContrastPayload | None:
 # what a reading settled
 
 
+def _is_grid(result: MeasureResult) -> bool:
+    """Does this trend carry a SECOND axis beside time?
+
+    A trend angle may hold both a ``step`` and a ``cut_by``, and the runner
+    builds one cell per (group, period) pair — "Atlas Commercial / Aug
+    2025". That is a grid, and the two ways to stop a grid being read as a
+    series were:
+
+    (a) clear ``cut_by`` on every trend in ``normalize_measure_angle``, so
+        a trend is always one series; or
+    (b) keep the grid and teach the sentence about it.
+
+    (b) IS WHAT THIS DOES, for two reasons. A declared, readable breakdown
+        is measured data an analyst's plan asked for, and (a) would delete
+        it from the study to protect one sentence — this platform relocates
+        truth and does not drop it. And the title already says what the
+        reading is: ``_title`` renders "by month, by payer", so the second
+        axis was never a secret from the reader; only the sentence and the
+        chart were pretending there was one axis. Both are fixed here
+        instead, and every cell still reaches the figures, the findings and
+        the export.
+    """
+    angle = result.angle.measure
+    return angle is not None and bool(angle.cut_by) and angle.step is not None
+
+
+def _direction(first: MeasureCell, last: MeasureCell) -> bool | None:
+    """Rising, falling, or neither — over two published figures."""
+    if first.value is None or last.value is None:  # pragma: no cover - guarded by callers
+        return None
+    if last.value > first.value:
+        return True
+    if last.value < first.value:
+        return False
+    return None
+
+
+def _by_group(cells: Sequence[MeasureCell]) -> dict[str, list[MeasureCell]]:
+    """One grid reading's cells, gathered into its groups, in period order.
+
+    Insertion follows the runner's own ordering, which sorted the cells by
+    the time bucket, so each group's list is already the series that group
+    ran — which is the only series on this reading anything may speak for.
+    """
+    groups: dict[str, list[MeasureCell]] = {}
+    for cell in cells:
+        groups.setdefault(cell.group_label, []).append(cell)
+    return groups
+
+
+def _grid_settled(
+    result: MeasureResult, measured: Sequence[MeasureCell], measure: str
+) -> str:
+    """What a payer-by-month reading settled, said one group at a time.
+
+    The failure this replaces: "appeal overturn rate rose from 47.2% in
+    Atlas Commercial / Aug 2025 to 54.2% in State Medicaid / May 2026" —
+    the reading's first cell against its last, which on a grid are two
+    different payers in two different months, published as a trend and
+    then cited as one.
+
+    So the sentence speaks for ONE group — the one with the most records
+    behind it, named — and says the others moved on their own. Where no
+    group has two published periods there is no movement to state, and it
+    says that instead of manufacturing one.
+    """
+    groups = _by_group(measured)
+    movers = [(label, cells) for label, cells in groups.items() if len(cells) >= 2]
+    if not movers:
+        return GRID_NOTHING_MOVED.format(
+            measure=measure[:1].upper() + measure[1:],
+            groups=words.count(len(groups), "group"),
+            periods=words.count(
+                len({cell.period_label for cell in measured}), "period"
+            ),
+        )
+    # Largest by the records behind it, then by how many periods it
+    # published, then by name — so one reading settles the same way twice.
+    label, cells = sorted(
+        movers,
+        key=lambda item: (
+            -sum(cell.population or 0 for cell in item[1]),
+            -len(item[1]),
+            item[0],
+        ),
+    )[0]
+    first, last = cells[0], cells[-1]
+    sentence = GRID_TREND.format(
+        group=label,
+        measure=measure,
+        movement=_movement_words(
+            first.period_label or first.label,
+            _display(first, result.unit),
+            last.period_label or last.label,
+            _display(last, result.unit),
+            _direction(first, last),
+        ),
+    )
+    others = len(groups) - 1
+    if others == 1:
+        sentence += GRID_TREND_ONE_OTHER
+    elif others > 1:
+        sentence += GRID_TREND_OTHERS.format(others=words.count(others, "group"))
+    return sentence
+
+
 def _settled(result: MeasureResult) -> str:
     """One sentence saying what this reading settled, over published figures.
 
@@ -420,20 +704,44 @@ def _settled(result: MeasureResult) -> str:
         return f"{gap} {contrast.implication}".strip()
 
     if result.angle.shape is AngleShape.TREND and len(measured) >= 2:
+        if _is_grid(result):
+            return _grid_settled(result, measured, measure)
+        # A DIRECTION MUST NOT END ON A PERIOD THAT HAS NOT FINISHED
+        # SETTLING. "Claim resolution rate fell from 94.8% in Aug 2025 to
+        # 0.0% in Aug 2026" is arithmetically true and says nothing about
+        # performance: an August service date has had a day to bill,
+        # adjudicate and resolve. The censoring mark is already on those
+        # cells as data, so the sentence reads the series up to its last
+        # settled period and NAMES the ones it stopped short of, rather
+        # than publishing the artifact as a movement and leaving a reader
+        # to find the caveat somewhere else on the page.
+        settled = [cell for cell in measured if not cell.censored]
+        provisional = [cell for cell in measured if cell.censored]
+        if len(settled) >= 2:
+            first, last = settled[0], settled[-1]
+            assert first.value is not None and last.value is not None
+            said = trend_words(
+                measure=measure,
+                first_label=first.label,
+                first=_display(first, result.unit),
+                last_label=last.label,
+                last=_display(last, result.unit),
+                rising=_direction(first, last),
+            )
+            if provisional:
+                return f"{said} {provisional_tail_words(provisional)}"
+            return said
+        if provisional:
+            return provisional_only_words(measure, provisional)
         first, last = measured[0], measured[-1]
         assert first.value is not None and last.value is not None
-        rising: bool | None = None
-        if last.value > first.value:
-            rising = True
-        elif last.value < first.value:
-            rising = False
         return trend_words(
             measure=measure,
             first_label=first.label,
             first=_display(first, result.unit),
             last_label=last.label,
             last=_display(last, result.unit),
-            rising=rising,
+            rising=_direction(first, last),
         )
 
     if len(measured) == 1:
@@ -461,6 +769,23 @@ def _settled(result: MeasureResult) -> str:
 # charts
 
 
+def _row(cell: MeasureCell, *, x: str, series: str | None = None) -> ChartRow:
+    """One mark, carrying what this platform knows about it.
+
+    ``provisional`` is the renderer's own word for a point that is not yet
+    a settled measurement — the mark a conversational trend already draws
+    on its terminal bucket. A research chart earns it the same way, off the
+    same verdict, so a line whose last point is a month at the edge of the
+    data cannot be drawn as though it were a measurement like the others.
+    """
+    return ChartRow(
+        x=x,
+        series=series,
+        value=float(cell.value or 0),
+        provisional=cell.censored,
+    )
+
+
 def _chart(result: MeasureResult, chart_id: str) -> ChartSpec | None:
     """The figure this reading draws, or nothing. One mark is not a chart."""
     measured = [cell for cell in result.cells if cell.is_measured and cell.value is not None]
@@ -477,7 +802,12 @@ def _chart(result: MeasureResult, chart_id: str) -> ChartSpec | None:
                 title=result.title,
             )
         )
+    censored = [cell for cell in result.cells if cell.censored and cell.is_measured]
+    if censored:
+        annotations.append(censored_points_words(result, censored))
     if result.angle.shape is AngleShape.TREND:
+        if _is_grid(result):
+            return _grid_chart(result, chart_id, measured, annotations)
         chart_type: ChartType = "line" if len(rows) >= _MIN_POINTS_FOR_A_LINE else "bar"
         return ChartSpec(
             id=chart_id,
@@ -488,7 +818,7 @@ def _chart(result: MeasureResult, chart_id: str) -> ChartSpec | None:
             value=metric_label(result.metric_id),
             unit=result.unit,
             grade=result.grade,
-            rows=[ChartRow(x=cell.label, value=float(cell.value or 0)) for cell in rows],
+            rows=[_row(cell, x=cell.label) for cell in rows],
             annotations=annotations,
             axis_order=[cell.label for cell in rows],
         )
@@ -506,13 +836,65 @@ def _chart(result: MeasureResult, chart_id: str) -> ChartSpec | None:
         value=metric_label(result.metric_id),
         unit=result.unit,
         grade=result.grade,
-        rows=[ChartRow(x=cell.label, value=float(cell.value or 0)) for cell in ordered],
+        rows=[_row(cell, x=cell.label) for cell in ordered],
         annotations=annotations,
         sort=(
             ChartSort(by=metric_label(result.metric_id), direction="desc")
             if result.ranked
             else None
         ),
+    )
+
+
+def _grid_chart(
+    result: MeasureResult,
+    chart_id: str,
+    measured: Sequence[MeasureCell],
+    annotations: Sequence[str],
+) -> ChartSpec:
+    """A measure by month AND by something else, drawn as what it is.
+
+    Drawn as ONE LINE PER GROUP rather than one line through every cell.
+    The single-line drawing joined Atlas Commercial's August to State
+    Medicaid's September and called the result a trend — the chart of the
+    same defect the sentence had, and the reason ``series`` exists on a
+    chart row.
+
+    Groups are taken whole, largest first, until the row budget is spent:
+    half a line is a claim about a series that stops for no reason the
+    reader can see. Every cell is still published in the figures and in
+    every export, whether it is drawn or not.
+    """
+    groups = _by_group(measured)
+    order = sorted(
+        groups.items(),
+        key=lambda item: (
+            -sum(cell.population or 0 for cell in item[1]),
+            -len(item[1]),
+            item[0],
+        ),
+    )
+    drawn: list[MeasureCell] = []
+    for _, cells in order:
+        if len(drawn) + len(cells) > MAX_CHART_ROWS and drawn:
+            break
+        drawn.extend(cells)
+    periods = list(dict.fromkeys(cell.period_label for cell in measured))
+    return ChartSpec(
+        id=chart_id,
+        chart_type="line" if len(periods) >= _MIN_POINTS_FOR_A_LINE else "bar",
+        title=result.title,
+        frame_id=chart_id,
+        x="period",
+        series="population",
+        value=metric_label(result.metric_id),
+        unit=result.unit,
+        grade=result.grade,
+        rows=[
+            _row(cell, x=cell.period_label, series=cell.group_label) for cell in drawn
+        ],
+        annotations=list(annotations),
+        axis_order=periods,
     )
 
 
@@ -673,6 +1055,16 @@ def _walk_payload(walk: ResearchWalk, readings: Sequence[ResearchReadingPayload]
         authored_by="model" if walk.authored_by == "model" else "revi",
         rationale=walk.rationale,
         rounds=rounds,
+        plan_confirmed=walk.plan_confirmed,
+        # Said only where it is true. A confirmed plan IS this run's plan;
+        # an unconfirmed one is a sample of the plans this question draws,
+        # and the difference between those two is worth a sentence rather
+        # than a code comment nobody reads.
+        plan_variance=(
+            ""
+            if walk.plan_confirmed or walk.authored_by != "model"
+            else PLAN_VARIANCE_NOTE
+        ),
     )
 
 
@@ -685,6 +1077,61 @@ def _basis_label(result: MeasureResult) -> str:
     if not result.basis or result.basis == "as of":
         return "as it stood at the data edge"
     return f"on the {date_phrase(result.basis)}"
+
+
+# ---------------------------------------------------------------------------
+# what one reading has to say about itself
+
+
+def _reading_warnings(result: MeasureResult) -> list[str]:
+    """Every coded warning THIS reading raised, in its own words.
+
+    The defect this closes: a study read a rate by month over a window
+    ending two days into August, published "fell from 94.8% to 0.0%", and
+    carried no warning of any kind — while the same question asked
+    conversationally came back with ``adjudication_incomplete`` naming the
+    share of July that had settled, plus the population, basis and
+    suppression codes beside it. Every one of those facts existed on the
+    research path too; none of them was attached to anything.
+
+    So the reading collects them, in the same ``<code>: <sentence>``
+    spelling the conversational surface uses, and the study's warning list
+    is the fold of these rather than a separate collection. What a reader
+    is warned about therefore stops depending on which surface they asked
+    on, and stops depending on whether a model chose to mention it.
+    """
+    out: list[str] = []
+    if result.refusal:
+        out.append(
+            f"{WARN_READING_REFUSED}: "
+            + words.angle_refused_statement(title=result.title, reason=result.refusal)
+        )
+    if result.ranking_refused:
+        out.append(f"{WARN_RANKING_REFUSED}: {result.ranking_refused}")
+    bounded = sum(1 for cell in result.cells if cell.bounded)
+    if bounded:
+        out.append(
+            f"{WARN_BOUNDED}: "
+            + ceiling_census_words(
+                bounded=bounded,
+                total=sum(1 for cell in result.cells if not cell.withheld),
+                title=result.title,
+            )
+        )
+    # The basis substitution arrives from the executor already carrying its
+    # own ``alternate_basis_used`` prefix, so it is passed through rather
+    # than re-worded: one decision, described once.
+    out.extend(result.notes)
+    # …and the settling verdicts, verbatim from the same service the
+    # conversational path publishes them from. Composed there, not here:
+    # the sentence names the yardstick it was measured with and the share
+    # it found, and a second wording of it would be a second definition of
+    # what "settled" means.
+    out.extend(verdict.warning for verdict in result.maturity)
+    censored = [cell for cell in result.cells if cell.censored and cell.is_measured]
+    if censored:
+        out.append(f"{WARN_ADJUDICATION_INCOMPLETE}: {censored_points_words(result, censored)}")
+    return list(dict.fromkeys(out))
 
 
 # ---------------------------------------------------------------------------
@@ -724,6 +1171,7 @@ def build_generalized_report(
             _figure(cell, unit=result.unit, catalog=catalog, confidence=settings.confidence)
             for cell in result.cells
         ]
+        reading_warnings = _reading_warnings(result)
         payload = ResearchReadingPayload(
             id=reading_id,
             shape=str(result.angle.shape),  # type: ignore[arg-type]
@@ -741,6 +1189,7 @@ def build_generalized_report(
             ranked=result.ranked,
             ranking_refused=result.ranking_refused,
             notes=list(result.notes),
+            warnings=reading_warnings,
             refusal=result.refusal or "",
             window_label=window_label,
             basis_label=_basis_label(result),
@@ -752,28 +1201,11 @@ def build_generalized_report(
             duration_ms=result.duration_ms,
         )
         paired.append((payload, result))
-
-        if result.refusal:
-            warnings.append(
-                f"{WARN_READING_REFUSED}: "
-                + words.angle_refused_statement(title=result.title, reason=result.refusal)
-            )
-        if result.ranking_refused:
-            warnings.append(f"{WARN_RANKING_REFUSED}: {result.ranking_refused}")
-        bounded = sum(1 for cell in result.cells if cell.bounded)
-        if bounded:
-            warnings.append(
-                f"{WARN_BOUNDED}: "
-                + ceiling_census_words(
-                    bounded=bounded,
-                    total=sum(1 for cell in result.cells if not cell.withheld),
-                    title=result.title,
-                )
-            )
-        # The basis substitution arrives from the executor already carrying
-        # its own ``alternate_basis_used`` prefix, so it is passed through
-        # rather than re-worded: one decision, described once.
-        warnings.extend(result.notes)
+        # The study's own list is the FOLD of the readings' lists, not a
+        # second collection with its own rules: a code that reaches the
+        # reading and not the page, or the page and not the reading, is how
+        # one defect gets warned about on one study and not on the next.
+        warnings.extend(reading_warnings)
 
     readings = [payload for payload, _ in paired]
 
@@ -911,10 +1343,16 @@ def planned_reading_payloads(
 
 
 __all__ = [
+    "CENSORED_POINTS",
+    "GRID_NOTHING_MOVED",
+    "GRID_TREND",
+    "GRID_TREND_ONE_OTHER",
+    "GRID_TREND_OTHERS",
     "MAX_CHART_ROWS",
     "MAX_FIGURES_PER_FINDING",
     "NOTHING_SETTLED",
     "NO_PRIOR_SUBSTITUTED",
+    "WARN_ADJUDICATION_INCOMPLETE",
     "WARN_BOUNDED",
     "WARN_CENSORING",
     "WARN_CHASE_GATED",
@@ -924,6 +1362,7 @@ __all__ = [
     "GeneralizedReportDraft",
     "build_generalized_report",
     "ceiling_census_words",
+    "censored_points_words",
     "censoring_words",
     "chase_gated_words",
     "gap_words",

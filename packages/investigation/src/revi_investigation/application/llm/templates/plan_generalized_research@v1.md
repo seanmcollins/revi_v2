@@ -102,6 +102,32 @@ reason.
 
 ---
 
+## Periods that have not finished settling
+
+The most recent period in any reading is the one the data has had the least
+time to fill. A claim dated last month has had weeks to be billed, decided
+and paid; one dated three days ago has had three days. So the newest period
+of a rate or a total is *understated by construction*, and what has settled
+in it is not a random sample of what has not — the fastest cases reach a
+decision first.
+
+This platform measures that and says so: a reading whose period has not
+finished settling carries a settling caveat, published beside the figures
+and marked on the individual periods it applies to.
+
+Two things follow, and they are rules rather than advice:
+
+- **A caveated period may not ground a direction.** "It fell in the newest
+  period" is the claims still arriving, not a change in performance, and a
+  reason that says so has told the analyst something false about their own
+  business. Read direction only across periods that have finished settling.
+- **A caveated period is still worth chasing.** It is legitimate to read
+  further into what a settling period *separates* — which payer, which
+  claim type — and to say that is why the next reading exists. What is
+  never legitimate is treating its level, or its movement, as the finding.
+
+---
+
 ## Writing a reason
 
 The reason is not decoration. It is printed to the analyst before the run
@@ -138,9 +164,24 @@ to the product's language rules:
   not corrected. Copy the ids.
 - `rationale` — one or two sentences on why this set and not another. Also
   client copy; the same language rules apply.
+- `rounds` — how many read-and-decide passes THIS QUESTION needs, from 1 up
+  to the ceiling stated above. Judge it from the question's shape, not from
+  the words in it: one measure over one period closes in a pass; a question
+  that asks what is happening AND why AND what to do about it cannot, and a
+  deliberately vague one ("research denials") needs more passes rather than
+  fewer, because the first pass is what narrows it. Rounds you do not use
+  are not spent.
 - If nothing in the vocabulary can speak to the question, return no readings
   at all. An empty answer is honest; a set of readings about an adjacent
   measure is not.
+- NEVER PROMISE A COMPARISON THIS STUDY CANNOT MAKE. Published industry
+  benchmarks are not on the wire and no reading can reach one, so a reason
+  saying a figure "is the one comparable to published benchmarks", or that
+  something must be established "before any comparison to benchmarks can be
+  made", promises a reader something that will not arrive. Choosing the
+  first-pass figure BECAUSE that is the basis benchmarks are quoted on is
+  good reasoning and is welcome — say that it is the standard basis, not
+  that a comparison follows.
 
 The analyst's question:
 

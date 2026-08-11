@@ -310,6 +310,47 @@ class TestConceptToPath:
         assert "carc" in statement or "payer sequence" in statement
         assert "%" in statement, "a path disclosure without its coverage is decoration"
 
+    async def test_a_breakdown_no_ruler_counts_is_never_called_unbreakable(
+        self, discovery, snapshot, watermark, window, pack
+    ) -> None:
+        """The wrong negative, pinned.
+
+        A/R is broken out by age bucket on four governed measures, and a
+        research run breaks it out happily. But no count ruler declares the
+        field, so no coverage figure can be taken over it — and the
+        preview used to turn "I cannot count it" into "it cannot be broken
+        out here", which is the one statement on that card a reader takes
+        as rigour. The claim now says the narrower true thing, and it says
+        the same thing on every run at this data load.
+        """
+        resolution = await discovery.concept_paths(
+            "A/R aging", window=window, watermark=watermark, pack_snapshot_id=snapshot.id
+        )
+        bucket = next(
+            (e for e in resolution.expressions if e.field_id == "ar_age_bucket"), None
+        )
+        assert bucket is not None, "the pack binds A/R aging to the age bucket"
+        assert bucket.coverage is None, "no count ruler declares it, so there is no fill rate"
+        assert bucket.declared_by, "governed measures do declare it"
+        assert "cannot be broken out" not in resolution.statement
+        assert "breaks out" in resolution.statement or "carries" in resolution.statement
+
+    async def test_that_claim_is_the_same_on_every_run_at_one_data_load(
+        self, discovery, snapshot, watermark, window
+    ) -> None:
+        """A discovery claim is a fact about the load, not about the order asked."""
+        first = await discovery.concept_paths(
+            "A/R aging", window=window, watermark=watermark, pack_snapshot_id=snapshot.id
+        )
+        discovery.forget()
+        second = await discovery.concept_paths(
+            "A/R aging", window=window, watermark=watermark, pack_snapshot_id=snapshot.id
+        )
+        assert first.statement == second.statement
+        assert [e.field_id for e in first.expressions] == [
+            e.field_id for e in second.expressions
+        ]
+
     async def test_a_term_the_pack_does_not_know_resolves_to_nothing_and_says_so(
         self, discovery, snapshot, watermark, window
     ) -> None:

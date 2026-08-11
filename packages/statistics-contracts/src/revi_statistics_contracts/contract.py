@@ -659,6 +659,166 @@ class Contrast:
 # ---------------------------------------------------------------------------
 
 
+class RateScope(StrEnum):
+    """Whose evidence produced the rate that priced a bucket of dollars.
+
+    Published per bucket rather than assumed, because "this payer's own
+    past-deadline denials" and "every payer's past-deadline denials" are
+    different claims and a reader deciding where to put people is entitled
+    to know which one they are reading.
+    """
+
+    #: This stratum's own cohort, at or above the floor.
+    OWN = "own"
+    #: The whole population's rate for this filing position, used because
+    #: the stratum's own cohort for that position was below the floor. The
+    #: filing-deadline effect is a property of the deadline rather than of
+    #: the payer, so it is the one quantity this capability will carry
+    #: across strata — and it says so, every time, per bucket.
+    POPULATION = "population"
+    #: No cohort at or above the floor on either footing. The dollars are
+    #: reported at full value and priced at nothing.
+    NONE = "none"
+
+
+@dataclass(frozen=True, slots=True)
+class SeverityRatio:
+    """How much of a denied dollar a win actually returns.
+
+    A recovery is almost never the full denied amount: the payer allows
+    part of the denied unit. A projection that multiplies a *count* rate by
+    the *full* denied dollars therefore prices every win at 100 cents on
+    the dollar and overstates the total by whatever the shortfall is. This
+    is the observed shortfall, measured over decided wins only — the rows
+    where a recovered amount exists to be divided.
+
+    The ratio carries no interval. It is a ratio of two observed dollar
+    sums, not a proportion of trials, and this capability will not invent a
+    variance for amounts it was handed as facts. Consumers publishing a
+    band around a priced total must say that the amounts and this ratio are
+    treated as known and the band carries rate variance only.
+    """
+
+    stratum: StratumKey
+    #: Decided wins the ratio was measured over — the cohort, and the
+    #: reason for a refusal when there is one.
+    wins: int
+    min_cohort: int
+    evidence: EvidenceLabel
+    #: Denied and recovered dollars over those wins.
+    denied_cents: int = 0
+    recovered_cents: int = 0
+    ratio: Decimal | None = None
+
+    def __post_init__(self) -> None:
+        if self.wins < 0:
+            raise ValueError("SeverityRatio.wins must be >= 0")
+        if self.denied_cents < 0 or self.recovered_cents < 0:
+            raise ValueError("SeverityRatio dollar sums must be >= 0")
+        if self.recovered_cents > self.denied_cents:
+            raise ValueError(
+                "SeverityRatio recovered dollars exceed denied dollars: "
+                f"{self.recovered_cents} vs {self.denied_cents}"
+            )
+        if self.wins < self.min_cohort and self.evidence is not EvidenceLabel.REFUSED_THIN:
+            raise ValueError(
+                f"SeverityRatio over {self.wins} wins is below the floor "
+                f"{self.min_cohort} but is not REFUSED_THIN"
+            )
+        if self.evidence is EvidenceLabel.REFUSED_THIN:
+            if self.ratio is not None:
+                raise ValueError("a REFUSED_THIN SeverityRatio must publish no ratio")
+        elif self.ratio is None:
+            raise ValueError("a MEASURED SeverityRatio must publish a ratio")
+
+    @property
+    def is_measured(self) -> bool:
+        return self.evidence is EvidenceLabel.MEASURED
+
+
+@dataclass(frozen=True, slots=True)
+class SeverityEstimate:
+    """Per-stratum severity ratios plus the population's own."""
+
+    stratifiers: tuple[Stratifier, ...]
+    cells: tuple[SeverityRatio, ...]
+    #: The ungrouped ratio over every decided win in the read. Used where a
+    #: stratum's own win cohort is below the floor, and named as such.
+    population: SeverityRatio
+    policy_min_cohort: int
+
+    def cell_for(self, stratum: StratumKey) -> SeverityRatio | None:
+        for cell in self.cells:
+            if cell.stratum == stratum:
+                return cell
+        return None
+
+
+@dataclass(frozen=True, slots=True)
+class DeadlineRates:
+    """The decided rate on each side of the filing deadline.
+
+    Two estimates over the same decided rows: one cut by the pricing
+    stratification *and* filing position, one cut by filing position alone.
+    Both are ordinary :class:`RateEstimate` objects with Wilson intervals
+    and the same floor as everything else, so a thin cell here refuses in
+    exactly the way a thin cell anywhere else does.
+    """
+
+    stratifiers: tuple[Stratifier, ...]
+    #: Cut by ``(*stratifiers, filing_position)``.
+    stratified: RateEstimate
+    #: Cut by ``(filing_position,)`` — the whole read's answer for each side
+    #: of the deadline.
+    pooled: RateEstimate
+
+    def population_cell(self, position: str) -> RateCell | None:
+        return self.pooled.cell_for(StratumKey((("filing_position", position),)))
+
+    def stratum_cell(self, stratum: StratumKey, position: str) -> RateCell | None:
+        return self.stratified.cell_for(
+            StratumKey((*stratum.parts, ("filing_position", position)))
+        )
+
+
+@dataclass(frozen=True, slots=True)
+class PricedPosition:
+    """One filing position's open dollars inside a stratum, and its price.
+
+    The unit of the whole composition. Every dollar in the target
+    population lands in exactly one of these, and each one carries the rate
+    that priced it, whose cohort that rate came from, and what it produced
+    — so a reader can re-derive any line of the total by hand.
+    """
+
+    #: ``within_deadline``, ``past_deadline`` or ``unknown``.
+    position: str
+    dollars_cents: int
+    scope: RateScope
+    #: The cell whose rate was applied, or ``None`` when nothing was.
+    rate_cell: RateCell | None = None
+    #: The severity ratio applied on top of the rate.
+    severity: Decimal | None = None
+    expected_cents: int | None = None
+    expected_interval: CentsInterval | None = None
+
+    def __post_init__(self) -> None:
+        if self.dollars_cents < 0:
+            raise ValueError("PricedPosition.dollars_cents must be >= 0")
+        if self.scope is RateScope.NONE:
+            if self.expected_cents is not None or self.expected_interval is not None:
+                raise ValueError("an unpriced position must carry no expected dollars")
+            if self.rate_cell is not None and self.rate_cell.is_measured:
+                raise ValueError("an unpriced position must not carry a measured rate")
+        else:
+            if self.rate_cell is None or not self.rate_cell.is_measured:
+                raise ValueError("a priced position must carry the measured cell it used")
+            if self.expected_cents is None or self.expected_interval is None:
+                raise ValueError("a priced position must carry expected dollars and an interval")
+            if self.severity is None:
+                raise ValueError("a priced position must carry the severity ratio it applied")
+
+
 @dataclass(frozen=True, slots=True)
 class ExpectedRecoveryStratum:
     """One stratum of a target population, priced or explicitly not priced."""
@@ -674,9 +834,16 @@ class ExpectedRecoveryStratum:
     catchable_dollars_cents: int
     deadline_passed_dollars_cents: int
     deadline_unknown_dollars_cents: int
-    #: The rate applied — always this stratum's own DECIDED rate, or
-    #: nothing at all.
+    #: This stratum's own overall DECIDED rate. It is the gate — a stratum
+    #: whose own answered-denial cohort cannot support a rate is refused
+    #: whole — and it is published so a reader sees the evidence the
+    #: stratum rests on.
     rate_cell: RateCell
+    #: The filing-position buckets, each with the rate that priced it.
+    positions: tuple[PricedPosition, ...] = ()
+    #: The severity ratio applied, and whose cohort it came from.
+    severity: SeverityRatio | None = None
+    severity_scope: RateScope = RateScope.NONE
     expected_cents: int | None = None
     expected_interval: CentsInterval | None = None
 
@@ -696,6 +863,31 @@ class ExpectedRecoveryStratum:
                 raise ValueError("a REFUSED_THIN stratum must carry no expected dollars")
         elif self.expected_cents is None or self.expected_interval is None:
             raise ValueError("a MEASURED stratum must carry expected dollars and an interval")
+        if self.positions:
+            bucketed = sum(position.dollars_cents for position in self.positions)
+            if bucketed != self.open_dollars_cents:
+                raise ValueError(
+                    "priced positions do not sum to open dollars: "
+                    f"{bucketed} vs {self.open_dollars_cents}"
+                )
+
+    @property
+    def priced_dollars_cents(self) -> int:
+        """Open dollars that actually received a rate."""
+        return sum(
+            position.dollars_cents
+            for position in self.positions
+            if position.scope is not RateScope.NONE
+        )
+
+    @property
+    def unpriced_position_dollars_cents(self) -> int:
+        """Dollars inside a measured stratum that no position rate could price."""
+        return sum(
+            position.dollars_cents
+            for position in self.positions
+            if position.scope is RateScope.NONE
+        )
 
 
 @dataclass(frozen=True, slots=True)
@@ -708,11 +900,21 @@ class ExpectedRecovery:
     this capability — whether any prior should be applied to it. Nothing
     here substitutes one.
 
-    ``interval_assumes_independence`` is ``True`` and says so in the type
-    because the total's interval is formed by summing the per-stratum
-    interval endpoints. Strata sharing payers, seasons and staffing are
-    not independent, so the summed interval is **narrower than the truth**
-    — it is a spread indication, not a calibrated 95% band on the total.
+    ``interval_is_summed_endpoints`` is ``True`` and says so in the type
+    because the total's interval is formed by adding the per-stratum
+    interval endpoints. Summing endpoints is the **perfectly-correlated**
+    combination: it is the widest of the family, and it is wider than the
+    quadrature sum that independence would justify. So it is conservative
+    on width and not a calibrated 95% band on the total — a caller
+    rendering it must read it as a spread indication. (An earlier version
+    of this field was named ``interval_assumes_independence`` and its
+    documentation had the direction backwards. Both are fixed here: the
+    name says what the arithmetic is, and the arithmetic is unchanged.)
+
+    ``amounts_treated_as_known`` is the second thing a band around money
+    hides. Only the rate carries variance; the denied amounts and the
+    observed severity ratio enter as constants. A consumer publishing the
+    interval must say so.
     """
 
     as_of: date
@@ -728,11 +930,27 @@ class ExpectedRecovery:
     deadline_unknown_dollars_cents: int
     disclosure: CensoringDisclosure
     confidence: Decimal
-    interval_assumes_independence: bool = True
+    #: The population's severity ratio and the two population-level
+    #: filing-position rates, published so the reader can re-derive the
+    #: construction from the numbers on the page.
+    severity: SeverityEstimate | None = None
+    within_deadline_rate: RateCell | None = None
+    past_deadline_rate: RateCell | None = None
+    #: Dollars inside a MEASURED stratum that no filing-position rate could
+    #: price — an unknown deadline, or a position whose cohort was thin on
+    #: both its own and the population's footing.
+    unpriced_position_dollars_cents: int = 0
+    interval_is_summed_endpoints: bool = True
+    amounts_treated_as_known: bool = True
+
+    @property
+    def unpriced_dollars_cents(self) -> int:
+        """Every open dollar that received no rate, for whatever reason."""
+        return self.unpriced_open_dollars_cents + self.unpriced_position_dollars_cents
 
     @property
     def unpriced_share(self) -> Decimal:
-        """Fraction of open dollars no own-cohort rate could price."""
+        """Fraction of open dollars no rate could price."""
         if self.total_open_dollars_cents == 0:
             return Decimal(0)
-        return Decimal(self.unpriced_open_dollars_cents) / Decimal(self.total_open_dollars_cents)
+        return Decimal(self.unpriced_dollars_cents) / Decimal(self.total_open_dollars_cents)

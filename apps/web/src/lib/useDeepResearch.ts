@@ -25,8 +25,15 @@
  *
  * NOTHING HERE INFERS COMPLETION. A closed stream is not a finished run: it
  * is a closed stream. The status only ever changes because a frame said so
- * (`research_complete`, `error`) or because the run's own GET said so, and
- * a stream that drops mid-run re-reads the run rather than guessing.
+ * (`research_complete`, `research_cancelled`, `error`) or because the
+ * server answered a request with it — the run's own GET, or the stop's own
+ * response — and a stream that drops mid-run re-reads the run rather than
+ * guessing.
+ *
+ * AND THERE IS ONE WRITE. `POST .../cancel` stops a run that is still
+ * going. It belongs here rather than on a surface because a run is the one
+ * thing in this product that spends real work while nobody watches: the
+ * hook that owns the watching is the one that can offer to end it.
  */
 
 import { useQuery } from "@tanstack/react-query";
@@ -35,6 +42,7 @@ import { useNavigate } from "react-router-dom";
 
 import {
   ApiRequestError,
+  cancelDeepResearch,
   fetchDeepResearchRun,
   fetchDeepResearchRuns,
   previewDeepResearch,
@@ -44,9 +52,11 @@ import {
 import { announce } from "@/lib/announce";
 import {
   applyResearchFrame,
+  hasFailed,
   initialWatchState,
   isRunning,
   researchPhaseFor,
+  wasStopped,
   type ResearchPreview,
   type ResearchSelector,
   type ResearchSummary,
@@ -68,12 +78,38 @@ export interface ResearchRunView {
   loading: boolean;
   /** Why the run could not be read, in the server's own words. */
   error: string | null;
+  /**
+   * Stop the run. The server ends it between two readings and answers with
+   * the run it stopped, which is what this puts on the surface — no
+   * inference from a stream that went quiet, exactly as nothing here
+   * infers completion.
+   */
+  stop: () => void;
+  /** The stop is in flight — the control says so rather than repeating. */
+  stopping: boolean;
+  /**
+   * Why the stop was refused, kept apart from `error` on purpose.
+   *
+   * `error` means the RUN could not be read and the surface has nothing to
+   * draw. A stop that did not land leaves a perfectly readable run still
+   * going, and folding the two together would replace it with an error
+   * page over a run that is working.
+   */
+  stopError: string | null;
 }
 
 export function useDeepResearchRun(runId: string, enabled = true): ResearchRunView {
   const [state, setState] = useState<ResearchWatchState | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
+  const [stopping, setStopping] = useState(false);
+  const [stopError, setStopError] = useState<string | null>(null);
+  /**
+   * Single-flight, for the reason every write on this surface is: a second
+   * press while the first is in flight is a second request about a run
+   * that is already ending.
+   */
+  const stopInFlight = useRef(false);
   /**
    * The phase last spoken aloud.
    *
@@ -102,7 +138,13 @@ export function useDeepResearchRun(runId: string, enabled = true): ResearchRunVi
         announce("The deep research report is ready.");
         return;
       }
-      if (next.run.status === "failed" || next.run.status === "interrupted") {
+      if (wasStopped(next.run.status)) {
+        // Said once, in the server's own words, and never in the register
+        // reserved for something going wrong.
+        announce(next.run.error ?? "This run was stopped. Nothing was published.");
+        return;
+      }
+      if (hasFailed(next.run.status)) {
         announce(next.run.error ?? "This run stopped before it could finish.");
         return;
       }
@@ -167,7 +209,47 @@ export function useDeepResearchRun(runId: string, enabled = true): ResearchRunVi
     };
   }, [runId, enabled]);
 
-  return { state, loading, error };
+  /**
+   * STOP IT — and say so from the server's answer, not from the silence.
+   *
+   * The POST comes back with the run in the state it was left in, so the
+   * surface changes because the platform said it changed. The stream then
+   * closes of its own accord and the effect re-reads the run, which agrees
+   * — two honest accounts of one fact rather than a guess and a
+   * correction.
+   *
+   * A stop that is refused leaves the run exactly as it was and puts the
+   * server's own sentence where the reader is looking. It does not clear
+   * the run: nothing about a failed stop makes the run unreadable.
+   */
+  const stop = useCallback(() => {
+    if (runId === "" || stopInFlight.current) return;
+    stopInFlight.current = true;
+    setStopping(true);
+    setStopError(null);
+    void (async () => {
+      try {
+        const stopped = await cancelDeepResearch(runId, { onDrift });
+        setState((prev) =>
+          prev === null ? initialWatchState(stopped) : { ...prev, run: stopped },
+        );
+        announce("This run was stopped. Nothing was published.");
+      } catch (caught) {
+        setStopError(
+          caught instanceof ApiRequestError
+            ? caught.message
+            : caught instanceof Error
+              ? caught.message
+              : "This run could not be stopped.",
+        );
+      } finally {
+        stopInFlight.current = false;
+        setStopping(false);
+      }
+    })();
+  }, [runId]);
+
+  return { state, loading, error, stop, stopping, stopError };
 }
 
 /* ------------------------------------------------------------------ */

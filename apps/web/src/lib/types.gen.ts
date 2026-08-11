@@ -81,6 +81,44 @@ export interface paths {
         patch?: never;
         trace?: never;
     };
+    "/v1/deep-research/{run_id}/cancel": {
+        parameters: {
+            query?: never;
+            header?: never;
+            path?: never;
+            cookie?: never;
+        };
+        get?: never;
+        put?: never;
+        /**
+         * Cancel Deep Research
+         * @description Stop a run that is still going.
+         *
+         *     A run is about a minute of work and a real model call, both of
+         *     which continue whether or not anybody is watching — so closing the
+         *     page stops the watching and none of the spending. This stops the
+         *     run itself, at the next point between two readings, and the model
+         *     call goes with it.
+         *
+         *     Nothing partial is published: a stopped run has no report and never
+         *     gets one. What it had got through is kept and readable at this same
+         *     address, with `status: cancelled` — which is a different fact from
+         *     `interrupted`, the state of a run nobody stopped and whose process
+         *     died holding it.
+         *
+         *     Stopping a run that has already finished changes nothing and
+         *     answers with the finished run: a report that exists is not
+         *     withdrawn by asking to stop the work that produced it. Post it
+         *     (rather than DELETE it) because the record survives — the run is
+         *     ended, not removed.
+         */
+        post: operations["cancel_deep_research_v1_deep_research__run_id__cancel_post"];
+        delete?: never;
+        options?: never;
+        head?: never;
+        patch?: never;
+        trace?: never;
+    };
     "/v1/deep-research/{run_id}/stream": {
         parameters: {
             query?: never;
@@ -105,10 +143,14 @@ export interface paths {
          *     - `research_warning` — a qualification a reader needs before reading the numbers
          *     - `narrative_delta` — one chunk of the written report as it is composed
          *     - `error` — the run stopped; nothing partial is published
+         *     - `research_cancelled` — somebody stopped this run — it ended at the next safe point, nothing partial is published, and the record keeps how far it got
          *     - `research_complete` — the finished report
          *
          *     The stream is progress; the final `research_complete` frame carries
-         *     the finished report, which is also what the run's own GET returns.
+         *     the finished report, which is also what the run's own GET returns. A
+         *     run that ends without one ends on `research_cancelled` (somebody
+         *     stopped it) or `error` (it could not finish), and the stream closes
+         *     either way rather than leaving a watcher waiting.
          */
         get: operations["stream_deep_research_v1_deep_research__run_id__stream_get"];
         put?: never;
@@ -1677,7 +1719,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "preview" | "planning" | "running" | "complete" | "failed" | "interrupted";
+            status: "preview" | "planning" | "running" | "complete" | "failed" | "interrupted" | "cancelled";
         };
         /**
          * DeepResearchScopePayload
@@ -1726,7 +1768,7 @@ export interface components {
              * Event
              * @enum {string}
              */
-            event: "research_started" | "research_plan" | "research_readings" | "research_progress" | "research_finding" | "research_warning" | "narrative_delta" | "error" | "research_complete";
+            event: "research_started" | "research_plan" | "research_readings" | "research_progress" | "research_finding" | "research_warning" | "narrative_delta" | "error" | "research_cancelled" | "research_complete";
         };
         /**
          * DeepResearchSummary
@@ -1753,7 +1795,7 @@ export interface components {
              * Status
              * @enum {string}
              */
-            status: "preview" | "planning" | "running" | "complete" | "failed" | "interrupted";
+            status: "preview" | "planning" | "running" | "complete" | "failed" | "interrupted" | "cancelled";
             /** Total Expected Cents */
             total_expected_cents?: number | null;
         };
@@ -1998,7 +2040,22 @@ export interface components {
             open_dollars_cents: number;
             /** Parts */
             parts?: components["schemas"]["StratumPartPayload"][];
+            /** Positions */
+            positions?: components["schemas"]["PricedPositionPayload"][];
             rate_cell: components["schemas"]["RateCellPayload"];
+            /** Severity */
+            severity?: string | null;
+            /**
+             * Severity Scope
+             * @default none
+             * @enum {string}
+             */
+            severity_scope: "own" | "population" | "none";
+            /**
+             * Severity Wins
+             * @default 0
+             */
+            severity_wins: number;
         };
         /** ExplainModel */
         ExplainModel: {
@@ -2095,6 +2152,11 @@ export interface components {
             knowledge_statement: string;
             /** Path Choices */
             path_choices?: components["schemas"]["ResearchPathChoicePayload"][];
+            /**
+             * Plan Id
+             * @default
+             */
+            plan_id: string;
             /**
              * Population Label
              * @default
@@ -2212,25 +2274,67 @@ export interface components {
          *     of the inventory went unpriced instead of finding a total that quietly
          *     assumed zero.
          *
-         *     The range is the sum of each population's own range. Populations that
-         *     share payers, staffing and seasons move together, so it is a spread
-         *     indication rather than a guarantee — ``range_assumes_independence``
-         *     says so on the wire rather than in a comment.
+         *     The range is the sum of each population's own range — the widest way to
+         *     add ranges up, wider than independence would give, and therefore a
+         *     spread indication rather than a calibrated band.
+         *     ``range_is_summed_endpoints`` says which arithmetic produced it, and
+         *     ``amounts_treated_as_known`` says what it leaves out: only the recovery
+         *     rate carries variance, while the denied amounts and the share of a
+         *     denied dollar a win returns enter as constants.
+         *
+         *     ``construction`` states, in one sentence, how the figure was built —
+         *     the filing-deadline split, the rate on each side, and what a win is
+         *     actually worth. A headline whose construction is not on the page beside
+         *     it is a headline a reader cannot check.
          */
         HeadlinePayload: {
+            /**
+             * Amounts Treated As Known
+             * @default true
+             */
+            amounts_treated_as_known: boolean;
             /** Catchable Dollars Cents */
             catchable_dollars_cents: number;
+            /**
+             * Construction
+             * @default
+             */
+            construction: string;
             /** Deadline Passed Dollars Cents */
             deadline_passed_dollars_cents: number;
             /** Deadline Unknown Dollars Cents */
             deadline_unknown_dollars_cents: number;
+            /**
+             * Past Deadline N
+             * @default 0
+             */
+            past_deadline_n: number;
+            /** Past Deadline Rate */
+            past_deadline_rate?: string | null;
             /** Priced Open Dollars Cents */
             priced_open_dollars_cents: number;
             /**
-             * Range Assumes Independence
+             * Range Is Summed Endpoints
              * @default true
              */
-            range_assumes_independence: boolean;
+            range_is_summed_endpoints: boolean;
+            /** Severity */
+            severity?: string | null;
+            /**
+             * Severity Denied Cents
+             * @default 0
+             */
+            severity_denied_cents: number;
+            /**
+             * Severity Recovered Cents
+             * @default 0
+             */
+            severity_recovered_cents: number;
+            /**
+             * Severity Wins
+             * @default 0
+             */
+            severity_wins: number;
             /** Total Expected Cents */
             total_expected_cents: number;
             total_expected_interval: components["schemas"]["MoneyIntervalPayload"];
@@ -2240,8 +2344,20 @@ export interface components {
             total_open_dollars_cents: number;
             /** Unpriced Open Dollars Cents */
             unpriced_open_dollars_cents: number;
+            /**
+             * Unpriced Position Dollars Cents
+             * @default 0
+             */
+            unpriced_position_dollars_cents: number;
             /** Unpriced Share */
             unpriced_share: string;
+            /**
+             * Within Deadline N
+             * @default 0
+             */
+            within_deadline_n: number;
+            /** Within Deadline Rate */
+            within_deadline_rate?: string | null;
         };
         /**
          * IntervalPayload
@@ -3493,6 +3609,43 @@ export interface components {
             };
         };
         /**
+         * PricedPositionPayload
+         * @description One side of the filing deadline inside one population, and its price.
+         *
+         *     The unit the total is actually built from. ``scope`` says whose
+         *     evidence set the rate: this population's own answered denials, or the
+         *     whole read's answer for that side of the deadline when this
+         *     population's own cohort was too thin. A reader deciding where to put
+         *     people is entitled to know which of the two they are reading, per line,
+         *     rather than being told once at the bottom of the page.
+         */
+        PricedPositionPayload: {
+            /** Dollars Cents */
+            dollars_cents: number;
+            /** Expected Cents */
+            expected_cents?: number | null;
+            expected_interval?: components["schemas"]["MoneyIntervalPayload"] | null;
+            interval?: components["schemas"]["IntervalPayload"] | null;
+            /**
+             * N
+             * @default 0
+             */
+            n: number;
+            /** Position */
+            position: string;
+            /** Position Label */
+            position_label: string;
+            /** Rate */
+            rate?: string | null;
+            /**
+             * Scope
+             * @enum {string}
+             */
+            scope: "own" | "population" | "none";
+            /** Severity */
+            severity?: string | null;
+        };
+        /**
          * PriorityDecompositionPayload
          * @description Every term of ``anomaly_priority``, published.
          *
@@ -3775,6 +3928,11 @@ export interface components {
              * @default false
              */
             bounded: boolean;
+            /**
+             * Censored
+             * @default false
+             */
+            censored: boolean;
             /** Display */
             display: string;
             /**
@@ -3946,6 +4104,8 @@ export interface components {
             title: string;
             /** Unit */
             unit: string;
+            /** Warnings */
+            warnings?: string[];
             /**
              * Window Label
              * @default
@@ -3985,6 +4145,16 @@ export interface components {
              * @enum {string}
              */
             authored_by: "model" | "revi";
+            /**
+             * Plan Confirmed
+             * @default false
+             */
+            plan_confirmed: boolean;
+            /**
+             * Plan Variance
+             * @default
+             */
+            plan_variance: string;
             /**
              * Rationale
              * @default
@@ -4244,6 +4414,8 @@ export interface components {
          * @description Launch a run over a target population.
          */
         StartDeepResearchRequest: {
+            /** Plan Id */
+            plan_id?: string | null;
             /**
              * Plan Only
              * @default false
@@ -5048,6 +5220,91 @@ export interface operations {
         };
     };
     get_deep_research_v1_deep_research__run_id__get: {
+        parameters: {
+            query?: never;
+            header?: never;
+            path: {
+                run_id: string;
+            };
+            cookie?: never;
+        };
+        requestBody?: never;
+        responses: {
+            /** @description Successful Response */
+            200: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["DeepResearchRunResponse"];
+                };
+            };
+            /** @description Stable §12 error code: the request was understood but could not be answered (BINDING_AMBIGUOUS, UNSUPPORTED_CONCEPT, INSUFFICIENT_EVIDENCE, GRAIN_INCOMPATIBLE, POLICY_DENIED, …). */
+            400: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Missing, malformed, or expired bearer token (POLICY_DENIED). The token carries the tenant; it is never taken from the request body. */
+            401: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description A valid credential for a different tenant (POLICY_DENIED). Session and investigation ids are not secrets, so a cross-tenant read is refused rather than disguised as a 404. */
+            403: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Unknown session, investigation, or referent (REFERENT_NOT_FOUND). */
+            404: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description WATERMARK_STALE or CONTEXT_CONFLICT — the pinned context cannot absorb the request without an explicit decision. */
+            409: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+            /** @description Validation Error */
+            422: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["HTTPValidationError"];
+                };
+            };
+            /** @description SOURCE_UNAVAILABLE or DATA_LOADING — the analytical source cannot serve this watermark right now. */
+            503: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["ErrorEnvelope"];
+                };
+            };
+        };
+    };
+    cancel_deep_research_v1_deep_research__run_id__cancel_post: {
         parameters: {
             query?: never;
             header?: never;

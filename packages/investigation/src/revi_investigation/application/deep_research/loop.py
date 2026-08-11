@@ -78,6 +78,7 @@ from revi_investigation.application.deep_research.policy import (
     ResearchPolicy,
 )
 from revi_investigation.application.discovery import (
+    DiscoveryKind,
     DiscoveryNote,
     DiscoveryRefused,
     DiscoveryService,
@@ -136,6 +137,11 @@ class Orientation:
     cut_for: dict[str, str]
     knowledge: KnowledgeConsultation
     policy: ResearchPolicy
+    #: Subjects the question named that nothing in this deployment carries.
+    #: Empty for almost every question, and load-bearing for the ones it is
+    #: not: a question about something never loaded must be told so before
+    #: a minute is spent, not after.
+    gaps: tuple[str, ...] = ()
 
 
 class GeneralPlanner(Protocol):
@@ -217,6 +223,95 @@ def _words(text: str) -> frozenset[str]:
     return frozenset(_fold(word) for word in _WORD.findall(text.lower()))
 
 
+#: English endings that make a word a thing rather than an action. Used for
+#: one job only: deciding whether a word this deployment has never heard of
+#: is a SUBJECT the question wants measured ("satisfaction") or a verb
+#: connecting two subjects it already has ("affect"). Morphology, not
+#: governed content — the same register as :func:`_fold`'s plural rule
+#: directly above, and kept as small as that one. Erring towards silence is
+#: deliberate: a missed gap degrades to today's behaviour, while a false one
+#: would refuse a question this data can answer.
+_SUBJECT_SUFFIXES: tuple[str, ...] = (
+    "tion",
+    "sion",
+    "ment",
+    "ness",
+    "ity",
+    "ance",
+    "ence",
+    "ship",
+    "score",
+    "rating",
+)
+
+#: Below this a word is too short to be carrying a subject nobody has heard
+#: of; it is far more likely to be ordinary English the pack happens not to
+#: use.
+_MIN_SUBJECT_LENGTH = 5
+
+
+def deployment_vocabulary(pack: PackPort, catalog: CatalogSnapshot) -> frozenset[str]:
+    """Every word this deployment's governed content actually uses.
+
+    Built from the pack and the catalog rather than from a list kept beside
+    the code, so a tenant that loads a patient-experience feed stops being
+    told it has none the moment the content lands. Nothing here is a
+    judgement about English: it is the set of words the definitions library
+    and the semantic layer are written in.
+    """
+    words: set[str] = set()
+    for metric_id, description in pack.metric_summaries():
+        words |= _words(metric_id.replace("_", " "))
+        words |= _words(description)
+    for concept_id, name in pack.concept_summaries():
+        words |= _words(concept_id.replace("_", " "))
+        words |= _words(name)
+    for playbook_id, description in pack.playbook_summaries():
+        words |= _words(playbook_id.replace("_", " "))
+        words |= _words(description)
+    for measure in catalog.measures:
+        words |= _words(measure.id.replace("_", " "))
+        for synonym in measure.synonyms:
+            words |= _words(synonym)
+    for dimension in catalog.dimensions:
+        words |= _words(dimension.id.replace("_", " "))
+        for synonym in getattr(dimension, "synonyms", ()):
+            words |= _words(synonym)
+    for entity in catalog.entities:
+        words |= _words(entity.name.replace("_", " "))
+    return frozenset(words)
+
+
+def unreached_subjects(
+    question: str, vocabulary: frozenset[str], pack: PackPort
+) -> tuple[str, ...]:
+    """Subjects this question names that the definitions library has never heard of.
+
+    The gap this closes is a specific one: a question asking about two
+    things, one of which this deployment measures and one of which it does
+    not, currently reaches the planner as a question about the first. The
+    model then plans confident readings of the half it can see, the reader
+    confirms a card full of cheerful availability statements, and a minute
+    later the determination explains that the other half was never
+    answerable. The reader is owed that sentence before the minute, not
+    after it.
+
+    Deliberately conservative — see :data:`_SUBJECT_SUFFIXES`.
+    """
+    found: list[str] = []
+    for raw in _WORD.findall(question.lower()):
+        word = _fold(raw)
+        if len(word) < _MIN_SUBJECT_LENGTH or word in vocabulary:
+            continue
+        if pack.concept_for_alias(raw) is not None or pack.concept_for_alias(word) is not None:
+            continue
+        if not word.endswith(_SUBJECT_SUFFIXES):
+            continue
+        if word not in found:
+            found.append(word)
+    return tuple(found)
+
+
 def iteration_budget(question: str, policy: ResearchPolicy) -> int:
     """How many rounds this question's composition depth earns.
 
@@ -235,6 +330,33 @@ def iteration_budget(question: str, policy: ResearchPolicy) -> int:
         ):
             earned += 1
     return max(1, min(policy.max_rounds, earned))
+
+
+def earned_rounds(opening: Sequence[PlannedAngle], ceiling: int) -> int:
+    """How many read-and-decide passes the OPENING PLAN says this needs.
+
+    Read off the plan rather than off the question's words. The keyword
+    bags this replaces asked whether a question contained "why" or "trend"
+    or "compare", which made the vaguest question the shallowest study:
+    "Research denials." matched no bag and earned a single round, so the
+    least-specified question got the least work, which is backwards — the
+    first pass is exactly what narrows a vague question.
+
+    A plan's SHAPE is the question's composition depth, and the planner has
+    already expressed it: opening with a trend, a breakdown and a contrast
+    is a statement that three things must be established before they can be
+    put together. No number crosses the control-plane boundary to produce
+    this — the model returns shapes and ids, and the count is arithmetic
+    over them, here, in the deterministic plane.
+    """
+    if not opening:
+        return 1
+    shapes = {angle.shape for angle in opening}
+    measures = {
+        angle.measure.metric_id for angle in opening if angle.measure is not None
+    }
+    depth = max(len(shapes), 1) + (1 if len(measures) > 1 else 0)
+    return max(1, min(ceiling, depth))
 
 
 def default_window(watermark: DataWatermark, policy: ResearchPolicy) -> AbsoluteRange:
@@ -295,6 +417,13 @@ class ResearchOrienter:
             pack_snapshot_id=pack_snapshot_id,
         )
         vocabulary = _vocabulary_of(profile, self._pack)
+        # What the question asked for that nothing here carries. Computed
+        # before the planner sees anything, so the gap reaches the
+        # confirmation card rather than the determination.
+        gaps = unreached_subjects(
+            question, deployment_vocabulary(self._pack, self._catalog), self._pack
+        )
+        measures = tuple(metric_id for metric_id in measures if metric_id in vocabulary.measures)
 
         cut_for: dict[str, str] = {}
         for metric_id in measures[:3]:
@@ -320,12 +449,16 @@ class ResearchOrienter:
             population=population,
             window=window,
             vocabulary=vocabulary,
-            notes=self._discovery.notes,
+            # The negative statements lead. A card that lists what this data
+            # can do and truncates what it cannot is a card that answers the
+            # wrong half of the reader's decision.
+            notes=(*_gap_notes(gaps), *self._discovery.notes),
             concepts=concepts,
             measures=measures,
             cut_for=cut_for,
             knowledge=knowledge,
             policy=policy,
+            gaps=gaps,
         )
 
     # -- what the question points at ---------------------------------------
@@ -470,7 +603,15 @@ def _measure_fields(pack: PackPort, metric_id: str) -> frozenset[str]:
 
 
 def _vocabulary_of(profile: object, pack: PackPort) -> AngleVocabulary:
-    """The legal angle vocabulary, from the measure-availability profile."""
+    """The legal angle vocabulary, from the measure-availability profile.
+
+    **Availability is a filter here, not a field carried along.** The
+    profile already decides which measures this deployment can compute over
+    this population; copying the unavailable ones into the vocabulary put
+    them in front of the planner with nothing marking them, so a refusal
+    that should have been structural became an instruction in a prompt. The
+    vocabulary's own docstring promised this filter; now it performs it.
+    """
     measures: dict[str, frozenset[str]] = {}
     bases: dict[str, frozenset[str]] = {}
     kinds: dict[str, str] = {}
@@ -478,6 +619,8 @@ def _vocabulary_of(profile: object, pack: PackPort) -> AngleVocabulary:
     rate_like: set[str] = set()
     descriptions = dict(pack.metric_summaries())
     for availability in getattr(profile, "measures", ()):
+        if not getattr(availability, "available", True):
+            continue
         measures[availability.metric_id] = frozenset(availability.cuts)
         bases[availability.metric_id] = frozenset(availability.date_bases)
         kinds[availability.metric_id] = availability.kind
@@ -501,6 +644,33 @@ def _vocabulary_of(profile: object, pack: PackPort) -> AngleVocabulary:
             for metric_id, description in descriptions.items()
             if metric_id in measures
         },
+    )
+
+
+def gap_statement(gaps: Sequence[str]) -> str:
+    """The gap, in one sentence, in the reader's words."""
+    named = list(gaps)
+    if len(named) == 1:
+        subject = named[0]
+    else:
+        subject = f"{', '.join(named[:-1])} or {named[-1]}"
+    return (
+        f"Nothing in your definitions library measures {subject}, so no reading here "
+        f"can speak to that part of the question. Answering it would mean loading a "
+        f"feed that carries it."
+    )
+
+
+def _gap_notes(gaps: Sequence[str]) -> tuple[DiscoveryNote, ...]:
+    if not gaps:
+        return ()
+    return (
+        DiscoveryNote(
+            kind=DiscoveryKind.CAPABILITIES,
+            subject=gaps[0],
+            statement=gap_statement(gaps),
+            request_key="research_gap:" + ",".join(gaps),
+        ),
     )
 
 
@@ -960,18 +1130,37 @@ class ResearchPreview:
 
         A statement about the data, never about the engine — the first of
         the two honest non-answers the completeness bar allows.
+
+        A question that reaches no measure this deployment can compute is
+        refused here, at the card, before the minute — and the refusal
+        names what the question wanted rather than saying the engine is
+        unable. That is the whole difference between a gate and an
+        instruction in a prompt: the model never had the chance to plan
+        confident readings of the half it could see.
         """
-        if self.angles:
-            return ""
-        if not self.orientation.measures:
+        if not self.angles or not self.orientation.vocabulary.measures:
+            if self.orientation.gaps:
+                return gap_statement(self.orientation.gaps)
+            if not self.orientation.measures:
+                return (
+                    "Nothing in your definitions library matches the words in this "
+                    "question, so there is no standard measure to research it through."
+                )
             return (
-                "Nothing in your definitions library matches the words in this question, "
-                "so there is no standard measure to research it through."
+                "The measures this question reaches cannot be read over this population, "
+                "so there is no reading to take."
             )
-        return (
-            "The measures this question reaches cannot be read over this population, so "
-            "there is no reading to take."
-        )
+        return ""
+
+    @property
+    def gap_note(self) -> str:
+        """What the question asked for that this data does not carry.
+
+        Distinct from :attr:`refusal`: a question with one answerable half
+        and one unanswerable one still runs, and the reader is entitled to
+        know which half they are buying BEFORE they buy it.
+        """
+        return gap_statement(self.orientation.gaps) if self.orientation.gaps else ""
 
 
 class GeneralizedResearchLoop:
@@ -1017,13 +1206,13 @@ class GeneralizedResearchLoop:
             pack_snapshot_id=pack_snapshot_id,
             policy=policy,
         )
-        angles, rationale, authored_by = await self._open(orientation, budget)
+        angles, rationale, authored_by, earned = await self._open(orientation, budget)
         return ResearchPreview(
             orientation=orientation,
             angles=tuple(angles),
             rationale=rationale,
             authored_by=authored_by,
-            budget=budget,
+            budget=earned,
         )
 
     async def run(
@@ -1037,10 +1226,26 @@ class GeneralizedResearchLoop:
         window: AbsoluteRange | None = None,
         progress: ProgressSink | None = None,
         rounds_allowed: int | None = None,
+        confirmed: ResearchPreview | None = None,
     ) -> tuple[ResearchWalk, tuple[MeasureResult, ...], Orientation]:
+        """Execute a research run.
+
+        ``confirmed`` is the plan the reader approved. When it is supplied
+        the opening round IS that plan — the same angles, in the same
+        order, with the same reasons and the same round budget — and the
+        planner is re-entered only for the iteration rounds beyond it,
+        which nobody previewed and nobody could have. Without it the
+        opening round is planned afresh, and two runs of one question can
+        legitimately open on different readings; the report says so rather
+        than presenting a resample as a deliberation.
+        """
         policy = settings.research
         span = window or default_window(watermark, policy)
-        budget = rounds_allowed or iteration_budget(question, policy)
+        budget = (
+            rounds_allowed
+            or (confirmed.budget if confirmed is not None else 0)
+            or iteration_budget(question, policy)
+        )
 
         async def say(
             phase: str,
@@ -1093,8 +1298,14 @@ class GeneralizedResearchLoop:
             )
         )
 
-        await say("plan", "Choosing what to check")
-        opening, rationale, authored_by = await self._open(orientation, budget)
+        if confirmed is not None:
+            await say("plan", "Taking the readings you confirmed")
+            opening: Sequence[PlannedAngle] = confirmed.angles
+            rationale = confirmed.rationale
+            authored_by = confirmed.authored_by
+        else:
+            await say("plan", "Choosing what to check")
+            opening, rationale, authored_by, budget = await self._open(orientation, budget)
         planned = list(opening)
         for angle in planned:
             steps.append(
@@ -1150,7 +1361,14 @@ class GeneralizedResearchLoop:
                 steps.append(
                     WalkStep(
                         round=index,
-                        action="chase" if angle.chases else "broaden",
+                        # THE GATE DECIDES THIS, not the model. A chase is a
+                        # reading narrowed into a population the gate
+                        # admitted as a lead — anything else was dropped
+                        # before it got here. Branching on the model's own
+                        # ``chases`` sentence let a plain new cut be
+                        # published as "Went after", which is a claim about
+                        # causation the run never made.
+                        action=_walk_action(angle),
                         subject=angle.subject,
                         reason=angle.reason,
                         detail=angle.chases,
@@ -1191,6 +1409,7 @@ class GeneralizedResearchLoop:
             rationale=rationale,
             rounds=index,
             budget=budget,
+            plan_confirmed=confirmed is not None,
         )
         return walk, tuple(results), orientation
 
@@ -1198,18 +1417,27 @@ class GeneralizedResearchLoop:
 
     async def _open(
         self, orientation: Orientation, budget: int
-    ) -> tuple[tuple[PlannedAngle, ...], str, str]:
+    ) -> tuple[tuple[PlannedAngle, ...], str, str, int]:
+        """The opening readings, who chose them, and how deep to go.
+
+        The depth comes back WITH the plan because it is the same
+        judgement: a planner that has just decided a question needs a
+        trend, a breakdown and a contrast has already decided it will not
+        close in one pass. Reading depth off keyword bags instead made the
+        vaguest question the shallowest study — "Research denials." matched
+        no bag and earned one round — which is exactly backwards.
+        """
         standing = standing_angles(orientation)
         if self._planner is None:
-            return standing, _standing_rationale(orientation), "revi"
+            return standing, _standing_rationale(orientation), "revi", earned_rounds(standing, budget)
         try:
             proposed, rationale = await self._planner.open(orientation, budget=budget)
         except Exception:
-            return standing, _standing_rationale(orientation), "revi"
+            return standing, _standing_rationale(orientation), "revi", earned_rounds(standing, budget)
         legal = validate_angles(proposed, orientation)
         if not legal:
-            return standing, _standing_rationale(orientation), "revi"
-        return legal, rationale, "model"
+            return standing, _standing_rationale(orientation), "revi", earned_rounds(standing, budget)
+        return legal, rationale, "model", earned_rounds(legal, budget)
 
     async def _next(
         self,
@@ -1340,23 +1568,39 @@ def round_words(index: int, planned: Sequence[PlannedAngle]) -> str:
     here would put a second description of one decision on the wire.
     """
     lead = planned[0]
-    verb = "chasing it" if lead.chases else "trying another angle"
+    verb = "chasing it" if _walk_action(lead) == "chase" else "trying another angle"
     return f"Round {index} — {verb}: {lead.reason}"
+
+
+def _walk_action(angle: PlannedAngle) -> str:
+    """Whether this reading is a chase or a broaden, decided by the gate.
+
+    A chase is a reading NARROWED into a population the gate admitted as a
+    lead. The gate is what admits it — ``gate_chases`` drops every
+    narrowing into a population no lead named — so a surviving narrowing is
+    a chase by construction and a reading with nothing to narrow into is
+    not, whatever sentence the control plane wrote about it.
+    """
+    measure = angle.measure
+    return "chase" if measure is not None and measure.within else "broaden"
 
 
 def _progress_words(angle: PlannedAngle, round_index: int, position: int, total: int) -> str:
     """What a run says about itself while it works, honestly.
 
-    Names the round when there is more than one, because "still going" and
-    "chasing what the last round found" are different states and a reader
-    watching a minute-long run is entitled to know which one they are in.
+    Names the round when there is more than one, and names it CORRECTLY:
+    the progress line follows the same gate decision the walk records, so a
+    round that broadened is not announced as a round that chased. The two
+    surfaces describing one decision differently is how a reader concludes
+    the walk is decoration.
     """
-    lead = "Checking" if round_index == 0 else "Chasing"
     subject = angle.subject.replace("_", " ")
     tail = f" ({position} of {total})" if total > 1 else ""
     if round_index == 0:
-        return f"{lead} {subject}{tail}"
-    return f"{lead} what round {round_index} turned up: {subject}{tail}"
+        return f"Checking {subject}{tail}"
+    if _walk_action(angle) == "chase":
+        return f"Chasing what round {round_index} turned up: {subject}{tail}"
+    return f"Widening after round {round_index}: {subject}{tail}"
 
 
 def entity_grain_of(pack: PackPort, metric_id: str) -> EntityGrain | None:

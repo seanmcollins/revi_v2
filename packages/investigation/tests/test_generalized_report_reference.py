@@ -496,6 +496,24 @@ class TestTheMarksSurviveTheWire:
                     assert figure.evidence == "not_estimable", question
                     assert figure.display.startswith("≤")
 
+    async def test_a_ceiling_never_ships_the_arithmetic_that_undoes_it(
+        self, studies
+    ) -> None:
+        """A bound that publishes its own numerator and denominator is not a bound.
+
+        The review's evidence: ``display: "≤ 37.0%"`` beside
+        ``population: 27, successes: 10``. Ten over twenty-seven is
+        37.037% — the exact figure the ceiling withheld, available to
+        anyone with a calculator.
+        """
+        for question, _, _, draft in studies:
+            for reading in draft.report.readings:
+                for figure in reading.figures:
+                    if not figure.bounded:
+                        continue
+                    assert figure.population is None, f"{question}: {figure.label}"
+                    assert figure.successes is None, f"{question}: {figure.label}"
+
     async def test_a_withheld_figure_publishes_nothing(self, studies) -> None:
         for question, _, _, draft in studies:
             for reading in draft.report.readings:

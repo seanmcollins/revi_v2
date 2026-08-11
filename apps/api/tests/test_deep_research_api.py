@@ -10,6 +10,7 @@ still reads correctly out of storage after its process forgot it.
 from __future__ import annotations
 
 import asyncio
+import contextlib
 from pathlib import Path
 
 import pytest
@@ -323,24 +324,249 @@ class TestPersistenceAndCancellation:
     ) -> None:
         api = service()
         started = await api.start_deep_research(CALLER, StartDeepResearchRequest())
-        await api.research.cancel(CALLER, started.id)
+        await api.cancel_deep_research(CALLER, started.id)
         assert await api.components.investigations.get(started.id) is None
         record = await api.components.traces.get(
             f"{started.id}{DEEP_RESEARCH_TRACE_SUFFIX}"
         )
         assert record is not None
-        assert record.payload["status"] == "running"
+        # The row no longer claims to be running — a stopped run that read
+        # "running" forever is a permalink that is always about to finish.
+        assert record.payload["status"] == "cancelled"
+        assert record.payload["stopped_at"]
         assert "report" not in record.payload
 
     async def test_a_stopped_run_reads_back_as_stopped_rather_than_empty(self) -> None:
         api = service()
         started = await api.start_deep_research(CALLER, StartDeepResearchRequest())
-        await api.research.cancel(CALLER, started.id)
+        await api.cancel_deep_research(CALLER, started.id)
+        api.research._runs.clear()
+        stored = await api.get_deep_research(CALLER, started.id)
+        assert stored.status == "cancelled"
+        assert stored.report is None
+        assert stored.error
+
+    async def test_a_run_nobody_stopped_is_interrupted_rather_than_cancelled(
+        self,
+    ) -> None:
+        """The two words are two facts, and the trace is what tells them apart.
+
+        A process torn down mid-run leaves the row exactly as the start
+        wrote it. Read back, that is `interrupted` — nobody stopped this,
+        it was lost — and reporting it as a reader's own decision would be
+        an outage described as a choice.
+        """
+        api = service()
+        started = await api.start_deep_research(CALLER, StartDeepResearchRequest())
+        state = api.research._runs[started.id]
+        assert state.task is not None
+        # Let the run really be running: this is a process dying under a
+        # working run, not one that never drew breath.
+        for _ in range(1_000):
+            if state.status == "running":
+                break
+            await asyncio.sleep(0)
+        state.task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await state.task
+        assert state.status == "interrupted"
         api.research._runs.clear()
         stored = await api.get_deep_research(CALLER, started.id)
         assert stored.status == "interrupted"
-        assert stored.report is None
-        assert stored.error
+        assert stored.error == (
+            "This run was stopped before it finished, so nothing was published."
+        )
+
+
+class TestStopping:
+    """The one control over a minute of spending.
+
+    A run keeps going whether or not anybody is watching it, which is the
+    right default for a report somebody wants and the wrong one for a
+    reader who changed their mind: closing the page stopped the watching
+    and none of the spending. These are about the route that stops the run
+    itself — that it lands on a boundary, that the model call goes with it,
+    that what the run had got through survives, and that it refuses the
+    same things every other read refuses.
+    """
+
+    async def test_stopping_answers_with_the_run_it_stopped(self) -> None:
+        api = service()
+        started = await api.start_deep_research(CALLER, StartDeepResearchRequest())
+        stopped = await api.cancel_deep_research(CALLER, started.id)
+        assert stopped.id == started.id
+        assert stopped.status == "cancelled"
+        assert stopped.report is None and stopped.research_report is None
+        assert stopped.error == (
+            "This run was stopped on request, so nothing was published. "
+            "What it had got through is kept."
+        )
+
+    async def test_the_work_really_stops(self) -> None:
+        """The spend is the point: the model call is inside the cancelled task.
+
+        Nothing in the run's path detaches or shields the awaited call, so
+        cancelling the task unwinds it at its own await. This stands a
+        never-answering call in for the real one — if the loop kept going
+        after the stop, this run would still be inside it.
+        """
+        api = service()
+        reached = asyncio.Event()
+
+        class _NeverAnswers:
+            async def run(self, **kwargs):
+                reached.set()
+                await asyncio.sleep(3600)  # the model call that never returns
+                raise AssertionError("the stopped run kept working")
+
+            async def preview(self, **kwargs):  # pragma: no cover - not reached
+                raise AssertionError("no preview is asked for here")
+
+        api.research._research = _NeverAnswers()  # type: ignore[assignment]
+        started = await api.start_deep_research(
+            CALLER,
+            StartDeepResearchRequest(question="research why A/R over 90 is climbing"),
+        )
+        await asyncio.wait_for(reached.wait(), timeout=5)
+        state = api.research._runs[started.id]
+        await api.cancel_deep_research(CALLER, started.id)
+        assert state.task is not None
+        assert state.task.cancelled()
+        assert state.status == "cancelled"
+
+    async def test_a_watcher_is_released_rather_than_left_waiting(self) -> None:
+        api = service()
+        started = await api.start_deep_research(CALLER, StartDeepResearchRequest())
+
+        async def watch() -> list[str]:
+            return [
+                frame.split("\n", 1)[0].removeprefix("event: ")
+                async for frame in api.stream_deep_research(CALLER, started.id)
+            ]
+
+        watching = asyncio.create_task(watch())
+        await asyncio.sleep(0)
+        await api.cancel_deep_research(CALLER, started.id)
+        kinds = await asyncio.wait_for(watching, timeout=5)
+        assert kinds[-1] == "research_cancelled"
+
+    async def test_a_watcher_arriving_after_the_stop_is_caught_up_not_hung(
+        self,
+    ) -> None:
+        api = service()
+        started = await api.start_deep_research(CALLER, StartDeepResearchRequest())
+        await api.cancel_deep_research(CALLER, started.id)
+        # A settled run is replayed and the stream closes. Watching one that
+        # was never released is how a "Stop" that stopped nothing looked
+        # from the outside: a page that waits forever.
+        async def watch() -> list[str]:
+            return [
+                frame.split("\n", 1)[0].removeprefix("event: ")
+                async for frame in api.stream_deep_research(CALLER, started.id)
+            ]
+
+        kinds = await asyncio.wait_for(watch(), timeout=5)
+        assert kinds[0] == "research_started"
+        assert kinds[-1] == "research_cancelled"
+
+    async def test_a_subsequent_read_says_stopped_rather_than_running(self) -> None:
+        api = service()
+        started = await api.start_deep_research(CALLER, StartDeepResearchRequest())
+        await api.cancel_deep_research(CALLER, started.id)
+        live = await api.get_deep_research(CALLER, started.id)
+        assert live.status == "cancelled"
+        listed = await api.list_deep_research(CALLER)
+        assert [run.status for run in listed.runs if run.id == started.id] == ["cancelled"]
+
+    async def test_what_it_got_through_survives_the_process_that_ran_it(self) -> None:
+        """A run that measured four readings measured four. Say four."""
+        api = service()
+        started = await api.start_deep_research(
+            CALLER,
+            StartDeepResearchRequest(
+                question=(
+                    "research why our A/R over 90 has been climbing and what it "
+                    "will take to bring it down"
+                )
+            ),
+        )
+        state = api.research._runs[started.id]
+        for _ in range(6_000):
+            if state.progress.phase == "execute" and state.progress.angle_index > 0:
+                break
+            await asyncio.sleep(0.005)
+        assert state.progress.phase == "execute", (
+            f"the run never began measuring — it reached {state.progress.phase}"
+        )
+        await api.cancel_deep_research(CALLER, started.id)
+        record = await api.components.traces.get(
+            f"{started.id}{DEEP_RESEARCH_TRACE_SUFFIX}"
+        )
+        assert record is not None
+        assert record.payload["status"] == "cancelled"
+        assert record.payload["readings_taken"], "it had taken readings; the record says so"
+        assert record.payload["progress"]["phase"] == "execute"
+        assert record.payload["rounds_completed"] >= 0
+        # …and none of it is a report. Nothing partial is ever published.
+        assert "report" not in record.payload
+        assert await api.components.investigations.get(started.id) is None
+
+        api.research._runs.clear()
+        stored = await api.get_deep_research(CALLER, started.id)
+        assert stored.status == "cancelled"
+        assert stored.progress.phase == "execute"
+        assert stored.research_question.startswith("research why")
+        assert stored.report is None and stored.research_report is None
+
+    async def test_stopping_something_finished_does_not_unfinish_it(self) -> None:
+        api = service()
+        started = await api.start_deep_research(CALLER, StartDeepResearchRequest())
+        await _finish(api, started.id)
+        answered = await api.cancel_deep_research(CALLER, started.id)
+        assert answered.status == "complete"
+        assert answered.report is not None
+        assert (await api.get_deep_research(CALLER, started.id)).status == "complete"
+
+    async def test_a_report_already_published_is_not_withdrawn_by_a_stop(self) -> None:
+        """The narrow window, defended.
+
+        A run is `complete` from the moment its report is composed and
+        stored, a tick before its task returns. A stop arriving inside that
+        window would find a live task and could withdraw a report that had
+        already been published — so what is stoppable is a run that is
+        still going, not merely one whose task has not returned.
+        """
+        api = service()
+        started = await api.start_deep_research(CALLER, StartDeepResearchRequest())
+        state = api.research._runs[started.id]
+        state.status = "complete"
+        answered = await api.cancel_deep_research(CALLER, started.id)
+        assert answered.status == "complete"
+        assert state.task is not None and not state.task.cancelled()
+        await _finish(api, started.id)
+        assert (await api.get_deep_research(CALLER, started.id)).report is not None
+
+    async def test_an_unknown_run_cannot_be_stopped(self) -> None:
+        api = service()
+        with pytest.raises(ReferentNotFoundError):
+            await api.cancel_deep_research(CALLER, "dr_nothing")
+
+    async def test_another_tenant_cannot_stop_a_run(self) -> None:
+        api = service()
+        started = await api.start_deep_research(CALLER, StartDeepResearchRequest())
+        with pytest.raises(ReferentNotFoundError):
+            await api.cancel_deep_research(OTHER, started.id)
+        # …and the run they could not stop is still going.
+        assert api.research._runs[started.id].status in ("planning", "running")
+        await api.cancel_deep_research(CALLER, started.id)
+
+    async def test_another_tenant_cannot_stop_a_stored_run_either(self) -> None:
+        api = service()
+        started = await api.start_deep_research(CALLER, StartDeepResearchRequest())
+        await _finish(api, started.id)
+        api.research._runs.clear()
+        with pytest.raises(ReferentNotFoundError):
+            await api.cancel_deep_research(OTHER, started.id)
 
 
 class TestTheTrace:
@@ -608,6 +834,52 @@ class TestTheResearchQuestionGetsItsOwnPreview:
         assert general.readings == []
         assert "definitions library" in general.refusal
 
+    async def test_a_question_naming_something_never_loaded_says_so_on_the_card(
+        self,
+    ) -> None:
+        """Free, before the minute — not in the determination after it.
+
+        The review's repro: the model latched onto "patient", planned six
+        confident readings of patient cash and patient responsibility, and
+        the card showed five cheerful availability statements and no
+        negative note. The honesty existed, at the wrong end of the
+        transaction.
+        """
+        preview = await self._preview(
+            "Research our patient satisfaction scores and how they affect collections."
+        )
+        general = preview.generalized
+        assert general is not None
+        assert "satisfaction" in general.refusal
+        assert "loading a feed" in general.refusal
+        # And the same sentence leads the path choices, so a reader
+        # skimming the card meets it before the readings.
+        assert general.path_choices
+        assert "satisfaction" in general.path_choices[0].statement
+
+    async def test_the_card_hands_back_the_plan_it_is_showing(self) -> None:
+        """A confirmation of a plan with no handle is a confirmation of a
+        sample: the reader approves one set of readings and the run draws
+        another from the same question."""
+        preview = await self._preview(self.QUESTION)
+        general = preview.generalized
+        assert general is not None
+        assert general.plan_id.startswith("pl_")
+
+    async def test_every_open_denial_is_offered_somewhere_to_narrow_to(self) -> None:
+        """The most ambiguous question the surface accepts used to get zero
+        scoping affordances, because the only option it knew was a wider
+        one and it was already the widest."""
+        api = service()
+        answer = await api.start_deep_research(
+            CALLER, StartDeepResearchRequest(plan_only=True)
+        )
+        assert answer.preview is not None
+        options = answer.preview.options
+        assert options, "a review over everything must offer somewhere to cut it down"
+        assert all(option.kind != "all_open" for option in options)
+        assert all(option.values and option.label for option in options)
+
     async def test_the_period_it_will_read_is_stated_in_a_readers_words(self) -> None:
         preview = await self._preview(self.QUESTION)
         general = preview.generalized
@@ -663,6 +935,66 @@ class TestAResearchQuestionRunsAsAStudy:
         )
         await _finish(api, started.id)
         return api, await api.get_deep_research(CALLER, started.id)
+
+    async def test_the_plan_you_confirm_is_the_plan_that_runs(self) -> None:
+        """The confirmation card is an approval, not a sample.
+
+        Without a handle on the plan, confirm re-orients and re-plans from
+        the raw question — a second model call whose opening readings need
+        not be the ones the reader agreed to. Two cold runs of one question
+        shared four readings of nine; whether a customer saw a given
+        reading was a coin flip, and the card implied otherwise.
+        """
+        api = service()
+        card = await api.start_deep_research(
+            CALLER, StartDeepResearchRequest(question=self.QUESTION, plan_only=True)
+        )
+        assert card.preview is not None and card.preview.generalized is not None
+        previewed = card.preview.generalized
+        assert previewed.plan_id
+
+        started = await api.start_deep_research(
+            CALLER,
+            StartDeepResearchRequest(
+                question=self.QUESTION, plan_id=previewed.plan_id
+            ),
+        )
+        await _finish(api, started.id)
+        finished = await api.get_deep_research(CALLER, started.id)
+        study = finished.research_report
+        assert study is not None
+        assert study.walk.plan_confirmed is True
+        assert study.walk.plan_variance == "", "a confirmed plan is not a sample"
+        opening = [r.title for r in study.readings if r.round == 0]
+        assert opening == [r.title for r in previewed.readings]
+
+    async def test_a_run_nobody_confirmed_says_its_plan_was_a_draw(self) -> None:
+        _, finished = await self._study()
+        study = finished.research_report
+        assert study is not None
+        assert study.walk.plan_confirmed is False
+        if study.walk.authored_by == "model":
+            assert "asked again" in study.walk.plan_variance
+
+    async def test_a_plan_from_another_question_does_not_authorise_this_one(
+        self,
+    ) -> None:
+        api = service()
+        card = await api.start_deep_research(
+            CALLER, StartDeepResearchRequest(question=self.QUESTION, plan_only=True)
+        )
+        assert card.preview is not None and card.preview.generalized is not None
+        started = await api.start_deep_research(
+            CALLER,
+            StartDeepResearchRequest(
+                question="what is our denial rate",
+                plan_id=card.preview.generalized.plan_id,
+            ),
+        )
+        await _finish(api, started.id)
+        finished = await api.get_deep_research(CALLER, started.id)
+        assert finished.research_report is not None
+        assert finished.research_report.walk.plan_confirmed is False
 
     async def test_a_question_produces_a_study_and_says_which_it_is(self) -> None:
         _, finished = await self._study()
@@ -826,8 +1158,8 @@ class TestAResearchQuestionRunsAsAStudy:
         assert state.progress.phase == "execute", (
             f"the run never began measuring — it reached {state.progress.phase}"
         )
-        await api.research.cancel(CALLER, started.id)
-        assert state.status == "interrupted"
+        await api.cancel_deep_research(CALLER, started.id)
+        assert state.status == "cancelled"
         assert state.research_report is None
         assert state.report is None
         assert await api.components.investigations.get(started.id) is None
@@ -835,7 +1167,7 @@ class TestAResearchQuestionRunsAsAStudy:
             f"{started.id}{DEEP_RESEARCH_TRACE_SUFFIX}"
         )
         assert record is not None
-        assert record.payload["status"] == "running"
+        assert record.payload["status"] == "cancelled"
         assert "report" not in record.payload
 
 

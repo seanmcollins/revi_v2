@@ -207,7 +207,10 @@ _RESEARCH_SSE_DESCRIPTION = "\n".join(
         *(f"- `{kind}` — {doc}" for kind, doc in DEEP_RESEARCH_EVENT_PAYLOADS.items()),
         "",
         "The stream is progress; the final `research_complete` frame carries ",
-        "the finished report, which is also what the run's own GET returns.",
+        "the finished report, which is also what the run's own GET returns. A ",
+        "run that ends without one ends on `research_cancelled` (somebody ",
+        "stopped it) or `error` (it could not finish), and the stream closes ",
+        "either way rather than leaving a watcher waiting.",
     ]
 )
 
@@ -719,6 +722,36 @@ def create_app(
     ) -> DeepResearchRunResponse:
         """One run: how far it has got, and its report once it is finished."""
         return await _service().get_deep_research(caller, run_id)
+
+    @app.post(
+        "/v1/deep-research/{run_id}/cancel",
+        response_model=DeepResearchRunResponse,
+        responses=ERROR_RESPONSES,
+    )
+    async def cancel_deep_research(
+        run_id: str, caller: CallerPrincipal
+    ) -> DeepResearchRunResponse:
+        """Stop a run that is still going.
+
+        A run is about a minute of work and a real model call, both of
+        which continue whether or not anybody is watching — so closing the
+        page stops the watching and none of the spending. This stops the
+        run itself, at the next point between two readings, and the model
+        call goes with it.
+
+        Nothing partial is published: a stopped run has no report and never
+        gets one. What it had got through is kept and readable at this same
+        address, with `status: cancelled` — which is a different fact from
+        `interrupted`, the state of a run nobody stopped and whose process
+        died holding it.
+
+        Stopping a run that has already finished changes nothing and
+        answers with the finished run: a report that exists is not
+        withdrawn by asking to stop the work that produced it. Post it
+        (rather than DELETE it) because the record survives — the run is
+        ended, not removed.
+        """
+        return await _service().cancel_deep_research(caller, run_id)
 
     @app.get(
         _RESEARCH_STREAM_PATH,

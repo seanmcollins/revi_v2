@@ -698,10 +698,111 @@ describe("the progress surface — the minute, accounted for", () => {
     expect(screen.getByText(/Most of the minute goes here/)).toBeInTheDocument();
   });
 
-  it("promises the report will be here rather than offering a stop it cannot honour", () => {
-    mount(<ResearchProgress state={replay(FRAMES)} />);
+  it("promises the report will be here, and offers the stop that is real", async () => {
+    // Two different promises and the surface owes both: leaving does not
+    // stop the run, stopping does. Until the wire had a cancel this file
+    // argued for the first alone, because a "Stop" that abandoned the
+    // watcher while the server kept spending would have lied about itself.
+    const onStop = vi.fn();
+    mount(<ResearchProgress state={replay(FRAMES)} onStop={onStop} />);
     expect(screen.getByText(/You can leave this page/)).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /stop|cancel/i })).not.toBeInTheDocument();
+    expect(screen.getByText(/the run ends where it is and nothing is published/)).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: "Stop this run" }));
+    expect(onStop).toHaveBeenCalledTimes(1);
+  });
+
+  it("says the stop is in flight rather than taking a second press", () => {
+    const onStop = vi.fn();
+    mount(<ResearchProgress state={replay(FRAMES)} onStop={onStop} stopping />);
+    const button = screen.getByRole("button", { name: "Stopping…" });
+    expect(button).toBeDisabled();
+  });
+
+  it("offers no stop where there is nothing left to stop", () => {
+    // A finished run, a failed one and one already stopped have no work
+    // left to end, and a control that did nothing would be the same lie in
+    // the other direction.
+    const finished = applyResearchFrame(replay(FRAMES), {
+      kind: "research_complete",
+      data: REPORT as unknown as Record<string, unknown>,
+    });
+    mount(<ResearchProgress state={finished} onStop={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: /stop/i })).not.toBeInTheDocument();
+    cleanup();
+
+    const failed = applyResearchFrame(replay(FRAMES), {
+      kind: "error",
+      data: { message: "This run stopped before it could finish." },
+    });
+    mount(<ResearchProgress state={failed} onStop={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: /stop/i })).not.toBeInTheDocument();
+    cleanup();
+
+    mount(<ResearchProgress state={stoppedState()} onStop={vi.fn()} />);
+    expect(screen.queryByRole("button", { name: /stop/i })).not.toBeInTheDocument();
+  });
+
+  /* ---------------------------------------------------------------- */
+  /* The stop — a run somebody ended is not a run that went wrong      */
+  /* ---------------------------------------------------------------- */
+
+  /** The run as it comes back from `POST .../cancel`, mid-measurement. */
+  function stoppedState(): ResearchWatchState {
+    return applyResearchFrame(replay(FRAMES.slice(0, 4)), {
+      kind: "research_cancelled",
+      data: {
+        id: "dr_test",
+        message:
+          "This run was stopped on request, so nothing was published. What it had got through is kept.",
+      },
+    });
+  }
+
+  it("settles on the stop frame without calling it a failure", () => {
+    const stopped = stoppedState();
+    expect(stopped.run.status).toBe("cancelled");
+    // The `error` frame is the other thing entirely, and the two must not
+    // collapse: one is the platform failing, the other is the reader
+    // deciding.
+    expect(stopped.run.status).not.toBe("failed");
+  });
+
+  it("renders a stopped run in the calm register, saying plainly what happened", () => {
+    const { container } = mount(<ResearchProgress state={stoppedState()} />);
+    expect(container.querySelector("[data-research-progress]")).toHaveAttribute(
+      "data-research-progress",
+      "cancelled",
+    );
+    expect(screen.getByText(/Stopped working through/)).toBeInTheDocument();
+    expect(
+      screen.getByText(/stopped on request, so nothing was published/),
+    ).toBeInTheDocument();
+    // NOT the warning register. Reporting somebody's own decision back to
+    // them in red is how you teach them never to press it again.
+    expect(screen.queryByRole("alert")).not.toBeInTheDocument();
+    // Nothing partial is published, so nothing partial is promised.
+    expect(screen.queryByText(/You can leave this page/)).not.toBeInTheDocument();
+  });
+
+  it("says how far the stopped run got, without claiming the angle it stopped on", () => {
+    mount(<ResearchProgress state={stoppedState()} />);
+    expect(screen.getByText(/It had reached angle 3 of 8/)).toBeInTheDocument();
+  });
+
+  it("keeps a refused stop off the run it failed to stop", () => {
+    // The run is still going and still drawn; the only thing that failed
+    // is the request to end it, so that is the only thing this says.
+    mount(
+      <ResearchProgress
+        state={replay(FRAMES)}
+        onStop={vi.fn()}
+        stopError="this run could not be stopped: HTTP 503"
+      />,
+    );
+    expect(screen.getByRole("alert")).toHaveTextContent("HTTP 503");
+    expect(screen.getByText("Running the analysis")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Stop this run" })).toBeInTheDocument();
   });
 
   it("names the angles only once the platform has named them", () => {
@@ -819,8 +920,8 @@ describe("the report — the headline determination", () => {
     const figure = container.querySelector('[data-key-figure="Expected recoverable"]');
     expect(figure).not.toBeNull();
     // The point estimate AND both bounds are inside the same cell.
-    expect(figure).toHaveTextContent("$1,167,668.88");
-    expect(figure).toHaveTextContent("Between $874,052.42 and $1,518,693.69");
+    expect(figure).toHaveTextContent("$309,129.94");
+    expect(figure).toHaveTextContent("Between $224,079.89 and $436,678.86");
     expect(figure).toHaveTextContent("95% interval");
   });
 
@@ -859,7 +960,7 @@ describe("the report — evidence tier decides the row treatment", () => {
     expect(row).toBeDefined();
     expect(row).toHaveTextContent("58.3%");
     expect(row).toHaveTextContent("42.2%–72.9%");
-    expect(row).toHaveTextContent("$22,964.69");
+    expect(row).toHaveTextContent("$5,974.52");
     expect(row).not.toHaveTextContent("Not estimable");
   });
 
@@ -987,24 +1088,29 @@ describe("the report — the caveats go through the existing fold", () => {
   it("counts them on one line and titles every one when it opens", async () => {
     mountReport();
     const fold = screen.getByRole("button", { name: /things to know/ });
-    expect(fold).toHaveTextContent("9 things to know");
+    expect(fold).toHaveTextContent("13 things to know");
     await userEvent.click(fold);
 
     // Every title is the one `warnings.ts` publishes for the code —
     // nothing here renders an ALL_CAPS handle at a reader. The censoring
-    // code is raised four times with four different sentences, so its
-    // title appears once per sentence rather than being collapsed onto a
-    // count that would hide three of them.
+    // code is raised once per sentence, so its title appears once per
+    // sentence rather than being collapsed onto a count that would hide
+    // the rest of them. Seven, since the review: the four the denominator
+    // costs, plus the waiting periods, where they do and do not apply, and
+    // what the answered-only denominator left behind.
     for (const title of [
       "Only your own data was used",
       "How these ranges combine",
+      // Two limits on one figure, and two titles: how the ranges add up is
+      // a different fact from what the range does not move with.
+      "What the range does not move with",
       "Small groups were set aside, not guessed",
       "Some dollars could not be estimated yet",
       "Read the best and worst with care",
     ]) {
       expect(screen.getByText(title)).toBeInTheDocument();
     }
-    expect(screen.getAllByText("Still-open cases are not counted either way")).toHaveLength(4);
+    expect(screen.getAllByText("Still-open cases are not counted either way")).toHaveLength(7);
     expect(screen.queryByText(/DEEP_RESEARCH_/)).not.toBeInTheDocument();
   });
 });
@@ -1345,7 +1451,7 @@ describe("the export — every row, under every caveat", () => {
 
   it("opens with the determination, its interval and the censoring statements", () => {
     expect(csv).toContain("# Revi — deep research:");
-    expect(csv).toContain("$1,167,668.88, between $874,052.42 and $1,518,693.69");
+    expect(csv).toContain("$309,129.94, between $224,079.89 and $436,678.86");
     expect(csv).toContain("counted in neither the wins nor the losses");
   });
 
@@ -1558,8 +1664,44 @@ describe("the study report", () => {
     );
     expect(rows.length).toBeGreaterThanOrEqual(withheld.length);
     // A withheld figure exports EMPTY, never zero: a zero in a spreadsheet
-    // column is a measurement the run never made.
-    for (const row of rows) expect(row).not.toMatch(/,0,/);
+    // column is a measurement the run never made. Checked by COLUMN rather
+    // than by scanning the line, because a legitimate zero lives on every
+    // row — the opening round is round 0 — and a regex over the whole row
+    // reads that as a published figure.
+    // A quoted-aware split: a reason or a settled sentence carries commas,
+    // and a naive one would read the wrong column and pass for the wrong
+    // reason.
+    const fields = (line: string) => {
+      const out: string[] = [];
+      let cell = "";
+      let quoted = false;
+      for (let i = 0; i < line.length; i += 1) {
+        const ch = line[i];
+        if (quoted) {
+          if (ch === '"' && line[i + 1] === '"') {
+            cell += '"';
+            i += 1;
+          } else if (ch === '"') quoted = false;
+          else cell += ch;
+        } else if (ch === '"') quoted = true;
+        else if (ch === ",") {
+          out.push(cell);
+          cell = "";
+        } else cell += ch;
+      }
+      out.push(cell);
+      return out;
+    };
+    const columns = fields(header!);
+    const at = (row: string, name: string) => fields(row)[columns.indexOf(name)];
+    for (const row of rows) {
+      expect(at(row, "value")).toBe("");
+      // And a ceiling never ships the two counts that reconstruct it.
+      if (at(row, "is_ceiling") === "yes") {
+        expect(at(row, "population")).toBe("");
+        expect(at(row, "successes")).toBe("");
+      }
+    }
   });
 });
 

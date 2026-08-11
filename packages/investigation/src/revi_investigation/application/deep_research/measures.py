@@ -31,8 +31,8 @@ teach this module.
 from __future__ import annotations
 
 import time
-from collections.abc import Mapping, Sequence
-from dataclasses import dataclass, field
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import dataclass, field, replace
 from datetime import date
 from decimal import Decimal
 
@@ -63,13 +63,20 @@ from revi_investigation.application.execution import (
     bound_index,
 )
 from revi_investigation.application.ports import EvidenceCache
+from revi_investigation.application.window_maturity import (
+    WindowMaturity,
+    WindowMaturityService,
+    covered_months,
+)
 from revi_kernel.capabilities import AnalyticalRepository
 from revi_kernel.errors import ReviError
 from revi_kernel.filters import FilterExpr, Predicate, PredicateOp, and_merge
 from revi_kernel.frame import EvidenceFrame
+from revi_kernel.maturity import bucket_end
 from revi_kernel.probes import AggregationProbe, Ordering, SnapshotProbe, probe_hash
 from revi_kernel.refs import DateBasisRef, DimensionRef, Grain, MetricRef, TimeBucket
 from revi_kernel.scope import AbsoluteRange, TimeWindow
+from revi_kernel.watermark import DataWatermark
 from revi_statistics import contrast_counts, wilson_interval
 from revi_statistics_contracts.contract import Contrast, EstimationPolicy
 
@@ -117,6 +124,22 @@ class MeasureCell:
     #: population. Never invented for an additive measure.
     interval_low: Decimal | None = None
     interval_high: Decimal | None = None
+    #: How this cell's PERIOD reads, when the reading has a time axis —
+    #: "Jul 2026". Empty on a reading with no time bucket.
+    period_label: str = ""
+    #: How this cell's GROUP reads — every part except the period. Empty on
+    #: a reading with no breakdown. Published separately from ``label``
+    #: because a reading may carry BOTH axes, and a sentence or a chart that
+    #: cannot tell them apart treats a payer as a month (see ``_settled``).
+    group_label: str = ""
+    #: True when this cell's own period reaches into data the source has
+    #: not finished with — the settling verdict the conversational path
+    #: publishes as ``adjudication_incomplete``, carried here as a MARK on
+    #: the figure rather than as prose under it. A July service date has had
+    #: about thirty days to be billed, decided and resolved; an August one
+    #: has had a day, and a fall between them is the run-out, not a change
+    #: in performance.
+    censored: bool = False
 
     @property
     def is_measured(self) -> bool:
@@ -149,6 +172,13 @@ class MeasureResult:
     notes: tuple[str, ...] = field(default=())
     window: AbsoluteRange | None = None
     basis: str = ""
+    #: The settling verdicts for this reading's own window and for every
+    #: whole month inside it, from the SAME evaluator the conversational
+    #: path uses. Empty when the window has finished settling, when no
+    #: settling curve could be read, or when no maturity service is wired —
+    #: none of which is evidence that a window is mature, and all of which
+    #: are silence rather than a claim.
+    maturity: tuple[WindowMaturity, ...] = field(default=())
 
     @property
     def cells_published(self) -> int:
@@ -271,13 +301,30 @@ class MeasureAngleRunner:
         catalog: CatalogSnapshot,
         pack: PackPort,
         transforms: TransformPort,
+        window_maturity: WindowMaturityService | None = None,
     ) -> None:
+        """``window_maturity`` is the SAME guard the conversational path
+        runs, injected here rather than reimplemented.
+
+        A study that reads a rate by month over a window ending at the data
+        edge published "fell from 94.8% to 0.0%" as a finding, while the
+        same question asked conversationally came back with
+        ``adjudication_incomplete`` naming the share of the month that had
+        settled. One honesty machine, not two — so the research runner asks
+        the same service the same question about the same windows.
+
+        Optional because it is a dependency of the COMPOSITION ROOT and not
+        of the reading: a deployment or a test that wires no maturity
+        service still runs every angle and publishes what it publishes
+        today. Silence is not a claim that a window is mature.
+        """
         self._repository = repository
         self._cache = cache
         self._catalog = catalog
         self._pack = pack
         self._transforms = transforms
         self._threshold = catalog.suppression.threshold
+        self._window_maturity = window_maturity
 
     def title(self, planned: PlannedAngle) -> str:
         """What this reading will be called, before it has run.
@@ -340,6 +387,17 @@ class MeasureAngleRunner:
 
         folded = self._fold(frame, contract)
         cells = self._cells(folded, angle, contract)
+        maturity = await self._maturity(contract, resolution, window, watermark)
+        cells = _mark_censored(
+            cells,
+            angle,
+            window,
+            maturity,
+            # The load's own newest data date. ``as_of`` is what the loop
+            # passes it as, and the load itself is authoritative wherever a
+            # caller handed one over.
+            watermark.newest_data_date if isinstance(watermark, DataWatermark) else as_of,
+        )
         ranked, refused_reason = _ordering_verdict(cells, planned.shape)
         contrast, subject = self._contrast(cells, planned, contract, policy)
         notes: list[str] = []
@@ -363,6 +421,7 @@ class MeasureAngleRunner:
             ranked=ranked,
             ranking_refused=refused_reason,
             notes=tuple(notes),
+            maturity=maturity,
             window=window,
             basis=(
                 "as of"
@@ -372,6 +431,48 @@ class MeasureAngleRunner:
         )
 
     # -- internals ---------------------------------------------------------
+
+    async def _maturity(
+        self,
+        contract: MetricContract,
+        resolution: BasisResolution | None,
+        window: AbsoluteRange,
+        watermark: object,
+    ) -> tuple[WindowMaturity, ...]:
+        """Has this reading's window finished settling — and its months?
+
+        The same two questions ``_plan_window_maturity`` asks on the
+        conversational path, in the same order and against the same
+        service: the window the reading announces, then every whole
+        calendar month inside it. The months are the half that matters
+        here. A study reads a year, and a year holding eleven settled
+        months and one that is a quarter adjudicated passes as a blend
+        while the point at its end is the whole finding.
+
+        Silent rather than wrong in three cases, none of which says a
+        window is mature: no service wired, an as-of reading (a level has
+        no window to settle), and a caller that did not pass a real load
+        to judge against.
+
+        Costs nothing after the first reading: the settling curve is
+        cached inside the service per load, date basis and population, and
+        every window after that is arithmetic over it.
+        """
+        service = self._window_maturity
+        if service is None or resolution is None:
+            return ()
+        if not isinstance(watermark, DataWatermark):
+            return ()
+        out: list[WindowMaturity] = []
+        for span in dict.fromkeys((window, *covered_months(window))):
+            verdict = await service.verdict_for(
+                TimeWindow(basis=resolution.basis, range=span),
+                grain=contract.entity_grain,
+                watermark=watermark,
+            )
+            if verdict is not None:
+                out.append(verdict)
+        return tuple(out)
 
     async def _read(
         self, probe: AggregationProbe | SnapshotProbe, watermark: object, pack_snapshot_id: str
@@ -443,9 +544,20 @@ class MeasureAngleRunner:
             ):
                 interval = wilson_interval(numerator, population, Decimal("0.95"))
                 low, high = interval.low, interval.high
+            rendered = _rendered_parts(parts, self._catalog, self._pack)
             cells.append(
                 MeasureCell(
                     label=_cell_label(parts, self._catalog, self._pack),
+                    # The two axes, kept apart. A reading may carry a time
+                    # axis AND a breakdown, and everything downstream that
+                    # cannot tell them apart ends up reading a payer as a
+                    # month.
+                    period_label=_join_parts(
+                        text for name, text in rendered if name == bucket_name
+                    ),
+                    group_label=_join_parts(
+                        text for name, text in rendered if name != bucket_name
+                    ),
                     parts=parts,
                     value=value,
                     population=population if counted else None,
@@ -587,10 +699,10 @@ def _period_label(bucket: str, value: str) -> str:
     return moment.strftime(_BUCKET_FORMATS[bucket])
 
 
-def _cell_label(
+def _rendered_parts(
     parts: Sequence[tuple[str, str]], catalog: CatalogSnapshot, pack: PackPort
-) -> str:
-    """A cell named the way the domain names it.
+) -> tuple[tuple[str, str], ...]:
+    """Each ``(dimension, value)`` pair as the domain writes the value.
 
     A bare ``16`` is not a denial reason; ``16 — the title the pack carries``
     is. The pack already holds those titles for the definitional path, and
@@ -601,22 +713,101 @@ def _cell_label(
     holds ``2026-07-01`` because that is what a month IS in the data; a
     reader reads "Jul 2026", and a chart axis or a trend sentence spelling
     the ISO date is this platform's storage format on a default surface.
+
+    The DIMENSION is kept beside the rendered value so a caller can take
+    one axis without the other: the period of a cell without its payer, or
+    the payer without its period.
     """
-    if not parts:
-        return "everything in this population"
-    rendered: list[str] = []
+    out: list[tuple[str, str]] = []
     for name, value in parts:
         if not value:
-            rendered.append("(no value on the record)")
+            out.append((name, "(no value on the record)"))
             continue
         if name in _BUCKET_FORMATS:
-            rendered.append(_period_label(name, value))
+            out.append((name, _period_label(name, value)))
             continue
         title = None
         if name in ("carc", "rarc", "group_code"):
             title = pack.code_title(name, value)
-        rendered.append(f"{value} — {title}" if title else value)
+        out.append((name, f"{value} — {title}" if title else value))
+    return tuple(out)
+
+
+def _join_parts(rendered: Iterable[str]) -> str:
+    """Rendered values as one label, in the order the reading holds them."""
     return " / ".join(rendered)
+
+
+def _cell_label(
+    parts: Sequence[tuple[str, str]], catalog: CatalogSnapshot, pack: PackPort
+) -> str:
+    """A cell named the way the domain names it, both axes included."""
+    if not parts:
+        return "everything in this population"
+    return _join_parts(text for _, text in _rendered_parts(parts, catalog, pack))
+
+
+def _month_start(day: date) -> date:
+    return date(day.year, day.month, 1)
+
+
+def _bucket_start(value: str) -> date | None:
+    """The first date of one time bucket, off the column's own value."""
+    try:
+        return date.fromisoformat(value[:10])
+    except ValueError:
+        return None
+
+
+def _mark_censored(
+    cells: Sequence[MeasureCell],
+    angle: MeasureAngle,
+    window: AbsoluteRange,
+    maturity: Sequence[WindowMaturity],
+    edge: date | None,
+) -> tuple[MeasureCell, ...]:
+    """Put the data edge's verdict on the FIGURES it applies to.
+
+    A caveat that lives only in prose under a chart is one a reader can
+    read past, an exporter drops and a renderer cannot draw: the same
+    failure bounds-as-data exists to prevent. So the mark goes on the cell.
+
+    TWO WAYS A PERIOD IS CENSORED, and the same two the kernel names
+    (:class:`revi_kernel.maturity.CensoringKind`):
+
+    * **still settling** — the settling curve says this month holds a
+      fraction of the records a settled month of its length holds. That is
+      the service's verdict, and it needs the load's own curve;
+    * **calendar-partial** — the bucket's period runs past the newest data
+      date. August on a load ending August 2 is two days of a month, and
+      that is arithmetic over the load's own edge: no curve, no service and
+      no judgement is involved, so it is marked whether or not a maturity
+      service is wired. This is the mark the published "0.0% in Aug 2026"
+      never carried.
+
+    A bucket is attributed to the month it STARTS in, which is the month
+    its records were dated into. On a reading with no time axis every cell
+    is over the one window the reading announced, so a verdict on that
+    window marks all of them.
+    """
+    months = set(covered_months(window))
+    censored_months = {
+        verdict.window.start for verdict in maturity if verdict.window in months
+    }
+    whole_window = any(verdict.window == window for verdict in maturity)
+    bucket_name = angle.step.value if angle.step is not None else None
+    if bucket_name is None:
+        return tuple(replace(cell, censored=True) for cell in cells) if whole_window else tuple(cells)
+    out: list[MeasureCell] = []
+    for cell in cells:
+        raw = dict(cell.parts).get(bucket_name, "")
+        start = _bucket_start(raw) if raw else None
+        censored = start is not None and _month_start(start) in censored_months
+        if not censored and raw and edge is not None:
+            covered_through = bucket_end(raw, bucket_name)
+            censored = covered_through is not None and covered_through > edge
+        out.append(replace(cell, censored=True) if censored else cell)
+    return tuple(out)
 
 
 def _ordering_verdict(

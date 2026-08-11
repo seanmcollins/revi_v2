@@ -24,6 +24,7 @@ from __future__ import annotations
 import time
 from collections.abc import Sequence
 from dataclasses import dataclass, field
+from decimal import Decimal
 
 from revi_investigation.application.deep_research import copy as words
 from revi_investigation.application.deep_research.grammar import (
@@ -40,10 +41,12 @@ from revi_investigation.application.deep_research.policy import (
 from revi_investigation.application.deep_research.rows import DenialRows
 from revi_statistics import (
     compare_rate_cells,
+    deadline_rates,
     delay_effect_curve,
     estimate_durations,
     estimate_rates,
     expected_recovery,
+    severity_ratios,
 )
 from revi_statistics_contracts.contract import (
     Contrast,
@@ -150,6 +153,47 @@ def _refused_contrast(reason: str, policy: EstimationPolicy) -> Contrast:
         test=ContrastTest.REFUSED,
         min_cohort=policy.min_cohort,
         refusal_reason=reason,
+    )
+
+
+def _transfer_note(
+    rows: DenialRows, *, settings: DeepResearchSettings, policy: EstimationPolicy
+) -> str | None:
+    """How far the answered mix is from the open mix, in the reader's terms.
+
+    The rate is conditional on somebody having worked the denial and the
+    payer having answered. Staff work what wins, so the answered set
+    over-represents the kinds of denial that come back — and the open
+    inventory over-represents the kinds that do not. That gap is the whole
+    selection effect, and it is stated with both shares rather than
+    gestured at.
+    """
+    by_class = estimate_rates(
+        rows.rows,
+        basis=RateBasis.DECIDED,
+        stratify_by=(Stratifier.RECOVERY_CLASS,),
+        policy=policy,
+        as_of=rows.as_of,
+    )
+    ranked = _measured(list(by_class.cells))
+    if len(ranked) < 3:
+        return None
+    weakest = ranked[-2:]
+    names = {cell.stratum.value_of(Stratifier.RECOVERY_CLASS) for cell in weakest}
+    answered_total = sum(cell.n for cell in by_class.cells)
+    answered_weak = sum(cell.n for cell in weakest)
+    open_rows = rows.open_rows
+    open_total = sum(row.denied_amount_cents for row in open_rows)
+    open_weak = sum(row.denied_amount_cents for row in open_rows if row.recovery_class in names)
+    if not answered_total or not open_total:
+        return None
+    return words.pursuit_transfer_statement(
+        worked_share=Decimal(answered_weak) / Decimal(answered_total),
+        open_share=Decimal(open_weak) / Decimal(open_total),
+        weakest=tuple(
+            settings.value_label("recovery_class", name)
+            for name in sorted(n for n in names if n is not None)
+        ),
     )
 
 
@@ -376,11 +420,34 @@ def run_expected_recovery(
     denials still open. A population whose own history could not support a
     rate is priced at nothing and listed at full value — never at a pooled
     rate, a neighbour's rate, or an industry figure.
+
+    Three estimates go in, and all three are required by the estimator's
+    signature rather than defaulted: the population's own decided rate (the
+    gate), the rate on each side of the filing deadline (so past-deadline
+    dollars are not priced as if they were still catchable), and what a win
+    actually returns on the denied dollar (so a win is not priced at a
+    hundred cents). Any one of them missing is the overstatement this angle
+    exists to avoid, which is why none of them has a default.
+
+    **The plan's cut is honoured.** If a stratifier the plan asked for has
+    no band edges in the content, it is dropped — and the drop is returned
+    as a note so the report says the cut it actually ran, rather than
+    quietly pricing a coarser population than the reader approved.
     """
     started = time.monotonic()
-    strata = _strata(angle, settings)
+    asked = drop_unsupported(angle.stratify_by, settings)
+    strata = tuple(stratifier_of(stratum) for stratum in asked)
     if not strata:
         raise AngleRefused("this cut needs band edges the content does not define")
+    notes: tuple[str, ...] = ()
+    if len(asked) != len(angle.stratify_by):
+        dropped = [s for s in angle.stratify_by if s not in asked]
+        notes = (
+            words.coarsened_statement(
+                ran=tuple(settings.stratifier_label(s).lower() for s in asked),
+                dropped=tuple(settings.stratifier_label(s).lower() for s in dropped),
+            ),
+        )
     evidence = estimate_rates(
         rows.rows,
         basis=RateBasis.DECIDED,
@@ -388,20 +455,39 @@ def run_expected_recovery(
         policy=policy,
         as_of=rows.as_of,
     )
+    severity = severity_ratios(
+        rows.rows, stratify_by=strata, policy=policy, as_of=rows.as_of
+    )
+    if not severity.population.is_measured:
+        raise AngleRefused(
+            "too few of these denials have come back with money on them to say what a "
+            "win is worth, and pricing a win at the full denied amount would overstate "
+            "every figure here"
+        )
     priced = expected_recovery(
         rows.open_rows,
         rates=evidence,
+        deadlines=deadline_rates(
+            rows.rows, stratify_by=strata, policy=policy, as_of=rows.as_of
+        ),
+        severity=severity,
         stratify_by=strata,
         policy=policy,
         as_of=rows.as_of,
     )
+    transfer = _transfer_note(rows, settings=settings, policy=policy)
+    if transfer is not None:
+        notes = (*notes, transfer)
     return AngleResult(
         angle=angle,
         title=settings.angle(str(angle.family)).title,
-        estimator="estimate_rates[decided] + expected_recovery",
+        estimator=(
+            "estimate_rates[decided] + deadline_rates + severity_ratios + expected_recovery"
+        ),
         duration_ms=int((time.monotonic() - started) * 1000),
         rates=evidence,
         expected=priced,
+        notes=notes,
     )
 
 

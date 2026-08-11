@@ -59,7 +59,7 @@ export function ResearchHeadlineFigures({
       <KeyFigure
         emphasis
         label="Expected recoverable"
-        labelDetail="Each population's open denials priced at that population's own measured recovery rate, and summed. Only populations this organization's own history can price are in it."
+        labelDetail="Each population's open denials split by whether the filing deadline has passed, each side priced at the rate denials on that side come back at, and multiplied by what a win actually returns on the denied dollar. Only populations this organization's own history can price are in it."
         value={formatCents(headline.total_expected_cents)}
         context={
           <>
@@ -74,13 +74,34 @@ export function ResearchHeadlineFigures({
             )}
             <span className="mt-1 block leading-snug">
               {confidence !== "" && `A ${confidence} interval. `}
-              {headline.range_assumes_independence
-                ? "It is the sum of each population's own range, so read it as a spread rather than a guarantee."
+              {headline.range_is_summed_endpoints
+                ? "It is the sum of each population's own range — the widest way to add ranges up — so read it as a spread rather than a guarantee."
                 : "Read it as a spread rather than a guarantee."}
+              {/* WHAT THE BAND DOES NOT MOVE WITH. Only the recovery rate
+                  varies inside it; the denied amounts and the share of a
+                  denied dollar a win returns enter as known quantities. A
+                  band drawn around money reads as a band on the money, and
+                  this is the sentence that stops it. */}
+              {headline.amounts_treated_as_known &&
+                " It moves with the recovery rate only — the denied amounts are treated as known, so the true spread is wider."}
             </span>
           </>
         }
       />
+
+      {/* HOW THE FIGURE WAS BUILT, in the server's own sentence.
+
+          The construction is not a footnote about the headline: it is what
+          makes the headline checkable against the tables below it. A
+          reader who cannot see that past-deadline dollars were priced at
+          the past-deadline rate, and that a win was priced at what a win
+          returns, has no way to tell this figure from the one that
+          multiplied a count rate by the full denied amount. */}
+      {headline.construction !== "" && (
+        <p className="num max-w-[68ch] text-meta leading-snug text-muted-foreground">
+          {headline.construction}
+        </p>
+      )}
 
       {/* WHAT THE FIGURE WAS TAKEN OVER, and what it left out. Derived from
           the headline payload itself rather than restated from a warning:
@@ -98,6 +119,14 @@ export function ResearchHeadlineFigures({
             {formatCents(headline.unpriced_open_dollars_cents)}
             {unpriced !== undefined && ` — ${formatPct(unpriced)} of the open denied dollars`} — is
             in populations your own history cannot price yet, and is not in the figure above.
+          </>
+        )}
+        {headline.unpriced_position_dollars_cents > 0 && (
+          <>
+            {" "}
+            A further {formatCents(headline.unpriced_position_dollars_cents)} sits on a side of the
+            filing deadline too few answered denials have reached for a rate to be published, and is
+            not in the figure above either.
           </>
         )}
       </p>

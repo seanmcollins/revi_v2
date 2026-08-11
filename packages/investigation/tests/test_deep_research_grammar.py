@@ -242,13 +242,31 @@ class TestTheFingerprint:
             research_question="q",
             angles=[
                 ResearchAngle(
-                    family=AngleFamily.EXPECTED_RECOVERY, stratify_by=(Stratum.PAYER,)
+                    family=AngleFamily.EXPECTED_RECOVERY, stratify_by=(Stratum.PLAN,)
                 )
             ],
         )
         assert plan_fingerprint(wide, TargetPopulation()) != plan_fingerprint(
             narrow, TargetPopulation()
         )
+
+    def test_a_pricing_cut_always_carries_the_kind_of_denial(self) -> None:
+        """Payer-only pricing charges the winning classes' rate to the losing
+        classes' dollars, so the cut is completed rather than honoured as asked."""
+        plan = validate_plan(
+            research_question="q",
+            angles=[
+                ResearchAngle(
+                    family=AngleFamily.EXPECTED_RECOVERY, stratify_by=(Stratum.PAYER,)
+                )
+            ],
+        )
+        pricing = next(
+            angle
+            for angle in plan.angles
+            if angle.family is AngleFamily.EXPECTED_RECOVERY
+        )
+        assert pricing.stratify_by == (Stratum.PAYER, Stratum.RECOVERY_CLASS)
 
 
 class TestTheContentDecidesWhatCanBeCut:

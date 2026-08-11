@@ -261,6 +261,12 @@ _RULES: tuple[_Rule, ...] = (
     _rule("DEEP_RESEARCH_THIN_ROLLUP", INFO, r"^deep_research_thin_rollup:"),
     _rule("DEEP_RESEARCH_EXTREMES", CAUTION, r"^deep_research_extremes:"),
     _rule("DEEP_RESEARCH_INDEPENDENCE", CAUTION, r"^deep_research_independence:"),
+    # What the band does NOT move with. Distinct from the combination
+    # rule above and deliberately not folded into it: "these ranges add
+    # up the widest way" and "the dollar amounts inside them are treated
+    # as known" are two different limits on one figure, and one title
+    # over both would hide whichever the reader did not already suspect.
+    _rule("DEEP_RESEARCH_AMOUNTS_KNOWN", CAUTION, r"^deep_research_amounts_known:"),
     _rule("DEEP_RESEARCH_ANGLE_REFUSED", CAUTION, r"^deep_research_angle_refused:"),
     _rule("DEEP_RESEARCH_CENSORING", INFO, r"^deep_research_censoring:"),
     _rule("DEEP_RESEARCH_NO_PRIOR", INFO, r"^deep_research_no_prior:"),

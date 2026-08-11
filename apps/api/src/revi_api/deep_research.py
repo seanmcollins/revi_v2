@@ -22,12 +22,23 @@ when the run starts — its identity, its plan, its population — and rewritten
 with the report when it finishes. In between, nothing partial is stored: a
 process that dies mid-run leaves a record saying a run started and never
 completed, which is exactly what happened, and no half-priced total.
+
+**A run can be stopped, and stopping is a different fact from dying.** A
+run is about a minute of real work and a real model call, so the person
+who started one may end it: the loop yields between readings, the stop
+lands on one of those boundaries, the task carrying the model call is
+cancelled and the spend stops with it. What the run had got to is written
+to its own trace — ``cancelled``, when, how far — because "somebody
+stopped this" is a thing that happened and the record should say so.
+``interrupted`` keeps its older, weaker meaning: nobody asked, the process
+died, and all we can honestly claim is that the run started.
 """
 
 from __future__ import annotations
 
 import asyncio
 import contextlib
+import hashlib
 import json
 import logging
 import time
@@ -53,8 +64,9 @@ from revi_investigation.application.deep_research import (
     build_generalized_report,
     planned_reading_payloads,
 )
+from revi_investigation.application.deep_research import copy as words
 from revi_investigation.application.deep_research.general import walk_fingerprint
-from revi_investigation.application.deep_research.loop import population_words
+from revi_investigation.application.deep_research.loop import ResearchPreview, population_words
 from revi_investigation.application.deep_research.report import plan_payload_of
 from revi_investigation.application.deep_research.rows import DeepResearchReadRefused
 from revi_investigation.application.ports import (
@@ -80,6 +92,7 @@ from revi_investigation_contracts.deep_research import (
     DeepResearchRunResponse,
     DeepResearchScopePayload,
     DeepResearchSelector,
+    DeepResearchStatusLiteral,
     DeepResearchSummary,
     GeneralizedResearchPreviewPayload,
     GeneralizedResearchReport,
@@ -111,6 +124,15 @@ logger = logging.getLogger("revi.api.deep_research")
 #: permalink from ever being mistaken for one.
 RUN_ID_PREFIX = "dr_"
 
+#: Prefix on the id a confirmation card carries back. Distinct from a run's
+#: so the two can never be mistaken for one another on the wire.
+PLAN_ID_PREFIX = "pl_"
+
+#: How many previewed plans are remembered at once. A preview is cheap and a
+#: reader may open several cards before confirming one; past this the oldest
+#: are dropped and the run simply re-plans, which is what it did before.
+_PLAN_CACHE_LIMIT = 256
+
 #: The report rides on a supplementary trace beside the run's investigation,
 #: exactly as the narrative validator's record and the worklist page do.
 DEEP_RESEARCH_TRACE_SUFFIX = ":deep_research"
@@ -118,6 +140,31 @@ DEEP_RESEARCH_TRACE_SUFFIX = ":deep_research"
 #: How many frames a late watcher is caught up with. A run emits a few dozen;
 #: this is generous enough that nobody joining mid-run misses the plan.
 _REPLAY_LIMIT = 256
+
+#: What a run that nobody stopped, and that never finished, has to say for
+#: itself. The process died holding it; that is the whole of what is known.
+_INTERRUPTED_MESSAGE = "This run was stopped before it finished, so nothing was published."
+
+#: And what a run somebody stopped has to say. A different sentence for a
+#: different fact: nothing went wrong here, so nothing in it reads as an
+#: apology or as a fault, and it says what survives rather than only what
+#: does not. "On request" rather than "you stopped it" because a second
+#: reader in the same organization may have been the one who pressed it.
+_STOPPED_MESSAGE = (
+    "This run was stopped on request, so nothing was published. "
+    "What it had got through is kept."
+)
+
+#: Every state a run cannot leave. A watcher attaching to one is caught up
+#: from the frames already emitted and released rather than left waiting
+#: for a frame that will never come.
+_SETTLED = ("complete", "failed", "interrupted", "cancelled")
+
+#: And every state a run can still be stopped from. Narrower than "not
+#: settled" on purpose: a run whose report has been composed and stored is
+#: ``complete`` a moment before its task returns, and a stop landing in
+#: that window must not withdraw a report that was already published.
+_STOPPABLE = ("planning", "running")
 
 
 def is_run_id(candidate: str) -> bool:
@@ -164,6 +211,11 @@ class RunState:
     frames: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
     watchers: list[_Watcher] = field(default_factory=list)
     task: asyncio.Task[None] | None = None
+    #: Somebody asked for this run to stop. Set before the task is
+    #: cancelled and read when the cancellation lands, because that is the
+    #: only thing that distinguishes the two ways a run ends without
+    #: finishing: a request, or a process that died holding it.
+    stop_requested: bool = False
 
     def response(self) -> DeepResearchRunResponse:
         return DeepResearchRunResponse(
@@ -209,14 +261,23 @@ def _selector(request: StartDeepResearchRequest) -> TargetPopulation:
         raise UnsupportedConceptError(str(exc)) from exc
 
 
-def _other_populations(selector: DeepResearchSelector) -> list[DeepResearchSelector]:
+def _other_populations(
+    selector: DeepResearchSelector,
+    narrowings: Sequence[Any] = (),
+) -> list[DeepResearchSelector]:
     """The other populations this same offer could honestly run over.
 
-    Derived from the selector itself and from nothing else — every open
-    denial, and each named value on its own where the offer names several.
-    A client that had to invent alternatives would be widening a scope
-    nobody asked it to widen; a client offered a closed selector posts
-    exactly what it was given.
+    Two directions, and until now only one of them existed. WIDER comes
+    from the selector itself: every open denial, and each named value on
+    its own where the offer names several. NARROWER comes from the census
+    the preview already read — where the open money actually is — because
+    a reader looking at every open denial wants to cut it down, and being
+    offered only "every open denial" when that is what they are already
+    looking at is an empty affordance on the most ambiguous question the
+    surface accepts.
+
+    Nothing is invented: every narrowing names a population read off the
+    same rows the preview counted, and only ones large enough to name.
     """
     options: list[DeepResearchSelector] = []
     if selector.kind != "all_open":
@@ -225,6 +286,15 @@ def _other_populations(selector: DeepResearchSelector) -> list[DeepResearchSelec
         options.extend(
             DeepResearchSelector(kind=selector.kind, values=[value], label=value)
             for value in selector.values
+        )
+    if selector.kind == "all_open":
+        options.extend(
+            DeepResearchSelector(
+                kind=option.kind,  # type: ignore[arg-type]
+                values=[option.value],
+                label=words.population_label(option.kind, (option.value,)),
+            )
+            for option in narrowings
         )
     return options
 
@@ -293,6 +363,14 @@ class DeepResearchApi:
         self._research = research
         self._catalog = catalog
         self._runs: dict[str, RunState] = {}
+        #: Plans a reader has been shown, by the id the card carries. A
+        #: confirmation that re-planned from the question would be a
+        #: confirmation of a SAMPLE — the reader approves one set of
+        #: readings and the run takes another, both legitimately drawn from
+        #: the same question. Keeping the resolved plan here is what makes
+        #: "the plan you approved is the plan that ran" a fact rather than a
+        #: hope. Bounded, because an unbounded one is a leak.
+        self._plans: dict[str, tuple[str, ResearchPreview]] = {}
 
     # -- the dry run ---------------------------------------------------------
 
@@ -344,7 +422,7 @@ class DeepResearchApi:
                     open_dollars_cents=resolved.open_dollars_cents,
                 ),
                 plan=plan_payload_of(resolved.plan, settings),
-                options=_other_populations(selector),
+                options=_other_populations(selector, resolved.narrowings),
                 data_load_label=(
                     f"the load through {watermark.newest_data_date.strftime('%b %-d, %Y')}"
                 ),
@@ -386,7 +464,52 @@ class DeepResearchApi:
         except Exception:  # pragma: no cover - defensive
             logger.exception("generalized research preview failed")
             return None
-        return generalized_preview_payload(resolved, self._catalog)
+        plan_id = self._remember_plan(question, population, watermark, resolved)
+        return generalized_preview_payload(resolved, self._catalog, plan_id=plan_id)
+
+    def _plan_key(
+        self, question: str, population: TargetPopulation, watermark: DataWatermark
+    ) -> str:
+        """What a confirmed plan is only valid for.
+
+        The same readings over a different population, a different period
+        of data, or a different question are a different analysis. A plan
+        id that outlived any of those would let a confirmation authorise a
+        run the reader never saw."""
+        parts = (question, str(population.kind), *population.values, watermark.id)
+        return hashlib.sha256("\x1f".join(parts).encode("utf-8")).hexdigest()
+
+    def _remember_plan(
+        self,
+        question: str,
+        population: TargetPopulation,
+        watermark: DataWatermark,
+        resolved: ResearchPreview,
+    ) -> str:
+        plan_id = PLAN_ID_PREFIX + uuid.uuid4().hex[:16]
+        if len(self._plans) >= _PLAN_CACHE_LIMIT:
+            for stale in list(self._plans)[: len(self._plans) - _PLAN_CACHE_LIMIT + 1]:
+                self._plans.pop(stale, None)
+        self._plans[plan_id] = (self._plan_key(question, population, watermark), resolved)
+        return plan_id
+
+    def _confirmed_plan(
+        self,
+        plan_id: str | None,
+        question: str,
+        population: TargetPopulation,
+        watermark: DataWatermark,
+    ) -> ResearchPreview | None:
+        """The plan this request confirmed, if it confirmed one that still fits."""
+        if not plan_id:
+            return None
+        remembered = self._plans.get(plan_id)
+        if remembered is None:
+            return None
+        key, resolved = remembered
+        if key != self._plan_key(question, population, watermark):
+            return None
+        return resolved
 
     # -- launch --------------------------------------------------------------
 
@@ -487,9 +610,17 @@ class DeepResearchApi:
                 state, request, session, watermark, settings, llm_policy
             )
         except asyncio.CancelledError:
-            state.status = "interrupted"
-            state.error = "This run was stopped before it finished, so nothing was published."
-            await state.emit("error", {"message": state.error})
+            # TWO WAYS A RUN ENDS WITHOUT FINISHING, AND THEY ARE NOT THE
+            # SAME EVENT. Somebody pressed Stop, or the process carrying
+            # this run was torn down under it. Only the first is a thing a
+            # reader did, and telling them the second in the same words
+            # would report an outage as their own decision.
+            if state.stop_requested:
+                await self._settle_stopped(state)
+            else:
+                state.status = "interrupted"
+                state.error = _INTERRUPTED_MESSAGE
+                await state.emit("error", {"message": state.error})
             raise
         except (DeepResearchReadRefused, ReviError) as refusal:
             state.status = "failed"
@@ -555,13 +686,21 @@ class DeepResearchApi:
                 )
                 await state.emit("research_readings", {"readings": list(seen)})
 
+        question = (request.question or "").strip()
+        population = _selector(request)
         walk, results, orientation = await self._research.run(
-            question=(request.question or "").strip(),
-            population=_selector(request),
+            question=question,
+            population=population,
             settings=settings,
             watermark=watermark,
             pack_snapshot_id=self._pack_snapshot_id,
             progress=progress,
+            # The plan the reader confirmed, when they confirmed one. The
+            # loop re-plans only the rounds beyond it — the ones nobody
+            # previewed, because nobody could have.
+            confirmed=self._confirmed_plan(
+                request.plan_id, question, population, watermark
+            ),
         )
         if not results:
             return False
@@ -729,6 +868,57 @@ class DeepResearchApi:
             )
         )
 
+    async def _write_stopped_trace(self, state: RunState) -> None:
+        """What a stopped run leaves behind: that it was stopped, and how far.
+
+        The row the start wrote is UPDATED rather than replaced, so the
+        run's identity, its question and its population survive exactly as
+        they were recorded and only the outcome is written over it. That is
+        what makes a stopped run readable after the process holding it is
+        gone: without this the trace would still read "running", and a
+        permalink opened tomorrow would show a run that has been about to
+        finish since yesterday.
+
+        No report, no findings and no investigation are written, because
+        none were produced. What is added is the account of the stop — when
+        it happened, which phase it landed in, how many rounds had closed
+        and which readings had been taken. Truth relocates, never deletes:
+        a run that measured four of nine readings measured four, and the
+        record says four rather than nothing.
+        """
+        trace_id = f"{state.id}{DEEP_RESEARCH_TRACE_SUFFIX}"
+        existing = await self._traces.get(trace_id)
+        payload: dict[str, Any] = (
+            dict(existing.payload)
+            if existing is not None
+            else {
+                "mode": "deep_research",
+                "tenant": state.tenant,
+                "question": state.research_question,
+                "population": state.population.model_dump(mode="json"),
+            }
+        )
+        payload.update(
+            {
+                "status": "cancelled",
+                "stopped_at": datetime.now(UTC).isoformat(),
+                "data_load_label": state.data_load_label,
+                "progress": state.progress.model_dump(mode="json"),
+                "rounds_completed": state.progress.round_index or 0,
+                "readings_taken": _readings_taken(state),
+            }
+        )
+        await self._traces.save(
+            TraceRecord(
+                trace_id=trace_id,
+                session_id=state.session_id,
+                investigation_id=state.id,
+                turn_id=state.id,
+                created_at=state.created_at,
+                payload=payload,
+            )
+        )
+
     async def _persist(
         self,
         state: RunState,
@@ -845,19 +1035,24 @@ class DeepResearchApi:
             raise ReferentNotFoundError(f"no deep research run {run_id!r}")
         stored = payload.get("report")
         if not isinstance(stored, dict):
-            # A run whose process died mid-flight. The trace says it started
-            # and never finished, which is the whole truth about it.
+            # A run that published no report. Either somebody stopped it,
+            # and the stop recorded how far it had got, or its process died
+            # holding it and the trace says only that it started. The row
+            # is the authority on which of the two happened; neither is
+            # inferred from the absence of a report.
+            stopped = str(payload.get("status", "")) == "cancelled"
             return DeepResearchRunResponse(
                 id=run_id,
                 session_id=record.session_id,
-                status="interrupted",
+                status="cancelled" if stopped else "interrupted",
                 created_at=record.created_at,
                 population=DeepResearchSelector.model_validate(
                     payload.get("population") or {}
                 ),
-                data_load_label="",
-                progress=DeepResearchProgressPayload(phase="execute"),
-                error="This run was stopped before it finished, so nothing was published.",
+                data_load_label=str(payload.get("data_load_label", "")),
+                research_question=str(payload.get("question", "")),
+                progress=_stored_progress(payload),
+                error=_STOPPED_MESSAGE if stopped else _INTERRUPTED_MESSAGE,
             )
         if str(payload.get("report_kind", "")) == "generalized":
             study = GeneralizedResearchReport.model_validate(stored)
@@ -950,11 +1145,21 @@ class DeepResearchApi:
                     else:
                         report = DeepResearchReport.model_validate(stored)
                 finished = report is not None or study is not None
+                # A run with no report either was stopped or was lost, and
+                # the row says which. A list that called every unfinished
+                # run "interrupted" would report a reader's own decision
+                # back to them as a failure.
+                unfinished: DeepResearchStatusLiteral = (
+                    "cancelled"
+                    if record is not None
+                    and str(record.payload.get("status", "")) == "cancelled"
+                    else "interrupted"
+                )
                 summaries.append(
                     DeepResearchSummary(
                         id=investigation.id,
                         session_id=session.id,
-                        status="complete" if finished else "interrupted",
+                        status="complete" if finished else unfinished,
                         created_at=investigation.created_at,
                         research_question=investigation.question or "",
                         population=(
@@ -995,7 +1200,7 @@ class DeepResearchApi:
             raise ReferentNotFoundError(f"no deep research run {run_id!r}")
         watcher = _Watcher(queue=asyncio.Queue())
         replay = list(state.frames)
-        finished = state.status in ("complete", "failed", "interrupted")
+        finished = state.status in _SETTLED
         if not finished:
             state.watchers.append(watcher)
         try:
@@ -1012,14 +1217,127 @@ class DeepResearchApi:
             with contextlib.suppress(ValueError):
                 state.watchers.remove(watcher)
 
-    async def cancel(self, principal: Principal, run_id: str) -> None:
+    # -- stop ----------------------------------------------------------------
+
+    async def cancel(self, principal: Principal, run_id: str) -> DeepResearchRunResponse:
+        """Stop a run, and answer with the run it stopped.
+
+        THE SPEND IS THE REASON THIS EXISTS. A run is about a minute of
+        real work and a real model call, both awaited inside the task this
+        cancels, so cancelling it unwinds the model call at its own await
+        and the meter stops. Without this route a reader who changed their
+        mind could only close the tab, which stops the watching and none of
+        the spending.
+
+        IT LANDS ON A BOUNDARY, NOT MID-ESTIMATE. Both loops yield between
+        readings for exactly this reason, so a stopped run is stopped
+        between two measurements rather than half way through one — the
+        same discipline that keeps a partial figure from ever existing to
+        be persisted.
+
+        WHAT IS ANSWERED IS THE RUN. The same shape the run's own GET
+        returns, with ``cancelled`` on it, so the surface that pressed Stop
+        renders the outcome from the response rather than inferring it.
+
+        Stopping something already finished is not an error and does not
+        rewrite it: a run that has published its report keeps it, and the
+        answer is that report. The only refusal here is the one every other
+        read makes — an unknown run, or one belonging to somebody else, is
+        a miss.
+        """
         state = self._runs.get(run_id)
-        if state is None or state.tenant != principal.tenant:
+        if state is None:
+            # Nothing in flight in this process. The stored run is the
+            # honest answer, and its own read refuses an unknown run and a
+            # foreign tenant's run in exactly the same words.
+            return await self.get(principal, run_id)
+        if state.tenant != principal.tenant:
             raise ReferentNotFoundError(f"no deep research run {run_id!r}")
-        if state.task is not None and not state.task.done():
-            state.task.cancel()
-            with contextlib.suppress(asyncio.CancelledError):
-                await state.task
+        if state.task is None or state.task.done() or state.status not in _STOPPABLE:
+            return state.response()
+        state.stop_requested = True
+        state.task.cancel()
+        with contextlib.suppress(asyncio.CancelledError):
+            await state.task
+        # Belt and braces: a task cancelled before its first step never
+        # reaches the handler inside ``_run``, and a run left "planning"
+        # with watchers still attached is the hang this route exists to
+        # prevent. ``_settle_stopped`` acts only on a run that is still
+        # going, so the ordinary path — where the handler already ran —
+        # passes through it untouched, and a run that finished inside the
+        # same tick keeps the outcome it earned.
+        await self._settle_stopped(state)
+        if state.status == "cancelled":
+            await self._write_stopped_trace(state)
+        return state.response()
+
+    async def _settle_stopped(self, state: RunState) -> None:
+        """Mark a stopped run stopped, tell its watchers, release them.
+
+        One place, called from both sides of the cancellation, because the
+        alternative is two places that must agree about what a stopped run
+        looks like.
+
+        A run that is no longer going is left exactly as it is. That covers
+        the second call on one stop (idempotent), and the narrower case
+        that matters: a run that composed and stored its report in the tick
+        the stop arrived is ``complete``, and stopping the work that had
+        already produced a report must not withdraw the report.
+        """
+        if state.status not in _STOPPABLE:
+            return
+        state.status = "cancelled"
+        state.error = _STOPPED_MESSAGE
+        await state.emit(
+            "research_cancelled",
+            {
+                "id": state.id,
+                "message": state.error,
+                "progress": state.progress.model_dump(mode="json"),
+            },
+        )
+        state.close()
+
+
+def _stored_progress(payload: Mapping[str, Any]) -> DeepResearchProgressPayload:
+    """How far a run got, as its own record says — or the plainest default.
+
+    A stopped run wrote its progress line down at the moment it stopped, so
+    reading it back is how a permalink shows four readings of nine rather
+    than a bare "stopped". A record with nothing to say gets the default,
+    which asserts only that the run was executing when it ended.
+    """
+    stored = payload.get("progress")
+    if isinstance(stored, Mapping):
+        try:
+            return DeepResearchProgressPayload.model_validate(dict(stored))
+        except ValueError:  # pragma: no cover - a row written by an older build
+            pass
+    return DeepResearchProgressPayload(phase="execute")
+
+
+def _readings_taken(state: RunState) -> list[str]:
+    """The readings a run had been seen taking, in the order it took them.
+
+    Read off the frames the run already emitted rather than off a second
+    list kept for this purpose, so what a stopped run's record says it was
+    doing is exactly what its watchers were shown it doing. The last entry
+    is the reading the stop landed on: begun, and — because the stop lands
+    on a boundary — not published.
+    """
+    titles: list[str] = []
+    for kind, data in state.frames:
+        if kind != "research_readings":
+            continue
+        entries = data.get("readings")
+        if not isinstance(entries, list):
+            continue
+        titles = [
+            str(entry["title"])
+            for entry in entries
+            if isinstance(entry, dict) and entry.get("title")
+        ]
+    return titles
 
 
 def _sse(kind: str, data: Mapping[str, Any]) -> str:

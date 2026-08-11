@@ -185,6 +185,7 @@ export const WARNING_TITLES: Readonly<Record<string, string>> = {
   // The ranges combine assuming the groups move independently — stated
   // because it is an assumption, not a measurement.
   DEEP_RESEARCH_INDEPENDENCE: "How these ranges combine",
+  DEEP_RESEARCH_AMOUNTS_KNOWN: "What the range does not move with",
   DEEP_RESEARCH_ANGLE_REFUSED: "Part of this research could not run here",
   // Open cases counted neither as wins nor losses — the disclosure that
   // keeps the rates honest.

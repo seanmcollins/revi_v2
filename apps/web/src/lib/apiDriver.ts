@@ -633,6 +633,39 @@ export async function fetchDeepResearchRun(
   return value;
 }
 
+/**
+ * `POST /v1/deep-research/{run_id}/cancel` — stop a run that is still going.
+ *
+ * The one control on this surface that spends nothing and SAVES something.
+ * A run keeps working whether or not anybody is watching it, so closing
+ * the page stops the watching and none of the work: a minute of real
+ * measuring and a real model call carry on for a report nobody will read.
+ * This ends the run itself, between two readings, and the server answers
+ * with the run it stopped — so the surface renders the outcome from the
+ * response rather than inferring it from a stream that went quiet.
+ *
+ * POST rather than DELETE because nothing is deleted. The run is ended and
+ * its record stays exactly where it was, at the same address, saying it
+ * was stopped and how far it had got.
+ */
+export async function cancelDeepResearch(
+  runId: string,
+  options: RequestOptions = {},
+): Promise<ResearchRun> {
+  const base = options.baseUrl ?? apiBaseUrl();
+  const raw = await requestJson(
+    `${base}/v1/deep-research/${encodeURIComponent(runId)}/cancel`,
+    { method: "POST" },
+    options,
+  );
+  const { value, drift } = parseResearchRun(raw);
+  if (drift.length > 0) {
+    reportDriftToConsole(drift, `POST /v1/deep-research/${runId}/cancel`, options.onDrift);
+  }
+  if (!value) throw new Error("the run was stopped but the response does not name it");
+  return value;
+}
+
 /** `GET /v1/deep-research` — this tenant's runs, newest first. */
 export async function fetchDeepResearchRuns(
   options: RequestOptions = {},

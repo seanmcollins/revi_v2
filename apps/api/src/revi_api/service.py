@@ -602,6 +602,12 @@ class ApiService:
     ) -> DeepResearchRunResponse:
         return await self.research.get(principal, run_id)
 
+    async def cancel_deep_research(
+        self, principal: Principal, run_id: str
+    ) -> DeepResearchRunResponse:
+        """Stop a run that is still going, and answer with what it became."""
+        return await self.research.cancel(principal, run_id)
+
     async def list_deep_research(
         self, principal: Principal, *, limit: int = 25
     ) -> DeepResearchListResponse:

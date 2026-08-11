@@ -105,11 +105,122 @@ def split_statement(*, catchable: int, passed: int, unknown: int) -> str:
     return f"Of the denied dollars still open, {body}."
 
 
-def unpriced_statement(*, unpriced: int, share: Decimal, populations: int) -> str:
+def unpriced_statement(
+    *, unpriced: int, share: Decimal, populations: int, no_deadline_rate: int = 0
+) -> str:
+    lead = (
+        f"{dollars(unpriced)} — {percent(share)} of the open denied dollars — is left "
+        f"out of the figure above: {dollars(unpriced - no_deadline_rate)} sits in "
+        f"{count(populations, 'population')} your own history cannot price yet"
+        if no_deadline_rate
+        else (
+            f"{dollars(unpriced)} — {percent(share)} of the open denied dollars — sits in "
+            f"{count(populations, 'population')} your own history cannot price yet, and is "
+            "left out of the figure above"
+        )
+    )
+    if no_deadline_rate:
+        return (
+            f"{lead}, and {dollars(no_deadline_rate)} sits on a side of the filing "
+            "deadline too few answered denials have reached for a rate to be published."
+        )
+    return f"{lead}."
+
+
+def pricing_construction_statement(
+    *,
+    within_rate: Decimal | None,
+    within_n: int,
+    past_rate: Decimal | None,
+    past_n: int,
+    severity: Decimal,
+    severity_wins: int,
+) -> str:
+    """How the headline was built, in one sentence a reader can check.
+
+    Three moving parts, and the two that were missing are the two that
+    made the old figure wrong: a denial past its filing deadline is not
+    priced like one inside it, and a win is not worth the full denied
+    amount. Both are stated with the evidence behind them so a reader can
+    take the figure apart with the tables further down the page.
+    """
+    sides = []
+    if within_rate is not None:
+        sides.append(
+            f"{percent(within_rate)} for what is still inside the deadline "
+            f"(over {count(within_n, 'answered denial')})"
+        )
+    if past_rate is not None:
+        sides.append(
+            f"{percent(past_rate)} for what is past it "
+            f"(over {count(past_n, 'answered denial')})"
+        )
+    rates = " and ".join(sides) if sides else "each population's own measured rate"
     return (
-        f"{dollars(unpriced)} — {percent(share)} of the open denied dollars — sits in "
-        f"{count(populations, 'population')} your own history cannot price yet, and is "
-        "left out of the figure above."
+        "That figure is built one population at a time: its open dollars are split by "
+        f"whether the filing deadline has passed, each side is priced at the rate "
+        f"denials on that side actually come back at — {rates} — and the result is "
+        f"multiplied by {cents_on_the_dollar(severity)} on the dollar, which is what a "
+        f"win has actually returned across {count(severity_wins, 'recovered denial')}."
+    )
+
+
+def cents_on_the_dollar(ratio: Decimal) -> str:
+    """A severity ratio as money, because that is what it is."""
+    value = (Decimal(str(ratio)) * 100).quantize(Decimal("0.1"), rounding=ROUND_HALF_UP)
+    return f"{value} cents"
+
+
+def severity_statement(*, ratio: Decimal, wins: int, recovered: int, denied: int) -> str:
+    return (
+        f"A win is not the full denied amount. Across the {count(wins, 'denial')} that "
+        f"came back, payers allowed {dollars(recovered)} of {dollars(denied)} denied — "
+        f"{cents_on_the_dollar(ratio)} on the dollar. Every figure above is multiplied "
+        "by that."
+    )
+
+
+def coarsened_statement(*, ran: tuple[str, ...], dropped: tuple[str, ...]) -> str:
+    """Said when the cut that ran is not the cut that was planned.
+
+    A pricing total depends on how finely it was cut, so a run that
+    silently priced a coarser population than the plan named would publish
+    a bigger, blander number over a table the reader would read as the
+    finer one.
+    """
+    ran_words = " and ".join(ran) if ran else "the whole population"
+    dropped_words = " and ".join(dropped)
+    return (
+        f"The plan asked to price by {ran_words} and {dropped_words}. "
+        f"{dropped_words.capitalize()} has no ranges set in your definitions, so this "
+        f"was priced by {ran_words} instead."
+    )
+
+
+def pursuit_transfer_statement(
+    *,
+    worked_share: Decimal,
+    open_share: Decimal,
+    weakest: tuple[str, ...],
+) -> str:
+    """The selection effect, stated as a first-class methods note.
+
+    The rate is measured on denials somebody chose to work and the payer
+    then answered. Staff work what wins, so the answered set is not a
+    random sample of the open inventory — and the open inventory is
+    heavier in exactly the kinds of denial that win least. That is a
+    transfer this report is making on purpose, and the reader is entitled
+    to the size of it.
+    """
+    names = " and ".join(weakest)
+    return (
+        f"These rates are measured on denials that were worked and then answered, and "
+        f"they are being applied to denials that have not been worked. Those are not "
+        f"the same mix: {names} — the kinds that come back least often — are "
+        f"{percent(open_share)} of the open denied dollars but only "
+        f"{percent(worked_share)} of the answered denials the rates come from. Pricing "
+        "each kind of denial at its own rate is what keeps that from inflating the "
+        "total, which is why the money above is cut that way."
     )
 
 
@@ -136,9 +247,15 @@ NO_PRIOR_SUBSTITUTED = (
 )
 
 INDEPENDENCE_CAVEAT = (
-    "The range around the total is the sum of each population's own range. "
-    "Populations that share payers, staffing and seasons move together, so read it "
-    "as a spread rather than a guarantee."
+    "The range around the total is the sum of each population's own range — the widest "
+    "way to add ranges up, and wider than it would be if the populations moved "
+    "independently. Read it as a spread rather than a guarantee."
+)
+
+AMOUNTS_KNOWN_CAVEAT = (
+    "The range moves with the recovery rate only. The denied amounts, and the share of "
+    "a denied dollar a win returns, are treated as known — so the true spread is wider "
+    "than the one shown."
 )
 
 DEADLINE_UNKNOWN_NOTE = (
@@ -251,10 +368,25 @@ def timeliness_statement(
     )
 
 
-def timeliness_implication(*, fast_band: str, drop: Decimal) -> str:
-    return (
+def timeliness_implication(*, fast_band: str, drop: Decimal, within: str = "") -> str:
+    """What speed is worth — and, unstratified, why that is an upper bound.
+
+    The estimator behind this curve says so itself: the slow bands hold the
+    slow *kinds* of denial, which are also the weak ones, so an
+    unstratified slope mixes the timing effect with the mix and overstates
+    it. Shipping the number without that sentence turns a descriptive curve
+    into an operational promise nobody measured.
+    """
+    lead = (
         f"Getting the work out inside {fast_band} days is worth {points(drop)} on the "
         "recovery rate compared with the slowest group."
+    )
+    if within:
+        return f"{lead} Read inside {within} only, so the gap is not a mix of different kinds."
+    return (
+        f"{lead} That is not all speed: the slowest group also holds the kinds of "
+        "denial that come back least often, so read it as the most speed could be "
+        "worth rather than what it is worth."
     )
 
 
@@ -274,6 +406,19 @@ def deadline_statement(
         f"Resubmitted inside the filing deadline, {percent(within_rate)} of denials "
         f"come back (over {count(within_n, 'answered denial')}). Past it, "
         f"{percent(past_rate)} do (over {count(past_n, 'answered denial')})."
+    )
+
+
+def deadline_side_refused_statement(*, side: str, n: int, floor_sentence: str) -> str:
+    """Said when one side of the deadline is too thin to read.
+
+    The comparison is the point of the section, so half of it missing is a
+    fact the reader needs — not a sentence that quietly does not appear.
+    """
+    return (
+        f"What happens {side.lower()} cannot be read here: only "
+        f"{count(n, 'denial')} on that side have an answer from the payer. "
+        f"{floor_sentence}"
     )
 
 
@@ -333,6 +478,44 @@ NAIVE_DENOMINATOR_NOTE = (
     "Dividing recoveries by every denial instead would charge each open story as a "
     "loss and understate what this work is worth."
 )
+
+
+def maturity_windows_statement(*, windows: tuple[tuple[str, int], ...]) -> str:
+    """The wait, per kind of denial, before silence means anything.
+
+    These are a claim about how this organisation works denials, not
+    something the data can be asked. Printing them is the only way a reader
+    can disagree with them.
+    """
+    if not windows:
+        return (
+            "No waiting period is set for any kind of denial, so how often denials are "
+            "worked at all cannot be read here."
+        )
+    parts = ", ".join(f"{label} {days} days" for label, days in windows)
+    return (
+        f"How often denials are worked is read only over denials old enough that a "
+        f"resubmission would have gone out by now: {parts}. Younger denials are left "
+        "out rather than counted as unworked. You can change these anytime."
+    )
+
+
+DECIDED_MATURITY_NOTE = (
+    "That waiting period does not apply to the recovery rate itself. A recovery rate "
+    "is measured only over denials the payer has already answered, so a denial that is "
+    "too recent to have an answer is simply not in it — there is nothing to exclude, "
+    "and nothing is."
+)
+
+
+def decided_exclusions_statement(*, open_undecided: int, not_pursued: int, total: int) -> str:
+    """What the answered-only denominator left behind, in counts."""
+    return (
+        f"{count(open_undecided + not_pursued, 'denial')} of the "
+        f"{count(total, 'denial')} in this population are not in any rate above: "
+        f"{count(open_undecided, 'denial')} resubmitted and still waiting, and "
+        f"{count(not_pursued, 'denial')} with no resubmission on file."
+    )
 
 
 # ---------------------------------------------------------------------------

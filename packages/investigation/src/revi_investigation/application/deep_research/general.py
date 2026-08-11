@@ -220,6 +220,12 @@ class ResearchWalk:
     rationale: str = ""
     rounds: int = 1
     budget: int = 1
+    #: ``True`` when the opening round is the plan a reader saw and
+    #: confirmed. ``False`` when the run planned its own opening — in which
+    #: case the same question asked twice can legitimately open on
+    #: different readings, and the report must say so rather than let
+    #: "chosen for this question" read as one deliberation per run.
+    plan_confirmed: bool = False
 
     @property
     def by_round(self) -> tuple[tuple[int, tuple[PlannedAngle, ...]], ...]:
@@ -318,6 +324,21 @@ def normalize_measure_angle(
     dropped = [cut for cut in angle.cut_by if cut not in declared]
     kind = vocabulary.kinds.get(angle.metric_id, "flow")
 
+    # A TREND KEEPS ITS BREAKDOWN, deliberately. Forced to a bucket, but
+    # not stripped of ``cut_by``: a trend that also carries a breakdown is
+    # a GRID — one cell per (group, period) — and the choice was between
+    # clearing the breakdown here so a trend is always one series, and
+    # keeping the grid and teaching everything downstream what it is.
+    #
+    # The grid stays. Clearing it would delete measured data the plan asked
+    # for in order to protect one sentence, and ``_title`` already renders
+    # "by month, by payer", so the reader was never told there was one
+    # axis. What WAS wrong is fixed where it was wrong: the study's settled
+    # sentence speaks for one named group at a time and its chart draws one
+    # line per group (``general_report._is_grid``), instead of reading the
+    # first and last cells of a month-sorted grid as a series' ends and
+    # publishing "rose from 47.2% in Atlas Commercial / Aug 2025 to 54.2%
+    # in State Medicaid / May 2026".
     step = angle.step if shape is AngleShape.TREND else None
     if shape is AngleShape.TREND and step is None:
         step = TimeStep.MONTH
