@@ -1,6 +1,12 @@
-# Status — where the build stands (2026-08-11, morning)
+# Status — where the build stands (2026-08-11, late morning)
 
-`main` is green through M56: every commit on it passed the full serial bar
+**Update:** the methods-integrity fix wave is verified and MERGED (M57).
+The recovery review's headline is now honest — severity- and deadline-aware,
+its construction stated on the report — and is safe to demo. Old stored
+research reports open again; half-refusals render as notes; planner
+failures own themselves. The known-issues warning below is retired.
+
+`main` is green through M57 (was M56: every commit on it passed the full serial bar
 (backend 4,485 / reference 441 / postgres 51, ruff, 8 import contracts, CI
 mypy, warehouse-diff at 10,719 independently rederived values with zero
 divergences, both client-language guards, web 1,527 tests + build).
@@ -27,24 +33,13 @@ divergences, both client-language guards, web 1,527 tests + build).
 
 ## Known issues — read before demoing
 
-`docs/reviews/deep-research-methods-review.md` is the binding list. Above all:
-**do not quote the recovery review's headline expected-recovery dollars** —
-it is ~4x high pending the fix branch (F1), and studies can present
-data-edge censoring artifacts as findings (F2). Deep research is best demoed
-today on the study surface (planning, walk, determinations) and cross-domain
-synthesis; quick questions carry full warning fidelity and are safe
-everywhere.
+`docs/reviews/deep-research-methods-review.md` documents the review; every
+finding in it is now FIXED and verified on main (merge bad2dd3 + M57).
+The whole product is safe to demo, including the recovery headline.
 
-## The fix branch
+## Remaining program (docs/HANDOFF.md holds the detail)
 
-`wip/deep-research-methods-fixes` carries the complete fix wave for every
-review finding — interrupted during final verification. Resume protocol is in
-its commit message: full serial bar + the review's live repros before merge.
-
-## Remaining program (task list holds the detail)
-
-1. Merge the fix branch after verification.
-2. Polish wave (accumulated brief: thread spine + message borders + headline
+1. Polish wave (accumulated brief: thread spine + message borders + headline
    figures per answer, contrast/fatigue tokens, axis-scaling rules, dead-link
    sweep, color-collision reseat, study reading titles through metric display,
    raw-id composition leaks).
