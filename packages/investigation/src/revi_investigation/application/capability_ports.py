@@ -58,6 +58,19 @@ class TransformStepSpec:
 
 
 @dataclass(frozen=True, slots=True)
+class ScorecardVerdictSpec:
+    """The pack's rule for when a scorecard may name one value the leader.
+
+    Carried through the port because the findings stage decides the verdict
+    and may not import the pack. ``measures`` empty means every panel
+    measure whose contract declares an improvement direction.
+    """
+
+    leader_min_measures: int
+    measures: tuple[str, ...] = ()
+
+
+@dataclass(frozen=True, slots=True)
 class PlaybookSpec:
     id: str
     description: str
@@ -65,6 +78,8 @@ class PlaybookSpec:
     transforms: tuple[TransformStepSpec, ...] = ()
     conclusion_policies: tuple[str, ...] = ()
     ranking_policy: str | None = None
+    #: Present exactly when this playbook answers by ``panel``.
+    verdict: ScorecardVerdictSpec | None = None
     #: How the pack author says an analyst asks for this playbook. Carried
     #: through the port so the OFFER-TIME option validator
     #: can recognise a button that routes to a playbook this engine refuses
@@ -267,6 +282,23 @@ class TransformPort(Protocol):
     def pivot(
         self, frame: EvidenceFrame, *, index: tuple[str, ...], column: str, measure: str
     ) -> EvidenceFrame: ...
+
+    def panel(
+        self,
+        *frames: EvidenceFrame,
+        entity: str,
+        better_high: tuple[str, ...] = (),
+        better_low: tuple[str, ...] = (),
+    ) -> EvidenceFrame:
+        """One row per entity, one column per governed measure, one
+        ordering per measure in the direction its contract declares.
+
+        ``better_high``/``better_low`` are the improvement direction read
+        off the metric contracts by the caller. A measure in neither is
+        published without an ordering — "neutral" is a real answer, and a
+        rank over charges would assert that billing more is better.
+        """
+        ...
 
     def decompose(
         self,

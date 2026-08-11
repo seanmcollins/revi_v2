@@ -724,9 +724,194 @@ def build_chart_spec(
     )
 
 
+#: The operator whose output is a scorecard. Read off the frame's own
+#: transform provenance rather than off its id: a chart builder that
+#: sniffed ``__panel`` would draw the right figure for the wrong reason and
+#: silently stop the day a planner renamed a step.
+PANEL_OPERATOR = "panel"
+
+
+#: Units whose cells sum, so that the head of the column is the biggest
+#: rather than the best. Mirrors the findings stage's own ``_is_additive``.
+_ADDITIVE_UNITS = frozenset({"money_cents", "count"})
+
+
+def _is_additive_unit(unit: str | None) -> bool:
+    return unit in _ADDITIVE_UNITS
+
+
+def _unit_of(frame: EvidenceFrame, name: str) -> str | None:
+    return frame.schema.columns[frame.schema.index_of(name)].unit
+
+
+def is_panel(frame: EvidenceFrame) -> bool:
+    """Did the ``panel`` operator produce this frame?"""
+    return getattr(frame.provenance, "operator", None) == PANEL_OPERATOR
+
+
+def build_panel_chart_specs(
+    frame_id: str,
+    frame: EvidenceFrame,
+    *,
+    row_referents: Mapping[tuple[str, str], str] | None = None,
+    suppression_threshold: int | None = None,
+    metric_display: Mapping[str, str] | None = None,
+    per_measure_limit: int = 3,
+) -> tuple[ChartSpec, ...]:
+    """A scorecard, table first, then one small ranking per measure.
+
+    THE TABLE IS NOT A FALLBACK HERE, IT IS THE FORM. Every other figure
+    this product draws is one measure over a set of categories, and a
+    scorecard is N measures over one set of entities — there is no bar
+    chart of it, because there is no axis a denial rate and a dollar total
+    can share. The table is the shape whose natural reading is "one row per
+    payer, one column per measure", which is what the reader asked for.
+
+    Rows are long-format — one mark per (entity, measure) — because that is
+    the shape the wire keys marks by (``x``, ``series``) and the shape the
+    row-key integrity check reads. Each mark carries its own ceiling flag
+    and its own population, so a bounded cell in one column does not mark
+    the whole row.
+
+    The per-measure rankings follow, and only for measures the panel put in
+    an order: they are the columns where "first" means something, each with
+    its own unit, drawn as an ordinary bar chart with the ordering the
+    panel already computed. A neutral measure gets no small ranking for the
+    same reason it got no rank column.
+    """
+    entity = next(
+        (col.name for col in frame.schema.columns if isinstance(col.ref, DimensionRef)),
+        None,
+    )
+    measures = published_measures(frame)
+    if entity is None or not measures:
+        return ()
+    display = metric_display or {}
+    referents = row_referents or {}
+    entity_index = frame.schema.index_of(entity)
+
+    def label_for(name: str) -> str:
+        return display.get(name) or _humanized(name)
+
+    rows: list[ChartRow] = []
+    bounds_by_measure = {
+        name: bounded_rows(frame, name, suppression_threshold) for name in measures
+    }
+    for row_index, row in enumerate(frame.rows):
+        key = str(row[entity_index])
+        referent_id = referents.get((entity, key))
+        for name in measures:
+            bounds = bounds_by_measure[name]
+            rows.append(
+                ChartRow(
+                    x=key,
+                    series=label_for(name),
+                    value=_cell(row[frame.schema.index_of(name)]),
+                    referent_id=referent_id,
+                    is_bound=row_index in bounds,
+                    bound_population=bounds.get(row_index),
+                )
+            )
+    annotations = [
+        "one row per "
+        f"{_humanized(entity)}, one column per measure. The columns are different "
+        "measurements over different periods and are never added together or divided "
+        "into each other."
+    ]
+    withheld = sum(len(withheld_row_indices(frame, name)) for name in measures)
+    if withheld:
+        annotations.append(
+            f"withheld: {withheld} cells are too small to publish at all and are drawn with "
+            "no value"
+        )
+    total_bounds = sum(len(found) for found in bounds_by_measure.values())
+    if total_bounds:
+        annotations.append(
+            f"upper bounds: {total_bounds} cells are ceilings, not measurements — their "
+            "numerator was suppressed, and they are outside the ordering for their column"
+        )
+    if frame.truncated:
+        annotations.append(
+            "truncated: not all cells are shown — only the leading ones were kept when this "
+            "figure was measured"
+        )
+    specs: list[ChartSpec] = [
+        ChartSpec(
+            id=f"chart_{frame_id}",
+            chart_type="table",
+            title=f"Scorecard by {_humanized(entity)}",
+            frame_id=frame_id,
+            x=entity,
+            # The measure the marks are keyed by. There is no single value
+            # column on a panel, so the spec names the first one it draws
+            # and the series carries the rest — the wire's `value` is the
+            # column a one-measure renderer would fall back to.
+            series="metric",
+            value=measures[0],
+            unit=None,
+            grade=frame.evidence_grade.value,
+            rows=rows,
+            annotations=annotations,
+        )
+    ]
+    # RATES BEFORE DOLLARS. Every ordered column can be drawn, and only
+    # some of them are worth drawing small: "first on posted cash" is the
+    # biggest payer and "first on the write-off rate" is the best one, so
+    # when there is room for three the three are rates. Decided from the
+    # unit, which is the same additive/relative split the findings stage
+    # uses to decide whether a column may claim a leader at all.
+    ordered = [name for name in measures if f"{name}__rank" in frame.schema.names]
+    ranked = [
+        name for name in ordered if not _is_additive_unit(_unit_of(frame, name))
+    ] + [name for name in ordered if _is_additive_unit(_unit_of(frame, name))]
+    for name in ranked[:per_measure_limit]:
+        bounds = bounds_by_measure[name]
+        index = frame.schema.index_of(name)
+        marks = [
+            ChartRow(
+                x=str(row[entity_index]),
+                series=None,
+                value=_cell(row[index]),
+                referent_id=referents.get((entity, str(row[entity_index]))),
+                is_bound=row_index in bounds,
+                bound_population=bounds.get(row_index),
+            )
+            for row_index, row in enumerate(frame.rows)
+        ]
+        column = frame.schema.columns[index]
+        specs.append(
+            ChartSpec(
+                id=f"chart_{frame_id}_{name}",
+                chart_type="bar",
+                title=_sentence_case(f"{label_for(name)} by {_humanized(entity)}"),
+                frame_id=frame_id,
+                x=entity,
+                series=None,
+                value=name,
+                unit=column.unit,
+                grade=frame.evidence_grade.value,
+                rows=marks,
+                # Ordered by the panel's OWN ordering column, which already
+                # holds the improvement direction the metric contract
+                # declares. Sorting by value here would put the worst
+                # denial rate first and call it the head of the list.
+                sort=ChartSort(by=f"{name}__rank", direction="asc"),
+                annotations=[
+                    "ordered best first, in the direction this measure improves"
+                ],
+            )
+        )
+    return tuple(specs)
+
+
 #: Time-bucket columns say which grain they are in their own id
 #: (``time_bucket:month``); the axis phrase is the grain, not the token.
 _BUCKET_PHRASE = {"day": "day", "week": "week", "month": "month", "quarter": "quarter"}
+
+
+def _sentence_case(text: str) -> str:
+    """Sentence case, per docs/client-language.md §4."""
+    return text[:1].upper() + text[1:] if text else text
 
 
 def _humanized(column: str) -> str:
@@ -836,6 +1021,11 @@ def build_chart_specs(
     ranked = sorted(
         frames,
         key=lambda item: (
+            # THE SCORECARD FIRST, ahead of even the subject metric. A
+            # panel is the whole answer and the frames beside it are the
+            # columns it was assembled from, so a limit spent on them
+            # leaves the reader every part of the figure except the figure.
+            not is_panel(item[1]),
             # The metric the QUESTION is about, first. A playbook charts its
             # probe set, not the answer: "do we owe any refunds?" shipped
             # cash-posted and expected-reimbursement charts, and in 18 of 26
@@ -857,6 +1047,23 @@ def build_chart_specs(
         if frame_id.endswith("__rank"):
             continue  # rank columns are presentation metadata, not a new view
         if _superseded_by_comparison(frame_id, ids):
+            continue
+        if is_panel(frame):
+            # A scorecard is not one measure over categories, so the
+            # single-value builder below has nothing to draw of it: it
+            # would pick the money column and publish a bar chart of one
+            # column of a table the reader asked for whole.
+            for panel_spec in build_panel_chart_specs(
+                frame_id,
+                frame,
+                row_referents=row_referents,
+                suppression_threshold=suppression_threshold,
+                metric_display=metric_display,
+            ):
+                if len(specs) >= limit:
+                    break
+                seen[_content_key(panel_spec)] = panel_spec
+                specs.append(panel_spec)
             continue
         spec = build_chart_spec(
             frame_id,

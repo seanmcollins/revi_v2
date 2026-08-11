@@ -69,6 +69,7 @@ from revi_pack.domain import (
     ProbeTemplate,
     RankingPolicy,
     ReviewStatus,
+    ScorecardVerdict,
     SourceRef,
     TransformStep,
 )
@@ -693,7 +694,15 @@ def _parse_playbook(mapping: dict[str, object], ctx: str) -> Playbook:
         mapping,
         required=frozenset({"id", "description"}),
         optional=frozenset(
-            {"triggers", "params", "probes", "transforms", "conclusion_policies", "ranking_policy"}
+            {
+                "triggers",
+                "params",
+                "probes",
+                "transforms",
+                "conclusion_policies",
+                "ranking_policy",
+                "verdict",
+            }
         ),
         ctx=ctx,
     )
@@ -707,6 +716,22 @@ def _parse_playbook(mapping: dict[str, object], ctx: str) -> Playbook:
         _parse_transform(item, f"{ctx}.transforms[{i}]")
         for i, item in enumerate(_sequence(mapping.get("transforms") or [], f"{ctx}.transforms"))
     )
+    raw_verdict = mapping.get("verdict")
+    verdict: ScorecardVerdict | None = None
+    if raw_verdict is not None:
+        verdict_ctx = f"{ctx}.verdict"
+        verdict_map = _mapping(raw_verdict, verdict_ctx)
+        _check_keys(
+            verdict_map,
+            required=frozenset({"leader_min_measures"}),
+            optional=frozenset({"measures"}),
+            ctx=verdict_ctx,
+        )
+        with _located(verdict_ctx):
+            verdict = ScorecardVerdict(
+                leader_min_measures=_get_int(verdict_map, "leader_min_measures", verdict_ctx),
+                measures=_str_tuple(verdict_map, "measures", verdict_ctx),
+            )
     with _located(ctx):
         return Playbook(
             id=playbook_id,
@@ -717,6 +742,7 @@ def _parse_playbook(mapping: dict[str, object], ctx: str) -> Playbook:
             transforms=transforms,
             conclusion_policies=_str_tuple(mapping, "conclusion_policies", ctx),
             ranking_policy=_get_opt_str(mapping, "ranking_policy", ctx),
+            verdict=verdict,
         )
 
 

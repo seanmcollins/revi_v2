@@ -298,7 +298,9 @@ def row_noun(dimension_columns: Sequence[str]) -> str:
     if not dimension_columns:
         return "rows"
     label = dimension_columns[0].replace("_", " ")
-    return label if label.endswith("s") else f"{label}s"
+    # Through the shared pluralizer, so "facility" comes back "facilities"
+    # rather than "facilitys" on every surface that counts these rows.
+    return label if label.endswith("s") else plural(2, label)
 
 
 def _unranked_bounds_warning(
@@ -335,6 +337,57 @@ def _unranked_bounds_warning(
         f"{TOO_SMALL_TO_MEASURE} — for those only a ceiling is known, so they are listed below "
         f"the ranking rather than inside it{asked}. The ranking covers the {census.measured} "
         "that could be measured: a ceiling has no place in an order it was never measured for."
+    )
+
+
+def panel_column_bounds_warning(
+    *,
+    census: SelectionCensus,
+    measure: str,
+    ordered: bool,
+    noun: str = "rows",
+) -> str:
+    """What ONE column of a scorecard owes a reader once some of it is ceilings.
+
+    The same rule as :func:`_unranked_bounds_warning` and deliberately not
+    the same sentence. That one is written for an answer that IS a ranking,
+    so it opens "most of these payers are too small to measure exactly, so
+    no ranking is published" — true of the column and false of the card.
+    Published on a scorecard it reads as the whole scorecard refusing, and
+    the panel that carried it went out under a paragraph announcing that
+    zero payers could be measured above a card that had measured six.
+
+    So the column leads the sentence. What follows is the same fact and the
+    same arithmetic: how many cells are ceilings, why a ceiling cannot take
+    a place in an order, and what the rest of the card still says.
+
+    **It is a trailing note, not a leading refusal**, which is the other
+    half of the same correction. ``ranking_refused`` leads the answer
+    because on a ranking it IS the answer — "a refusal cannot sit under the
+    rows it refused to order". On a scorecard it is one column of eighteen,
+    the verdict above it is unaffected, and leading with it opens a card
+    that measured six payers on a paragraph about the one it could not.
+    ``bounded_cells_unranked`` trails, which is where a bound on part of an
+    answer belongs.
+    """
+    label = metric_label(measure)
+    singular = noun[:-1] if noun.endswith("s") else noun
+    counted = plural(census.publishable, noun[:-1] if noun.endswith("s") else noun)
+    if not ordered:
+        return (
+            f"bounded_cells_unranked: {label} could not be put in order, so no {singular} is "
+            f"named first on it. {census.bounded} of the {census.publishable} {counted} with a "
+            f"figure for it {plural(census.bounded, 'is', 'are')} {TOO_SMALL_TO_MEASURE} — for "
+            "those only a ceiling is known, and putting ceilings in order beside measured "
+            f"figures sorts by how big each group is rather than by {label}. Every other measure "
+            "on this scorecard is unaffected, and the column itself is still shown."
+        )
+    return (
+        f"bounded_cells_unranked: {census.bounded} of the {census.publishable} {counted} with a "
+        f"{label} figure {plural(census.bounded, 'is', 'are')} {TOO_SMALL_TO_MEASURE} — for those "
+        "only a ceiling is known, so they sit outside the order for that column. It covers the "
+        f"{census.measured} that could be measured: a ceiling has no place in an order it was "
+        "never measured for."
     )
 
 

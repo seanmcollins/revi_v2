@@ -30,6 +30,7 @@ from revi_investigation.application.findings.bounds import (
     benchmark_verdict_warning,
     group_noun,
     is_residual_row,
+    panel_column_bounds_warning,
     row_noun,
     verdict_warning,
 )
@@ -42,10 +43,14 @@ from revi_investigation.application.findings.premise import (
 )
 from revi_investigation.application.findings.shapes import (
     ConcentrationShape,
+    PanelLeader,
+    PanelMeasure,
+    PanelShape,
     ScalarShape,
     TrendShape,
     _as_int,
     as_number,
+    find_panel,
     find_primary_concentration,
     find_primary_movement,
     find_scalar_shapes,
@@ -185,6 +190,26 @@ class EvaluateFindingsService(_FindingBuilders):
         if premise is not None:
             premise_lead = await self._publish_premise(
                 premise, spec, pack, session_id, investigation_id
+            )
+
+        # THE SCORECARD FIRST. A panel is the only shape whose answer is a
+        # statement ACROSS measures, and every other shape in this stage is
+        # about one. Reached after the compare path, a scorecard carrying a
+        # comparison would be answered as a movement in whichever column
+        # happened to be money — which is how six probe families used to
+        # come back as four unrelated charts.
+        panel = find_panel(plan, calculation)
+        if panel is not None:
+            return _with_premise(
+                await self._evaluate_panel(
+                    shape=panel,
+                    spec=spec,
+                    pack=pack,
+                    playbook=playbook,
+                    session_id=session_id,
+                    investigation_id=investigation_id,
+                ),
+                premise_lead,
             )
 
         shape = find_primary_movement(plan, calculation)
@@ -543,6 +568,209 @@ class EvaluateFindingsService(_FindingBuilders):
                     detail="every bucket in this series was suppressed or empty",
                 )
             ),
+        )
+
+
+    # ----------------------------------------------------------- the panel
+
+    async def _evaluate_panel(
+        self,
+        *,
+        shape: PanelShape,
+        spec: AnalysisSpec,
+        pack: PackPort,
+        playbook: PlaybookSpec | None,
+        session_id: str,
+        investigation_id: str,
+    ) -> FindingsResult:
+        """Findings from a scorecard — the answer that spans measures.
+
+        Three rules, and each is one of this platform's existing rules
+        applied per COLUMN rather than per answer:
+
+        * a measure whose contract declares no improvement direction is
+          published without an ordering. Nobody leads on charges;
+        * a bounded cell is published and is not ordered, and past a
+          governed share of bounds the measure is not ordered at all
+          (:data:`MAX_BOUNDED_SHARE_FOR_RANKING`) — the same rule
+          ``_evaluate_concentration`` applies to a ranked population,
+          asked once per column instead of once per frame;
+        * the verdict is a COUNT of firsts over the measures the pack
+          nominated, never a composite of their values.
+        """
+        schema = shape.frame.schema
+        bounds = self._bounds(shape.frame)
+        qualified = self._requires_qualification(shape.frame.evidence_grade, pack, playbook)
+        verdict = playbook.verdict if playbook is not None else None
+        nominated = frozenset(verdict.measures) if verdict is not None else frozenset()
+
+        existing = await self._registry.list_for_session(session_id)
+        finding_offset = sum(1 for e in existing if e.referent.kind is ReferentKind.FINDING)
+        row_offset = sum(1 for e in existing if e.referent.kind is ReferentKind.DIMENSION_VALUE)
+
+        warnings: list[str] = []
+        # Per measure: (measure, leading row, bound on it, how many rows
+        # could be measured for it). Only the columns an ordering exists
+        # for and survives its own bounds.
+        led: list[tuple[PanelMeasure, tuple[Scalar, ...], BoundedCell | None, int]] = []
+        for measure in shape.rankable:
+            assert measure.rank_column is not None
+            index = schema.index_of(measure.measure)
+            rank_index = schema.index_of(measure.rank_column)
+            publishable = [
+                (position, row)
+                for position, row in enumerate(shape.frame.rows)
+                if row[index] is not None
+            ]
+            measured = [
+                (position, row)
+                for position, row in publishable
+                if bounds.get(position, {}).get(measure.measure) is None
+            ]
+            bounded = len(publishable) - len(measured)
+            census = SelectionCensus(
+                total=len(shape.frame.rows),
+                bounded=bounded,
+                measured=len(measured),
+                empty=0,
+            )
+            unrankable = not measured or census.bounded_share > MAX_BOUNDED_SHARE_FOR_RANKING
+            if bounded:
+                # Per COLUMN, and said as a fact about the column. The
+                # ranking path's own sentence opens "most of these payers
+                # are too small to measure exactly, so no ranking is
+                # published" — true of one column of a scorecard and read
+                # by every reader as the whole card refusing.
+                warnings.append(
+                    panel_column_bounds_warning(
+                        census=census,
+                        measure=measure.measure,
+                        ordered=not unrankable,
+                        noun=row_noun((shape.entity_column,)),
+                    )
+                )
+            if unrankable:
+                # Nothing left to be first among. The column still shows on
+                # the panel with its cells and its marks; what it does not
+                # do is nominate a leader or vote in the verdict.
+                continue
+            first = min(measured, key=lambda item: (_as_int(item[1][rank_index]) or 0))
+            led.append((measure, first[1], None, len(measured)))
+
+        if not led:
+            return FindingsResult(
+                findings=(),
+                referents=(),
+                warnings=tuple(dict.fromkeys(warnings)),
+                emptiness=EmptinessFact(
+                    kind=EmptinessKind.NO_FINDINGS,
+                    frame_id=shape.frame_id,
+                    detail=(
+                        f"{len(shape.frame.rows)} scorecard row(s) across "
+                        f"{len(shape.measures)} measure(s), and not one measure could be put "
+                        "in order (every cell was suppressed, carried only a ceiling, or "
+                        "measures something with no better or worse end)"
+                    ),
+                ),
+            )
+
+        labels = {
+            position: self._row_label(row, shape.frame, (shape.entity_column,), pack)
+            for position, row in enumerate(shape.frame.rows)
+        }
+        positions = {id(row): position for position, row in enumerate(shape.frame.rows)}
+
+        def label_of(row: tuple[Scalar, ...]) -> str:
+            return labels[positions[id(row)]]
+
+        # THE VERDICT, over the measures the PACK nominated. A count taken
+        # over every rankable column would let the dollar columns vote, and
+        # a payer scorecard whose dollar columns vote crowns whoever sends
+        # the most business.
+        voting = [item for item in led if not nominated or item[0].measure in nominated]
+        wins: dict[str, int] = {}
+        for _, row, _, _ in voting:
+            name = label_of(row)
+            wins[name] = wins.get(name, 0) + 1
+        minimum = verdict.leader_min_measures if verdict is not None else len(voting) + 1
+        leader: PanelLeader | None = None
+        if wins:
+            best = max(wins.items(), key=lambda item: (item[1], item[0]))
+            if best[1] >= minimum:
+                leader = PanelLeader(label=best[0], wins=best[1])
+
+        findings: list[Finding] = []
+        referents: list[RegisteredReferent] = []
+        # F1 is the verdict either way. "No payer leads overall" is an
+        # answer to "what is my top performing payer?", and it is the true
+        # one whenever performance is genuinely split.
+        verdict_finding, verdict_referent = self._build_panel_verdict_finding(
+            f"F{finding_offset + 1}",
+            shape,
+            leader,
+            tuple(
+                (measure, label_of(row))
+                for measure, row, _, _ in voting
+                if leader is None or label_of(row) == leader.label
+            ),
+            tuple(measure for measure, _, _, _ in voting),
+            minimum,
+            spec,
+            pack,
+            session_id,
+            investigation_id,
+        )
+        findings.append(verdict_finding)
+        referents.append(verdict_referent)
+
+        # …then the columns themselves. EVERY measure the verdict counted
+        # is published, whatever the turn's finding limit says: the verdict
+        # is an arithmetic claim over exactly those columns, and a reader
+        # who cannot see them cannot check it. The default limit is this
+        # platform's judgement about how many rows of ONE ranking are worth
+        # showing, and a scorecard is not one ranking. Measures outside the
+        # verdict are notable rather than load-bearing, so they fill what
+        # the limit leaves.
+        counted = {measure.measure for measure, _, _, _ in voting}
+        extra = [item for item in led if item[0].measure not in counted]
+        ordered = [*voting, *extra[: self._limit(spec)]]
+        for measure, row, bound, measured_total in ordered:
+            n = finding_offset + len(findings) + 1
+            finding, referent = self._build_panel_measure_finding(
+                f"F{n}",
+                row,
+                shape,
+                measure,
+                spec,
+                qualified,
+                pack,
+                session_id,
+                investigation_id,
+                measured_total=measured_total,
+                counted=measure.measure in counted,
+                bound=bound,
+            )
+            findings.append(finding)
+            referents.append(referent)
+
+        for i, row in enumerate(shape.frame.rows):
+            referents.append(
+                self._dimension_value_referent(
+                    f"D{row_offset + i + 1}",
+                    row,
+                    shape.frame,
+                    (shape.entity_column,),
+                    spec,
+                    pack,
+                    session_id,
+                    investigation_id,
+                )
+            )
+        await self._registry.register(tuple(referents))
+        return FindingsResult(
+            findings=tuple(findings),
+            referents=tuple(referents),
+            warnings=tuple(dict.fromkeys(warnings)),
         )
 
 

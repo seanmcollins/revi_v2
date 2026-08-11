@@ -340,15 +340,14 @@ def _restoration_notes(
     notes: list[str] = []
     if header is not None:
         notes.append(
-            "Restored context: the window, scope, cohort and watermark below are rebuilt "
-            f"from this turn's stored investigation spec at watermark "
-            f"{header.watermark_id}, not re-computed — the figures are the ones this turn "
-            "published when it ran."
+            "Restored context: the period, scope, population and data load below are "
+            "rebuilt from what this answer recorded when it ran, not re-computed — the "
+            "figures are the ones it published then."
         )
     else:
         notes.append(
-            "This turn stored no analysable context (no measures and no scope), so there "
-            "is no effective-context header to restore for it."
+            "This answer recorded no measures and no scope, so there is no context "
+            "summary to restore above it."
         )
     # What this link actually carries, item by item, and nothing else. A
     # restored turn is read by someone who was not in the room, so an
@@ -359,27 +358,27 @@ def _restoration_notes(
     if investigation.narrative:
         kept.insert(0, "the written analysis exactly as it was published")
         notes.append(
-            "This turn restores with " + _and_list(kept) + ". Nothing here was re-computed "
-            "or re-written: these are the sentences and figures this turn published when it "
+            "This link carries " + _and_list(kept) + ". Nothing here was re-computed or "
+            "re-written: these are the sentences and figures the answer published when it "
             "ran."
         )
     else:
         notes.append(
-            "The written analysis was not stored for this turn — the narrative trace keeps "
-            "its template, redactions and length, not its sentences — so this turn restores "
-            "without prose. What this link carries is " + _and_list(kept) + "."
+            "The written analysis was not stored for this answer — what was recorded of "
+            "it keeps its shape, its redactions and its length, not its sentences — so it "
+            "restores without prose. What this link carries is " + _and_list(kept) + "."
             + ("" if chart_specs else " Its charts are not part of this record.")
         )
     if any(w.startswith(_VALUE_CORRECTED_PREFIX) for w in investigation.warnings):
         notes.append(
-            "This turn corrected at least one filter value at validation time (see its "
-            "warnings). The correction map is not persisted with the spec, so the scope "
-            "chips above show the values as stored rather than as queried."
+            "This answer corrected at least one filter value before it ran (see its "
+            "warnings). What it corrected was not stored, so the scope chips above show "
+            "the values as they were asked for rather than as they were queried."
         )
     if trace is None:
         notes.append(
-            "No decision trace was recorded for this turn, so its evidence and "
-            "governed-provenance blocks are absent rather than empty."
+            "No record was kept of how this answer was reached, so its evidence and "
+            "sourcing panels are absent rather than empty."
         )
     return notes
 

@@ -16,6 +16,7 @@ from decimal import Decimal
 from revi_calculation.operators import (
     compare,
     decompose,
+    panel,
     pivot,
     project_lagged_realization,
     rank,
@@ -32,6 +33,7 @@ from revi_investigation.application.capability_ports import (
     PlaybookSpec,
     ProbeTemplateSpec,
     ReconcileVerdict,
+    ScorecardVerdictSpec,
     TermDefinition,
     TransformStepSpec,
 )
@@ -105,6 +107,14 @@ class PackSnapshotPort:
                     conclusion_policies=playbook.conclusion_policies,
                     ranking_policy=playbook.ranking_policy,
                     triggers=playbook.triggers,
+                    verdict=(
+                        None
+                        if playbook.verdict is None
+                        else ScorecardVerdictSpec(
+                            leader_min_measures=playbook.verdict.leader_min_measures,
+                            measures=playbook.verdict.measures,
+                        )
+                    ),
                 )
         return None
 
@@ -288,6 +298,15 @@ class CalculationTransforms:
         self, frame: EvidenceFrame, *, index: tuple[str, ...], column: str, measure: str
     ) -> EvidenceFrame:
         return pivot(frame, index=index, column=column, measure=measure)
+
+    def panel(
+        self,
+        *frames: EvidenceFrame,
+        entity: str,
+        better_high: tuple[str, ...] = (),
+        better_low: tuple[str, ...] = (),
+    ) -> EvidenceFrame:
+        return panel(*frames, entity=entity, better_high=better_high, better_low=better_low)
 
     def decompose(
         self,

@@ -8,6 +8,8 @@ description: >-
   carries its own evidence strength and reporting date in its column.
 triggers:
   - assess the performance of each facility
+  - assess each facility financially
+  - how is each facility performing
   - payer scorecard
   - score each payer
   - how is each service line doing
@@ -32,9 +34,20 @@ probes:
     window: {quantity: 3, unit: month, mode: full_periods}
     scope_note: Leakage pair — never-netted variance and non-contractual write-offs.
 transforms:
-  - operator: pivot
-    args: {rows: dimension_value, columns: metric}
-  - operator: rank
-    args: {by: impact_cents, descending: true}
+  - operator: panel
+    args: {rows: $dimension, columns: metric}
+verdict:
+  # The same rule as the payer scorecard, and for the same reason: charges,
+  # posted cash and open A/R scale with how much business a value carries,
+  # so a verdict that counted them would rank facilities by size and call
+  # it performance. They stay in the panel; they do not vote.
+  measures:
+    - denial_rate
+    - first_pass_yield
+    - avg_days_to_pay
+    - ar_over_90_pct
+    - days_in_ar
+  # Three of the five.
+  leader_min_measures: 3
 conclusion_policies: [scorecard_claim]
 ranking_policy: impact_first

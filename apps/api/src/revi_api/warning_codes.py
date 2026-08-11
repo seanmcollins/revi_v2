@@ -186,7 +186,11 @@ _RULES: tuple[_Rule, ...] = (
     _rule("MONITOR_PENDING_CLARIFICATION", CAUTION, r"^monitor_pending_clarification:"),
     # -- worklist-level facts about the portfolio -------------------------
     _rule("PORTFOLIO_CARDS_NOT_INVESTIGABLE", CAUTION, r"detected anomalies .* are not investigable"),
-    _rule("PORTFOLIO_FEED_EMPTY", INFO, r"^no detected anomalies at this watermark"),
+    _rule("PORTFOLIO_FEED_EMPTY", INFO, r"^no detected anomalies in this data load"),
+    # The card a drill was opened from could not be checked against. It is
+    # a fact about the reconciliation, not about the answer's figures, so
+    # it is a quiet note rather than a verdict.
+    _rule("ANOMALY_RECONCILIATION_SKIPPED", CAUTION, r"^anomaly_reconciliation_skipped:"),
     _rule("PORTFOLIO_IMPACT_UNRECONCILED", CAUTION, r"^\d+ of \d+ ranked cards could not be re-derived"),
     _rule("PORTFOLIO_IMPACT_DIVERGED", CAUTION, r"^\d+ ranked cards? diverge"),
     _rule(

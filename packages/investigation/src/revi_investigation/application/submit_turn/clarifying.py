@@ -254,13 +254,13 @@ class _ClarificationPolicy(_AnalysisGuards):
         ceiling = state.settings.max_turn_cost_usd
         return ClarificationRequest(
             question=(
-                f"This turn reached its ${ceiling} cost ceiling while {stage_label}. "
-                "Raise the per-turn ceiling and ask again, or ask something narrower."
+                f"This question reached its ${ceiling} cost ceiling while {stage_label}. "
+                "Raise the ceiling and ask again, or ask something narrower."
             ),
-            options=("Raise the per-turn cost ceiling", "Ask a narrower question"),
+            options=("Raise the cost ceiling for one question", "Ask a narrower question"),
             reason=(
                 f"TURN_BUDGET_EXHAUSTED: spent ${state.llm_spend} of a ${ceiling} "
-                f"per-turn ceiling before {stage_label}"
+                f"ceiling for one question, before {stage_label}"
             ),
         )
 
@@ -412,7 +412,7 @@ class _ClarificationPolicy(_AnalysisGuards):
         the check costs at most one warehouse round trip per dimension).
 
         Options with no binding are left alone: a platform-authored recovery
-        chip ("Raise the per-turn cost ceiling") is not a query and has
+        chip ("Raise the cost ceiling for one question") is not a query and has
         nothing to dry-run. When every *checkable* option fails, the
         question keeps its text and says it has no suggestions rather than
         rendering as a question above a blank row of buttons.
@@ -437,7 +437,8 @@ class _ClarificationPolicy(_AnalysisGuards):
                 bindings=_bindings_for(clarification, surviving),
                 reason=(
                     f"{clarification.reason}; {len(dropped)} option(s) dropped: they name "
-                    "content this pack, catalog or watermark does not hold"
+                    "content your definitions library, the standard cuts or this data load "
+                    "does not hold"
                 ),
             )
         return replace(
@@ -445,9 +446,9 @@ class _ClarificationPolicy(_AnalysisGuards):
             question=(
                 f"{clarification.question} (I had suggestions here and dropped all "
                 f"{len(dropped)} of them: each named a metric, cut or value this data "
-                "does not hold at this watermark, so tapping one would only have bought "
-                "you the same refusal a turn later. Say what you want in your own words, "
-                "or ask me what exists.)"
+                "load does not hold, so tapping one would only have bought "
+                "you the same refusal one question later. Say what you want in your own "
+                "words, or ask me what exists.)"
             ),
             options=(),
             bindings=(),

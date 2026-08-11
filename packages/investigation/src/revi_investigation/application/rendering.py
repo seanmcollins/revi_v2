@@ -200,7 +200,34 @@ def plural(quantity: int, singular: str, many: str | None = None) -> str:
     register slip that shows up in a dozen warnings at once, so the plural
     is computed in one place rather than hand-written per sentence.
     """
-    return singular if abs(quantity) == 1 else (many or f"{singular}s")
+    if abs(quantity) == 1:
+        return singular
+    return many if many is not None else _plural_form(singular)
+
+
+#: Consonants before a final ``y`` that make it ``-ies``. "facility" →
+#: "facilities"; "day" keeps its vowel and stays "days".
+_VOWELS = frozenset("aeiou")
+
+#: Endings that take ``-es`` rather than a bare ``-s``.
+_SIBILANT_ENDINGS = ("s", "x", "z", "ch", "sh")
+
+
+def _plural_form(singular: str) -> str:
+    """English plural for a governed noun this product says out loud.
+
+    Three rules, which is all the vocabulary here needs: the nouns are
+    dimension labels ("payer", "facility", "service line", "filing runway
+    bucket") and a handful of hand-written words. It matters because these
+    are read: a scorecard that opens "Different facilitys lead different
+    measures" tells a career analyst that nobody proofread the product.
+    """
+    word = singular.rsplit(" ", 1)[-1]
+    if len(word) > 1 and word.endswith("y") and word[-2].lower() not in _VOWELS:
+        return f"{singular[:-1]}ies"
+    if word.endswith(_SIBILANT_ENDINGS):
+        return f"{singular}es"
+    return f"{singular}s"
 
 
 def unit_word(unit: str | None) -> str | None:

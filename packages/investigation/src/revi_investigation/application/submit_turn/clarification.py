@@ -695,7 +695,7 @@ def _state_the_survivor(
         clarification,
         question=(
             f"{clarification.question} Only one of the options I could offer survives what "
-            f"this data holds at this watermark: “{lone.option}”. That answers less than you "
+            f"this data load holds: “{lone.option}”. That answers less than you "
             "asked for, so I have not run it on your behalf — say it and I will, or say what "
             "you want in your own words."
         ),

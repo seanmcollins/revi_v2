@@ -492,14 +492,23 @@ class TestZeroProbeTurns:
     async def test_an_option_dead_ending_in_a_playbook_refusal_is_never_offered(
         self, small_warehouse_path: Path
     ) -> None:
-        """Regression: "Who is my worst payer?" offered "Run a full payer
-        scorecard across all measures", and asking for that elsewhere returned
-        ``PLAYBOOK_TRANSFORM_UNAVAILABLE: payer_scorecard answers by 'pivot'``.
+        """Regression: the hero chip advertising an answer that cannot run.
+
+        "Who is my worst payer?" offered "Will my cash increase next
+        month?", and asking for that elsewhere returns
+        ``PLAYBOOK_TRANSFORM_UNAVAILABLE: cash_outlook answers by
+        'project_lagged_realization'``.
 
         The options are free TEXT, which is the whole difficulty: an option
         carrying a binding is dry-run against the planner, while an option
         that is only a sentence was published unchecked against everything
         except the cut it names.
+
+        The scorecard option is in this set on purpose and must SURVIVE: it
+        was withheld by this same rule while the scorecard could not run,
+        and it is the right offer now that it can. A guard that kept
+        dropping it would cost the analyst the answer to the question they
+        actually asked.
         """
         llm = MockLanguageModel()
         _canned_t1(llm)
@@ -527,16 +536,15 @@ class TestZeroProbeTurns:
 
         assert outcome.clarification is not None
         offered = list(outcome.clarification.options)
-        assert "Run a full payer scorecard across all measures" not in offered
-        # …and the hero chip advertising the unimplemented forecast, at the
-        # same source.
         assert "Will my cash increase next month?" not in offered
+        # The scorecard runs, so the button that reaches it stands.
+        assert "Run a full payer scorecard across all measures" in offered
         # The set is never emptied by this rule: an imperfect suggestion
         # beats a blank row of buttons.
         assert "Rank payers by denial rate" in offered
         reason = outcome.clarification.reason or ""
         assert "option(s) dropped before offer" in reason
-        assert "payer_scorecard" in reason and "pivot" in reason
+        assert "cash_outlook" in reason and "project_lagged_realization" in reason
 
     async def test_meta_turn_cites_recorded_provenance_with_zero_probes(
         self, small_warehouse_path: Path

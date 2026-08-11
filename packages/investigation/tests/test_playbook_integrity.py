@@ -62,17 +62,53 @@ def planner(
 class TestAnAnsweringTransformThisEngineCannotRun:
     """(2) Refuse the playbook by name, or answer it. Never half."""
 
-    def test_the_payer_scorecard_refuses_and_names_the_transform(
+    def test_the_payer_scorecard_now_plans_its_panel(
         self, planner: BuildInvestigationPlanService, make_spec: SpecFactory
     ) -> None:
+        """The scorecard ANSWERS. It used to be the other half of this rule.
+
+        "Refuse the playbook by name, or answer it. Never half" was written
+        when the answering step did not exist, and the refusal was the only
+        honest half available. The step exists now, so this case takes the
+        other one — and the rule is unchanged: what a scorecard must never
+        do is publish its columns dressed as a card.
+
+        The panel is fed by the probe families cut BY PAYER and by no
+        others: ``payer_mix_control`` reads payer by service line, which is
+        a finer population, and one of its cells joined onto a payer row
+        would publish a slice of a payer as the payer.
+        """
         spec = make_spec(dimensions=("payer",), watermark=WATERMARK)
 
-        with pytest.raises(UnsupportedConceptError) as raised:
-            planner.build(spec, playbook_id="payer_scorecard", window_explicit=True)
+        plan = planner.build(spec, playbook_id="payer_scorecard", window_explicit=True)
 
-        assert raised.value.details["transform"] == "pivot"
-        assert raised.value.details["playbook"] == "payer_scorecard"
-        assert "pivot" in str(raised.value)
+        panel = next(step for step in plan.transforms.steps if step.operator == "panel")
+        assert panel.arg("entity") == "payer"
+        assert "payer_mix_control" not in panel.inputs
+        assert len(panel.inputs) >= 4
+        # The improvement direction travels as pack knowledge, split into
+        # the two families the operator orders by. A neutral measure is in
+        # neither: nobody leads on charges.
+        high = set((panel.arg("better_high") or "").split(","))
+        low = set((panel.arg("better_low") or "").split(","))
+        assert "clean_claim_rate" in high
+        assert "initial_denial_rate" in low
+        assert "charges" not in high | low
+
+    def test_a_scorecard_whose_rows_were_never_measured_still_refuses(
+        self, planner: BuildInvestigationPlanService, make_spec: SpecFactory
+    ) -> None:
+        """A row of the generic scorecard is one value of the cut the
+        question named. Asked for a cut none of its checks can read, there
+        is no scorecard — and that refusal recovers into the per-measure
+        questions exactly as the missing-transform one did."""
+        spec = make_spec(watermark=WATERMARK)
+
+        with pytest.raises(UnsupportedConceptError) as raised:
+            planner.build(spec, playbook_id="dimension_scorecard", window_explicit=True)
+
+        assert raised.value.details["transform"] == "panel"
+        assert raised.value.details["playbook"] == "dimension_scorecard"
 
     def test_the_cash_outlook_refuses_its_forecast_rather_than_answering_a_total(
         self, planner: BuildInvestigationPlanService, make_spec: SpecFactory
@@ -103,29 +139,63 @@ class TestAnAnsweringTransformThisEngineCannotRun:
         self, pack_port: PackSnapshotPort, catalog: CatalogSnapshot, make_spec: SpecFactory
     ) -> None:
         """A refusal with no way onward is the dead end this platform
-        refuses everywhere else."""
+        refuses everywhere else.
+
+        The forecast is what still cannot run, so it is what still carries
+        this rule. The recovery is unchanged and so is its shape: each
+        probe family becomes one option bound to the metric ids and the cut
+        it declares — content, never invented.
+        """
         planner = BuildInvestigationPlanService(pack_port, catalog)
         repository = StubAnalyticalRepository(watermarks=(WATERMARK,))
         validator = PlanValidationService(catalog, pack_port, repository)
-        spec = make_spec(dimensions=("payer",), watermark=WATERMARK)
+        spec = make_spec(watermark=WATERMARK)
         with pytest.raises(UnsupportedConceptError) as raised:
-            planner.build(spec, playbook_id="payer_scorecard", window_explicit=True)
+            planner.build(spec, playbook_id="cash_outlook", window_explicit=False)
 
         clarification = validator.clarification_for(raised.value, spec)
 
         assert clarification is not None
         # The transform is named in the machine-facing ``reason``; the
-        # question says what it MEANS, because "pivot" is our word.
-        assert clarification.reason is not None and "pivot" in clarification.reason
+        # question says what it MEANS, because the operator is our word.
+        assert (
+            clarification.reason is not None
+            and "project_lagged_realization" in clarification.reason
+        )
         assert "a step this platform cannot run" in clarification.question
         assert len(clarification.options) >= 2
         assert all(binding.kind == "metric_cut" for binding in clarification.bindings)
         assert {b.option for b in clarification.bindings} == set(clarification.options)
 
-    def test_the_two_transforms_are_named_once(self) -> None:
-        """The list is a fact about this engine's operator set. When either
-        is implemented it comes off the list and the playbooks answer."""
-        assert frozenset({"pivot", "project_lagged_realization"}) == ANSWERING_TRANSFORMS
+    def test_a_scorecard_that_cannot_run_recovers_the_same_way(
+        self, pack_port: PackSnapshotPort, catalog: CatalogSnapshot, make_spec: SpecFactory
+    ) -> None:
+        """The clarification fallback earns its keep on the case that needs it.
+
+        Where a scorecard CAN run it runs — the panel answers the ambiguity
+        in "performing" by showing every lens at once, which is a better
+        answer than asking the analyst to pick one. Where it genuinely
+        cannot, the teaching-style clarification is still there, offering
+        the scorecard's own columns one measure at a time.
+        """
+        planner = BuildInvestigationPlanService(pack_port, catalog)
+        repository = StubAnalyticalRepository(watermarks=(WATERMARK,))
+        validator = PlanValidationService(catalog, pack_port, repository)
+        spec = make_spec(watermark=WATERMARK)
+        with pytest.raises(UnsupportedConceptError) as raised:
+            planner.build(spec, playbook_id="dimension_scorecard", window_explicit=True)
+
+        clarification = validator.clarification_for(raised.value, spec)
+
+        assert clarification is not None
+        assert len(clarification.options) >= 2
+        assert all(option.startswith("Measure ") for option in clarification.options)
+
+    def test_the_one_remaining_transform_is_named_once(self) -> None:
+        """The list is a fact about this engine's operator set, and it just
+        got shorter: the scorecards' answering step is implemented, so it
+        came off the list and the playbooks answer unchanged."""
+        assert frozenset({"project_lagged_realization"}) == ANSWERING_TRANSFORMS
 
 
 def _probe_frame(metric: str, rows: int) -> EvidenceFrame:

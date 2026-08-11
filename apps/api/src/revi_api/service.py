@@ -342,6 +342,30 @@ def monitor_declaration_warning(
     )
 
 
+def _reconciliation_summary(comparison: object, card_cents: int) -> str:
+    """The machine-facing one-liner on a reconciliation payload.
+
+    Its own function because the method that used to hold it composes
+    CLIENT copy as well, and that method is walked literal-by-literal by
+    ``apps/api/tests/test_client_language_guard.py``. Machine key=value is
+    right here and wrong there; separating them lets the guard hold the
+    whole of the client half to the contract without this line having to
+    pretend to be a sentence.
+    """
+    status = getattr(comparison, "status", None)
+    platform_cents = getattr(comparison, "platform_cents", None)
+    delta_fraction = getattr(comparison, "delta_fraction", None)
+    parts = [f"status={status}", f"card=${card_cents / 100:,.2f}"]
+    parts.append(
+        f"answer=${platform_cents / 100:,.2f}"
+        if platform_cents is not None
+        else "answer=unavailable"
+    )
+    if delta_fraction is not None:
+        parts.append(f"delta={delta_fraction:+.1%}")
+    return "; ".join(parts)
+
+
 def _with_warning(outcome: TurnOutcome, warning: str) -> TurnOutcome:
     """The same outcome with one more warning on it.
 
@@ -1200,9 +1224,8 @@ class ApiService:
             return (
                 _with_warning(
                     outcome,
-                    f"anomaly_ref {ref!r} ignored: it names the card a TYPED drill was "
-                    "launched from, and this turn carries no typed spec, so there is no "
-                    "drill of that card to reconcile against",
+                    "anomaly_reconciliation_skipped: this answer was not opened from a "
+                    "card, so there is no card figure to check it against.",
                 ),
                 None,
             )
@@ -1215,9 +1238,9 @@ class ApiService:
             return (
                 _with_warning(
                     outcome,
-                    f"anomaly_ref {ref!r}: the detection feed could not be read at this "
-                    "watermark, so this answer is published without the card-to-drill "
-                    "reconciliation it would otherwise carry",
+                    "anomaly_reconciliation_skipped: the detection feed could not be read "
+                    "for this data load, so this answer is published without the check "
+                    "against the card it was opened from",
                 ),
                 None,
             )
@@ -1226,9 +1249,10 @@ class ApiService:
             return (
                 _with_warning(
                     outcome,
-                    f"anomaly_ref {ref!r} is not in the detection feed at watermark "
-                    f"{outcome.session.watermark.id}; the answer below stands on its own "
-                    "evidence, with no card figure to reconcile against",
+                    "anomaly_reconciliation_skipped: the card this answer was opened "
+                    "from is not in the detection feed for this data load. The answer "
+                    "below stands on its own evidence, with no card figure to check it "
+                    "against.",
                 ),
                 None,
             )
@@ -1293,19 +1317,7 @@ class ApiService:
             card_window_start=record.window_start,
             card_window_end=record.window_end,
             detail=detail,
-            summary=(
-                f"status={comparison.status}; card=${record.impact_cents / 100:,.2f}; "
-                + (
-                    f"answer=${comparison.platform_cents / 100:,.2f}"
-                    if comparison.platform_cents is not None
-                    else "answer=unavailable"
-                )
-                + (
-                    f"; delta={comparison.delta_fraction:+.1%}"
-                    if comparison.delta_fraction is not None
-                    else ""
-                )
-            ),
+            summary=_reconciliation_summary(comparison, record.impact_cents),
         )
         return outcome, strip
 

@@ -252,7 +252,9 @@ class TestEveryOfferedOptionIsOneTheEngineCanRun:
 
     def test_a_platform_recovery_chip_is_not_a_query(self, validator) -> None:  # type: ignore[no-untyped-def]
         assert (
-            validator.unexecutable_cut("Raise the per-turn cost ceiling", ("denial_rate",))
+            validator.unexecutable_cut(
+                "Raise the cost ceiling for one question", ("denial_rate",)
+            )
             is None
         )
 
@@ -268,15 +270,27 @@ class TestEveryOfferedOptionIsOneTheEngineCanRun:
             is None
         )
 
-    def test_a_playbook_this_engine_cannot_answer_is_refused_before_offer(
+    def test_the_scorecard_option_is_offered_because_the_scorecard_runs(
         self, validator
-    ) -> None:  # type: ignore[no-untyped-def]
-        """The live option verbatim: "Who is my worst payer?" offered "Run a
-        full payer scorecard across all measures", while asking for that
-        elsewhere returns ``PLAYBOOK_TRANSFORM_UNAVAILABLE``."""
-        assert validator.unanswerable_playbook(
-            "Run a full payer scorecard across all measures"
-        ) == ("payer_scorecard", "pivot")
+    ) -> None:
+        """The live option verbatim, and it is now a GOOD one.
+
+        "Who is my worst payer?" offered "Run a full payer scorecard across
+        all measures", and asking for that used to return
+        ``PLAYBOOK_TRANSFORM_UNAVAILABLE: payer_scorecard answers by
+        'pivot'`` — a button the engine had already decided it could not
+        press. The scorecard's answering transform is implemented, so the
+        button reaches an answer and this guard has nothing to withhold.
+
+        The guard itself is unchanged and still fires for the forecast
+        (below); what changed is the pack's capability, which is exactly the
+        shape this list was documented to have — "the day either is
+        implemented, it comes off this list and the playbooks answer".
+        """
+        assert (
+            validator.unanswerable_playbook("Run a full payer scorecard across all measures")
+            is None
+        )
 
     def test_the_hero_chip_advertising_an_unimplemented_forecast_is_caught(
         self, validator
@@ -311,7 +325,9 @@ class TestEveryOfferedOptionIsOneTheEngineCanRun:
     def test_an_option_naming_no_playbook_at_all_survives(
         self, validator
     ) -> None:  # type: ignore[no-untyped-def]
-        assert validator.unanswerable_playbook("Raise the per-turn cost ceiling") is None
+        assert (
+            validator.unanswerable_playbook("Raise the cost ceiling for one question") is None
+        )
         assert validator.unanswerable_playbook("") is None
 
     def test_which_measure_is_recognised_however_it_is_phrased(self) -> None:

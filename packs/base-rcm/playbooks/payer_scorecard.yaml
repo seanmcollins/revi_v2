@@ -14,6 +14,10 @@ description: >-
 triggers:
   - payer scorecard
   - which payer is worst
+  - what is my top performing payer
+  - which payer performs best
+  - who is my best payer
+  - which payer is worst to work with
   - compare our payers
   - rank payers
   - how do payers compare
@@ -34,15 +38,16 @@ probes:
       contract richness, NOT a collection result — it moves with
       chargemaster changes too, so it is read as context for the receivable columns.
   - id: payer_cash
-    metric_ids: [cash_posted, denial_write_off_dollars, write_off_rate]
+    metric_ids: [cash_posted, avg_days_to_pay, denial_write_off_dollars, write_off_rate]
     dimensions: [payer]
     window: {quantity: 3, unit: month, mode: full_periods}
     top_n: 12
     scope_note: >-
-      Posted payer cash, non-contractual write-offs and write-offs per dollar
-      collected, on the posting date. These sit at transaction level, so they
-      are read separately from the claim-level row above and the two are
-      never divided into each other cell by cell.
+      Posted payer cash, how long each payer takes to pay, non-contractual
+      write-offs and write-offs per dollar collected, on the posting date.
+      These sit at transaction level, so they are read separately from the
+      claim-level row above and the two are never divided into each other
+      cell by cell.
   - id: payer_receivable
     metric_ids: [ar_balance, ar_over_90_pct, ar_over_120_pct, denied_ar_dollars]
     dimensions: [payer]
@@ -91,11 +96,28 @@ probes:
       service mix is comparable; this cut is what lets a conclusion say
       "worse on like business" instead of "worse".
 transforms:
-  - operator: pivot
+  - operator: panel
     args: {rows: payer, columns: metric}
-  - operator: compare
-    args: {kind: prior_period}
-  - operator: rank
-    args: {by: denied_dollars, descending: true}
+verdict:
+  # RATE AND SPEED ONLY. A verdict taken over dollar columns crowns the
+  # biggest payer: the payer who sends the most business posts the most
+  # cash AND denies the most dollars, and neither fact is about how good
+  # they are to work with. The dollar columns stay in the panel — they are
+  # what a contracting conversation needs beside the rates — they just do
+  # not vote.
+  measures:
+    - avg_days_to_pay
+    - write_off_rate
+    - initial_denial_rate
+    - clean_claim_rate
+    - denials_unworked_pct
+    - appeal_overturn_rate
+    - ar_over_90_pct
+  # Four of the seven. A payer ahead on four of these is ahead on how fast
+  # they pay, how much they deny, or how their denials end — a majority a
+  # contracting team can act on. Three of seven is a payer who happens to
+  # lead a plurality, and calling that "best" would be this scorecard
+  # inventing a winner.
+  leader_min_measures: 4
 conclusion_policies: [payer_scorecard_claim]
 ranking_policy: impact_first

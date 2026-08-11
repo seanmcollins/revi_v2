@@ -430,6 +430,17 @@ class CalculateMetricsService:
                 column=_required_arg(step, "column"),
                 measure=_required_arg(step, "measure"),
             )
+        elif operator == "panel":
+            # A scorecard is assembled from every check that measured the
+            # entity, so the input count is the playbook's, not a fixed
+            # arity. ``_input_frames`` with no expectation resolves them
+            # all in plan order.
+            out = transforms.panel(
+                *self._input_frames(step, frames, len(step.inputs)),
+                entity=_required_arg(step, "entity"),
+                better_high=_tuple_arg(step, "better_high"),
+                better_low=_tuple_arg(step, "better_low"),
+            )
         elif operator == "decompose":
             current, prior = self._input_frames(step, frames, 2)
             cells = _tuple_arg(step, "cells")

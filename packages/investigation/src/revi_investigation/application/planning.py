@@ -64,7 +64,12 @@ from __future__ import annotations
 import hashlib
 from dataclasses import dataclass, replace
 
-from revi_calculation_contracts.contract import MetricContract, MetricKind, MetricUnit
+from revi_calculation_contracts.contract import (
+    MetricContract,
+    MetricKind,
+    MetricUnit,
+    SignConvention,
+)
 from revi_catalog_contracts.model import CatalogSnapshot
 from revi_investigation.application.anchoring import window_anchor
 from revi_investigation.application.capability_ports import (
@@ -123,21 +128,28 @@ _IMPACT_ARG = "impact_cents"
 _PRIOR_SUFFIX = "__prior"
 
 #: Playbook transforms that ARE the answer, as opposed to transforms that
-#: enrich one. A pack may declare a transform this milestone's engine does
-#: not implement; for ``share_of_total`` or ``decompose`` that costs the
-#: reader a column and the plan says so in a note. For these two it costs
-#: them the question:
+#: enrich one. A pack may declare a transform this engine does not
+#: implement; for ``share_of_total`` or ``decompose`` that costs the reader
+#: a column and the plan says so in a note. For one of them it costs them
+#: the question:
 #:
-#: * ``pivot`` is what turns the payer scorecard's six probes into one row
-#:   per payer — without it there is no card, only six unrelated frames;
 #: * ``project_lagged_realization`` is the cash outlook's forecast —
 #:   without it there is no next month, only a total for a window the
 #:   question did not name.
 #:
 #: Named here rather than in the pack because it is a fact about THIS
-#: engine's operator set, not about the content: the day either is
-#: implemented, it comes off this list and the playbooks answer unchanged.
-ANSWERING_TRANSFORMS: frozenset[str] = frozenset({"pivot", "project_lagged_realization"})
+#: engine's operator set, not about the content: the day it is implemented,
+#: it comes off this list and the playbook answers unchanged.
+#:
+#: The scorecards' answering transform used to be on this list, under the
+#: name ``pivot``. It is now ``panel`` and it runs (see
+#: :meth:`BuildInvestigationPlanService._panel_step`), which is why "what
+#: is my top performing payer?" is an answer rather than a refusal. The two
+#: were never the same operator: ``pivot`` spreads one measure across the
+#: values of a column inside one frame, and a scorecard joins N measures
+#: from N frames onto one row per entity. Naming them apart is what let one
+#: of them be implemented.
+ANSWERING_TRANSFORMS: frozenset[str] = frozenset({"project_lagged_realization"})
 
 #: What ``evidence_depth=deep`` multiplies a *pack-authored* ``top_n`` by.
 #:
@@ -1245,6 +1257,9 @@ class BuildInvestigationPlanService:
                         "retrieved by separate probes at different grains in this plan"
                     )
                 continue
+            if operator == "panel":
+                steps.append(self._panel_step(playbook, requested, nodes, node_contracts, spec))
+                continue
             if operator in ANSWERING_TRANSFORMS:
                 # …and the ones whose absence changes WHAT the answer is.
                 # Recording them as skipped enrichments at INFO produces
@@ -1282,6 +1297,84 @@ class BuildInvestigationPlanService:
                 "recorded and skipped"
             )
         return steps, notes
+
+    def _panel_step(
+        self,
+        playbook: PlaybookSpec,
+        requested: TransformStepSpec,
+        nodes: list[ProbeNode],
+        node_contracts: dict[str, tuple[MetricContract, ...]],
+        spec: AnalysisSpec,
+    ) -> TransformPlanStep:
+        """Compile a scorecard's answering step: N per-entity checks → one panel.
+
+        Which checks feed it is decided by the CUT, not by the pack listing
+        them a second time. A scorecard row is one entity, so a probe cut
+        by exactly that entity is a column of the panel and a probe cut
+        finer is not: the payer scorecard's mix control reads payer BY
+        service line, and joining one of its cells onto a payer row would
+        publish a slice of a payer as the payer. It still runs and still
+        charts — it is the evidence the description calls required — it
+        simply is not a panel column.
+
+        The improvement direction is read off each metric contract's own
+        ``sign`` and passed to the operator as two families. Nothing here
+        decides which end of a measure is good; the contract already said,
+        and a measure that says ``neutral`` is published with no ordering
+        at all.
+        """
+        entity = (requested.arg("rows") or "").strip()
+        if entity == _DIMENSION_PARAM:
+            entity = spec.dimensions[0].id if spec.dimensions else ""
+        inputs: list[str] = []
+        better_high: list[str] = []
+        better_low: list[str] = []
+        seen: set[str] = set()
+        for node in nodes:
+            if node.id.endswith(_PRIOR_SUFFIX):
+                continue
+            probe = node.probe
+            # A row-evidence probe returns records, not a measured cut, so
+            # it has no dimensions to be a panel column of.
+            if not isinstance(probe, (AggregationProbe, SnapshotProbe)):
+                continue
+            if tuple(ref.id for ref in probe.dimensions) != (entity,):
+                continue
+            inputs.append(node.id)
+            for contract in node_contracts.get(node.id, ()):
+                if contract.id in seen:
+                    continue
+                seen.add(contract.id)
+                if contract.sign is SignConvention.HIGHER_IS_GOOD:
+                    better_high.append(contract.id)
+                elif contract.sign is SignConvention.HIGHER_IS_BAD:
+                    better_low.append(contract.id)
+        if not inputs:
+            # No check measured the thing a row is supposed to be. There is
+            # no panel to publish and no column of one either, so this is
+            # the same class of refusal an unimplemented answering transform
+            # raises — and it recovers the same way, into the per-measure
+            # questions this pack really can answer.
+            raise UnsupportedConceptError(
+                f"the {playbook.id!r} scorecard is one row per "
+                f"{entity.replace('_', ' ') or 'value'}, and nothing in it was measured that "
+                "way — so there is no scorecard to give.",
+                details={
+                    "playbook": playbook.id,
+                    "transform": "panel",
+                    "metric": None,
+                },
+            )
+        return TransformPlanStep(
+            id=f"{playbook.id}__panel",
+            operator="panel",
+            inputs=tuple(inputs),
+            args=(
+                ("entity", entity),
+                ("better_high", ",".join(better_high)),
+                ("better_low", ",".join(better_low)),
+            ),
+        )
 
     def _rank_binding(
         self,

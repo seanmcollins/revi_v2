@@ -705,7 +705,7 @@ class PlanValidationService:
             options=tuple(options),
             reason=(
                 f"PLAYBOOK_TRANSFORM_UNAVAILABLE: {playbook_id} answers by {transform!r}; "
-                f"{len(options)} probe famil(ies) offered as direct measurements instead"
+                f"{len(options)} check famil(ies) offered as direct measurements instead"
             ),
             bindings=tuple(bindings),
         )
@@ -1102,7 +1102,7 @@ class PlanValidationService:
             reason=(
                 f"PREDICATE_VALUE_UNMATCHED: {dim.id} "
                 f"{[str(value) for value in unmatched]} not in the {len(domain)} values "
-                "this watermark holds"
+                "this load holds"
             ),
             bindings=tuple(
                 ClarificationBinding(

@@ -376,6 +376,40 @@ class TransformStep:
 
 
 @dataclass(frozen=True, slots=True)
+class ScorecardVerdict:
+    """When a scorecard is allowed to name one entity the best.
+
+    A scorecard measures N governed things. There is no overall score,
+    because averaging a denial rate against posted cash requires weights
+    nobody in the pack has authored and the reader cannot inspect — an
+    invented composite is exactly the number this platform refuses to
+    publish. What CAN be said honestly is an arithmetic fact about the
+    orderings themselves: *this payer is first on M of the N measures we
+    could rank*.
+
+    ``leader_min_measures`` is the M that makes that fact a verdict. It is
+    pack content because it is a judgement about the domain, not about the
+    engine: a contracting conversation rests on a different majority than a
+    facility review does. Below it the honest answer is that no one leads,
+    stated with the per-measure leaders — a first-class answer, not a
+    failure to reach one.
+    """
+
+    #: How many of the rankable measures one entity must lead before the
+    #: scorecard will call it the leader. At least one, or the "verdict"
+    #: is a coin toss dressed as a finding.
+    leader_min_measures: int
+    #: The measures the verdict is taken over, when the pack wants a
+    #: subset. Empty means every panel measure whose contract declares an
+    #: improvement direction.
+    measures: tuple[str, ...] = ()
+
+    def __post_init__(self) -> None:
+        if self.leader_min_measures < 1:
+            raise ValueError("ScorecardVerdict.leader_min_measures must be at least 1")
+
+
+@dataclass(frozen=True, slots=True)
 class Playbook:
     """A parameterized investigation DAG template (design §5.1)."""
 
@@ -387,10 +421,21 @@ class Playbook:
     transforms: tuple[TransformStep, ...] = ()
     conclusion_policies: tuple[str, ...] = ()
     ranking_policy: str | None = None
+    #: The decision rule for a scorecard's verdict sentence. Required by
+    #: the ``panel`` transform and meaningless without it.
+    verdict: ScorecardVerdict | None = None
 
     def __post_init__(self) -> None:
         if not self.id:
             raise ValueError("Playbook.id must be non-empty")
+        answers_by_panel = any(step.operator == "panel" for step in self.transforms)
+        if answers_by_panel and self.verdict is None:
+            raise ValueError(
+                f"Playbook {self.id!r}: a playbook that answers by 'panel' must author a "
+                "'verdict' policy — how many measures one value has to lead before this "
+                "scorecard names a leader is a judgement about the domain, and there is no "
+                "engine default that would not be inventing one"
+            )
 
 
 # ---------------------------------------------------------------------------

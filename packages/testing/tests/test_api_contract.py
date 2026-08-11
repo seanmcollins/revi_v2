@@ -394,11 +394,11 @@ class TestApiContract:
         assert investigation.narrative == answer.narrative
         assert investigation.narrative
         inventory = next(
-            note for note in investigation.restoration_notes if "this turn restores" in note.lower()
+            note for note in investigation.restoration_notes if "this link carries" in note.lower()
         )
         assert "the written analysis exactly as it was published" in inventory
         assert ("the charts" in inventory) is bool(investigation.chart_specs)
-        assert "was not stored for this turn" not in inventory
+        assert "was not stored for this answer" not in inventory
 
 
 class TestHttpOnly:

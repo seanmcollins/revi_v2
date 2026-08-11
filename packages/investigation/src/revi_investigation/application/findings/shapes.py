@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 
@@ -301,6 +302,109 @@ def find_scalar_shapes(
                 )
             )
     return tuple(shapes)
+
+
+@dataclass(frozen=True, slots=True)
+class PanelMeasure:
+    """One column of a scorecard: a governed measure and its ordering."""
+
+    measure: str
+    unit: str | None
+    #: The panel's own ordering column for this measure, or ``None`` when
+    #: the metric contract declares no improvement direction. ``None`` is
+    #: an answer, not a gap: charges and claim volume are neutral, and a
+    #: "best" over them would assert that billing more is better.
+    rank_column: str | None
+
+    @property
+    def rankable(self) -> bool:
+        return self.rank_column is not None
+
+
+@dataclass(frozen=True, slots=True)
+class PanelLeader:
+    """One entity, and how many of a scorecard's measures it is first on."""
+
+    label: str
+    wins: int
+
+
+def sentence_list(items: Sequence[str]) -> str:
+    """``["a", "b", "c"]`` → ``"a, b and c"``.
+
+    One fact per item, joined the way a sentence joins them — the panel's
+    verdict names every measure it counted, and a comma-joined tail reads
+    as a list that was truncated.
+    """
+    parts = [item for item in items if item]
+    if not parts:
+        return ""
+    if len(parts) == 1:
+        return parts[0]
+    return f"{', '.join(parts[:-1])} and {parts[-1]}"
+
+
+@dataclass(frozen=True, slots=True)
+class PanelShape:
+    """A scorecard: one row per entity, one column per governed measure.
+
+    The shape the ``panel`` operator produces, and the only shape whose
+    answer is a statement ACROSS measures rather than about one. Every
+    other shape in this module is about a single measure — a movement in
+    it, a concentration of it, a level of it, a series of it — which is why
+    a scorecard read through them published six unrelated charts and no
+    finding.
+    """
+
+    frame_id: str
+    frame: EvidenceFrame
+    entity_column: str
+    measures: tuple[PanelMeasure, ...]
+    #: The window the probe behind this frame actually read, when it
+    #: declared one of its own. ``None`` is the investigation window.
+    window: TimeWindow | None = None
+
+    @property
+    def rankable(self) -> tuple[PanelMeasure, ...]:
+        return tuple(measure for measure in self.measures if measure.rankable)
+
+
+def find_panel(
+    plan: InvestigationPlan, calculation: CalculationResult
+) -> PanelShape | None:
+    """The scorecard this plan assembled, when it assembled one."""
+    for step in plan.transforms.steps:
+        if step.operator != "panel":
+            continue
+        try:
+            frame = calculation.frame(step.id)
+        except KeyError:  # pragma: no cover - pruned steps never execute
+            continue
+        dims = _dimension_columns(frame)
+        if not dims:
+            continue
+        names = set(frame.schema.names)
+        measures = tuple(
+            PanelMeasure(
+                measure=col.name,
+                unit=col.unit,
+                rank_column=(
+                    f"{col.name}__rank" if f"{col.name}__rank" in names else None
+                ),
+            )
+            for col in frame.schema.columns
+            if isinstance(col.ref, MetricRef) and "__" not in col.name
+        )
+        if not measures:
+            continue
+        return PanelShape(
+            frame_id=step.id,
+            frame=frame,
+            entity_column=dims[0],
+            measures=measures,
+            window=frame_window(plan, step.id),
+        )
+    return None
 
 
 def _dimension_columns(frame: EvidenceFrame) -> tuple[str, ...]:

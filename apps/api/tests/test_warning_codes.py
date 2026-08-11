@@ -137,7 +137,14 @@ FAMILIES: list[tuple[str, str, str]] = [
     (
         "PORTFOLIO_FEED_EMPTY",
         "info",
-        "no detected anomalies at this watermark (the detection feed may not have landed yet)",
+        "no detected anomalies in this data load (the detection feed may not have landed yet)",
+    ),
+    (
+        "ANOMALY_RECONCILIATION_SKIPPED",
+        "caution",
+        "anomaly_reconciliation_skipped: the card this answer was opened from is not in "
+        "the detection feed for this data load. The answer below stands on its own "
+        "evidence, with no card figure to check it against.",
     ),
     (
         "PORTFOLIO_IMPACT_UNRECONCILED",

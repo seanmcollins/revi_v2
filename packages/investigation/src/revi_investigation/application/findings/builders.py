@@ -43,6 +43,9 @@ from revi_investigation.application.findings.premise import (
 from revi_investigation.application.findings.shapes import (
     ConcentrationShape,
     MovementShape,
+    PanelLeader,
+    PanelMeasure,
+    PanelShape,
     ScalarShape,
     TerminalCensoring,
     TrendShape,
@@ -52,6 +55,7 @@ from revi_investigation.application.findings.shapes import (
     _dimension_columns,
     _direction,
     as_number,
+    sentence_list,
 )
 from revi_investigation.application.findings.windows import (
     _measured_range,
@@ -64,6 +68,7 @@ from revi_investigation.application.gestures import suggested_refinements_for
 from revi_investigation.application.planning import InvestigationPlan
 from revi_investigation.application.ports import ReferentRegistryStore, RegisteredReferent
 from revi_investigation.application.rendering import (
+    MONEY_UNIT,
     format_value,
     magnitude,
     magnitude_money,
@@ -489,6 +494,11 @@ class _FindingBuilders:
         many; a total says "across the 12 payers" and, where a cut yields
         one, "the 1 payer".
         """
+        # A single cut's own label IS the singular; only the "combinations"
+        # phrasing a multi-dimension cut earns has to be un-pluralized, and
+        # stripping one character off a real plural gives "facilitie".
+        if len(dimension_columns) == 1:
+            return dimension_columns[0].replace("_", " ")
         many = group_noun(dimension_columns)
         return many[:-1] if many.endswith("s") else many
 
@@ -995,6 +1005,233 @@ class _FindingBuilders:
             ),
             suggested_refinements=suggested_refinements_for(referent_value),
         )
+
+
+    # ----------------------------------------------------------- scorecard
+
+    def _build_panel_verdict_finding(
+        self,
+        referent_value: str,
+        shape: PanelShape,
+        leader: PanelLeader | None,
+        led: tuple[tuple[PanelMeasure, str], ...],
+        rankable: tuple[PanelMeasure, ...],
+        minimum: int,
+        spec: AnalysisSpec,
+        pack: PackPort,
+        session_id: str,
+        investigation_id: str,
+    ) -> tuple[Finding, RegisteredReferent]:
+        """The scorecard's first sentence — and both of its answers.
+
+        A scorecard has no overall score. Averaging a denial rate against
+        posted cash needs weights nobody authored and no reader can
+        inspect, so this platform does not invent one; what it states is an
+        arithmetic fact about the orderings it did compute — who is first on
+        how many of them.
+
+        Both outcomes are the same class of answer. "Northbridge leads on 4
+        of the 7 measures this scorecard could rank" and "no payer leads
+        overall — different payers lead different measures" are equally
+        complete; the second is what the data says when performance is
+        genuinely split, and publishing it as a finding rather than as a
+        shrug is the whole point of counting instead of scoring.
+        """
+        noun = self._aggregate_noun((shape.entity_column,))
+        total = len(rankable)
+        # The rule that decides this sentence, said with its number and
+        # with who can change it (docs/client-language.md §2.1). A verdict
+        # that gestured at "the required majority" would ask the reader to
+        # accept a threshold in words they cannot evaluate.
+        rule = (
+            f"Revi names a leader when one {noun} is first on at least {minimum} of them — "
+            f"Revi's recommended majority for this review. You can change this anytime."
+        )
+        if leader is not None:
+            named = sentence_list([metric_label(measure.measure) for measure, _ in led])
+            title = f"{leader.label} leads on {leader.wins} of {total} measures"
+            statement = (
+                f"{leader.label} is first on {leader.wins} of the {total} measures this "
+                f"scorecard could rank: {named}. There is no combined score — this counts "
+                f"the measures it leads. {rule}"
+            )
+            values: list[tuple[str, Scalar]] = [
+                ("measures_led", leader.wins),
+                ("measures_ranked", total),
+                ("leader_min_measures", minimum),
+            ]
+        else:
+            # Grouped by the entity, not listed per measure. "Federal
+            # Medicare on write-offs, Federal Medicare on denials, Federal
+            # Medicare on clean claims" reads as three findings about three
+            # payers; it is one payer leading three measures, and that is
+            # the fact a reader is trying to see.
+            by_entity: dict[str, list[str]] = {}
+            for measure, entity_label in led:
+                by_entity.setdefault(entity_label, []).append(metric_label(measure.measure))
+            named = sentence_list(
+                [
+                    f"{entity_label} on {sentence_list(names)}"
+                    for entity_label, names in by_entity.items()
+                ]
+            )
+            title = f"No {noun} leads overall"
+            statement = (
+                f"Different {plural(2, noun)} lead different measures: {named}. No one is "
+                f"first on enough of the {total} measures this scorecard could rank to be "
+                f"called the best, so none is named. {rule}"
+            )
+            values = [("measures_ranked", total), ("leader_min_measures", minimum)]
+        statement = _with_window_note(statement, spec, shape.window)
+        referent = ReferentId(value=referent_value, kind=ReferentKind.FINDING)
+        finding = Finding(
+            referent=referent,
+            title=title,
+            statement=statement,
+            # The verdict rests on every measure it counted, so it cites
+            # them all: an export or a rederivation that asked what this
+            # sentence stands on gets the panel, not one column of it.
+            metric_refs=tuple(MetricRef(measure.measure) for measure in rankable),
+            values=tuple(values),
+            grade=shape.frame.evidence_grade,
+            # Counting first places is not dollars, and a scorecard is not
+            # a worklist. Inventing an impact here would sort this finding
+            # into a queue of recoverable money it is not part of.
+            impact_cents=None,
+            confidence="high",
+            suggested_refinements=suggested_refinements_for(referent_value),
+        )
+        registered = RegisteredReferent(
+            referent=referent,
+            session_id=session_id,
+            investigation_id=investigation_id,
+            label=title,
+            cohort_definition=CohortDefinition(
+                entity=EntityGrain.CLAIM,
+                scope=spec.context.effective_scope(),
+                window=spec.context.window,
+            ),
+            finding=finding,
+        )
+        return finding, registered
+
+    def _build_panel_measure_finding(
+        self,
+        referent_value: str,
+        row: tuple[Scalar, ...],
+        shape: PanelShape,
+        measure: PanelMeasure,
+        spec: AnalysisSpec,
+        qualified: bool,
+        pack: PackPort,
+        session_id: str,
+        investigation_id: str,
+        measured_total: int,
+        counted: bool,
+        bound: BoundedCell | None = None,
+    ) -> tuple[Finding, RegisteredReferent]:
+        """One column of the scorecard, and who is at the head of it.
+
+        The direction is stated because it is the only thing that makes
+        "first" mean anything: first on the denial rate is the LOWEST, and
+        first on posted cash is the highest. It comes off the metric
+        contract's own ``sign``, so the sentence and the ordering above it
+        can never disagree about which end is good.
+
+        ``counted`` is whether this column votes in the verdict, and it
+        changes the CLAIM, not just a caveat. A column the pack nominated
+        is a performance measure and its head is a leader. A column it did
+        not is usually additive — posted cash, denied dollars, open A/R —
+        and the entity at the head of an additive column is the one that
+        sends the most business. "Atlas Commercial leads on posted cash" is
+        the invented composite in miniature: it reads as a verdict and it
+        measures size. So an uncounted column says what it is — the most,
+        the least — and says why it is not in the verdict above.
+        """
+        columns = (shape.entity_column,)
+        label = self._row_label(row, shape.frame, columns, pack)
+        value = row[shape.frame.schema.index_of(measure.measure)]
+        name = metric_label(measure.measure)
+        period_text = _period_phrase(spec, pack, measure.measure, shape.frame, shape.window)
+        amount = _as_int(value)
+        is_money = measure.unit == MONEY_UNIT
+        magnitude_text = (
+            magnitude_money(amount)
+            if is_money and amount is not None
+            else format_value(value, measure.unit)
+        )
+        measured_text = measure_phrase(magnitude_text, name, measure.unit)
+        contract = pack.metric(measure.measure)
+        sign = None if contract is None else contract.sign
+        direction_text = (
+            "Lower is better here"
+            if sign is SignConvention.HIGHER_IS_BAD
+            else "Higher is better here"
+        )
+        noun = plural(measured_total, self._aggregate_noun(columns))
+        if bound is not None:
+            title = f"{label}: ≤ {measured_text} (upper bound)"
+            statement = (
+                f"{label}: {name} is AT MOST {magnitude_text} {period_text} — the numerator "
+                f"was suppressed over a population of {bound.population:,}, so this is a "
+                "ceiling and not a measurement. It is published outside the ordering for this "
+                "measure: a bound cannot be first in an order it was never measured for."
+            )
+        elif counted:
+            title = f"{label}: {measured_text} (first on {name})"
+            statement = (
+                f"{label} is first on {name} {period_text}: {measured_text}. "
+                f"{direction_text}, across the {measured_total} {noun} this scorecard could "
+                "measure for it."
+            )
+        else:
+            lower_is_better = sign is SignConvention.HIGHER_IS_BAD
+            extreme = "the least" if lower_is_better else "the most"
+            end = (
+                "the smallest figure names the smallest"
+                if lower_is_better
+                else "the largest figure names the biggest"
+            )
+            scale_note = (
+                " That column scales with how much business each "
+                f"{self._aggregate_noun(columns)} sends, so {end}, not the best."
+                if _is_additive(measure.unit)
+                else ""
+            )
+            title = f"{label}: {measured_text} ({extreme} {name})"
+            statement = (
+                f"{label} has {extreme} {name} {period_text}: {measured_text}, across the "
+                f"{measured_total} {noun} this scorecard could measure for it. This is not one "
+                f"of the measures the verdict above counts.{scale_note}"
+            )
+        statement = _with_window_note(statement, spec, shape.window)
+        values: list[tuple[str, Scalar]] = [(measure.measure, value)]
+        if bound is None:
+            values.append(("rank", 1))
+        values.extend(_bound_values(measure.measure, bound))
+        values.extend(_window_values(measure.measure, spec, shape.window))
+        referent = ReferentId(value=referent_value, kind=ReferentKind.FINDING)
+        finding = Finding(
+            referent=referent,
+            title=title,
+            statement=statement,
+            metric_refs=(MetricRef(measure.measure),),
+            values=tuple(values),
+            grade=shape.frame.evidence_grade,
+            impact_cents=amount if (is_money and bound is None) else None,
+            confidence="qualified" if (qualified or bound is not None) else "high",
+            suggested_refinements=suggested_refinements_for(referent_value),
+        )
+        registered = RegisteredReferent(
+            referent=referent,
+            session_id=session_id,
+            investigation_id=investigation_id,
+            label=title,
+            cohort_definition=self._cohort_definition(row, shape.frame, columns, spec),
+            finding=finding,
+            dimension_value=self._single_dim(row, shape.frame, columns),
+        )
+        return finding, registered
 
 
     def _build_concentration_finding(

@@ -296,16 +296,7 @@ def _materiality_note_strings() -> Iterator[tuple[str, str]]:
 
 def _composition_literal_strings() -> Iterator[tuple[str, str]]:
     """Sites that are awkward to call, read as literals instead."""
-    sites = (
-        (
-            REPO_ROOT
-            / "packages/investigation-contracts/src/revi_investigation_contracts/header.py",
-            "build_header_payload",
-        ),
-        (REPO_ROOT / "apps/api/src/revi_api/monitors_policy.py", "_pack_gate"),
-        (REPO_ROOT / "apps/api/src/revi_api/monitors/common.py", "_monitors_warnings"),
-        (REPO_ROOT / "apps/api/src/revi_api/service.py", "_monitor_refused"),
-    )
+    sites = _COMPOSITION_SITES
     for path, function in sites:
         if not path.exists():  # pragma: no cover - defensive
             continue
@@ -315,6 +306,82 @@ def _composition_literal_strings() -> Iterator[tuple[str, str]]:
             if not is_copy(text) or text.strip().startswith(("%", "{")):
                 continue
             yield f"{path.name}::{function}", text
+
+
+#: Every composition site read literal-by-literal. Named rather than inline
+#: so ``test_every_site_that_writes_a_clarification_question_is_walked`` can
+#: assert against the REGISTRY: a composer whose copy is entirely f-string
+#: fragments yields no sentence, and a coverage test that checked the yield
+#: would call it unregistered and be un-satisfiable.
+_COMPOSITION_SITES: tuple[tuple[Path, str], ...] = (
+        (
+            REPO_ROOT
+            / "packages/investigation-contracts/src/revi_investigation_contracts/header.py",
+            "build_header_payload",
+        ),
+        (REPO_ROOT / "apps/api/src/revi_api/monitors_policy.py", "_pack_gate"),
+        (REPO_ROOT / "apps/api/src/revi_api/monitors/common.py", "_monitors_warnings"),
+        (REPO_ROOT / "apps/api/src/revi_api/service.py", "_monitor_refused"),
+        # EVERY SITE THAT COMPOSES A CLARIFICATION QUESTION.
+        #
+        # `ClarificationRequest` is one object split between a guarded
+        # field and an unguarded one: `reason` goes through
+        # `clarification_reason_copy`, which this file already exercises,
+        # and `question` reaches the reader byte for byte from
+        # `assembly.py` and the SSE frame alike. The field with no runtime
+        # filter was also the field with no test-time collector, and the
+        # sentence a reader saw when their question dead-ended said
+        # "survives what this data holds at this watermark".
+        #
+        # These are methods on stateful services that need a session, a
+        # pack port and a warehouse to call — exactly the "awkward to call"
+        # shape `literals_of` exists for, and exactly the shape nobody had
+        # registered.
+        *(
+            (
+                REPO_ROOT
+                / "packages/investigation/src/revi_investigation/application/submit_turn"
+                / "clarification.py",
+                name,
+            )
+            for name in ("_state_the_survivor", "_no_replay", "drop_refuted_options")
+        ),
+        *(
+            (
+                REPO_ROOT
+                / "packages/investigation/src/revi_investigation/application/submit_turn"
+                / "clarifying.py",
+                name,
+            )
+            for name in (
+                "_validated_options",
+                "_bounded_clarification",
+                "_budget_stop",
+                "_pending_clarification",
+            )
+        ),
+        *(
+            (
+                REPO_ROOT
+                / "packages/investigation/src/revi_investigation/application/validation.py",
+                name,
+            )
+            for name in (
+                "_playbook_transform_alternative",
+                "_basis_alternative",
+                "_grain_alternative",
+                "_near_miss_dimension",
+                "_near_miss_metric",
+                "_value_clarification",
+            )
+        ),
+        # …and the other three composition sites the clarification hunt
+        # turned up, each writing client copy from a file this registry
+        # already knew about under a different function name.
+        (REPO_ROOT / "apps/api/src/revi_api/portfolio.py", "build_portfolio"),
+        (REPO_ROOT / "apps/api/src/revi_api/service.py", "_anomaly_reconciliation"),
+        (REPO_ROOT / "apps/api/src/revi_api/assembly.py", "_restoration_notes"),
+    )
 
 
 def _definitional_strings() -> Iterator[tuple[str, str]]:
@@ -791,6 +858,53 @@ def test_every_pack_file_that_reaches_a_reader_is_walked() -> None:
         assert filename in walked, f"{filename} reaches a reader and nothing reads it here"
 
 
+def test_every_site_that_writes_a_clarification_question_is_walked() -> None:
+    """A clarification's QUESTION is client copy, and nothing filtered it.
+
+    ``ClarificationRequest`` is one object split between a guarded field
+    and an unguarded one. ``reason`` goes through
+    ``clarification_reason_copy`` at the API boundary — a runtime filter
+    this file already exercises — while ``question`` reaches the reader
+    byte for byte from both ``assembly.py`` and the SSE frame. So the field
+    with no runtime filter was also the field with no collector, and the
+    sentence a reader saw when their question dead-ended said *"survives
+    what this data holds at this watermark"*.
+
+    Registering the four composition sites fixed the ones that exist. This
+    test is what stops the fifth: it finds every function in the engine
+    that assigns ``question=`` on a clarification and fails if the registry
+    does not walk it. Grep-shaped on purpose — a new composer is a new
+    function name, and the failure has to fire on a file nobody thought to
+    add here.
+    """
+    walked = {f"{path.name}::{function}" for path, function in _COMPOSITION_SITES}
+    sources = (
+        REPO_ROOT
+        / "packages/investigation/src/revi_investigation/application/submit_turn"
+        / "clarification.py",
+        REPO_ROOT
+        / "packages/investigation/src/revi_investigation/application/submit_turn"
+        / "clarifying.py",
+        REPO_ROOT / "packages/investigation/src/revi_investigation/application/validation.py",
+    )
+    composers: set[tuple[str, str]] = set()
+    for path in sources:
+        tree = ast.parse(path.read_text(encoding="utf-8"))
+        for node in ast.walk(tree):
+            if not isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef)):
+                continue
+            for inner in ast.walk(node):
+                if isinstance(inner, ast.keyword) and inner.arg == "question":
+                    composers.add((path.name, node.name))
+    assert composers, "no clarification composer found — this test has stopped testing"
+    for filename, function in sorted(composers):
+        assert f"{filename}::{function}" in walked, (
+            f"{filename}::{function} composes a clarification question and no collector "
+            "reads it. Add it to _composition_literal_strings — an unwalked source is how "
+            "the vocabulary comes back."
+        )
+
+
 def test_the_operator_only_pack_fields_are_a_deliberate_omission() -> None:
     """The pack fields this guard does NOT walk, and why — checked, not assumed.
 
@@ -927,6 +1041,16 @@ def test_the_openapi_description_exemption_is_visible_not_forgotten() -> None:
         "not the line the denial_rate_trend recipe asks for",
         "figure '$18,000' matches no certified value",
         "a pinned cohort materialized at one watermark",
+        # The live leak this registry did not walk: the survivor
+        # clarification's own question, verbatim as a reader saw it. Kept
+        # here so the fix cannot regress silently — the matcher always
+        # caught this sentence, and nothing ever showed it one.
+        "Only one of the options I could offer survives what this data holds at this "
+        "watermark",
+        "each named a metric, cut or value this data does not hold at this watermark",
+        "no detected anomalies at this watermark",
+        "the window, scope, cohort and watermark below are rebuilt from this turn's "
+        "stored investigation spec at watermark wm_003",
         "turn classification confidence 0.78",
         "status=not_applicable; reason=no parent",
         "read from base-rcm@1.0.0",

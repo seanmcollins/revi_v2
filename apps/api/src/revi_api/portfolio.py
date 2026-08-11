@@ -590,7 +590,7 @@ def build_portfolio(
     if not active:
         if not records:
             all_warnings.append(
-                "no detected anomalies at this watermark (the detection feed may not "
+                "no detected anomalies in this data load (the detection feed may not "
                 "have landed yet)"
             )
         return PortfolioResponse(
