@@ -85,6 +85,15 @@ _RULES: tuple[_Rule, ...] = (
     # denominators).
     _rule("PREMISE_UNVERIFIABLE", CAUTION, r"^premise_unverifiable:"),
     _rule("PREMISE_VERIFIED", INFO, r"^premise_verified:"),
+    # The yes or the no a yes/no question came for. A peer of the premise
+    # family: both are VERDICTS about what was asked rather than caveats on
+    # what was measured, and both lead for the same reason.
+    _rule("VERDICT_LEAD", INFO, r"^verdict_lead:"),
+    # The metric the question was ABOUT, when this answer publishes no
+    # finding for it. A gap in the subject is lead-class — burying it is
+    # how "show me A/R over 90 by month" ended with the refusal of the
+    # asked cut as its last sentence.
+    _rule("SUBJECT_UNPUBLISHED", CAUTION, r"^subject_unpublished:"),
     _rule("RANKING_REFUSED", CAUTION, r"^ranking_refused:"),
     _rule("BOUNDED_CELLS_UNRANKED", CAUTION, r"^bounded_cells_unranked:"),
     _rule("ADJUDICATION_INCOMPLETE", CAUTION, r"^adjudication_incomplete:"),

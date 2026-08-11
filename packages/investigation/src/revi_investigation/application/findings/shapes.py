@@ -399,11 +399,17 @@ def terminal_bucket_censoring(
             population=None,
             median_population=None,
             reason=reason,
+            # The exclusion leads the sentence, and it leads for a reason:
+            # the disclosure layer publishes the FIRST sentence of this
+            # caveat above the answer, so what a reader must not miss —
+            # that the last point is provisional and is out of the movement,
+            # the high and the low — cannot sit in sentence two.
             warning=(
-                f"adjudication_incomplete: the last point of this series ({bucket_label}) is a "
-                f"PARTIAL {noun} — {reason} It is published as provisional and excluded from the "
-                "first-to-last movement, the high and the low; a series that terminates on a "
-                "partial bucket reports the calendar, not the business."
+                f"adjudication_incomplete: the last point of this series ({bucket_label}) covers "
+                f"only part of its own {noun} and is published as provisional — excluded from "
+                f"the first-to-last movement, the high and the low. {reason[0].upper()}"
+                f"{reason[1:]} A series that terminates on a partial bucket reports the "
+                "calendar, not the business."
             ),
             bucket_key=str(verdict.bucket),
         )
@@ -420,12 +426,16 @@ def terminal_bucket_censoring(
         population=verdict.population,
         median_population=verdict.median_population,
         reason=reason,
+        # Same rule as the partial-bucket branch above, and the same reason:
+        # the first sentence is the one that gets published above the
+        # answer. "RIGHT-CENSORED" also went with it — it is a statistics
+        # term, and the sentence says the same thing in the reader's words.
         warning=(
-            f"adjudication_incomplete: the last point of this series ({bucket_label}) is "
-            f"RIGHT-CENSORED — {reason} It is published as provisional and excluded from the "
-            "first-to-last movement, the high and the low. A rise that terminates on an "
-            "incompletely adjudicated bucket is a data-maturity artifact until that bucket "
-            "matures."
+            f"adjudication_incomplete: the last point of this series ({bucket_label}) is still "
+            "settling and is published as provisional — excluded from the first-to-last "
+            f"movement, the high and the low. {reason[0].upper()}{reason[1:]} A rise that "
+            "terminates on a bucket that has not finished adjudicating is an artifact of how "
+            "much of it has landed, until it matures."
         ),
         bucket_key=str(verdict.bucket),
     )

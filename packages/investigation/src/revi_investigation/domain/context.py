@@ -22,6 +22,58 @@ from revi_kernel.scope import Comparison, TimeWindow
 from revi_kernel.watermark import DataWatermark
 
 
+class AnswerShape(StrEnum):
+    """What the question wants its FIRST SENTENCE to be.
+
+    Not the question's grammar — its answer's shape. "Do we owe refunds?",
+    "are we at risk of losing revenue to auth denials?" and "do I have a COB
+    problem?" all want a yes or a no before anything else, and none of them
+    states a movement, so none produces a premise object and nothing
+    downstream could tell they were one shape. Six yes/no questions in the
+    live corpus were answered without a yes or a no.
+
+    A closed set, mirrored exactly by the interpretation schema's
+    ``answer_shape`` literal, carried onto the spec so SELECTION can honor
+    it and onto the composer so the prose answers the question rather than
+    summarising the findings.
+
+    ``WORKLIST`` is here because the ranked list already IS an answer shape
+    the engine serves; naming it keeps the set honest about what a question
+    can ask for.
+    """
+
+    VERDICT = "verdict"
+    ENTITY = "entity"
+    SCALAR = "scalar"
+    CAUSE = "cause"
+    TREND = "trend"
+    COMPARISON = "comparison"
+    DEFINITION = "definition"
+    WORKLIST = "worklist"
+
+    @property
+    def directive(self) -> str:
+        """What the answer's first sentence must be, in the composer's words."""
+        return _ANSWER_SHAPE_DIRECTIVES[self]
+
+
+#: One sentence each, rendered into the narrative prompt. Held beside the
+#: enum so the closed set and the instruction cannot drift: a shape with no
+#: directive would reach the composer as a bare token it has to guess at.
+_ANSWER_SHAPE_DIRECTIVES: dict[AnswerShape, str] = {
+    AnswerShape.VERDICT: (
+        "a yes or a no, followed by the figure it rests on and the entity that carries it"
+    ),
+    AnswerShape.ENTITY: "the name of the entity the question asked for, before anything about it",
+    AnswerShape.SCALAR: "the number itself — the total, not a share of it",
+    AnswerShape.CAUSE: "the candidate causes, largest contributor first",
+    AnswerShape.TREND: "the direction and the endpoints of the movement over the period",
+    AnswerShape.COMPARISON: "the two sides and the difference between them",
+    AnswerShape.DEFINITION: "what the term means, in one sentence",
+    AnswerShape.WORKLIST: "the first thing to work, by name",
+}
+
+
 class AskedDirection(StrEnum):
     """The movement the analyst asked about, when they asked about one.
 
@@ -235,6 +287,16 @@ class AnalysisSpec:
     #: ("June 2026", "this week"). Carried so a downstream sentence can
     #: QUOTE it instead of asserting that no period was named.
     period_label: str | None = None
+    #: The shape the answer's first sentence owes the question, when the
+    #: interpretation named one. Selection reads it (a how-much question
+    #: publishes the aggregate first; a yes/no question publishes a verdict)
+    #: and so does the composer. ``None`` means no shape was determined and
+    #: every stage behaves exactly as it did before this field existed.
+    answer_shape: AnswerShape | None = None
+    #: The metric the question is ABOUT, when the interpretation resolved
+    #: one against the pack. Selection reserves its frame the first finding
+    #: slot; where that frame published nothing, THAT is the lead fact.
+    subject_metric: MetricRef | None = None
 
     def with_context(self, context: InvestigationContext) -> AnalysisSpec:
         return replace(self, context=context)

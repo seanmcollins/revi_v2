@@ -29,6 +29,8 @@ from revi_investigation.application.rendering import (
 from revi_investigation.application.submit_turn.census import _qualify_every_finding
 from revi_investigation.application.submit_turn.clarification import (
     _ASKS_WHICH_MEASURE,
+    _ASKS_WHICH_REFERENT,
+    ANAPHORIC_SUBJECT,
     CLARIFICATION_CONVERGED_REASON,
     CLARIFICATION_MEASURE_SETTLED_REASON,
     _bindings_for,
@@ -433,7 +435,10 @@ class _AnalysisGuards(_Reconciliation):
         )
 
     async def _settled_measure(
-        self, session: Session, clarification: ClarificationRequest
+        self,
+        session: Session,
+        clarification: ClarificationRequest,
+        utterance: str = "",
     ) -> ClarificationRequest:
         """Never ask which measure of a session that holds exactly one.
 
@@ -447,8 +452,22 @@ class _AnalysisGuards(_Reconciliation):
         replaced by the subject itself as a deterministic ``metric_cut``
         option — the same commitment :meth:`_converge_on_subject` makes,
         one turn earlier and without waiting for a streak.
+
+        The same rule covers a referent-free ANAPHORA, because it is the
+        same question wearing a pronoun. A parent that measured denial rate
+        by month, a follow-up reading "which payer is driving that?", and
+        the platform asked *"'That' refers to something in the previous
+        answer — which result should I break out by payer?"* over three
+        options that were three spellings of one operation. "That" has one
+        possible referent when the parent published one metric family, and
+        a question with one answer is not a question.
         """
-        if not _ASKS_WHICH_MEASURE.search(clarification.question):
+        asks_measure = bool(_ASKS_WHICH_MEASURE.search(clarification.question))
+        asks_referent = bool(
+            _ASKS_WHICH_REFERENT.search(clarification.question)
+            and ANAPHORIC_SUBJECT.search(utterance or "")
+        )
+        if not asks_measure and not asks_referent:
             return clarification
         parent = await self._latest_investigation(session, analytical=True)
         if parent is None or len(parent.spec.measures) != 1:
@@ -456,12 +475,18 @@ class _AnalysisGuards(_Reconciliation):
         option = _subject_option(parent)
         if option is None:  # pragma: no cover - a single measure always yields one
             return clarification
+        subject = metric_label(parent.spec.measures[0].id)
+        lead = (
+            "This session has measured one thing"
+            if asks_measure
+            else "There is only one thing on screen for that to refer to"
+        )
         return replace(
             clarification,
             question=(
-                f"This session has measured one thing — {parent.spec.measures[0].id} over "
+                f"{lead} — {subject} over "
                 f"{_period_phrase(parent.spec.context.window.range)} — so I have not asked "
-                "you which. Say a different metric if you meant one."
+                "you which. Say a different measure if you meant one."
             ),
             options=(option.option,),
             bindings=(option,),

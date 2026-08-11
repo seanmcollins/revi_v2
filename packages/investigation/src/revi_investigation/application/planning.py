@@ -362,6 +362,47 @@ def declared_probe_windows(plan: InvestigationPlan) -> tuple[tuple[str, TimeWind
     return tuple(out)
 
 
+def resolved_frame_windows(
+    plan: InvestigationPlan,
+) -> tuple[tuple[str, AbsoluteRange, AbsoluteRange | None], ...]:
+    """``(frame id, the window it read, the window it compared against)``.
+
+    The per-frame twin of :func:`resolved_orderings`, and it exists for the
+    same reason: a fact the plan resolves, needed by a renderer that has no
+    plan. A playbook probe may declare its own window — ``denial_spike``
+    reads its trend over ``2026-06-08..2026-08-02`` while the turn's own
+    window is July — and a chart with no dimension is drawn against its
+    PERIOD. Handed the turn's window for every frame, that chart labels an
+    eight-week span "Jul 2026" and publishes a number that is not July's.
+
+    Every frame the plan can name is listed: probe nodes, and transform
+    outputs walked back to the probe that fed them
+    (:func:`frame_window`). A ``compare`` output additionally carries the
+    window of its SECOND input — the baseline — because that is the tick
+    the prior series is drawn under, and inheriting the turn's comparison
+    dates there would mislabel the baseline exactly as it mislabels the
+    current side.
+
+    Frames whose probe declares no window at all (a snapshot reads a
+    balance at the watermark) are omitted rather than given the turn's:
+    absence is what the "as of" rendering is for, and inventing a span
+    here would put a start..end on a figure that has none.
+    """
+    steps = {step.id: step for step in plan.transforms.steps}
+    out: list[tuple[str, AbsoluteRange, AbsoluteRange | None]] = []
+    for frame_id in (*(node.id for node in plan.nodes), *steps):
+        window = frame_window(plan, frame_id)
+        if window is None:
+            continue
+        prior: AbsoluteRange | None = None
+        step = steps.get(frame_id)
+        if step is not None and step.operator == "compare" and len(step.inputs) >= 2:
+            baseline = frame_window(plan, step.inputs[1])
+            prior = None if baseline is None else baseline.range
+        out.append((frame_id, window.range, prior))
+    return tuple(out)
+
+
 def resolved_orderings(plan: InvestigationPlan) -> tuple[tuple[str, str, bool], ...]:
     """``(frame id, column, descending)`` for every frame this plan ordered.
 

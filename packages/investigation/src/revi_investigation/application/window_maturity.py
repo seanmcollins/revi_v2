@@ -45,7 +45,9 @@ from decimal import Decimal
 
 from revi_calculation_contracts.contract import CountDistinct
 from revi_investigation.application.capability_ports import PackPort
+from revi_investigation.application.rendering import metric_label
 from revi_investigation.domain.context import AnalysisSpec
+from revi_investigation_contracts.header import basis_phrase
 from revi_kernel.capabilities import AnalyticalRepository
 from revi_kernel.errors import ReviError
 from revi_kernel.filters import EMPTY_SCOPE, Scalar
@@ -182,6 +184,37 @@ def _share_text(population: int, expected: int) -> str:
     return f"{Decimal(population) / Decimal(expected):.1%}"
 
 
+#: Month names spelled out rather than taken through the process locale, for
+#: the same reason the chart axis spells them: a caveat reading "juil. 2026"
+#: on one deployment is not a sentence a reader can match against the header.
+_MONTH_NAME = (
+    "January", "February", "March", "April", "May", "June",
+    "July", "August", "September", "October", "November", "December",
+)
+
+
+def _readable_range(window: AbsoluteRange) -> str:
+    """A window as a reader says it — "July 2026", or its two edges.
+
+    Never an ISO pair on a default surface (docs/client-language.md §4), and
+    never a month NAME for a range that is not one whole month: rounding
+    2026-06-08..2026-08-02 to "June" would be the misattribution this
+    module's warnings exist to prevent.
+    """
+    last = monthrange(window.end.year, window.end.month)[1]
+    same_month = (window.start.year, window.start.month) == (
+        window.end.year,
+        window.end.month,
+    )
+    if same_month and window.start.day == 1 and window.end.day == last:
+        return f"{_MONTH_NAME[window.start.month - 1]} {window.start.year}"
+    left = f"{_MONTH_NAME[window.start.month - 1][:3]} {window.start.day}"
+    if window.start.year != window.end.year:
+        left = f"{left}, {window.start.year}"
+    right = f"{_MONTH_NAME[window.end.month - 1][:3]} {window.end.day}, {window.end.year}"
+    return f"{left} — {right}"
+
+
 def _month_start(day: date) -> date:
     return date(day.year, day.month, 1)
 
@@ -293,18 +326,24 @@ class WindowMaturityService:
             population=population,
             expected=expected,
             window=window.range,
+            # The FIRST sentence carries the whole caveat: the period, how
+            # much of it has settled, and what that does to a total and to
+            # a rate. It is written that way because the disclosure layer
+            # publishes that sentence above the answer and leaves the rest
+            # to the caution banners — this paragraph led twelve live
+            # answers, and cost one of them five sentences before "12.8%".
             warning=(
-                "adjudication_incomplete: this answer's window "
-                f"({window.range.start.isoformat()}..{window.range.end.isoformat()}, "
-                f"{window.basis.id} basis) has not finished settling. Across this whole load "
-                f"it holds {population:,} settled record(s) where a window of this length "
-                f"normally holds about {expected:,} — {_share_text(population, expected)} of "
-                "it. What HAS settled is not a random sample of what has not: the fastest "
-                "cases reach a decision first, so a total measured here is understated and a "
-                f"rate measured here is skewed. The count is the one {yardstick!r} declares, "
-                "and the norm is the median month of this load. Ask again over the last "
-                "settled period, or on a basis whose events are already recorded, to read "
-                "this without the caveat."
+                "adjudication_incomplete: only "
+                f"{_share_text(population, expected)} of "
+                f"{_readable_range(window.range)} has settled "
+                f"{basis_phrase(window.basis.id)}, so a total here is understated and a rate "
+                "here is skewed. What HAS settled is not a random sample of what has not: the "
+                "fastest cases reach a decision first. This whole load holds "
+                f"{population:,} settled record(s) over a window of this length where it "
+                f"normally holds about {expected:,}; the count is the one "
+                f"{metric_label(yardstick)} declares, and the norm is the median month of this "
+                "load. Ask again over the last settled period, or on a basis whose events are "
+                "already recorded, to read this without the caveat."
             ),
         )
 

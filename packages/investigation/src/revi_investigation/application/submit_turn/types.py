@@ -31,6 +31,7 @@ from revi_investigation.application.ports import (
 from revi_investigation.application.refinement_llm import (
     REFERENT_HANDLE,
 )
+from revi_investigation.domain.context import AnswerShape
 from revi_investigation.domain.records import (
     Finding,
     Investigation,
@@ -218,6 +219,10 @@ class _PlanContext:
     #: ordering too; without it, ``chart sort`` came back ``null`` on
     #: exactly the turns whose rows had not changed at all.
     chart_sorts: tuple[tuple[str, str, bool], ...] = ()
+    #: ``(frame id, window, comparison window)`` the parent plan resolved,
+    #: carried for the same reason: a re-served answer's charts must name
+    #: the window each frame was actually measured over.
+    frame_windows: tuple[tuple[str, AbsoluteRange, AbsoluteRange | None], ...] = ()
 
 
 @dataclass(frozen=True, slots=True)
@@ -272,7 +277,42 @@ class TurnOutcome:
     #: The chart builder reads it so a ranked answer and the chart under it
     #: cannot disagree about which cell is first.
     chart_sorts: tuple[tuple[str, str, bool], ...] = ()
+    #: ``(frame id, window read, window compared against)`` for every frame
+    #: whose probe declared a window. A dimensionless chart is drawn against
+    #: its PERIOD, and the period is the FRAME's, not the turn's: a
+    #: playbook probe reading 2026-06-08..2026-08-02 charted under the
+    #: turn's July window publishes a bar labelled "Jul 2026" carrying a
+    #: number no month covers. Carried here for the same reason
+    #: ``chart_sorts`` is — the renderer runs outside the engine and has no
+    #: plan to ask.
+    frame_windows: tuple[tuple[str, AbsoluteRange, AbsoluteRange | None], ...] = ()
 
+    @property
+    def question(self) -> str:
+        """What was asked, as the pipeline resolved it.
+
+        The presentation stage composes an ANSWER, so it has to be told the
+        question — the composer was shown findings, a header, a caveat list
+        and a reconciliation verdict, and never the utterance, which is why
+        fluent well-grounded prose kept summarising the evidence instead of
+        answering.
+        """
+        return getattr(self.investigation, "question", "") or ""
+
+    @property
+    def answer_shape(self) -> AnswerShape | None:
+        """The shape this answer's first sentence owes the question.
+
+        Read off the spec rather than copied onto this type: two fields for
+        one fact is how a re-served turn ends up shaped one way and
+        narrated another.
+        """
+        return getattr(getattr(self.investigation, "spec", None), "answer_shape", None)
+
+    @property
+    def subject_metric(self) -> MetricRef | None:
+        """The metric the question is about, off the same spec."""
+        return getattr(getattr(self.investigation, "spec", None), "subject_metric", None)
 
 
 #: How many clarifications one thread may issue back-to-back before the

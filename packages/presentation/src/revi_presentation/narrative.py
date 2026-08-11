@@ -90,8 +90,16 @@ NARRATIVE_TEMPLATE = """# Compose the answer narrative
 Write a short, plain-language narrative for a revenue-cycle analyst from
 the measured findings below — and ONLY from them.
 
+The question asked:
+
+{question}
+
+{shape_directive}
+
 Rules:
 
+- ANSWER THE QUESTION IN YOUR FIRST SENTENCE. Everything else follows it.
+  A reader who stops after one sentence must have their answer.
 - Cite the referent id (F1, F2, ...) in every sentence that makes a claim.
 - Use only the numbers shown below, formatted naturally.
 - Name only the entities that appear below; never introduce new ones.
@@ -110,9 +118,11 @@ Rules:
   strands whatever sentence referred back to it.
 - Two short paragraphs at most. No headings, no bullet lists.
 - The mandatory disclosures below are ALREADY published, verbatim, ahead of
-  whatever you write. Do not repeat them and do not contradict them: if a
-  disclosure says nothing moved the way the question asked, the movements
-  in the findings are context and must be named as context.
+  whatever you write. Do not repeat them, do not paraphrase them, and do
+  not contradict them: if a disclosure says nothing moved the way the
+  question asked, the movements in the findings are context and must be
+  named as context. A disclosure restated in your own words is the same
+  sentence printed twice, and the reader pays for it either way.
 
 Mandatory disclosures (already published above your text):
 
@@ -156,8 +166,16 @@ NARRATIVE_TEMPLATE_ANALYST = """# Compose the answer narrative (full analyst det
 Write a thorough, plain-language analysis for a revenue-cycle analyst from
 the measured findings below — and ONLY from them.
 
+The question asked:
+
+{question}
+
+{shape_directive}
+
 Rules:
 
+- ANSWER THE QUESTION IN YOUR FIRST SENTENCE. Everything else follows it.
+  A reader who stops after one sentence must have their answer.
 - Cite the referent id (F1, F2, ...) in every sentence that makes a claim.
 - Use only the numbers shown below, formatted naturally.
 - Name only the entities that appear below; never introduce new ones.
@@ -182,10 +200,12 @@ Rules:
   strands whatever sentence referred back to it.
 - Four short paragraphs at most. No headings, no bullet lists.
 - The mandatory disclosures below are ALREADY published, verbatim, ahead of
-  whatever you write. Do not repeat them and do not contradict them: if a
-  disclosure says nothing moved the way the question asked, the movements
-  in the findings are context and must be named as context; if one states a
-  suppressed-cell count, no count you give may exclude those cells.
+  whatever you write. Do not repeat them, do not paraphrase them, and do
+  not contradict them: if a disclosure says nothing moved the way the
+  question asked, the movements in the findings are context and must be
+  named as context; if one states a suppressed-cell count, no count you
+  give may exclude those cells. A disclosure restated in your own words is
+  the same sentence printed twice.
 
 Mandatory disclosures (already published above your text):
 
@@ -531,6 +551,83 @@ def _empty_slot(published_cautions: int) -> str:
     )
 
 
+#: What a prompt says when the caller passed no question. Never empty and
+#: never invented: a composer shown a blank slot writes about the findings,
+#: which is the behaviour this parameter exists to end.
+_QUESTION_UNKNOWN = "(the question was not recorded for this turn)"
+
+#: What a prompt says when no answer shape was determined. Deliberately
+#: still an instruction — a turn whose interpretation named no shape is
+#: still answering something, and "write a summary of the findings" is what
+#: the composer did for as long as it was shown no question at all.
+_SHAPE_UNKNOWN = (
+    "Its shape was not classified, so answer it in whatever shape it asks for: a yes or "
+    "no for a yes/no question, the entity's name for a which-X, the number for a "
+    "how-much, the candidate causes for a why."
+)
+
+
+def question_directive(question: str | None, answer_shape: str | None) -> tuple[str, str]:
+    """``(question line, shape directive)`` for the prompt's two new slots.
+
+    The composer was never shown the utterance. It was handed findings, a
+    header, a caveat list and a reconciliation verdict, so it wrote a
+    *summary of findings* — fluent, grounded, and blind to whether the
+    reader had asked a yes/no, a which-X, a how-much or a why. Six of six
+    yes/no questions came back without a yes or a no; three of three
+    how-much questions came back without the total.
+
+    The directive is composed here rather than passed in as prose so that
+    one closed set of shapes has one set of words, and an unclassified turn
+    still gets an instruction rather than a blank.
+    """
+    asked = (question or "").strip() or _QUESTION_UNKNOWN
+    directive = _SHAPE_DIRECTIVES.get(answer_shape or "", _SHAPE_UNKNOWN)
+    return asked, directive
+
+
+#: One directive per closed shape. Mirrors
+#: ``revi_investigation.domain.context.AnswerShape`` — held as literal keys
+#: because a presentation package may not import an investigation one; the
+#: pair is pinned by a test on both sides.
+_SHAPE_DIRECTIVES: dict[str, str] = {
+    "verdict": (
+        "It is a YES/NO question. If a sentence beginning Yes or No is already among the "
+        "mandatory disclosures above, that IS the answer and it is already published — do "
+        "not restate it in your own words; start from what it means and what to do about "
+        "it. Otherwise your first sentence must open with Yes or No, then give the figure "
+        "it rests on and the one entity that carries most of it. Either way, do not open "
+        "with a caveat, a period, or a ranking: the caveats are published above your text "
+        "and the reader has already read them."
+    ),
+    "entity": (
+        "It asks WHICH ONE. Your first sentence must name the entity, then its figure. "
+        "Do not open with the period, the population, or how the ranking was computed."
+    ),
+    "scalar": (
+        "It asks HOW MUCH. Your first sentence must state the total — the whole number "
+        "the question asked for, not a share of it. Concentration comes after."
+    ),
+    "cause": (
+        "It asks WHY. Your first sentence must name what moved and by how much; the "
+        "candidate causes follow, largest contributor first."
+    ),
+    "trend": (
+        "It asks for a MOVEMENT OVER TIME. Your first sentence must give the direction "
+        "and both endpoints. If the series does not exist in this data, say that first."
+    ),
+    "comparison": (
+        "It asks for TWO SIDES. Your first sentence must give both figures and the "
+        "difference between them."
+    ),
+    "definition": "It asks what a term MEANS. Say it in one sentence, first.",
+    "worklist": (
+        "It asks WHAT TO WORK FIRST. Your first sentence must name the first item, by "
+        "name. Do not describe how the list was built."
+    ),
+}
+
+
 def build_narrative_prompt(
     *,
     findings: Sequence[FindingPayload],
@@ -542,8 +639,15 @@ def build_narrative_prompt(
     depth: NarrativeDepth = NarrativeDepth.SUMMARY,
     disclosures: Sequence[str] = (),
     published_cautions: int = 0,
+    question: str | None = None,
+    answer_shape: str | None = None,
 ) -> str:
     """Render the composition prompt from certified material only.
+
+    ``question`` is the utterance this answer answers, and ``answer_shape``
+    is the closed shape its first sentence owes it. Both are instructions,
+    not context: the composer is told to answer in that shape before it is
+    shown anything to answer with.
 
     ``caveats`` are the turn's mandatory population caveats — the same
     sentences the §6.6 validation pass publishes as warnings. They are
@@ -568,7 +672,10 @@ def build_narrative_prompt(
         "\n".join(f"- {_apply_display_names(line, substitutions)}" for line in caveats) or empty
     )
     disclosure_lines = "\n".join(f"- {line}" for line in disclosures) or empty
+    asked, directive = question_directive(question, answer_shape)
     return NARRATIVE_TEMPLATES[depth].format(
+        question=asked,
+        shape_directive=directive,
         header=header.display,
         findings=finding_lines,
         caveats=caveat_lines,
@@ -589,6 +696,7 @@ def build_narrative_facts(
     disclosures: Sequence[str] = (),
     worklist_first_action: str | None = None,
     published_cautions: int = 0,
+    question: str | None = None,
 ) -> NarrativeFacts:
     """The closed fact set the validator trusts.
 
@@ -604,6 +712,17 @@ def build_narrative_facts(
     tells the model to write, it must also be willing to validate — a
     validator that redacts the correction it demanded would leave the
     overclaiming sentence standing and drop the sentence that qualified it.
+
+    ``question`` closes the same loop for the sentence the prompt now
+    DEMANDS. The composer is told to answer the question in its first
+    sentence, and that sentence restates the analyst's own subject — so the
+    capitalized runs of the utterance are admitted, exactly as a finding's
+    are. It is a narrow widening and deliberately so: only the reader's own
+    words about their own population, and nothing else about the sentence
+    relaxes. Every figure in it must still match a certified value, every
+    claim-bearing sentence must still cite a referent, and a population the
+    question names but the data does not is stopped upstream — this turn
+    never composes prose at all.
     """
     numbers: list[Decimal] = []
     names: set[str] = set()
@@ -639,6 +758,8 @@ def build_narrative_facts(
         for value in finding.values:
             if isinstance(value.value, str) and value.value:
                 names.add(value.value)
+    for match in _PROPER_NAME.finditer(question or ""):
+        names.add(match.group(1))
     names.update(extra_names)
     dates = [
         header.window_start.isoformat(),
@@ -862,6 +983,15 @@ _DELTA_SUFFIX = "__delta"
 _PREMISE_HOLDS_VALUE = "premise_holds"
 _PREMISE_UNVERIFIABLE_VALUE = "premise_unverifiable"
 
+#: The value name marking a finding that is the WHOLE the other findings
+#: are parts of (``revi_investigation.application.findings.bounds.
+#: AGGREGATE_VALUE``). A total is not a row, so it never enters the noun
+#: slot of "the largest X is ___": a substitute reading "the largest figure
+#: this answer measured is Total: $22,426,000.28" names the sum of the very
+#: cells it was asked to rank. Held as a literal for the same reason
+#: :data:`_CENSUS_CLAUSE` is, and pinned on both sides by a test.
+_AGGREGATE_VALUE = "aggregate_total"
+
 
 def _is_premise_verdict(finding: FindingPayload) -> bool:
     """Is this finding a VERDICT about the question rather than a row?
@@ -901,7 +1031,7 @@ def _measured_leader(findings: Sequence[FindingPayload]) -> FindingPayload | Non
     into "the largest movement is ___".
     """
     for finding in findings:
-        if _is_premise_verdict(finding):
+        if _is_premise_verdict(finding) or _is_aggregate(finding):
             continue
         if not any(
             value.name.endswith(_BOUND_SUFFIX) and bool(value.value)
@@ -909,6 +1039,13 @@ def _measured_leader(findings: Sequence[FindingPayload]) -> FindingPayload | Non
         ):
             return finding
     return None
+
+
+def _is_aggregate(finding: FindingPayload) -> bool:
+    """Is this finding the WHOLE rather than one of its parts?"""
+    return any(
+        value.name == _AGGREGATE_VALUE and bool(value.value) for value in finding.values
+    )
 
 
 def _has_delta(finding: FindingPayload) -> bool:
@@ -1014,6 +1151,19 @@ LEAD_DISCLOSURE_CODES: tuple[str, ...] = (
     # failure lets a real +4.2% open on a 243% sub-cell while the measured
     # aggregate is discarded.
     "PREMISE_VERIFIED",
+    # The yes or the no. A premise verdict answers a movement the question
+    # ASSERTED; this answers a question that asserted nothing and asked for
+    # a judgement — "do we owe refunds?", "do I have a COB problem?", "are
+    # any payers paying below contract?". Six of six such questions were
+    # answered without a yes or a no, and four of them opened on the
+    # settling caveat instead.
+    "VERDICT_LEAD",
+    # …and the gap where the subject should have been. A frame the question
+    # is ABOUT that published nothing is a lead-class fact: "A/R over 90 is
+    # a standing balance in this data — there is no monthly series for it"
+    # is the answer to "show me A/R over 90 by month", and it arrived as
+    # that answer's last sentence.
+    "SUBJECT_UNPUBLISHED",
     # A ranking the platform declined to publish, because too much of its
     # population carries ceilings rather than measurements. A refusal cannot
     # sit under the rows it refused to order.
@@ -1059,11 +1209,8 @@ TRAILING_DISCLOSURE_CODES: tuple[str, ...] = (
     # believing denial rates run 19-29% when the population they descend
     # from is at 12.8%.
     "PARENT_LEVEL",
-    # What the answer did NOT publish. An omission the reader cannot see is
-    # the one that makes a superlative false.
-    "FINDINGS_TRUNCATED",
-    # …and specifically the cells a DIRECTION removed, which is the omission
-    # that flatters the question that asked for it.
+    # The cells a DIRECTION removed — the omission that flatters the
+    # question that asked for it.
     "DIRECTION_OMITTED",
     # The window that was actually read, when it is not the window that was
     # asked for, and the period vocabulary that was resolved or could not be.
@@ -1072,7 +1219,28 @@ TRAILING_DISCLOSURE_CODES: tuple[str, ...] = (
     "WINDOW_RELATIVE",
     "RECONCILIATION_FAILED",
     "SNAPSHOT_AS_OF",
+)
+
+#: Codes whose sentence is an OPERATOR fact, not a reader fact. They stay on
+#: ``warnings_v2`` — where a client folds them and an operator can read them
+#: in full — and are no longer appended to published prose.
+#:
+#: ``PROBE_FAMILIES_EMPTY`` spelled internal probe node ids and row counts
+#: into the answer ("denial_rate (portfolio_denial_trend, 1 row(s))"); it
+#: appeared on 18 of 26 prose answers in the live corpus.
+#: ``FINDINGS_TRUNCATED`` published the cell census as arithmetic ("3 of 144
+#: computed cells are published as findings"), on 16 of 26.
+#:
+#: The honesty they carry is not lost and is not weakened: both codes still
+#: ride on ``warnings_v2`` with their full message, the client renders them
+#: as caution banners, and the *behaviour* they gate is untouched — a
+#: truncated answer still sets :attr:`NarrativeFacts.truncated`, so the
+#: superlative and spread rules in :func:`validate_narrative` fire exactly
+#: as before and the substitute sentence still replaces a redacted
+#: superlative.
+OPERATOR_ONLY_DISCLOSURE_CODES: tuple[str, ...] = (
     "PROBE_FAMILIES_EMPTY",
+    "FINDINGS_TRUNCATED",
 )
 
 #: Every code the narrative may not leave unsaid.
@@ -1182,12 +1350,84 @@ def reconciliation_disclosure(
     )
 
 
+#: The settling caveat. It is the one lead disclosure whose message is five
+#: sentences long, and it led 12 of 26 live answers — including snapshot
+#: questions ("do we owe refunds right now?") where the answer's own body
+#: then said the framing does not bear on a standing balance.
+SETTLING_CODE = "ADJUDICATION_INCOMPLETE"
+
+#: Answer shapes the settling caveat may still LEAD for. It bears on a level
+#: and on a movement — both are read off the window, and an unsettled window
+#: understates a total and skews a rate. It does not decide which entity is
+#: largest, what a term means, or what to work first.
+_SETTLING_LEADS_FOR: frozenset[str] = frozenset(
+    {"scalar", "trend", "comparison", "cause"}
+)
+
+#: Trail codes the envelope budget may drop from PROSE. They bound how the
+#: figures are READ — which window, which as-of framing, which parent level.
+#: Everything not listed here bounds the EVIDENCE — a suppression, a
+#: ceiling, an unranked block, a non-comparability, an omission, a failed
+#: reconciliation — and is never budgeted out: an answer may be long, and it
+#: may not be quietly less honest.
+#:
+#: Dropped sentences are not lost. Every one of them rides on
+#: ``warnings_v2`` with its full message, where the client renders it as a
+#: caution banner.
+_BUDGETABLE_TRAIL_CODES: frozenset[str] = frozenset(
+    {"PARENT_LEVEL", "WINDOW_OUT_OF_RANGE", "WINDOW_HORIZON", "WINDOW_RELATIVE",
+     "SNAPSHOT_AS_OF", SETTLING_CODE}
+)
+
+#: How many reading-caveat sentences may follow the prose. Three, because a
+#: reader who has to scroll past the bounds to reach the caveats reads
+#: neither.
+MAX_BUDGETED_TRAIL_SENTENCES = 3
+
+
+def _first_sentence(text: str) -> str:
+    """The opening sentence of a composed disclosure.
+
+    Used for exactly one code (:data:`SETTLING_CODE`), whose message is
+    written so that its first sentence carries the period, the share and
+    what an unsettled window does to a total and to a rate. Applying it
+    anywhere else would cut a premise verdict in half.
+    """
+    parts = split_sentences(text)
+    return parts[0].strip() if parts else text.strip()
+
+
+def operator_only_disclosures(
+    classified_warnings: Sequence[tuple[str, str]],
+) -> list[str]:
+    """Sentences that are TRUE, published, and not for the reader's prose.
+
+    :data:`OPERATOR_ONLY_DISCLOSURE_CODES`, in their own order. They are
+    still handed to :func:`build_narrative_facts` — the truncation fact
+    gates the superlative and spread rules, and dropping it from the fact
+    set would turn a prose cleanup into a silent loosening of grounding —
+    and they are still on ``warnings_v2`` in full. What changes is only that
+    they are no longer appended to the answer a person reads.
+    """
+    by_code: dict[str, str] = {}
+    for code, message in classified_warnings:
+        by_code.setdefault(recovered_code(code, message), message)
+    return [
+        _sentence(_strip_code_prefix(by_code[code]))
+        for code in OPERATOR_ONLY_DISCLOSURE_CODES
+        if code in by_code
+    ]
+
+
 def mandatory_disclosures(
     classified_warnings: Sequence[tuple[str, str]],
     *,
     reconciliation_sentence: str | None = None,
     suppressed_cells: int = 0,
     total_cells: int = 0,
+    metric_display: Mapping[str, str] | None = None,
+    settling_bears_on_headline: bool = True,
+    answer_shape: str | None = None,
 ) -> tuple[list[str], list[str]]:
     """The sentences this answer may not be published without.
 
@@ -1211,6 +1451,23 @@ def mandatory_disclosures(
     emitted them; classification stays in one place (the API's warning
     table) rather than being re-derived from substrings here.
 
+    ``settling_bears_on_headline`` is ``False`` when this answer's headline
+    figure is a standing balance read at the data date. An unsettled window
+    does not shrink a balance, and the settling caveat led twelve live
+    answers whose own body then said so — so on those turns it trails
+    instead of leading. It is never removed: honesty relocates.
+
+    ``answer_shape`` is the closed shape the question's first sentence owes
+    (``verdict``, ``scalar``, …). The settling caveat leads only for a level
+    or a movement; on a which-entity or a worklist question it bounds the
+    reading and belongs under it.
+
+    ``metric_display`` rewrites every raw metric id these sentences carry.
+    They are composed from ENGINE prose, which bypassed the display overlay
+    the model's own text goes through — which is how ``'ar_over_90_pct'``
+    and ``cob mismatch claims`` reached 21 of 26 published answers under a
+    template that forbids a raw id.
+
     Returns ``(lead, trail)``: sentences that must precede the composed
     prose and sentences that must follow it. Only a refusal leads —
     everything leading is the same as nothing leading.
@@ -1228,7 +1485,28 @@ def mandatory_disclosures(
             out.append(_sentence(_strip_code_prefix(message)))
         return out
 
-    lead = stated(LEAD_DISCLOSURE_CODES)
+    lead: list[str] = []
+    demoted: list[str] = []
+    for code in LEAD_DISCLOSURE_CODES:
+        message = by_code.get(code)
+        if message is None or code in _COMPOSED_CODES:
+            continue
+        sentence = _sentence(_strip_code_prefix(message))
+        if code != SETTLING_CODE:
+            lead.append(sentence)
+            continue
+        # One sentence, and only where it decides how the headline figure
+        # may be read. Everything after its first sentence is on
+        # ``warnings_v2`` in full, which is where the client's caution fold
+        # renders it — the reader loses nothing and stops paying five
+        # sentences to reach their own answer.
+        short = _first_sentence(sentence)
+        leads = (
+            settling_bears_on_headline
+            and not lead
+            and (answer_shape is None or answer_shape in _SETTLING_LEADS_FOR)
+        )
+        (lead if leads else demoted).append(short)
     trail: list[str] = []
     # The engine counts its own cells and publishes the arithmetic on the
     # SUPPRESSION_BOUNDED disclosure. When it has, the count derived here
@@ -1275,9 +1553,47 @@ def mandatory_disclosures(
             )
         )
     trail.extend(stated(TRAILING_DISCLOSURE_CODES))
+    trail.extend(demoted)
     if reconciliation_sentence:
         trail.append(_sentence(reconciliation_sentence))
-    return lead, trail
+    trail = _budgeted(trail, by_code)
+    substitutions = _display_substitutions(metric_display)
+    return (
+        [_apply_display_names(line, substitutions) for line in lead],
+        [_apply_display_names(line, substitutions) for line in trail],
+    )
+
+
+def _budgeted(trail: Sequence[str], by_code: Mapping[str, str]) -> list[str]:
+    """Cap the READING caveats in a trail; never the evidence-bounding ones.
+
+    The live corpus averaged 308 words an answer with the model writing
+    ~150 of them: the rest was this envelope. A budget is the fix, and a
+    budget that can delete a bound is not — so it is applied only to the
+    codes in :data:`_BUDGETABLE_TRAIL_CODES`, which say which window and
+    which framing, and never to the ones that say what was withheld,
+    bounded, unranked, omitted or unreconciled.
+
+    Membership is decided by the sentence the code composed, matched
+    against the messages this turn actually emitted — the same map the
+    trail was built from, so no sentence can be mistaken for another
+    code's.
+    """
+    budgetable: set[str] = set()
+    for code in _BUDGETABLE_TRAIL_CODES:
+        message = by_code.get(code)
+        if message is not None:
+            budgetable.add(_first_sentence(_sentence(_strip_code_prefix(message))))
+            budgetable.add(_sentence(_strip_code_prefix(message)))
+    kept: list[str] = []
+    spent = 0
+    for line in trail:
+        if line in budgetable:
+            if spent >= MAX_BUDGETED_TRAIL_SENTENCES:
+                continue
+            spent += 1
+        kept.append(line)
+    return kept
 
 
 def empty_narrative(classified_warnings: Sequence[tuple[str, str]]) -> str | None:

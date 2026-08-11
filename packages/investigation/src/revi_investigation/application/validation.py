@@ -872,7 +872,11 @@ class PlanValidationService:
         )
         return ClarificationRequest(
             question=(
-                f"{refused_label} cannot be cut by {dim.label.lower()}. It is measured at the "
+                # Sentence case. ``metric_label`` is lower-case by design —
+                # it is a noun phrase, not a sentence — and dropping it into
+                # the first slot published a refusal that opened lower-case.
+                f"{refused_label[:1].upper()}{refused_label[1:]} cannot be cut by "
+                f"{dim.label.lower()}. It is measured at the "
                 f"{read_at}, and {dim.label.lower()} is not one of the breakdowns it is defined "
                 f"with. {total} other {plural(total, 'measure')} can be cut that way, over the "
                 f"same population:{sample}"

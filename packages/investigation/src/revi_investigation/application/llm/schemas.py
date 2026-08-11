@@ -65,6 +65,7 @@ __all__ = [
     "AbsoluteWindowModel",
     "AddFilterModel",
     "AnchoredWindowModel",
+    "AnswerShapeLiteral",
     "AnyRefinementOperator",
     "AskedDirectionLiteral",
     "AskedMagnitudeLiteral",
@@ -113,6 +114,25 @@ TurnClassLiteral = Literal[
     "meta",
     "clarification_response",
     "definitional",
+]
+
+#: What the question wants its FIRST SENTENCE to be. A closed set, and
+#: deliberately about the answer's shape rather than about the question's
+#: grammar: "do we owe refunds?", "are we at risk of X?" and "do I have a
+#: COB problem?" all want a yes or a no before anything else, and none of
+#: them produces a premise object, so nothing downstream could tell they
+#: were the same shape.
+#:
+#: Mirrors :class:`revi_investigation.domain.context.AnswerShape` exactly.
+AnswerShapeLiteral = Literal[
+    "verdict",
+    "entity",
+    "scalar",
+    "cause",
+    "trend",
+    "comparison",
+    "definition",
+    "worklist",
 ]
 
 #: Mirrors :class:`revi_investigation.domain.context.AskedDirection` exactly.
@@ -207,6 +227,19 @@ class GroundedOptionModel(_Closed):
 
 class InterpretationResponse(_Closed):
     intent_summary: str
+    #: The shape the answer's FIRST SENTENCE owes the question. Closed set;
+    #: the composer is told it and told to answer in it, so a yes/no
+    #: question stops being answered with a concentration ranking and a
+    #: how-much question stops being answered with three shares of a total
+    #: it never prints.
+    answer_shape: AnswerShapeLiteral | None = None
+    #: The metric the question is ABOUT, out of ``metric_ids`` or the
+    #: playbook's own probes. Re-validated against the pack and dropped if
+    #: it does not resolve. Without it nothing downstream can prefer the
+    #: asked metric's frame over a sibling frame, which is how "where are
+    #: denials rising" gets answered in denied dollars by CARC while
+    #: ``denial_rate`` is charted and publishes no finding.
+    subject_metric: str | None = None
     metric_ids: list[str] = Field(default_factory=list)
     dimension_ids: list[str] = Field(default_factory=list)
     concept_ids: list[str] = Field(default_factory=list)

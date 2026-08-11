@@ -185,6 +185,26 @@ ranking_policies:
       Order findings by financial impact in cents, then recency, then
       evidence grade — certified dollar impact outranks noise.
     weights: {impact_cents: 0.6, recency: 0.25, evidence_grade: 0.15}
+  - id: urgency_first
+    description: >-
+      Order findings by how little time is left, not by how much money is
+      in them. For a cut whose dimension is an ordinal bucket the catalog
+      declares an order for — filing runway, aging — that declared order IS
+      the ranking, and dollars only break ties inside a band. Impact-first
+      on a deadline question headlines the SAFEST band: "is anything about
+      to miss a filing deadline?" answered with the 90+ runway bucket, the
+      one furthest from the deadline it asked about, while `expired` came
+      third.
+    weights: {urgency_position: 0.8, impact_cents: 0.2}
+  - id: residual_last
+    description: >-
+      A catch-all bucket is never the answer. `OTHER` is the largest cell in
+      several of this pack's cuts by construction — it is where everything
+      that did not classify goes — and impact-first therefore made it the
+      #1 answer to "what are we getting denied for most?". It is still
+      published, with its figure, after every classified cell: the size is
+      real and the label carries no information a reader can act on.
+    weights: {impact_cents: 0.6, recency: 0.25, evidence_grade: 0.15}
   - id: portfolio_impact_rank
     description: >-
       Portfolio ordering: impact-cents-weighted with recency, evidence

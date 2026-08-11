@@ -80,4 +80,4 @@ transforms:
   - operator: rank
     args: {by: timely_filing_at_risk_dollars, descending: true}
 conclusion_policies: [timely_filing_risk_claim]
-ranking_policy: impact_first
+ranking_policy: urgency_first

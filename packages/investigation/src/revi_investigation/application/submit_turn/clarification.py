@@ -653,6 +653,30 @@ _ASKS_WHICH_MEASURE = re.compile(
 )
 
 
+#: A clarification asking WHICH result a bare "that" or "it" points at.
+#: The measure question's twin, and the one the live corpus tripped over:
+#: a parent that measured denial rate by month, a follow-up reading "which
+#: payer is driving that?", and three near-identical options each of which
+#: was "break the one thing on screen out by payer". Narrow in the same way
+#: — it fires on the questions this engine composes for a referent-free
+#: anaphora, never on a question that merely contains the word "that".
+_ASKS_WHICH_REFERENT = re.compile(
+    r"\brefers?\s+to\s+something\s+in\s+the\s+(?:previous|last)\s+answer\b"
+    r"|\bwhich\s+(?:result|finding|row|one)\s+(?:should|do|did|are|would)\b"
+    r"|\bwhich\s+(?:result|finding|row)\b",
+    re.IGNORECASE,
+)
+
+#: A referent-free anaphora in the ANALYST's own words. Checked alongside
+#: the clarification above so the guard fires on the case it is named for —
+#: a follow-up that points at the answer on screen — and not on a question
+#: that named its own subject and was asked to disambiguate something else.
+ANAPHORIC_SUBJECT = re.compile(
+    r"(?<!\w)(?:that|it|this|those|these|them)(?!\w)",
+    re.IGNORECASE,
+)
+
+
 def _state_the_survivor(
     clarification: ClarificationRequest, lone: ClarificationBinding
 ) -> ClarificationRequest:

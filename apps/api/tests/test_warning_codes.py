@@ -275,6 +275,21 @@ FAMILIES: list[tuple[str, str, str]] = [
         "(25.5%), so its point is provisional",
     ),
     (
+        "VERDICT_LEAD",
+        "info",
+        "verdict_lead: Yes — $52,214.88 of credit balance dollars as of 2026-08-02, "
+        "across 12 payers. The largest single payer is Summit Peak Medicare Advantage: "
+        "$41,882.10, 80.2% of it.",
+    ),
+    (
+        "SUBJECT_UNPUBLISHED",
+        "caution",
+        "subject_unpublished: you asked about denial rate, and this answer publishes no "
+        "finding for it. It was measured — it is on the charts and in the evidence "
+        "below — and no cell of it survived selection, so nothing above speaks for it. "
+        "What follows measures the other things this question read.",
+    ),
+    (
         "FINDINGS_TRUNCATED",
         "caution",
         "findings_truncated: 3 of 147 computed cells are published as findings; the "

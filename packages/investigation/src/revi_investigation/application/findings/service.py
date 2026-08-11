@@ -27,7 +27,11 @@ from revi_investigation.application.findings.bounds import (
     _truncation_warning,
     _unranked_bounds_warning,
     _with_premise,
+    benchmark_verdict_warning,
+    group_noun,
+    is_residual_row,
     row_noun,
+    verdict_warning,
 )
 from revi_investigation.application.findings.builders import _FindingBuilders
 from revi_investigation.application.findings.premise import (
@@ -50,12 +54,15 @@ from revi_investigation.application.findings.shapes import (
 )
 from revi_investigation.application.findings.windows import (
     _PREMISE_PREFIX,
+    _period_phrase,
 )
 from revi_investigation.application.planning import InvestigationPlan
 from revi_investigation.application.ports import ReferentRegistryStore, RegisteredReferent
+from revi_investigation.application.rendering import format_value
 from revi_investigation.application.window_maturity import WindowMaturity
 from revi_investigation.domain.context import (
     AnalysisSpec,
+    AnswerShape,
 )
 from revi_investigation.domain.records import Finding
 from revi_kernel.filters import Scalar
@@ -63,6 +70,61 @@ from revi_kernel.refs import (
     ReferentKind,
 )
 from revi_kernel.scope import AbsoluteRange
+
+
+def _subject_first[Shape: (ScalarShape, TrendShape)](
+    shapes: tuple[Shape, ...], spec: AnalysisSpec
+) -> list[Shape]:
+    """The subject metric's shape first, everything else in plan order.
+
+    A playbook runs several probe families and the findings stage publishes
+    the first ones it finds, which is the plan's order and not the
+    question's. "Our A/R keeps creeping up — what's going on?" therefore
+    opened on ``charges``; "how often do we win appeals" answered in
+    overturned dollars while ``appeal_overturn_rate`` was charted and
+    published nothing.
+
+    A stable partition, never a filter: everything the plan produced is
+    still published, in the same relative order. When the question named no
+    subject, or the subject produced no shape, this returns the list it was
+    given.
+    """
+    subject = spec.subject_metric
+    if subject is None:
+        return list(shapes)
+    return [s for s in shapes if s.measure == subject.id] + [
+        s for s in shapes if s.measure != subject.id
+    ]
+
+
+#: How many bands of an ordinal cut the verdict states. Two: the most
+#: urgent and the one after it — "already past the deadline" and "expiring
+#: next" is the shape of the answer, and a third band is inventory.
+_VERDICT_BANDS = 2
+
+
+def _visible_total(shape: ConcentrationShape) -> Decimal | None:
+    """The sum this frame's own shares divide by, or ``None``.
+
+    Summed over exactly the rows
+    :func:`revi_calculation.operators.basic.share_of_total` sums — every
+    non-null cell of the measure column — so the total and the shares
+    published beside it describe one population and one arithmetic. A
+    suppressed cell is NULL and is in neither.
+
+    ``None`` when nothing was measurable, which is a different fact from a
+    measured zero and must not be published as one.
+    """
+    index = shape.frame.schema.index_of(shape.measure)
+    total = Decimal(0)
+    seen = False
+    for row in shape.frame.rows:
+        value = as_number(row[index])
+        if value is None:
+            continue
+        seen = True
+        total += value
+    return total if seen else None
 
 
 class EvaluateFindingsService(_FindingBuilders):
@@ -340,7 +402,13 @@ class EvaluateFindingsService(_FindingBuilders):
 
         findings: list[Finding] = []
         referents: list[RegisteredReferent] = []
-        for shape in shapes[: self._limit(spec)]:
+        warnings: list[str] = []
+        # The metric the QUESTION is about takes the first slot. Without
+        # this the order is the plan's, so "our A/R keeps creeping up"
+        # opened on *"You asked about an increase in charges"* — a sibling
+        # probe of the same playbook, headlining a metric the analyst never
+        # named.
+        for shape in _subject_first(shapes, spec)[: self._limit(spec)]:
             row = shape.frame.rows[0]
             value = row[shape.frame.schema.index_of(shape.measure)]
             # A suppressed cell has no level to publish. Saying so is the
@@ -370,11 +438,38 @@ class EvaluateFindingsService(_FindingBuilders):
             )
             findings.append(finding)
             referents.append(referent)
+            if len(findings) == 1 and spec.answer_shape is AnswerShape.VERDICT:
+                # A yes/no about a LEVEL is a yes/no against something. The
+                # only "something" this platform will assert is a governed
+                # peer range, quoted whole with the population it came from
+                # — never a pass/fail target it invented.
+                verdict = next(
+                    (
+                        sentence
+                        for benchmark in pack.benchmarks_for_metric(shape.measure)
+                        if (
+                            sentence := benchmark_verdict_warning(
+                                measure=shape.measure,
+                                value=value,
+                                unit=shape.unit,
+                                benchmark=benchmark,
+                                period_text=_period_phrase(
+                                    spec, pack, shape.measure, shape.frame, shape.window
+                                ),
+                            )
+                        )
+                        is not None
+                    ),
+                    None,
+                )
+                if verdict is not None:
+                    warnings.append(verdict)
 
         await self._registry.register(tuple(referents))
         return FindingsResult(
             findings=tuple(findings),
             referents=tuple(referents),
+            warnings=tuple(warnings),
             emptiness=(
                 None
                 if findings
@@ -406,7 +501,7 @@ class EvaluateFindingsService(_FindingBuilders):
         findings: list[Finding] = []
         referents: list[RegisteredReferent] = []
         warnings: list[str] = []
-        for shape in shapes[: self._limit(spec)]:
+        for shape in _subject_first(shapes, spec)[: self._limit(spec)]:
             censoring = terminal_bucket_censoring(shape, spec)
             finding = self._build_trend_finding(
                 f"F{finding_offset + len(findings) + 1}",
@@ -518,13 +613,18 @@ class EvaluateFindingsService(_FindingBuilders):
         # "61-90" tells a team to work the least urgent band first and let
         # the 61-90 band age into expired; the catalog declares the order
         # and the plan carries it here.
-        urgency = _declared_bucket_order(plan, shape)
+        urgency = _declared_bucket_order(plan, shape, playbook)
         if urgency is not None:
             idx_dim = schema.index_of(shape.dimension_columns[0])
             bucket_order = {value: i for i, value in enumerate(urgency)}
             candidates.sort(
                 key=lambda row: bucket_order.get(str(row[idx_dim]), len(bucket_order))
             )
+        # …and a catch-all bucket is never the answer, whatever its size.
+        # Stable, so everything else keeps the order the ranking gave it,
+        # and a demotion only ever moves a row DOWN: the residual cell is
+        # still published, with its figure, after the classified ones.
+        candidates.sort(key=lambda row: is_residual_row(row, shape, playbook))
         measured = [row for row in candidates if bound_of(row) is None]
         bounded = [row for row in candidates if bound_of(row) is not None]
         # A bound's ceiling is (threshold - 1) / population, so ordering
@@ -561,6 +661,32 @@ class EvaluateFindingsService(_FindingBuilders):
         referents: list[RegisteredReferent] = []
         warnings: list[str] = []
         limit = self._limit(spec)
+        # THE WHOLE, FIRST. On a how-much question the total is the answer
+        # and the concentration cells are its composition; three shares of a
+        # total the answer never prints is the shape of a non-answer. Only
+        # where the total is exact: a frame carrying ceilings has no sum
+        # that agrees with its own shares (a ceiling is not a measurement),
+        # and two arithmetics for one whole is the defect this publishes to
+        # avoid.
+        total = _visible_total(shape) if not bounded else None
+        if (
+            total is not None
+            and _is_additive(shape.unit)
+            and spec.answer_shape in (AnswerShape.SCALAR, AnswerShape.VERDICT)
+        ):
+            finding, referent = self._build_aggregate_finding(
+                f"F{finding_offset + 1}",
+                shape,
+                total,
+                census,
+                spec,
+                qualified,
+                pack,
+                session_id,
+                investigation_id,
+            )
+            findings.append(finding)
+            referents.append(referent)
         for position, row in enumerate(measured[:limit], start=1):
             n = finding_offset + len(findings) + 1
             finding, referent = self._build_concentration_finding(
@@ -616,6 +742,61 @@ class EvaluateFindingsService(_FindingBuilders):
         )
         if truncation is not None:
             warnings.append(truncation)
+        if spec.answer_shape is AnswerShape.VERDICT and _is_additive(shape.unit):
+            # On an ordinal cut the bands ARE the answer's structure. Summed
+            # over the frame's own rows in the catalog's declared order, so
+            # a deadline question is answered with what is already past the
+            # deadline and what expires next, rather than with one figure
+            # that holds both.
+            bands: list[tuple[str, Decimal]] = []
+            if urgency is not None:
+                idx_dim = schema.index_of(shape.dimension_columns[0])
+                sums: dict[str, Decimal] = {}
+                for row in shape.frame.rows:
+                    amount = as_number(row[idx_measure])
+                    if amount is None:
+                        continue
+                    key = str(row[idx_dim])
+                    sums[key] = sums.get(key, Decimal(0)) + amount
+                bands = [(name, sums[name]) for name in urgency if name in sums][
+                    :_VERDICT_BANDS
+                ]
+            # The leading cell in whatever order THIS answer put its rows
+            # in — which on an ordinal cut is the most urgent band, not the
+            # biggest one. Read off the list that was published rather than
+            # recomputed, so the verdict and the findings can never name two
+            # different leaders.
+            leader = measured[0] if measured else None
+            verdict = verdict_warning(
+                measure=shape.measure,
+                total=total if total is not None else _visible_total(shape),
+                unit=shape.unit,
+                census=census,
+                # A row of a two-dimension cut is a COMBINATION: the filing
+                # frame has 144 rows and five runway buckets, and "across
+                # 144 filing runway buckets" counts one thing under the name
+                # of another.
+                noun=group_noun(shape.dimension_columns),
+                leader_label=(
+                    None
+                    if leader is None
+                    else self._row_label(leader, shape.frame, shape.dimension_columns, pack)
+                ),
+                leader_text=(
+                    None
+                    if leader is None
+                    else format_value(leader[idx_measure], shape.unit)
+                ),
+                leader_share=(
+                    leader[schema.index_of(shape.share_column)]
+                    if leader is not None and shape.share_column is not None
+                    else None
+                ),
+                period_text=_period_phrase(spec, pack, shape.measure, shape.frame, shape.window),
+                bands=bands,
+            )
+            if verdict is not None and not bounded:
+                warnings.insert(0, verdict)
 
         for i, row in enumerate(shape.frame.rows):
             referents.append(

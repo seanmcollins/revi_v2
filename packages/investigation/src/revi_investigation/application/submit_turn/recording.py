@@ -27,7 +27,10 @@ from revi_investigation.application.ports import (
     TurnEvent,
 )
 from revi_investigation.application.submit_turn.base import _SubmitTurnBase
-from revi_investigation.application.submit_turn.presentation import _chart_sorts_from_trace
+from revi_investigation.application.submit_turn.presentation import (
+    _chart_sorts_from_trace,
+    _frame_windows_from_trace,
+)
 from revi_investigation.application.submit_turn.types import (
     _EVIDENCE_DEPTHS,
     _FALLBACK_WINDOW,
@@ -112,6 +115,9 @@ class _TurnRecording(_SubmitTurnBase):
                         else EvidenceDepth.STANDARD
                     ),
                     chart_sorts=_chart_sorts_from_trace(plan_context.get("chart_sorts")),
+                    frame_windows=_frame_windows_from_trace(
+                        plan_context.get("frame_windows")
+                    ),
                 )
         return _PlanContext()
 

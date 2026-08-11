@@ -452,6 +452,7 @@ def build_chart_spec(
     provisional_x: str | None = None,
     sort: tuple[str, bool] | None = None,
     window: ChartWindow | None = None,
+    metric_display: Mapping[str, str] | None = None,
 ) -> ChartSpec | None:
     """Build one chart spec for a frame, or None when nothing is chartable.
 
@@ -465,6 +466,13 @@ def build_chart_spec(
     on the spec so the renderer orders the marks the way the findings above
     them were ordered. It is passed through, never derived: a chart with no
     plan ordering says so rather than implying one.
+
+    ``metric_display`` maps metric ids to the governed display names that
+    say what each number actually measures. A chart title names a metric to
+    a human, so it is a surface the display overlay owns: without it the
+    title read ``timely filing at risk dollars — main  compare`` — an
+    overclaiming id, de-snaked, beside a FRAME ID, which is engine
+    vocabulary a reader has no use for (docs/client-language.md §3).
 
     ``window`` names the period(s) this frame was measured over, and is
     read only when the frame has no dimension and no time bucket — the case
@@ -695,7 +703,7 @@ def build_chart_spec(
     return ChartSpec(
         id=f"chart_{frame_id}",
         chart_type=chart_type,
-        title=f"{value.replace('_', ' ')} — {frame_id.replace('_', ' ')}",
+        title=_chart_title(value, dims, time_col, metric_display),
         frame_id=frame_id,
         x=x,
         series=series,
@@ -716,6 +724,48 @@ def build_chart_spec(
     )
 
 
+#: Time-bucket columns say which grain they are in their own id
+#: (``time_bucket:month``); the axis phrase is the grain, not the token.
+_BUCKET_PHRASE = {"day": "day", "week": "week", "month": "month", "quarter": "quarter"}
+
+
+def _humanized(column: str) -> str:
+    """A frame column as a reader reads it: ``service_line`` → "service line"."""
+    return column.replace("_", " ").strip()
+
+
+def _and_list(items: Sequence[str]) -> str:
+    if len(items) == 1:
+        return items[0]
+    return f"{', '.join(items[:-1])} and {items[-1]}"
+
+
+def _chart_title(
+    value: str,
+    dims: Sequence[str],
+    time_col: str | None,
+    metric_display: Mapping[str, str] | None,
+) -> str:
+    """What this figure is, in the reader's words.
+
+    Sentence case, the metric's governed display name, and the cut it is
+    drawn across — never the frame id. The old composition put the storage
+    unit in the title (``denied dollars — denial code mix  compare``): a
+    frame id is engine vocabulary with no client rendering at all
+    (docs/client-language.md §3), and the double space was the ``__compare``
+    suffix wearing a costume.
+    """
+    display = (metric_display or {}).get(value) or _humanized(value)
+    cut = ""
+    if dims:
+        cut = f" by {_and_list([_humanized(d) for d in dims])}"
+    elif time_col is not None:
+        grain = time_col.replace(_TIME_BUCKET_PREFIX, "").replace("_", " ")
+        cut = f" by {_BUCKET_PHRASE.get(grain, grain)}"
+    title = f"{display}{cut}".strip()
+    return title[:1].upper() + title[1:] if title else display
+
+
 def build_chart_specs(
     frames: Sequence[tuple[str, EvidenceFrame]],
     *,
@@ -727,12 +777,19 @@ def build_chart_specs(
     suppression_threshold: int | None = None,
     sorts: Mapping[str, tuple[str, bool]] | None = None,
     windows: Mapping[str, ChartWindow] | WindowFacts | None = None,
+    metric_display: Mapping[str, str] | None = None,
+    subject_metric: str | None = None,
 ) -> tuple[ChartSpec, ...]:
     """Chart the displayable frames, derived (compare/share) outputs first.
 
     ``sorts`` maps a frame id to the ``(column, descending)`` the plan
     resolved for it (see ``resolved_orderings``); frames absent from it
     were not ordered by the plan and publish no sort.
+
+    ``subject_metric`` is the metric the question is about, when the
+    interpretation resolved one. Frames that publish it are charted first;
+    nothing is dropped and nothing is added, so an answer that used to ship
+    four charts still ships four.
 
     ``windows`` names the period(s) the frames were measured over, for the
     frames that have no dimension to key their marks by. Either form is
@@ -779,6 +836,13 @@ def build_chart_specs(
     ranked = sorted(
         frames,
         key=lambda item: (
+            # The metric the QUESTION is about, first. A playbook charts its
+            # probe set, not the answer: "do we owe any refunds?" shipped
+            # cash-posted and expected-reimbursement charts, and in 18 of 26
+            # live answers at least one charted metric had no finding
+            # anywhere on the response. The others still ship — the client
+            # already folds "N more charts" — they simply stop going first.
+            subject_metric is not None and subject_metric not in published_measures(item[1]),
             "__compare" not in item[0],  # compare outputs first
             not _dimension_columns(item[1]),  # dimensional frames before totals
         ),
@@ -806,6 +870,7 @@ def build_chart_specs(
             # A frame's own window wins over the turn's, when a caller has
             # one; neither is invented when the caller passed nothing.
             window=by_frame.get(frame_id, by_frame.get(DEFAULT_WINDOW_KEY)),
+            metric_display=metric_display,
         )
         if spec is None or not spec.rows:
             continue

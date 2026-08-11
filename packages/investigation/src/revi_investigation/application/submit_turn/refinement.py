@@ -28,6 +28,7 @@ from revi_investigation.application.submit_turn.core import _TurnCore
 from revi_investigation.application.submit_turn.header import build_context_header
 from revi_investigation.application.submit_turn.presentation import (
     _chart_sorts_for,
+    _frame_windows_payload,
     _presentation_refusal,
     _reordered,
     presentation_ordering,
@@ -438,6 +439,7 @@ class _RefinementTurns(_TurnCore):
                             {"frame_id": frame_id, "by": by, "descending": descending}
                             for frame_id, by, descending in plan_context.chart_sorts
                         ],
+                        "frame_windows": _frame_windows_payload(plan_context.frame_windows),
                     },
                 },
             )
@@ -460,6 +462,7 @@ class _RefinementTurns(_TurnCore):
             ),
             settings=state.settings,
             chart_sorts=plan_context.chart_sorts,
+            frame_windows=plan_context.frame_windows,
         )
 
     async def _meta_turn(
@@ -785,6 +788,7 @@ class _RefinementTurns(_TurnCore):
                             {"frame_id": frame_id, "by": by, "descending": descending}
                             for frame_id, by, descending in chart_sorts
                         ],
+                        "frame_windows": _frame_windows_payload(plan_context.frame_windows),
                     },
                 },
             )
@@ -805,4 +809,5 @@ class _RefinementTurns(_TurnCore):
             benchmarks=self._benchmarks_for(FindingsResult(findings=served, referents=())),
             settings=state.settings,
             chart_sorts=chart_sorts,
+            frame_windows=plan_context.frame_windows,
         )

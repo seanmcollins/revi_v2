@@ -41,6 +41,7 @@ from typing import Any
 from revi_investigation.application.ports import RegisteredReferent, TraceRecord
 from revi_investigation.domain.context import (
     AnalysisSpec,
+    AnswerShape,
     AskedDirection,
     AskedMagnitude,
     AskedOrder,
@@ -212,6 +213,10 @@ _ENUMS: tuple[type[Enum], ...] = (
     AskedDirection,
     AskedMagnitude,
     AskedOrder,
+    # …and the shape the answer's first sentence owes the question, for the
+    # same reason: a restored turn that lost it would narrate a yes/no
+    # question as a summary of findings.
+    AnswerShape,
 )
 
 _DATACLASS_REGISTRY: dict[str, type] = {cls.__name__: cls for cls in _DATACLASSES}

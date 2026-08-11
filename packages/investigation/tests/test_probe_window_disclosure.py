@@ -226,7 +226,9 @@ class TestTheFindingStatesItsOwnPeriod:
         )
         assert PROBE_TEXT in finding.title, finding.title
         assert JULY_TEXT not in finding.title, finding.title
-        assert PROBE_PROSE in finding.statement
+        # The statement names the probe's own period as the period the
+        # figure was measured over — in the same ISO shape the title uses.
+        assert PROBE_TEXT in finding.statement, finding.statement
 
     async def test_the_statement_says_why_two_periods_appear_on_one_answer(
         self, pack_port: PackSnapshotPort
@@ -239,8 +241,16 @@ class TestTheFindingStatesItsOwnPeriod:
             _spec(),
             pack_port,
         )
-        assert "its own period" in finding.statement
-        assert JULY_PROSE in finding.statement, "the answer's own window is named as the contrast"
+        # One clause, and only the part the sentence around it does not
+        # already carry: the statement names the period itself, so all this
+        # adds is WHOSE period it is.
+        assert "comes with this measure rather than from your question" in finding.statement
+        assert "not the answer's" not in finding.statement
+        # …and the ANSWER's window is not restated inside the finding. It is
+        # on the context header, one line above, and the two sentences that
+        # used to repeat it here cost nine live answers a paragraph each.
+        assert JULY_PROSE not in finding.statement
+        assert JULY_TEXT not in finding.statement
 
     async def test_the_period_is_published_as_data_not_only_as_prose(
         self, pack_port: PackSnapshotPort

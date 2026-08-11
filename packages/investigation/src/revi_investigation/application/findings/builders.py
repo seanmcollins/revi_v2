@@ -23,9 +23,14 @@ from revi_investigation.application.execution import (
 )
 from revi_investigation.application.findings.bounds import (
     _QUALIFIED_GRADES,
+    SelectionCensus,
     _bound_values,
     _is_additive,
     bound_text,
+    group_noun,
+)
+from revi_investigation.application.findings.bounds import (
+    AGGREGATE_VALUE as _AGGREGATE_VALUE,
 )
 from revi_investigation.application.findings.premise import (
     PremiseCheck,
@@ -473,6 +478,121 @@ class _FindingBuilders:
             return None
         name = dimension_columns[0]
         return (name, str(row[frame.schema.index_of(name)]))
+
+
+    @staticmethod
+    def _aggregate_noun(dimension_columns: tuple[str, ...]) -> str:
+        """The SINGULAR of the reader's own word for these rows.
+
+        ``group_noun`` answers in the plural ("payers", "filing runway
+        bucket and plan combinations") because every other caller counts
+        many; a total says "across the 12 payers" and, where a cut yields
+        one, "the 1 payer".
+        """
+        many = group_noun(dimension_columns)
+        return many[:-1] if many.endswith("s") else many
+
+
+    def _build_aggregate_finding(
+        self,
+        referent_value: str,
+        shape: ConcentrationShape,
+        total: Decimal,
+        census: SelectionCensus,
+        spec: AnalysisSpec,
+        qualified: bool,
+        pack: PackPort,
+        session_id: str,
+        investigation_id: str,
+    ) -> tuple[Finding, RegisteredReferent]:
+        """The WHOLE this answer's shares are shares of, published first.
+
+        "How much did we write off last month?" came back with three payers
+        and their shares — ``22.8% of the total``, ``18.4% of the total``,
+        ``11.2% of the total`` — and never printed the total. It is
+        $671,832.44, and it is recoverable from the answer's own arithmetic,
+        which is the tell: the number was computed (it is the share
+        denominator), it was simply never published.
+
+        So it is, and it is F1: on a how-much question the total IS the
+        answer and the concentration cells are its composition. Summed here
+        over the same visible rows :func:`revi_calculation.operators.basic.
+        share_of_total` divides by, so the total and the shares can never
+        describe two different populations — and said as the VISIBLE total
+        wherever the frame withheld or bounded a cell, because a suppressed
+        cell is not in it.
+        """
+        label = metric_label(shape.measure)
+        period_text = _period_phrase(spec, pack, shape.measure, shape.frame, shape.window)
+        period_paren = _period_paren(spec, pack, shape.measure, shape.frame, shape.window)
+        amount = _as_int(total)
+        magnitude_text = (
+            magnitude_money(amount)
+            if shape.is_money and amount is not None
+            else format_value(total, shape.unit)
+        )
+        singular = self._aggregate_noun(shape.dimension_columns)
+        noun = plural(census.measured, singular)
+        # Two totals, and the difference is the whole honesty of the
+        # sentence. A frame that withheld or bounded a cell has no total —
+        # it has the total of what it could publish, and the rows it could
+        # not are named by the suppression disclosures beside this finding.
+        withheld = census.withheld + census.bounded
+        measured_text = measure_phrase(magnitude_text, label, shape.unit)
+        title = (
+            f"Total: {measured_text} {period_paren}"
+            if withheld == 0
+            else f"Total measured here: {measured_text} {period_paren}"
+        )
+        statement = (
+            f"{measured_text} {period_text}, across the {census.measured} {noun} this answer "
+            "could measure."
+        )
+        if withheld:
+            statement = (
+                f"{statement[:-1]} — a VISIBLE total: {withheld} further "
+                f"{plural(withheld, self._aggregate_noun(shape.dimension_columns))} were withheld or "
+                "carry only a ceiling, so the true whole is at or above this figure."
+            )
+        statement = _with_window_note(statement, spec, shape.window)
+        values: list[tuple[str, Scalar]] = [
+            (shape.measure, total),
+            # This finding is the WHOLE, not a row of the population. Named
+            # as data so no downstream stage has to parse a title to know
+            # it: the superlative substitute drops a row label into "the
+            # largest X is ___", and a total dropped in there reads "the
+            # largest figure this answer measured is Total: $22,426,000.28"
+            # over the very cells it is the sum of.
+            (_AGGREGATE_VALUE, True),
+            (f"{shape.measure}__is_visible_total", bool(withheld)),
+            (f"{shape.measure}__measured_cells", census.measured),
+        ]
+        values.extend(_window_values(shape.measure, spec, shape.window))
+        referent = ReferentId(value=referent_value, kind=ReferentKind.FINDING)
+        finding = Finding(
+            referent=referent,
+            title=title,
+            statement=statement,
+            metric_refs=(MetricRef(shape.measure),),
+            values=tuple(values),
+            grade=shape.frame.evidence_grade,
+            impact_cents=amount if shape.is_money else None,
+            confidence="qualified" if (qualified or withheld) else "high",
+            suggested_refinements=suggested_refinements_for(referent_value),
+        )
+        registered = RegisteredReferent(
+            referent=referent,
+            session_id=session_id,
+            investigation_id=investigation_id,
+            label=title,
+            cohort_definition=CohortDefinition(
+                entity=EntityGrain.CLAIM,
+                scope=spec.context.effective_scope(),
+                window=spec.context.window,
+            ),
+            finding=finding,
+        )
+        return finding, registered
 
 
     def _build_finding(

@@ -29,6 +29,37 @@ Guidance:
 
 - Prefer a playbook when the question matches one's purpose; leave
   metric_ids empty in that case unless specific metrics are also named.
+- answer_shape: what the answer's FIRST SENTENCE owes this question. One of
+  verdict, entity, scalar, cause, trend, comparison, definition, worklist.
+  - verdict — a yes/no question: "do we owe refunds?", "are we at risk of
+    losing revenue to auth denials?", "do I have a COB problem?", "is
+    anything about to miss a filing deadline?", "are any payers paying
+    below contract?"
+  - entity — asks WHICH one: "which payer denies us most", "where are
+    denials rising"
+  - scalar — asks HOW MUCH or HOW MANY, wanting one number: "how much did
+    we write off last month", "what was our denial rate", "how many claims
+    are unbilled"
+  - cause — asks WHY: "why did cash come in low", "what's driving the
+    increase"
+  - trend — asks for a series over time: "denial rate by month", "A/R over
+    90 by month this year"
+  - comparison — asks one period or population against another: "this
+    quarter vs last on collections"
+  - definition — asks what a term means
+  - worklist — asks what to work on: "what should my team do first today"
+  Set it on every analytical question. A question that is both ("are
+  denials rising, and which payers are driving it") takes the shape of its
+  FIRST clause — here, verdict.
+- subject_metric: the single metric id from the list above that this
+  question is ABOUT — the one whose number the reader came for. Pick it
+  even when you route to a playbook: "where are denials rising" is about
+  `denial_rate`, not about denied dollars; "how often do we win appeals" is
+  about `appeal_overturn_rate`, not overturned dollars; "our A/R keeps
+  creeping up" is about `ar_balance`, not charges. It must be a metric the
+  question's own reading would read — one of metric_ids, or a metric the
+  chosen playbook measures. Leave it null if the question names no single
+  subject.
 - window: THREE shapes, and the analyst's own words pick which one.
   - relative — `{"quantity": "6", "unit": "month", "mode": "full_periods"}`.
     quantity is a decimal string ("1", "6", "3.25"); mode is trailing

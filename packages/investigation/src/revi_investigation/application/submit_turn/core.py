@@ -26,6 +26,7 @@ from revi_investigation.application.interpretation import (
 from revi_investigation.application.planning import (
     ANSWERING_TRANSFORMS,
     PlanDiff,
+    resolved_frame_windows,
     resolved_orderings,
 )
 from revi_investigation.application.ports import (
@@ -37,6 +38,7 @@ from revi_investigation.application.submit_turn.census import (
     _same_findings,
     _turn_census,
     probe_families_empty_warning,
+    subject_unpublished_warning,
 )
 from revi_investigation.application.submit_turn.clarification import (
     _COMMITTED_REASONS,
@@ -476,6 +478,11 @@ class _TurnCore(_ClarificationPolicy):
         # A comparison against a different-length window is answerable but
         # not a delta anyone should act on; the warning rides with the
         # answer and the findings withhold impact (see comparison.py).
+        # …and the SUBJECT, before any of it: a metric the question was
+        # about that published nothing is lead-class, not trailing.
+        subject_gap = subject_unpublished_warning(spec, executed, findings_result.findings)
+        if subject_gap is not None:
+            extra_warnings.append(subject_gap)
         families = probe_families_empty_warning(validated, executed, findings_result.findings)
         if families is not None:
             extra_warnings.append(families)
@@ -640,6 +647,7 @@ class _TurnCore(_ClarificationPolicy):
         await self._investigations.save(investigation, edge)
 
         chart_sorts = resolved_orderings(validated.plan)
+        frame_windows = resolved_frame_windows(validated.plan)
         extra: dict[str, Any] = {
             "plan_context": {
                 "playbook_id": playbook_id,
@@ -652,6 +660,19 @@ class _TurnCore(_ClarificationPolicy):
                 "chart_sorts": [
                     {"frame_id": frame_id, "by": by, "descending": descending}
                     for frame_id, by, descending in chart_sorts
+                ],
+                # …and the window each frame was measured over, for the same
+                # reason: a restored chart on a playbook window must name
+                # that window rather than inherit the answer's.
+                "frame_windows": [
+                    {
+                        "frame_id": frame_id,
+                        "start": window.start.isoformat(),
+                        "end": window.end.isoformat(),
+                        "prior_start": None if prior is None else prior.start.isoformat(),
+                        "prior_end": None if prior is None else prior.end.isoformat(),
+                    }
+                    for frame_id, window, prior in frame_windows
                 ],
             },
             # Recorded for every analytical turn, not only refinements.
@@ -717,6 +738,7 @@ class _TurnCore(_ClarificationPolicy):
             settings=state.settings,
             emptiness=emptiness,
             chart_sorts=chart_sorts,
+            frame_windows=frame_windows,
         )
 
     def _direct_route_for_unexecutable_playbook(
@@ -875,7 +897,9 @@ class _TurnCore(_ClarificationPolicy):
         # 3a. …and a question this session has already answered is not a
         #     question: asking WHICH measure of a session holding exactly
         #     one is how "why did it go up" burned its second turn.
-        clarification = await self._settled_measure(session, clarification)
+        clarification = await self._settled_measure(
+            session, clarification, state.utterance or state.question
+        )
         # 3b. …then the one thing a dialogue may never do: ask the question
         #     it has just asked, word for word, of an analyst who answered
         #     it. This branch covers the clarifications the VALIDATOR raises

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import re
 from collections.abc import Mapping, Sequence
+from datetime import date
 from decimal import Decimal
 from typing import Any
 
@@ -20,6 +21,7 @@ from revi_investigation.domain.turns import (
     ClarificationRequest,
 )
 from revi_kernel.frame import EvidenceFrame, primary_measure
+from revi_kernel.scope import AbsoluteRange
 
 #: "Export this" and the ways people say it. A file is not something this
 #: engine can hand over: the export is composed in the client, from the
@@ -274,6 +276,41 @@ def _chart_sorts_for(
     return tuple(out)
 
 
+def _frame_windows_from_trace(
+    raw: Any,
+) -> tuple[tuple[str, AbsoluteRange, AbsoluteRange | None], ...]:
+    """The per-frame windows a recorded plan resolved, off its trace.
+
+    A frame whose dates will not parse is skipped rather than defaulted:
+    the caller then falls back to the turn's own window, which is what the
+    chart did before per-frame windows existed — a worse label, never a
+    fabricated one.
+    """
+    if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)):
+        return ()
+    out: list[tuple[str, AbsoluteRange, AbsoluteRange | None]] = []
+    for entry in raw:
+        if not isinstance(entry, Mapping):
+            continue
+        frame_id = entry.get("frame_id")
+        window = _range_from_trace(entry.get("start"), entry.get("end"))
+        if not isinstance(frame_id, str) or window is None:
+            continue
+        out.append(
+            (frame_id, window, _range_from_trace(entry.get("prior_start"), entry.get("prior_end")))
+        )
+    return tuple(out)
+
+
+def _range_from_trace(start: Any, end: Any) -> AbsoluteRange | None:
+    if not isinstance(start, str) or not isinstance(end, str):
+        return None
+    try:
+        return AbsoluteRange(start=date.fromisoformat(start), end=date.fromisoformat(end))
+    except ValueError:
+        return None
+
+
 def _chart_sorts_from_trace(raw: Any) -> tuple[tuple[str, str, bool], ...]:
     """The orderings a recorded plan resolved, read back off its trace."""
     if not isinstance(raw, Sequence) or isinstance(raw, (str, bytes)):
@@ -286,3 +323,23 @@ def _chart_sorts_from_trace(raw: Any) -> tuple[tuple[str, str, bool], ...]:
         if isinstance(frame_id, str) and isinstance(by, str):
             out.append((frame_id, by, bool(entry.get("descending", True))))
     return tuple(out)
+
+
+def _frame_windows_payload(
+    windows: Sequence[tuple[str, AbsoluteRange, AbsoluteRange | None]],
+) -> list[dict[str, str | None]]:
+    """Per-frame windows in the shape a trace records and replays.
+
+    One writer for the three call sites that record it, so a re-served turn
+    and the turn it re-serves cannot spell the same fact two ways.
+    """
+    return [
+        {
+            "frame_id": frame_id,
+            "start": window.start.isoformat(),
+            "end": window.end.isoformat(),
+            "prior_start": None if prior is None else prior.start.isoformat(),
+            "prior_end": None if prior is None else prior.end.isoformat(),
+        }
+        for frame_id, window, prior in windows
+    ]

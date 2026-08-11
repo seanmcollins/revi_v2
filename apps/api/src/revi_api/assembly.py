@@ -17,7 +17,7 @@ record persisted).
 from __future__ import annotations
 
 from collections.abc import Awaitable, Callable, Mapping, Sequence
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -71,9 +71,12 @@ from revi_investigation_contracts.api import (
 from revi_investigation_contracts.header import build_header_payload
 from revi_kernel.filters import iter_predicates
 from revi_kernel.frame import EvidenceFrame
+from revi_kernel.scope import AbsoluteRange
 from revi_presentation import (
+    DEFAULT_WINDOW_KEY,
     NARRATIVE_TEMPLATE_ID,
     NARRATIVE_TEMPLATE_VERSION,
+    ChartWindow,
     apply_metric_display,
     build_chart_specs,
     build_narrative_facts,
@@ -81,9 +84,12 @@ from revi_presentation import (
     compose_narrative,
     empty_narrative,
     mandatory_disclosures,
+    operator_only_disclosures,
+    period_label,
     reconciliation_disclosure,
     template_hash,
     validate_narrative,
+    window_from_facts,
 )
 
 OnEvent = Callable[[str, dict[str, Any]], Awaitable[None]]
@@ -120,6 +126,11 @@ NARRATIVE_FULLY_REDACTED_WARNING = (
 #: Mirrors the engine's per-call floor: below this there is no call worth
 #: making, only a provider refusal that would read like an outage.
 _MIN_NARRATIVE_BUDGET_USD = Decimal("0.001")
+
+#: The metric-contract ``kind`` that reports a balance standing at the data
+#: date. Held as a literal because it is a pack-content token, matched the
+#: same way :meth:`revi_api.service.ReviService._snapshot_metric_ids` does.
+_SNAPSHOT_KIND = "snapshot"
 
 
 def _police_charts(
@@ -552,8 +563,12 @@ async def restored_chart_specs(
             # The window this turn ran over, rebuilt from its own stored spec
             # by the same builder the restored response publishes: a frame
             # with no dimension is charted against its PERIOD, and a restored
-            # turn must name the same one the live answer did.
-            windows=restored_context_header(investigation),
+            # turn must name the same one the live answer did — per frame,
+            # off the plan context the trace recorded.
+            windows=chart_windows(
+                restored_context_header(investigation), frame_windows_from_trace(trace)
+            ),
+            metric_display=components.metric_display.names,
         )
     )
     # The same two contract checks the live turn ran: a restored chart that
@@ -561,6 +576,83 @@ async def restored_chart_specs(
     # wrong rendering of the answer already published.
     policed, _ = _police_charts(specs, frames, components)
     return policed
+
+
+def chart_windows(
+    header: ContextHeaderPayload | None,
+    frame_windows: Sequence[tuple[str, AbsoluteRange, AbsoluteRange | None]] = (),
+) -> Mapping[str, ChartWindow]:
+    """``{frame id → the period its axis names}``, with the turn's as default.
+
+    A frame with no dimension is charted against its PERIOD, and the period
+    belongs to the FRAME. Passing the turn's window for every frame — the
+    only thing this stage could do before the engine carried per-frame
+    windows — publishes a bar labelled ``Jul 2026`` over a probe that read
+    2026-06-08..2026-08-02, so a reader asking two questions gets two
+    different numbers for the same month name and nothing on either chart
+    reconciles them.
+
+    The turn's own window stays as :data:`DEFAULT_WINDOW_KEY`, for every
+    frame the plan declared no window for (a snapshot reads a balance at the
+    watermark and has no span of its own).
+
+    A frame's baseline label is its own when the plan resolved one. Where it
+    did not, the header's comparison is inherited ONLY when the frame ran on
+    the header's window: a prior tick borrowed across two different spans is
+    the same mislabel one column to the left.
+    """
+    turn = window_from_facts(header)
+    out: dict[str, ChartWindow] = {} if turn is None else {DEFAULT_WINDOW_KEY: turn}
+    for frame_id, window, prior in frame_windows:
+        same_window = (
+            header is not None
+            and header.window_start == window.start
+            and header.window_end == window.end
+        )
+        prior_label = (
+            period_label(prior.start, prior.end)
+            if prior is not None
+            else (turn.prior_label if same_window and turn is not None else None)
+        )
+        out[frame_id] = ChartWindow(
+            current_label=period_label(window.start, window.end), prior_label=prior_label
+        )
+    return out
+
+
+def frame_windows_from_trace(
+    trace: TraceRecord | None,
+) -> tuple[tuple[str, AbsoluteRange, AbsoluteRange | None], ...]:
+    """``(frame id, window, comparison window)`` off a recorded plan context.
+
+    The restored twin of :attr:`TurnOutcome.frame_windows`: a re-opened turn
+    rebuilds its charts from persisted frames with no plan in hand, and a
+    period label that changed on reload would be a second way for the live
+    answer and its own permalink to disagree.
+    """
+    if trace is None:
+        return ()
+    raw = (trace.payload.get("plan_context") or {}).get("frame_windows") or ()
+    out: list[tuple[str, AbsoluteRange, AbsoluteRange | None]] = []
+    for entry in raw:
+        if not isinstance(entry, Mapping):
+            continue
+        frame_id = entry.get("frame_id")
+        window = _range_from_payload(entry.get("start"), entry.get("end"))
+        if not isinstance(frame_id, str) or window is None:
+            continue
+        prior = _range_from_payload(entry.get("prior_start"), entry.get("prior_end"))
+        out.append((frame_id, window, prior))
+    return tuple(out)
+
+
+def _range_from_payload(start: object, end: object) -> AbsoluteRange | None:
+    if not isinstance(start, str) or not isinstance(end, str):
+        return None
+    try:
+        return AbsoluteRange(start=date.fromisoformat(start), end=date.fromisoformat(end))
+    except ValueError:
+        return None
 
 
 def chart_sorts_from_trace(trace: TraceRecord | None) -> dict[str, tuple[str, bool]]:
@@ -667,8 +759,40 @@ def _suppression_counts(outcome: TurnOutcome) -> tuple[int, int]:
     return worst, (visible + worst if worst else 0)
 
 
-def _narrative_disclosures(
+def _headline_is_a_standing_balance(
+    components: ApiComponents,
     outcome: TurnOutcome,
+    findings: Sequence[FindingPayload],
+) -> bool:
+    """Does this answer's headline figure stand at a date rather than run?
+
+    A snapshot contract reports a balance AS OF the data date and applies no
+    start..end predicate at all, so an unsettled window does not shrink it
+    — which is why "do we owe any refunds right now?" opened on five
+    sentences of settling caveat and then said, in its own body, that the
+    July framing does not bear on the amounts shown.
+
+    Read off the pack's own contract ``kind`` for the metrics the headline
+    finding cites (the subject metric first, when the question named one),
+    never a list of ids kept here: which contracts are snapshots is a fact
+    about the pack, and a hardcoded list goes stale the first time one is
+    added.
+    """
+    subject = outcome.subject_metric
+    ids = [subject.id] if subject is not None else list(findings[0].metric_ids if findings else [])
+    if not ids:
+        return False
+    for metric_id in ids:
+        contract = components.pack_port.metric(metric_id)
+        if contract is None or str(contract.kind) != _SNAPSHOT_KIND:
+            return False
+    return True
+
+
+def _narrative_disclosures(
+    components: ApiComponents,
+    outcome: TurnOutcome,
+    findings: Sequence[FindingPayload],
     warnings: Sequence[str],
     anomaly_reconciliation: AnomalyReconciliationPayload | None,
 ) -> tuple[list[str], list[str]]:
@@ -689,11 +813,20 @@ def _narrative_disclosures(
             delta_cents=anomaly_reconciliation.delta_cents,
             delta_fraction=anomaly_reconciliation.delta_fraction,
         )
+    shape = outcome.answer_shape
     return mandatory_disclosures(
         classified,
         reconciliation_sentence=sentence,
         suppressed_cells=suppressed,
         total_cells=total,
+        # The engine composes these sentences, so they never went through
+        # the display overlay the model's own prose does — which is how a
+        # raw metric id reached 21 of 26 published answers.
+        metric_display=components.metric_display.names,
+        settling_bears_on_headline=not _headline_is_a_standing_balance(
+            components, outcome, findings
+        ),
+        answer_shape=None if shape is None else shape.value,
     )
 
 
@@ -719,8 +852,18 @@ async def _compose_narrative(
     ``last_usage()``, which two concurrent turns would race on.
     """
     header = outcome.header
-    lead, trail = _narrative_disclosures(outcome, warnings, anomaly_reconciliation)
+    lead, trail = _narrative_disclosures(
+        components, outcome, findings, warnings, anomaly_reconciliation
+    )
     disclosures = [*lead, *trail]
+    # What the FACT SET is told, which is not what the answer publishes.
+    # The truncation and probe-family sentences are operator facts and no
+    # longer reach the reader's prose — but the truncation fact still gates
+    # the superlative and spread rules in the grounding validator, and
+    # dropping it here would turn a prose cleanup into a silent loosening.
+    certified = [*disclosures, *operator_only_disclosures(
+        [(w.code, w.message) for w in structured_warnings(warnings)]
+    )]
     # The ANSWER's own caution census — the same list the banners render
     # from — so nothing downstream has to infer "this turn has no caveats"
     # from the emptiness of a prompt slot. ``disclosures`` is the MANDATORY
@@ -762,6 +905,7 @@ async def _compose_narrative(
         warnings.append(NARRATIVE_BUDGET_WARNING)
         return " ".join(disclosures) or None
     depth = outcome.settings.narrative_depth
+    shape = outcome.answer_shape
     # Population caveats govern how the prose may characterize the figures;
     # display names stop a raw metric id from promising more than its
     # formula delivers. Both are the same governed content §6.6 and the
@@ -802,6 +946,11 @@ async def _compose_narrative(
         # …and how many caveats the ANSWER carries, so an empty slot above
         # can never be read as "this answer has no caveats".
         published_cautions=published_cautions,
+        # THE QUESTION. Without it the composer is not writing an answer,
+        # it is writing a summary of findings — fluent, grounded and blind
+        # to whether the reader asked a yes/no, a which-X or a how-much.
+        question=outcome.question,
+        answer_shape=None if shape is None else shape.value,
     )
     assert_safe_payload(prompt)
     chunks: list[str] = []
@@ -838,8 +987,10 @@ async def _compose_narrative(
         caveats=caveats,
         metric_display=display_names,
         # Published verbatim above the composer's text, so if the composer
-        # restates one it must validate rather than be cut.
-        disclosures=disclosures,
+        # restates one it must validate rather than be cut — plus the
+        # operator-only sentences, which the composer is not shown but whose
+        # truncation fact the validator must still see.
+        disclosures=certified,
         # On a turn that routed to the worklist, no prose instruction may
         # name a first action other than the ranked list's own rank 1:
         # two orderings on one card, and only one was asked for.
@@ -847,6 +998,11 @@ async def _compose_narrative(
         # The census the "no caveats" affirmation is derived from, and the
         # one a sentence claiming otherwise is redacted against.
         published_cautions=published_cautions,
+        # The prompt DEMANDS a first sentence that answers the question, so
+        # the analyst's own capitalized names are certified vocabulary for
+        # it — a validator that redacted the sentence it just demanded
+        # would leave the answer without one.
+        question=outcome.question,
     )
     validation = validate_narrative(provisional, facts)
     warnings.extend(validation.warnings)
@@ -1007,10 +1163,20 @@ async def assemble_turn_response(
                 frame_id: (by, descending)
                 for frame_id, by, descending in outcome.chart_sorts
             },
-            # The turn's own window, off the header it already published: a
-            # frame with no dimension has no category to key marks by, and
-            # its axis is the period rather than the measured value itself.
-            windows=outcome.header,
+            # The window EACH FRAME was measured over — the turn's own only
+            # where the plan declared no other. A frame with no dimension has
+            # no category to key marks by, and its axis is the period rather
+            # than the measured value itself; handed the answer's window for
+            # a probe the playbook ran on its own, that axis names a month
+            # the number does not cover.
+            windows=chart_windows(outcome.header, outcome.frame_windows),
+            # A chart title names a metric to a human, so it is composed
+            # from the governed display name rather than from the frame id.
+            metric_display=components.metric_display.names,
+            # …and the figure the question is ABOUT is drawn first.
+            subject_metric=(
+                None if outcome.subject_metric is None else outcome.subject_metric.id
+            ),
         )
     )
     # …and then the two contract checks a published chart must pass: its

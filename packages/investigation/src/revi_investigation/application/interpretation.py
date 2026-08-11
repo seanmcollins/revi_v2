@@ -85,6 +85,7 @@ from revi_investigation.application.ports import (
 from revi_investigation.application.validation import contract_pinned_values
 from revi_investigation.domain.context import (
     AnalysisSpec,
+    AnswerShape,
     AskedDirection,
     AskedMagnitude,
     AskedOrder,
@@ -886,6 +887,22 @@ class ClassificationOutcome:
     failure: LlmFailureKind | None = None
 
 
+def _answer_shape(raw: str | None) -> AnswerShape | None:
+    """The closed shape a model named, or ``None``.
+
+    Defensive against a token the schema would have rejected anyway: the
+    absence of a shape is a supported state everywhere downstream, and a
+    crash here would fail a turn over a field that is only ever an
+    improvement.
+    """
+    if raw is None:
+        return None
+    try:
+        return AnswerShape(raw)
+    except ValueError:  # pragma: no cover - the schema pins the literal set
+        return None
+
+
 @dataclass(frozen=True, slots=True)
 class InterpretedInvestigation:
     spec: AnalysisSpec
@@ -1589,6 +1606,13 @@ class InterpretQuestionService:
             # A count the question names is an instruction, not a
             # suggestion.
             limit=requested_finding_limit(question),
+            # What the answer's first sentence owes the question, and which
+            # metric that sentence has to be about. Both closed and both
+            # re-validated: an unknown shape or an ungoverned metric id is
+            # dropped rather than carried, so the pipeline behaves exactly
+            # as it did before when the model names neither.
+            answer_shape=_answer_shape(parsed.answer_shape),
+            subject_metric=self._subject_metric(parsed, governing),
         )
         if spec.direction_asserted and context.comparison is None:
             # A question that asserts a movement is asking about two
@@ -1701,6 +1725,33 @@ class InterpretQuestionService:
             pack_version=self._pack.pack_version,
             pack_snapshot_id=self._pack.snapshot_id,
         )
+
+    def _subject_metric(
+        self, parsed: InterpretationResponse, governing: Sequence[MetricContract]
+    ) -> MetricRef | None:
+        """The metric the question is ABOUT, resolved against the pack.
+
+        Three gates, in order, and every one of them can only narrow: the
+        id must be a governed metric; it must be one this turn will actually
+        read (a named measure, or a metric of the playbook it routed to);
+        and where the model named none, a question with exactly one
+        governing contract has an unambiguous subject and gets it for free.
+
+        Nothing is invented — a subject that fails any gate is ``None``, and
+        selection then behaves exactly as it did before this field existed.
+        Inventing one would be worse than having none: the first finding
+        slot is reserved for the subject's frame, so a wrong subject
+        headlines the wrong number.
+        """
+        governed = {contract.id for contract in governing}
+        candidate = parsed.subject_metric
+        if candidate is not None:
+            if self._pack.metric(candidate) is None or candidate not in governed:
+                return None
+            return MetricRef(candidate)
+        if len(governing) == 1:
+            return MetricRef(governing[0].id)
+        return None
 
     def _governing_contracts(self, parsed: InterpretationResponse) -> tuple[MetricContract, ...]:
         contracts: list[MetricContract] = []

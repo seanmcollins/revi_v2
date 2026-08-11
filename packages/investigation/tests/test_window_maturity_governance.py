@@ -20,6 +20,7 @@ from pathlib import Path
 
 import pytest
 
+from revi_investigation.application.rendering import metric_label
 from revi_investigation.application.window_maturity import (
     WindowMaturityService,
     adjudication_yardstick,
@@ -161,8 +162,19 @@ class TestTheWindowIsJudgedAgainstTheLoadsOwnCurve:
         assert verdict.share < Decimal("0.3")
         assert "adjudication_incomplete:" in verdict.warning
         assert "1,544 settled record(s)" in verdict.warning
-        assert "2026-07-01..2026-07-31" in verdict.warning
-        assert verdict.yardstick in verdict.warning, "the reader can check the yardstick"
+        # …and it names the period the way a reader says it. An ISO pair on
+        # a default surface is Evidence vocabulary (docs/client-language.md
+        # §4), and this sentence is the one published above the answer.
+        assert "July 2026" in verdict.warning
+        assert "2026-07-01..2026-07-31" not in verdict.warning
+        # The yardstick is named — in the reader's words, not as a raw id.
+        # ``'clean_claim_rate'`` in quotes was one of the metric ids that
+        # reached 21 of 26 published answers under a template that forbids
+        # them (docs/client-language.md §3).
+        assert metric_label(verdict.yardstick) in verdict.warning, (
+            "the reader can check the yardstick"
+        )
+        assert verdict.yardstick not in verdict.warning
 
     async def test_a_settled_month_is_left_alone(
         self, pack: PackSnapshotPort, make_spec

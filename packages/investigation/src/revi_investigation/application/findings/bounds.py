@@ -4,16 +4,21 @@ from __future__ import annotations
 
 from collections.abc import Sequence
 from dataclasses import dataclass
+from decimal import Decimal, InvalidOperation
 
 from revi_investigation.application.calculation_glue import (
     EmptinessFact,
 )
-from revi_investigation.application.capability_ports import PackPort
+from revi_investigation.application.capability_ports import PackPort, PlaybookSpec
 from revi_investigation.application.execution import (
     TOO_SMALL_TO_MEASURE,
     BoundedCell,
 )
-from revi_investigation.application.findings.shapes import ConcentrationShape, MovementShape
+from revi_investigation.application.findings.shapes import (
+    ConcentrationShape,
+    MovementShape,
+    as_number,
+)
 from revi_investigation.application.planning import InvestigationPlan
 from revi_investigation.application.ports import RegisteredReferent
 from revi_investigation.application.rendering import (
@@ -24,7 +29,10 @@ from revi_investigation.application.rendering import (
 )
 from revi_investigation.application.rendering import (
     format_value,
+    measure_phrase,
     metric_label,
+    plural,
+    ratio_pct,
     render_row_label,
 )
 from revi_investigation.domain.context import (
@@ -47,6 +55,13 @@ _QUALIFIED_GRADES = (EvidenceGrade.PROXY, EvidenceGrade.DISCOVERY, EvidenceGrade
 #: population left to rank, and the honest answer is the population
 #: arithmetic rather than an order.
 MAX_BOUNDED_SHARE_FOR_RANKING = 0.5
+
+
+#: The named value that says a finding is the WHOLE rather than a row of
+#: it. Read by :func:`revi_presentation.narrative._measured_leader`, which
+#: may not import this package — the literal is pinned on both sides by a
+#: test, exactly as the premise verdict's own value names are.
+AGGREGATE_VALUE = "aggregate_total"
 
 
 def _bound_values(measure: str, bound: BoundedCell | None) -> list[tuple[str, Scalar]]:
@@ -127,13 +142,74 @@ def _with_premise(
     )
 
 
+#: The pack ranking policy that says a deadline question is ordered by the
+#: clock. Declared in ``packs/base-rcm/policies.yaml``; held as a literal
+#: here because the id is pack content and this module is the only reader,
+#: and pinned on both sides by a test.
+URGENCY_FIRST_POLICY = "urgency_first"
+
+#: …and the one that says a catch-all bucket is never the answer.
+RESIDUAL_LAST_POLICY = "residual_last"
+
+#: Catch-all dimension values: the cell every row that did not classify
+#: falls into. They are legitimately the LARGEST cell in several cuts and
+#: they are never the ANSWER to "what are we getting denied for most" —
+#: "OTHER accounts for $619,434.56, or 19.0% of the total" tells a reader
+#: nothing they can work.
+#:
+#: Matched case-insensitively on the leading dimension's value, and held
+#: here rather than read off the catalog because the catalog's value
+#: domains live outside this repository's pack territory. The set is closed
+#: and small on purpose: a wide list would demote a real category.
+RESIDUAL_VALUES: frozenset[str] = frozenset(
+    {"other", "unclassified", "unknown", "unspecified", "n/a", "none"}
+)
+
+
 def _declared_bucket_order(
-    plan: InvestigationPlan | None, shape: ConcentrationShape
+    plan: InvestigationPlan | None,
+    shape: ConcentrationShape,
+    playbook: PlaybookSpec | None = None,
 ) -> tuple[str, ...] | None:
-    """The catalog's declared order for this cut, when it is an ordinal one."""
-    if plan is None or len(shape.dimension_columns) != 1:
+    """The catalog's declared order for this cut, when it is an ordinal one.
+
+    A single-dimension ordinal cut always carries its own direction — that
+    is what an ordinal bucket IS — and sequencing it by size tells a team to
+    work the least urgent band first.
+
+    A cut with a SECOND dimension is the case that mattered and the case
+    this used to refuse: ``timely_filing_watch`` cuts by
+    ``filing_runway_bucket`` **and** ``plan``, so the declared order was
+    never read and "is anything about to miss a filing deadline?" headlined
+    the ``90+`` band — the one furthest from the deadline — with ``expired``
+    third. There the pack decides: a playbook whose whole point is a clock
+    declares ``urgency_first``, and its leading dimension's declared order
+    is the ranking whatever else it is cut by.
+    """
+    if plan is None or not shape.dimension_columns:
+        return None
+    if len(shape.dimension_columns) > 1 and (
+        playbook is None or playbook.ranking_policy != URGENCY_FIRST_POLICY
+    ):
         return None
     return plan.bucket_order(shape.dimension_columns[0])
+
+
+def is_residual_row(
+    row: tuple[Scalar, ...],
+    shape: ConcentrationShape,
+    playbook: PlaybookSpec | None,
+) -> bool:
+    """Is this row the cut's catch-all bucket, on a cut that says so?
+
+    Governed rather than global: a pack that wants ``OTHER`` demoted says
+    so on the playbook (:data:`RESIDUAL_LAST_POLICY`), and every other
+    ranking in the product orders exactly as it did.
+    """
+    if playbook is None or playbook.ranking_policy != RESIDUAL_LAST_POLICY:
+        return False
+    index = shape.frame.schema.index_of(shape.dimension_columns[0])
+    return str(row[index]).strip().casefold() in RESIDUAL_VALUES
 
 
 @dataclass(frozen=True, slots=True)
@@ -196,6 +272,21 @@ class SelectionCensus:
         }
 
 
+def group_noun(dimension_columns: Sequence[str]) -> str:
+    """What ONE ROW of a multi-dimension cut is, in the reader's words.
+
+    :func:`row_noun` names the rows by their first cut, which is right for a
+    single-dimension frame and false for two: ``filing_runway_bucket`` by
+    ``plan`` has 144 rows and five buckets, so "across 144 filing runway
+    buckets" is a count of one thing attached to the name of another.
+    A row of that frame is a COMBINATION, and it is said as one.
+    """
+    if len(dimension_columns) < 2:
+        return row_noun(dimension_columns)
+    named = " and ".join(column.replace("_", " ") for column in dimension_columns)
+    return f"{named} combinations"
+
+
 def row_noun(dimension_columns: Sequence[str]) -> str:
     """What the rows of this answer ARE, in the analyst's vocabulary.
 
@@ -245,6 +336,154 @@ def _unranked_bounds_warning(
         f"the ranking rather than inside it{asked}. The ranking covers the {census.measured} "
         "that could be measured: a ceiling has no place in an order it was never measured for."
     )
+
+
+def verdict_warning(
+    *,
+    measure: str,
+    total: Scalar,
+    unit: str | None,
+    census: SelectionCensus,
+    noun: str,
+    leader_label: str | None,
+    leader_text: str | None,
+    leader_share: Scalar | None,
+    period_text: str,
+    bands: Sequence[tuple[str, Scalar]] = (),
+) -> str | None:
+    """The yes or the no a yes/no question came for, said first.
+
+    Six yes/no questions in the live corpus were answered without a yes or
+    a no. "Do we owe any refunds right now?" opened on five sentences of
+    settling caveat and never stated the total owed — which its own shares
+    divide by. "Are any payers paying us less than the contract says?" — the
+    answer is *yes, three of them, $197.6K*, and that sentence did not
+    exist.
+
+    Composed here, deterministically, from the same certified figures the
+    findings beside it publish: the visible total, the census that says what
+    is not in it, and the leading cell in whatever order this answer put its
+    rows in — which on an ordinal cut is the most urgent BAND, not the
+    biggest one.
+
+    Three states, and only three:
+
+    * a measured total above zero → **Yes**, with the figure and where it
+      sits;
+    * a measured total of exactly zero, over a population where nothing was
+      withheld and nothing is a ceiling → **No**; a zero standing over
+      censored cells is not a no, and returns ``None``;
+    * anything else → ``None``. A verdict this platform cannot certify is
+      not published as one, and the answer reads exactly as it did before.
+    """
+    amount = as_number(total)
+    if amount is None:
+        return None
+    label = metric_label(measure)
+    # ``measure_phrase`` rather than an f-string, for the reason it exists:
+    # "153" + "cob mismatch claims" must read "153 cob mismatch claims", and
+    # "179.5 days" + "days in ar" must not say the unit twice.
+    figure = measure_phrase(format_value(total, unit), label, unit)
+    counted = plural(census.measured, _singular(noun))
+    if amount == 0:
+        if census.withheld or census.bounded:
+            return None
+        return (
+            f"verdict_lead: No — this answer measures no {label} {period_text}, across the "
+            f"{census.measured} {counted} it read."
+        )
+    # An ordinal cut carries its own direction, and on a deadline question
+    # that direction IS the answer: "$X is already past its filing deadline
+    # and $Y expires inside 30 days" is what was asked, and the grand total
+    # over every band — a claim with a year of runway and a claim already
+    # lost in one figure — is the population it sits in.
+    banded = ""
+    stated = [
+        f"{format_value(amount_of, unit)} of it in {name}"
+        for name, amount_of in bands
+        if as_number(amount_of) is not None
+    ]
+    if stated:
+        banded = f" That is {', and '.join(stated)}."
+    where = ""
+    if leader_label is not None and leader_text is not None:
+        share = (
+            f", {ratio_pct(leader_share)} of it"
+            if isinstance(leader_share, Decimal)
+            else ""
+        )
+        where = (
+            f" The largest single {_singular(noun)} is {leader_label}: {leader_text}{share}."
+        )
+    unaccounted = census.withheld + census.bounded
+    unseen = (
+        f" {unaccounted} further {plural(unaccounted, _singular(noun))} "
+        f"{'was' if unaccounted == 1 else 'were'} withheld or carry only a ceiling, so the "
+        "whole is at or above this."
+        if unaccounted
+        else ""
+    )
+    return (
+        f"verdict_lead: Yes — {figure} {period_text}, across "
+        f"{census.measured} {counted}.{banded}{where}{unseen}"
+    )
+
+
+def _singular(noun: str) -> str:
+    """The plural noun this module is handed, in the number a sentence needs."""
+    return noun[:-1] if noun.endswith("s") else noun
+
+
+def benchmark_verdict_warning(
+    *,
+    measure: str,
+    value: Scalar,
+    unit: str | None,
+    benchmark: object,
+    period_text: str,
+) -> str | None:
+    """A yes/no against a governed peer RANGE, stated as a range.
+
+    The best benchmark rendering in the live corpus states the range with
+    its cohort and never as a pass/fail target, and this keeps that exactly:
+    the verdict is the reader's own question answered ("are we at risk?"),
+    the range is quoted whole, and the population it came from is named in
+    the same breath. ``None`` whenever the comparison cannot be made — an
+    unparseable range, a value that is not a number — because a verdict over
+    a range nobody could read is worse than no verdict.
+    """
+    amount = as_number(value)
+    low = _decimal_or_none(getattr(benchmark, "value_low", None))
+    high = _decimal_or_none(getattr(benchmark, "value_high", None))
+    cohort = getattr(benchmark, "cohort_label", None)
+    if amount is None or low is None or high is None or not isinstance(cohort, str):
+        return None
+    label = metric_label(measure)
+    figure = format_value(value, unit)
+    band = getattr(benchmark, "range_text", f"{low}-{high}")
+    if amount > high:
+        return (
+            f"verdict_lead: Yes — {label} is {figure} {period_text}, above the top of the "
+            f"{band} range published for {cohort}."
+        )
+    if amount < low:
+        return (
+            f"verdict_lead: No — {label} is {figure} {period_text}, below the bottom of the "
+            f"{band} range published for {cohort}."
+        )
+    return (
+        f"verdict_lead: No — {label} is {figure} {period_text}, inside the {band} range "
+        f"published for {cohort}."
+    )
+
+
+def _decimal_or_none(raw: object) -> Decimal | None:
+    if raw is None:
+        return None
+    try:
+        return Decimal(str(raw))
+    except (InvalidOperation, ValueError):
+        return None
 
 
 def _truncation_warning(served: int, computed: int, spec: AnalysisSpec) -> str | None:

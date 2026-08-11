@@ -95,4 +95,4 @@ transforms:
   - operator: rank
     args: {by: denied_dollars, descending: true}
 conclusion_policies: [denial_category_claim]
-ranking_policy: impact_first
+ranking_policy: residual_last

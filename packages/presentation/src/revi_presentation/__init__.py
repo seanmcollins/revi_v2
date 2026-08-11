@@ -4,6 +4,7 @@ grounding validation. Pure functions over kernel frames and contract DTOs
 
 from revi_investigation_contracts.header import build_header_payload
 from revi_presentation.charts import (
+    DEFAULT_WINDOW_KEY,
     ChartSuggestion,
     ChartWindow,
     RecipeSpec,
@@ -11,6 +12,7 @@ from revi_presentation.charts import (
     build_chart_specs,
     period_label,
     provisional_bucket,
+    window_from_facts,
 )
 from revi_presentation.narrative import (
     DOUBLED_SPAN_CHARS,
@@ -22,6 +24,7 @@ from revi_presentation.narrative import (
     NARRATIVE_TEMPLATE_ID,
     NARRATIVE_TEMPLATE_VERSION,
     NARRATIVE_TEMPLATES,
+    OPERATOR_ONLY_DISCLOSURE_CODES,
     REDACTION_NOTE,
     REDACTION_WARNING_PREFIX,
     apply_metric_display,
@@ -33,6 +36,7 @@ from revi_presentation.narrative import (
     empty_narrative,
     ends_on_abbreviation,
     mandatory_disclosures,
+    operator_only_disclosures,
     reconciliation_disclosure,
     recovered_code,
     split_sentences,
@@ -41,6 +45,7 @@ from revi_presentation.narrative import (
 )
 
 __all__ = [
+    "DEFAULT_WINDOW_KEY",
     "DOUBLED_SPAN_CHARS",
     "DUPLICATE_SENTENCE_REASON",
     "LEAD_DISCLOSURE_CODES",
@@ -50,6 +55,7 @@ __all__ = [
     "NARRATIVE_TEMPLATE_ANALYST",
     "NARRATIVE_TEMPLATE_ID",
     "NARRATIVE_TEMPLATE_VERSION",
+    "OPERATOR_ONLY_DISCLOSURE_CODES",
     "REDACTION_NOTE",
     "REDACTION_WARNING_PREFIX",
     "ChartSuggestion",
@@ -67,6 +73,7 @@ __all__ = [
     "empty_narrative",
     "ends_on_abbreviation",
     "mandatory_disclosures",
+    "operator_only_disclosures",
     "period_label",
     "provisional_bucket",
     "reconciliation_disclosure",
@@ -74,4 +81,5 @@ __all__ = [
     "split_sentences",
     "template_hash",
     "validate_narrative",
+    "window_from_facts",
 ]

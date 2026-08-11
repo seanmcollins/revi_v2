@@ -21,6 +21,7 @@ from revi_investigation.application.planning import (
     InvestigationPlan,
     frame_window,
 )
+from revi_investigation.application.rendering import metric_label
 from revi_investigation.application.submit_turn.types import _probe_metrics
 from revi_investigation.application.validation import (
     ValidatedPlan,
@@ -31,6 +32,7 @@ from revi_investigation.domain.context import (
 from revi_investigation.domain.records import (
     Finding,
 )
+from revi_kernel.refs import MetricRef
 
 
 def probe_families_empty_warning(
@@ -109,6 +111,58 @@ def probe_families_empty_warning(
     return (
         f"probe_families_empty: {len(families)} metric famil(ies) on this plan were read and "
         f"produced no published finding, so nothing above speaks for them: {named}. {tail}"
+    )
+
+
+def subject_unpublished_warning(
+    spec: AnalysisSpec | None,
+    executed: tuple[ExecutedProbe, ...],
+    findings: tuple[Finding, ...],
+) -> str | None:
+    """Say, FIRST, that the metric the question was about published nothing.
+
+    "Show me A/R over 90 days by month this year" answered with one
+    standing 44.0% and put the refusal of the asked cut in its last
+    sentence. "Where are denials rising?" answered in denied dollars by
+    CARC while ``denial_rate`` was charted and published no finding. In 18
+    of 26 live answers at least one charted metric had no finding anywhere
+    on the response, and in about nine of them it was the asked one.
+
+    A frame the question is ABOUT that yields nothing is not a footnote —
+    it is the answer, and the reader has to be told before they read a
+    number about something else.
+
+    Two states, and the difference matters to whoever has to act on it: the
+    measure was READ and produced no publishable cell, or it was never read
+    on this plan at all. ``None`` when the question named no subject or the
+    subject did publish, which is every turn this changes nothing for.
+    """
+    subject = None if spec is None else spec.subject_metric
+    if subject is None:
+        return None
+    if any(ref.id == subject.id for finding in findings for ref in finding.metric_refs):
+        return None
+    label = metric_label(subject.id)
+    # Read off the EXECUTED frames' schemas — the connector stamps the
+    # metric it actually compiled — rather than off the plan's request, so
+    # "it was measured" means it came back rather than that it was asked
+    # for.
+    read = any(
+        isinstance(column.ref, MetricRef) and column.ref.id == subject.id
+        for item in executed
+        for column in item.frame.schema.columns
+    )
+    if read:
+        return (
+            f"subject_unpublished: you asked about {label}, and this answer publishes no "
+            f"finding for it. It was measured — it is on the charts and in the evidence "
+            "below — and no cell of it survived selection, so nothing above speaks for it. "
+            "What follows measures the other things this question read."
+        )
+    return (
+        f"subject_unpublished: you asked about {label}, and it is not among the measures "
+        "this answer read. What follows measures the other things this question resolved to; "
+        f"ask for {label} by name and it runs on its own."
     )
 
 

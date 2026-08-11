@@ -75,14 +75,16 @@ def probe_window_disclosure(spec: AnalysisSpec, window: TimeWindow | None) -> st
     """
     if window is None or window.range == spec.context.window.range:
         return None
-    header = spec.context.window.range
-    own = window.range
-    return (
-        f"This check runs on its own period ({_readable(own.start)} to {_readable(own.end)}), "
-        f"not the answer's ({_readable(header.start)} to {_readable(header.end)}). The period "
-        "this measure is read over comes with the measure, and the figure above is stated "
-        "over the period it was computed on."
-    )
+    # ONE clause, and it adds the one thing the sentence around it does not
+    # already say. This used to be two sentences of apology — "This check
+    # runs on its own period (…), not the answer's (…). The period this
+    # measure is read over comes with the measure, and the figure above is
+    # stated over the period it was computed on." — printed after a
+    # statement that had ALREADY named the period ("denial rate is 14.3%
+    # over 2026-07-06..2026-08-02"). Nine live answers spent those two
+    # sentences restating their own dates. What is left is the only part
+    # that was news: whose period it is.
+    return "That period comes with this measure rather than from your question."
 
 
 def _window_values(
