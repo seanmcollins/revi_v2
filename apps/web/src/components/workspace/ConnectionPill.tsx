@@ -55,6 +55,59 @@ export function ConnectionPill() {
 }
 
 /**
+ * The same state machine, in 48px of rail.
+ *
+ * When the sessions pane folds to its icon strip the pill's label has
+ * nowhere to go, and dropping the indicator entirely was not an option:
+ * "is the deployment answering" is the one fact the rail carries that
+ * nothing else on the workspace says, and an analyst whose questions have
+ * stopped coming back needs it more when the screen is narrow, not less.
+ *
+ * So the dot survives and the label moves to the tooltip and to the
+ * accessible name — the same words `ConnectionPill` prints, from the same
+ * branch, because two renderings of one status is how they come to
+ * disagree. It stays a `role="status"` so a change is announced rather
+ * than merely drawn.
+ */
+export function ConnectionDot() {
+  const connection = useSessionStore((s) => s.connection);
+
+  const look =
+    connection.mode === "mock"
+      ? { dot: "bg-muted-foreground/50", label: "Mock fixture" }
+      : connection.state === "online"
+        ? { dot: "bg-verified", label: "API online" }
+        : connection.state === "connecting"
+          ? { dot: "bg-warning animate-pulse", label: "Connecting…" }
+          : { dot: "bg-negative", label: "API offline" };
+
+  const detail =
+    connection.mode === "api" && connection.state === "offline"
+      ? connection.detail
+        ? `${connection.detail} — Cannot reach the Revi API. Run "make dev" to start it.`
+        : 'Cannot reach the Revi API. Run "make dev" to start it.'
+      : connection.detail;
+
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <span
+          role="status"
+          aria-label={look.label}
+          tabIndex={0}
+          className="focus-ring flex size-7 items-center justify-center rounded-md"
+        >
+          <span aria-hidden className={cn("size-2 rounded-full", look.dot)} />
+        </span>
+      </TooltipTrigger>
+      <TooltipContent side="right" className="max-w-64 text-meta leading-snug">
+        {detail ? `${look.label} — ${detail}` : look.label}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+/**
  * Amber badge, sat next to `ConnectionPill`, for degraded modes that are
  * easy to mistake for the live product: the scripted stub LLM answering
  * behind a live api connection, or the mock driver itself. Never both at

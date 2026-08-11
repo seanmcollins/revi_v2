@@ -10,8 +10,17 @@ import { TurnInput } from "@/components/chat/TurnInput";
 import { CommandPalette } from "@/components/command/CommandPalette";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { ConnectionPill, DegradedModeBadge } from "@/components/workspace/ConnectionPill";
-import { ContextPanel } from "@/components/workspace/ContextPanel";
-import { SessionRail } from "@/components/workspace/SessionRail";
+import {
+  ContextPanel,
+  EVIDENCE_PANE_ID,
+  EVIDENCE_TOGGLE_ID,
+  EvidenceEdgeTab,
+} from "@/components/workspace/ContextPanel";
+import {
+  SESSIONS_PANE_ID,
+  SESSIONS_TOGGLE_ID,
+  SessionRail,
+} from "@/components/workspace/SessionRail";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ApiDriver, fetchHealthDetail, resolveDriverKind } from "@/lib/apiDriver";
@@ -21,6 +30,14 @@ import { displaySessionTitle, mediumDate, untitledTurnLabel } from "@/lib/format
 import { sessionLinkFor } from "@/lib/links";
 import { REFERENCE_QUESTIONS } from "@/lib/mock/reference";
 import { MockDriver } from "@/lib/mockDriver";
+import {
+  paneForKey,
+  useEvidenceOnScreen,
+  usePaneCollapsed,
+  usePaneStore,
+  watchViewportWidth,
+  type PaneId,
+} from "@/lib/panes";
 import { sessionLinkDisclosure } from "@/lib/shareDisclosure";
 import { useSessionStore } from "@/lib/store";
 
@@ -94,6 +111,81 @@ export default function Workspace({
    */
   const pinned = connectionMode !== "api" || sessionLive;
   const [paletteOpen, setPaletteOpen] = useState(false);
+
+  /* ---------------------------------------------------------------- */
+  /* THE TWO SIDE PANES                                                */
+  /* ---------------------------------------------------------------- */
+
+  /**
+   * Collapsed for LAYOUT is not the same question for the two rails.
+   *
+   * The left one is a single fact — folded or not. The right one has a
+   * third state: folded by preference, on screen because a citation asked
+   * for it. `useEvidenceOnScreen` is that composite, and the grid reads it
+   * rather than the preference, so a borrowed rail gets a real column to
+   * live in. See `lib/panes.ts`.
+   */
+  const sessionsCollapsed = usePaneCollapsed("sessions");
+  const evidenceOnScreen = useEvidenceOnScreen();
+  const togglePane = usePaneStore((s) => s.toggle);
+  const setHostMounted = usePaneStore((s) => s.setHostMounted);
+
+  /**
+   * A pane that closes under somebody's focus hands it to its own toggle.
+   *
+   * Both folds destroy the element the focus was standing on — the left
+   * rail's expanded toggle is replaced by the strip's, the right rail is
+   * unmounted entirely — and a browser answers that by moving focus to
+   * `<body>`, which drops a keyboard reader out of the tab order at the
+   * top of the document. The handoff is deferred to a layout effect
+   * because the target does not exist until the fold has committed.
+   */
+  const pendingFocus = useRef<PaneId | null>(null);
+  const toggle = (pane: PaneId): void => {
+    const region = document.getElementById(
+      pane === "sessions" ? SESSIONS_PANE_ID : EVIDENCE_PANE_ID,
+    );
+    if (region && region.contains(document.activeElement)) pendingFocus.current = pane;
+    togglePane(pane);
+  };
+  useEffect(() => {
+    const pane = pendingFocus.current;
+    if (pane === null) return;
+    pendingFocus.current = null;
+    document
+      .getElementById(pane === "sessions" ? SESSIONS_TOGGLE_ID : EVIDENCE_TOGGLE_ID)
+      ?.focus();
+  }, [sessionsCollapsed, evidenceOnScreen]);
+
+  /**
+   * `[` folds the left pane, `]` the right — bare, and never while
+   * somebody is typing. `paneForKey` owns both exclusions (a modifier
+   * chord belongs to the browser; a text field belongs to the composer),
+   * so the listener here is the registration and nothing else.
+   */
+  useEffect(() => {
+    const onKey = (event: KeyboardEvent): void => {
+      const pane = paneForKey(event);
+      if (pane === null) return;
+      event.preventDefault();
+      toggle(pane);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  });
+
+  /**
+   * The palette is mounted by Home and Monitors too, and neither has an
+   * evidence rail. This is how its two pane verbs know whether there is
+   * anything on screen to fold.
+   */
+  useEffect(() => {
+    setHostMounted(true);
+    return () => setHostMounted(false);
+  }, [setHostMounted]);
+
+  /** Auto-collapse thresholds, fed the live width. See `lib/panes.ts`. */
+  useEffect(() => watchViewportWidth(), []);
 
   // What this session is called: the first question asked in it — the
   // same derivation the server uses for the rail. The thread's own first
@@ -280,8 +372,18 @@ export default function Workspace({
     <div className="relative h-dvh overflow-hidden bg-background">
       <div aria-hidden className="page-glow pointer-events-none absolute inset-0" />
 
-      <div className="relative grid h-full grid-cols-[16.5rem_minmax(0,1fr)_21rem] min-[1440px]:grid-cols-[17.5rem_minmax(0,1fr)_23rem]">
-        <SessionRail />
+      {/* The three column widths moved to `globals.css` (`.workspace-grid`)
+          — not for tidiness, but because the middle column has to know how
+          much room the folded rails just handed it, and a
+          `grid-cols-[...]` utility can state the columns without ever
+          naming the difference. The two data attributes are the whole
+          interface: CSS derives the widths AND `--pane-freed` from them. */}
+      <div
+        className="workspace-grid relative grid h-full"
+        data-sessions-collapsed={sessionsCollapsed ? "true" : "false"}
+        data-evidence-collapsed={evidenceOnScreen ? "false" : "true"}
+      >
+        <SessionRail collapsed={sessionsCollapsed} onToggle={() => toggle("sessions")} />
 
         <main className="flex h-full min-h-0 flex-col">
           <header className="flex shrink-0 items-center justify-between gap-4 border-b bg-background/55 px-6 py-2.5 backdrop-blur-md">
@@ -366,7 +468,13 @@ export default function Workspace({
             </div>
           </header>
 
-          <div className="min-h-0 flex-1 overflow-y-auto">
+          {/* `.answer-column` makes this the size container the answer's
+              figures measure themselves against — the thread's prose keeps
+              its reading measure and only `.data-breakout` (charts, fact
+              tables) spends the width the folded rails gave back. The chart
+              module never hears about any of this: it observes its own
+              container and re-spells its axis from what it finds. */}
+          <div className="answer-column min-h-0 flex-1 overflow-y-auto">
             <ChatThread />
           </div>
 
@@ -377,8 +485,13 @@ export default function Workspace({
           </footer>
         </main>
 
-        <ContextPanel />
+        {evidenceOnScreen && <ContextPanel onCollapse={() => toggle("evidence")} />}
       </div>
+
+      {/* OUTSIDE the grid, because the column it would sit in is 0 wide.
+          It is the collapsed rail's entire remaining surface — see
+          `EvidenceEdgeTab`. */}
+      {!evidenceOnScreen && <EvidenceEdgeTab onExpand={() => toggle("evidence")} />}
 
       <CommandPalette open={paletteOpen} onOpenChange={setPaletteOpen} />
       <SettingsPanel />

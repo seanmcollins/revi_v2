@@ -7,6 +7,8 @@ import {
   FileSearch,
   MessageSquarePlus,
   MessageSquareText,
+  PanelLeft,
+  PanelRight,
   Play,
   Repeat,
   RotateCcw,
@@ -27,6 +29,13 @@ import {
   setAnswerVariant,
 } from "@/lib/answerVariant";
 import { untitledTurnLabel } from "@/lib/format";
+import {
+  PANE_SHORTCUTS,
+  evidenceOnScreen,
+  paneCollapsed,
+  paneToggleLabel,
+  usePaneStore,
+} from "@/lib/panes";
 import { useAnswerVariant } from "@/lib/useAnswerVariant";
 import { GUIDE_QUESTIONS } from "@/lib/guideQuestions";
 import { REFERENCE_QUESTIONS } from "@/lib/mock/reference";
@@ -79,6 +88,22 @@ export function CommandPalette({
   // the turns already in the store, so a reviewer can flip layouts on the
   // thread they are judging without losing it.
   const variant = useAnswerVariant();
+  /**
+   * The two pane verbs, offered only where there are panes.
+   *
+   * This palette is mounted by the workspace, by Home and by Monitors, and
+   * only the workspace has a rail on each side to fold. `hostMounted` is
+   * the workspace saying it is on screen — without it, ⌘K on Monitors
+   * would offer "Collapse the evidence pane" and then do nothing visible,
+   * which is the class of dead control this product keeps deleting.
+   *
+   * The labels are read from the same state the toggles read, so a row
+   * never offers to collapse something already collapsed.
+   */
+  const panesAvailable = usePaneStore((s) => s.hostMounted);
+  const sessionsCollapsed = usePaneStore((s) => paneCollapsed(s, "sessions"));
+  const evidenceOpen = usePaneStore(evidenceOnScreen);
+  const togglePane = usePaneStore((s) => s.toggle);
   // Mirrors SessionRail's identical guard: any of a turn streaming, a new
   // chat bootstrapping, a replay running, or a session switch in flight
   // means `submit()` either no-ops or would race whichever session wins.
@@ -323,6 +348,33 @@ export function CommandPalette({
         run: () => void newChat(),
       },
     );
+
+    if (panesAvailable) {
+      list.push(
+        {
+          id: "pane-sessions",
+          group: "Workspace",
+          label: paneToggleLabel("sessions", sessionsCollapsed),
+          // What the fold actually costs, so the row is a decision rather
+          // than a surprise: the left rail never disappears, it narrows.
+          hint: sessionsCollapsed
+            ? PANE_SHORTCUTS.sessions
+            : `Leaves an icon strip · ${PANE_SHORTCUTS.sessions}`,
+          icon: <PanelLeft className="size-3.5" />,
+          run: () => togglePane("sessions"),
+        },
+        {
+          id: "pane-evidence",
+          group: "Workspace",
+          label: paneToggleLabel("evidence", !evidenceOpen),
+          hint: evidenceOpen
+            ? `Leaves a tab at the edge · ${PANE_SHORTCUTS.evidence}`
+            : PANE_SHORTCUTS.evidence,
+          icon: <PanelRight className="size-3.5" />,
+          run: () => togglePane("evidence"),
+        },
+      );
+    }
     // The mock driver is a dev/test fixture, not a casual toggle — this
     // action only exists when the env itself already forces mock, i.e. a
     // dev build where flipping to the live API for a spot-check is a
@@ -356,6 +408,10 @@ export function CommandPalette({
     variant,
     navigate,
     streaming,
+    panesAvailable,
+    sessionsCollapsed,
+    evidenceOpen,
+    togglePane,
   ]);
 
   const filtered = useMemo(() => {

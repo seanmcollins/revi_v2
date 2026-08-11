@@ -198,6 +198,43 @@
   --chart-cat-6: #008300;
   --chart-cat-7: #4a3aa7;
   --chart-cat-8: #e34948;
+
+  /* FOUR MORE SLOTS, AND WHY THE PALETTE GREW.
+
+     The eight above were sized for SERIES — a chart draws at most eight of
+     those, because `capChartSeries` folds the ninth into the rollup. They
+     are now also asked to carry ENTITIES: a payer, a plan, a facility gets
+     a stable hue from its own name, so the same payer is the same colour on
+     every figure in the product (`entityColor`). Entities are not capped at
+     eight the way series are — the live payer dimension alone has twelve —
+     and eight slots for twelve names is a chart where State Medicaid and
+     Veritas Comp Fund are the same blue on the same axis.
+
+     The first eight are UNCHANGED, deliberately: a token re-ordered here
+     repaints every figure the product has ever drawn, and the whole point
+     of a stable assignment is that it does not move.
+
+     Re-validated at twelve (dataviz six checks, surface #ffffff, the card
+     these are actually drawn on):
+       lightness band PASS · chroma floor PASS
+       CVD separation PASS — worst adjacent #eda100↔#1baf7a ΔE 9.1 (protan)
+       normal-vision  PASS — worst adjacent #e87ba4↔#eda100 ΔE 19.6
+       contrast       WARN — unchanged: the same three of the original
+                      eight (#1baf7a 2.82, #eda100 2.17, #e87ba4 2.69).
+     All four additions clear 3:1 on both surfaces they are drawn on
+     (card #ffffff / page #f6f5f0): #0093a3 3.68/3.37, #96551a 5.82/5.33,
+     #9a4fc9 4.84/4.44, #6b8f00 3.78/3.46. The palette did not get worse.
+
+     THE CHECK THIS PALETTE DOES NOT PASS, said out loud. Under `--pairs
+     all` the twelve fail: #96551a↔#008300 is ΔE 0.7 for a deuteranope.
+     That is a real limit of twelve categorical hues and no re-stepping
+     fixes it. It is survivable here and only here because hue is never
+     the identity on these figures — see `entityColor` for the argument
+     and the relief that discharges it. */
+  --chart-cat-9: #0093a3;
+  --chart-cat-10: #96551a;
+  --chart-cat-11: #9a4fc9;
+  --chart-cat-12: #6b8f00;
   /* The rollup series. Deliberately the muted ink, not a ninth hue: it is
      not an entity, it is everything that did not fit. */
   --chart-cat-other: #6f6c64;
@@ -526,6 +563,113 @@ body {
 }
 .fade-up {
   animation: fade-up 260ms cubic-bezier(0.16, 1, 0.3, 1) both;
+}
+
+/* ---------------------------------------------------------------------------
+   THE COLLAPSIBLE SIDE PANES — and where the width they give back goes.
+
+   The workspace is three columns and both outer ones can fold. The widths
+   live here rather than in a Tailwind arbitrary variant for one reason:
+   the middle column has to know HOW MUCH ROOM IT JUST GAINED, and a
+   `grid-cols-[...]` utility can state the columns without ever naming the
+   difference. Named here, `--pane-freed` falls out of the same arithmetic
+   that draws the grid, so the two cannot disagree.
+
+   ASYMMETRIC BY DESIGN. The left rail collapses to a 3rem icon strip —
+   wayfinding never fully vanishes. The right rail collapses to nothing;
+   evidence is on-demand depth and its edge tab lives outside the grid.
+
+   FREED WIDTH GOES TO DATA, NOT TO PROSE. The thread keeps its reading
+   measure (`max-w-3xl`, i.e. 45rem of content inside 3rem of gutters) no
+   matter how much room appears — a 1200px line of narrative is not a
+   better line of narrative. What widens is `.data-breakout`: the charts
+   and fact tables inside an answer, which are the only things in the
+   column that get BETTER with room. The chart module measures its own
+   container through a `ResizeObserver` and re-spells its axis from what
+   it finds, so widening the container is the entire contract between this
+   file and that one — no props, no imports, no shared component.
+--------------------------------------------------------------------------- */
+.workspace-grid {
+  /* The expanded widths — the same pair the grid has always used. */
+  --pane-sessions: 16.5rem;
+  --pane-evidence: 21rem;
+  /* New chat · Home · Monitors · the connection dot · expand. */
+  --pane-sessions-collapsed: 3rem;
+
+  --pane-sessions-width: var(--pane-sessions);
+  --pane-evidence-width: var(--pane-evidence);
+
+  grid-template-columns:
+    var(--pane-sessions-width)
+    minmax(0, 1fr)
+    var(--pane-evidence-width);
+  transition: grid-template-columns 180ms cubic-bezier(0.16, 1, 0.3, 1);
+
+  /* How much the middle column just gained. Zero when nothing is folded,
+     by construction rather than by a second declaration. */
+  --pane-freed: calc(
+    (var(--pane-sessions) - var(--pane-sessions-width)) +
+      (var(--pane-evidence) - var(--pane-evidence-width))
+  );
+}
+
+@media (min-width: 1440px) {
+  .workspace-grid {
+    --pane-sessions: 17.5rem;
+    --pane-evidence: 23rem;
+  }
+}
+
+.workspace-grid[data-sessions-collapsed="true"] {
+  --pane-sessions-width: var(--pane-sessions-collapsed);
+}
+
+.workspace-grid[data-evidence-collapsed="true"] {
+  --pane-evidence-width: 0rem;
+}
+
+/* The answer column is the query container everything below measures
+   against — `100cqi` is this column's width, which is the only honest
+   ceiling for a breakout (the viewport is not, and neither is the grid). */
+.answer-column {
+  container-type: inline-size;
+  /* `max-w-3xl` (48rem) less the thread's own `px-6` gutters. */
+  --answer-measure: 45rem;
+  --data-measure: calc(var(--answer-measure) + var(--pane-freed, 0px));
+}
+
+/* A chart or a fact table, allowed out of the reading measure and no
+   further than the column it sits in. The negative margin is what makes
+   the growth symmetric: a block child left-aligns, so `margin: auto` would
+   widen it to the right only and pull the figure out from under its own
+   caption. At rest (`--pane-freed: 0`) the two sides compute to 0 and this
+   is indistinguishable from a plain block. */
+.data-breakout {
+  --breakout: min(var(--data-measure, 100%), calc(100cqi - 3rem));
+  width: var(--breakout);
+  margin-inline: calc((100% - var(--breakout)) / 2);
+  transition:
+    width 180ms cubic-bezier(0.16, 1, 0.3, 1),
+    margin 180ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+
+/* The collapsed evidence rail's whole remaining surface: a slim vertical
+   affordance at the viewport edge. Outside the grid, so it does not need a
+   column to live in — the column is 0 wide. */
+.evidence-edge-tab {
+  writing-mode: vertical-rl;
+  text-orientation: mixed;
+}
+
+/* The width transition is the one thing on this surface that moves a lot
+   of pixels at once. The global reduced-motion reset below already
+   flattens every transition in the app; this states the intent locally so
+   the pane work is not relying on a rule three hundred lines away. */
+@media (prefers-reduced-motion: reduce) {
+  .workspace-grid,
+  .data-breakout {
+    transition: none;
+  }
 }
 
 /* Skeleton shimmer while a turn streams. */

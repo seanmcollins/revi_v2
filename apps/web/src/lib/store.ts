@@ -18,6 +18,7 @@ import type {
   TurnSubmission,
 } from "@/lib/driver";
 import { REFERENCE_QUESTIONS } from "@/lib/mock/reference";
+import { usePaneStore } from "@/lib/panes";
 import {
   DEFAULT_SETTINGS,
   isDefaultSettings,
@@ -1305,8 +1306,31 @@ export const useSessionStore = create<SessionState>((set, get) => ({
   setFeedback: (turnId, choice) =>
     set((state) => ({ feedback: { ...state.feedback, [turnId]: choice } })),
 
-  openDrawer: (turnId) => set({ drawerTurnId: turnId }),
-  closeDrawer: () => set({ drawerTurnId: null }),
+  /**
+   * EVERY "OPEN EVIDENCE" AFFORDANCE COMES THROUGH HERE — a referent chip
+   * in the writing, the integrity line under it, the trust row, the
+   * palette's own verb. So this is where an explicit request to see the
+   * working meets a rail that has been folded away: the pane is opened,
+   * and the persisted preference is deliberately NOT touched.
+   *
+   * That asymmetry is the point. Tapping F2 means "show me this fact", not
+   * "I have changed my mind about the layout" — flipping the preference
+   * here would mean one click on a citation silently rewrites how the
+   * workspace opens tomorrow. Closing the rail again returns to collapsed,
+   * because collapsed is what this device actually asked for.
+   *
+   * Called unconditionally: `openEvidence` is a no-op when the rail is
+   * already on screen, and asking the layout a question the layout owns is
+   * cheaper than keeping a second copy of the answer here.
+   */
+  openDrawer: (turnId) => {
+    usePaneStore.getState().openEvidence();
+    set({ drawerTurnId: turnId });
+  },
+  closeDrawer: () => {
+    usePaneStore.getState().clearEvidenceTransient();
+    set({ drawerTurnId: null });
+  },
 
   focusReferent: (referent) => set({ focusedReferent: referent }),
 

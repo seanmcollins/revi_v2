@@ -27,6 +27,10 @@ import {
   InvestigationChart,
   MIN_AXIS_HEIGHT,
   orderNote,
+  horizontalAxisWidth,
+  horizontalGutterCap,
+  horizontalTickBudget,
+  MIN_HORIZONTAL_GUTTER,
   rotatedAxisGutter,
   rotatedAxisHeight,
   rotatedTickBase,
@@ -1391,6 +1395,80 @@ describe("InvestigationChart — the axis is re-spelled at the width it is drawn
     const flat = axisTickPlan(months, { kind: "bar", plotWidth: 1360, expanded: true });
     expect(flat.rotate).toBe(false);
     for (const month of months) expect(flat.text.get(month)).toBe(month);
+  });
+});
+
+/**
+ * …AND THE AXIS THAT DOES NOT NEED RE-SPELLING, because the figure turned.
+ *
+ * Every fix above is a workaround for one fact: a payer name is 20-30
+ * characters and a vertical bar's band is 60px wide. A ranking is now drawn
+ * on its side (`isRankedCategorical`), where the label has a gutter to
+ * itself and runs left to right — so the rotation, the −35° geometry and
+ * most of the elision above simply do not apply to it. What replaces them
+ * is one number: how wide the gutter may be.
+ */
+describe("InvestigationChart — a ranking's axis reads left to right", () => {
+  it("never rotates, whatever the names cost", () => {
+    const rail = axisTickPlan(LIVE_PAYERS, {
+      kind: "bar",
+      plotWidth: 280,
+      orientation: "horizontal",
+    });
+    // The same twelve payers rotate at this width when they are drawn as
+    // columns — see the test above. Sideways they do not.
+    expect(rail.rotate).toBe(false);
+    expect(axisTickPlan(LIVE_PAYERS, { kind: "bar", plotWidth: 280 }).rotate).toBe(true);
+  });
+
+  it("spells every name whole once the gutter can hold it", () => {
+    const wide = axisTickPlan(LIVE_PAYERS, {
+      kind: "bar",
+      plotWidth: 1360,
+      orientation: "horizontal",
+      expanded: true,
+    });
+    for (const payer of LIVE_PAYERS) expect(wide.text.get(payer)).toBe(payer);
+  });
+
+  it("elides only past the cap, and still never twice under one label", () => {
+    const rail = axisTickPlan(LIVE_PAYERS, {
+      kind: "bar",
+      plotWidth: 280,
+      orientation: "horizontal",
+    });
+    const drawn = LIVE_PAYERS.map((payer) => rail.text.get(payer));
+    // The rule the whole tick machinery exists for survives the turn: two
+    // payers are never printed under one label.
+    expect(new Set(drawn).size).toBe(LIVE_PAYERS.length);
+    expect(rail.text.get("Summit Peak Medicare Advantage")).toContain("…");
+  });
+
+  it("buys the gutter from the longest name, and stops buying", () => {
+    // A gutter is bought from the plot. Four payers whose longest name is
+    // "Atlas Commercial" do not take 280px and leave the bars in a third
+    // of the card.
+    const short = horizontalAxisWidth(["Atlas Commercial", "State Medicaid"], 720);
+    const long = horizontalAxisWidth(["Summit Peak Medicare Advantage"], 720);
+    expect(short).toBeLessThan(long);
+    expect(long).toBeLessThanOrEqual(horizontalGutterCap(720));
+    // …and it is a SHARE of the figure, so the same names cost less of a
+    // rail than of a dialog.
+    expect(horizontalGutterCap(280)).toBeLessThan(horizontalGutterCap(1360, true));
+    // …with a floor, so a figure narrow enough that a third of it is not a
+    // name still gets enough gutter to print one.
+    expect(horizontalGutterCap(120)).toBe(MIN_HORIZONTAL_GUTTER);
+    expect(horizontalGutterCap(0)).toBe(MIN_HORIZONTAL_GUTTER);
+  });
+
+  it("budgets characters off the same cap it draws in pixels", () => {
+    // Two constants that disagree here is a name budgeted for and then cut
+    // off by the gutter that bought it.
+    const budget = horizontalTickBudget(720);
+    expect(horizontalAxisWidth(["A".repeat(budget)], 720)).toBeLessThanOrEqual(
+      horizontalGutterCap(720),
+    );
+    expect(horizontalTickBudget(1360, true)).toBeGreaterThan(budget);
   });
 });
 

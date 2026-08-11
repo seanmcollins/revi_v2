@@ -1,6 +1,6 @@
 import "@testing-library/jest-dom/vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { cleanup, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -550,5 +550,152 @@ describe("SessionRail — finding a session in a long list", () => {
     expect(body).toMatch(/Nothing in the 9 sessions loaded here matches/);
     expect(body).toMatch(/there are 219 in all/);
     expect(body).not.toMatch(/tenant/i);
+  });
+});
+
+/**
+ * THE RAIL AT 48 PIXELS.
+ *
+ * The left pane is wayfinding, so its fold is a NARROWING, not a
+ * disappearance: what survives is what somebody would be stranded without.
+ * The rail is also mounted by Home and by Monitors, whose grids have no
+ * folded width to give back — so the collapse is a prop those two never
+ * pass, and a preference set in the workspace cannot leave a 48px strip
+ * sitting in a 264px column on a page that never offered to fold it.
+ */
+describe("SessionRail — the collapsed icon strip", () => {
+  beforeEach(() => {
+    useSessionStore.getState().reset();
+    useSessionStore.setState({
+      driver: null,
+      sessions: [],
+      sessionsTotal: 0,
+      sessionsState: "ready",
+      sessionsError: null,
+      connection: { mode: "api", state: "online", healthChecked: true },
+    });
+  });
+
+  afterEach(() => cleanup());
+
+  function renderStrip(onToggle?: () => void) {
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    return render(
+      <MemoryRouter initialEntries={["/"]}>
+        <QueryClientProvider client={client}>
+          <TooltipProvider>
+            <SessionRail collapsed {...(onToggle ? { onToggle } : {})} />
+          </TooltipProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+  }
+
+  it("is a labelled nav landmark, not an unlabelled column of glyphs", () => {
+    renderStrip();
+    expect(screen.getByRole("navigation", { name: "Main" })).toBeInTheDocument();
+  });
+
+  it("keeps New chat, Home, Monitors and the connection indicator", () => {
+    renderStrip();
+    const strip = screen.getByRole("navigation", { name: "Main" });
+
+    expect(within(strip).getByRole("button", { name: "New chat" })).toBeInTheDocument();
+    expect(within(strip).getByRole("link", { name: "Home" })).toBeInTheDocument();
+    expect(within(strip).getByRole("link", { name: "Monitors" })).toBeInTheDocument();
+    expect(within(strip).getByRole("status", { name: "API online" })).toBeInTheDocument();
+  });
+
+  it("every icon carries a name — the tooltip is for the pointer, not the record", () => {
+    renderStrip();
+    for (const control of [
+      ...screen.getAllByRole("button"),
+      ...screen.getAllByRole("link"),
+    ]) {
+      expect(control).toHaveAccessibleName();
+    }
+  });
+
+  it("drops the lists rather than drawing them as identical icons", () => {
+    useSessionStore.setState({
+      sessions: [row({ title: "Why did cash decline last week?" })],
+      sessionsTotal: 1,
+    });
+    renderStrip();
+
+    expect(screen.queryByText("Why did cash decline last week?")).not.toBeInTheDocument();
+    expect(screen.queryByRole("searchbox")).not.toBeInTheDocument();
+    expect(screen.queryByText("Replay reference demo")).not.toBeInTheDocument();
+  });
+
+  it("says out loud that there is a load nobody has read", () => {
+    window.localStorage.removeItem("revi-monitors-seen-watermark");
+    useSessionStore.setState({
+      connection: {
+        mode: "api",
+        state: "online",
+        healthChecked: true,
+        newestWatermarkId: "wm_004",
+      },
+    });
+    renderStrip();
+
+    // A dot on an icon is invisible to a reader who cannot see it, so the
+    // fact is on the name. NOT a count — the brief has not been walked.
+    expect(
+      screen.getByRole("link", { name: "Monitors — there is a data load you have not read" }),
+    ).toBeInTheDocument();
+  });
+
+  it("carries the expand control, and announces the state on it", async () => {
+    const onToggle = vi.fn();
+    renderStrip(onToggle);
+
+    const toggle = screen.getByRole("button", { name: "Expand the sessions pane" });
+    expect(toggle).toHaveAttribute("aria-expanded", "false");
+    expect(toggle).toHaveAttribute("id", "pane-toggle-sessions");
+
+    await userEvent.click(toggle);
+    expect(onToggle).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers no fold where no grid can give the column back", () => {
+    // Home and Monitors mount this with no handler — and get no dead
+    // button rather than one that would leave a strip in a 264px column.
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <QueryClientProvider client={client}>
+          <TooltipProvider>
+            <SessionRail />
+          </TooltipProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    expect(screen.queryByRole("button", { name: /the sessions pane/ })).not.toBeInTheDocument();
+    // …and it is the full rail, exactly as it always was.
+    expect(screen.getByText("Revi")).toBeInTheDocument();
+  });
+
+  it("the fold control at the inner edge announces an expanded pane", async () => {
+    const onToggle = vi.fn();
+    const client = new QueryClient({ defaultOptions: { queries: { retry: false } } });
+    render(
+      <MemoryRouter initialEntries={["/"]}>
+        <QueryClientProvider client={client}>
+          <TooltipProvider>
+            <SessionRail onToggle={onToggle} />
+          </TooltipProvider>
+        </QueryClientProvider>
+      </MemoryRouter>,
+    );
+
+    const toggle = screen.getByRole("button", { name: "Collapse the sessions pane" });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(toggle).toHaveAttribute("aria-controls", "pane-sessions");
+
+    await userEvent.click(toggle);
+    expect(onToggle).toHaveBeenCalledTimes(1);
   });
 });

@@ -115,7 +115,10 @@ export function AnswerBodyDetailed({
       )}
 
       {(rest.length > 0 || model.boundedFindings.length > 0) && (
-        <section aria-label="Findings" className="rounded-lg border bg-card/60 px-2 py-1.5">
+        <section
+          aria-label="Findings"
+          className="data-breakout rounded-lg border bg-card/60 px-2 py-1.5"
+        >
           <FactList
             measured={rest}
             bounded={model.boundedFindings}
@@ -125,8 +128,13 @@ export function AnswerBodyDetailed({
         </section>
       )}
 
+      {/* OUT OF THE READING MEASURE. `.data-breakout` widens a figure by
+          exactly the width the folded rails gave back, and no further than
+          the column it sits in — see `globals.css`. The chart re-spells its
+          own axis from the container it finds itself in, so this class is
+          the entire coordination between the two. */}
       {model.charts.map((spec) => (
-        <div key={spec.id} className="fade-up">
+        <div key={spec.id} className="fade-up data-breakout">
           <AnswerChart turn={turn} model={model} spec={spec} />
         </div>
       ))}

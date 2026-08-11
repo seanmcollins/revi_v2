@@ -16,9 +16,10 @@
 
 import "@testing-library/jest-dom/vitest";
 import { cleanup, render, screen } from "@testing-library/react";
-import { afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
+import userEvent from "@testing-library/user-event";
+import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { ContextPanel } from "@/components/workspace/ContextPanel";
+import { ContextPanel, EvidenceEdgeTab } from "@/components/workspace/ContextPanel";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { resetAnswerVariantCache, setAnswerVariant } from "@/lib/answerVariant";
 import { DEFAULT_SETTINGS } from "@/lib/settings";
@@ -164,5 +165,53 @@ describe("the Evidence rail is not gated on the evidence bundle", () => {
   it("still says there is nothing at all when there is nothing at all", () => {
     renderPanel();
     expect(screen.getByText(/No evidence yet/)).toBeInTheDocument();
+  });
+});
+
+/**
+ * THE FOLD, AND WHAT IS LEFT OF THE RAIL AFTER IT.
+ *
+ * The right pane is on-demand depth, so it collapses all the way — but
+ * "all the way" cannot mean "gone without trace": a reader who folded it a
+ * week ago and now wants to check a number needs a way back that is not a
+ * remembered keyboard shortcut. One slim edge tab is that way back, and it
+ * is a real button in the tab order rather than a hover-revealed edge.
+ */
+describe("the Evidence rail folds, and leaves one tab", () => {
+  it("offers no fold where no grid can give the column back", () => {
+    renderPanel();
+    expect(screen.queryByRole("button", { name: /the evidence pane/ })).not.toBeInTheDocument();
+  });
+
+  it("puts the fold at the pane's inner edge and announces the state on it", () => {
+    render(
+      <TooltipProvider>
+        <ContextPanel onCollapse={() => {}} />
+      </TooltipProvider>,
+    );
+
+    const toggle = screen.getByRole("button", { name: "Collapse the evidence pane" });
+    expect(toggle).toHaveAttribute("aria-expanded", "true");
+    expect(toggle).toHaveAttribute("aria-controls", "pane-evidence");
+    expect(toggle).toHaveAttribute("id", "pane-toggle-evidence");
+  });
+
+  it("the edge tab says the word the panel's own tab says", async () => {
+    const onExpand = vi.fn();
+    render(
+      <TooltipProvider>
+        <EvidenceEdgeTab onExpand={onExpand} />
+      </TooltipProvider>,
+    );
+
+    const tab = screen.getByRole("button", { name: "Expand the evidence pane" });
+    expect(tab).toHaveTextContent("Evidence");
+    expect(tab).toHaveAttribute("aria-expanded", "false");
+    // Same id as the toggle inside the expanded rail, so "focus this
+    // pane's toggle" resolves to whichever one is on screen.
+    expect(tab).toHaveAttribute("id", "pane-toggle-evidence");
+
+    await userEvent.click(tab);
+    expect(onExpand).toHaveBeenCalledTimes(1);
   });
 });

@@ -5,6 +5,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { MemoryRouter } from "react-router-dom";
 
 import { CommandPalette } from "@/components/command/CommandPalette";
+import { PANE_STORAGE_KEYS, usePaneStore } from "@/lib/panes";
 import { useSessionStore } from "@/lib/store";
 
 /**
@@ -192,5 +193,86 @@ describe("CommandPalette — the selected row is drawn and announced", () => {
     expect(input.getAttribute("aria-activedescendant")).toBe("palette-option-0");
     fireEvent.keyDown(input, { key: "ArrowDown" });
     expect(input.getAttribute("aria-activedescendant")).toBe("palette-option-1");
+  });
+});
+
+/**
+ * THE TWO PANE VERBS — offered where there are panes, and nowhere else.
+ *
+ * This palette is mounted by the workspace, by Home and by Monitors, and
+ * only the workspace has a rail on each side to fold. `hostMounted` is the
+ * workspace saying so; without it ⌘K on Monitors would offer "Collapse the
+ * evidence pane" and then do nothing visible, which is exactly the class
+ * of dead control this product keeps deleting.
+ */
+describe("CommandPalette — collapsing the panes is a ⌘K verb", () => {
+  beforeEach(() => {
+    useSessionStore.getState().reset();
+    // Storage first: `reset()` re-reads the persisted preference, so a
+    // collapse written by the test before this one would decide which
+    // half of each toggle these rows offer.
+    window.localStorage.clear();
+    usePaneStore.getState().reset();
+  });
+
+  afterEach(() => {
+    cleanup();
+    window.localStorage.clear();
+    usePaneStore.getState().reset();
+  });
+
+  it("offers neither verb on a surface with no panes to fold", () => {
+    draw();
+
+    expect(screen.queryByText(/the sessions pane/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/the evidence pane/)).not.toBeInTheDocument();
+  });
+
+  it("offers both once a workspace is on screen", () => {
+    usePaneStore.setState({ hostMounted: true });
+    draw();
+
+    expect(screen.getByText("Collapse the sessions pane")).toBeInTheDocument();
+    expect(screen.getByText("Collapse the evidence pane")).toBeInTheDocument();
+  });
+
+  it("names the direction the row will actually move each pane", () => {
+    usePaneStore.setState({ hostMounted: true });
+    usePaneStore.getState().setPreference("sessions", true);
+    draw();
+
+    // Already folded — so the row offers the other half of the toggle.
+    expect(screen.getByText("Expand the sessions pane")).toBeInTheDocument();
+    expect(screen.getByText("Collapse the evidence pane")).toBeInTheDocument();
+  });
+
+  it("says what a fold leaves behind, and which key does it", () => {
+    usePaneStore.setState({ hostMounted: true });
+    draw();
+
+    expect(screen.getByText("Leaves an icon strip · [")).toBeInTheDocument();
+    expect(screen.getByText("Leaves a tab at the edge · ]")).toBeInTheDocument();
+  });
+
+  it("folds the pane it names", () => {
+    usePaneStore.setState({ hostMounted: true });
+    draw();
+
+    fireEvent.click(screen.getByText("Collapse the evidence pane"));
+
+    expect(usePaneStore.getState().preference.evidence).toBe(true);
+    expect(window.localStorage.getItem(PANE_STORAGE_KEYS.evidence)).toBe("collapsed");
+  });
+
+  it("its copy says nothing the client-language doc bans", () => {
+    usePaneStore.setState({ hostMounted: true });
+    draw();
+
+    for (const row of screen.getAllByRole("option")) {
+      const text = row.textContent ?? "";
+      if (!/pane/.test(text)) continue;
+      // §3 NEVER-SAY, on word boundaries.
+      expect(text).not.toMatch(/\b(turn|frame|pack|cohort|watermark|drawer)\b/i);
+    }
   });
 });

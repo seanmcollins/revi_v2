@@ -4,10 +4,13 @@ import { ArrowDownRight, ArrowUpRight, ListPlus, Maximize2, X } from "lucide-rea
 import { Dialog as DialogPrimitive } from "radix-ui";
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
+  Area,
+  AreaChart,
   Bar,
   BarChart,
   CartesianGrid,
   Cell,
+  LabelList,
   Line,
   LineChart,
   ReferenceLine,
@@ -18,6 +21,25 @@ import {
 } from "recharts";
 
 import { DownloadCsvButton } from "@/components/answer/AnswerActions";
+import { ChartDonutView, donutCensusNote } from "@/components/charts/ChartDonutView";
+import {
+  barBandPlan,
+  CATEGORICAL_SLOTS,
+  chartViewForms,
+  donutHonest,
+  entityColor,
+  isRankedCategorical,
+  NEUTRAL_INK,
+  rankedPlotHeight,
+  resolveChartView,
+  rowsAreEntities,
+  SINGLE_HUE,
+  subjectLabel,
+  type ChartView,
+} from "@/components/charts/chartForms";
+import { ChartSlopeView } from "@/components/charts/ChartSlopeView";
+import { ChartTableView } from "@/components/charts/ChartTableView";
+import { ChartViewMenu } from "@/components/charts/ChartViewMenu";
 import { KeyFigure } from "@/components/figures/KeyFigure";
 import { MonitorThis } from "@/components/monitors/MonitorThis";
 import { Button } from "@/components/ui/button";
@@ -56,39 +78,104 @@ const ROLE_COLOR: Record<"current" | "baseline", string> = {
 
 /**
  * THREE or more are identities, and identity needs a categorical palette:
- * eight validated slots, assigned in fixed order and never cycled (the
- * order is the colour-vision safety mechanism, not a preference). Anything
- * past the eighth is not given a ninth hue — `capChartSeries` has already
- * folded it into the rollup, which wears the neutral ink because it is not
- * an entity.
+ * validated slots, assigned in fixed order and never cycled (the order is
+ * the colour-vision safety mechanism, not a preference). Anything past the
+ * eighth is not given a further hue — `capChartSeries` has already folded
+ * it into the rollup, which wears the neutral ink because it is not an
+ * entity.
+ *
+ * A SERIES IS COLOURED BY POSITION AND A ROW IS COLOURED BY ITS NAME, and
+ * the difference is not an inconsistency — it is which channel carries the
+ * identity in each case.
+ *
+ * On a multi-series figure the LEGEND is the identity: a swatch beside a
+ * name, and the reader matches the mark to the swatch by hue. Hue is doing
+ * the work, so the assignment has to guarantee that no two series share a
+ * slot, which only a positional assignment can. A hash cannot: eight names
+ * into twelve slots collide better than nine times in ten.
+ *
+ * On a categorical axis the LABEL is the identity — it is set beside its
+ * own bar, at full length, in text ink — so hue is free to carry something
+ * else, and what it carries is the entity across figures (`entityColor`).
  */
-const CATEGORICAL = [
-  "var(--chart-cat-1)",
-  "var(--chart-cat-2)",
-  "var(--chart-cat-3)",
-  "var(--chart-cat-4)",
-  "var(--chart-cat-5)",
-  "var(--chart-cat-6)",
-  "var(--chart-cat-7)",
-  "var(--chart-cat-8)",
-] as const;
+const CATEGORICAL = CATEGORICAL_SLOTS;
 
 function seriesColors(series: readonly ChartSeries[]): Record<string, string> {
   const out: Record<string, string> = {};
   let slot = 0;
   for (const s of series) {
     if (s.key === OTHERS_SERIES_KEY) {
-      out[s.key] = "var(--chart-cat-other)";
+      out[s.key] = NEUTRAL_INK;
       continue;
     }
     out[s.key] =
-      series.length <= 2
-        ? ROLE_COLOR[s.role]
-        : (CATEGORICAL[slot] ?? "var(--chart-cat-other)");
+      series.length <= 2 ? ROLE_COLOR[s.role] : (CATEGORICAL[slot] ?? NEUTRAL_INK);
     slot += 1;
   }
   return out;
 }
+
+/**
+ * A ROW THAT IS NOT AN ENTITY EITHER — the engine's own rollup, arriving
+ * as a category rather than as a series.
+ *
+ * "+13 others" and "Other" are not somebody's name: they are everything
+ * that did not fit, and giving them a hue would put a made-up entity in
+ * the reader's colour memory alongside twelve real ones.
+ */
+const ROLLUP_LABEL = /^(\+\d+\s+others|others?)$/i;
+
+/**
+ * The colour ONE MARK on a categorical axis is drawn in.
+ *
+ * Three cases, and the middle one is the whole feature:
+ *
+ *   · a rollup keeps the neutral ink, because it is not an entity;
+ *   · an ENTITY (a payer, a plan, a facility) takes the hue its own name
+ *     hashes to, so the same payer is the same colour on every figure in
+ *     the product and the eye can follow it down a page — see
+ *     `entityColor` for why that is safe when a hash cannot guarantee
+ *     distinctness;
+ *   · everything else — months, age bands, runway buckets — stays in the
+ *     single accent hue. A rainbow over an ordered scale says those
+ *     buckets are different KINDS of thing, which is the one thing an
+ *     ordered scale is not, and it spends the colour channel on nothing.
+ */
+function rowColor(spec: ChartSpec, label: string, entities: boolean): string {
+  if (ROLLUP_LABEL.test(label)) return NEUTRAL_INK;
+  return entities ? entityColor(label) : SINGLE_HUE;
+}
+
+/**
+ * THE SUBJECT — the row the answer is about — and how it is emphasised.
+ *
+ * Two treatments, because the two axes have two different amounts of
+ * colour to spend.
+ *
+ * On a SINGLE-HUE axis the emphasis is contrast: the subject is drawn at
+ * full strength and the rest recede. There is no identity to damage,
+ * because every mark is the same hue already.
+ *
+ * On an ENTITY axis nothing is dimmed. The eleven other payers are wearing
+ * the hues a reader is tracking them by, and fading them to point at the
+ * twelfth would spend the tracking to make an emphasis. So the subject
+ * takes an INK RING instead — a treatment that adds a mark rather than
+ * subtracting from its neighbours, and one that survives greyscale, a
+ * projector and colour-vision deficiency because it is not a hue.
+ *
+ * Composed with `BOUNDED_MARK` rather than replacing it: a subject that is
+ * also a ceiling keeps the dashed outline (the honesty mark wins the
+ * stroke pattern) and gains the ink (the emphasis wins the colour). A rule
+ * that let emphasis overwrite a ceiling's dashes would be an accent
+ * deleting a qualification.
+ */
+const SUBJECT_RING = {
+  stroke: "var(--foreground)",
+  strokeWidth: 2,
+  strokeOpacity: 0.55,
+} as const;
+/** What a mark that is NOT the subject fades to, on a single-hue axis. */
+const RECEDED_FILL_OPACITY = 0.42;
 
 interface RowDatum {
   label: string;
@@ -535,6 +622,69 @@ export const ROTATED_TICK_BASE = 18;
  */
 const EXPANDED_FLAT_CEILING = 40;
 
+/* ------------------------------------------------------------------ */
+/* THE SAME AXIS, TURNED ON ITS SIDE                                   */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A LEFT GUTTER MEASURED FROM THE LONGEST NAME, AND CAPPED.
+ *
+ * On a horizontal ranking the category label is not competing with a 60px
+ * band any more — it has a whole gutter to itself and runs left to right,
+ * which is why this orientation deletes most of the elision this file
+ * exists to manage. What it does not delete is the ceiling: a gutter is
+ * bought from the plot, and a 300px gutter on a 420px card leaves 120px
+ * for the bars. So the gutter is `longest name`, and past the cap the
+ * shortener takes over exactly as it does on a rotated axis.
+ *
+ * The cap is a SHARE of the figure, not a constant, because this is the
+ * one measurement that has to work at 280px in the Evidence rail and at
+ * 1400px in the dialog. A third of the width leaves two thirds for the
+ * marks, which is the ratio at which a bar is still a bar.
+ */
+export const HORIZONTAL_GUTTER_SHARE = 0.34;
+export const MIN_HORIZONTAL_GUTTER = 72;
+export const MAX_HORIZONTAL_GUTTER = 280;
+export const EXPANDED_MAX_HORIZONTAL_GUTTER = 420;
+
+export function horizontalGutterCap(plotWidth: number, expanded = false): number {
+  const ceiling = expanded ? EXPANDED_MAX_HORIZONTAL_GUTTER : MAX_HORIZONTAL_GUTTER;
+  if (plotWidth <= 0) return MIN_HORIZONTAL_GUTTER;
+  return Math.max(MIN_HORIZONTAL_GUTTER, Math.min(ceiling, Math.floor(plotWidth * HORIZONTAL_GUTTER_SHARE)));
+}
+
+/**
+ * …the same cap, in CHARACTERS, which is what the shortener budgets in.
+ * Off the same 6.3px advance every other measurement on this figure uses,
+ * less the tick margin and the four characters `categoryTick` can add on
+ * top of the name ("≤ " and " †").
+ */
+export function horizontalTickBudget(plotWidth: number, expanded = false): number {
+  const room = horizontalGutterCap(plotWidth, expanded) - AXIS_TICK_MARGIN;
+  return Math.max(FLAT_TICK_FLOOR, Math.floor(room / TICK_CHAR_PX) - TICK_MARK_PAD);
+}
+
+/**
+ * How wide the axis is actually drawn, given the labels it ended up with.
+ *
+ * The cap is what the gutter may take; this is what it needs. A four-payer
+ * ranking whose longest name is "Atlas Commercial" does not buy 280px of
+ * gutter and leave the bars in a third of the card — it takes what the
+ * name costs and gives the rest to the drawing.
+ */
+export function horizontalAxisWidth(
+  ticks: readonly string[],
+  plotWidth: number,
+  expanded = false,
+): number {
+  const longest = ticks.reduce((n, tick) => Math.max(n, tick.length), 0);
+  const needed = Math.ceil(longest * TICK_CHAR_PX) + AXIS_TICK_MARGIN + TICK_ADVANCE_SLACK;
+  return Math.max(
+    MIN_HORIZONTAL_GUTTER,
+    Math.min(horizontalGutterCap(plotWidth, expanded), needed),
+  );
+}
+
 /**
  * ROTATE OR NOT, AND AT WHAT LENGTH — one decision, in one place.
  *
@@ -542,6 +692,10 @@ const EXPANDED_FLAT_CEILING = 40;
  * measured width, which is exactly why they can be re-run at a different
  * width and produce a different axis. `expanded` is the fullscreen figure
  * asking the same question with a much larger answer.
+ *
+ * A HORIZONTAL axis never rotates — that is most of the point of turning
+ * the figure — so its whole plan is a width budget, and the budget is the
+ * gutter's rather than the band's.
  */
 export function axisTickPlan(
   labels: readonly string[],
@@ -549,8 +703,24 @@ export function axisTickPlan(
     kind,
     plotWidth,
     expanded = false,
-  }: { kind: ChartSpec["kind"]; plotWidth: number; expanded?: boolean },
+    orientation = "vertical",
+  }: {
+    kind: ChartSpec["kind"];
+    plotWidth: number;
+    expanded?: boolean;
+    orientation?: "vertical" | "horizontal";
+  },
 ): { rotate: boolean; text: Map<string, string> } {
+  if (orientation === "horizontal") {
+    // ELISION ONLY PAST THE CAP. `axisTickLabels` grows from its base until
+    // every drawn label is unique, so base and max are the same number
+    // here: at the cap it tries a plain cut, then a middle cut, and if
+    // neither tells two names apart it prints them whole — the same
+    // "an axis that is cramped beats an axis that is wrong" rule the
+    // rotated path follows.
+    const budget = horizontalTickBudget(plotWidth, expanded);
+    return { rotate: false, text: axisTickLabels(labels, budget, budget) };
+  }
   /**
    * HORIZONTAL LABELS WHEREVER THEY FIT.
    *
@@ -578,6 +748,40 @@ export function axisTickPlan(
   }
   const ceiling = expanded ? EXPANDED_FLAT_CEILING : labels.length > 8 ? 12 : 20;
   return { rotate, text: axisTickLabels(labels, Math.max(4, Math.min(ceiling, budget))) };
+}
+
+/**
+ * THE FOUR MARKS, ON ONE TICK.
+ *
+ * Composed rather than exclusive: on a comparison one category can hold a
+ * ceiling on one window and no figure at all on the other, and an early
+ * return would print one of those two facts and drop the other.
+ *
+ * IT IS THE SAME VOCABULARY WHICHEVER WAY THE FIGURE RUNS. A ranking drawn
+ * on its side moves this tick from under a bar to beside one, and that is
+ * the whole of the change: the "≤" still opens the label, the "†", "‡" and
+ * "*" still close it. A horizontal figure that grew its own set of marks
+ * would be a second honesty vocabulary for a reader to learn, on the shape
+ * this product draws most often.
+ *
+ * Exported because it is what the marks ARE, and jsdom gives a Recharts
+ * container no size — so this is the surface a test can hold the four
+ * marks to.
+ */
+export function honestyTick(
+  text: string,
+  marks: { bounded?: boolean; withheld?: boolean; absent?: boolean; provisional?: boolean },
+): string {
+  const prefix = marks.bounded === true ? "≤ " : "";
+  const suffix =
+    marks.withheld === true
+      ? " †"
+      : marks.absent === true
+        ? " ‡"
+        : marks.provisional === true
+          ? "*"
+          : "";
+  return `${prefix}${text}${suffix}`;
 }
 
 /**
@@ -741,7 +945,13 @@ function markContext(spec: ChartSpec, row: ChartRow): string {
  * row that says "the prior cell is a ceiling" is also saying the current
  * one is not.
  */
-function cellBounded(row: ChartRow, key: string): boolean {
+function cellBounded(
+  // Structural rather than `ChartRow`, because the same question is asked
+  // of the wire's row and of the datum the plot is drawn from, and the two
+  // carry the same two fields for the same reason.
+  row: { cells?: Record<string, ChartCell>; bounded?: boolean },
+  key: string,
+): boolean {
   return row.cells !== undefined ? row.cells[key]?.bounded === true : row.bounded === true;
 }
 
@@ -1103,6 +1313,8 @@ function ChartFigure({
   expanded = false,
   expandable = false,
   onDrilled,
+  chosenView,
+  onViewChange,
 }: InvestigationChartProps & {
   /**
    * This figure IS the fullscreen one: it fills the dialog rather than a
@@ -1125,6 +1337,19 @@ function ChartFigure({
    * chart at 90vw while today's answer streams underneath.
    */
   onDrilled?: () => void;
+  /**
+   * The drawing the reader chose, held ONE LEVEL UP — in `InvestigationChart`,
+   * which owns both this figure and its fullscreen copy. That is what makes
+   * the choice travel into the dialog: the two mounts are the same component
+   * reading the same state, so a reader who switched the rail's chart to a
+   * table and then expanded it gets the table, larger, rather than the bar
+   * chart they had just replaced.
+   *
+   * Per figure, never global. Two charts on one turn are two questions, and
+   * one of them being better as a donut says nothing about the other.
+   */
+  chosenView?: ChartView;
+  onViewChange?: (view: ChartView) => void;
 }) {
   const emitRefinement = useSessionStore((s) => s.emitRefinement);
   const reducedMotion = usePrefersReducedMotion();
@@ -1141,8 +1366,19 @@ function ChartFigure({
   // a `stacked_bar` frame drawn without one claims a comparison the engine
   // never published. A COMPARISON is the mirror case and is never stacked
   // whatever chart_type it declares — see `periodSeriesLabel` above.
+  //
+  // …AND A COMPOSITION OF ONE IS NOT A COMPOSITION. The engine declares
+  // `stacked_bar` on single-measure frames too — live, "Denied dollars by
+  // financial class" arrives that way with one series over six categories —
+  // and a stack of one series is a bar. Honouring it cost that figure two
+  // real things: a 2px card-coloured outline around every mark (the spacer
+  // that keeps two stacked fills apart, drawn where there is nothing to
+  // keep apart), and the measured-zero floor, which is switched off on a
+  // stack because Recharts cannot honour it there.
   const stackId =
-    spec.stacked && spec.kind !== "line" && spec.comparison === undefined ? spec.id : undefined;
+    spec.stacked && spec.kind !== "line" && spec.comparison === undefined && spec.series.length > 1
+      ? spec.id
+      : undefined;
   const seriesLabel = (s: ChartSeries): string =>
     periodSeriesLabel(spec, s.key, comparisonWindows) ?? displayLabel(s.label);
   /**
@@ -1155,6 +1391,74 @@ function ChartFigure({
    */
   const policy = singleMarkPolicy(spec);
   const asCard = policy.mode !== "chart";
+
+  /**
+   * WHICH DRAWING, AND WHICH DRAWINGS WERE ON OFFER.
+   *
+   * Derived from the DRAWN spec for the same reason `singleMarkPolicy` is:
+   * the offered set is a statement about the picture in front of the
+   * reader, and a donut offered because the payload's twelve rows add up —
+   * over a figure showing eight of them plus a rollup — would be a menu
+   * describing a chart that is not on screen.
+   *
+   * `resolveChartView` re-checks the choice rather than trusting it: a
+   * persisted "donut" whose payload has since grown a ceiling falls back to
+   * the bar chart, because a choice is not a licence to draw something the
+   * census no longer supports.
+   */
+  const views = useMemo(() => chartViewForms(spec), [spec]);
+  const view = resolveChartView(spec, chosenView);
+  const donutCensus = useMemo(() => donutHonest(spec), [spec]);
+
+  /**
+   * COLOUR, PER MARK — see `rowColor` and `entityColor`. Computed once per
+   * figure rather than per `<Cell>`, so the same hash runs twelve times and
+   * not twelve times per re-render.
+   */
+  const entities = useMemo(() => rowsAreEntities(spec), [spec]);
+  const subject = useMemo(() => subjectLabel(spec), [spec]);
+  const markColor = (label: string): string => rowColor(spec, label, entities);
+
+  /**
+   * A RANKING TURNS ON ITS SIDE. See `isRankedCategorical` — rows ordered
+   * by the measure, with names for labels, are read down a column. The
+   * decision is the same in the card and in the dialog, because it is a
+   * fact about the data rather than about the room.
+   */
+  const horizontal = isRankedCategorical(spec) && (view === "bar" || view === "grouped");
+
+  const hasBounded = spec.rows.some((row) => row.bounded === true);
+  const hasProvisional = spec.rows.some((row) => row.provisional === true);
+  const hasWithheld = spec.rows.some((row) => row.withheld === true);
+
+  /**
+   * WHICH INK ONE MARK IS DRAWN IN.
+   *
+   * Per ROW where the rows are the identities — one series over a
+   * categorical axis, which is what a ranking is — and per SERIES
+   * otherwise, because on a multi-series figure the legend's swatch is
+   * what the reader matches the mark to. See the note on `seriesColors`.
+   */
+  const perRowColor = spec.series.length === 1 && spec.comparison === undefined;
+  const markFill = (key: string, label: string): string =>
+    perRowColor ? markColor(label) : (colors[key] ?? SINGLE_HUE);
+
+  /**
+   * DOES THIS FIGURE NEED PER-MARK CELLS AT ALL?
+   *
+   * Three things live on a `<Cell>` and nothing else can carry them: the
+   * ceiling's dashed outline, one row's own entity hue, and the subject's
+   * ring. A figure with none of the three — a single-hue axis of ordered
+   * buckets, all measured, nothing to point at — is drawn from the Bar's
+   * own `fill` and keeps its draw-in (see `drawIn`, which explains why
+   * those two facts are connected).
+   */
+  const needsCells =
+    hasBounded ||
+    hasProvisional ||
+    subject !== undefined ||
+    (perRowColor && entities) ||
+    (perRowColor && spec.rows.some((row) => ROLLUP_LABEL.test(row.label)));
 
   /**
    * Draw in ONCE, fast (260ms ease-out) — Recharts' 1.5s default is a
@@ -1173,15 +1477,37 @@ function ChartFigure({
     // draw) — so the animation that ran at height 0 was the only one that
     // ever ran, and every bar stayed a 1px sliver on the baseline. Live:
     // twelve payers, full axis, no marks.
-    isAnimationActive: !reducedMotion && !expanded,
+    //
+    // …AND NOT ON A RANKING, where the motion costs a number. Recharts
+    // suppresses a bar's own labels for as long as that bar is animating
+    // (`BarLabelListProvider`, `showLabels: !isAnimating`), and on a
+    // horizontal ranking the label at the end of the bar IS the value —
+    // the y-axis a reader would otherwise read it off is carrying names
+    // now. Measured live: the inline ranking drew no values at all while
+    // the fullscreen copy, which already skips the draw-in, drew all
+    // twelve. A 260ms flourish is not worth a figure whose numbers are
+    // missing, and a list of rows is not a shape that wants to grow
+    // sideways out of a wall in the first place.
+    //
+    // …AND NOT ON A CHART THAT CARRIES `<Cell>` CHILDREN, which is a
+    // Recharts fact and a nasty one. `selectBarRectangles` takes the cell
+    // list as a selector input, and Recharts derives that list from the
+    // Bar's children on every render (`findAllByType`), so it is a new
+    // array reference every time: the memo misses, the rectangles are
+    // recomputed, `useAnimationId` sees new input and the draw-in
+    // restarts. Measured live on the twelve-payer underpayment ranking:
+    // the marks froze at 26.8px of the 615px they should have been —
+    // a chart drawing every bar at four per cent of its own value, which
+    // is not a slow animation, it is a wrong picture. It was already true
+    // of every figure carrying a ceiling (those have always had cells);
+    // it became true of more of them when the cells started carrying
+    // colour as well. Motion is the cheaper thing to give up.
+    isAnimationActive: !reducedMotion && !expanded && !horizontal && !needsCells,
     animationDuration: 260,
     animationEasing: "ease-out",
     animationId: spec.id,
   } as const;
 
-  const hasBounded = spec.rows.some((row) => row.bounded === true);
-  const hasProvisional = spec.rows.some((row) => row.provisional === true);
-  const hasWithheld = spec.rows.some((row) => row.withheld === true);
   /** Every sentence the engine published about this figure. */
   const figureNotes = spec.notes ?? (spec.note !== undefined ? [spec.note] : []);
 
@@ -1326,65 +1652,83 @@ function ChartFigure({
    */
   const plotRef = useRef<HTMLDivElement>(null);
   const [plotWidth, setPlotWidth] = useState(0);
+  // …and its HEIGHT, which used to be a constant this figure decided and
+  // is now the extent a ranking's bands are measured along. Re-run when
+  // the FORM changes, because a table has no plot node at all and the
+  // observer would otherwise still be watching one that was unmounted two
+  // switches ago.
+  const [plotHeight, setPlotHeight] = useState(0);
   useEffect(() => {
     const node = plotRef.current;
     if (node === null || typeof ResizeObserver === "undefined") return;
-    setPlotWidth(node.getBoundingClientRect().width);
+    const box = node.getBoundingClientRect();
+    setPlotWidth(box.width);
+    setPlotHeight(box.height);
     const observer = new ResizeObserver((entries) => {
-      for (const entry of entries) setPlotWidth(entry.contentRect.width);
+      for (const entry of entries) {
+        setPlotWidth(entry.contentRect.width);
+        setPlotHeight(entry.contentRect.height);
+      }
     });
     observer.observe(node);
     return () => observer.disconnect();
-  }, []);
+  }, [view]);
   const { rotate: rotateTicks, text: tickText } = useMemo(
     () =>
       axisTickPlan(
         spec.rows.map((row) => row.label),
-        { kind: spec.kind, plotWidth, expanded },
+        {
+          kind: spec.kind,
+          plotWidth,
+          expanded,
+          orientation: horizontal ? "horizontal" : "vertical",
+        },
       ),
-    [spec.rows, spec.kind, plotWidth, expanded],
+    [spec.rows, spec.kind, plotWidth, expanded, horizontal],
   );
-  // Composed rather than exclusive: on a comparison one category can hold
-  // a ceiling on one window and no figure at all on the other, and an
-  // early return would print one of those two facts and drop the other.
-  const categoryTick = (v: string): string => {
-    const short = tickText.get(v) ?? v;
-    const prefix = boundedLabels.has(v) ? "≤ " : "";
-    const suffix = withheldLabels.has(v)
-      ? " †"
-      : absentLabels.has(v)
-        ? " ‡"
-        : provisionalLabels.has(v)
-          ? "*"
-          : "";
-    return `${prefix}${short}${suffix}`;
-  };
+  const categoryTick = (v: string): string =>
+    honestyTick(tickText.get(v) ?? v, {
+      bounded: boundedLabels.has(v),
+      withheld: withheldLabels.has(v),
+      absent: absentLabels.has(v),
+      provisional: provisionalLabels.has(v),
+    });
 
   /**
-   * FEW CATEGORIES, REAL BARS.
+   * BARS THAT FILL THEIR BAND.
    *
-   * `maxBarSize` and a 34% category gap are written for the dense case —
-   * twelve payers, and at the far end 150 providers — where an uncapped
-   * bar becomes a slab and the eye reads a fence instead of heights. At
-   * two or three categories the same two numbers ARE the defect: a
-   * two-bar comparison in a ~700px plot drew 8–14px hairlines with three
-   * hundred pixels of nothing between them, which on a projector reads as
-   * a chart that failed to render rather than as data.
+   * What was here was a table of constants — a 34% category gap, a cap of
+   * 14px on a multi-series chart, 22 on a single one, 64 below five
+   * categories — and the owner's word for the result was "skinny lines …
+   * they look so off". He was reading arithmetic: twelve payers in a 700px
+   * plot got a 58px band each and a 14px bar in it, so a quarter of the
+   * figure was data and three quarters were the gaps between it.
    *
-   * So the band share has a floor as well as a ceiling. Below five
-   * categories the gap closes to 20% and the cap opens to 64px — wide
-   * enough to be a bar, still capped so a single category cannot paint a
-   * quarter of the card. Nothing about the SCALE changes: this is the
-   * width of the mark, never its height.
+   * The constants are gone and the rule is a RATIO: a mark takes 86% of
+   * its band, near-touching its neighbour without the contiguity a
+   * histogram's touching bars claim, and the cap only exists to stop two
+   * categories in a fullscreen plot from painting 500px slabs. Grouped,
+   * the pair fills the band together with a 2px seam between the windows —
+   * they read as one category's two readings, which is what they are.
+   *
+   * See `barBandPlan`: one function, both orientations, because a
+   * horizontal ranking's band is measured down the figure and everything
+   * else about it is identical.
    */
-  const fewCategories = data.length > 0 && data.length <= 4;
-  const barCap = fewCategories
-    ? 64
-    : stackId
-      ? 26
-      : spec.series.length > 1
-        ? 14
-        : 22;
+  // The extent runs DOWN a ranking and ACROSS everything else — and it is
+  // measured either way, so the fullscreen copy (whose plot is whatever
+  // the dialog's column left over) gets bars sized for the room it is
+  // actually drawn in rather than for the card's arithmetic.
+  const bandExtent = horizontal
+    ? Math.max(0, (plotHeight > 0 ? plotHeight : rankedPlotHeight(data.length, expanded)) - 24)
+    : Math.max(0, plotWidth - AXIS_Y_WIDTH);
+  const marksPerCategory = stackId ? 1 : spec.series.length;
+  const band = barBandPlan({
+    categories: data.length,
+    marks: marksPerCategory,
+    extent: bandExtent,
+  });
+  const barCap = band.maxBarSize;
 
   // The room the FIRST tick needs to the left of the plot — it is the one
   // a rotated axis pushes past the card's edge, and it is the tick that
@@ -1408,6 +1752,67 @@ function ChartFigure({
   const axisHeight = rotateTicks
     ? rotatedAxisHeight(renderedTicks, expanded ? EXPANDED_MAX_AXIS_HEIGHT : MAX_AXIS_HEIGHT)
     : MIN_AXIS_HEIGHT;
+  /**
+   * …and the same measurement turned on its side: what the gutter COSTS,
+   * against what it may take. A four-payer ranking whose longest name is
+   * "Atlas Commercial" does not buy 280px and squeeze the bars into a
+   * third of the card — see `horizontalAxisWidth`.
+   */
+  const categoryAxisWidth = horizontal
+    ? horizontalAxisWidth(renderedTicks, plotWidth, expanded)
+    : AXIS_Y_WIDTH;
+
+  /**
+   * The room the VALUE at the end of the longest bar needs. Measured from
+   * the widest string that will actually be printed rather than guessed
+   * at: a value clipped by the figure's own right edge is the same defect
+   * as a tick clipped by its bottom edge, on the other axis.
+   */
+  const valueGutter = useMemo(() => {
+    if (!horizontal) return 14;
+    let widest = 0;
+    for (const row of data) {
+      for (const s of spec.series) {
+        const raw = row[s.key];
+        if (typeof raw !== "number") continue;
+        const bounded = cellBounded(row, s.key);
+        widest = Math.max(widest, `${bounded ? "≤ " : ""}${formatValue(raw)}`.length);
+      }
+    }
+    return Math.min(140, Math.ceil(widest * TICK_CHAR_PX) + 14);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [horizontal, data, spec.series, spec.unit]);
+
+  /**
+   * The value, drawn at the end of its own bar.
+   *
+   * A `content` renderer rather than a `formatter`, because the mark is
+   * per (row, series) and a formatter is handed the number alone: the "≤"
+   * lives on the cell, not on the value, and a ceiling printed as a bare
+   * numeral beside a dashed bar is the one place on this figure where the
+   * two halves of the mark could come apart.
+   */
+  const barEndLabel = (props: unknown, key: string): React.ReactElement | null => {
+    const p = props as { x?: number; y?: number; width?: number; height?: number; index?: number };
+    if (p.x === undefined || p.y === undefined || p.index === undefined) return null;
+    const row = data[p.index];
+    if (row === undefined) return null;
+    const raw = row[key];
+    if (typeof raw !== "number") return null;
+    const bounded = cellBounded(row, key);
+    return (
+      <text
+        x={p.x + (p.width ?? 0) + 6}
+        y={p.y + (p.height ?? 0) / 2}
+        dominantBaseline="central"
+        className="num"
+        fontSize={11}
+        fill="var(--chart-axis)"
+      >
+        {`${bounded ? "≤ " : ""}${formatValue(raw)}`}
+      </text>
+    );
+  };
 
   // The caption under the figure: what the axis is, then what ordered it.
   // `humanizeColumn` rather than `displayLabel` because this is a heading
@@ -1417,14 +1822,21 @@ function ChartFigure({
   // The drill HINT follows the affordance it describes: a figure card has
   // no bar to click, and a caption naming one is a caption a reader
   // checks once and never trusts again.
+  //
+  // …AND IT FOLLOWS THE FORM, not the payload. "Click a bar to drill in"
+  // over a donut names a mark that is not on the figure, which is the
+  // same defect as a caption naming a glyph the axis is not wearing.
+  const drillHint = asCard
+    ? "Click the figure to drill in"
+    : view === "table"
+      ? "Click a row to drill in"
+      : view === "donut"
+        ? "Click a segment to drill in"
+        : view === "line" || view === "area" || view === "slope"
+          ? undefined
+          : "Click a bar to drill in";
   const footerCaption = [
-    spec.xLabel !== undefined
-      ? humanizeColumn(spec.xLabel)
-      : asCard
-        ? "Click the figure to drill in"
-        : spec.kind !== "line"
-          ? "Click a bar to drill in"
-          : undefined,
+    spec.xLabel !== undefined ? humanizeColumn(spec.xLabel) : drillHint,
     orderNote(spec),
   ]
     .filter((part): part is string => part !== undefined && part !== "")
@@ -1571,6 +1983,70 @@ function ChartFigure({
             })
           }
         />
+      ) : view === "table" ? (
+        /* THE ROWS, AS ROWS. The universal fallback — see
+           `ChartTableView`. Same certified rows, every mark in the cell. */
+        <ChartTableView
+          spec={spec}
+          seriesLabel={(key) =>
+            periodSeriesLabel(spec, key, comparisonWindows) ??
+            displayLabel(spec.series.find((s) => s.key === key)?.label ?? key)
+          }
+          formatValue={formatValue}
+          onDrill={(row) =>
+            drillInto({
+              label: row.label,
+              ...(row.referent !== undefined ? { referent: row.referent } : {}),
+            })
+          }
+          absentIn={(row, key) => absent(row, key)}
+          {...(subject !== undefined ? { subject } : {})}
+        />
+      ) : view === "donut" ? (
+        /* SHARES OF A WHOLE, and only where the census is one — see
+           `donutHonest`. */
+        <ChartDonutView
+          spec={spec}
+          formatValue={formatValue}
+          colorFor={(row) => markColor(row.label)}
+          onDrill={(row) =>
+            drillInto({
+              label: row.label,
+              ...(row.referent !== undefined ? { referent: row.referent } : {}),
+            })
+          }
+          {...(subject !== undefined ? { subject } : {})}
+          expanded={expanded}
+        />
+      ) : view === "slope" && spec.comparison !== undefined ? (
+        /* THE MOVEMENT, DRAWN AS A MOVEMENT — see `ChartSlopeView`. */
+        <ChartSlopeView
+          spec={spec}
+          currentKey={spec.comparison.currentKey}
+          priorKey={spec.comparison.priorKey}
+          currentLabel={
+            periodSeriesLabel(spec, spec.comparison.currentKey, comparisonWindows) ??
+            WINDOW_LABEL_CURRENT
+          }
+          priorLabel={
+            periodSeriesLabel(spec, spec.comparison.priorKey, comparisonWindows) ??
+            WINDOW_LABEL_PRIOR
+          }
+          currentAxisLabel={comparisonWindows?.current ?? WINDOW_LABEL_CURRENT}
+          priorAxisLabel={comparisonWindows?.prior ?? WINDOW_LABEL_PRIOR}
+          formatValue={formatValue}
+          formatTick={formatTick}
+          colorFor={(row) => markColor(row.label)}
+          onDrill={(row) =>
+            drillInto({
+              label: row.label,
+              ...(row.referent !== undefined ? { referent: row.referent } : {}),
+            })
+          }
+          {...(subject !== undefined ? { subject } : {})}
+          tooltip={tooltipContent}
+          expanded={expanded}
+        />
       ) : (
       // A little more room than the marks strictly need. 13rem was the
       // height at which a twelve-bar ranking became a picket fence; 14
@@ -1582,6 +2058,11 @@ function ChartFigure({
       // below them (`rotatedAxisHeight`). At the old `h-72` the axis was a
       // constant 74px and 421 tick labels across the captured corpus were
       // cut off at the bottom — up to 16px, at every container width.
+      //
+      // A HORIZONTAL RANKING IS MEASURED THE OTHER WAY. Its bands run down
+      // the figure, so the figure's HEIGHT is what twelve legible bars
+      // cost — `rankedPlotHeight` — and it grows with the rows exactly as
+      // the rotated axis grows with its names.
       <div
         ref={plotRef}
         className={cn(
@@ -1594,12 +2075,84 @@ function ChartFigure({
           // and the notes, the caption and the actions keep their own
           // intrinsic height — with a floor, so a short viewport degrades
           // to a scroll rather than to a squashed plot.
-          expanded ? "min-h-[18rem] flex-1" : !rotateTicks && "h-56",
+          expanded ? "min-h-[18rem] flex-1" : !rotateTicks && !horizontal && "h-56",
         )}
-        {...(rotateTicks && !expanded ? { style: { height: PLOT_ROOM_PX + axisHeight } } : {})}
+        {...(horizontal
+          ? {
+              style: expanded
+                ? { minHeight: rankedPlotHeight(data.length, false) }
+                : { height: rankedPlotHeight(data.length, false) },
+            }
+          : rotateTicks && !expanded
+            ? { style: { height: PLOT_ROOM_PX + axisHeight } }
+            : {})}
       >
         <ResponsiveContainer width="100%" height="100%">
-          {spec.kind === "line" ? (
+          {view === "area" ? (
+            /* THE SAME TREND, WITH THE GROUND UNDER IT.
+               An area says "how much", where a line says "which way" — the
+               reason it is offered and not the default. Every honesty rule
+               the line follows is followed here, because they are the same
+               two data keys: the measured stretch is a solid fill, and any
+               stretch touching a ceiling or a provisional bucket is drawn
+               dashed over a much fainter fill, so the shaded quantity
+               under an unmeasured point never reads as a measured one. */
+            <AreaChart data={data} margin={{ top: 8, right: 18, bottom: 0, left: 6 }}>
+              <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
+              <XAxis
+                dataKey="label"
+                {...axisProps}
+                interval="preserveStartEnd"
+                padding={{ left: 8, right: 8 }}
+                tickFormatter={categoryTick}
+              />
+              <YAxis {...axisProps} tickFormatter={formatTick} width={48} />
+              <Tooltip
+                content={tooltipContent}
+                cursor={{ stroke: "var(--chart-axis)", strokeDasharray: "3 3", strokeOpacity: 0.4 }}
+              />
+              {spec.highlightLabel && (
+                <ReferenceLine
+                  x={spec.highlightLabel}
+                  stroke="var(--warning)"
+                  strokeDasharray="4 3"
+                  strokeOpacity={0.7}
+                />
+              )}
+              {spec.series.map((s) => (
+                <Area
+                  key={s.key}
+                  dataKey={s.key}
+                  name={seriesLabel(s)}
+                  stroke={colors[s.key]}
+                  strokeWidth={2}
+                  fill={colors[s.key]}
+                  fillOpacity={0.16}
+                  dot={false}
+                  activeDot={{ r: 4, strokeWidth: 0 }}
+                  {...drawIn}
+                />
+              ))}
+              {hasQualified &&
+                spec.series.map((s) => (
+                  <Area
+                    key={qualifiedKey(s.key)}
+                    dataKey={qualifiedKey(s.key)}
+                    name={`${seriesLabel(s)} (${hasBounded ? "upper bounds" : "provisional"})`}
+                    stroke={colors[s.key]}
+                    strokeWidth={2}
+                    strokeDasharray="4 3"
+                    strokeOpacity={0.75}
+                    fill={colors[s.key]}
+                    fillOpacity={0.05}
+                    legendType="none"
+                    dot={{ r: 3, strokeWidth: 1.5, fill: "var(--card)", stroke: colors[s.key] }}
+                    activeDot={{ r: 4, strokeWidth: 0 }}
+                    {...drawIn}
+                  />
+                ))}
+            </AreaChart>
+          ) : view === "line" ? (
             // The figure keeps its own padding. `preserveStartEnd`
             // draws the first and last tick, and both of them sit ON the
             // plot's edge: at the old zero margins the axis printed
@@ -1668,6 +2221,11 @@ function ChartFigure({
           ) : (
             <BarChart
               data={data}
+              // Recharts calls a horizontal-bar chart `layout="vertical"`
+              // — its name is for the axis that carries the categories,
+              // not for the direction the bars run. What this product
+              // calls a ranking is that one.
+              layout={horizontal ? "vertical" : "horizontal"}
               // A rotated tick runs down and to the LEFT of its bar, so
               // the leftmost label needs a gutter the plot area does not
               // otherwise give it — and the rightmost needs one for its
@@ -1677,46 +2235,81 @@ function ChartFigure({
               // at the fixed 10px, the first tick of the twelve-payer
               // ranking rendered "ate Medicaid MCO" with its head outside
               // the card (`rotatedAxisGutter`).
-              // THE WARMTH PASS, in geometry. A denser plot is not a more
-              // informative one: at 26% category gap the bars were a
-              // palisade, and the eye read the fence rather than the
-              // heights. 34% lets each category breathe and makes the
-              // 2-3px gap between a comparison's two bars legible as a
-              // pair rather than as one thick mark.
+              //
+              // Horizontal, the gutter is the y-axis's own width and the
+              // margin that matters is on the RIGHT — the value printed at
+              // the end of the longest bar has to fit inside the figure.
               margin={
-                rotateTicks
-                  ? { top: 12, right: 16, bottom: 0, left: leftGutter }
-                  : { top: 12, right: 14, bottom: 0, left: 0 }
+                horizontal
+                  ? { top: 4, right: valueGutter, bottom: 0, left: 0 }
+                  : rotateTicks
+                    ? { top: 12, right: 16, bottom: 0, left: leftGutter }
+                    : { top: 12, right: 14, bottom: 0, left: 0 }
               }
-              barGap={3}
-              barCategoryGap={fewCategories ? "20%" : "34%"}
+              // 86% of the band to the marks, a 2px seam inside a pair —
+              // see `barBandPlan`. The old pair (a 34% gap, a 14px cap)
+              // is what the owner was looking at when he said the bars
+              // "look so off".
+              barGap={band.barGap}
+              barCategoryGap={band.categoryGap}
             >
-              <CartesianGrid vertical={false} stroke="var(--chart-grid)" />
+              {/* The grid runs ACROSS the measure, whichever way the bars
+                  run: a gridline is a value to read a mark against, so on
+                  a ranking it is vertical and on a column chart it is
+                  horizontal. */}
+              <CartesianGrid
+                vertical={horizontal}
+                horizontal={!horizontal}
+                stroke="var(--chart-grid)"
+              />
               {/* `interval={0}` forced every one of 150 provider ticks to
                   draw into a 208px figure. Above what an axis can hold,
                   Recharts thins them and the tooltip carries the rest:
                   an unlabelled bar is a bar you have to hover, which is a
                   far smaller cost than fifteen bars wearing one name. */}
-              <XAxis
-                dataKey="label"
-                {...axisProps}
-                interval={data.length <= 24 ? 0 : "preserveStartEnd"}
-                tickFormatter={categoryTick}
-                {...(rotateTicks
-                  ? // MEASURED from the labels, not a constant. At the
-                    // fixed 74px every name longer than about fifteen
-                    // characters had its tail cut off by the SVG's own
-                    // bottom edge — 421 of them across the captured
-                    // corpus, worst 16px. See `rotatedAxisHeight`.
-                    {
-                      angle: -35,
-                      textAnchor: "end" as const,
-                      height: axisHeight,
-                      tickMargin: AXIS_TICK_MARGIN,
-                    }
-                  : {})}
-              />
-              <YAxis {...axisProps} tickFormatter={formatTick} width={48} />
+              {horizontal ? (
+                <>
+                  <XAxis type="number" {...axisProps} tickFormatter={formatTick} />
+                  {/* THE PAYOFF. The name reads left to right at its own
+                      full length, in a gutter measured from the longest
+                      one — no rotation, no −35°, and elision only where
+                      the gutter's cap bites (`horizontalTickBudget`). The
+                      honesty marks ride on the same tick they always did:
+                      "≤ " in front, " †" / " ‡" / "*" behind. */}
+                  <YAxis
+                    type="category"
+                    dataKey="label"
+                    {...axisProps}
+                    interval={0}
+                    width={categoryAxisWidth}
+                    tickFormatter={categoryTick}
+                    tickMargin={AXIS_TICK_MARGIN}
+                  />
+                </>
+              ) : (
+                <>
+                  <XAxis
+                    dataKey="label"
+                    {...axisProps}
+                    interval={data.length <= 24 ? 0 : "preserveStartEnd"}
+                    tickFormatter={categoryTick}
+                    {...(rotateTicks
+                      ? // MEASURED from the labels, not a constant. At the
+                        // fixed 74px every name longer than about fifteen
+                        // characters had its tail cut off by the SVG's own
+                        // bottom edge — 421 of them across the captured
+                        // corpus, worst 16px. See `rotatedAxisHeight`.
+                        {
+                          angle: -35,
+                          textAnchor: "end" as const,
+                          height: axisHeight,
+                          tickMargin: AXIS_TICK_MARGIN,
+                        }
+                      : {})}
+                  />
+                  <YAxis {...axisProps} tickFormatter={formatTick} width={48} />
+                </>
+              )}
               {/* A softer hover band. The cursor is a "you are here", not
                   a selection: at the grid's own opacity it read as a
                   second, darker gridline sliding across the plot. */}
@@ -1724,14 +2317,6 @@ function ChartFigure({
                 content={tooltipContent}
                 cursor={{ fill: "var(--chart-grid)", fillOpacity: 0.6, radius: 4 }}
               />
-              {spec.highlightLabel && (
-                <ReferenceLine
-                  x={spec.highlightLabel}
-                  stroke="var(--warning)"
-                  strokeDasharray="4 3"
-                  strokeOpacity={0.7}
-                />
-              )}
               {spec.series.map((s, i) => (
                 <Bar
                   key={s.key}
@@ -1747,8 +2332,15 @@ function ChartFigure({
                   // rounding the mark into a lozenge. Anchored at the
                   // baseline end, which stays square: a bar that curved
                   // where it meets zero would read as starting somewhere
-                  // other than zero.
-                  radius={stackId && i < spec.series.length - 1 ? 0 : [4, 4, 0, 0]}
+                  // other than zero. Which end that is depends on which
+                  // way the bar runs, so the radius turns with it.
+                  radius={
+                    stackId && i < spec.series.length - 1
+                      ? 0
+                      : horizontal
+                        ? [0, 4, 4, 0]
+                        : [4, 4, 0, 0]
+                  }
                   {...(stackId ? { stroke: "var(--card)", strokeWidth: 2 } : {})}
                   // A MEASURED ZERO gets a baseline tick. Without one it
                   // draws as nothing at all, which is exactly what a
@@ -1777,8 +2369,19 @@ function ChartFigure({
                       July one was not draws one solid mark and one dashed
                       one. Falls back to the row when the payload carries
                       no per-mark detail — nothing is un-marked because a
-                      generation of the wire was less specific. */}
-                  {(hasBounded || hasProvisional) &&
+                      generation of the wire was less specific.
+
+                      DRAWN FOR THREE REASONS NOW, not one: the cell is
+                      also where a row's own entity hue lands (`markColor`)
+                      and where the subject's ring goes, and a loop that
+                      only ran when something was bounded would have made a
+                      twelve-payer ranking one colour whenever the engine
+                      happened to measure all twelve.
+
+                      AND NOT AT ALL WHERE NONE OF THE THREE APPLIES
+                      (`needsCells`), because a cell list costs this figure
+                      its draw-in — see `drawIn`. */}
+                  {needsCells &&
                     data.map((row) => {
                       // Per-mark when the row carries per-mark detail at
                       // all, not per-mark when THIS mark happens to have
@@ -1788,14 +2391,39 @@ function ChartFigure({
                         (row.cells !== undefined
                           ? row.cells[s.key]?.bounded === true
                           : row.bounded === true) || row.provisional === true;
+                      const fill = markFill(s.key, String(row.label));
+                      const isSubject = subject !== undefined && row.label === subject;
                       return (
                         <Cell
                           key={`${s.key}:${row.label}`}
-                          fill={colors[s.key]}
-                          {...(qualified ? { ...BOUNDED_MARK, stroke: colors[s.key] } : {})}
+                          fill={fill}
+                          // ON A SINGLE-HUE AXIS the emphasis is contrast, so
+                          // the marks that are not the subject recede. Never
+                          // on an entity axis — see `SUBJECT_RING`.
+                          {...(!entities && subject !== undefined && !isSubject
+                            ? { fillOpacity: RECEDED_FILL_OPACITY }
+                            : {})}
+                          {...(qualified ? { ...BOUNDED_MARK, stroke: fill } : {})}
+                          // LAST, so the ring's ink wins the stroke colour
+                          // while the ceiling keeps its dashes and its
+                          // desaturated fill: an emphasis must not be able
+                          // to overwrite a qualification.
+                          {...(isSubject ? SUBJECT_RING : {})}
                         />
                       );
                     })}
+                  {/* THE VALUE AT THE END OF ITS OWN BAR. On a ranking the
+                      reader's question is "how much", and the y-axis they
+                      would otherwise read it off is now carrying names.
+                      The "≤" travels with it: a ceiling printed as a bare
+                      number beside a bar is the same mark going missing
+                      that the whole `<Cell>` loop above exists to prevent. */}
+                  {horizontal && (
+                    <LabelList
+                      dataKey={s.key}
+                      content={(props: unknown) => barEndLabel(props, s.key)}
+                    />
+                  )}
                 </Bar>
               ))}
             </BarChart>
@@ -1876,7 +2504,11 @@ function ChartFigure({
           {absentLabels.size > 0 && (
             <span className="block">{asCard ? ABSENT_CARD_NOTE : ABSENT_AXIS_NOTE}</span>
           )}
-          {hasBounded && spec.kind === "line" && !asCard && (
+          {/* The VIEW's mark, not the payload's kind: the same rows drawn
+              as bars wear a dashed outline rather than a dashed segment,
+              and a caption naming a segment on a bar chart is a caption
+              pointing at something that is not there. */}
+          {hasBounded && (view === "line" || view === "area" || view === "slope") && !asCard && (
             <span className="block">
               Segments touching a ceiling are drawn dashed with a hollow point — the line between
               two ceilings is not a measured movement.
@@ -1891,6 +2523,12 @@ function ChartFigure({
               carries this sentence where the number would have been — so
               it is not also repeated down here. */}
           {hasWithheld && !asCard && <span className="block">{WITHHELD_AXIS_NOTE}</span>}
+          {/* WHAT THE RING IS A RING OF. Only on the form that draws one:
+              a note about shares under a bar chart is a caption for a
+              picture that is not there. */}
+          {view === "donut" && donutCensusNote(donutCensus.withheld) !== undefined && (
+            <span className="block">{donutCensusNote(donutCensus.withheld)}</span>
+          )}
         </p>
       )}
 
@@ -1902,6 +2540,23 @@ function ChartFigure({
             and the assumption was wrong: it was alphabetical. */}
         <span className="text-micro text-muted-foreground">{footerCaption}</span>
         <span className="flex shrink-0 items-center gap-1">
+          {/* VIEW AS — the reader's own choice of drawing, beside Full
+              screen because they are the same kind of gesture: neither one
+              re-measures anything, both change how the rows already in
+              this browser are shown.
+
+              NOT ON A CARD, and not on a chart that was refused: a figure
+              card is one number at display size and there is no second
+              shape for one number, and a payload the keying could not draw
+              at all is not drawn as a donut either. */}
+          {!asCard && spec.keying?.mode !== "unkeyable" && onViewChange !== undefined && (
+            <ChartViewMenu
+              value={view}
+              options={views}
+              onChange={onViewChange}
+              figureTitle={spec.title}
+            />
+          )}
           {/* FULL SCREEN — the readability affordance, and the reason it is
               a persistent control rather than a hover reveal.
 
@@ -2041,6 +2696,22 @@ function ChartFigure({
  */
 export function InvestigationChart(props: InvestigationChartProps) {
   const [open, setOpen] = useState(false);
+  /**
+   * THE CHOSEN DRAWING LIVES HERE, above both mounts.
+   *
+   * Which is the whole implementation of "the choice carries into full
+   * screen": the inline figure and the fullscreen one are the same
+   * component rendered twice from this one piece of state, so switching
+   * the rail's chart to a table and then expanding it enlarges the table.
+   * Held in the dialog's own root rather than in a store — a chart form is
+   * a property of looking at THIS figure, not of the session, and two
+   * charts on one turn are two questions.
+   *
+   * `undefined` until the reader chooses, so the figure opens in the
+   * drawing the engine's own kind implies and a payload that changes shape
+   * under it does not inherit a stale choice (`resolveChartView`).
+   */
+  const [chosenView, setChosenView] = useState<ChartView | undefined>(undefined);
   const { spec, windowLabel } = props;
 
   return (
@@ -2052,7 +2723,12 @@ export function InvestigationChart(props: InvestigationChartProps) {
     // trigger ref on close and prevents the default restore, so with no
     // trigger registered, focus landed on `<body>`.
     <DialogPrimitive.Root open={open} onOpenChange={setOpen}>
-      <ChartFigure {...props} expandable />
+      <ChartFigure
+        {...props}
+        expandable
+        {...(chosenView !== undefined ? { chosenView } : {})}
+        onViewChange={setChosenView}
+      />
       <DialogPrimitive.Portal>
           <DialogPrimitive.Overlay className="overlay-in fixed inset-0 z-50 bg-black/50 backdrop-blur-[2px]" />
           <DialogPrimitive.Content
@@ -2082,7 +2758,13 @@ export function InvestigationChart(props: InvestigationChartProps) {
               </DialogPrimitive.Close>
             </div>
             <div className="flex min-h-0 flex-1 flex-col overflow-y-auto">
-              <ChartFigure {...props} expanded onDrilled={() => setOpen(false)} />
+              <ChartFigure
+                {...props}
+                expanded
+                {...(chosenView !== undefined ? { chosenView } : {})}
+                onViewChange={setChosenView}
+                onDrilled={() => setOpen(false)}
+              />
             </div>
           </DialogPrimitive.Content>
         </DialogPrimitive.Portal>

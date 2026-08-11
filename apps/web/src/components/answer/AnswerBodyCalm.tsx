@@ -203,7 +203,7 @@ export function AnswerBodyCalm({
           {integrityLine}
           <section
             aria-label="Findings"
-            className="rounded-lg border bg-card/60 px-2 py-1.5"
+            className="data-breakout rounded-lg border bg-card/60 px-2 py-1.5"
           >
             <FactList
               measured={model.measuredFindings}
@@ -221,7 +221,7 @@ export function AnswerBodyCalm({
       {/* ONE figure: the engine's own primary frame. The rest are in the
           rail behind "N more charts" — see `selectPrimaryChart`. */}
       {model.primaryChart && (
-        <div className="fade-up">
+        <div className="fade-up data-breakout">
           <AnswerChart turn={turn} model={model} spec={model.primaryChart} />
         </div>
       )}

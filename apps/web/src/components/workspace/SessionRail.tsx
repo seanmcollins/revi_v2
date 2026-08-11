@@ -4,32 +4,59 @@ import {
   AlertTriangle,
   Archive,
   FlaskConical,
+  House,
   Loader2,
   MessagesSquare,
   MessageSquarePlus,
+  PanelLeftClose,
+  PanelLeftOpen,
   Play,
   RefreshCw,
   Search,
   Stethoscope,
 } from "lucide-react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
-import { useEffect, useState, useSyncExternalStore } from "react";
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 
 import { CopyTextButton } from "@/components/answer/AnswerActions";
 import { PortfolioPanel } from "@/components/portfolio/PortfolioPanel";
+import { ConnectionDot } from "@/components/workspace/ConnectionPill";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
 import { Separator } from "@/components/ui/separator";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { apiBaseUrl } from "@/lib/apiDriver";
 import { displaySessionTitle, relativeTime } from "@/lib/format";
 import { sessionLinkFor } from "@/lib/links";
 import { REFERENCE_QUESTIONS } from "@/lib/mock/reference";
 import { hasUnseenLoad } from "@/lib/monitorsVisit";
+import { PANE_SHORTCUTS, paneToggleLabel } from "@/lib/panes";
 import { useSessionStore } from "@/lib/store";
 import { sessionPath } from "@/lib/useAsk";
 import { cn } from "@/lib/utils";
 
-export function SessionRail() {
+/** The one id every "focus the sessions toggle" path reaches for. */
+export const SESSIONS_TOGGLE_ID = "pane-toggle-sessions";
+/** The region a focus handoff asks "was the focus in here?" about. */
+export const SESSIONS_PANE_ID = "pane-sessions";
+
+/**
+ * The rail, in one of its two shapes.
+ *
+ * `collapsed` is a PROP, not a store read, and that is deliberate: this
+ * component is mounted by three surfaces and only one of them — the
+ * workspace — has a grid that can give the column back. Home and Monitors
+ * render it at its full width and pass nothing, so a preference set in
+ * the workspace cannot leave a 48px strip sitting in a 264px column on a
+ * page that never offered to fold it.
+ */
+export function SessionRail({
+  collapsed = false,
+  onToggle,
+}: {
+  collapsed?: boolean;
+  onToggle?: () => void;
+} = {}) {
   const navigate = useNavigate();
   const pathname = useLocation().pathname;
   const simulateWatermarkRefresh = useSessionStore((s) => s.simulateWatermarkRefresh);
@@ -56,8 +83,24 @@ export function SessionRail() {
     if (driver) void loadSessions();
   }, [driver, loadSessions]);
 
+  const startNewChat = (): void => {
+    void newChat();
+    if (pathname !== "/") navigate("/");
+  };
+
+  if (collapsed) {
+    return (
+      <IconStrip
+        onNewChat={startNewChat}
+        newChatBusy={newChatBusy}
+        mode={mode}
+        {...(onToggle ? { onToggle } : {})}
+      />
+    );
+  }
+
   return (
-    <aside className="panel flex h-full min-h-0 flex-col border-r">
+    <aside id={SESSIONS_PANE_ID} className="panel flex h-full min-h-0 flex-col border-r">
       <div className="flex items-center justify-between px-4 py-3.5">
         <div className="flex items-center gap-2">
           {/* The mark carries a letter, so it takes the text-safe stops —
@@ -72,21 +115,26 @@ export function SessionRail() {
             RCM
           </span>
         </div>
+        {/* AT THE PANE'S INNER EDGE, in the flow rather than floating over
+            the fifty session rows below it — an absolutely positioned
+            control there would sit on top of somebody's work and take the
+            click meant for it. Rendered only where a fold is on offer:
+            Home and Monitors pass no handler and get no dead button. */}
+        {onToggle && <PaneToggle collapsed={false} onToggle={onToggle} />}
       </div>
 
       <div className="space-y-1.5 px-3 pb-3">
         <Button
-          onClick={() => {
-            void newChat();
-            // AND GO HOME. The store's `newChat` abandons the session and
-            // the workspace's own address effect used to be what took the
-            // browser back to `/`; from Monitors — and now from Home — no
-            // workspace is mounted to do it, so the click that says "start
-            // something new" would clear the thread and leave the reader
-            // where they were. Home is where a new question is asked, and
-            // its composer takes focus on arrival.
-            if (pathname !== "/") navigate("/");
-          }}
+          // AND GO HOME. The store's `newChat` abandons the session and
+          // the workspace's own address effect used to be what took the
+          // browser back to `/`; from Monitors — and now from Home — no
+          // workspace is mounted to do it, so the click that says "start
+          // something new" would clear the thread and leave the reader
+          // where they were. Home is where a new question is asked, and
+          // its composer takes focus on arrival. Lifted to `startNewChat`
+          // so the icon strip's own button is the same gesture, not a
+          // second copy of it.
+          onClick={startNewChat}
           disabled={newChatBusy}
           size="sm"
           // The app's most prominent button, and the one whose label was
@@ -196,6 +244,211 @@ export function SessionRail() {
         </p>
       </div>
     </aside>
+  );
+}
+
+/**
+ * The fold control, in the one place both shapes of the rail put it.
+ *
+ * One id (`SESSIONS_TOGGLE_ID`) across both, because focus handoff has to
+ * find "this pane's toggle" after the pane it was standing in has been
+ * replaced — see `Workspace`. `aria-expanded` is the announcement; the
+ * icon is only the drawing of it.
+ */
+function PaneToggle({ collapsed, onToggle }: { collapsed: boolean; onToggle: () => void }) {
+  const label = paneToggleLabel("sessions", collapsed);
+  const Icon = collapsed ? PanelLeftOpen : PanelLeftClose;
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          id={SESSIONS_TOGGLE_ID}
+          type="button"
+          onClick={onToggle}
+          aria-label={label}
+          aria-expanded={!collapsed}
+          aria-controls={SESSIONS_PANE_ID}
+          className="focus-ring flex size-7 shrink-0 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-accent/60 hover:text-foreground"
+        >
+          <Icon aria-hidden className="size-3.5" />
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right" className="text-meta">
+        {label} · {PANE_SHORTCUTS.sessions}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+/**
+ * THE RAIL AT 48 PIXELS — wayfinding, and nothing else.
+ *
+ * What survives the fold is what somebody would be stranded without: the
+ * way to start a new question, the way back to Home, the way to Monitors,
+ * whether the deployment is answering, and the way to unfold it again.
+ * What goes is everything that is a LIST — the sessions, the ranked
+ * worklist, the fixture previews — because a list rendered as five
+ * indistinguishable icons is not a shorter list, it is a puzzle.
+ *
+ * A nav landmark, so a screen-reader user can jump to it by role and is
+ * not left hunting an unlabelled column of glyphs. Every icon is a
+ * tooltip AND an accessible name: the tooltip is for the pointer, the
+ * name is for everyone else, and neither is the only carrier.
+ */
+function IconStrip({
+  onNewChat,
+  newChatBusy,
+  mode,
+  onToggle,
+}: {
+  onNewChat: () => void;
+  newChatBusy: boolean;
+  mode: string;
+  onToggle?: () => void;
+}) {
+  const pathname = useLocation().pathname;
+
+  return (
+    <nav
+      id={SESSIONS_PANE_ID}
+      aria-label="Main"
+      className="panel flex h-full min-h-0 flex-col items-center gap-1 border-r py-3.5"
+    >
+      {/* The mark stays. It is the only thing on this strip that is not a
+          control, and a 48px column of icons with nothing at the top of it
+          reads as a toolbar that lost its app. */}
+      <span
+        aria-hidden
+        className="accent-gradient-cta mb-1.5 flex size-6 items-center justify-center rounded-md font-mono text-sm font-bold text-white"
+      >
+        R
+      </span>
+
+      <StripAction
+        label="New chat"
+        icon={<MessageSquarePlus aria-hidden className="size-3.5" />}
+        onClick={onNewChat}
+        disabled={newChatBusy}
+      />
+      <StripLink
+        to="/"
+        label="Home"
+        current={pathname === "/"}
+        icon={<House aria-hidden className="size-3.5" />}
+      />
+      {/* Same rule as the full rail's link: the mock fixture has no
+          deployment to walk, so it is not offered a way to one. */}
+      {mode === "api" && <MonitorsStripLink />}
+
+      <div className="mt-auto flex flex-col items-center gap-1">
+        <ConnectionDot />
+        {onToggle && <PaneToggle collapsed onToggle={onToggle} />}
+      </div>
+    </nav>
+  );
+}
+
+/** One icon, one name, one tooltip — the strip's whole vocabulary. */
+function StripAction({
+  label,
+  icon,
+  onClick,
+  disabled,
+}: {
+  label: string;
+  icon: ReactNode;
+  onClick: () => void;
+  disabled?: boolean;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <button
+          type="button"
+          onClick={onClick}
+          disabled={disabled}
+          aria-label={label}
+          className="focus-ring flex size-8 items-center justify-center rounded-md text-muted-foreground transition-colors duration-150 hover:bg-accent/60 hover:text-foreground disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          {icon}
+        </button>
+      </TooltipTrigger>
+      <TooltipContent side="right" className="text-meta">
+        {label}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+function StripLink({
+  to,
+  label,
+  icon,
+  current,
+  badge,
+}: {
+  to: string;
+  label: string;
+  icon: ReactNode;
+  current: boolean;
+  badge?: ReactNode;
+}) {
+  return (
+    <Tooltip>
+      <TooltipTrigger asChild>
+        <Link
+          to={to}
+          aria-label={label}
+          aria-current={current ? "page" : undefined}
+          className={cn(
+            "focus-ring relative flex size-8 items-center justify-center rounded-md transition-colors duration-150 hover:bg-accent/60 hover:text-foreground",
+            current ? "bg-accent text-foreground" : "text-muted-foreground",
+          )}
+        >
+          {icon}
+          {badge}
+        </Link>
+      </TooltipTrigger>
+      <TooltipContent side="right" className="text-meta">
+        {label}
+      </TooltipContent>
+    </Tooltip>
+  );
+}
+
+/**
+ * Monitors on the strip, carrying the same one fact its full-width link
+ * carries — that there is a data load this browser has not been briefed
+ * on. As a dot rather than "New load", and NOT as a count, for the same
+ * reason stated on `MonitorsLink`: a number here would be a promise about
+ * a brief nobody has walked yet. The name says it out loud, because a dot
+ * on an icon is invisible to a reader who cannot see it.
+ */
+function MonitorsStripLink() {
+  const newest = useSessionStore((s) => s.connection.newestWatermarkId);
+  const stored = useSyncExternalStore(
+    noopSubscribe,
+    () => hasUnseenLoad(newest),
+    () => false,
+  );
+  const here = useLocation().pathname === "/monitors";
+  const unseen = stored && !here;
+
+  return (
+    <StripLink
+      to="/monitors"
+      label={unseen ? "Monitors — there is a data load you have not read" : "Monitors"}
+      current={here}
+      icon={<Stethoscope aria-hidden className="size-3.5" />}
+      badge={
+        unseen ? (
+          <span
+            aria-hidden
+            className="integrity-dot absolute right-1 top-1 size-1.5 rounded-full bg-verified"
+          />
+        ) : undefined
+      }
+    />
   );
 }
 
