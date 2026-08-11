@@ -1050,7 +1050,9 @@ describe("AnswerCard — a caution is printed once, not twice", () => {
     // reassurance twice under the prose it annotates.
     expect(
       screen.getByText(
-        /repeated a caution this answer already carries, so it is not printed twice/,
+        // Count-agnostic: the folded sentence count follows the captured
+        // fixture's own message, which may be one sentence or several.
+        /repeated (a caution|cautions) this answer already carries, so (it is|they are) not printed twice/,
       ),
     ).toBeInTheDocument();
   });
