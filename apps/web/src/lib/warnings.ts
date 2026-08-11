@@ -190,6 +190,7 @@ export const WARNING_TITLES: Readonly<Record<string, string>> = {
   // keeps the rates honest.
   DEEP_RESEARCH_CENSORING: "Still-open cases are not counted either way",
   DEEP_RESEARCH_NO_PRIOR: "Only your own data was used",
+  DEEP_RESEARCH_CHASE_GATED: "Some follow-up readings were not taken",
   /* -- what the platform did with the answer (does not change it) ---- */
   SUPPRESSION_APPLIED: "Small cells were suppressed",
   NARRATIVE_REDACTED: "A sentence was cut from the write-up",

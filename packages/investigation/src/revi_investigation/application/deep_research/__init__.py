@@ -57,6 +57,11 @@ from revi_investigation.application.deep_research.general import (
     walk_fingerprint,
 )
 from revi_investigation.application.deep_research.general_llm import LlmGeneralPlanner
+from revi_investigation.application.deep_research.general_report import (
+    GeneralizedReportDraft,
+    build_generalized_report,
+    planned_reading_payloads,
+)
 from revi_investigation.application.deep_research.grammar import (
     STANDING_ANGLES,
     AngleFamily,
@@ -82,6 +87,7 @@ from revi_investigation.application.deep_research.loop import (
     Orientation,
     ResearchOrienter,
     ResearchPreview,
+    ResearchProgressUpdate,
     ResearchRound,
     default_window,
     gate_chases,
@@ -124,6 +130,7 @@ __all__ = [
     "DenialRowSource",
     "DenialRows",
     "GeneralPlanner",
+    "GeneralizedReportDraft",
     "GeneralizedResearchLoop",
     "KnowledgeConsultation",
     "Lead",
@@ -140,6 +147,7 @@ __all__ = [
     "ResearchOrienter",
     "ResearchPolicy",
     "ResearchPreview",
+    "ResearchProgressUpdate",
     "ResearchRound",
     "ResearchWalk",
     "Stratum",
@@ -147,6 +155,7 @@ __all__ = [
     "TimeStep",
     "WalkStep",
     "as_prompt_context",
+    "build_generalized_report",
     "consult",
     "default_window",
     "gate_chases",
@@ -154,6 +163,7 @@ __all__ = [
     "leads_of",
     "normalize_measure_angle",
     "plan_fingerprint",
+    "planned_reading_payloads",
     "round_words",
     "standing_angles",
     "standing_plan",

@@ -698,6 +698,138 @@ def _generalized_research_strings() -> Iterator[tuple[str, str]]:
             yield f"deep_research.general.normalize_measure_angle[{shape}]", reason
 
 
+def _generalized_report_strings() -> Iterator[tuple[str, str]]:
+    """Every sentence a research STUDY's report says out loud.
+
+    Registered the day the study started publishing. The report composes
+    the verdict under each reading, the ceiling census, the censoring
+    disclosure and the header line, and each one interpolates a measure
+    name, a group label or a count — which is exactly the shape that reads
+    cleanly as a template and fails once it is called ("nothing separated
+    on claim_type" reached a walk step this way).
+
+    The composer's own prose is not here and cannot be: it does not exist
+    until a call is made, and it is held to the contract by the grounding
+    validator and by the template that forbids a raw measure id.
+    """
+    from decimal import Decimal
+
+    from revi_investigation.application.deep_research import general_report as study
+
+    for name in dir(study):
+        if name.startswith("_"):
+            continue
+        value = getattr(study, name)
+        # `is_copy` is what separates a sentence from a branch handle: the
+        # coded warning prefixes below are wire tokens a client matches on,
+        # and the sentence after the colon is the part held to the contract.
+        if isinstance(value, str) and is_copy(value):
+            yield f"deep_research.general_report.{name}", value
+
+    for path, function in _REPORT_COPY_SITES:
+        if not path.exists():  # pragma: no cover - defensive
+            continue
+        for text in literals_of(path, function):
+            if not is_copy(text) or text.strip().startswith(("%", "{")):
+                continue
+            yield f"{path.name}::{function}", text
+
+    yield (
+        "deep_research.general_report.trend_words[rising]",
+        study.trend_words(
+            measure="denial rate",
+            first_label="Aug 2025",
+            first="12.8%",
+            last_label="Aug 2026",
+            last="15.1%",
+            rising=True,
+        ),
+    )
+    yield (
+        "deep_research.general_report.trend_words[flat]",
+        study.trend_words(
+            measure="days in A/R",
+            first_label="Aug 2025",
+            first="47.2 days",
+            last_label="Aug 2026",
+            last="47.2 days",
+            rising=None,
+        ),
+    )
+    yield (
+        "deep_research.general_report.spread_words",
+        study.spread_words(
+            high_label="Veritas Comp Fund",
+            high="12.0 days",
+            low_label="Atlas Commercial",
+            low="5.4 days",
+        ),
+    )
+    yield (
+        "deep_research.general_report.flat_words",
+        study.flat_words(measure="days to pay", value="12.0 days", groups=2),
+    )
+    yield (
+        "deep_research.general_report.single_figure_words",
+        study.single_figure_words(
+            measure="A/R over 90", label="every open claim", value="44.6%"
+        ),
+    )
+    yield (
+        "deep_research.general_report.gap_words",
+        study.gap_words(
+            left_label="Northbridge Commercial",
+            left="29.1%",
+            right_label="Lakewood Medicaid MCO",
+            right="12.4%",
+            difference=Decimal("0.167"),
+        ),
+    )
+    yield (
+        "deep_research.general_report.ceiling_census_words",
+        study.ceiling_census_words(bounded=4, total=12, title="denial rate by plan"),
+    )
+    yield (
+        "deep_research.general_report.chase_gated_words",
+        study.chase_gated_words(dropped=2),
+    )
+    yield (
+        "deep_research.general_report.round_reason_words",
+        study.round_reason_words(
+            index=1, reason="the payer spread was decisive — cutting inside it next"
+        ),
+    )
+    yield (
+        "deep_research.general_report.header_words",
+        study.header_words(
+            population="everything in your data",
+            window="Aug 5, 2025 through Aug 2, 2026",
+            load="the load through Aug 2, 2026",
+        ),
+    )
+    for statement in study.censoring_words(
+        readings=3,
+        measured=28,
+        bounded=4,
+        withheld=2,
+        population=5398,
+        data_edge="Aug 2, 2026",
+    ):
+        yield "deep_research.general_report.censoring_words", statement
+
+
+#: The study report's composition sites, read literal-by-literal.
+_REPORT_COPY_SITES: tuple[tuple[Path, str], ...] = tuple(
+    (
+        REPO_ROOT
+        / "packages/investigation/src/revi_investigation/application/deep_research"
+        / "general_report.py",
+        function,
+    )
+    for function in ("_settled", "_contrast_payload", "_figure", "_display", "_basis_label")
+)
+
+
 #: The research copy sites, read literal-by-literal. Named here rather than
 #: inline so an unwalked one is a diff nobody can miss.
 _RESEARCH_COPY_SITES: tuple[tuple[Path, str], ...] = tuple(
@@ -936,6 +1068,7 @@ def client_strings() -> list[tuple[str, str]]:
         _deep_research_strings,
         _deep_research_content_strings,
         _generalized_research_strings,
+        _generalized_report_strings,
     )
     out: list[tuple[str, str]] = []
     for collector in collectors:

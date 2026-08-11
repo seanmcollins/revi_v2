@@ -44,7 +44,10 @@ from revi_api.deep_research import (
     DEEP_RESEARCH_TRACE_SUFFIX,
     DeepResearchApi,
 )
-from revi_api.deep_research_narrative import compose_report_narrative
+from revi_api.deep_research_narrative import (
+    compose_determination,
+    compose_report_narrative,
+)
 from revi_api.error_copy import budget_subcode, plain_message
 from revi_api.monitor_intent import (
     MonitorDeclaration,
@@ -537,6 +540,21 @@ class ApiService:
                 )
                 return text
 
+            async def determine(
+                *,
+                draft: Any,
+                warnings: Any,
+                emit: Any,
+            ) -> tuple[str, bool]:
+                text, composed, _ = await compose_determination(
+                    llm=components.llm,
+                    draft=draft,
+                    warnings=warnings,
+                    emit=emit,
+                    metric_display=components.metric_display.names,
+                )
+                return text, composed
+
             self._research = DeepResearchApi(
                 service=components.deep_research,
                 investigations=components.investigations,
@@ -545,6 +563,7 @@ class ApiService:
                 pack_version=components.pack_port.pack_version,
                 pack_snapshot_id=components.pack_port.snapshot_id,
                 compose=compose,
+                compose_research=determine,
                 research=components.research_loop,
                 catalog=components.catalog,
             )

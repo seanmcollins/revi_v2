@@ -22,12 +22,22 @@ import { cn } from "@/lib/utils";
  * The engine's own vocabulary — the estimator's handle, the content hash of
  * the read — is kept VERBATIM behind an ordinary disclosure, exactly as the
  * Evidence drawer keeps a probe hash. Truth relocates; it never deletes.
+ *
+ * THE NOUNS FOLLOW THE RUN. A recoverability review reads DENIALS and
+ * publishes populations it could or could not price; a study reads whatever
+ * its measures are grained at — claims, remits, lines — and publishes
+ * groups. Printing "26 denials read" over a study of A/R aging would name a
+ * population that run never opened, which is the same defect the run's own
+ * population label exists to prevent, one rail to the right.
  */
 export function ResearchEvidence({
   evidence,
+  mode = "review",
   className,
 }: {
   evidence: readonly ResearchAngleEvidence[];
+  /** `review` reads denials; `study` reads whatever its measures count. */
+  mode?: "review" | "study";
   className?: string;
 }) {
   if (evidence.length === 0) return null;
@@ -45,19 +55,42 @@ export function ResearchEvidence({
       </h3>
       <ul className="space-y-1.5">
         {evidence.map((angle, index) => (
-          <AngleNode key={`${angle.title}-${index}`} angle={angle} index={index + 1} />
+          <AngleNode
+            key={`${angle.title}-${index}`}
+            angle={angle}
+            index={index + 1}
+            mode={mode}
+          />
         ))}
       </ul>
       <p className="num text-micro leading-snug text-muted-foreground">
-        {formatCount(read)} denials read · {formatCount(refused)} cell
-        {refused === 1 ? "" : "s"} refused across {formatCount(evidence.length)} angle
-        {evidence.length === 1 ? "" : "s"}
+        {mode === "study" ? (
+          <>
+            {formatCount(read)} records read · {formatCount(refused)} group
+            {refused === 1 ? "" : "s"} not published across {formatCount(evidence.length)} reading
+            {evidence.length === 1 ? "" : "s"}
+          </>
+        ) : (
+          <>
+            {formatCount(read)} denials read · {formatCount(refused)} cell
+            {refused === 1 ? "" : "s"} refused across {formatCount(evidence.length)} angle
+            {evidence.length === 1 ? "" : "s"}
+          </>
+        )}
       </p>
     </section>
   );
 }
 
-function AngleNode({ angle, index }: { angle: ResearchAngleEvidence; index: number }) {
+function AngleNode({
+  angle,
+  index,
+  mode,
+}: {
+  angle: ResearchAngleEvidence;
+  index: number;
+  mode: "review" | "study";
+}) {
   const debug = useSessionStore((s) => s.settings.debug);
   const [open, setOpen] = useState(false);
   const detailId = useId();
@@ -90,15 +123,30 @@ function AngleNode({ angle, index }: { angle: ResearchAngleEvidence; index: numb
       </button>
       {open && (
         <div id={detailId} className="space-y-1 border-t px-2.5 py-2 pl-7 text-meta">
-          <p className="num text-muted-foreground">
-            {formatCount(angle.rows_read)} denials read · {formatCount(angle.rows_in_scope)} with a
-            final answer from the payer
-          </p>
-          <p className="num text-muted-foreground">
-            {formatCount(angle.cells_published)} population
-            {angle.cells_published === 1 ? "" : "s"} published ·{" "}
-            {formatCount(angle.cells_refused)} too small to publish a rate for
-          </p>
+          {mode === "study" ? (
+            <>
+              <p className="num text-muted-foreground">
+                {formatCount(angle.rows_read)} records read
+              </p>
+              <p className="num text-muted-foreground">
+                {formatCount(angle.cells_published)} group
+                {angle.cells_published === 1 ? "" : "s"} published ·{" "}
+                {formatCount(angle.cells_refused)} too small to publish a figure for
+              </p>
+            </>
+          ) : (
+            <>
+              <p className="num text-muted-foreground">
+                {formatCount(angle.rows_read)} denials read ·{" "}
+                {formatCount(angle.rows_in_scope)} with a final answer from the payer
+              </p>
+              <p className="num text-muted-foreground">
+                {formatCount(angle.cells_published)} population
+                {angle.cells_published === 1 ? "" : "s"} published ·{" "}
+                {formatCount(angle.cells_refused)} too small to publish a rate for
+              </p>
+            </>
+          )}
           {/* The engine's own record, verbatim — the estimator that ran and
               the content hash of the read it ran over. Behind a disclosure
               the reader opened, which is where raw records belong. */}

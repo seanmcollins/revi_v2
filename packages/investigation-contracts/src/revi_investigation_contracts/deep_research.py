@@ -60,19 +60,30 @@ __all__ = [
     "DeepResearchStatusLiteral",
     "DeepResearchStreamEvent",
     "DeepResearchSummary",
+    "DeterminationPayload",
     "EvidenceTierLiteral",
     "ExpectedRecoveryRowPayload",
     "GeneralizedResearchPreviewPayload",
+    "GeneralizedResearchReport",
     "HeadlinePayload",
     "IntervalPayload",
     "MoneyIntervalPayload",
     "PlannedReadingPayload",
     "RateBasisLiteral",
     "RateCellPayload",
+    "ReportKindLiteral",
     "ResearchAnglePayload",
+    "ResearchCensoringPayload",
+    "ResearchFigurePartPayload",
+    "ResearchFigurePayload",
     "ResearchPathChoicePayload",
     "ResearchPlanPayload",
+    "ResearchReadingPayload",
+    "ResearchRoundPayload",
     "ResearchShapeLiteral",
+    "ResearchWalkActionLiteral",
+    "ResearchWalkPayload",
+    "ResearchWalkStepPayload",
     "SelectorKindLiteral",
     "StartDeepResearchRequest",
     "StratumLiteral",
@@ -145,6 +156,7 @@ DeepResearchPhaseLiteral = Literal[
 DeepResearchEventKind = Literal[
     "research_started",
     "research_plan",
+    "research_readings",
     "research_progress",
     "research_finding",
     "research_warning",
@@ -158,6 +170,10 @@ DeepResearchEventKind = Literal[
 DEEP_RESEARCH_EVENT_PAYLOADS: dict[str, str] = {
     "research_started": "the run's id, the data load it is pinned to, and the population it targets",
     "research_plan": "the angles this run will look at, in the order it will look at them",
+    "research_readings": (
+        "a research study's opening readings, each with the reason it is in the run — "
+        "the generalized twin of the plan frame, sent as soon as the readings are chosen"
+    ),
     "research_progress": "which angle is running, how far along, and how long it has taken",
     "research_finding": "one certified result, the moment it is measured",
     "research_warning": "a qualification a reader needs before reading the numbers",
@@ -165,6 +181,15 @@ DEEP_RESEARCH_EVENT_PAYLOADS: dict[str, str] = {
     "error": "the run stopped; nothing partial is published",
     "research_complete": "the finished report",
 }
+
+#: Which of the two report shapes a run produced. The recoverability review
+#: answers one standing question about open denials and publishes
+#: :class:`DeepResearchReport`; a research question is a study and publishes
+#: :class:`GeneralizedResearchReport`. They are different artifacts because
+#: they answer different kinds of question, and flattening them into one
+#: shape would mean either a study carrying an expected-recovery headline it
+#: never computed or a review losing the one it exists for.
+ReportKindLiteral = Literal["recovery", "generalized"]
 
 
 # ---------------------------------------------------------------------------
@@ -594,6 +619,274 @@ class GeneralizedResearchPreviewPayload(ClosedModel):
     refusal: str = ""
 
 
+# ---------------------------------------------------------------------------
+# the generalized research report
+#
+# A study is not a recoverability review, and this is where that stops being
+# a sentence in a design document. The review answers one standing question
+# — of what is still open, how much is coming back — so its report is a
+# priced headline with the populations behind it. A research question
+# ("why has our A/R over 90 been climbing, and what will it take to bring it
+# down") has no headline dollar figure to be the answer, and inventing one
+# would be the first dishonest number in the artifact. What it has instead
+# is a DETERMINATION, the readings that support it, and the record of how
+# the run got from one to the other.
+#
+# The two shapes are additive on the wire and discriminated by
+# ``ReportKindLiteral``. Nothing about the recovery shape moves.
+
+
+#: What a walk step DID. Mirrors the loop's own vocabulary, closed so a
+#: client can render each action in its own words rather than printing a
+#: token it does not recognise.
+ResearchWalkActionLiteral = Literal[
+    "orient", "consult", "plan", "execute", "chase", "broaden", "drop", "refuse", "synthesize"
+]
+
+
+class ResearchFigurePartPayload(ClosedModel):
+    """One ``breakdown = value`` pair behind a figure, in both spellings.
+
+    The raw value is what the data holds and what a later round narrowed
+    on; the label is what the reader saw. A denial reason cell reads
+    ``16 — Missing or invalid information`` over a column holding ``16``,
+    and a client that had only one of the two could either render a bare
+    code or lose the ability to say which column it came from.
+    """
+
+    dimension: str
+    dimension_label: str
+    value: str
+    value_label: str
+
+
+class ResearchFigurePayload(ClosedModel):
+    """One certified figure of one reading, with its marks already on it.
+
+    The same two-state rule the recovery report's rate cells obey, applied
+    to any governed measure: a figure is either a measurement — ``value``
+    present, ``evidence`` ``measured`` — or it is not, and there is no
+    third state. A ceiling carries ``bounded`` and its ``value`` is the
+    largest it could have been rather than what it is; a withheld cell
+    carries no value at all. ``display`` is the figure already formatted in
+    its measure's own unit, so no client re-derives dollars from cents or
+    a percentage from a ratio.
+    """
+
+    label: str
+    parts: list[ResearchFigurePartPayload] = Field(default_factory=list)
+    evidence: EvidenceTierLiteral
+    #: Exact decimal text, never a float. ``None`` where nothing was
+    #: published — the small-population rule withheld the row.
+    value: str | None = None
+    #: The figure in its own unit, or the words that stand in for one.
+    display: str
+    #: True when the true value was withheld and this is a ceiling.
+    bounded: bool = False
+    #: True when the small-population rule nulled the row outright.
+    withheld: bool = False
+    #: The population this figure is a rate OVER, where the measure is a
+    #: ratio whose denominator counts one. Absent for an additive measure,
+    #: where "the population" is not a thing the number has.
+    population: int | None = None
+    successes: int | None = None
+    interval: IntervalPayload | None = None
+
+
+class ResearchReadingPayload(ClosedModel):
+    """One reading a study took: what it read, why, and what it settled.
+
+    The ``reason`` is the sentence that put this reading in the run — the
+    planner's own, or the deterministic reader's. The ``settled`` sentence
+    is what came back, composed from published figures only. A reading
+    whose reason and verdict are both absent is a table with no argument
+    around it, which is what a research report must never be.
+    """
+
+    #: Stable within one report, so the walk and the determination can
+    #: point at a reading without repeating its title.
+    id: str
+    shape: ResearchShapeLiteral
+    title: str
+    #: The measure this reading is of, by its display name.
+    measure_label: str
+    #: The measure's contract id. Provenance, not copy — the same role
+    #: ``FindingPayload.metric_ids`` plays.
+    metric_id: str
+    #: The declared unit its figures are in (``money_cents``, ``ratio``, …).
+    unit: str
+    reason: str
+    #: What this reading settled, in one sentence over published figures.
+    #: Empty where it settled nothing, which is itself a fact the walk says.
+    settled: str = ""
+    #: Which read-and-decide round chose it. 0 is the opening read.
+    round: int = 0
+    #: The reading whose result sent the run here, when one did.
+    chases: str = ""
+    figures: list[ResearchFigurePayload] = Field(default_factory=list)
+    #: Present on a comparison over outcome-like data, with its test.
+    contrast: ContrastPayload | None = None
+    #: The chart drawn for this reading, when one could be drawn honestly.
+    chart_id: str = ""
+    #: These figures were ORDERED BY THE MEASURE — published as the
+    #: ordering it is, so a renderer reads a league table down a column.
+    ranked: bool = False
+    #: Set when the reading could not be ordered honestly.
+    ranking_refused: str = ""
+    notes: list[str] = Field(default_factory=list)
+    #: Why this reading could not be taken, when it could not.
+    refusal: str = ""
+    # -- provenance, complete, per reading -------------------------------
+    window_label: str = ""
+    #: Which date the reading was measured on, in a reader's words.
+    basis_label: str = ""
+    read_fingerprint: str = ""
+    rows_read: int = 0
+    figures_published: int = 0
+    figures_withheld: int = 0
+    cache_hit: bool = False
+    duration_ms: int = 0
+
+
+class ResearchWalkStepPayload(ClosedModel):
+    """One decision the run made, with its stated reason."""
+
+    round: int
+    action: ResearchWalkActionLiteral
+    subject: str
+    reason: str
+    detail: str = ""
+
+
+class ResearchRoundPayload(ClosedModel):
+    """One read-and-decide round: what it did, and why it exists."""
+
+    index: int
+    #: Why this round happened at all — the sentence that decided it. Empty
+    #: on the opening round, which needs no cause beyond the question.
+    reason: str = ""
+    steps: list[ResearchWalkStepPayload] = Field(default_factory=list)
+    #: The readings this round took, by id.
+    readings: list[str] = Field(default_factory=list)
+
+
+class ResearchWalkPayload(ClosedModel):
+    """How the run got here — the "how I got there" a consultant shows.
+
+    The recorded walk IS the plan (``docs/agentic-resolution.md``): what a
+    permalink restores, what replay re-executes, what the harness audits.
+    Publishing it is what lets a reader see that a chase was a decision
+    with a cause rather than an extra table that appeared.
+    """
+
+    rounds_taken: int = 1
+    #: How many rounds the question's composition depth earned.
+    rounds_allowed: int = 1
+    #: ``model`` when the control plane chose the readings, ``revi`` when
+    #: the run fell back to its standing set.
+    authored_by: Literal["model", "revi"] = "revi"
+    rationale: str = ""
+    rounds: list[ResearchRoundPayload] = Field(default_factory=list)
+
+
+class ResearchCensoringPayload(ClosedModel):
+    """What the edge of the data cost a study's outcome-like readings.
+
+    Published only where outcome-like data was involved — a rate whose
+    denominator counts the population its numerator is drawn from. Over
+    dollars or days there is no population to be censored out of, and a
+    censoring block beside those figures would be a disclosure about
+    nothing.
+
+    Nothing here is modelled. Every count is read off the certified
+    figures, and the statements are composed beside the counts they quote.
+    """
+
+    data_edge_date: date
+    window_label: str
+    #: Readings whose figures are rates over a counted population.
+    readings_over_outcomes: int
+    #: Figures those readings published as measurements.
+    figures_measured: int
+    #: …as ceilings, because the true value was withheld.
+    figures_bounded: int
+    #: …not at all, because the population was too small to publish.
+    figures_withheld: int
+    #: The size of the populations the measured figures are over, summed.
+    population_measured: int
+    #: The disclosure in the words a reader gets, one sentence per line.
+    statements: list[str] = Field(default_factory=list)
+
+
+class DeterminationPayload(ClosedModel):
+    """The answer to the research question — the artifact's first claim.
+
+    Composed under the same discipline every other answer's prose is: the
+    composer is shown the question and told its first sentence must answer
+    it, it may cite only certified readings, and every figure it writes is
+    checked against a value some estimator actually produced. What is
+    different is what else it is shown — the walk's own reasons, and the
+    background notes as QUOTABLE CONTEXT. A note may inform how the answer
+    is framed; it can never be a number, and the grounding validator is
+    what makes that true rather than requested.
+    """
+
+    question: str
+    #: The determination, disclosures first. Empty only where nothing could
+    #: be composed, in which case the disclosures stand alone.
+    statement: str = ""
+    #: True when a composer wrote the body. False means the disclosures are
+    #: the whole of it — an honest state, and a different one.
+    composed: bool = False
+    #: The readings this determination rests on, by id.
+    rests_on: list[str] = Field(default_factory=list)
+
+
+class GeneralizedResearchReport(ClosedModel):
+    """A finished research study — the artifact a link points at.
+
+    Everything a reader needs to check the determination is here: every
+    reading with the reason it was taken and what it settled, every figure
+    with its marks and the read behind it, the walk with its chases, what
+    was established about the data before anything was chosen, and which
+    background notes were consulted.
+    """
+
+    #: The discriminator. A recovery report carries no ``kind`` at all, so
+    #: its bytes are unchanged; a client reads this field's presence.
+    kind: Literal["generalized_research"] = "generalized_research"
+    id: str
+    #: The question the report answers, first sentence first.
+    research_question: str
+    population: DeepResearchSelector
+    #: WHAT THIS RUN READ, in the words a study can use — not the
+    #: recoverability review's own population noun.
+    population_label: str = ""
+    #: The period it read, in a reader's words.
+    window_label: str = ""
+    #: The load these numbers were read at, in words a reader can use.
+    data_load_label: str = ""
+    data_edge_date: date
+    created_at: datetime
+    completed_at: datetime | None = None
+    duration_ms: int = 0
+
+    determination: DeterminationPayload
+    readings: list[ResearchReadingPayload] = Field(default_factory=list)
+    walk: ResearchWalkPayload
+    #: What was established about the data before anything was chosen.
+    path_choices: list[ResearchPathChoicePayload] = Field(default_factory=list)
+    #: One sentence naming what was consulted, or that nothing spoke to it.
+    knowledge_statement: str = ""
+    knowledge_consulted: list[ConsultedNotePayload] = Field(default_factory=list)
+    #: Present when outcome-like data was involved, absent when it was not.
+    censoring: ResearchCensoringPayload | None = None
+
+    findings: list[FindingPayload] = Field(default_factory=list)
+    charts: list[ChartSpec] = Field(default_factory=list)
+    warnings: list[WarningPayload] = Field(default_factory=list)
+
+
 class DeepResearchPreviewPayload(ClosedModel):
     """What a run WOULD do, resolved without doing any of it.
 
@@ -669,8 +962,23 @@ class DeepResearchRunResponse(ClosedModel):
     created_at: datetime
     population: DeepResearchSelector
     data_load_label: str
+    #: What this run is answering, from the moment it starts.
+    #:
+    #: Present on a run that carries a research question, empty on the
+    #: standing recoverability review — which is a question nobody typed
+    #: and is described by its population instead. A waiting room that had
+    #: only the population to go on called a study of A/R aging "every open
+    #: denial" for its whole minute, which is a population it never opens.
+    research_question: str = ""
     progress: DeepResearchProgressPayload
+    #: The recoverability review's report. Unchanged, byte for byte.
     report: DeepResearchReport | None = None
+    #: A research study's report. At most one of these two is ever set, and
+    #: ``report_kind`` says which — the run response is the discriminated
+    #: payload, so a client branches on a field rather than on the shape it
+    #: happens to receive.
+    research_report: GeneralizedResearchReport | None = None
+    report_kind: ReportKindLiteral | None = None
     #: Why a run stopped, when it did not finish.
     error: str | None = None
     #: Set only on a ``plan_only`` request: what a run WOULD do, with
@@ -690,6 +998,9 @@ class DeepResearchSummary(ClosedModel):
     population: DeepResearchSelector
     data_load_label: str
     total_expected_cents: int | None = None
+    #: Which artifact this run produced, so a list can label a study as a
+    #: study rather than showing it an empty expected-recovery column.
+    report_kind: ReportKindLiteral | None = None
 
 
 class DeepResearchListResponse(ClosedModel):

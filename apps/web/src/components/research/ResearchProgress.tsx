@@ -58,7 +58,17 @@ export function ResearchProgress({ state }: { state: ResearchWatchState }) {
   const titles = angleTitles(state);
   const total = progress.angle_total || titles.length;
   const done = Math.min(progress.angle_index, total);
-  const population = populationLabel(run.population);
+  /**
+   * WHAT THIS RUN IS ABOUT, from the moment it starts.
+   *
+   * A study is about the QUESTION and reads whatever answers it; the
+   * recoverability review is about a population and answers a question
+   * nobody typed. With only the population to go on, a study of A/R aging
+   * spent its whole minute headed "every open denial" — a population it
+   * never opens.
+   */
+  const asked = run.research_question ?? "";
+  const population = asked !== "" ? asked : populationLabel(run.population);
   const failed = run.status === "failed" || run.status === "interrupted";
   const rows = researchPhaseRows(progress, run.status);
   const round = progress.round_index ?? 0;
@@ -78,6 +88,12 @@ export function ResearchProgress({ state }: { state: ResearchWatchState }) {
         <h2 id="research-progress-heading" className="mt-1 text-lead font-medium">
           {failed ? "This run stopped" : "Working through"} {population}
         </h2>
+        {asked !== "" && (
+          <p className="mt-0.5 text-meta leading-snug text-muted-foreground">
+            Revi is measuring what your data can say about this, then going after whatever
+            separates.
+          </p>
+        )}
         {run.data_load_label !== "" && (
           <p className="num mt-0.5 text-micro text-muted-foreground">
             Every number in this report is read at {run.data_load_label}.
@@ -203,13 +219,24 @@ export function ResearchProgress({ state }: { state: ResearchWatchState }) {
               >
                 What it is looking at
               </h3>
-              <ul className="mt-1.5 space-y-1">
-                {titles.map((angle) => {
-                  const complete = angle.lastIndex < done;
+              <ul className="mt-1.5 space-y-1.5">
+                {titles.map((angle, index) => {
+                  /* A STUDY'S READINGS ARRIVE AS THEY ARE TAKEN, so every
+                     one on this list has already been measured except the
+                     newest — which is the one the progress frame is
+                     describing right now. A study therefore ticks off by
+                     position in the list, while the review's plan (which
+                     arrives whole, at the end) ticks off by the angle
+                     counter. Two honest inputs; the one that exists wins. */
+                  const complete =
+                    angle.reason === undefined
+                      ? angle.lastIndex < done
+                      : index < titles.length - 1 || !isRunning(run.status);
                   return (
                     <li
                       key={`${angle.title}-${angle.lastIndex}`}
                       data-angle-done={complete ? "true" : "false"}
+                      data-angle-round={angle.round}
                       className="flex items-baseline gap-1.5 text-meta leading-snug"
                     >
                       <span
@@ -227,6 +254,20 @@ export function ResearchProgress({ state }: { state: ResearchWatchState }) {
                           <span className="num text-muted-foreground">
                             {" · "}
                             {angle.cuts} cuts
+                          </span>
+                        )}
+                        {/* WHY IT IS BEING READ. The platform wrote this
+                            sentence when it chose the reading; a checklist
+                            that showed only titles would be a list of what
+                            happened rather than a record of what was
+                            decided — and on a run that goes back for more,
+                            the reason is the whole of what changed. */}
+                        {angle.reason !== undefined && angle.reason !== "" && (
+                          <span className="block text-micro leading-snug text-muted-foreground">
+                            {angle.round !== undefined && angle.round > 0 && (
+                              <span className="num">Round {formatCount(angle.round)} — </span>
+                            )}
+                            {angle.reason}
                           </span>
                         )}
                       </span>

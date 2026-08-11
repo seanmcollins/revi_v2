@@ -30,6 +30,7 @@ import asyncio
 import contextlib
 import json
 import logging
+import time
 import uuid
 from collections.abc import AsyncIterator, Mapping, Sequence
 from dataclasses import dataclass, field
@@ -44,10 +45,16 @@ from revi_catalog_contracts.model import CatalogSnapshot
 from revi_investigation.application.deep_research import (
     DeepResearchProgress,
     DeepResearchService,
+    GeneralizedReportDraft,
     GeneralizedResearchLoop,
     PopulationKind,
+    ResearchProgressUpdate,
     TargetPopulation,
+    build_generalized_report,
+    planned_reading_payloads,
 )
+from revi_investigation.application.deep_research.general import walk_fingerprint
+from revi_investigation.application.deep_research.loop import population_words
 from revi_investigation.application.deep_research.report import plan_payload_of
 from revi_investigation.application.deep_research.rows import DeepResearchReadRefused
 from revi_investigation.application.ports import (
@@ -75,6 +82,7 @@ from revi_investigation_contracts.deep_research import (
     DeepResearchSelector,
     DeepResearchSummary,
     GeneralizedResearchPreviewPayload,
+    GeneralizedResearchReport,
     StartDeepResearchRequest,
 )
 from revi_kernel.errors import (
@@ -139,11 +147,19 @@ class RunState:
     created_at: datetime
     population: DeepResearchSelector
     data_load_label: str
+    #: What this run is answering, known before anything runs. Empty on the
+    #: standing review, which is a question nobody typed.
+    research_question: str = ""
     status: str = "planning"
     progress: DeepResearchProgressPayload = field(
         default_factory=lambda: DeepResearchProgressPayload(phase="plan")
     )
     report: DeepResearchReport | None = None
+    #: A research study's report. At most one of the two is ever set; a run
+    #: that produced neither has produced nothing, which is what a failed or
+    #: in-flight run has.
+    research_report: GeneralizedResearchReport | None = None
+    report_kind: str | None = None
     error: str | None = None
     frames: list[tuple[str, dict[str, Any]]] = field(default_factory=list)
     watchers: list[_Watcher] = field(default_factory=list)
@@ -157,8 +173,11 @@ class RunState:
             created_at=self.created_at,
             population=self.population,
             data_load_label=self.data_load_label,
+            research_question=self.research_question,
             progress=self.progress,
             report=self.report,
+            research_report=self.research_report,
+            report_kind=self.report_kind,  # type: ignore[arg-type]
             error=self.error,
         )
 
@@ -252,6 +271,7 @@ class DeepResearchApi:
         pack_version: str,
         pack_snapshot_id: str,
         compose: Any = None,
+        compose_research: Any = None,
         research: GeneralizedResearchLoop | None = None,
         catalog: CatalogSnapshot | None = None,
     ) -> None:
@@ -262,6 +282,11 @@ class DeepResearchApi:
         self._pack_version = pack_version
         self._pack_snapshot_id = pack_snapshot_id
         self._compose = compose
+        #: The determination composer. Separate from ``compose`` because the
+        #: two write different artifacts from different material — a study's
+        #: composer is shown the walk and the background notes, and an
+        #: answer's is shown neither.
+        self._compose_research = compose_research
         #: The generalized loop, for a request that carries a research
         #: QUESTION rather than the standing recoverability review. Optional
         #: so a deployment with no catalog wired still previews the review.
@@ -389,6 +414,7 @@ class DeepResearchApi:
                 label=request.population.label,
             ),
             data_load_label=label,
+            research_question=(request.question or "").strip(),
         )
         self._runs[run_id] = state
         await self._write_start_trace(state, request, watermark)
@@ -398,6 +424,7 @@ class DeepResearchApi:
                 "id": run_id,
                 "session_id": session.id,
                 "data_load": label,
+                "research_question": state.research_question,
                 "population": state.population.model_dump(mode="json"),
             },
         )
@@ -405,6 +432,19 @@ class DeepResearchApi:
             self._run(state, request, session, watermark, settings, llm_policy)
         )
         return state.response()
+
+    def _studies(self, request: StartDeepResearchRequest) -> bool:
+        """Is this request a research QUESTION rather than the standing review?
+
+        One branch, decided once. A run carrying a question the semantic
+        layer can research is a study and publishes a study's report; a run
+        carrying none is the recoverability review and publishes the
+        review's, byte for byte as it has since M48. The question is the
+        whole of the condition because it is the whole of the difference:
+        the review answers a question nobody typed.
+        """
+        question = (request.question or "").strip()
+        return bool(question) and self._research is not None and self._catalog is not None
 
     async def _run(
         self,
@@ -415,54 +455,37 @@ class DeepResearchApi:
         settings: Any,
         llm_policy: LlmCallPolicy | None,
     ) -> None:
+        """One run, whichever kind it is, inside ONE outcome envelope.
+
+        The envelope is here rather than inside each branch, and that is
+        the whole point of its being here: a run that raises anywhere must
+        end as ``failed`` with its watchers released, and a branch that
+        carried its own try/except would be a second place that promise is
+        made — which is exactly how the generalized branch shipped without
+        one and left a raising study reading "running" forever, with a
+        frozen progress line, a stream nobody closed and an exception
+        nobody retrieved.
+        """
         state.status = "running"
-
-        async def progress(update: DeepResearchProgress) -> None:
-            state.progress = DeepResearchProgressPayload(
-                phase=update.phase,  # type: ignore[arg-type]
-                angle_index=update.angle_index,
-                angle_total=update.angle_total,
-                message=update.message,
-                elapsed_ms=update.elapsed_ms,
-            )
-            await state.emit("research_progress", state.progress.model_dump(mode="json"))
-
         try:
-            result = await self._service.run(
-                run_id=state.id,
-                question=request.question,
-                population=_selector(request),
-                settings=settings,
-                watermark=watermark,
-                pack_snapshot_id=self._pack_snapshot_id,
-                progress=progress,
-                llm_policy=llm_policy or LlmCallPolicy(),
-                created_at=state.created_at,
-            )
-            draft = result.draft
-            report = draft.report
-            await state.emit("research_plan", report.plan.model_dump(mode="json"))
-            for finding in report.findings:
-                await state.emit("research_finding", finding.model_dump(mode="json"))
-
-            warnings: list[WarningPayload] = structured_warnings(draft.warnings)
-            for warning in warnings:
-                await state.emit("research_warning", warning.model_dump(mode="json"))
-
-            narrative = ""
-            if self._compose is not None:
-                narrative = await self._compose(
-                    draft=draft,
-                    warnings=warnings,
-                    emit=lambda delta: state.emit("narrative_delta", {"delta": delta}),
+            if self._studies(request):
+                if await self._run_generalized(
+                    state, request, session, watermark, settings, llm_policy
+                ):
+                    return
+                # The question reached no measure this deployment carries.
+                # The study refused, and the run on offer — the
+                # recoverability review — measures something that refusal
+                # is not about, so it is what runs. The card said exactly
+                # this before the click.
+                logger.info(
+                    "deep research run %s: no measure reached this question; "
+                    "running the review",
+                    state.id,
                 )
-            report = report.model_copy(
-                update={"warnings": warnings, "narrative": narrative}
+            await self._run_recovery(
+                state, request, session, watermark, settings, llm_policy
             )
-            state.report = report
-            state.status = "complete"
-            await self._persist(state, session, result, report)
-            await state.emit("research_complete", report.model_dump(mode="json"))
         except asyncio.CancelledError:
             state.status = "interrupted"
             state.error = "This run was stopped before it finished, so nothing was published."
@@ -480,6 +503,185 @@ class DeepResearchApi:
             await state.emit("error", {"message": state.error})
         finally:
             state.close()
+
+    # -- the generalized study ------------------------------------------------
+
+    async def _run_generalized(
+        self,
+        state: RunState,
+        request: StartDeepResearchRequest,
+        session: Session,
+        watermark: DataWatermark,
+        settings: Any,
+        llm_policy: LlmCallPolicy | None,
+    ) -> bool:
+        """Execute the planned generalized walk. ``False`` if nothing ran.
+
+        The loop owns the walk; this owns the wire. Every round the loop
+        takes becomes progress frames naming the round, every reading
+        becomes part of the report, and the recorded walk is persisted as
+        the plan — which is what makes a permalink restore the study and
+        replay re-execute it without re-deciding anything.
+        """
+        assert self._research is not None and self._catalog is not None
+        started = time.monotonic()
+        #: What the run has been seen reading, in the order it read it. The
+        #: readings frame is re-emitted as the list grows, so a watcher that
+        #: attaches at any point holds the whole list and one that has been
+        #: here since the start sees each reading appear as it is taken.
+        seen: list[dict[str, object]] = []
+
+        async def progress(update: ResearchProgressUpdate) -> None:
+            state.progress = DeepResearchProgressPayload(
+                phase=update.phase,  # type: ignore[arg-type]
+                angle_index=update.reading_index,
+                angle_total=update.reading_total,
+                message=update.message,
+                elapsed_ms=int((time.monotonic() - started) * 1000),
+                round_index=update.round_index,
+                round_total=update.round_total,
+            )
+            await state.emit("research_progress", state.progress.model_dump(mode="json"))
+            if update.reading_title and all(
+                entry["title"] != update.reading_title for entry in seen
+            ):
+                seen.append(
+                    {
+                        "title": update.reading_title,
+                        "reason": update.reading_reason,
+                        "round": update.round_index,
+                        "chases": update.reading_chases,
+                    }
+                )
+                await state.emit("research_readings", {"readings": list(seen)})
+
+        walk, results, orientation = await self._research.run(
+            question=(request.question or "").strip(),
+            population=_selector(request),
+            settings=settings,
+            watermark=watermark,
+            pack_snapshot_id=self._pack_snapshot_id,
+            progress=progress,
+        )
+        if not results:
+            return False
+
+        # The whole list once, now that every reading is known and titled
+        # exactly as the report titles it. A watcher that joined late gets
+        # this frame from the replay buffer and never sees a partial list.
+        await state.emit(
+            "research_readings",
+            {
+                "research_question": walk.question,
+                "authored_by": walk.authored_by,
+                "rationale": walk.rationale,
+                "rounds_planned": walk.budget,
+                "readings": planned_reading_payloads(walk.angles, self._catalog),
+            },
+        )
+
+        completed_at = datetime.now(UTC)
+        duration_ms = int((time.monotonic() - started) * 1000)
+        draft = build_generalized_report(
+            run_id=state.id,
+            walk=walk,
+            results=results,
+            orientation=orientation,
+            settings=settings,
+            catalog=self._catalog,
+            watermark=watermark,
+            population_label=population_words(orientation.population),
+            created_at=state.created_at,
+            completed_at=completed_at,
+            duration_ms=duration_ms,
+        )
+        report = draft.report
+        for finding in report.findings:
+            await state.emit("research_finding", finding.model_dump(mode="json"))
+        warnings: list[WarningPayload] = structured_warnings(draft.warnings)
+        for warning in warnings:
+            await state.emit("research_warning", warning.model_dump(mode="json"))
+
+        determination = ""
+        composed = False
+        if self._compose_research is not None:
+            determination, composed = await self._compose_research(
+                draft=draft,
+                warnings=warnings,
+                emit=lambda delta: state.emit("narrative_delta", {"delta": delta}),
+            )
+        else:  # pragma: no cover - a deployment with no composer wired
+            determination, _ = " ".join(draft.disclosures), False
+        report = report.model_copy(
+            update={
+                "warnings": warnings,
+                "determination": report.determination.model_copy(
+                    update={"statement": determination, "composed": composed}
+                ),
+            }
+        )
+        state.research_report = report
+        state.report_kind = "generalized"
+        state.status = "complete"
+        await self._persist_generalized(state, session, walk, draft, report, watermark)
+        await state.emit("research_complete", report.model_dump(mode="json"))
+        return True
+
+    # -- the recoverability review -------------------------------------------
+
+    async def _run_recovery(
+        self,
+        state: RunState,
+        request: StartDeepResearchRequest,
+        session: Session,
+        watermark: DataWatermark,
+        settings: Any,
+        llm_policy: LlmCallPolicy | None,
+    ) -> None:
+        async def progress(update: DeepResearchProgress) -> None:
+            state.progress = DeepResearchProgressPayload(
+                phase=update.phase,  # type: ignore[arg-type]
+                angle_index=update.angle_index,
+                angle_total=update.angle_total,
+                message=update.message,
+                elapsed_ms=update.elapsed_ms,
+            )
+            await state.emit("research_progress", state.progress.model_dump(mode="json"))
+
+        result = await self._service.run(
+            run_id=state.id,
+            question=request.question,
+            population=_selector(request),
+            settings=settings,
+            watermark=watermark,
+            pack_snapshot_id=self._pack_snapshot_id,
+            progress=progress,
+            llm_policy=llm_policy or LlmCallPolicy(),
+            created_at=state.created_at,
+        )
+        draft = result.draft
+        report = draft.report
+        await state.emit("research_plan", report.plan.model_dump(mode="json"))
+        for finding in report.findings:
+            await state.emit("research_finding", finding.model_dump(mode="json"))
+
+        warnings: list[WarningPayload] = structured_warnings(draft.warnings)
+        for warning in warnings:
+            await state.emit("research_warning", warning.model_dump(mode="json"))
+
+        narrative = ""
+        if self._compose is not None:
+            narrative = await self._compose(
+                draft=draft,
+                warnings=warnings,
+                emit=lambda delta: state.emit("narrative_delta", {"delta": delta}),
+            )
+        report = report.model_copy(update={"warnings": warnings, "narrative": narrative})
+        state.report = report
+        state.report_kind = "recovery"
+        state.status = "complete"
+        await self._persist(state, session, result, report)
+        await state.emit("research_complete", report.model_dump(mode="json"))
 
     # -- persistence ---------------------------------------------------------
 
@@ -572,6 +774,61 @@ class DeepResearchApi:
             )
         )
 
+    async def _persist_generalized(
+        self,
+        state: RunState,
+        session: Session,
+        walk: Any,
+        draft: GeneralizedReportDraft,
+        report: GeneralizedResearchReport,
+        watermark: DataWatermark,
+    ) -> None:
+        """Store the study, and store the WALK as the thing that produced it.
+
+        ``plan_hash`` is the walk's fingerprint rather than the recovery
+        plan's, which is the whole of "the recorded path is the plan": two
+        runs sharing it at one data load must publish byte-identical
+        figures, and the harness, a permalink and a replay all re-execute
+        what was decided without re-deciding it.
+        """
+        investigation = Investigation(
+            id=state.id,
+            session_id=session.id,
+            parent_id=None,
+            turn_id=state.id,
+            turn_class=TurnClass.NEW_INVESTIGATION,
+            question=report.research_question,
+            spec=self._spec(watermark, draft.header.window_start),
+            plan_hash=walk_fingerprint(walk),
+            status=InvestigationStatus.COMPLETE,
+            findings=tuple(_finding(payload) for payload in report.findings),
+            created_at=state.created_at,
+            warnings=tuple(warning.message for warning in report.warnings),
+            narrative=report.determination.statement or None,
+        )
+        await self._investigations.save(investigation, None)
+        await self._traces.save(
+            TraceRecord(
+                trace_id=f"{state.id}{DEEP_RESEARCH_TRACE_SUFFIX}",
+                session_id=session.id,
+                investigation_id=state.id,
+                turn_id=state.id,
+                created_at=state.created_at,
+                payload={
+                    "mode": "deep_research",
+                    "status": "complete",
+                    "report_kind": "generalized",
+                    "tenant": state.tenant,
+                    "watermark": watermark.id,
+                    "plan_fingerprint": walk_fingerprint(walk),
+                    "rounds": report.walk.rounds_taken,
+                    "authored_by": report.walk.authored_by,
+                    "duration_ms": report.duration_ms,
+                    "report": report.model_dump(mode="json"),
+                },
+            )
+        )
+
     # -- read ----------------------------------------------------------------
 
     async def get(self, principal: Principal, run_id: str) -> DeepResearchRunResponse:
@@ -602,6 +859,26 @@ class DeepResearchApi:
                 progress=DeepResearchProgressPayload(phase="execute"),
                 error="This run was stopped before it finished, so nothing was published.",
             )
+        if str(payload.get("report_kind", "")) == "generalized":
+            study = GeneralizedResearchReport.model_validate(stored)
+            return DeepResearchRunResponse(
+                id=run_id,
+                session_id=record.session_id,
+                status="complete",
+                created_at=record.created_at,
+                population=study.population,
+                data_load_label=study.data_load_label,
+                research_question=study.research_question,
+                progress=DeepResearchProgressPayload(
+                    phase="synthesize",
+                    message="Finished",
+                    elapsed_ms=study.duration_ms,
+                    round_index=study.walk.rounds_taken,
+                    round_total=study.walk.rounds_allowed,
+                ),
+                research_report=study,
+                report_kind="generalized",
+            )
         report = DeepResearchReport.model_validate(stored)
         return DeepResearchRunResponse(
             id=run_id,
@@ -614,6 +891,7 @@ class DeepResearchApi:
                 phase="synthesize", message="Finished", elapsed_ms=report.duration_ms
             ),
             report=report,
+            report_kind="recovery",
         )
 
     async def list_runs(
@@ -626,15 +904,18 @@ class DeepResearchApi:
             if state.tenant != principal.tenant:
                 continue
             seen.add(state.id)
+            question = ""
+            if state.report is not None:
+                question = state.report.research_question
+            elif state.research_report is not None:
+                question = state.research_report.research_question
             summaries.append(
                 DeepResearchSummary(
                     id=state.id,
                     session_id=state.session_id,
                     status=state.status,  # type: ignore[arg-type]
                     created_at=state.created_at,
-                    research_question=(
-                        state.report.research_question if state.report else ""
-                    ),
+                    research_question=question,
                     population=state.population,
                     data_load_label=state.data_load_label,
                     total_expected_cents=(
@@ -642,6 +923,7 @@ class DeepResearchApi:
                         if state.report
                         else None
                     ),
+                    report_kind=state.report_kind,  # type: ignore[arg-type]
                 )
             )
         for session in sessions:
@@ -656,24 +938,48 @@ class DeepResearchApi:
                     f"{investigation.id}{DEEP_RESEARCH_TRACE_SUFFIX}"
                 )
                 stored = (record.payload.get("report") if record else None) or {}
-                report = (
-                    DeepResearchReport.model_validate(stored)
-                    if isinstance(stored, dict) and stored
-                    else None
+                generalized = (
+                    record is not None
+                    and str(record.payload.get("report_kind", "")) == "generalized"
                 )
+                report: DeepResearchReport | None = None
+                study: GeneralizedResearchReport | None = None
+                if isinstance(stored, dict) and stored:
+                    if generalized:
+                        study = GeneralizedResearchReport.model_validate(stored)
+                    else:
+                        report = DeepResearchReport.model_validate(stored)
+                finished = report is not None or study is not None
                 summaries.append(
                     DeepResearchSummary(
                         id=investigation.id,
                         session_id=session.id,
-                        status="complete" if report else "interrupted",
+                        status="complete" if finished else "interrupted",
                         created_at=investigation.created_at,
                         research_question=investigation.question or "",
                         population=(
-                            report.population if report else DeepResearchSelector()
+                            report.population
+                            if report is not None
+                            else study.population
+                            if study is not None
+                            else DeepResearchSelector()
                         ),
-                        data_load_label=report.data_load_label if report else "",
+                        data_load_label=(
+                            report.data_load_label
+                            if report is not None
+                            else study.data_load_label
+                            if study is not None
+                            else ""
+                        ),
                         total_expected_cents=(
                             report.headline.total_expected_cents if report else None
+                        ),
+                        report_kind=(
+                            "generalized"
+                            if study is not None
+                            else "recovery"
+                            if report is not None
+                            else None
                         ),
                     )
                 )

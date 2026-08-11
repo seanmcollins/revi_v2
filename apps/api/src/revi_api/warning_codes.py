@@ -264,6 +264,12 @@ _RULES: tuple[_Rule, ...] = (
     _rule("DEEP_RESEARCH_ANGLE_REFUSED", CAUTION, r"^deep_research_angle_refused:"),
     _rule("DEEP_RESEARCH_CENSORING", INFO, r"^deep_research_censoring:"),
     _rule("DEEP_RESEARCH_NO_PRIOR", INFO, r"^deep_research_no_prior:"),
+    # A research study's chases that the content's own thresholds did not
+    # admit. Not a refusal and not a caution: the readings that DID run are
+    # unaffected, and this says the run considered more and was held to a
+    # rule. Each dropped proposal is named with its reason on the walk, so
+    # the count here is a pointer rather than the whole story.
+    _rule("DEEP_RESEARCH_CHASE_GATED", INFO, r"^deep_research_chase_gated:"),
 )
 
 #: Every code this module can emit, for the client that wants to enumerate

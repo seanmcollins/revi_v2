@@ -19,11 +19,13 @@ publishes a ceiling, and the cell says so. A ranking is refused outright
 when too much of its field is bounded, by the same rule the conversational
 surface uses — one honesty machine, not two.
 
-**A rate is only a rate where the denominator says so.** A stratified-rate
-reading is honest over a ratio whose denominator counts the population its
-numerator is drawn from. Over anything else the same arithmetic produces a
-percentage with no population behind it, so the shape is refused rather
-than approximated.
+**A rate is only a rate where BOTH HALVES say so.** A stratified-rate
+reading, an interval and a two-proportion test are honest over a
+PROPORTION — a counted subset over a counted whole. A mean (days summed
+over claims counted) has the same division and no population behind the
+numerator, so the shape is refused rather than approximated: see
+:func:`is_proportion`, whose second half is the one a live run had to
+teach this module.
 """
 
 from __future__ import annotations
@@ -35,6 +37,7 @@ from datetime import date
 from decimal import Decimal
 
 from revi_calculation_contracts.contract import (
+    Count,
     CountDistinct,
     MetricContract,
     MetricKind,
@@ -276,6 +279,17 @@ class MeasureAngleRunner:
         self._transforms = transforms
         self._threshold = catalog.suppression.threshold
 
+    def title(self, planned: PlannedAngle) -> str:
+        """What this reading will be called, before it has run.
+
+        Exposed so the loop can name a reading on the wire while it is
+        being taken rather than when the report is assembled. A reader
+        watching a minute of work is entitled to see the reading being
+        measured, and "reading 2 of 4" is a counter where "A/R over 90 by
+        payer" is a fact.
+        """
+        return title_of(planned, self._catalog)
+
     async def run(
         self,
         planned: PlannedAngle,
@@ -405,7 +419,7 @@ class MeasureAngleRunner:
         group_names = [*angle.cut_by] + ([bucket_name] if bucket_name else [])
         group_at = [(name, positions[name]) for name in group_names if name in positions]
         bounds = bound_index(frame, self._threshold)
-        counted = _denominator_counts(contract)
+        counted = is_proportion(contract)
 
         cells: list[MeasureCell] = []
         for index, row in enumerate(frame.rows):
@@ -465,7 +479,7 @@ class MeasureAngleRunner:
         """
         if planned.shape is not AngleShape.CONTRAST:
             return None, ""
-        if not _denominator_counts(contract):
+        if not is_proportion(contract):
             return None, ""
         measured = [cell for cell in cells if cell.is_measured and cell.numerator is not None]
         if len(measured) < 2:
@@ -495,20 +509,34 @@ class MeasureAngleRunner:
 # helpers
 
 
-def _denominator_counts(contract: MetricContract) -> bool:
-    """Does this ratio's denominator count the population the numerator is in?
+def is_proportion(contract: MetricContract) -> bool:
+    """Is this ratio a PROPORTION — a counted subset over a counted whole?
 
-    The test a stratified-rate or a two-proportion reading is only honest
-    over. ``denial_rate`` counts adjudicated claims under denied claims —
-    a proportion. ``days_in_ar`` divides dollars by dollars-per-day — a
-    number with the same shape and no population behind it, and a Wilson
-    interval over it would be a confidence statement about nothing.
+    The test a stratified-rate, an interval or a two-proportion reading is
+    only honest over. ``denial_rate`` counts denied claims over adjudicated
+    claims: every numerator is one of the denominator's own members, which
+    is what makes "how often" a meaningful question and a Wilson interval a
+    statement about something.
+
+    BOTH HALVES ARE CHECKED, and the second half is the one that was
+    missing. ``days_in_ar`` divides dollars by dollars-per-day and fails on
+    the denominator, which is how it was excluded. ``bill_lag_days`` sums
+    DAYS over a count of claims — a MEAN — and its denominator is a
+    ``count_distinct``, so a denominator-only rule admitted it: a mean of
+    8.0 days over 6,011 claims was handed to the interval estimator as
+    "48,377 successes out of 6,011", which raised on the live A/R study
+    and, had the mean been under 1, would instead have published a
+    confidence interval around an average and counted the reading as
+    outcome-like data in the censoring disclosure.
     """
     denominator = contract.denominator
     if denominator is None:
         return False
-    inner = getattr(denominator, "inner", denominator)
-    return isinstance(inner, CountDistinct)
+    under = getattr(denominator, "inner", denominator)
+    over = getattr(contract.numerator, "inner", contract.numerator)
+    return isinstance(under, (Count, CountDistinct)) and isinstance(
+        over, (Count, CountDistinct)
+    )
 
 
 def _decimal(value: object) -> Decimal | None:
@@ -538,6 +566,27 @@ def _dimension_label(dimension_id: str, catalog: CatalogSnapshot) -> str:
     return dimension_id.replace("_", " ")
 
 
+#: How each time bucket reads to somebody who is not a database. A default
+#: surface never shows ``2026-07-01`` (``docs/client-language.md`` §4), and
+#: a trend's own axis is the one place an ISO date is guaranteed to reach
+#: one: the bucket column holds the period's first date and nothing else
+#: renders it.
+_BUCKET_FORMATS: Mapping[str, str] = {
+    "month": "%b %Y",
+    "week": "week of %b %-d, %Y",
+    "day": "%b %-d, %Y",
+}
+
+
+def _period_label(bucket: str, value: str) -> str:
+    """One time bucket, as a reader writes a period."""
+    try:
+        moment = date.fromisoformat(value[:10])
+    except ValueError:
+        return value
+    return moment.strftime(_BUCKET_FORMATS[bucket])
+
+
 def _cell_label(
     parts: Sequence[tuple[str, str]], catalog: CatalogSnapshot, pack: PackPort
 ) -> str:
@@ -547,6 +596,11 @@ def _cell_label(
     is. The pack already holds those titles for the definitional path, and
     reaching for them here is what stops a research report publishing raw
     code values a reader has to look up.
+
+    A time bucket gets the same treatment for the same reason. The column
+    holds ``2026-07-01`` because that is what a month IS in the data; a
+    reader reads "Jul 2026", and a chart axis or a trend sentence spelling
+    the ISO date is this platform's storage format on a default surface.
     """
     if not parts:
         return "everything in this population"
@@ -554,6 +608,9 @@ def _cell_label(
     for name, value in parts:
         if not value:
             rendered.append("(no value on the record)")
+            continue
+        if name in _BUCKET_FORMATS:
+            rendered.append(_period_label(name, value))
             continue
         title = None
         if name in ("carc", "rarc", "group_code"):

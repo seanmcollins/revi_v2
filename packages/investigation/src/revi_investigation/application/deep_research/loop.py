@@ -40,6 +40,7 @@ which is what provenance has always promised.
 
 from __future__ import annotations
 
+import asyncio
 import re
 from collections.abc import Awaitable, Callable, Sequence
 from dataclasses import dataclass, replace
@@ -47,7 +48,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Protocol
 
-from revi_calculation_contracts.contract import CountDistinct, MetricKind
+from revi_calculation_contracts.contract import MetricKind
 from revi_catalog_contracts.model import CatalogSnapshot
 from revi_investigation.application.capability_ports import PackPort
 from revi_investigation.application.deep_research.general import (
@@ -70,6 +71,7 @@ from revi_investigation.application.deep_research.measures import (
     MeasureAngleRunner,
     MeasureCell,
     MeasureResult,
+    is_proportion,
 )
 from revi_investigation.application.deep_research.policy import (
     DeepResearchSettings,
@@ -159,7 +161,39 @@ class GeneralPlanner(Protocol):
     ) -> Sequence[PlannedAngle]: ...
 
 
-ProgressSink = Callable[[str, str], Awaitable[None]]
+@dataclass(frozen=True, slots=True)
+class ResearchProgressUpdate:
+    """Where a run has got to, as a reader waiting on it would say it.
+
+    The round counters are on every frame and not only on the round ones,
+    because "which pass is this" is the fact a reader watching a
+    minute-long run most wants and the one a per-angle frame most easily
+    loses: a run back on its second pass is emitting ``execute`` frames
+    again, and an ``execute`` frame that did not say which round it was in
+    would render as the opening read starting over.
+    """
+
+    phase: str
+    message: str
+    #: Which read-and-decide round this is, and how many the question
+    #: earned. Zero on a run that takes one pass.
+    round_index: int = 0
+    round_total: int = 1
+    #: Which reading of this round is running, and how many it holds.
+    reading_index: int = 0
+    reading_total: int = 0
+    #: The reading being taken, named as the report will name it, with the
+    #: reason it is in the run. Present on an ``execute`` frame and empty
+    #: elsewhere. A watcher accumulates these into the list of what is
+    #: being read — which is a fact from the first measurement, where a
+    #: count is a fact about nothing until the report arrives.
+    reading_title: str = ""
+    reading_reason: str = ""
+    #: Set when this reading exists to go inside an earlier finding.
+    reading_chases: str = ""
+
+
+ProgressSink = Callable[[ResearchProgressUpdate], Awaitable[None]]
 
 
 # ---------------------------------------------------------------------------
@@ -449,10 +483,12 @@ def _vocabulary_of(profile: object, pack: PackPort) -> AngleVocabulary:
         kinds[availability.metric_id] = availability.kind
         units[availability.metric_id] = availability.unit
         contract = pack.metric(availability.metric_id)
-        if contract is None or contract.denominator is None:
-            continue
-        inner = getattr(contract.denominator, "inner", contract.denominator)
-        if isinstance(inner, CountDistinct):
+        # RATE-LIKE MEANS PROPORTION, and the test lives in one place. A
+        # denominator-only rule called ``bill_lag_days`` a rate — a mean of
+        # days over a count of claims — which would have offered the
+        # planner a stratified-rate reading and a two-proportion test over
+        # an average.
+        if contract is not None and is_proportion(contract):
             rate_like.add(availability.metric_id)
     return AngleVocabulary(
         measures=measures,
@@ -786,8 +822,12 @@ def chase_angles(
                     ),
                     round=index,
                     reason=(
-                        f"nothing separated on {', '.join(angle.cut_by) or 'the pooled reading'}"
-                        f" — trying {broader.replace('_', ' ')}"
+                        "nothing separated on "
+                        + (
+                            ", ".join(cut.replace("_", " ") for cut in angle.cut_by)
+                            or "the pooled reading"
+                        )
+                        + f" — trying {broader.replace('_', ' ')}"
                     ),
                     measure=MeasureAngle(metric_id=angle.metric_id, cut_by=(broader,)),
                 )
@@ -1002,9 +1042,31 @@ class GeneralizedResearchLoop:
         span = window or default_window(watermark, policy)
         budget = rounds_allowed or iteration_budget(question, policy)
 
-        async def say(phase: str, message: str) -> None:
+        async def say(
+            phase: str,
+            message: str,
+            *,
+            round_index: int = 0,
+            reading_index: int = 0,
+            reading_total: int = 0,
+            reading: PlannedAngle | None = None,
+        ) -> None:
             if progress is not None:
-                await progress(phase, message)
+                await progress(
+                    ResearchProgressUpdate(
+                        phase=phase,
+                        message=message,
+                        round_index=round_index,
+                        round_total=budget,
+                        reading_index=reading_index,
+                        reading_total=reading_total,
+                        reading_title=(
+                            "" if reading is None else self._runner.title(reading)
+                        ),
+                        reading_reason="" if reading is None else reading.reason,
+                        reading_chases="" if reading is None else reading.chases,
+                    )
+                )
 
         await say("orient", "Checking what your data can answer")
         orientation = await self._orienter.orient(
@@ -1049,6 +1111,10 @@ class GeneralizedResearchLoop:
                 await say(
                     "execute",
                     _progress_words(angle, index, position, len(planned)),
+                    round_index=index,
+                    reading_index=position,
+                    reading_total=len(planned),
+                    reading=angle,
                 )
                 batch.append(
                     await self._runner.run(
@@ -1061,12 +1127,22 @@ class GeneralizedResearchLoop:
                         policy=estimation,
                     )
                 )
+                # A yield between readings, so a cancelled run stops on a
+                # reading boundary rather than mid-estimate — the same
+                # boundary the recovery run stops on, for the same reason:
+                # nothing partial is ever persisted, and a long run must
+                # not starve the event loop it streams on.
+                await asyncio.sleep(0)
             results.extend(batch)
             history.append(ResearchRound(index=index, results=tuple(batch)))
             index += 1
             if index >= budget:
                 break
-            await say("read", "Reading what came back and deciding what to chase")
+            await say(
+                "read",
+                "Reading what came back and deciding what to chase",
+                round_index=index - 1,
+            )
             chosen, gated = await self._next(orientation, history, index, budget - index)
             planned = list(chosen)
             steps.extend(gated)
@@ -1086,8 +1162,13 @@ class GeneralizedResearchLoop:
                 # spread was decisive — cutting inside Veritas Comp Fund
                 # next" are different states, and only the second one says
                 # that the run READ something and DECIDED.
-                await say("round", round_words(index, planned))
+                await say("round", round_words(index, planned), round_index=index)
 
+        await say(
+            "synthesize",
+            "Writing the answer the question asked for",
+            round_index=max(index - 1, 0),
+        )
         steps.extend(drop_steps(history))
         steps.append(
             WalkStep(

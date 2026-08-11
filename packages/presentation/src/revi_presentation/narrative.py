@@ -238,6 +238,110 @@ NARRATIVE_TEMPLATES: dict[NarrativeDepth, str] = {
     NarrativeDepth.ANALYST: NARRATIVE_TEMPLATE_ANALYST,
 }
 
+DETERMINATION_TEMPLATE_ID = "compose_research_determination"
+DETERMINATION_TEMPLATE_VERSION = "v1"
+
+#: The research determination — a THIRD template beside the two depths, and
+#: the reason it is a template rather than a longer shape directive is
+#: worth stating, because the other choice was available and was rejected.
+#:
+#: The M45 path takes findings, a header, caveats, disclosures and a
+#: reconciliation verdict, and asks for prose in the shape the question's
+#: classified answer-shape demands. A research determination needs three
+#: things that path has no slot for and cannot be given one without
+#: changing what every other answer is composed from:
+#:
+#:  * **the walk's reasons.** A study's argument is partly the order it was
+#:    made in — "the payer spread was decisive, so I cut inside it" is why
+#:    the third reading exists, and a determination written without it
+#:    describes a pile of tables.
+#:  * **the consulted background notes, as QUOTABLE CONTEXT.** They may
+#:    inform the so-what framing and may never be a number. That is the
+#:    whole trade ``docs/agentic-resolution.md`` names, and it is enforced
+#:    rather than requested: none of these lines reaches the fact set's
+#:    numeric values (:func:`build_determination_facts`), so a sentence
+#:    lifting an industry figure out of one fails grounding and is dropped.
+#:  * **a composite question.** "Why has it been climbing and what will it
+#:    take to bring it down" is two questions in one sentence, and every
+#:    directive in :data:`_SHAPE_DIRECTIVES` answers exactly one thing.
+#:
+#: What is NOT different is the validation. The same
+#: :func:`validate_narrative` runs over the result, against a fact set
+#: built by the same :func:`build_narrative_facts` — a second grounding
+#: path would be a second place the one rule that matters could weaken.
+DETERMINATION_TEMPLATE = """# Write the determination
+
+You are a revenue-cycle consultant reporting back on a study you just ran.
+Write the determination — the answer to the question below — from the
+measured readings, and ONLY from them.
+
+The question asked:
+
+{question}
+
+Rules:
+
+- ANSWER THE QUESTION IN YOUR FIRST SENTENCE. If it asks two things — why
+  something happened AND what to do about it — your first sentence answers
+  the first, and a later sentence answers the second in as many words. A
+  reader who stops after one sentence must have their answer.
+- OPEN ON THE SUBJECT, never on a pronoun. Do not begin with This, That,
+  These, Those, It or They: name the thing you are talking about. A
+  sentence that opens on a demonstrative reads as a continuation of
+  something, and there is nothing above it to continue from.
+- EVERY PART OF THE QUESTION GETS AN ANSWER. A part you cannot answer from
+  the readings below is said to be unanswered, in one sentence, naming what
+  was missing. Silence on half a question reads as an answer to it.
+- Cite the referent id (F1, F2, ...) in every sentence that makes a claim.
+- Use only the numbers shown below, formatted naturally. Every figure you
+  write is checked against a value an estimator produced.
+- Name only the entities that appear below; never introduce new ones.
+- Say how a figure was arrived at whenever it was arrived at by anything
+  other than measuring it directly, and say it in exactly one of these
+  phrases: measured directly, calculated from measured values, estimated,
+  exploratory, not measured.
+- Never state a confidence for a finding — not as a number and not as a
+  word. The reader is never asked to weigh a probability.
+- Call each measure by the name it is given below. Never use a raw metric
+  id: those names say what the number actually measures.
+- A figure marked as a ceiling is the most it could be, not what it is.
+  Never call one the highest, the largest or the worst of anything.
+- Four short paragraphs at most. No headings, no bullet lists.
+- The mandatory disclosures below are ALREADY published, verbatim, ahead of
+  whatever you write. Do not repeat them, do not paraphrase them, and do
+  not contradict them.
+
+How the study reached these readings. This is the run's own record of what
+it decided and why. Use it to explain the shape of the answer — which
+reading followed from which — and never as a source of a figure:
+
+{walk}
+
+Background notes this study read before choosing what to check. They are
+CONTEXT: they may inform what the answer MEANS and what it implies for the
+work, and they are never a measurement. Any figure in them belongs to
+somebody else's population and may not be written down here:
+
+{knowledge}
+
+Mandatory disclosures (already published above your text):
+
+{disclosures}
+
+Effective context:
+
+{header}
+
+Certified readings:
+
+{findings}
+
+Mandatory caveats. These govern how the figures may be characterized —
+do not claim more than they allow:
+
+{caveats}
+"""
+
 _REFERENT_TOKEN = re.compile(r"\b[FD]\d+\b")
 _NUMBER_TOKEN = re.compile(r"(?<![\w.])[$-]?\$?\d[\d,]*(?:\.\d+)?%?")
 _PROPER_NAME = re.compile(r"\b([A-Z][a-z]+(?:\s+[A-Z][a-z]+)+)\b")
@@ -473,6 +577,11 @@ def template_hash(depth: NarrativeDepth = NarrativeDepth.SUMMARY) -> str:
     return hashlib.sha256(NARRATIVE_TEMPLATES[depth].encode("utf-8")).hexdigest()
 
 
+def determination_template_hash() -> str:
+    """The hash of the determination template, for the same reason."""
+    return hashlib.sha256(DETERMINATION_TEMPLATE.encode("utf-8")).hexdigest()
+
+
 # ---------------------------------------------------------------------------
 # prompt + facts
 
@@ -683,6 +792,95 @@ def build_narrative_prompt(
         reconciliation=reconciliation or "not applicable on this answer",
         benchmarks=benchmark_lines,
     )
+
+
+def build_determination_prompt(
+    *,
+    findings: Sequence[FindingPayload],
+    header: ContextHeaderPayload,
+    question: str,
+    walk: Sequence[str] = (),
+    knowledge: Sequence[str] = (),
+    caveats: Sequence[str] = (),
+    disclosures: Sequence[str] = (),
+    metric_display: Mapping[str, str] | None = None,
+    published_cautions: int = 0,
+) -> str:
+    """Render the determination prompt from certified material and context.
+
+    Two slots are new and only one of them is certified. ``walk`` is the
+    run's own record of what it decided and why — the platform's sentences,
+    quoted back so the determination can explain the shape of its own
+    answer. ``knowledge`` is the pack's RCM judgement, and it is context in
+    the strict sense the addendum means: it may inform what the answer
+    MEANS and it may never be a number. Neither slot's numbers reach the
+    fact set, so the rule is kept by the validator rather than asked for.
+    """
+    substitutions = _display_substitutions(metric_display)
+    finding_lines = "\n".join(_finding_line(f, substitutions) for f in findings) or "- (none)"
+    empty = _empty_slot(published_cautions)
+    caveat_lines = (
+        "\n".join(f"- {_apply_display_names(line, substitutions)}" for line in caveats) or empty
+    )
+    disclosure_lines = "\n".join(f"- {line}" for line in disclosures) or empty
+    walk_lines = (
+        "\n".join(f"- {_apply_display_names(line, substitutions)}" for line in walk)
+        or "- (this run recorded no decisions beyond its opening read)"
+    )
+    knowledge_lines = (
+        "\n".join(f"- {line}" for line in knowledge)
+        or "- (no background notes in your definitions library speak to this question)"
+    )
+    return DETERMINATION_TEMPLATE.format(
+        question=(question or "").strip() or _QUESTION_UNKNOWN,
+        walk=walk_lines,
+        knowledge=knowledge_lines,
+        disclosures=disclosure_lines,
+        header=header.display,
+        findings=finding_lines,
+        caveats=caveat_lines,
+    )
+
+
+def build_determination_facts(
+    *,
+    findings: Sequence[FindingPayload],
+    header: ContextHeaderPayload,
+    extra_names: Sequence[str] = (),
+    caveats: Sequence[str] = (),
+    disclosures: Sequence[str] = (),
+    knowledge: Sequence[str] = (),
+    metric_display: Mapping[str, str] | None = None,
+    published_cautions: int = 0,
+    question: str | None = None,
+) -> NarrativeFacts:
+    """The fact set a determination is validated against.
+
+    :func:`build_narrative_facts`, plus the ONE widening the background
+    notes earn and no more: the proper names they contain are admitted, so
+    a determination may say "Medicare Advantage plans behave differently
+    here" without the sentence being cut for naming an entity no finding
+    happened to mention. Their FIGURES are deliberately not admitted —
+    that is the wall between context and computation, and this is the line
+    of code that holds it. A determination quoting an industry benchmark
+    fails grounding and the sentence is dropped, which is the intended
+    behaviour: the notes shape what is checked, never what a number says.
+    """
+    facts = build_narrative_facts(
+        findings=findings,
+        header=header,
+        extra_names=extra_names,
+        caveats=caveats,
+        metric_display=metric_display,
+        disclosures=disclosures,
+        published_cautions=published_cautions,
+        question=question,
+    )
+    names = set(facts.allowed_names)
+    for line in knowledge:
+        for match in _PROPER_NAME.finditer(line):
+            names.add(match.group(1))
+    return facts.model_copy(update={"allowed_names": sorted(names)})
 
 
 def build_narrative_facts(

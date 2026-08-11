@@ -31,11 +31,13 @@ import { PortfolioCard } from "@/components/portfolio/PortfolioPanel";
 import { ResearchLaunchCard } from "@/components/research/ResearchLaunchCard";
 import { ResearchProgress } from "@/components/research/ResearchProgress";
 import { ResearchReportView } from "@/components/research/ResearchReport";
+import { ResearchStudyView } from "@/components/research/ResearchStudy";
 import { RunDeepResearchButton } from "@/components/research/ResearchOffer";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import offerTurnFixture from "@/lib/__fixtures__/deep-research-offer-turn.json";
 import previewFixture from "@/lib/__fixtures__/deep-research-preview.json";
 import runFixture from "@/lib/__fixtures__/deep-research-run.json";
+import studyFixture from "@/lib/__fixtures__/deep-research-study.json";
 import { newReceivedState, parseTurnResponse, turnResponseToEvents } from "@/lib/contract";
 import {
   applyResearchFrame,
@@ -45,11 +47,15 @@ import {
   offerFromPreview,
   parseResearchPreview,
   type ResearchPreview,
+  isResearchStudy,
+  measuredFigures,
+  parseResearchRun,
   type ResearchReport,
   type ResearchRun,
+  type ResearchStudy,
   type ResearchWatchState,
 } from "@/lib/deepResearch";
-import { researchReportToCsv } from "@/lib/export";
+import { researchReportToCsv, researchStudyToCsv } from "@/lib/export";
 import type { PortfolioItem } from "@/lib/mock/portfolio";
 import { DEFAULT_SETTINGS } from "@/lib/settings";
 import { applyEventToAnswer, emptyAnswer, useSessionStore } from "@/lib/store";
@@ -401,51 +407,55 @@ describe("the dry run — read at the seam", () => {
 });
 
 /**
- * THE ONE THING THIS CARD MUST NOT DO.
+ * THE ONE THING THIS CARD MUST NOT DO: promise a run other than the one
+ * the button starts.
  *
- * The platform executes one kind of run today — the recoverability review
- * over open denials — and the generalized loop is resolved for the PREVIEW
- * only. So the reasoning about a research question is real, resolved
- * against real data, and is NOT a description of the run the button
- * starts. Half of what follows is about keeping those two apart on one
- * card: what the four zones promise is what confirming buys, and what the
- * reasoning block says is what Revi makes of the question.
+ * The platform executes two kinds of run. A question the definitions
+ * library can research is executed as a STUDY, so the readings resolved
+ * for it are the readings that will be taken and belong in "what it will
+ * look at". A question it cannot research falls back to the recoverability
+ * review — the server branches on exactly that, and so does this card.
+ * Everything below is about the two staying in step: what the zones
+ * promise is what confirming buys, in both directions.
  */
 describe("the launch card — a research question, previewed", () => {
   const ASKED = "which payers are slowing our cash the most";
   const previewed = () => offerFromPreview(PREVIEW, ASKED);
 
-  it("keeps the four zones describing the run that confirming actually starts", () => {
+  it("describes the STUDY, because that is what confirming starts", () => {
     const { container } = mount(<ResearchLaunchCard offer={previewed()} />);
-    // The heading, the size and the cost are the REVIEW's — every one of
-    // them is true of the minute being bought.
+    // The card is about the QUESTION, and the question is printed rather
+    // than a population count that answers something else.
     expect(
-      screen.getByRole("heading", { name: "Deep research on every open denial" }),
+      screen.getByRole("heading", { name: "Deep research on your question" }),
     ).toBeInTheDocument();
-    expect(screen.getByText(/5,398 open denials, worth \$5,749,495.12/)).toBeInTheDocument();
+    expect(screen.getByText(ASKED)).toBeInTheDocument();
+    expect(
+      screen.getByText("Reading everything in your data, over May 5, 2026 through Aug 2, 2026."),
+    ).toBeInTheDocument();
     expect(screen.getByText(/About a minute/)).toBeInTheDocument();
+    // The button still names WHAT IS POSTED — the population, which the
+    // radio group below can still change.
     expect(
       screen.getByRole("button", { name: "Run deep research on every open denial" }),
     ).toBeInTheDocument();
-    // And "what it will look at" holds the review's own angles, not the
-    // research readings, which the run does not take.
+    // "What it will look at" holds the readings the study will take, and
+    // NOT the recoverability review's angles, which it will not.
     const runZone = container.querySelector("ul");
-    expect(runZone).toHaveTextContent("What the open inventory is worth");
-    expect(runZone).not.toHaveTextContent("Days in A/R by payer");
+    expect(runZone).toHaveTextContent("Days in A/R by payer");
+    expect(runZone).not.toHaveTextContent("What the open inventory is worth");
   });
 
-  it("says out loud that the reasoning is not what the button starts", () => {
+  it("no longer says the button does something else, because it does not", () => {
     mount(<ResearchLaunchCard offer={previewed()} />);
-    expect(screen.getByText("What Revi makes of your question")).toBeInTheDocument();
-    expect(screen.getByText(ASKED)).toBeInTheDocument();
+    // The M55 card carried this sentence and it was correct then: the run
+    // on offer was the review and the readings were resolved for a preview
+    // nothing executed. Executing them makes the sentence false, and a
+    // stale honesty note is the most expensive kind of copy to leave in.
+    expect(screen.queryByText(/It does not take the readings below/)).not.toBeInTheDocument();
     expect(
-      screen.getByText("Reading May 5, 2026 through Aug 2, 2026, across everything in your data."),
-    ).toBeInTheDocument();
-    // The sentence that keeps the card honest: without it the readings
-    // below read as a description of the button above them.
-    expect(
-      screen.getByText(/It does not take the readings below\./),
-    ).toBeInTheDocument();
+      screen.queryByText(/Measure what is realistically recoverable/),
+    ).not.toBeInTheDocument();
   });
 
   it("prints what the question reaches in the data, verbatim and unabridged", () => {
@@ -471,17 +481,17 @@ describe("the launch card — a research question, previewed", () => {
 
   it("gives every reading its own reason, not just a list of titles", () => {
     const { container } = mount(<ResearchLaunchCard offer={previewed()} />);
-    expect(screen.getByText("What Revi would read to answer it")).toBeInTheDocument();
-    const rows = [...container.querySelectorAll("[data-research-reading]")];
-    expect(rows).toHaveLength(4);
-    for (const [index, reading] of (PREVIEW.generalized?.readings ?? []).entries()) {
-      expect(rows[index]).toHaveTextContent(reading.title);
-      expect(rows[index]).toHaveTextContent(reading.reason);
+    const runZone = container.querySelector("ul");
+    for (const reading of PREVIEW.generalized?.readings ?? []) {
+      expect(runZone).toHaveTextContent(reading.title);
+      expect(runZone).toHaveTextContent(reading.reason);
     }
-    // Every reading sits INSIDE the reasoning block, never in the zone
-    // that describes the run.
-    const reasoning = container.querySelector("[data-research-reasoning]");
-    for (const row of rows) expect(reasoning).toContainElement(row as HTMLElement);
+    // A confirmation that lists what will be read without saying why is a
+    // progress bar in advance, and the reasons are the one thing on this
+    // surface a reader can actually correct before spending the minute.
+    expect(runZone?.querySelectorAll("li")).toHaveLength(
+      PREVIEW.generalized?.readings.length ?? 0,
+    );
   });
 
   it("says who chose the readings, and says it differently when nobody did", () => {
@@ -501,7 +511,7 @@ describe("the launch card — a research question, previewed", () => {
     // A fallback presented as a decision is the small dishonesty that
     // makes every other claim on the card worth less.
     expect(
-      screen.getByText(/Revi picked these from its own standing set/),
+      screen.getByText(/Revi picked these readings from its own standing set/),
     ).toBeInTheDocument();
     expect(
       screen.queryByText(/I read the level first, then cut it by payer/),
@@ -511,7 +521,7 @@ describe("the launch card — a research question, previewed", () => {
   it("says in plain language that it would go back for more", () => {
     mount(<ResearchLaunchCard offer={previewed()} />);
     expect(
-      screen.getByText(/It would read, then decide what to go after next/),
+      screen.getByText(/It reads, then decides what to go after next/),
     ).toBeInTheDocument();
     expect(screen.getByText(/up to 3\s*rounds of that/)).toBeInTheDocument();
     cleanup();
@@ -522,7 +532,7 @@ describe("the launch card — a research question, previewed", () => {
     );
     mount(<ResearchLaunchCard offer={single} />);
     expect(
-      screen.queryByText(/It would read, then decide what to go after next/),
+      screen.queryByText(/It reads, then decides what to go after next/),
     ).not.toBeInTheDocument();
   });
 
@@ -538,9 +548,19 @@ describe("the launch card — a research question, previewed", () => {
     );
     const { container } = mount(<ResearchLaunchCard offer={refused} />);
     expect(screen.getByText(refusal)).toBeInTheDocument();
-    // Nothing is offered that would go and read the readings.
-    expect(screen.queryByText("What Revi would read to answer it")).not.toBeInTheDocument();
-    expect(container.querySelectorAll("[data-research-reading]")).toHaveLength(0);
+    // The card falls back to the review exactly as the server does with
+    // the same POST — and SAYS SO, because a button whose meaning changed
+    // silently is worse than no button.
+    expect(
+      screen.getByRole("heading", { name: "Deep research on every open denial" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/measures what is recoverable out of every open denial instead/),
+    ).toBeInTheDocument();
+    expect(container.querySelector("[data-research-reasoning]")).toHaveAttribute(
+      "data-research-reasoning",
+      "review",
+    );
     // The run on offer measures something the refusal is not about, so
     // refusing it here would refuse a run the platform can do.
     expect(
@@ -571,6 +591,7 @@ function startingRun(): ResearchRun {
     status: "planning",
     created_at: "2026-08-11T02:37:15Z",
     data_load_label: "the load through Aug 2, 2026",
+    research_question: "",
     population: { kind: "all_open", values: [], label: "every open denial" },
     progress: {
       phase: "plan",
@@ -1108,7 +1129,7 @@ describe("the composer path — the offer survives the seam", () => {
       <AnswerCard turn={{ id: "turn_1", index: 0, submission: { utterance }, answer }} />,
     );
 
-    await screen.findByText("What Revi would read to answer it");
+    await screen.findByText("What Revi checked before choosing");
     // The analyst's own utterance IS the research question, and the
     // population posted is the server's own selector, byte for byte.
     expect(calls).toHaveLength(1);
@@ -1122,10 +1143,13 @@ describe("the composer path — the offer survives the seam", () => {
     // Same content as the composer route: both describe one question.
     expect(screen.getByText("Days in A/R by payer")).toBeInTheDocument();
     expect(screen.getByText("What this question reaches in your data")).toBeInTheDocument();
-    // The card keeps the server's own population for the run it offers,
-    // not the preview's.
+    // The card is about the question, and the button still names the
+    // server's own population — which is what a launch would post.
     expect(
-      screen.getByRole("heading", { name: "Deep research on denials from Atlas Commercial" }),
+      screen.getByRole("heading", { name: "Deep research on your question" }),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: "Run deep research on denials from Atlas Commercial" }),
     ).toBeInTheDocument();
   });
 
@@ -1221,7 +1245,7 @@ describe("the composer's deep research control", () => {
     await userEvent.type(screen.getByRole("textbox"), ASKED);
     await userEvent.click(screen.getByRole("button", { name: NAME }));
 
-    await screen.findByRole("heading", { name: "Deep research on every open denial" });
+    await screen.findByRole("heading", { name: "Deep research on your question" });
     // ONE request, and it is the dry run.
     expect(calls).toHaveLength(1);
     expect(calls[0]?.url).toMatch(/\/v1\/deep-research$/);
@@ -1238,7 +1262,7 @@ describe("the composer's deep research control", () => {
     await userEvent.type(screen.getByRole("textbox"), ASKED);
     await userEvent.click(screen.getByRole("button", { name: NAME }));
 
-    await screen.findByText("What Revi would read to answer it");
+    await screen.findByText("What Revi checked before choosing");
     expect(screen.getByText("Days in A/R by payer")).toBeInTheDocument();
     expect(
       screen.getByText(/the same measure is cut by payer rather than read as a total/),
@@ -1356,5 +1380,282 @@ describe("the export — every row, under every caveat", () => {
     const refused = lines.filter((line) => line.split(",")[evidenceAt] === "not_estimable");
     expect(refused.length).toBeGreaterThan(0);
     for (const line of refused) expect(line.split(",")[rateAt]).toBe("");
+  });
+});
+
+/* ------------------------------------------------------------------ */
+/* 5. The study — the other artifact a run can produce                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * `src/lib/__fixtures__/deep-research-study.json` is captured verbatim from
+ * a live run (`GET /v1/deep-research/dr_7d4e191cbf5644b1`, the load through
+ * Aug 2, 2026): the acceptance question, planned by the real control plane,
+ * four read-and-decide rounds, fifteen readings with the reasons the
+ * planner wrote for them, a determination composed under the grounding
+ * validator, and the walk that produced all of it. Same discipline the
+ * review's fixture follows and for the same reason: the failures worth
+ * catching are the ones a real payload has.
+ *
+ * What is asserted is not how it looks. It is that a study cannot lie: that
+ * the answer is the server's and never composed here, that a reading's
+ * reason and verdict travel together, that a ceiling never renders as a
+ * measurement, and that the walk is present and quiet rather than absent.
+ */
+describe("the study report", () => {
+  const study = (studyFixture as { research_report: ResearchStudy }).research_report;
+  // Every list on a study payload is optional on the wire (a study that
+  // read nothing publishes none of them) and present on a real one. Named
+  // once so the assertions below read as the properties they are.
+  const readings = study.readings ?? [];
+  const rounds = study.walk.rounds ?? [];
+  const pathChoices = study.path_choices ?? [];
+  const notes = study.knowledge_consulted ?? [];
+  const mount = (node: React.ReactElement) =>
+    render(<MemoryRouter><TooltipProvider>{node}</TooltipProvider></MemoryRouter>);
+
+  it("is discriminated by the payload's own kind, not by its shape", () => {
+    expect(isResearchStudy(study)).toBe(true);
+    expect(isResearchStudy(runFixture.report)).toBe(false);
+    // …and the run envelope says which, so a client branches on a field.
+    const parsed = parseResearchRun(studyFixture);
+    expect(parsed.drift).toEqual([]);
+    expect(parsed.value?.report_kind).toBe("generalized");
+    expect(parsed.value?.research_report).toBeDefined();
+    expect(parsed.value?.report).toBeUndefined();
+  });
+
+  it("leads with the determination, in the server's own words", () => {
+    mount(<ResearchStudyView study={study} runId="dr_test" />);
+    expect(screen.getByText("What Revi determined")).toBeInTheDocument();
+    // The FIRST sentence a reader sees is the platform's, verbatim. Nothing
+    // on this surface composes a claim about the data.
+    const opening = study.determination.statement.split(". ")[0]!;
+    expect(screen.getByText(new RegExp(opening.slice(0, 60)))).toBeInTheDocument();
+    expect(study.determination.composed).toBe(true);
+  });
+
+  it("answers both halves of the question it was asked", () => {
+    // The acceptance bar, asserted on the artifact rather than by eye: a
+    // composite question owes an answer to each half, and the determination
+    // either gives one or says which half it could not give.
+    const text = study.determination.statement.toLowerCase();
+    expect(study.research_question).toContain("why");
+    expect(study.research_question).toContain("what it will take");
+    expect(text).toMatch(/bringing it down|what it (will )?take|to bring it down|unanswered/);
+  });
+
+  it("gives every reading the reason it was taken and what it settled", () => {
+    const { container } = mount(<ResearchStudyView study={study} runId="dr_test" />);
+    const blocks = [...container.querySelectorAll("[data-research-reading]")];
+    expect(blocks).toHaveLength(readings.length);
+    for (const [index, reading] of readings.entries()) {
+      expect(blocks[index]).toHaveTextContent(reading.title);
+      expect(reading.reason).not.toBe("");
+      expect(blocks[index]).toHaveTextContent(reading.reason.slice(0, 40));
+      if (reading.refusal === "") {
+        expect(reading.settled).not.toBe("");
+        expect(blocks[index]).toHaveTextContent(reading.settled.slice(0, 40));
+      }
+    }
+  });
+
+  it("never renders a withheld or bounded figure as a measurement", () => {
+    mount(<ResearchStudyView study={study} runId="dr_test" />);
+    for (const reading of readings) {
+      for (const figure of reading.figures ?? []) {
+        if (figure.evidence === "measured") continue;
+        // A ceiling reads as a ceiling and a withheld row says so — never a
+        // dimmed zero where the measurement would have been.
+        expect(figure.display === "too small to publish" || figure.display.startsWith("≤")).toBe(
+          true,
+        );
+        expect(figure.value === null || figure.bounded).toBe(true);
+      }
+      // And the measured set the charts draw excludes both.
+      for (const figure of measuredFigures(reading)) {
+        expect(figure.bounded).toBe(false);
+        expect(figure.withheld).toBe(false);
+      }
+    }
+  });
+
+  it("draws each reading's figure through the same chart seam an answer uses", () => {
+    const { container } = mount(<ResearchStudyView study={study} runId="dr_test" />);
+    // Full screen and the CSV are the controls every chart in this product
+    // has; a bespoke widget here would drift from its cousin. Asserted
+    // through the accessible names, which is how a reader reaches them.
+    const drawn = readings.filter((reading) => reading.chart_id !== "");
+    expect(drawn.length).toBeGreaterThan(0);
+    expect(
+      screen.getAllByRole("button", { name: /^View full screen:/ }).length,
+    ).toBe(drawn.length);
+    expect(container.querySelectorAll("figure").length).toBeGreaterThanOrEqual(drawn.length);
+  });
+
+  it("keeps the walk present, complete and closed", async () => {
+    const { container } = mount(<ResearchStudyView study={study} runId="dr_test" />);
+    const fold = container.querySelector("[data-research-walk]");
+    expect(fold).toHaveAttribute("data-research-walk", "closed");
+    expect(screen.getByText("How Revi got here")).toBeInTheDocument();
+
+    await userEvent.click(screen.getByRole("button", { name: /How Revi got here/ }));
+    expect(container.querySelector("[data-research-walk]")).toHaveAttribute(
+      "data-research-walk",
+      "open",
+    );
+    // Every round the run took, with the reason it exists.
+    expect(container.querySelectorAll("[data-research-round]")).toHaveLength(rounds.length);
+    for (const round of rounds) {
+      if (round.index === 0) continue;
+      expect(round.reason).not.toBe("");
+      expect(screen.getByText(round.reason)).toBeInTheDocument();
+    }
+    // …and it says who chose the readings, because a fallback presented as
+    // a choice is a small lie about how the analysis was decided.
+    expect(study.walk.authored_by).toBe("model");
+    expect(screen.getByText(/readings chosen for this question/)).toBeInTheDocument();
+  });
+
+  it("prints the path choices and the background notes verbatim", () => {
+    mount(<ResearchStudyView study={study} runId="dr_test" />);
+    expect(screen.getByText("What Revi checked before it chose")).toBeInTheDocument();
+    for (const choice of pathChoices) {
+      expect(screen.getByText(choice.statement)).toBeInTheDocument();
+    }
+    // Titles only: a note's content shapes which reading ran and can never
+    // shape what a number says.
+    for (const note of notes) {
+      expect(screen.getByText(note.title)).toBeInTheDocument();
+      expect(note).not.toHaveProperty("key_points");
+    }
+  });
+
+  it("publishes a censoring note only where outcome-like data was read", () => {
+    mount(<ResearchStudyView study={study} runId="dr_test" />);
+    if (study.censoring === null || study.censoring === undefined) {
+      expect(screen.queryByText("What is counted, and what is not")).not.toBeInTheDocument();
+      return;
+    }
+    expect(screen.getByText("What is counted, and what is not")).toBeInTheDocument();
+    for (const statement of study.censoring.statements ?? []) {
+      expect(screen.getByText(statement)).toBeInTheDocument();
+    }
+  });
+
+  it("exports every group, including the ones no figure was published for", () => {
+    const csv = researchStudyToCsv(study, { runId: "dr_test", exportedAt: new Date(0) });
+    const lines = csv.split("\n");
+    expect(csv).toContain(study.research_question);
+    // The header row names the provenance columns the screen keeps quiet.
+    const header = lines.find((line) => line.startsWith("reading,"));
+    expect(header).toContain("read_fingerprint");
+    expect(header).toContain("evidence");
+    expect(header).toContain("is_ceiling");
+    const rows = lines.filter((line) => line.includes("not_estimable"));
+    const withheld = readings.flatMap((r) =>
+      (r.figures ?? []).filter((f) => f.evidence !== "measured"),
+    );
+    expect(rows.length).toBeGreaterThanOrEqual(withheld.length);
+    // A withheld figure exports EMPTY, never zero: a zero in a spreadsheet
+    // column is a measurement the run never made.
+    for (const row of rows) expect(row).not.toMatch(/,0,/);
+  });
+});
+
+/**
+ * THE WATCHER, ON A STUDY.
+ *
+ * The frames are the same stream the review uses, plus one: `research_
+ * readings` names what is being read WHILE it is read, and the progress
+ * frames finally carry which round they belong to. Both were on the wire
+ * and both were empty before this milestone.
+ */
+describe("watching a study", () => {
+  const study = (studyFixture as { research_report: ResearchStudy }).research_report;
+
+  function watching(): ResearchWatchState {
+    return initialWatchState({
+      id: "dr_test",
+      session_id: "sess_test",
+      status: "running",
+      created_at: "2026-08-11T09:39:20Z",
+      data_load_label: "the load through Aug 2, 2026",
+      research_question: study.research_question,
+      population: { kind: "all_open", values: [], label: "every open denial" },
+      progress: {
+        phase: "plan",
+        angle_index: 0,
+        angle_total: 0,
+        message: "",
+        elapsed_ms: 0,
+        round_index: 0,
+        round_total: 4,
+      },
+    });
+  }
+
+  it("names the question it is working through, not a population it never opens", () => {
+    render(<ResearchProgress state={watching()} />);
+    expect(
+      screen.getByRole("heading", { name: new RegExp(study.research_question.slice(0, 40)) }),
+    ).toBeInTheDocument();
+    expect(screen.queryByText(/Working through every open denial/)).not.toBeInTheDocument();
+  });
+
+  it("lists the readings as they are taken, each with its reason and round", () => {
+    const readings = (study.readings ?? []).slice(0, 8).map((reading) => ({
+      title: reading.title,
+      reason: reading.reason,
+      round: reading.round,
+      chases: reading.chases,
+    }));
+    const state = applyResearchFrame(watching(), {
+      kind: "research_readings",
+      data: { readings },
+    });
+    const { container } = render(<ResearchProgress state={state} />);
+    for (const reading of readings) {
+      expect(screen.getByText(reading.title)).toBeInTheDocument();
+    }
+    // A later round says which round it is — "still going" and "chasing
+    // what the last round found" are different states.
+    const chased = readings.find((r) => r.round > 0);
+    if (chased) {
+      expect(container.querySelector(`[data-angle-round="${chased.round}"]`)).not.toBeNull();
+      expect(screen.getAllByText(/Round \d/).length).toBeGreaterThan(0);
+    }
+  });
+
+  it("lights the iteration row from real round counters", () => {
+    let state = watching();
+    state = applyResearchFrame(state, {
+      kind: "research_progress",
+      data: {
+        phase: "execute",
+        angle_index: 2,
+        angle_total: 3,
+        message: "Chasing what round 1 turned up: bill lag days (2 of 3)",
+        elapsed_ms: 61_000,
+        round_index: 1,
+        round_total: 4,
+      },
+    });
+    const { container } = render(<ResearchProgress state={state} />);
+    // The row exists only because the counter says the run has been here.
+    const row = container.querySelector('[data-phase="round"]');
+    expect(row).not.toBeNull();
+    expect(row).toHaveAttribute("data-round", "1");
+  });
+
+  it("switches to the study when the completion frame is a study", () => {
+    const state = applyResearchFrame(watching(), {
+      kind: "research_complete",
+      data: study as unknown as Record<string, unknown>,
+    });
+    expect(state.run.status).toBe("complete");
+    expect(state.run.report_kind).toBe("generalized");
+    expect(state.run.research_report?.id).toBe(study.id);
+    expect(state.run.report).toBeUndefined();
   });
 });

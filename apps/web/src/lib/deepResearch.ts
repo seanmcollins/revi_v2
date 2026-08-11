@@ -101,6 +101,68 @@ export interface ResearchOffer extends ResearchOfferWire {
 }
 export type ResearchRun = components["schemas"]["DeepResearchRunResponse"];
 export type ResearchReport = components["schemas"]["DeepResearchReport"];
+
+/* ------------------------------------------------------------------ */
+/* The two artifacts a run can produce                                 */
+/* ------------------------------------------------------------------ */
+
+/**
+ * A RESEARCH STUDY'S REPORT — the other thing a run can be.
+ *
+ * The recoverability review answers one standing question about open
+ * denials, so its report is a priced headline with the populations behind
+ * it. A research question has no headline dollar figure to BE the answer,
+ * and a surface that rendered one over "why has our A/R over 90 been
+ * climbing" would be showing a number that answers a different question.
+ *
+ * So there are two report shapes and the run response discriminates
+ * between them (`report_kind`). Nothing about the review's shape moved;
+ * this is additive on the wire and additive here.
+ */
+export type ResearchStudy = components["schemas"]["GeneralizedResearchReport"];
+export type ResearchReading = components["schemas"]["ResearchReadingPayload"];
+export type ResearchFigure = components["schemas"]["ResearchFigurePayload"];
+export type ResearchStudyWalk = components["schemas"]["ResearchWalkPayload"];
+export type ResearchStudyRound = components["schemas"]["ResearchRoundPayload"];
+export type ResearchWalkStep = components["schemas"]["ResearchWalkStepPayload"];
+export type ResearchStudyCensoring = components["schemas"]["ResearchCensoringPayload"];
+export type ResearchDetermination = components["schemas"]["DeterminationPayload"];
+export type ResearchReportKind = "recovery" | "generalized";
+
+/**
+ * Is this payload a study rather than a recoverability review?
+ *
+ * Read off the payload's OWN discriminator rather than off the run
+ * response, because the SSE `research_complete` frame carries the report
+ * and nothing else — a watcher holding a frame has no envelope to consult.
+ * The review carries no `kind` at all, which is what keeps its bytes
+ * identical to what M48 shipped.
+ */
+export function isResearchStudy(report: unknown): report is ResearchStudy {
+  return (
+    typeof report === "object" &&
+    report !== null &&
+    (report as { kind?: unknown }).kind === "generalized_research"
+  );
+}
+
+/** A figure's number, or nothing at all — the tier is the authority. */
+export function figureValue(figure: ResearchFigure): number | undefined {
+  if (figure.evidence !== "measured") return undefined;
+  return decimal(figure.value);
+}
+
+/**
+ * The figures a reading MEASURED, in the order it published them.
+ *
+ * Ceilings and withheld rows are excluded rather than dimmed, because
+ * every caller of this is doing arithmetic or drawing a mark — and a
+ * ceiling in either is a claim the reading did not make. Both still render
+ * on the reading itself, with their marks.
+ */
+export function measuredFigures(reading: ResearchReading): ResearchFigure[] {
+  return (reading.figures ?? []).filter((figure) => figure.evidence === "measured");
+}
 export type ResearchProgress = components["schemas"]["DeepResearchProgressPayload"];
 export type ResearchSummary = components["schemas"]["DeepResearchSummary"];
 export type ResearchPlan = components["schemas"]["ResearchPlanPayload"];
@@ -746,6 +808,8 @@ export function parseResearchRun(raw: unknown): ResearchRunParse {
       status: status as ResearchStatus,
       created_at: typeof raw.created_at === "string" ? raw.created_at : "",
       data_load_label: typeof raw.data_load_label === "string" ? raw.data_load_label : "",
+      research_question:
+        typeof raw.research_question === "string" ? raw.research_question : "",
       population: population as ResearchSelector,
       progress: progress ?? {
         phase: "plan",
@@ -757,6 +821,12 @@ export function parseResearchRun(raw: unknown): ResearchRunParse {
         round_total: 0,
       },
       ...(isRecord(raw.report) ? { report: raw.report as unknown as ResearchReport } : {}),
+      ...(isResearchStudy(raw.research_report)
+        ? { research_report: raw.research_report }
+        : {}),
+      ...(raw.report_kind === "recovery" || raw.report_kind === "generalized"
+        ? { report_kind: raw.report_kind }
+        : {}),
       ...(isRecord(raw.preview)
         ? { preview: raw.preview as unknown as ResearchRun["preview"] }
         : {}),
@@ -846,6 +916,15 @@ export interface ResearchWatchState {
    * list to tick off.
    */
   plan?: ResearchPlan;
+  /**
+   * A STUDY's readings, once the run has chosen them.
+   *
+   * The generalized twin of `plan`, and it arrives on its own frame the
+   * moment the readings are known rather than with the finished report —
+   * so a reader watching a minute of work sees what is being read while
+   * it is being read, with the reason each one is in the run.
+   */
+  readings?: ResearchPlannedReading[];
   /** Streamed prose, before the finished report supersedes it. */
   draftNarrative: string;
   /** Warnings as they were raised, for a reader watching the run. */
@@ -853,11 +932,23 @@ export interface ResearchWatchState {
 }
 
 export function initialWatchState(run: ResearchRun): ResearchWatchState {
+  const study = run.research_report;
   return {
     run,
     ...(run.report ? { plan: run.report.plan } : {}),
+    ...(study
+      ? {
+          readings: (study.readings ?? []).map((reading) => ({
+            title: reading.title,
+            reason: reading.reason,
+            round: reading.round ?? 0,
+            chases: reading.chases ?? "",
+            ...(READING_SHAPES.has(reading.shape) ? { shape: reading.shape } : {}),
+          })),
+        }
+      : {}),
     draftNarrative: "",
-    warnings: run.report?.warnings ?? [],
+    warnings: run.report?.warnings ?? study?.warnings ?? [],
   };
 }
 
@@ -884,12 +975,20 @@ export function applyResearchFrame(
           ...(typeof frame.data.data_load === "string"
             ? { data_load_label: frame.data.data_load }
             : {}),
+          ...(typeof frame.data.research_question === "string"
+            ? { research_question: frame.data.research_question }
+            : {}),
         },
       };
     }
     case "research_plan": {
       if (typeof frame.data.research_question !== "string") return state;
       return { ...state, plan: frame.data as unknown as ResearchPlan };
+    }
+    case "research_readings": {
+      const readings = readReadings(frame.data.readings);
+      if (readings.length === 0) return state;
+      return { ...state, readings };
     }
     case "research_progress": {
       if (!isRecord(frame.data)) return state;
@@ -917,13 +1016,35 @@ export function applyResearchFrame(
     }
     case "research_complete": {
       if (typeof frame.data.id !== "string") return state;
+      // ONE FRAME, TWO ARTIFACTS. The payload's own `kind` says which it
+      // is; a watcher that assumed the review's shape would read a study's
+      // determination as a missing headline and render an empty report.
+      if (isResearchStudy(frame.data)) {
+        const study = frame.data;
+        return {
+          ...state,
+          draftNarrative: "",
+          warnings: study.warnings ?? state.warnings,
+          run: {
+            ...state.run,
+            status: "complete",
+            research_report: study,
+            report_kind: "generalized",
+          },
+        };
+      }
       const report = frame.data as unknown as ResearchReport;
       return {
         ...state,
         plan: report.plan,
         draftNarrative: "",
         warnings: report.warnings ?? state.warnings,
-        run: { ...state.run, status: "complete", report },
+        run: {
+          ...state.run,
+          status: "complete",
+          report,
+          report_kind: "recovery",
+        },
       };
     }
     case "error": {
@@ -956,6 +1077,20 @@ export function applyResearchFrame(
  * platform has not sent.
  */
 export function angleTitles(state: ResearchWatchState): AngleGroup[] {
+  // A STUDY NAMES ITS OWN READINGS, and it names them EARLY: the readings
+  // frame arrives as soon as the run has chosen them rather than with the
+  // finished report, so the checklist below is real from the first
+  // measurement rather than filling in at the end.
+  const readings = state.readings ?? [];
+  if (readings.length > 0) {
+    return readings.map((reading, index) => ({
+      title: reading.title,
+      cuts: 1,
+      lastIndex: index,
+      ...(reading.reason !== "" ? { reason: reading.reason } : {}),
+      round: reading.round,
+    }));
+  }
   const angles: ResearchAngle[] = state.plan?.angles ?? state.run.report?.plan.angles ?? [];
   const groups: AngleGroup[] = [];
   for (const [index, angle] of angles.entries()) {
@@ -986,4 +1121,8 @@ export interface AngleGroup {
   cuts: number;
   /** Position of the LAST of them, so the line ticks when all of them have. */
   lastIndex: number;
+  /** Why this reading is in the run, where the platform said. */
+  reason?: string;
+  /** Which round chose it — 0 is the opening read. */
+  round?: number;
 }

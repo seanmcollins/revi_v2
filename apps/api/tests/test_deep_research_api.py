@@ -636,3 +636,270 @@ class TestARunIsNotSomethingAMonitorCanReRun:
         assert "data load" in message
         # …and it says what CAN be watched instead, rather than only "no".
         assert "instead" in message
+
+
+class TestAResearchQuestionRunsAsAStudy:
+    """The run branch: a question is executed, not merely previewed.
+
+    Until this milestone the confirm card resolved a research plan and the
+    button started the recoverability review. Both runs now exist, the
+    server branches on the question, and the two artifacts are
+    discriminated on the wire rather than by shape-sniffing.
+
+    These run against the scripted control plane, so the planner call fails
+    and the loop falls back to its standing opening read — which is the
+    deterministic-fallback path, end to end, through the real API.
+    """
+
+    QUESTION = (
+        "research why our A/R over 90 has been climbing and what it will take "
+        "to bring it down"
+    )
+
+    async def _study(self, question: str = QUESTION):
+        api = service()
+        started = await api.start_deep_research(
+            CALLER, StartDeepResearchRequest(question=question)
+        )
+        await _finish(api, started.id)
+        return api, await api.get_deep_research(CALLER, started.id)
+
+    async def test_a_question_produces_a_study_and_says_which_it_is(self) -> None:
+        _, finished = await self._study()
+        assert finished.status == "complete"
+        assert finished.report_kind == "generalized"
+        assert finished.report is None, "a study must not carry the review's shape"
+        assert finished.research_report is not None
+        assert finished.research_report.kind == "generalized_research"
+        assert finished.research_report.research_question == self.QUESTION
+
+    async def test_the_study_publishes_readings_with_their_reasons(self) -> None:
+        _, finished = await self._study()
+        study = finished.research_report
+        assert study is not None
+        assert study.readings, "a study that read nothing is not a study"
+        for reading in study.readings:
+            assert reading.title and reading.reason
+            assert reading.read_fingerprint or reading.refusal
+
+    async def test_the_walk_reaches_the_wire_with_its_rounds(self) -> None:
+        _, finished = await self._study()
+        study = finished.research_report
+        assert study is not None
+        assert study.walk.rounds_taken >= 2, (
+            "a why-and-what-will-it-take question earns more than one pass"
+        )
+        assert [round_.index for round_ in study.walk.rounds] == list(
+            range(study.walk.rounds_taken)
+        )
+        for round_ in study.walk.rounds:
+            assert all(step.reason for step in round_.steps)
+
+    async def test_the_determination_is_composed_and_leads_with_its_disclosures(
+        self,
+    ) -> None:
+        _, finished = await self._study()
+        study = finished.research_report
+        assert study is not None
+        assert study.determination.question == self.QUESTION
+        assert study.determination.statement
+        # The disclosures are published in front of the prose, verbatim, so
+        # a reader who stops after the first sentence has the limits too.
+        assert study.determination.statement.startswith("Every figure in this study")
+
+    async def test_the_no_question_run_is_still_the_review_byte_for_byte(self) -> None:
+        api = service()
+        started = await api.start_deep_research(CALLER, StartDeepResearchRequest())
+        await _finish(api, started.id)
+        finished = await api.get_deep_research(CALLER, started.id)
+        assert finished.report_kind == "recovery"
+        assert finished.research_report is None
+        assert finished.report is not None
+        assert finished.report.headline.total_expected_cents > 0
+
+    async def test_a_question_no_measure_can_answer_falls_back_to_the_review(
+        self,
+    ) -> None:
+        """The card says the button measures the review instead. So does the
+        server, and they have to agree or the confirmation was a promise
+        about a different run."""
+        _, finished = await self._study("how is the cafeteria doing")
+        assert finished.report_kind == "recovery"
+        assert finished.research_report is None
+        assert finished.report is not None
+
+    async def test_the_study_survives_the_trace_round_trip(self) -> None:
+        api, finished = await self._study()
+        run_id = finished.id
+        # Forget the in-flight state, exactly as a restarted process would.
+        api.research._runs.clear()
+        restored = await api.get_deep_research(CALLER, run_id)
+        assert restored.report_kind == "generalized"
+        assert restored.research_report is not None
+        assert restored.research_report.model_dump(
+            mode="json"
+        ) == finished.research_report.model_dump(mode="json")
+
+    async def test_the_stored_analysis_is_keyed_on_the_walk(self) -> None:
+        """"The recorded path is the plan." The stored investigation's own
+        handle is the walk's fingerprint, so a permalink restores what was
+        decided rather than a plan nobody took."""
+        api, finished = await self._study()
+        record = await api.components.traces.get(
+            f"{finished.id}{DEEP_RESEARCH_TRACE_SUFFIX}"
+        )
+        assert record is not None
+        assert record.payload["report_kind"] == "generalized"
+        assert len(str(record.payload["plan_fingerprint"])) == 64
+        lineage = await api.components.investigations.lineage(finished.session_id)
+        assert lineage is not None
+        stored = next(i for i in lineage.investigations if i.id == finished.id)
+        assert stored.plan_hash == record.payload["plan_fingerprint"]
+        assert stored.question == self.QUESTION
+
+    async def test_a_study_is_listed_as_a_study(self) -> None:
+        api, finished = await self._study()
+        listed = await api.list_deep_research(CALLER)
+        row = next(run for run in listed.runs if run.id == finished.id)
+        assert row.report_kind == "generalized"
+        # A study prices nothing, so the expected-recovery column is empty
+        # rather than zero: zero is a measurement it never made.
+        assert row.total_expected_cents is None
+
+    async def test_a_watcher_sees_the_readings_and_the_rounds_while_it_works(
+        self,
+    ) -> None:
+        """The iteration rows light up from real frames.
+
+        `round_index`/`round_total` were on the wire and always zero; the
+        readings were named only once the report arrived. Both are now
+        emitted as the run takes them, which is the difference between a
+        record of reasoning and a spinner with words on it.
+        """
+        api = service()
+        started = await api.start_deep_research(
+            CALLER, StartDeepResearchRequest(question=self.QUESTION)
+        )
+        await _finish(api, started.id)
+        frames = api.research._runs[started.id].frames
+        kinds = [kind for kind, _ in frames]
+        assert "research_readings" in kinds
+        assert kinds[-1] == "research_complete"
+
+        progress = [data for kind, data in frames if kind == "research_progress"]
+        assert {frame["phase"] for frame in progress} >= {
+            "orient",
+            "consult",
+            "plan",
+            "execute",
+            "read",
+            "round",
+            "synthesize",
+        }
+        assert max(frame["round_index"] for frame in progress) >= 1
+        assert all(frame["round_total"] >= 1 for frame in progress)
+        # The readings frame arrives BEFORE the report, carrying the reason
+        # each reading is in the run.
+        first_readings = kinds.index("research_readings")
+        assert first_readings < kinds.index("research_complete")
+        readings = next(data for kind, data in frames if kind == "research_readings")
+        assert readings["readings"]
+        assert all(entry["reason"] for entry in readings["readings"])
+
+    async def test_a_study_stopped_MID_READING_publishes_nothing(self) -> None:
+        """Cancellation-safe as the review is, at the boundary it added.
+
+        The loop yields between readings so a stopped run lands on a
+        reading boundary rather than mid-estimate. This stops one after it
+        has really started measuring — the state a run is in for most of
+        its minute — and requires that nothing partial reaches storage.
+        """
+        api = service()
+        started = await api.start_deep_research(
+            CALLER, StartDeepResearchRequest(question=self.QUESTION)
+        )
+        state = api.research._runs[started.id]
+        for _ in range(6_000):
+            if state.progress.phase == "execute" and state.progress.angle_index > 0:
+                break
+            await asyncio.sleep(0.005)
+        assert state.progress.phase == "execute", (
+            f"the run never began measuring — it reached {state.progress.phase}"
+        )
+        await api.research.cancel(CALLER, started.id)
+        assert state.status == "interrupted"
+        assert state.research_report is None
+        assert state.report is None
+        assert await api.components.investigations.get(started.id) is None
+        record = await api.components.traces.get(
+            f"{started.id}{DEEP_RESEARCH_TRACE_SUFFIX}"
+        )
+        assert record is not None
+        assert record.payload["status"] == "running"
+        assert "report" not in record.payload
+
+
+class TestAStudyThatRaisesEndsAsAStudyThatFailed:
+    """One outcome envelope, around both kinds of run.
+
+    The generalized branch shipped without one for exactly as long as it
+    took to run it against real data: a reading that raised left the run
+    reading "running" forever with a frozen progress line, a stream nobody
+    closed, and an exception nobody retrieved. A background job that can
+    end in silence is worse than one that fails loudly, because the surface
+    watching it never stops waiting.
+    """
+
+    QUESTION = "research why our A/R over 90 has been climbing"
+
+    async def test_a_raising_study_fails_loudly_and_releases_its_watchers(
+        self,
+    ) -> None:
+        api = service()
+
+        class _Exploding:
+            async def run(self, **kwargs):
+                raise RuntimeError("a reading blew up")
+
+            async def preview(self, **kwargs):  # pragma: no cover - not reached
+                raise RuntimeError("a reading blew up")
+
+        research = api.research
+        research._research = _Exploding()  # type: ignore[assignment]
+        started = await api.start_deep_research(
+            CALLER, StartDeepResearchRequest(question=self.QUESTION)
+        )
+        await _finish(api, started.id)
+        state = research._runs[started.id]
+        assert state.status == "failed"
+        assert state.error == "This run stopped before it could finish."
+        assert state.research_report is None and state.report is None
+        # The stream is closed rather than left open on a run that will
+        # never emit again.
+        kinds = [kind for kind, _ in state.frames]
+        assert kinds[-1] == "error"
+        assert not state.watchers
+        # And nothing partial was written: the trace still says it started.
+        assert await api.components.investigations.get(started.id) is None
+        record = await api.components.traces.get(
+            f"{started.id}{DEEP_RESEARCH_TRACE_SUFFIX}"
+        )
+        assert record is not None and "report" not in record.payload
+
+    async def test_a_refused_read_names_the_gap_rather_than_stopping_silently(
+        self,
+    ) -> None:
+        api = service()
+
+        class _Refusing:
+            async def run(self, **kwargs):
+                raise UnsupportedConceptError("this data carries no such measure")
+
+        api.research._research = _Refusing()  # type: ignore[assignment]
+        started = await api.start_deep_research(
+            CALLER, StartDeepResearchRequest(question=self.QUESTION)
+        )
+        await _finish(api, started.id)
+        finished = await api.get_deep_research(CALLER, started.id)
+        assert finished.status == "failed"
+        assert "no such measure" in (finished.error or "")

@@ -2411,6 +2411,36 @@
               }
             ]
           },
+          "report_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "recovery",
+                  "generalized"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report Kind"
+          },
+          "research_question": {
+            "default": "",
+            "title": "Research Question",
+            "type": "string"
+          },
+          "research_report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GeneralizedResearchReport"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "session_id": {
             "title": "Session Id",
             "type": "string"
@@ -2504,6 +2534,7 @@
             "enum": [
               "research_started",
               "research_plan",
+              "research_readings",
               "research_progress",
               "research_finding",
               "research_warning",
@@ -2541,6 +2572,21 @@
           },
           "population": {
             "$ref": "#/components/schemas/DeepResearchSelector"
+          },
+          "report_kind": {
+            "anyOf": [
+              {
+                "enum": [
+                  "recovery",
+                  "generalized"
+                ],
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Report Kind"
           },
           "research_question": {
             "title": "Research Question",
@@ -2620,6 +2666,38 @@
           "pack_snapshot_id"
         ],
         "title": "DefinitionalPayload",
+        "type": "object"
+      },
+      "DeterminationPayload": {
+        "additionalProperties": false,
+        "description": "The answer to the research question \u2014 the artifact's first claim.\n\nComposed under the same discipline every other answer's prose is: the\ncomposer is shown the question and told its first sentence must answer\nit, it may cite only certified readings, and every figure it writes is\nchecked against a value some estimator actually produced. What is\ndifferent is what else it is shown \u2014 the walk's own reasons, and the\nbackground notes as QUOTABLE CONTEXT. A note may inform how the answer\nis framed; it can never be a number, and the grounding validator is\nwhat makes that true rather than requested.",
+        "properties": {
+          "composed": {
+            "default": false,
+            "title": "Composed",
+            "type": "boolean"
+          },
+          "question": {
+            "title": "Question",
+            "type": "string"
+          },
+          "rests_on": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Rests On",
+            "type": "array"
+          },
+          "statement": {
+            "default": "",
+            "title": "Statement",
+            "type": "string"
+          }
+        },
+        "required": [
+          "question"
+        ],
+        "title": "DeterminationPayload",
         "type": "object"
       },
       "DrillDimensionRepoint": {
@@ -3268,6 +3346,145 @@
           "window_label"
         ],
         "title": "GeneralizedResearchPreviewPayload",
+        "type": "object"
+      },
+      "GeneralizedResearchReport": {
+        "additionalProperties": false,
+        "description": "A finished research study \u2014 the artifact a link points at.\n\nEverything a reader needs to check the determination is here: every\nreading with the reason it was taken and what it settled, every figure\nwith its marks and the read behind it, the walk with its chases, what\nwas established about the data before anything was chosen, and which\nbackground notes were consulted.",
+        "properties": {
+          "censoring": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ResearchCensoringPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "charts": {
+            "items": {
+              "$ref": "#/components/schemas/ChartSpec"
+            },
+            "title": "Charts",
+            "type": "array"
+          },
+          "completed_at": {
+            "anyOf": [
+              {
+                "format": "date-time",
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Completed At"
+          },
+          "created_at": {
+            "format": "date-time",
+            "title": "Created At",
+            "type": "string"
+          },
+          "data_edge_date": {
+            "format": "date",
+            "title": "Data Edge Date",
+            "type": "string"
+          },
+          "data_load_label": {
+            "default": "",
+            "title": "Data Load Label",
+            "type": "string"
+          },
+          "determination": {
+            "$ref": "#/components/schemas/DeterminationPayload"
+          },
+          "duration_ms": {
+            "default": 0,
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "findings": {
+            "items": {
+              "$ref": "#/components/schemas/FindingPayload"
+            },
+            "title": "Findings",
+            "type": "array"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "kind": {
+            "const": "generalized_research",
+            "default": "generalized_research",
+            "title": "Kind",
+            "type": "string"
+          },
+          "knowledge_consulted": {
+            "items": {
+              "$ref": "#/components/schemas/ConsultedNotePayload"
+            },
+            "title": "Knowledge Consulted",
+            "type": "array"
+          },
+          "knowledge_statement": {
+            "default": "",
+            "title": "Knowledge Statement",
+            "type": "string"
+          },
+          "path_choices": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchPathChoicePayload"
+            },
+            "title": "Path Choices",
+            "type": "array"
+          },
+          "population": {
+            "$ref": "#/components/schemas/DeepResearchSelector"
+          },
+          "population_label": {
+            "default": "",
+            "title": "Population Label",
+            "type": "string"
+          },
+          "readings": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchReadingPayload"
+            },
+            "title": "Readings",
+            "type": "array"
+          },
+          "research_question": {
+            "title": "Research Question",
+            "type": "string"
+          },
+          "walk": {
+            "$ref": "#/components/schemas/ResearchWalkPayload"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/WarningPayload"
+            },
+            "title": "Warnings",
+            "type": "array"
+          },
+          "window_label": {
+            "default": "",
+            "title": "Window Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "research_question",
+          "population",
+          "data_edge_date",
+          "created_at",
+          "determination",
+          "walk"
+        ],
+        "title": "GeneralizedResearchReport",
         "type": "object"
       },
       "HTTPValidationError": {
@@ -5947,6 +6164,178 @@
         "title": "ResearchAnglePayload",
         "type": "object"
       },
+      "ResearchCensoringPayload": {
+        "additionalProperties": false,
+        "description": "What the edge of the data cost a study's outcome-like readings.\n\nPublished only where outcome-like data was involved \u2014 a rate whose\ndenominator counts the population its numerator is drawn from. Over\ndollars or days there is no population to be censored out of, and a\ncensoring block beside those figures would be a disclosure about\nnothing.\n\nNothing here is modelled. Every count is read off the certified\nfigures, and the statements are composed beside the counts they quote.",
+        "properties": {
+          "data_edge_date": {
+            "format": "date",
+            "title": "Data Edge Date",
+            "type": "string"
+          },
+          "figures_bounded": {
+            "title": "Figures Bounded",
+            "type": "integer"
+          },
+          "figures_measured": {
+            "title": "Figures Measured",
+            "type": "integer"
+          },
+          "figures_withheld": {
+            "title": "Figures Withheld",
+            "type": "integer"
+          },
+          "population_measured": {
+            "title": "Population Measured",
+            "type": "integer"
+          },
+          "readings_over_outcomes": {
+            "title": "Readings Over Outcomes",
+            "type": "integer"
+          },
+          "statements": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Statements",
+            "type": "array"
+          },
+          "window_label": {
+            "title": "Window Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "data_edge_date",
+          "window_label",
+          "readings_over_outcomes",
+          "figures_measured",
+          "figures_bounded",
+          "figures_withheld",
+          "population_measured"
+        ],
+        "title": "ResearchCensoringPayload",
+        "type": "object"
+      },
+      "ResearchFigurePartPayload": {
+        "additionalProperties": false,
+        "description": "One ``breakdown = value`` pair behind a figure, in both spellings.\n\nThe raw value is what the data holds and what a later round narrowed\non; the label is what the reader saw. A denial reason cell reads\n``16 \u2014 Missing or invalid information`` over a column holding ``16``,\nand a client that had only one of the two could either render a bare\ncode or lose the ability to say which column it came from.",
+        "properties": {
+          "dimension": {
+            "title": "Dimension",
+            "type": "string"
+          },
+          "dimension_label": {
+            "title": "Dimension Label",
+            "type": "string"
+          },
+          "value": {
+            "title": "Value",
+            "type": "string"
+          },
+          "value_label": {
+            "title": "Value Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "dimension",
+          "dimension_label",
+          "value",
+          "value_label"
+        ],
+        "title": "ResearchFigurePartPayload",
+        "type": "object"
+      },
+      "ResearchFigurePayload": {
+        "additionalProperties": false,
+        "description": "One certified figure of one reading, with its marks already on it.\n\nThe same two-state rule the recovery report's rate cells obey, applied\nto any governed measure: a figure is either a measurement \u2014 ``value``\npresent, ``evidence`` ``measured`` \u2014 or it is not, and there is no\nthird state. A ceiling carries ``bounded`` and its ``value`` is the\nlargest it could have been rather than what it is; a withheld cell\ncarries no value at all. ``display`` is the figure already formatted in\nits measure's own unit, so no client re-derives dollars from cents or\na percentage from a ratio.",
+        "properties": {
+          "bounded": {
+            "default": false,
+            "title": "Bounded",
+            "type": "boolean"
+          },
+          "display": {
+            "title": "Display",
+            "type": "string"
+          },
+          "evidence": {
+            "enum": [
+              "measured",
+              "not_estimable"
+            ],
+            "title": "Evidence",
+            "type": "string"
+          },
+          "interval": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/IntervalPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "label": {
+            "title": "Label",
+            "type": "string"
+          },
+          "parts": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchFigurePartPayload"
+            },
+            "title": "Parts",
+            "type": "array"
+          },
+          "population": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Population"
+          },
+          "successes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Successes"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value"
+          },
+          "withheld": {
+            "default": false,
+            "title": "Withheld",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "label",
+          "evidence",
+          "display"
+        ],
+        "title": "ResearchFigurePayload",
+        "type": "object"
+      },
       "ResearchPathChoicePayload": {
         "additionalProperties": false,
         "description": "One thing a run established about the data before it chose anything.\n\n\"Your data carries COB mainly in remit codes \u2014 the category field is\nsparsely populated here, so I read the codes.\" The statement arrives\nalready composed, beside the coverage figure it quotes, so no surface\ncan re-word it into something true, useless and unfalsifiable.",
@@ -6016,6 +6405,276 @@
           "research_question"
         ],
         "title": "ResearchPlanPayload",
+        "type": "object"
+      },
+      "ResearchReadingPayload": {
+        "additionalProperties": false,
+        "description": "One reading a study took: what it read, why, and what it settled.\n\nThe ``reason`` is the sentence that put this reading in the run \u2014 the\nplanner's own, or the deterministic reader's. The ``settled`` sentence\nis what came back, composed from published figures only. A reading\nwhose reason and verdict are both absent is a table with no argument\naround it, which is what a research report must never be.",
+        "properties": {
+          "basis_label": {
+            "default": "",
+            "title": "Basis Label",
+            "type": "string"
+          },
+          "cache_hit": {
+            "default": false,
+            "title": "Cache Hit",
+            "type": "boolean"
+          },
+          "chart_id": {
+            "default": "",
+            "title": "Chart Id",
+            "type": "string"
+          },
+          "chases": {
+            "default": "",
+            "title": "Chases",
+            "type": "string"
+          },
+          "contrast": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ContrastPayload"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "duration_ms": {
+            "default": 0,
+            "title": "Duration Ms",
+            "type": "integer"
+          },
+          "figures": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchFigurePayload"
+            },
+            "title": "Figures",
+            "type": "array"
+          },
+          "figures_published": {
+            "default": 0,
+            "title": "Figures Published",
+            "type": "integer"
+          },
+          "figures_withheld": {
+            "default": 0,
+            "title": "Figures Withheld",
+            "type": "integer"
+          },
+          "id": {
+            "title": "Id",
+            "type": "string"
+          },
+          "measure_label": {
+            "title": "Measure Label",
+            "type": "string"
+          },
+          "metric_id": {
+            "title": "Metric Id",
+            "type": "string"
+          },
+          "notes": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Notes",
+            "type": "array"
+          },
+          "ranked": {
+            "default": false,
+            "title": "Ranked",
+            "type": "boolean"
+          },
+          "ranking_refused": {
+            "default": "",
+            "title": "Ranking Refused",
+            "type": "string"
+          },
+          "read_fingerprint": {
+            "default": "",
+            "title": "Read Fingerprint",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "refusal": {
+            "default": "",
+            "title": "Refusal",
+            "type": "string"
+          },
+          "round": {
+            "default": 0,
+            "title": "Round",
+            "type": "integer"
+          },
+          "rows_read": {
+            "default": 0,
+            "title": "Rows Read",
+            "type": "integer"
+          },
+          "settled": {
+            "default": "",
+            "title": "Settled",
+            "type": "string"
+          },
+          "shape": {
+            "enum": [
+              "measure_profile",
+              "stratified_rates",
+              "contrast",
+              "trend",
+              "composition"
+            ],
+            "title": "Shape",
+            "type": "string"
+          },
+          "title": {
+            "title": "Title",
+            "type": "string"
+          },
+          "unit": {
+            "title": "Unit",
+            "type": "string"
+          },
+          "window_label": {
+            "default": "",
+            "title": "Window Label",
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "shape",
+          "title",
+          "measure_label",
+          "metric_id",
+          "unit",
+          "reason"
+        ],
+        "title": "ResearchReadingPayload",
+        "type": "object"
+      },
+      "ResearchRoundPayload": {
+        "additionalProperties": false,
+        "description": "One read-and-decide round: what it did, and why it exists.",
+        "properties": {
+          "index": {
+            "title": "Index",
+            "type": "integer"
+          },
+          "readings": {
+            "items": {
+              "type": "string"
+            },
+            "title": "Readings",
+            "type": "array"
+          },
+          "reason": {
+            "default": "",
+            "title": "Reason",
+            "type": "string"
+          },
+          "steps": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchWalkStepPayload"
+            },
+            "title": "Steps",
+            "type": "array"
+          }
+        },
+        "required": [
+          "index"
+        ],
+        "title": "ResearchRoundPayload",
+        "type": "object"
+      },
+      "ResearchWalkPayload": {
+        "additionalProperties": false,
+        "description": "How the run got here \u2014 the \"how I got there\" a consultant shows.\n\nThe recorded walk IS the plan (``docs/agentic-resolution.md``): what a\npermalink restores, what replay re-executes, what the harness audits.\nPublishing it is what lets a reader see that a chase was a decision\nwith a cause rather than an extra table that appeared.",
+        "properties": {
+          "authored_by": {
+            "default": "revi",
+            "enum": [
+              "model",
+              "revi"
+            ],
+            "title": "Authored By",
+            "type": "string"
+          },
+          "rationale": {
+            "default": "",
+            "title": "Rationale",
+            "type": "string"
+          },
+          "rounds": {
+            "items": {
+              "$ref": "#/components/schemas/ResearchRoundPayload"
+            },
+            "title": "Rounds",
+            "type": "array"
+          },
+          "rounds_allowed": {
+            "default": 1,
+            "title": "Rounds Allowed",
+            "type": "integer"
+          },
+          "rounds_taken": {
+            "default": 1,
+            "title": "Rounds Taken",
+            "type": "integer"
+          }
+        },
+        "title": "ResearchWalkPayload",
+        "type": "object"
+      },
+      "ResearchWalkStepPayload": {
+        "additionalProperties": false,
+        "description": "One decision the run made, with its stated reason.",
+        "properties": {
+          "action": {
+            "enum": [
+              "orient",
+              "consult",
+              "plan",
+              "execute",
+              "chase",
+              "broaden",
+              "drop",
+              "refuse",
+              "synthesize"
+            ],
+            "title": "Action",
+            "type": "string"
+          },
+          "detail": {
+            "default": "",
+            "title": "Detail",
+            "type": "string"
+          },
+          "reason": {
+            "title": "Reason",
+            "type": "string"
+          },
+          "round": {
+            "title": "Round",
+            "type": "integer"
+          },
+          "subject": {
+            "title": "Subject",
+            "type": "string"
+          }
+        },
+        "required": [
+          "round",
+          "action",
+          "subject",
+          "reason"
+        ],
+        "title": "ResearchWalkStepPayload",
         "type": "object"
       },
       "ResetContextModel": {
@@ -8067,7 +8726,7 @@
     },
     "/v1/deep-research/{run_id}/stream": {
       "get": {
-        "description": "Server-Sent Events for one run, from wherever it has got to. A \nwatcher that attaches late is caught up with the frames already \nemitted, so nothing is missed by joining mid-run.\n\nEach frame is `event: <kind>` + `data: <json>` \u2014 see the \n`DeepResearchStreamEvent` schema. Frame kinds and payloads:\n\n- `research_started` \u2014 the run's id, the data load it is pinned to, and the population it targets\n- `research_plan` \u2014 the angles this run will look at, in the order it will look at them\n- `research_progress` \u2014 which angle is running, how far along, and how long it has taken\n- `research_finding` \u2014 one certified result, the moment it is measured\n- `research_warning` \u2014 a qualification a reader needs before reading the numbers\n- `narrative_delta` \u2014 one chunk of the written report as it is composed\n- `error` \u2014 the run stopped; nothing partial is published\n- `research_complete` \u2014 the finished report\n\nThe stream is progress; the final `research_complete` frame carries \nthe finished report, which is also what the run's own GET returns.",
+        "description": "Server-Sent Events for one run, from wherever it has got to. A \nwatcher that attaches late is caught up with the frames already \nemitted, so nothing is missed by joining mid-run.\n\nEach frame is `event: <kind>` + `data: <json>` \u2014 see the \n`DeepResearchStreamEvent` schema. Frame kinds and payloads:\n\n- `research_started` \u2014 the run's id, the data load it is pinned to, and the population it targets\n- `research_plan` \u2014 the angles this run will look at, in the order it will look at them\n- `research_readings` \u2014 a research study's opening readings, each with the reason it is in the run \u2014 the generalized twin of the plan frame, sent as soon as the readings are chosen\n- `research_progress` \u2014 which angle is running, how far along, and how long it has taken\n- `research_finding` \u2014 one certified result, the moment it is measured\n- `research_warning` \u2014 a qualification a reader needs before reading the numbers\n- `narrative_delta` \u2014 one chunk of the written report as it is composed\n- `error` \u2014 the run stopped; nothing partial is published\n- `research_complete` \u2014 the finished report\n\nThe stream is progress; the final `research_complete` frame carries \nthe finished report, which is also what the run's own GET returns.",
         "operationId": "stream_deep_research_v1_deep_research__run_id__stream_get",
         "parameters": [
           {

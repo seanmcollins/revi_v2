@@ -7,6 +7,7 @@ import { CommandPalette } from "@/components/command/CommandPalette";
 import { ResearchEvidence } from "@/components/research/ResearchEvidence";
 import { ResearchProgress } from "@/components/research/ResearchProgress";
 import { ResearchReportView } from "@/components/research/ResearchReport";
+import { ResearchStudyView } from "@/components/research/ResearchStudy";
 import { SettingsPanel } from "@/components/settings/SettingsPanel";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { ConnectionPill, DegradedModeBadge } from "@/components/workspace/ConnectionPill";
@@ -104,7 +105,19 @@ export function ResearchSurface({ runId }: { runId: string }) {
 
   const { state, loading, error } = useDeepResearchRun(runId, driverKind === "api");
   const report = state?.run.report;
-  const population = state ? populationLabel(state.run.population) : "";
+  /**
+   * A STUDY IS THE OTHER ARTIFACT A RUN CAN PRODUCE, and it is a different
+   * page. Branching here rather than inside one component keeps the two
+   * reports from growing a shared "if this is a study" spine — they answer
+   * different kinds of question and their whole reading order differs.
+   */
+  const study = state?.run.research_report;
+  const finished = (report ?? study) !== undefined && state !== null && !isRunning(state.run.status);
+  const population = state
+    ? (study?.population_label ?? "") !== ""
+      ? (study?.population_label ?? "")
+      : populationLabel(state.run.population)
+    : "";
 
   return (
     <div className="relative h-dvh overflow-hidden bg-background">
@@ -117,7 +130,7 @@ export function ResearchSurface({ runId }: { runId: string }) {
           <header className="flex shrink-0 items-center justify-between gap-4 border-b bg-background/55 px-6 py-2.5 backdrop-blur-md">
             <div className="min-w-0">
               <h1 className="truncate text-body font-semibold tracking-tight">
-                {report ? "Deep research report" : "Deep research"}
+                {study ? "Deep research study" : report ? "Deep research report" : "Deep research"}
               </h1>
               <p className="num truncate text-micro text-muted-foreground">
                 {population !== "" ? population : "Reading this run…"}
@@ -192,7 +205,9 @@ export function ResearchSurface({ runId }: { runId: string }) {
                 <p role="status" aria-live="polite" className="text-body text-muted-foreground">
                   Reading this run…
                 </p>
-              ) : report && !isRunning(state.run.status) ? (
+              ) : finished && study ? (
+                <ResearchStudyView study={study} runId={state.run.id} />
+              ) : finished && report ? (
                 <ResearchReportView report={report} runId={state.run.id} />
               ) : (
                 <ResearchProgress state={state} />
@@ -210,6 +225,26 @@ export function ResearchSurface({ runId }: { runId: string }) {
         <aside className="hidden min-h-0 flex-col overflow-y-auto border-l panel px-4 py-4 xl:flex">
           {report ? (
             <ResearchEvidence evidence={report.evidence ?? []} />
+          ) : study ? (
+            /* A STUDY'S WORKING TRAVELS ON ITS READINGS. Each one already
+               carries the read behind it, the rows it touched and how many
+               groups it could not publish, so the rail is projected from
+               them rather than from a second list the server would have to
+               keep in step with the first. */
+            <ResearchEvidence
+              mode="study"
+              evidence={(study.readings ?? []).map((reading) => ({
+                family: "outcome_by_stratum" as const,
+                title: reading.title,
+                estimator: reading.measure_label,
+                read_fingerprint: reading.read_fingerprint,
+                rows_read: reading.rows_read,
+                rows_in_scope: reading.rows_read,
+                cells_published: reading.figures_published,
+                cells_refused: reading.figures_withheld,
+                duration_ms: reading.duration_ms,
+              }))}
+            />
           ) : (
             <p className="text-meta leading-snug text-muted-foreground">
               The working appears here — what each angle read, and how many populations it could

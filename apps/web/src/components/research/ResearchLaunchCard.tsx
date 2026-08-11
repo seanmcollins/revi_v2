@@ -46,20 +46,21 @@ import { cn } from "@/lib/utils";
  * THE FOUR ZONES DESCRIBE THE RUN, AND ONLY THE RUN.
  *
  * `offer.generalized` arrives when a reader asked a question of their own,
- * and it is not a description of the run on offer: it is what Revi makes
- * of the QUESTION, resolved against the real data — what the question
- * reaches, which background notes bear on it, and what would be read to
- * answer it. Today the platform executes one kind of run, the
- * recoverability review, and the generalized loop is resolved for the
- * preview only. So those readings go in a block of their own BELOW the Run
- * button (`QuestionReasoning`), under headings that say "would", with a
- * sentence naming what the button actually starts.
+ * and it now describes THE RUN THE BUTTON STARTS: a research question is
+ * executed as a study, so the readings resolved for it are the readings
+ * that will be taken, and they belong in WHAT IT WILL LOOK AT. Until the
+ * study could actually run they sat in a block of their own under a
+ * sentence saying the button did something else — which was the honest
+ * card for a platform that executed one kind of run, and is a false one
+ * now that it executes two.
  *
- * Folding them into WHAT IT WILL LOOK AT would have been the single worst
- * thing this card could do: it would list six readings the run does not
- * take, on the one surface in the product whose entire job is to say what
- * a minute of work will buy. The zone therefore keeps the review's own
- * angles, which is what confirming starts.
+ * THE RULE THAT DECIDES WHICH RUN THIS CARD IS FOR is the same one the
+ * server branches on: a question the definitions library can research
+ * makes this a study; anything else makes it the recoverability review.
+ * `refusal` is how the server says which, so a refused question falls back
+ * to the review here exactly as it does there — the Run button stays,
+ * because the review measures something the refusal is not about, and the
+ * card says what it will measure instead.
  *
  * THE REASONS ARE STILL THE LOAD-BEARING PART. A confirmation that lists
  * what would be read without saying why is a progress bar in advance, and
@@ -128,8 +129,19 @@ export function ResearchLaunchCard({
   // moves when the reader picks one the platform published.
   const [chosen, setChosen] = useState<ResearchSelector>(offer.population);
   const options = shown.options ?? [];
-  const population = populationLabel(chosen);
   const compact = variant === "compact";
+
+  // WHICH RUN THIS IS. A question the definitions library can research is
+  // executed as a study; a refused one falls back to the review, which is
+  // exactly what the server does with the same POST.
+  const studies = general !== undefined && general.refusal === "" && general.readings.length > 0;
+  // The button always names WHAT IS POSTED, study or review. The study's
+  // own account of what it reads ("everything in your data", "claims and
+  // remits") is a different sentence in a different place: it describes
+  // the run's reach, and putting it on the control would leave a reader
+  // choosing a population from a radio group whose button named another.
+  const population = populationLabel(chosen);
+  const reads = studies && general.populationLabel !== "" ? general.populationLabel : population;
 
   return (
     <section
@@ -151,18 +163,31 @@ export function ResearchLaunchCard({
         )}
         <div className="min-w-0 flex-1">
           <h3 id={headingId} className={cn("font-medium", compact ? "text-meta" : "text-body")}>
-            Deep research on {population}
+            {studies ? "Deep research on your question" : `Deep research on ${population}`}
           </h3>
 
-          {/* HOW BIG THE POPULATION IS, from the payload and only from the
-              payload. A count composed here would be this client asserting
-              the size of a population it has not read. */}
-          {shown.scope && (
-            <p className="num mt-0.5 text-meta leading-snug text-muted-foreground">
-              {formatCount(shown.scope.openDenials)} open denial
-              {shown.scope.openDenials === 1 ? "" : "s"}, worth{" "}
-              {formatCents(shown.scope.openDollarsCents)} in denied dollars.
-            </p>
+          {/* WHAT THE RUN IS ABOUT. A study is about the QUESTION, so the
+              question is printed; the review is about a population, so the
+              population's size is. Neither is composed here — the question
+              is the reader's own and the size is the payload's. */}
+          {studies ? (
+            <>
+              <p className={cn("mt-0.5 text-meta leading-snug", !compact && "max-w-[62ch]")}>
+                {general.researchQuestion}
+              </p>
+              <p className="num mt-0.5 text-micro leading-snug text-muted-foreground">
+                Reading {reads}
+                {general.windowLabel !== "" && `, over ${general.windowLabel}`}.
+              </p>
+            </>
+          ) : (
+            shown.scope && (
+              <p className="num mt-0.5 text-meta leading-snug text-muted-foreground">
+                {formatCount(shown.scope.openDenials)} open denial
+                {shown.scope.openDenials === 1 ? "" : "s"}, worth{" "}
+                {formatCents(shown.scope.openDollarsCents)} in denied dollars.
+              </p>
+            )
           )}
 
           <p
@@ -171,8 +196,10 @@ export function ResearchLaunchCard({
               !compact && "max-w-[62ch]",
             )}
           >
-            {shown.description ||
-              `Measure what is realistically recoverable out of ${population}, on your own history, and write it up.`}
+            {studies
+              ? "Revi measures what your data can say about this, reads what comes back, goes after what separates, and writes up the answer."
+              : shown.description ||
+                `Measure what is realistically recoverable out of ${population}, on your own history, and write it up.`}
           </p>
 
           {resolving && (
@@ -216,18 +243,24 @@ export function ResearchLaunchCard({
           )}
 
           {/* WHAT THE RUN WILL LOOK AT — the run that CONFIRMING starts,
-              and nothing else. The standing angles when the payload
-              published them; otherwise the three things the MODE always
-              does, which are statements about deep research rather than
-              predictions about this run. The readings resolved for a
-              research question are NOT here: see `QuestionReasoning`. */}
+              and nothing else. For a study that is the readings resolved
+              for the question, each with the reason it is in the run; for
+              the review it is the standing angles, or — where the payload
+              published none — the three things the MODE always does, which
+              are statements about deep research rather than predictions
+              about this run. */}
           <ul className="mt-2 space-y-1">
-            {((shown.plan ?? []).length > 0
-              ? (shown.plan ?? []).map((angle) => ({
-                  title: angle.title,
-                  reason: angle.purpose,
+            {(studies
+              ? general.readings.map((reading) => ({
+                  title: reading.title,
+                  reason: reading.reason,
                 }))
-              : MODE_DOES.map((line) => ({ title: line, reason: "" }))
+              : (shown.plan ?? []).length > 0
+                ? (shown.plan ?? []).map((angle) => ({
+                    title: angle.title,
+                    reason: angle.purpose,
+                  }))
+                : MODE_DOES.map((line) => ({ title: line, reason: "" }))
             ).map((line) => (
               <li
                 key={line.title}
@@ -273,7 +306,12 @@ export function ResearchLaunchCard({
           </div>
 
           {general && (
-            <QuestionReasoning preview={general} compact={compact} runs={population} />
+            <QuestionReasoning
+              preview={general}
+              compact={compact}
+              runs={population}
+              studies={studies}
+            />
           )}
 
           {error && (
@@ -292,23 +330,24 @@ export function ResearchLaunchCard({
 }
 
 /**
- * WHAT REVI MAKES OF THE QUESTION — and why it is NOT the run above.
+ * WHAT REVI ESTABLISHED BEFORE IT CHOSE — the method, under the button.
  *
  * This block is the whole reason a research question is worth typing: it
  * is the reasoning, resolved against the real data before a minute is
  * spent, and the one thing on this surface a reader can actually correct.
- * What it must never do is read as a description of the run the button
- * starts.
  *
- * THE SEPARATION IS THE POINT, AND IT IS A CORRECTNESS PROPERTY. Today the
- * platform executes ONE kind of run — the recoverability review over open
- * denials — and the generalized loop below is resolved for the preview
- * only. So a card that listed these readings under "what it will look at"
- * would promise six readings the run does not take. Everything above this
- * block describes the run on offer; everything inside it describes the
- * question. The heading, the "would", and the sentence naming what the
- * button actually starts are all carrying that distinction, and none of
- * them is decoration.
+ * WHAT MOVED OUT OF IT, and why. The READINGS now sit above, under "what
+ * it will look at", because they are what the button starts. What stays
+ * here is what the run established about the data and which background
+ * notes bear on the question — disclosures about METHOD rather than
+ * predictions about the run, which is why they belong under the decision
+ * rather than in front of it.
+ *
+ * WHEN THE QUESTION IS REFUSED, this block is the whole of it: the
+ * refusal, and — since the button then starts the recoverability review —
+ * a sentence saying what that measures instead. A card that refused the
+ * button along with the question would refuse a run the platform can
+ * perfectly well do.
  *
  * THE STATEMENTS ARE PRINTED VERBATIM. Each path choice arrives from the
  * server already carrying its own coverage figure ("your data carries this
@@ -333,50 +372,33 @@ function QuestionReasoning({
   preview,
   compact,
   runs,
+  studies,
 }: {
   preview: GeneralizedResearchPreview;
   compact: boolean;
-  /** What the button above actually starts, in the words the card used. */
+  /** What the button starts when the question itself cannot be researched. */
   runs: string;
+  /** True when the button starts the study this block describes. */
+  studies: boolean;
 }) {
   const {
-    researchQuestion,
-    populationLabel: reads,
-    windowLabel,
     pathChoices,
     knowledgeStatement,
     knowledgeConsulted,
-    readings,
     authoredBy,
     rationale,
     roundsPlanned,
     refusal,
   } = preview;
 
-  const span = [windowLabel, reads !== "" ? `across ${reads}` : ""]
-    .filter((part) => part !== "")
-    .join(", ");
-
   return (
     <section
-      data-research-reasoning
+      data-research-reasoning={studies ? "study" : "review"}
       className={cn("mt-3 border-t pt-2.5", !compact && "max-w-[62ch]")}
     >
       <h4 className="text-micro font-semibold uppercase tracking-wide text-muted-foreground">
-        What Revi makes of your question
+        What Revi checked before choosing
       </h4>
-      <p className="mt-1 text-meta leading-snug">{researchQuestion}</p>
-      {span !== "" && (
-        <p className="num mt-0.5 text-micro leading-snug text-muted-foreground">
-          Reading {span}.
-        </p>
-      )}
-      {/* THE SENTENCE THAT KEEPS THE CARD HONEST. Without it the reasoning
-          below reads as a description of the button above it. */}
-      <p className="mt-1 text-micro leading-snug text-muted-foreground">
-        Revi worked this out against your data. Running deep research measures what is
-        recoverable out of {runs}. It does not take the readings below.
-      </p>
 
       {pathChoices.length > 0 && (
         <div className="mt-2">
@@ -427,65 +449,44 @@ function QuestionReasoning({
         </div>
       )}
 
-      {/* THE REFUSAL STANDS IN FOR THE READINGS AND NOTHING ELSE. Nothing
-          in the data can answer the QUESTION; the run on offer measures
-          something else and is unaffected, so its button stays. */}
+      {/* THE REFUSAL, AND WHAT THE BUTTON DOES INSTEAD. Nothing in the data
+          can answer the QUESTION; the recoverability review measures
+          something the refusal is not about and is unaffected, so its
+          button stays — and the card says which run it is now offering,
+          because a button whose meaning changed silently is worse than no
+          button. */}
       {refusal !== "" ? (
-        <p className="mt-2 flex items-start gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-meta leading-snug">
-          <AlertTriangle aria-hidden className="mt-0.5 size-3 shrink-0 text-warning" />
-          <span>{refusal}</span>
-        </p>
+        <div className="mt-2 space-y-1">
+          <p className="flex items-start gap-1.5 rounded-md border border-warning/40 bg-warning/10 px-2.5 py-2 text-meta leading-snug">
+            <AlertTriangle aria-hidden className="mt-0.5 size-3 shrink-0 text-warning" />
+            <span>{refusal}</span>
+          </p>
+          <p className="text-micro leading-snug text-muted-foreground">
+            Running deep research measures what is recoverable out of {runs} instead.
+          </p>
+        </div>
       ) : (
-        readings.length > 0 && (
-          <div className="mt-2">
-            <h5 className="text-micro font-semibold text-foreground/85">
-              What Revi would read to answer it
-            </h5>
-            <ul className="mt-1 space-y-1.5">
-              {readings.map((reading, index) => (
-                <li
-                  key={`${reading.title}-${index}`}
-                  data-research-reading={index}
-                  className="flex gap-1.5 text-meta leading-snug text-foreground/85"
-                >
-                  <span aria-hidden className="text-muted-foreground">
-                    ·
-                  </span>
-                  <span>
-                    {reading.title}
-                    {reading.reason !== "" && (
-                      <span className="block text-micro leading-snug text-muted-foreground">
-                        {reading.reason}
-                      </span>
-                    )}
-                  </span>
-                </li>
-              ))}
-            </ul>
-
-            <div className="mt-1.5 space-y-0.5">
-              {authoredBy === "model" ? (
-                rationale !== "" && (
-                  <p className="text-micro leading-snug text-muted-foreground">{rationale}</p>
-                )
-              ) : (
-                <p className="text-micro leading-snug text-muted-foreground">
-                  Revi picked these from its own standing set. Nothing chose them for this
-                  question in particular.
-                </p>
-              )}
-              {/* MORE THAN ONE PASS, said as what it means rather than as
-                  a number in a field. The count is the server's; the
-                  sentence is about what it would do with it. */}
-              {roundsPlanned > 1 && (
-                <p className="num text-micro leading-snug text-muted-foreground">
-                  It would read, then decide what to go after next — up to{" "}
-                  {formatCount(roundsPlanned)} rounds of that.
-                </p>
-              )}
-            </div>
-          </div>
-        )
+        <div className="mt-2 space-y-0.5">
+          {authoredBy === "model" ? (
+            rationale !== "" && (
+              <p className="text-micro leading-snug text-muted-foreground">{rationale}</p>
+            )
+          ) : (
+            <p className="text-micro leading-snug text-muted-foreground">
+              Revi picked these readings from its own standing set. Nothing chose them for this
+              question in particular.
+            </p>
+          )}
+          {/* MORE THAN ONE PASS, said as what it means rather than as a
+              number in a field. The count is the server's; the sentence is
+              about what it will do with it. */}
+          {roundsPlanned > 1 && (
+            <p className="num text-micro leading-snug text-muted-foreground">
+              It reads, then decides what to go after next — up to {formatCount(roundsPlanned)}{" "}
+              rounds of that.
+            </p>
+          )}
+        </div>
       )}
     </section>
   );

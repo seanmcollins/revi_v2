@@ -512,6 +512,17 @@ FAMILIES: list[tuple[str, str, str]] = [
         "Nothing is filled in from an industry average.",
     ),
     (
+        # A research study proposed more readings than its own thresholds
+        # admitted. Information, not caution: the readings that DID run are
+        # unaffected, and every dropped proposal is named with its reason
+        # on the walk.
+        "DEEP_RESEARCH_CHASE_GATED",
+        "info",
+        "deep_research_chase_gated: 2 further readings were proposed and not taken, "
+        "because nothing in the round before had separated the population they would "
+        "have gone inside. Each one is named with its reason under how Revi got here.",
+    ),
+    (
         "REFINEMENT_REUSED_PLAN",
         "info",
         "refinement_reused_plan: this answer re-serves the previous turn's plan "

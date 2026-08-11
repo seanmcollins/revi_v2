@@ -788,9 +788,11 @@ class TestAModelChoosesThePlan:
         the same decision would be a second description of one fact.
         """
         said: list[tuple[str, str]] = []
+        rounds_on_frames: list[tuple[int, int]] = []
 
-        async def progress(phase: str, message: str) -> None:
-            said.append((phase, message))
+        async def progress(update) -> None:
+            said.append((update.phase, update.message))
+            rounds_on_frames.append((update.round_index, update.round_total))
 
         pack = PackSnapshotPort(snapshot)
         loop = GeneralizedResearchLoop(
@@ -810,10 +812,25 @@ class TestAModelChoosesThePlan:
         )
         phases = [phase for phase, _ in said]
         assert phases[:3] == ["orient", "consult", "plan"]
+        assert phases[-1] == "synthesize"
         rounds = [message for phase, message in said if phase == "round"]
         assert rounds, "an iterating run said nothing about why it iterated"
         assert rounds[0].startswith("Round 1 — ")
         assert ":" in rounds[0], "a round message that names no cause is a spinner"
+        # THE COUNTERS ARE REAL, on every frame and not only the round ones.
+        # A run back on its second pass emits `execute` frames again, and an
+        # execute frame that did not say which round it was in renders as
+        # the opening read starting over.
+        assert all(total >= 1 for _, total in rounds_on_frames)
+        executing = [
+            index
+            for (index, _), (phase, _) in zip(rounds_on_frames, said, strict=True)
+            if phase == "execute"
+        ]
+        assert max(executing) >= 1, "a second round of readings never named its round"
+        assert max(index for index, _ in rounds_on_frames) <= max(
+            total for _, total in rounds_on_frames
+        )
 
     async def test_a_run_whose_planner_fails_falls_back_and_says_so(
         self, repository, cache, catalog, snapshot, settings, watermark

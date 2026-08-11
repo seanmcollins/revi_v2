@@ -27,6 +27,7 @@ import {
   populationLabel,
   type ResearchRateCell,
   type ResearchReport,
+  type ResearchStudy,
 } from "@/lib/deepResearch";
 import {
   formatCents,
@@ -1043,6 +1044,152 @@ export function researchReportToCsv(
 
   return buildCsv(headers, rows, preamble);
 }
+
+/**
+ * A RESEARCH STUDY AS A FILE — every group, including the ones no figure
+ * could be published for.
+ *
+ * The export is the surface with no register: `docs/client-language.md`
+ * exempts it and `AGENTS.md` requires it to keep full fidelity forever.
+ * So each row carries what the screen carries plus what the screen puts
+ * behind a mark — the evidence tier, the raw breakdown value the data
+ * holds, the population behind a rate, and the read that produced it.
+ *
+ * A WITHHELD FIGURE IS EMPTY, NEVER ZERO. Writing 0 where a rate was not
+ * published turns a disclosure into a measurement the moment somebody
+ * opens the file in a spreadsheet and sums the column.
+ */
+export function researchStudyToCsv(
+  study: ResearchStudy,
+  meta: { runId?: string; exportedAt?: Date } = {},
+): string {
+  const preamble: string[] = [];
+  const say = (line: string): void => {
+    preamble.push(line);
+  };
+
+  say(`Revi — deep research study: ${study.research_question}`);
+  say(`Reads: ${study.population_label || populationLabel(study.population)}`);
+  say(`Period: ${study.window_label}`);
+  say(`Data load: ${study.data_load_label} (data through ${study.data_edge_date})`);
+  if (meta.runId) say(`Run: ${meta.runId}`);
+  if (study.determination?.statement) say(study.determination.statement);
+  say(
+    `Readings: ${study.readings?.length ?? 0} over ` +
+      `${study.walk?.rounds_taken ?? 1} of ${study.walk?.rounds_allowed ?? 1} rounds, ` +
+      `chosen by ${study.walk?.authored_by === "model" ? "the analysis planner" : "Revi's standing opening read"}.`,
+  );
+  for (const choice of study.path_choices ?? []) say(choice.statement);
+  if (study.knowledge_statement) say(study.knowledge_statement);
+  for (const statement of study.censoring?.statements ?? []) say(statement);
+  for (const round of study.walk?.rounds ?? []) {
+    for (const step of round.steps ?? []) {
+      say(`Round ${round.index} — ${step.action} ${step.subject}: ${step.reason}`);
+    }
+  }
+
+  const warnings: WarningEvent[] = (study.warnings ?? []).map((warning) => ({
+    type: "warning",
+    code: warning.code,
+    message: warning.message,
+    severity: warning.severity,
+    ...(warning.count !== undefined ? { count: warning.count } : {}),
+  }));
+  const caveats = caveatLines(warnings);
+  if (caveats.length === 0) say(NO_CAVEATS_LINE);
+  for (const line of caveats) say(line);
+  say(`Exported ${(meta.exportedAt ?? new Date()).toISOString()}`);
+
+  const headers = [
+    "reading",
+    "round",
+    "shape",
+    "measure",
+    "unit",
+    "reason",
+    "settled",
+    "group",
+    "breakdown",
+    "breakdown_value",
+    "evidence",
+    "value",
+    "displayed",
+    "is_ceiling",
+    "withheld",
+    "population",
+    "successes",
+    "interval_low",
+    "interval_high",
+    "interval_confidence",
+    "measured_on",
+    "window",
+    "read_fingerprint",
+  ];
+
+  const rows: CsvValue[][] = [];
+  for (const reading of study.readings ?? []) {
+    const shared: CsvValue[] = [
+      reading.title,
+      reading.round ?? 0,
+      reading.shape,
+      reading.measure_label,
+      reading.unit,
+      reading.reason,
+      reading.settled ?? "",
+    ];
+    const tail: CsvValue[] = [
+      reading.basis_label ?? "",
+      reading.window_label ?? "",
+      reading.read_fingerprint ?? "",
+    ];
+    if ((reading.figures ?? []).length === 0) {
+      rows.push([
+        ...shared,
+        reading.refusal || "(no figure published)",
+        "",
+        "",
+        "not_estimable",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ...tail,
+      ]);
+      continue;
+    }
+    for (const figure of reading.figures ?? []) {
+      const measured = figure.evidence === "measured";
+      const part = (figure.parts ?? [])[0];
+      rows.push([
+        ...shared,
+        figure.label,
+        part?.dimension_label ?? "",
+        part?.value ?? "",
+        figure.evidence,
+        // EMPTY, not zero: a figure the run declined to publish has no
+        // number, and a ceiling's number is not the figure.
+        measured ? (decimal(figure.value) ?? "") : "",
+        figure.display,
+        figure.bounded ? "yes" : "no",
+        figure.withheld ? "yes" : "no",
+        figure.population ?? "",
+        figure.successes ?? "",
+        decimal(figure.interval?.low) ?? "",
+        decimal(figure.interval?.high) ?? "",
+        figure.interval?.confidence ?? "",
+        ...tail,
+      ]);
+    }
+  }
+
+  return buildCsv(headers, rows, preamble);
+}
+
 
 export function exportFilename(
   kind: string,

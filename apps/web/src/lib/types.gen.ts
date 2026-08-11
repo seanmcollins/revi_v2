@@ -99,6 +99,7 @@ export interface paths {
          *
          *     - `research_started` — the run's id, the data load it is pinned to, and the population it targets
          *     - `research_plan` — the angles this run will look at, in the order it will look at them
+         *     - `research_readings` — a research study's opening readings, each with the reason it is in the run — the generalized twin of the plan frame, sent as soon as the readings are chosen
          *     - `research_progress` — which angle is running, how far along, and how long it has taken
          *     - `research_finding` — one certified result, the moment it is measured
          *     - `research_warning` — a qualification a reader needs before reading the numbers
@@ -1662,6 +1663,14 @@ export interface components {
             preview?: components["schemas"]["DeepResearchPreviewPayload"] | null;
             progress: components["schemas"]["DeepResearchProgressPayload"];
             report?: components["schemas"]["DeepResearchReport"] | null;
+            /** Report Kind */
+            report_kind?: ("recovery" | "generalized") | null;
+            /**
+             * Research Question
+             * @default
+             */
+            research_question: string;
+            research_report?: components["schemas"]["GeneralizedResearchReport"] | null;
             /** Session Id */
             session_id: string;
             /**
@@ -1717,7 +1726,7 @@ export interface components {
              * Event
              * @enum {string}
              */
-            event: "research_started" | "research_plan" | "research_progress" | "research_finding" | "research_warning" | "narrative_delta" | "error" | "research_complete";
+            event: "research_started" | "research_plan" | "research_readings" | "research_progress" | "research_finding" | "research_warning" | "narrative_delta" | "error" | "research_complete";
         };
         /**
          * DeepResearchSummary
@@ -1734,6 +1743,8 @@ export interface components {
             /** Id */
             id: string;
             population: components["schemas"]["DeepResearchSelector"];
+            /** Report Kind */
+            report_kind?: ("recovery" | "generalized") | null;
             /** Research Question */
             research_question: string;
             /** Session Id */
@@ -1758,6 +1769,35 @@ export interface components {
             question: string;
             /** Terms */
             terms?: components["schemas"]["TermPayload"][];
+        };
+        /**
+         * DeterminationPayload
+         * @description The answer to the research question — the artifact's first claim.
+         *
+         *     Composed under the same discipline every other answer's prose is: the
+         *     composer is shown the question and told its first sentence must answer
+         *     it, it may cite only certified readings, and every figure it writes is
+         *     checked against a value some estimator actually produced. What is
+         *     different is what else it is shown — the walk's own reasons, and the
+         *     background notes as QUOTABLE CONTEXT. A note may inform how the answer
+         *     is framed; it can never be a number, and the grounding validator is
+         *     what makes that true rather than requested.
+         */
+        DeterminationPayload: {
+            /**
+             * Composed
+             * @default false
+             */
+            composed: boolean;
+            /** Question */
+            question: string;
+            /** Rests On */
+            rests_on?: string[];
+            /**
+             * Statement
+             * @default
+             */
+            statement: string;
         };
         /**
          * DrillDimensionRepoint
@@ -2080,6 +2120,81 @@ export interface components {
              */
             rounds_planned: number;
             /** Window Label */
+            window_label: string;
+        };
+        /**
+         * GeneralizedResearchReport
+         * @description A finished research study — the artifact a link points at.
+         *
+         *     Everything a reader needs to check the determination is here: every
+         *     reading with the reason it was taken and what it settled, every figure
+         *     with its marks and the read behind it, the walk with its chases, what
+         *     was established about the data before anything was chosen, and which
+         *     background notes were consulted.
+         */
+        GeneralizedResearchReport: {
+            censoring?: components["schemas"]["ResearchCensoringPayload"] | null;
+            /** Charts */
+            charts?: components["schemas"]["ChartSpec"][];
+            /** Completed At */
+            completed_at?: string | null;
+            /**
+             * Created At
+             * Format: date-time
+             */
+            created_at: string;
+            /**
+             * Data Edge Date
+             * Format: date
+             */
+            data_edge_date: string;
+            /**
+             * Data Load Label
+             * @default
+             */
+            data_load_label: string;
+            determination: components["schemas"]["DeterminationPayload"];
+            /**
+             * Duration Ms
+             * @default 0
+             */
+            duration_ms: number;
+            /** Findings */
+            findings?: components["schemas"]["FindingPayload"][];
+            /** Id */
+            id: string;
+            /**
+             * Kind
+             * @default generalized_research
+             * @constant
+             */
+            kind: "generalized_research";
+            /** Knowledge Consulted */
+            knowledge_consulted?: components["schemas"]["ConsultedNotePayload"][];
+            /**
+             * Knowledge Statement
+             * @default
+             */
+            knowledge_statement: string;
+            /** Path Choices */
+            path_choices?: components["schemas"]["ResearchPathChoicePayload"][];
+            population: components["schemas"]["DeepResearchSelector"];
+            /**
+             * Population Label
+             * @default
+             */
+            population_label: string;
+            /** Readings */
+            readings?: components["schemas"]["ResearchReadingPayload"][];
+            /** Research Question */
+            research_question: string;
+            walk: components["schemas"]["ResearchWalkPayload"];
+            /** Warnings */
+            warnings?: components["schemas"]["WarningPayload"][];
+            /**
+             * Window Label
+             * @default
+             */
             window_label: string;
         };
         /** HTTPValidationError */
@@ -3588,6 +3703,103 @@ export interface components {
             within?: ("payer" | "plan" | "recovery_class" | "age_band" | "dollar_band" | "delay_band" | "filing_position" | "filing_rule")[];
         };
         /**
+         * ResearchCensoringPayload
+         * @description What the edge of the data cost a study's outcome-like readings.
+         *
+         *     Published only where outcome-like data was involved — a rate whose
+         *     denominator counts the population its numerator is drawn from. Over
+         *     dollars or days there is no population to be censored out of, and a
+         *     censoring block beside those figures would be a disclosure about
+         *     nothing.
+         *
+         *     Nothing here is modelled. Every count is read off the certified
+         *     figures, and the statements are composed beside the counts they quote.
+         */
+        ResearchCensoringPayload: {
+            /**
+             * Data Edge Date
+             * Format: date
+             */
+            data_edge_date: string;
+            /** Figures Bounded */
+            figures_bounded: number;
+            /** Figures Measured */
+            figures_measured: number;
+            /** Figures Withheld */
+            figures_withheld: number;
+            /** Population Measured */
+            population_measured: number;
+            /** Readings Over Outcomes */
+            readings_over_outcomes: number;
+            /** Statements */
+            statements?: string[];
+            /** Window Label */
+            window_label: string;
+        };
+        /**
+         * ResearchFigurePartPayload
+         * @description One ``breakdown = value`` pair behind a figure, in both spellings.
+         *
+         *     The raw value is what the data holds and what a later round narrowed
+         *     on; the label is what the reader saw. A denial reason cell reads
+         *     ``16 — Missing or invalid information`` over a column holding ``16``,
+         *     and a client that had only one of the two could either render a bare
+         *     code or lose the ability to say which column it came from.
+         */
+        ResearchFigurePartPayload: {
+            /** Dimension */
+            dimension: string;
+            /** Dimension Label */
+            dimension_label: string;
+            /** Value */
+            value: string;
+            /** Value Label */
+            value_label: string;
+        };
+        /**
+         * ResearchFigurePayload
+         * @description One certified figure of one reading, with its marks already on it.
+         *
+         *     The same two-state rule the recovery report's rate cells obey, applied
+         *     to any governed measure: a figure is either a measurement — ``value``
+         *     present, ``evidence`` ``measured`` — or it is not, and there is no
+         *     third state. A ceiling carries ``bounded`` and its ``value`` is the
+         *     largest it could have been rather than what it is; a withheld cell
+         *     carries no value at all. ``display`` is the figure already formatted in
+         *     its measure's own unit, so no client re-derives dollars from cents or
+         *     a percentage from a ratio.
+         */
+        ResearchFigurePayload: {
+            /**
+             * Bounded
+             * @default false
+             */
+            bounded: boolean;
+            /** Display */
+            display: string;
+            /**
+             * Evidence
+             * @enum {string}
+             */
+            evidence: "measured" | "not_estimable";
+            interval?: components["schemas"]["IntervalPayload"] | null;
+            /** Label */
+            label: string;
+            /** Parts */
+            parts?: components["schemas"]["ResearchFigurePartPayload"][];
+            /** Population */
+            population?: number | null;
+            /** Successes */
+            successes?: number | null;
+            /** Value */
+            value?: string | null;
+            /**
+             * Withheld
+             * @default false
+             */
+            withheld: boolean;
+        };
+        /**
          * ResearchPathChoicePayload
          * @description One thing a run established about the data before it chose anything.
          *
@@ -3630,6 +3842,188 @@ export interface components {
             rationale: string;
             /** Research Question */
             research_question: string;
+        };
+        /**
+         * ResearchReadingPayload
+         * @description One reading a study took: what it read, why, and what it settled.
+         *
+         *     The ``reason`` is the sentence that put this reading in the run — the
+         *     planner's own, or the deterministic reader's. The ``settled`` sentence
+         *     is what came back, composed from published figures only. A reading
+         *     whose reason and verdict are both absent is a table with no argument
+         *     around it, which is what a research report must never be.
+         */
+        ResearchReadingPayload: {
+            /**
+             * Basis Label
+             * @default
+             */
+            basis_label: string;
+            /**
+             * Cache Hit
+             * @default false
+             */
+            cache_hit: boolean;
+            /**
+             * Chart Id
+             * @default
+             */
+            chart_id: string;
+            /**
+             * Chases
+             * @default
+             */
+            chases: string;
+            contrast?: components["schemas"]["ContrastPayload"] | null;
+            /**
+             * Duration Ms
+             * @default 0
+             */
+            duration_ms: number;
+            /** Figures */
+            figures?: components["schemas"]["ResearchFigurePayload"][];
+            /**
+             * Figures Published
+             * @default 0
+             */
+            figures_published: number;
+            /**
+             * Figures Withheld
+             * @default 0
+             */
+            figures_withheld: number;
+            /** Id */
+            id: string;
+            /** Measure Label */
+            measure_label: string;
+            /** Metric Id */
+            metric_id: string;
+            /** Notes */
+            notes?: string[];
+            /**
+             * Ranked
+             * @default false
+             */
+            ranked: boolean;
+            /**
+             * Ranking Refused
+             * @default
+             */
+            ranking_refused: string;
+            /**
+             * Read Fingerprint
+             * @default
+             */
+            read_fingerprint: string;
+            /** Reason */
+            reason: string;
+            /**
+             * Refusal
+             * @default
+             */
+            refusal: string;
+            /**
+             * Round
+             * @default 0
+             */
+            round: number;
+            /**
+             * Rows Read
+             * @default 0
+             */
+            rows_read: number;
+            /**
+             * Settled
+             * @default
+             */
+            settled: string;
+            /**
+             * Shape
+             * @enum {string}
+             */
+            shape: "measure_profile" | "stratified_rates" | "contrast" | "trend" | "composition";
+            /** Title */
+            title: string;
+            /** Unit */
+            unit: string;
+            /**
+             * Window Label
+             * @default
+             */
+            window_label: string;
+        };
+        /**
+         * ResearchRoundPayload
+         * @description One read-and-decide round: what it did, and why it exists.
+         */
+        ResearchRoundPayload: {
+            /** Index */
+            index: number;
+            /** Readings */
+            readings?: string[];
+            /**
+             * Reason
+             * @default
+             */
+            reason: string;
+            /** Steps */
+            steps?: components["schemas"]["ResearchWalkStepPayload"][];
+        };
+        /**
+         * ResearchWalkPayload
+         * @description How the run got here — the "how I got there" a consultant shows.
+         *
+         *     The recorded walk IS the plan (``docs/agentic-resolution.md``): what a
+         *     permalink restores, what replay re-executes, what the harness audits.
+         *     Publishing it is what lets a reader see that a chase was a decision
+         *     with a cause rather than an extra table that appeared.
+         */
+        ResearchWalkPayload: {
+            /**
+             * Authored By
+             * @default revi
+             * @enum {string}
+             */
+            authored_by: "model" | "revi";
+            /**
+             * Rationale
+             * @default
+             */
+            rationale: string;
+            /** Rounds */
+            rounds?: components["schemas"]["ResearchRoundPayload"][];
+            /**
+             * Rounds Allowed
+             * @default 1
+             */
+            rounds_allowed: number;
+            /**
+             * Rounds Taken
+             * @default 1
+             */
+            rounds_taken: number;
+        };
+        /**
+         * ResearchWalkStepPayload
+         * @description One decision the run made, with its stated reason.
+         */
+        ResearchWalkStepPayload: {
+            /**
+             * Action
+             * @enum {string}
+             */
+            action: "orient" | "consult" | "plan" | "execute" | "chase" | "broaden" | "drop" | "refuse" | "synthesize";
+            /**
+             * Detail
+             * @default
+             */
+            detail: string;
+            /** Reason */
+            reason: string;
+            /** Round */
+            round: number;
+            /** Subject */
+            subject: string;
         };
         /** ResetContextModel */
         ResetContextModel: {
